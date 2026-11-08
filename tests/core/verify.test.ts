@@ -651,6 +651,28 @@ describe("Verify a document", () => {
     expect((await core.listMinds()).map((mind) => mind.title)).toEqual([]);
   });
 
+  // protects=a Markdown file checked as it is keeps its shape, its heading a heading rather than "#" in a paragraph (#2771); fails_when=the heading's marks show as text; no_claim=other Markdown marks, which the Answers' own reader already draws.
+  test("a Markdown file's heading is a heading, not a # in a paragraph", async () => {
+    const { core, sources } = await setUp();
+    const memo = await writeSourceFile(
+      sources,
+      "Estuary memo.md",
+      ["# Estuary memo", "", "First sales in spring.", "", "- one", "- two"].join("\n"),
+    );
+
+    const result = await core.verifyDocument({ path: memo });
+    if (!result.ok) throw new Error(`The memo wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    await client.settled();
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(blocks.map((block) => block.type)).toEqual(["heading", "paragraph", "bulletList"]);
+    expect(blocks[0]?.attrs?.level).toBe(1);
+    expect(blocks[0]?.content?.map((each) => each.text).join("")).toBe("Estuary memo");
+    expect(blocks[1]?.content?.map((each) => each.text).join("")).toBe("First sales in spring.");
+    const pages = verificationOf(client.doc)?.pages ?? {};
+    expect(pages[String(blocks[0]?.attrs?.id)]).toBe(1);
+  });
+
   test("one run at a time: another asked for while one runs says which Mind it is in", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {

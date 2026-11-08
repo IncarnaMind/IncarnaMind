@@ -33,3 +33,21 @@ A Folder's **Keep this Folder's work inside it** switch adds an information barr
 - A null Search scope goes through the same resolution as an explicit one: outside work never turns it into every Document. A scope with no Note open may name one walled Folder, never two; each Question records its Folder so a later wall applies to the turn that was already asked, while an unrecorded older Question uses the previous derivation.
 - A Document or Note can still be moved out. Its move notice says what changes and has Undo. Turning the switch off restores the ordinary Search scope.
 - A Citation made before the wall stays readable and opens as before. An outside check does not read its Document again: its last result stands and says **Kept inside {Folder}**.
+
+## Amendment: walled Folders stay Organize's targets (2026-11-04, #2308)
+
+Organize offers every Folder as a place for a Document, a walled one included: its name and description go to the Organize service, with the others, and one choice comes back. A work wall keeps one Folder's Documents out of other Notes' answers. Organize writes no Note's answer: it sends the Folder list only to the service the User allowed for Organize, and filing a new Document into its matter's walled Folder is what the User wants. The Library's Organize already did so, and the wall above doesn't list Organize among the paths it closes.
+
+- **A Document inside a wall is never sent from it by itself.** Neither Organize nor automatic tagging sends anything of a Document filed in a walled Folder to a cloud service by itself; the User's own Organize or re-tag of it, "Organize this Folder" on that Folder included, still goes.
+- **A Document Organize files into a wall comes back with the one Undo**, as any Organize filing does.
+
+## Amendment: Organize proposes, and a waiting Document is in no new Folder (2026-11-07, #1569, #2339)
+
+Nothing the AI sorts or tags is kept until the User confirms it. Every run, whoever started it (the Library's Organize, a Folder's, Tag with AI, the assistant, or new Documents sorted in the background), adds what it proposes to Suggestions, the Library's one set of proposals, kept across restarts. Before the User confirms, no Document moves, no Folder is made and no Tag is added.
+
+- **A waiting Document isn't in the Folder proposed for it until the User confirms it.** It stays where it was for listings, for that Folder's Search scope and for its wall, so a wall never includes a Document only proposed for it, and a Note in that Folder doesn't search it yet. This replaces the line of the 2026-10-29 amendment on suggested filings waiting outside the Search scope: nothing waits filed as a suggestion any more.
+- **Confirming is the User's own filing.** Confirm makes the new Folders, files the ticked Documents as the User's choice and adds their Tags, in one step with one Undo; the Undo leaves a made Folder that something else was put in since. A confirmed Folder or Tag is the User's, with no mark of the AI, so a walled Folder's Notes use a confirmed Document as any the User filed. Confirm's Undo takes back a Document it filed into a wall, as the 2026-11-04 amendment's Undo did.
+- **The User's choices stand.** A background run never proposes moving a Document the User filed, or changing a Tag the User added or took off. Only a run the User starts on a Folder may propose moving that Folder's Documents.
+- **What the User turns down isn't proposed again for 30 days:** a row or a Folder unticked, or a proposed Tag taken off, for that Document and Folder or that Document and Tag.
+- **What came before stays.** Folders Organize made stay the User's Folders, and Tags it applied stay, except uncertain ones, which move into Suggestions. Documents that waited as suggested in a Folder go back to Not in a Folder and wait in Suggestions.
+- **A Document left out says why** in the app's own fixed words: it fits none of the Folders, it has no text to read, a service couldn't be reached, or a walled Folder's own words. The model writes none of them.

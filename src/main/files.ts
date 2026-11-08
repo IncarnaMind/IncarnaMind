@@ -9,8 +9,8 @@
  * file there before it hands the file's path to the shell adapter; only
  * this side touches dialogs.
  */
-import { mkdir, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -18,6 +18,7 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
   type OpenDialogOptions,
+  type SaveDialogOptions,
   shell,
 } from "electron";
 import type { Core } from "../core";
@@ -33,10 +34,11 @@ import {
   setExamplesRemoved,
   setExportMenu,
   setMenuSidebarHidden,
+  setPictureViewerOpen,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
 import { decodePictureToPng } from "./pictureDecode";
-import { showOpenDialog } from "./systemDialogs";
+import { showOpenDialog, showSaveDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
 /** What "Import references" offers; the core reads the format from what is in the file. */
@@ -136,6 +138,78 @@ export function serveFileActions(
     if (typeof mindId !== "string") throw new Error("A Mind id must be a string.");
     return saveMindCopy(core, BrowserWindow.fromWebContents(event.sender), mindId);
   });
+
+  /**
+   * Where the User saves a file IncarnaMind makes: the save dialog, opened in the Output location
+   * on `name` as files can be named, `fallback` for one with nothing left. Null: they chose nowhere.
+   */
+  async function askWhereToSave(
+    event: Electron.IpcMainInvokeEvent,
+    name: string,
+    file: { extension: string; kind: string; title: MessageKey; fallback: MessageKey },
+  ): Promise<string | null> {
+    const [{ language }, { location, suggested }] = await Promise.all([
+      core.getSettings(),
+      core.getOutputSettings(),
+    ]);
+    const clean =
+      basename(name)
+        .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")
+        .trim()
+        .slice(0, 120) || translate(language, file.fallback);
+    const ending = `.${file.extension}`;
+    const fileName = clean.toLowerCase().endsWith(ending) ? clean : `${clean}${ending}`;
+    const options: SaveDialogOptions = {
+      title: translate(language, file.title),
+      defaultPath: join(location ?? suggested, fileName),
+      filters: [{ name: file.kind, extensions: [file.extension] }],
+    };
+    const { canceled, filePath } = await showSaveDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      options,
+    );
+    return canceled || !filePath ? null : filePath;
+  }
+
+  // A picture at its own pixels, as a PNG named after where it is from (#2377).
+  handle(
+    FILES_CHANNELS.savePicture,
+    async (event, name: unknown, bytes: unknown): Promise<boolean> => {
+      refuseUnknown(event);
+      if (typeof name !== "string" || !(bytes instanceof Uint8Array)) {
+        throw new Error("A picture needs its name and its bytes.");
+      }
+      const path = await askWhereToSave(event, name, {
+        extension: "png",
+        kind: "PNG",
+        title: "pictureViewer.saveTitle",
+        fallback: "pictureViewer.fileName.fallback",
+      });
+      if (path === null) return false;
+      await writeFile(path, bytes);
+      return true;
+    },
+  );
+
+  // Save recording… (#687): the core writes the Meeting's audio where the User chose.
+  handle(
+    FILES_CHANNELS.saveMeetingRecording,
+    async (event, meetingId: unknown, name: unknown): Promise<boolean> => {
+      refuseUnknown(event);
+      if (typeof meetingId !== "string" || typeof name !== "string") {
+        throw new Error("A recording needs its Meeting and a name.");
+      }
+      const path = await askWhereToSave(event, name, {
+        extension: "wav",
+        kind: "WAV",
+        title: "meetings.recording.saveTitle",
+        fallback: "meetings.recording.saveTitle",
+      });
+      if (path === null) return false;
+      await core.writeMeetingRecording(meetingId, path);
+      return true;
+    },
+  );
 
   handle(FILES_CHANNELS.openDataFolder, async (event) => {
     refuseUnknown(event);
@@ -359,6 +433,10 @@ export function serveFileActions(
 
   ipcMain.on(FILES_CHANNELS.sidebarHidden, (event, hidden: unknown) => {
     if (trusted(event) && typeof hidden === "boolean") setMenuSidebarHidden(hidden);
+  });
+
+  ipcMain.on(FILES_CHANNELS.pictureViewer, (event, open: unknown) => {
+    if (trusted(event) && typeof open === "boolean") setPictureViewerOpen(open);
   });
 
   ipcMain.on(FILES_CHANNELS.editMenu, (event, state: unknown) => {

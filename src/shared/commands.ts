@@ -32,6 +32,8 @@ export const MENU_COMMANDS = {
   // In a field the menu takes them back itself, as the field's own undo (src/main/menu.ts).
   "edit.undo": { label: "menu.undo", keys: "CmdOrCtrl+Z" },
   "edit.redo": { label: "menu.redo", keys: "CmdOrCtrl+Shift+Z" },
+  // The picture viewer's Copy, for the Edit menu while it is open (#2377): an image, not text.
+  "picture.copy": { label: "menu.copy", keys: "CmdOrCtrl+C" },
   // A list's own key selects its rows; anywhere else the system's Select All (src/renderer/src/commands/selection.ts).
   "edit.selectAll": { label: "menu.selectAll", keys: "CmdOrCtrl+A" },
   "mind.export": { label: "menu.export", keys: "CmdOrCtrl+Shift+E" },
@@ -108,9 +110,6 @@ export const sameWords = (text: string): string => text.replace(/[“”]/g, '"'
 
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;
-
-/** To review's Accept all: it names no ids, filing every waiting suggestion (#2243). */
-export const ACCEPT_SUGGESTIONS = "library.acceptSuggestions" satisfies CommandId;
 
 /**
  * What a command does to a recording (#1421): "starts" can turn on the microphone or the

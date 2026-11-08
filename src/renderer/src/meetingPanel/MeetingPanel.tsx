@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Meeting, MeetingHelp, MeetingHelpKind, MeetingHelpTemplate } from "../../../core/api";
+import type { MessageKey } from "../../../shared/i18n";
 import { GENERAL_HELP, MEETING_TEMPLATES, templateLabel } from "../../../shared/meetingHelp";
 import {
   type HeldKeys,
@@ -28,9 +29,10 @@ import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
 import { core } from "../core";
 import { errorMessage } from "../errors";
+import { helpToKeep } from "../helpReply";
 import { translateNow, useT } from "../i18n";
 import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
-import { isLive, useMeetings, useMeetingTime } from "../meetings";
+import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 
@@ -143,30 +145,38 @@ export function MeetingPanel() {
   );
 }
 
-function RecordingState({ meeting, brand = false }: { meeting: Meeting; brand?: boolean }) {
+function stateKey(meeting: Meeting): MessageKey {
+  if (isWaitingForPermission(meeting)) return "meetings.bar.waiting";
+  return meeting.status === "recording" ? "meetings.bar.recording" : "meetings.bar.paused";
+}
+
+function RecordingDot({ meeting }: { meeting: Meeting }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-status={isWaitingForPermission(meeting) ? "waiting" : meeting.status}
+      className="recording-dot"
+    />
+  );
+}
+
+function RecordingState({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const time = clockTime(useMeetingTime(meeting));
-  const recording = meeting.status === "recording";
   return (
     <span className="panel-state">
-      <span aria-hidden="true" data-status={meeting.status} className="recording-dot" />
-      {brand && <b>IncarnaMind</b>}
-      {brand ? (
-        <span>
-          {t(recording ? "meetings.bar.recording" : "meetings.bar.paused")} {time}
+      <RecordingDot meeting={meeting} />
+      <b>{t(stateKey(meeting))}</b>
+      {!isWaitingForPermission(meeting) && (
+        <span role="timer" data-testid="panel-time" className="panel-time">
+          {time}
         </span>
-      ) : (
-        <>
-          <b>{t(recording ? "meetings.bar.recording" : "meetings.bar.paused")}</b>
-          <span role="timer" data-testid="panel-time" className="panel-time">
-            {time}
-          </span>
-        </>
       )}
     </span>
   );
 }
 
+/** The pill shows the dot and the time; the rest is in its tooltip and accessible name (#2713). */
 function Pill({
   meeting,
   keys,
@@ -177,17 +187,27 @@ function Pill({
   onExpand(): void;
 }) {
   const t = useT();
+  const time = clockTime(useMeetingTime(meeting));
+  const waiting = isWaitingForPermission(meeting);
+  const state = t(stateKey(meeting));
+  const label = [
+    t("meetings.callHelp"),
+    waiting ? state : `${state} ${time}`,
+    ...(keys ? [t("meetings.panel.keysForHelp", { keys })] : []),
+  ].join(" · ");
   return (
-    <section aria-label={t("meetings.help.label")} data-testid="panel-pill" className="panel-pill">
-      <span className="panel-drag panel-pill-grip">
-        <RecordingState meeting={meeting} brand />
+    <section aria-label={label} title={label} data-testid="panel-pill" className="panel-pill">
+      <span className="panel-drag panel-pill-grip panel-state">
+        <RecordingDot meeting={meeting} />
+        {meeting.status === "recording" && !waiting ? (
+          <span role="timer" data-testid="panel-time" className="panel-time">
+            {time}
+          </span>
+        ) : (
+          <span>{state}</span>
+        )}
       </span>
       <LevelBars meeting={meeting} onStop={() => void useMeetings.getState().stop(meeting.id)} />
-      {keys && (
-        <kbd data-testid="panel-keys" className="panel-keys">
-          {keys}
-        </kbd>
-      )}
       <button
         type="button"
         data-testid="panel-expand"
@@ -423,6 +443,7 @@ function Suggestion({
       </div>
     );
   }
+  const keeps = helpToKeep(answer, help.kind);
   const addToNotes = async () => {
     setProblem(null);
     try {
@@ -445,7 +466,7 @@ function Suggestion({
         answer={answer}
         onRetry={() => void askHelp(meeting, help.kind)}
       />
-      {answer.status === "done" && (
+      {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">
           <button
             type="button"
@@ -456,24 +477,29 @@ function Suggestion({
           >
             {t(pinned ? "meetings.help.unpin" : "meetings.help.pin")}
           </button>
-          {added ? (
-            <p role="status" data-testid="help-added" className="panel-line">
-              {t("meetings.help.added")}
-              <span aria-hidden="true"> · </span>
-              <button type="button" onClick={() => undoAdd(added.blockIds)} className="panel-link">
-                {t("move.undo")}
+          {keeps &&
+            (added ? (
+              <p role="status" data-testid="help-added" className="panel-line">
+                {t("meetings.help.added")}
+                <span aria-hidden="true"> · </span>
+                <button
+                  type="button"
+                  onClick={() => undoAdd(added.blockIds)}
+                  className="panel-link"
+                >
+                  {t("move.undo")}
+                </button>
+              </p>
+            ) : (
+              <button
+                type="button"
+                data-testid="help-add"
+                onClick={() => void addToNotes()}
+                className="panel-ghost"
+              >
+                {t("meetings.help.addToNotes")}
               </button>
-            </p>
-          ) : (
-            <button
-              type="button"
-              data-testid="help-add"
-              onClick={() => void addToNotes()}
-              className="panel-ghost"
-            >
-              {t("meetings.help.addToNotes")}
-            </button>
-          )}
+            ))}
         </div>
       )}
       {problem && (

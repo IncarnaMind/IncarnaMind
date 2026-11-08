@@ -6,14 +6,18 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
+import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
-import { ACCEPT_SUGGESTIONS } from "../shared/commands";
+import { exportMarksOf, isExportMarks, writeExportMarks } from "../shared/exportMarks";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
+import { graphemeBoundary } from "../shared/graphemes";
+import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { parseCitedArea } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
+import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
   HEARD_FROM,
   helpKindsFor,
@@ -52,7 +56,9 @@ import {
   holdsText,
   mindSearchScope,
   NO_SCOPE,
+  oneFolderOf,
   type ScopeKind,
+  scopeName,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
@@ -64,10 +70,12 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
+import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
+import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -91,8 +99,10 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -100,12 +110,14 @@ import {
   type CheckRecordFormat,
   type CitationAttributes,
   type CitedArea,
+  type CloudReadPermit,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
+  type DecisionHostStatus,
   type DeletedAgainRef,
   type DeletedItem,
   type Document,
@@ -117,6 +129,7 @@ import {
   type ExportMindOptions,
   type ExternalService,
   type FigureSchedule,
+  type FirstOpenQuestion,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -128,11 +141,12 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OpenAtLogin,
+  type OrganizeStart,
   type OwnFileKind,
   type PassageSearchPlace,
   type ProviderError,
   RECENTLY_DELETED_DAYS,
-  type ReadyQuestion,
   type RecheckCitationInput,
   type RecheckResult,
   type SavedExport,
@@ -151,6 +165,7 @@ import {
 } from "./api";
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
+import { createCalendars } from "./calendars";
 import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
@@ -163,10 +178,12 @@ import { createConnectorRegistry, REGISTRY, REGISTRY_SENDS } from "./connectors/
 import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
+import { inCurrency } from "./cost/price";
 import {
   createDocuments,
   type DocumentFile,
   type DocumentImage,
+  MAX_NAME_LENGTH,
   parseListOptions,
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
@@ -175,6 +192,7 @@ import { statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
+import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -213,16 +231,16 @@ import {
 import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
-import { createExports, type ExportsDependencies } from "./exports";
+import { createExports, ExportChangedError, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
-import { renderMarkdown } from "./exports/markdown";
+import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -236,15 +254,25 @@ import {
   pacedBy,
   withPageReader,
 } from "./library/classifier";
+import { createLibraryOrganizer } from "./library/organizeLibrary";
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { TaggingClassifier } from "./library/types";
+import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
+import { createMeetingOffers, offerAllowed } from "./meetings/offers";
+import {
+  joinedMeetings,
+  joinedMeetingsSaid,
+  meetingsLeftApart,
+  meetingsLeftApartSaid,
+  transcriptsApart,
+  undoMeetingJoin,
+} from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
@@ -262,16 +290,28 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
-import { newestReads } from "./newest";
+import { createModelSpend } from "./modelSpend";
+import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
+import {
+  createOrganizeReview,
+  type OrganizeReviewRun,
+  organizeReviewCount,
+} from "./organizeReview";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
+import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import {
+  DECISION_HOST_ENTRIES,
+  DECISION_HOSTS,
+  type DecisionHost,
+} from "./providers/catalog/decisions";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -294,6 +334,7 @@ import {
 } from "./providers/ollama";
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
+import { outputTokens } from "./providers/outputLimits";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -321,7 +362,13 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier, type TagClassifier } from "./tags/classify";
+import {
+  chatClassifier,
+  excerptFromPassages,
+  TAGGING_INSTRUCTIONS,
+  type TagClassifier,
+} from "./tags/classify";
+import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
 import { createRateLimitPause } from "./tags/rateLimit";
@@ -406,6 +453,12 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   showSavedFile(path: string): Promise<void>;
   /**
+   * Save recording… (#687): writes a Meeting's audio as one WAV file at `path`, which the host's
+   * save dialog gave. Not while it records; NotFoundError when it has no audio, or its audio is
+   * deleted while it is written, which then leaves nothing at `path`.
+   */
+  writeMeetingRecording(meetingId: string, path: string): Promise<void>;
+  /**
    * Opens a file IncarnaMind saved since it started in the default app for its
    * type, through the `shell` adapter. Throws NotFoundError for any other path.
    */
@@ -485,6 +538,13 @@ const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 
 /** The longest password a PDF is unlocked with: far beyond any real one, short enough to refuse junk. */
 const MAX_PDF_PASSWORD = 1_024;
+
+/**
+ * How much of Recently deleted's 30 days an item must have left for Undo of a Restore to keep its
+ * deletion time: with less, it is deleted at the Undo's own moment, so the Redo that follows isn't
+ * refused once those last seconds pass (#2274).
+ */
+const DELETE_AGAIN_MARGIN_MS = 24 * 60 * 60 * 1000;
 
 const parseDocumentId = (input: unknown): string => {
   if (typeof input !== "string" || input === "") {
@@ -617,6 +677,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -655,6 +716,20 @@ export function createCore(adapters: CoreAdapters): Core {
     return found.name || translate(settings.get().language, "mind.untitled");
   };
   const mindsChanged = () => events.emit("minds.changed", minds.list());
+  function renameJoinedTranscripts(mind: Mind): void {
+    const transcripts = documents.rows().filter((each) => each.meetingMindId === mind.id);
+    if (transcripts.length === 0) return;
+    const displayed = mindName(mind).trim();
+    const name = displayed
+      ? translate(settings.get().language, "meetings.transcript.name", { meeting: displayed })
+      : translate(settings.get().language, "meetings.transcript.nameAlone");
+    events.emit(
+      "documents.renamed",
+      transcripts.map((document) =>
+        documents.rename(document.id, name.slice(0, graphemeBoundary(name, MAX_NAME_LENGTH))),
+      ),
+    );
+  }
   // The assistant's conversations (ADR-0017); Answers a quit left being written are settled now.
   const conversations = createConversations(db, now);
   const conversationsChanged = () => events.emit("conversations.changed", null);
@@ -681,6 +756,10 @@ export function createCore(adapters: CoreAdapters): Core {
       comparisons.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
+      if (renamed) {
+        const mind = minds.get(mindId);
+        if (!mind.title) renameJoinedTranscripts(mind);
+      }
       if (minds.markEdited(mindId) || renamed) mindsChanged();
     },
     {
@@ -692,6 +771,7 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
   });
+  const changes = createChanges({ notes: content, now: () => adapters.now?.() ?? new Date() });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
   const eachCitingMind = (
     visit: (blocks: Y.XmlFragment, mindId: string) => void,
@@ -874,6 +954,13 @@ export function createCore(adapters: CoreAdapters): Core {
     sender: adapters.usageData,
     localOnly: () => embedding.localOnly(),
   });
+  const modelSpend = createModelSpend({
+    db,
+    settings,
+    now: () => adapters.now?.() ?? new Date(),
+    sending: () => usageData.status().enabled,
+    record: (event) => usageData.record(event),
+  });
   const privacy = createPrivacy({ settings, crashReporter: adapters.crashReporter, usageData });
   const privacyChanged = () => events.emit("privacy.changed", privacy.status());
   const modelRuntimeFolder = createModelRuntimeFolderNotice(
@@ -951,6 +1038,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const background = createBackgroundQueue({ reportError: (error) => console.error(error) });
   let documents: ReturnType<typeof createDocuments>;
   let citedPages: CitedPages;
+  let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
   try {
@@ -986,6 +1074,10 @@ export function createCore(adapters: CoreAdapters): Core {
         );
       },
       emitKept: (kept) => events.emit("keptCitationTexts.changed", kept),
+      fileAnnotations: (documentId, contentHash, found) => {
+        annotations.replaceFileAnnotations(documentId, contentHash, found);
+        events.emit("annotations.changed", { documentId });
+      },
       foldersChanged,
       linkedFoldersChanged: (list) => {
         events.emit("linkedFolders.changed", list);
@@ -997,6 +1089,8 @@ export function createCore(adapters: CoreAdapters): Core {
         prepareRerank();
         documentReady(documentId);
       },
+      // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
+      onText: (documentId) => documentReady(documentId),
       // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
       // conversations. Features other than Citations retain what they need too.
       citedUnits: (documentIds) => {
@@ -1086,8 +1180,22 @@ export function createCore(adapters: CoreAdapters): Core {
     db.close();
     throw error;
   }
-  // A saved page's pictures may come from any host: only the public internet is reached (#756).
-  const pictureFetcher = createPublicFetch(adapters.web);
+  annotations = createAnnotations(db, now, {
+    currentVersion: (documentId) => documents.currentVersion(documentId),
+    cite: (documentId, anchor) =>
+      citeSelection(documents, {
+        documentId,
+        parts: anchor.parts,
+        ...(anchor.area && { area: anchor.area }),
+        unit: anchor.unit ?? null,
+        ...(anchor.around && { around: anchor.around }),
+      }),
+  });
+  const annotationsChanged = (documentId: string) =>
+    events.emit("annotations.changed", { documentId });
+  // A saved page and its pictures are fetched only from the public internet: never this
+  // computer or a local network, every redirect checked as an address is (#2553).
+  const publicFetcher = createPublicFetch(adapters.web);
   const webPages = createWebPages({
     db,
     dataDir,
@@ -1095,7 +1203,8 @@ export function createCore(adapters: CoreAdapters): Core {
     documents,
     languages: () =>
       settings.get().language === "zh-CN" ? ["zh-CN", "zh;q=0.9", "en;q=0.8"] : ["en", "*;q=0.5"],
-    pictureFetch: pictureFetcher.fetch,
+    fetch: publicFetcher.fetch,
+    pictureFetch: publicFetcher.fetch,
     ...(adapters.pageLook ? { look: adapters.pageLook } : {}),
     keepLookByDefault: () => settings.get().user.keepWebPageLook,
     localOnly: () => embedding.localOnly(),
@@ -1209,10 +1318,15 @@ export function createCore(adapters: CoreAdapters): Core {
   if (documents.searchableCount() > 0) rerank.prepare();
   /** Set once outside agents exist: Local mode pauses them. */
   let agentsLocalModeChanged = () => {};
-  /** Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141). */
-  let transcriptionGateChanged = () => {};
+  /**
+   * Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141).
+   * Resolves once the transcription process has dropped it (#2702).
+   */
+  let transcriptionGateChanged = (): Promise<void> => Promise.resolve();
   /** Set once Connectors exist: Local mode pauses those on other computers. */
   let connectorsLocalModeChanged = () => {};
+  /** Set once calendars exist: Local mode stops reading Google and Microsoft. */
+  let calendarsLocalModeChanged = () => {};
   /**
    * Local mode on or off: embeddings may switch back to the built-in model,
    * rerank pauses, usage data stops, and outside agents pause.
@@ -1228,18 +1342,22 @@ export function createCore(adapters: CoreAdapters): Core {
         () => new LocalModeError(),
       );
     }
-    transcriptionGateChanged();
+    const dropped = transcriptionGateChanged();
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
+      // Documents waiting to be allowed on a cloud service aren't, in Local mode (#2308).
+      events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
+      calendarsLocalModeChanged();
       await rerankChanged();
       // Questions to a cloud model are refused now (or allowed again): the chat model's readiness changed.
       await readinessChanged();
       // An Answer on its way to a cloud model stops at once, with the reason.
       if (embedding.localOnly()) await answers.stopCloud();
     }
+    await dropped;
     return embeddingSettings();
   };
 
@@ -1352,9 +1470,9 @@ export function createCore(adapters: CoreAdapters): Core {
    * so the chat flow sends "tool-results" too, and asks again for it. So do
    * Skill scripts that can run (#41): what they print could be anything.
    *
-   * Skills alone don't: their Tools (`use_skill`, `read_skill_file`) return
-   * only the text of Skills the User imported, which is sent like the system
-   * prompt, not data fetched from another service.
+   * Skills alone don't add "tool-results": their Tools (`use_skill`,
+   * `read_skill_file`) return only a Skill's own instructions and files, which
+   * the chat flow names as "skill-files".
    */
   const sendsToolResults = () => connectors.anyEnabled() || scriptsOffered();
   /** Whether the chat flow sends "tool-results", as last registered. */
@@ -1381,8 +1499,6 @@ export function createCore(adapters: CoreAdapters): Core {
       tempDir: adapters.paths.tempDir ?? tmpdir(),
       reportError: (error) => console.error(error),
     });
-  // Running Skill scripts (#41), each in its own temporary folder.
-  const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
   // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
   // downloaded the first time code needs it.
   const codeHost =
@@ -1398,6 +1514,12 @@ export function createCore(adapters: CoreAdapters): Core {
       : undefined;
   const pythonRuntime = codeHost?.python ?? null;
   const codeRunner = codeHost?.runner;
+  // Running Skill scripts (#41), each in its own temporary folder.
+  const scriptRunner = createScriptRunner({
+    executor,
+    runtimes: adapters.scriptRuntimes,
+    python: () => pythonRuntime?.installed() ?? null,
+  });
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({
@@ -1474,24 +1596,25 @@ export function createCore(adapters: CoreAdapters): Core {
   /** The User's Documents searched as an Answer searches them: the search Tool, reranked as the User chose unless `rerank` is false. */
   const timedRerank = (reranker: Reranker | undefined): Reranker | undefined =>
     reranker &&
-    ((query, candidates, signal) =>
+    ((query, candidates, signal, background) =>
       timings.local(
         "rerank",
         rerank.usesBuiltIn() ? BUILT_IN_RERANKING_MODEL.name : "rerank service",
-        () => reranker(query, candidates, signal),
+        () => reranker(query, candidates, signal, background),
         () => candidates.length,
       ));
   const searchDocuments = (
     query: string,
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
-    { rerank: reranking = true, parameters }: AnswerSearchOptions = {},
+    { rerank: reranking = true, parameters, background }: AnswerSearchOptions = {},
   ) => {
     const options = {
       signal,
       rerank: reranking ? timedRerank(adapters.reranker ?? rerank.active()) : undefined,
       documentIds: documentIds ?? undefined,
       ...(parameters && { parameters }),
+      ...(background === true && { background }),
     };
     const tuning = adapters.answerSearch;
     return tuning
@@ -1509,18 +1632,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),
@@ -1625,6 +1739,17 @@ export function createCore(adapters: CoreAdapters): Core {
     return walledFolderId(folderId);
   };
   /**
+   * Whether a Note may read again the Document a Citation names (#1934): never a Document kept
+   * inside a walled Folder the Note is outside. Recheck, Add to Note, the edit's kept Citations
+   * and a figure's inputs all ask this one question, so no path forgets the wall as Edit with AI
+   * did (#2746). A caller with no Note (an Answer in the assistant, a Document's viewer) is
+   * reading as browsing is, and may.
+   */
+  const mayRecheckIn = (mindId: string | null, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    return wall === null || mindId === null || wall === walledFolder(mindId);
+  };
+  /**
    * The one place deciding where the assistant files what it makes (#1934): work behind the wall
    * `wallId` files it in that Folder, or in a Folder inside it when that is the one `asked`; it
    * never leaves the wall. Work outside every wall never files in a walled Folder. Null: it
@@ -1681,8 +1806,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
     const left = new Set(made.documentIds);
+    // The examples are the User's Library until a Document of their own exists (#1942), a
+    // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
-    // The examples are the User's Library until a Document of their own exists (#1942).
     return own.length > 0 ? own : null;
   };
   /**
@@ -1772,6 +1898,66 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
+  const nameSent = (kind: ScopeKind, id: string): string | null => {
+    const linked =
+      kind === "folder" ? folders.list().find((folder) => folder.id === id) : undefined;
+    return linked ? linkedFolderName(linked) : scopeItemName(kind, id);
+  };
+  /**
+   * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
+   * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
+   * ways, so a walled Folder's Documents are never counted or named for a Note outside it.
+   */
+  const libraryListing = (mindId: string | null, searched: SearchScope | null): LibraryListing => {
+    const ownWall = walledFolder(mindId);
+    const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
+    const ids = new Set(counted.map((document) => document.id));
+    // A scope picked before a Folder got its wall may still list it, or one of its Documents: for a
+    // note outside the wall, what is behind it is named from nowhere, only counted among the walls.
+    const constrained =
+      searched && hasSearchScope(searched) ? constrainedScope(searched, mindId) : null;
+    const visible = constrained && {
+      ...constrained,
+      documentIds: constrained.documentIds.filter((id) => walledDocument(id) === ownWall),
+    };
+    const one = oneFolderOf(visible);
+    const within = one === null ? null : new Set(library.subtree(one));
+    const seen = (folderId: string | null) =>
+      walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
+    const named = visible && hasSearchScope(visible) ? scopeName(visible, nameSent) : null;
+    const walls = library.folders().filter((folder) => folder.keepInside).length;
+    const folders = library
+      .folders()
+      .filter((folder) => seen(folder.id))
+      .map((folder) => ({
+        name: folder.name,
+        count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
+      }));
+    const notes = minds.list().filter((mind) => mind.id !== mindId && seen(mind.folderId));
+    const unfiled = new Set(library.unfiledDocumentIds());
+    return {
+      source: named
+        ? { kind: "scope", name: named.name ?? "", more: named.more }
+        : ownWall === null && walls > 0
+          ? { kind: "left-out", folders: walls }
+          : { kind: "library" },
+      documents: counted.map(({ name, kind }) => ({ name, kind })),
+      folders,
+      unfiled: one === null ? counted.filter((document) => unfiled.has(document.id)).length : null,
+      tags: tags.list().flatMap((tag) => {
+        const count = counted.filter((document) =>
+          document.tags.some((each) => each.tagId === tag.id),
+        ).length;
+        return count > 0 ? [{ name: tag.name, count }] : [];
+      }),
+      // A note with no typed title is named by its first line, which is its text: it is counted only.
+      notes: {
+        count: notes.length,
+        names: notes.map((mind) => mind.title).filter((title) => title !== ""),
+      },
+      searches: named?.name ? { kind: named.kind, name: named.name } : null,
+    };
+  };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
   // its Documents are in: a Linked folder filed into it whole names the Linked folder.
   const foldersOnDisk = (folderIds: readonly string[]) => {
@@ -1866,36 +2052,50 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
-    organizeAtOnce: (ids, signal, wall, permit) => {
+    organizeAtOnce: (ids, signal, wall, permit, runId) => {
       const allowed = new Set(
         library
           .folders()
           .filter((folder) => filedWithin(wall, folder.id)?.folderId === folder.id)
           .map((folder) => folder.id),
       );
-      return library.organizeAtOnce(ids, signal, allowed, permit);
+      // Inside a wall it proposes only the wall's own Folders, never one proposed by name (#1934).
+      return library.organizeAtOnce(ids, signal, allowed, permit, {
+        origin: "assistant",
+        runId,
+        newFolders: wall === null,
+      });
     },
-    proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
-    allowCloudRead: async (service) => {
-      consent.choose(["classification"], service);
-      await dataFlowsChanged().catch((error: unknown) =>
-        console.error("The window couldn't be told which services may read the Documents.", error),
+    organizeByPlan: async (ids, signal, permit, runId) => {
+      const outside = new Set(
+        library
+          .folders()
+          .filter((folder) => filedWithin(null, folder.id)?.folderId === folder.id)
+          .map((folder) => folder.id),
       );
+      try {
+        return await libraryOrganizer.organize(
+          { documentIds: [...ids] },
+          { run: { origin: "assistant", runId }, permit, signal, folders: outside },
+        );
+      } catch (error) {
+        // A model that can't name Folders still sorts into those there are, one Document at a time.
+        const cantPlan =
+          error instanceof InvalidInputError && error.wording?.key === "error.library.cantPropose";
+        if (cantPlan && outside.size > 0) return null;
+        throw error;
+      }
     },
+    proposeFolder: (name, about) =>
+      organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
+    withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
+    allowCloudRead: (service) => allowOrganizeRead(service),
     offeredOrganizeModel: async () => {
-      if (organizeModelOf(library.settings())) return null;
-      const { automatic } = await taggingModels();
-      return (
-        automatic && { classifier: automatic.classifier, route: routeOf(automatic.classifier) }
-      );
+      const offered = await organizeOffer();
+      return offered && { classifier: offered, route: routeOf(offered) };
     },
-    keepOrganizeModel: async (classifier) => {
-      const saved = library.settings();
-      if (organizeModelOf(saved)) return;
-      library.saveSettings({ ...saved, organizeWith: classifier });
-      await dataFlowsChanged();
-      await taggingChanged();
-    },
+    keepOrganizeModel: (classifier) => keepOrganizeModel(classifier),
+    localOnly: () => embedding.localOnly(),
     lendOrganizeModel: (classifier) => library.lendOrganizeModel(classifier),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
@@ -1921,21 +2121,6 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         return undefined;
       };
-      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
-      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
-      if (input.command === ACCEPT_SUGGESTIONS) {
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
-        );
-        const crossing = input.ids.some((id) => {
-          const into = suggested.get(id) ?? null;
-          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
-        });
-        if (crossing) {
-          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
-          throw new InvalidInputError({ key });
-        }
-      }
       for (const id of input.ids) {
         const wall = wallOf(id);
         if (wall !== undefined && wall !== wallId) refuse();
@@ -1956,7 +2141,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     outputFolder: async () => outputs.settings().location,
     window: (request, signal, ended) => windowCommands.run(request, signal, ended),
-    exportMind: async (mindId, format, folder, approved, marking) => {
+    exportMind: async (mindId, format, folder, approved, marking, approvedFiles) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
       let settled: MarkingSettled | null = null;
@@ -1977,18 +2162,28 @@ export function createCore(adapters: CoreAdapters): Core {
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
+      // The name this folder gives the file now, as the card worked it out, must be the one the
+      // User allowed; a Note renamed or a name taken since asks again (#2514).
+      if (
+        approvedFiles &&
+        (folder === null ||
+          (await freeFileName(folder, exported.fileName)) !== approvedFiles.fileName)
+      )
+        throw new ExportChangedError();
       const file = await outputs.save({
-        name: exported.fileName,
+        name: approvedFiles?.fileName ?? exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
+        ...(approvedFiles !== undefined && { exact: true }),
       });
       try {
         await saveExportFiles(
           exported.files,
           folder ?? file.folder,
           typeof mindId === "string" ? mindId : null,
+          approvedFiles?.pictures,
         );
       } catch (error) {
         // A file that would link pictures none can see is taken back: the export didn't happen.
@@ -2010,6 +2205,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const answers = createAnswers({
     content,
+    changes,
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
@@ -2027,6 +2223,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2050,10 +2247,11 @@ export function createCore(adapters: CoreAdapters): Core {
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       // The Library's count is what its page shows: the examples until the User has a Document of
-      // their own, and theirs alone from then on (#1942).
+      // their own, and theirs alone from then on (#1942); a meeting is a Note, its Transcript no
+      // Document of the page's (#2528).
       libraryCount: () => {
         const example = new Set(examples.made().documentIds);
-        const all = documents.ids({});
+        const all = documents.ids({ listed: true });
         const own = all.filter((id) => !example.has(id));
         return own.length > 0 ? own.length : all.length;
       },
@@ -2074,11 +2272,34 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      highlightText: (documentIds, query) => {
+        const wanted = documentIds === null ? null : new Set(documentIds);
+        const matches = annotations
+          .search(query, 8)
+          .filter((match) => wanted === null || wanted.has(match.documentId));
+        if (matches.length === 0) return "";
+        const lines = matches.map((match) => {
+          const where = match.location
+            ? formatLocation(
+                match.location,
+                (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+                {
+                  speakers:
+                    match.location.kind === "time" ? documents.speakersOf(match.documentId) : null,
+                },
+              )
+            : "";
+          const note = match.note === null ? "" : ` — the User's note: ${match.note}`;
+          return `- ${match.documentName}${where ? `, ${where}` : ""}: “${match.excerpt}”${note}`;
+        });
+        return `The User's own highlights and notes on these words, already checked against the Documents:\n${lines.join("\n")}`;
+      },
       webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => documents.documentDate(documentId),
+      speakers: (documentId) => documents.speakersOf(documentId),
     },
     toolProviders: [
       {
@@ -2152,15 +2373,16 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       read: (mindId, look) => content.read(mindId, look),
       edit: (mindId, change) => content.edit(mindId, change),
-      text: (mindId, name, tokens, ids) => {
+      text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids))
+          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
       checkpoint: (mindId) => {
         checkpoints.save(mindId, "accept");
       },
+      now: () => adapters.now?.() ?? new Date(),
       create: (title, folderId, headed) => {
         const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
         return { id: mind.id, name: mindName(mind) || title };
@@ -2227,9 +2449,13 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read);
-        if (emit) events.emit("conversation.message", turn.answer);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+        if (emit) {
+          // An origin and the Answer it resets were written together: both changed at once.
+          if (origin) events.emit("conversation.message", turn.question);
+          events.emit("conversation.message", turn.answer);
+        }
         return turn;
       },
       writeAnswer: (answerId, write) => {
@@ -2253,6 +2479,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
@@ -2295,7 +2528,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const permitted = ids.filter((id) => allowed.includes(id));
       return evidence.scope(mindId, permitted).documentIds ?? [...permitted];
     },
-    checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
+    changes,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
@@ -2391,6 +2624,7 @@ export function createCore(adapters: CoreAdapters): Core {
       file: (documentIds, folderId) => {
         db.transaction(() => library.move(documentIds, folderId));
         library.moved([...documentIds]);
+        organizeReview.filedByHand(documentIds, folderId);
       },
     },
     tags: {
@@ -2458,7 +2692,8 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // Suggest as I write (#282): Passages found and quotes checked as Answers do (see ./answers/citing).
   const citing = createCiting({
-    search: searchDocuments,
+    search: (query, documentIds, signal, background) =>
+      searchDocuments(query, documentIds, signal, { background }),
     citationSource: (passageId) => documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
@@ -2475,6 +2710,7 @@ export function createCore(adapters: CoreAdapters): Core {
     scopeDocuments,
     searchedScope,
     searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+    speakersOf: (documentId) => documents.speakersOf(documentId),
     localOnly: () => embedding.localOnly(),
     events,
     readValue: (key) => settings.readDeviceValue(key),
@@ -2524,6 +2760,15 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+  /** Documents the User may delete on their own: a Meeting's Transcript goes with its Note (#2528). */
+  const deletable = (ids: readonly string[]): readonly string[] => {
+    for (const id of ids) {
+      if (typeof id === "string" && liveDocument(id)?.meetingMindId) {
+        throw new InvalidInputError({ key: "error.transcript.withNote" });
+      }
+    }
+    return ids;
   };
 
   /**
@@ -2601,6 +2846,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
   const edits = createEdits({
     content,
+    changes,
     requireMind: (mindId) => {
       writableMind(mindId);
     },
@@ -2608,7 +2854,11 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
-    recheck: (attributes) => recheckKept(documents, attributes),
+    // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
+    recheck: (attributes, mindId) =>
+      typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)
+        ? recheckKept(documents, attributes)
+        : null,
     writing: (mindId, place, part) =>
       events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
     estimate: (choice, parts) => {
@@ -2635,7 +2885,6 @@ export function createCore(adapters: CoreAdapters): Core {
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
-    now: () => adapters.now?.() ?? new Date(),
   });
 
   // Check against Documents (#96): check Runs that can only search and cite.
@@ -2703,6 +2952,9 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   }
 
+  const documentVersions = () =>
+    new Map(documents.rows().map((document) => [document.id, document.contentHash]));
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2712,16 +2964,37 @@ export function createCore(adapters: CoreAdapters): Core {
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
         basis: fingerprintOfBlocks(blocks),
         blocks,
-        versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
+        versions: documentVersions(),
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
+        language: settings.get().language,
+        keptInside: (documentId) =>
+          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
       });
     });
   }
 
   const checks = createChecks({
     language: () => settings.get().language,
+    warmReranker: () => rerank.warm(),
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .rows()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);
@@ -2785,8 +3058,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
-      documentVersions: () =>
-        new Map(documents.list().map((document) => [document.id, document.contentHash])),
+      documentVersions,
       background,
       runCost: (runId) => meter.taskCost(runId),
       delayMs: adapters.contradictionWatch?.delayMs ?? AFTER_NEW_VERSION_MS,
@@ -2799,6 +3071,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderName,
     searchedScope,
     pickedDocuments,
+    libraryListing,
     originalOf: (mindId) => {
       const original = wordImports.originalOf(mindId);
       const duplicated = minds.duplicatedFrom(mindId);
@@ -2837,12 +3110,14 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
+      speakers: (documentId) => documents.speakersOf(documentId),
       othersHoldTerms: (text, except, documentIds, leftOut) =>
         documents.othersHoldTerms(text, except, documentIds, leftOut),
     },
     engine: answerEngine,
     retention,
     editText,
+    recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
@@ -2855,19 +3130,35 @@ export function createCore(adapters: CoreAdapters): Core {
       return { currency: cap.currency, amount: cap.amount - used };
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
+    checkingEarly: (event) => events.emit("mindCheck.early", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
   /**
-   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
-   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
-   * for a Citation made before the wall (#1934).
+   * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
+   * Note it is in, or of the conversation it is in when that has no Note; somewhere with neither
+   * reads as browsing is, which may. A place whose wall can't be judged (its Note or conversation
+   * gone) may not.
+   */
+  const mayRecheckFrom = (place: TurnPlace, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    if (wall === null) return true;
+    if (place.mindId === null && place.conversationId === null) return true;
+    try {
+      return wall === turnWall(place);
+    } catch (error) {
+      if (error instanceof NotFoundError) return false;
+      throw error;
+    }
+  };
+  /**
+   * A Citation checked again in the Note or conversation it is shown in: one whose Document is
+   * kept inside a walled Folder that place is outside isn't read from there, so the check it was
+   * made with stands, as for a Citation made before the wall (#1934, #2782).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    const wall = walledDocument(input.documentId);
-    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
-      return recheckCitation(documents, input);
-    }
+    const place = { mindId: input.mindId, conversationId: input.conversationId ?? null };
+    if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
@@ -2940,6 +3231,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
+    libraryFactsNow: (mindId) => checks.libraryFactsNow(mindId),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };
@@ -2950,6 +3242,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return lineSpacing === "default" ? null : lineSpacing;
     },
     bibliography: (mindId) => content.readSettings(mindId, bibliographyShown),
+    exportMarks: (mindId) => content.readSettings(mindId, exportMarksOf),
     formatCitations: (request) => citationStyles.format(request),
     citedPage: (citation) => citedPages.image(citation),
     citedUnits: ({ documentId, contentHash, pageFrom, pageTo }) => {
@@ -3160,20 +3453,32 @@ export function createCore(adapters: CoreAdapters): Core {
     files: readonly ExportFile[] | undefined,
     folder: string,
     from: string | null,
+    /** The names the User allowed, in the order the pictures to write were listed (#2514). */
+    approvedNames?: readonly string[],
   ): Promise<void> => {
+    let next = 0;
     for (const file of files ?? []) {
       // A picture named after its content: the file there already holds these bytes, so it is
       // linked, not copied again as "picture-… 2.png" (#1937).
       if (await outputs.holds(folder, file.name, file.data)) continue;
+      const name = approvedNames?.[next];
+      if (approvedNames) {
+        // A picture changed since the card, or the list did: nothing is written under a new name.
+        if (name === undefined || name !== (await freeFileName(folder, file.name)))
+          throw new ExportChangedError();
+        next++;
+      }
       await outputs.save({
-        name: file.name,
+        name: name ?? file.name,
         data: file.data,
         ownFile: "export",
         fromFolder: folderOfNote(from),
         folder,
         approved: true,
+        exact: approvedNames !== undefined,
       });
     }
+    if (approvedNames && next !== approvedNames.length) throw new ExportChangedError();
   };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
@@ -3217,6 +3522,16 @@ export function createCore(adapters: CoreAdapters): Core {
     signal: lifetime.signal,
     localOnly: () => embedding.localOnly(),
   });
+  // Decision models on other hosts (#1907): the same flows and consent as Jev, per host.
+  const decisionHosts = createDecisionHosts({
+    settings,
+    secrets,
+    consent,
+    providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    localOnly: () => embedding.localOnly(),
+    signal: lifetime.signal,
+    ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
     createPlanPace({
@@ -3251,6 +3566,7 @@ export function createCore(adapters: CoreAdapters): Core {
       quickTasksModel: (answers) => chat.quickTasksModel(answers),
     },
     jev,
+    decisions: decisionHosts,
     localOnly: () => embedding.localOnly(),
     ollamaUrl: adapters.ollamaUrl ?? defaultOllamaUrl(),
     localModels: adapters.localModels ?? installedOllamaModels,
@@ -3276,6 +3592,14 @@ export function createCore(adapters: CoreAdapters): Core {
   const announceTagged = (documentIds: readonly string[]) => {
     const live = documents.getMany(documentIds);
     if (live.length > 0) events.emit("documents.tagged", live);
+  };
+  /** A Document the User may tag; a Meeting's Transcript has no Tags of its own (#2528). */
+  const taggable = (documentId: unknown): Document => {
+    const document = documents.get(documentId);
+    if (document.meetingMindId !== null) {
+      throw new InvalidInputError({ key: "error.transcript.tagWithNote" });
+    }
+    return document;
   };
   /**
    * The User's change to one Tag on several Documents: all of it or nothing,
@@ -3315,6 +3639,8 @@ export function createCore(adapters: CoreAdapters): Core {
     switch (classifier.kind) {
       case "jev":
         return jev.prepare();
+      case "decision":
+        return decisionHosts.prepare(classifier.host, classifier.modelId);
       case "auto": {
         const model = await tagging.textDecisionModel(classifier.baseUrl);
         if (!model)
@@ -3344,7 +3670,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const tagger = createTagger({
-    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
+    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+    maySend: (id, service, pressed) =>
+      !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
     db,
     now,
     tags,
@@ -3356,6 +3684,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = await tagging.resolve();
       if (!classifier) return false;
       if (classifier.kind === "jev") return jev.canRun();
+      if (classifier.kind === "decision") return decisionHosts.canRun(classifier.host);
       if (classifier.kind === "chat") {
         const readiness = await chat.readiness(classifier.choice, "tagging");
         return readiness.ready && readiness.consent !== "needed";
@@ -3367,6 +3696,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!classifier || decisionModelElsewhere(classifier)) return false;
       if (embedding.localOnly() && tagging.service(classifier)) return false;
       if (classifier.kind === "jev") return jev.mightBeReady();
+      if (classifier.kind === "decision") return decisionHosts.mightBeReady(classifier.host);
       if (classifier.kind === "chat") return chat.mightBeReady("tagging", classifier.choice);
       return true;
     },
@@ -3386,7 +3716,75 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     rateLimit,
     timers: paceTimers,
+    head: (id) => documents.head(id),
+    headIds: () => documents.headIds(),
   });
+  /** The classifier Organize uses with these settings, through the consent its service needs. */
+  async function prepareOrganize(
+    settings: LibrarySettings,
+    permit?: CloudReadPermit,
+  ): Promise<GroupClassifier> {
+    const classifier = organizeModelOf(settings);
+    if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
+    if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
+    if (classifier.kind === "auto") {
+      let automatic = automaticClassifiers.get(classifier.baseUrl);
+      if (!automatic) {
+        automatic = automaticGroupClassifier(classifier.baseUrl);
+        automaticClassifiers.set(classifier.baseUrl, automatic);
+      }
+      return automatic;
+    }
+    if (classifier.kind === "ollama")
+      return decisionGroupClassifier({
+        baseUrl: classifier.baseUrl,
+        model: classifier.modelId,
+        apiKey: "ollama",
+        local: true,
+        usePageImages: classifier.usePageImages,
+      });
+    if (classifier.kind === "jev") {
+      if (embedding.localOnly() && jev.service())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      const prepared = await jev.prepareGroups(permit);
+      if (embedding.localOnly() && !prepared.local)
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return prepared;
+    }
+    if (classifier.kind === "decision") {
+      if (embedding.localOnly())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
+    }
+    const { choice } = classifier;
+    const ready = await chat.readiness(choice, "classification");
+    if (embedding.localOnly() && "provider" in ready && ready.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
+    if (embedding.localOnly() && prepared.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    // A scan's page images go only where the User allowed them (the "scan-images" flow).
+    const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
+    let chosen: GroupClassifier = {
+      ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
+      model: { id: choice.modelId, images, reason: "selected" as const },
+    };
+    // A scan goes to the image model when this one can't read its pages.
+    const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
+    if (imageModel && scanImagesAllowed(imageModel)) {
+      chosen = withPageReader(chosen, async () => {
+        const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+          permit,
+        });
+        return {
+          ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
+          model: { id: imageModel.modelId, images: true, reason: "selected" as const },
+        };
+      });
+    }
+    const plan = planPaceOf(prepared.provider.kind);
+    return plan ? pacedBy(chosen, plan.run) : chosen;
+  }
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
   let isExampleDocument: (documentId: string) => boolean = () => false;
@@ -3399,6 +3797,14 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
+    head: (id) => documents.head(id),
+    localOnly: () => embedding.localOnly(),
+    reviewCount: () => organizeReviewCount(db),
+    review: {
+      propose: (run, proposals) => organizeReview.propose(run, proposals),
+      proposeFolders: (folders) => organizeReview.proposeFolders(folders),
+      offeredFolders: () => organizeReview.offeredFolders(),
+    },
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3416,6 +3822,7 @@ export function createCore(adapters: CoreAdapters): Core {
         case "ollama":
           return supportsLibraryImages(classifier.modelId) && classifier.usePageImages === true;
         case "jev":
+        case "decision":
           return false;
         case "chat": {
           const reader = chat.imageModel(classifier.choice);
@@ -3469,61 +3876,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
       }
     },
-    async prepare(settings, permit) {
-      const classifier = organizeModelOf(settings);
-      if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
-      if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
-      if (classifier.kind === "auto") {
-        let automatic = automaticClassifiers.get(classifier.baseUrl);
-        if (!automatic) {
-          automatic = automaticGroupClassifier(classifier.baseUrl);
-          automaticClassifiers.set(classifier.baseUrl, automatic);
-        }
-        return automatic;
-      }
-      if (classifier.kind === "ollama")
-        return decisionGroupClassifier({
-          baseUrl: classifier.baseUrl,
-          model: classifier.modelId,
-          apiKey: "ollama",
-          local: true,
-          usePageImages: classifier.usePageImages,
-        });
-      if (classifier.kind === "jev") {
-        if (embedding.localOnly() && jev.service())
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        const prepared = await jev.prepareGroups(permit);
-        if (embedding.localOnly() && !prepared.local)
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        return prepared;
-      }
-      const { choice } = classifier;
-      const ready = await chat.readiness(choice, "classification");
-      if (embedding.localOnly() && "provider" in ready && ready.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, permit);
-      if (embedding.localOnly() && prepared.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      // A scan's page images go only where the User allowed them (the "scan-images" flow).
-      const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
-      let chosen: GroupClassifier = {
-        ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
-        model: { id: choice.modelId, images, reason: "selected" as const },
-      };
-      // A scan goes to the image model when this one can't read its pages.
-      const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
-      if (imageModel && scanImagesAllowed(imageModel)) {
-        chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, permit);
-          return {
-            ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
-            model: { id: imageModel.modelId, images: true, reason: "selected" as const },
-          };
-        });
-      }
-      const plan = planPaceOf(prepared.provider.kind);
-      return plan ? pacedBy(chosen, plan.run) : chosen;
-    },
+    prepare: prepareOrganize,
   });
   const mindSources = createMindSources({
     dataDir,
@@ -3549,6 +3902,80 @@ export function createCore(adapters: CoreAdapters): Core {
         : null;
     const pages = reader && chat.describeModel(reader)?.service;
     return [...(service ? [service] : []), ...(pages && pages.id !== service?.id ? [pages] : [])];
+  };
+  /** The model the Library offers Organize, Automatic's pick; null when one is chosen or none. */
+  const organizeOffer = async (): Promise<TaggingClassifier | null> =>
+    organizeModelOf(library.settings())
+      ? null
+      : ((await taggingModels()).automatic?.classifier ?? null);
+  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  const keepOrganizeModel = async (classifier: TaggingClassifier) => {
+    const saved = library.settings();
+    if (organizeModelOf(saved)) return;
+    library.saveSettings({ ...saved, organizeWith: classifier });
+    await dataFlowsChanged();
+    await taggingChanged();
+  };
+  /** The User allowed Organize to send to `service` where its words said what goes (ADR-0022). */
+  const allowOrganizeRead = async (service: ExternalService) => {
+    consent.choose(["classification"], service);
+    await dataFlowsChanged().catch((error: unknown) =>
+      console.error("The window couldn't be told which services may read the Documents.", error),
+    );
+  };
+  /** What Organize needs before the User's own run, and the model the Library offers (#1569). */
+  const organizeNeeds = async (): Promise<{
+    start: OrganizeStart;
+    offered: TaggingClassifier | null;
+  }> => {
+    const offered = await organizeOffer();
+    const classifier = organizeModelOf(library.settings()) ?? offered;
+    // Local mode sends nothing to a cloud service, so nothing asks: it says so, as the run would.
+    const paused = () => new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    if (!classifier) {
+      const readiness = await chat.readiness();
+      const noProvider = !readiness.ready && readiness.reason === "no-provider";
+      // Automatic offers no cloud model in Local mode, though one is set up.
+      if (embedding.localOnly() && !noProvider) throw paused();
+      return { start: { ready: false, needs: "model", noProvider }, offered };
+    }
+    const route = routeOf(classifier);
+    if (route.where === "cloud") {
+      if (embedding.localOnly()) throw paused();
+      const decided = consent.status("classification", route.service);
+      if (decided !== "accepted")
+        return {
+          start: {
+            ready: false,
+            needs: "consent",
+            service: route.service,
+            declined: decided === "declined",
+            model: classifier.kind,
+          },
+          offered,
+        };
+    }
+    return { start: { ready: true, model: classifier.kind }, offered };
+  };
+  /**
+   * A run the User allowed alone under their earlier no (#2252, ADR-0022): a permit for the
+   * service they allowed, on the model the Library offers there, lent for the run when none is
+   * chosen. Nothing is kept.
+   */
+  const allowedOnce = async (
+    input: unknown,
+  ): Promise<{ permit: CloudReadPermit; giveBack(): void } | null> => {
+    if (!isRecord(input) || input.once === undefined || input.once === false) return null;
+    if (input.once !== true || typeof input.forService !== "string" || input.forService === "")
+      throw new InvalidInputError({ key: "error.organize.invalid" });
+    const offered = await organizeOffer();
+    return {
+      permit: { flow: "classification", serviceId: input.forService },
+      giveBack:
+        offered && tagging.service(offered)?.id === input.forService
+          ? library.lendOrganizeModel(offered)
+          : () => {},
+    };
   };
   consent.registry.register({
     id: "classification",
@@ -3670,14 +4097,6 @@ export function createCore(adapters: CoreAdapters): Core {
       restored: (restoredMeetings) => {
         const audio = meetings.restored(restoredMeetings);
         const meetingIds = restoredMeetings.map((each) => each.meetingId);
-        // One made while its note waited in Recently deleted goes to the note's Folder now.
-        for (const meetingId of meetingIds) {
-          const documentId = meetings.transcriptOf(meetingId);
-          const folderId = minds.get(meetings.get(meetingId).mindId).folderId;
-          if (!documentId || !folderId || !liveDocument(documentId)) continue;
-          const filed = db.get("SELECT 1 FROM document_groups WHERE document_id = ?", [documentId]);
-          if (!filed) library.assign(documentId, folderId);
-        }
         meetingFill.restored(meetingIds);
         return {
           lost: audio.lost,
@@ -3700,6 +4119,108 @@ export function createCore(adapters: CoreAdapters): Core {
     tagsChanged,
     tagged: announceTagged,
   });
+  const organizeReview = createOrganizeReview({
+    db,
+    now,
+    library,
+    tags,
+    removeFolder: (id, at) => {
+      removeFolder(id, at);
+    },
+    removeTag: (id, at) => removeTag(id, at),
+    restoreDeleted: (refs) => {
+      recentlyDeleted.restore(refs);
+    },
+    folderIsEmpty: (id) =>
+      library.allDocumentIds(id).length === 0 &&
+      library.subtree(id).length === 1 &&
+      !db.get("SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
+      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]),
+    saved: ({ filed, folderIds, tagged, tagsMade }) => {
+      library.moved(filed);
+      for (const folderId of folderIds) checks.folderContentsChanged(folderId);
+      if (tagsMade) tagsChanged();
+      announceTagged(tagged);
+    },
+    changed: (count) => events.emit("organizeReview.changed", { count }),
+  });
+  /** Tagging states that leave a Document without its automatic Tags yet. */
+  const UNTAGGED: ReadonlySet<string> = new Set([
+    "off",
+    "failed",
+    "waiting-for-provider",
+    "pending",
+  ]);
+  // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
+  const libraryOrganizer = createLibraryOrganizer({
+    db,
+    folders: () => library.folders(),
+    settings: () => library.settings(),
+    language: () => settings.get().language,
+    isExampleDocument: (id) => isExampleDocument(id),
+    wallOf: (folderId) => library.wallOf(folderId),
+    embedding: embedding.model,
+    organizeService: (chosen) => {
+      const classifier = organizeModelOf(chosen);
+      return classifier && tagging.service(classifier);
+    },
+    prepare: (chosen, permit) => prepareOrganize(chosen, permit),
+    localOnly: () => embedding.localOnly(),
+    // Tagging after the plan (`settled`) goes on the Organize model when tagging picks no other.
+    taggingRequests: (ids) => {
+      if (library.settings().classifier.kind !== "chat") return [];
+      const listed = approximateTokens(
+        [TAGGING_INSTRUCTIONS, ...tags.list().map((tag) => `${tag.name}: ${tag.description}`)].join(
+          "\n",
+        ),
+      );
+      return documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => ({
+          inputTokens:
+            listed +
+            approximateTokens(
+              excerptFromPassages(
+                db
+                  .all<{ text: string }>(
+                    "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
+                    [each.id],
+                  )
+                  .map((row) => row.text),
+              ),
+            ),
+          outputTokens: outputTokens("tags"),
+        }));
+    },
+    estimate: (chosen, requests) => {
+      const classifier = organizeModelOf(chosen);
+      const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
+      return metered && meter.estimateRead(metered, { likely: requests, most: requests });
+    },
+    inDollars: (estimate) =>
+      estimate.billing === "per-token" && estimate.cost
+        ? inCurrency(estimate.cost.amount, estimate.cost.currency, "USD")
+        : null,
+    tokensOf: approximateTokens,
+    propose: (run, proposals) => organizeReview.propose(run, proposals),
+    settled: (ids) => {
+      library.settle(ids);
+      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them, through
+      // the tagging flow's consent, as it tags by itself, until Tags wait in the Review too (#1569).
+      const untagged = documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => each.id);
+      if (untagged.length > 0)
+        void lookForTaggingModel()
+          .then(() => tagger.afterOrganize(untagged))
+          .catch((error: unknown) =>
+            console.error("Tagging after Organize couldn't start.", error),
+          );
+    },
+    progress: (progress) => events.emit("organize.progress", progress),
+  });
   try {
     recentlyDeleted.expire();
   } catch (error) {
@@ -3714,6 +4235,8 @@ export function createCore(adapters: CoreAdapters): Core {
    * this is the start, which keeps the pause a quit interrupted.
    */
   const taggingChanged = async (endsPause = true) => {
+    // No newest-read guard: this carries no list, only a "library.changed" that makes the Tagging
+    // settings read the models again, so an older list can't be emitted (#2398).
     try {
       await tagging.resolve();
     } catch (error) {
@@ -3733,6 +4256,37 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
+  const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
+    if (lifetime.signal.aborted) return hosts;
+    events.emit("decisions.changed", hosts);
+    await dataFlowsChanged();
+    await taggingChanged();
+    return hosts;
+  };
+  /**
+   * Before a key, workspace or chat provider goes, sorting, and Organize's kept model, stop
+   * naming what it reached (#1907, #2693): back to Automatic, which starts no host and turns
+   * nothing on. The app never picks another host in its place, so nothing goes anywhere the User
+   * hasn't allowed.
+   */
+  const stopSortingWith = async (
+    reached: (classifier: TaggingClassifier) => boolean,
+  ): Promise<boolean> => {
+    const forgot = library.forgetModel(reached);
+    if (forgot) await dataFlowsChanged();
+    return forgot;
+  };
+  /** The hosts that reach their decision models with this chat provider's key: OpenRouter's, OpenAI's, the Qwen key's. */
+  const hostsOnKeyOf = async (providerId: string) => {
+    const riding: DecisionHost[] = [];
+    for (const host of DECISION_HOSTS) {
+      const { key, provider } = DECISION_HOST_ENTRIES[host];
+      if (key !== "provider" || !provider) continue;
+      if ((await chat.apiKeyOf(provider))?.providerId === providerId) riding.push(host);
+    }
+    return riding;
+  };
   /** Jev was set up, changed or removed: say so, and Documents waiting may go on. */
   const jevChanged = async () => {
     const status = await jev.status();
@@ -3785,7 +4339,11 @@ export function createCore(adapters: CoreAdapters): Core {
   const readinessChanged = async () => {
     const newest = readinessRead();
     try {
-      const readiness = await chat.readiness();
+      const readiness = await readNewest(
+        newest,
+        () => chat.readiness(),
+        () => lifetime.signal.aborted,
+      );
       if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
@@ -3798,6 +4356,8 @@ export function createCore(adapters: CoreAdapters): Core {
   chatGptChanged = () => {
     const report = async () => {
       const newest = chatGptRead();
+      // The status never rejects: a keychain failure reads as "unreadable" and a model-list
+      // failure as the known models, so there is no failed newest read to retry (#2398).
       const status = await chatGpt.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("chatGptPlan.changed", status);
@@ -3821,6 +4381,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Not a readiness change: the renderer keeps its model lists.
   chatGptLimitsChanged = () => {
     const newest = chatGptRead();
+    // As the plan's status, this read never rejects (#2398).
     chatGpt.status().then(
       (status) => {
         if (!lifetime.signal.aborted && newest()) events.emit("chatGptPlan.changed", status);
@@ -3834,6 +4395,8 @@ export function createCore(adapters: CoreAdapters): Core {
   copilotChanged = () => {
     const report = async () => {
       const newest = copilotRead();
+      // As the ChatGPT plan's status, this never rejects: a keychain failure reads as "unreadable",
+      // so there is no failed newest read to retry (#2398).
       const status = await copilot.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("copilot.changed", status);
@@ -4006,13 +4569,19 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     skillIsBuiltIn: (name) => skills.list().some((skill) => skill.name === name && skill.builtIn),
     now: () => (adapters.now?.() ?? new Date()).getTime(),
+    answerStarted: () => modelSpend.answerStarted(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  modelSpend.start();
   const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
     const newest = dataFlowsRead();
-    const flows = await consent.listRegistered();
+    const flows = await readNewest(
+      newest,
+      () => consent.listRegistered(),
+      () => lifetime.signal.aborted,
+    );
     if (lifetime.signal.aborted) return;
     if (newest()) events.emit("dataFlows.changed", flows);
     await readinessChanged();
@@ -4092,8 +4661,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       });
     },
-    linkedFolderExists: (linkedFolderId) =>
-      documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
+    linkedFolderExists: (linkedFolderId) => documents.linkedFolders.has(linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
@@ -4122,10 +4690,10 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
-  const readyQuestionNow = (): ReadyQuestion | null => {
+  const readyQuestionNow = (): FirstOpenQuestion => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
-      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
       example: examples.readyQuestion(),
       language: settings.get().language,
     });
@@ -4180,7 +4748,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
-  let transcriptSaved = (_meetingId: string) => {};
+  let transcriptSaved = (_meetingId: string, _renamed: boolean) => {};
+  let transcriptWritten = (_meetingId: string) => {};
   /** "Transcript · {meeting}", named for its note, in Recently deleted too, in the interface's language. */
   const transcriptName = (meeting: ReturnType<typeof meetingRecord>) => {
     const language = settings.get().language;
@@ -4216,6 +4785,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return isRecord(value) ? (value as Record<string, number>) : {};
       },
       emitStatus: () => meetingsChanged(),
+      log: adapters.log ?? silentLogger,
     });
   // Where meeting audio is transcribed (#141): this computer, or the cloud service the User chose.
   const cloudTranscription = createCloudTranscription({
@@ -4225,6 +4795,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meter,
     localOnly: () => embedding.localOnly(),
     providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    languages: () => [settings.get().language, ...adapters.systemLanguages()],
     log: adapters.log ?? silentLogger,
     ...(adapters.transcriptionKeyFetch && { fetch: adapters.transcriptionKeyFetch }),
     vadFile: async () => {
@@ -4268,8 +4839,6 @@ export function createCore(adapters: CoreAdapters): Core {
             return;
           }
           documents.addSnapshot(id, name, file, link, "transcript");
-          const folderId = meeting ? minds.get(meeting.mindId).folderId : null;
-          if (folderId) library.assign(id, folderId);
         },
         check: (path) => documents.check(path),
         checkNow: async (documentId, path) => {
@@ -4306,6 +4875,7 @@ export function createCore(adapters: CoreAdapters): Core {
           folderName: (folderId) =>
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
           folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+          attendees: (mindId) => calendars.attendeesOf(mindId),
         }),
       lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
       purgedPaths: () =>
@@ -4315,7 +4885,8 @@ export function createCore(adapters: CoreAdapters): Core {
              WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
           )
           .map((row) => row.path),
-      saved: (meetingId) => transcriptSaved(meetingId),
+      saved: (meetingId, renamed) => transcriptSaved(meetingId, renamed),
+      written: (meetingId) => transcriptWritten(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
@@ -4329,6 +4900,7 @@ export function createCore(adapters: CoreAdapters): Core {
     capture: adapters.audioCapture,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
+    keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,
     createMind: (title, folderId) => {
       const mind = minds.create(parseCreateMindInput({ title, folderId }));
@@ -4357,7 +4929,52 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
-  transcriptionGateChanged = () => transcripts?.recheckCloud();
+  // Calendars (#190): Meetings coming up, and a Note started for one.
+  const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
+  if (googleCalendarSecret) rememberSecret(googleCalendarSecret);
+  const calendars = createCalendars({
+    db,
+    now,
+    clock: () => (adapters.now?.() ?? new Date()).getTime(),
+    secrets,
+    consent,
+    localOnly: () => embedding.localOnly(),
+    browser: adapters.browser,
+    services: adapters.calendarServices ?? {},
+    system: adapters.systemCalendar,
+    fetch: adapters.calendarFetch ?? globalThis.fetch,
+    ...(adapters.calendarSync?.intervalMs !== undefined && {
+      intervalMs: adapters.calendarSync.intervalMs,
+    }),
+    ...(adapters.calendarSync?.retryMs && { retryMs: adapters.calendarSync.retryMs }),
+    language: () => settings.get().language,
+    createNote: (title) => {
+      const mind = minds.create(parseCreateMindInput({ title }));
+      startInWritingStyle(mind.id);
+      mindsChanged();
+      return mind.id;
+    },
+    noteLive: (mindId) => {
+      try {
+        minds.get(mindId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    changed: (state) => events.emit("calendars.changed", state),
+    eventsChanged: () => events.emit("calendarEvents.changed", null),
+    log: adapters.log ?? silentLogger,
+  });
+  calendarsLocalModeChanged = () => calendars.localModeChanged();
+  calendars.start();
+  // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
+  db.transaction(() => {
+    for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
+      removeDocuments(documentIds, deletedAt);
+    }
+  });
+  transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
     if (!meeting) return null;
@@ -4454,6 +5071,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const meetingFill = createMeetingFill({
     content,
     meetings,
+    userName: () => settings.get().user.authorName,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       return documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
@@ -4493,15 +5111,18 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
-    async supports({ claim, mindId, transcriptId, model }) {
+    async supports({ claim, mindId, transcriptId, model, signal }) {
       const { folderId } = minds.get(mindId);
-      const result = await checks.checkClaim({
-        claim,
-        scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
-        mindId,
-        checked: { documentIds: [transcriptId] },
-        model,
-      });
+      const result = await checks.checkClaim(
+        {
+          claim,
+          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          mindId,
+          checked: { documentIds: [transcriptId] },
+          model,
+        },
+        signal,
+      );
       return result.verdict === "supported";
     },
     citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
@@ -4539,6 +5160,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return cues;
     },
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
+    startsBeforeSpeakers: () => adapters.notesBeforeSpeakers?.() ?? true,
     language: () => settings.get().language,
     filled(meeting) {
       const notifications = adapters.notifications;
@@ -4555,7 +5177,13 @@ export function createCore(adapters: CoreAdapters): Core {
           title:
             meeting.kind === "memo"
               ? translate(language, "memos.fill.notify", { memo: name })
-              : translate(language, "meetings.fill.notify", { meeting: name }),
+              : translate(
+                  language,
+                  isPartialMeetingFill(meeting.fill)
+                    ? "meetings.fill.notify.partial"
+                    : "meetings.fill.notify",
+                  { meeting: name },
+                ),
           body: "",
         },
         (windowIds) => mindShown(meeting.mindId, windowIds),
@@ -4564,7 +5192,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     log: adapters.log ?? silentLogger,
   });
-  transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
+  transcriptSaved = (meetingId, renamed) => meetingFill.transcriptSaved(meetingId, renamed);
+  transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
   /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
   const stopMeeting = (meetingId: unknown): Meeting => {
@@ -4572,6 +5201,45 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingFill.stopped(stopped.id);
     return meetings.get(stopped.id);
   };
+
+  const isLive = (meeting: Meeting) =>
+    meeting.status === "recording" || meeting.status === "paused";
+  // Offers to take notes in a call (#208): watched only while wanted, and only Take notes records.
+  const meetingOffers = createMeetingOffers({
+    watcher: adapters.callWatcher,
+    watching: () => {
+      const { device } = settings.get();
+      return (
+        device.callOffers && device.meetingNoticeAccepted && adapters.audioCapture !== undefined
+      );
+    },
+    allowed: (app) => offerAllowed(settings.get().device, { kind: "call", app }),
+    busy: () => meetings.list().some(isLive),
+    live: (meetingId) => meetings.list().some((each) => each.id === meetingId && isLive(each)),
+    record: () => {
+      const meeting = meetings.create({});
+      // The window the app opens on, whether or not it is open yet: its page reads the layout.
+      layouts.change("main", {
+        type: "open",
+        item: { kind: "mind", mindId: meeting.mindId },
+        where: { in: "group" },
+      });
+      meetings.start({ meetingId: meeting.id });
+      return meeting.id;
+    },
+    stop: (meetingId) => {
+      stopMeeting(meetingId);
+    },
+    changed: (offers) => events.emit("meetings.offers", offers),
+    newId: () => crypto.randomUUID(),
+    now: () => adapters.now?.() ?? new Date(),
+    log: adapters.log ?? silentLogger,
+  });
+  events.on("settings.changed", () => meetingOffers.refresh());
+  events.on("meetings.changed", () => meetingOffers.refresh());
+  meetingOffers.refresh();
+  const loginItemState = (): OpenAtLogin =>
+    adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
 
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
@@ -4793,7 +5461,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
     const service = tagging.service(classifier);
-    return service ? { where: "cloud", service } : { where: "local" };
+    if (service) return { where: "cloud", service };
+    // A host without its account yet sends nowhere; it isn't on this computer.
+    return classifier.kind === "decision" ? { where: "none" } : { where: "local" };
   };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;
@@ -4922,6 +5592,8 @@ export function createCore(adapters: CoreAdapters): Core {
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
       mindsChanged();
+      // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
+      renameJoinedTranscripts(mind);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
@@ -4986,6 +5658,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,
@@ -5133,9 +5806,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const languageWas = settings.get().language;
       const updated = settings.update(change);
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
+      let dropped = Promise.resolve();
       if (route !== undefined) {
         cloudTranscription.chose(updated.device.transcriptionRoute);
-        transcriptionGateChanged();
+        dropped = transcriptionGateChanged();
       }
       if (!updated.user.suggestWhileWriting) suggestions.stop();
       events.emit("settings.changed", updated);
@@ -5155,6 +5829,7 @@ export function createCore(adapters: CoreAdapters): Core {
           .followLanguage()
           .catch((error) => console.error("The example Minds didn't follow the language:", error));
       }
+      await dropped;
       return updated;
     },
     addDocuments,
@@ -5260,8 +5935,14 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("documents.renamed", [renamed]);
       return renamed;
     },
-    deleteDocument: async (id) => removeDocuments([id]),
-    deleteDocuments: async (ids) => removeDocuments(ids),
+    setTranscriptSpeakers: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      const updated = documents.setSpeakers(input.documentId, input.speakers);
+      events.emit("documents.speakersChanged", [updated]);
+      return updated;
+    },
+    deleteDocument: async (id) => removeDocuments(deletable([id])),
+    deleteDocuments: async (ids) => removeDocuments(deletable(ids)),
     retryDocument: async (id) => documents.retry(id),
     readHiddenSheets: async (id, readHidden) => documents.readHiddenSheets(id, readHidden),
     unlockDocument: async (input) => {
@@ -5363,13 +6044,24 @@ export function createCore(adapters: CoreAdapters): Core {
       if (input.mindId !== null && typeof input.mindId !== "string") {
         throw new InvalidInputError({ key: "error.citation.recheckNote" });
       }
+      // A conversation named must be one that can be judged; left out, the Citation is browsing.
+      if (
+        input.conversationId !== undefined &&
+        input.conversationId !== null &&
+        (typeof input.conversationId !== "string" || input.conversationId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.citation.recheckPlace" });
+      }
       return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        quotedWords: parseQuotedWords(input.quotedWords),
+        ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
+        conversationId: input.conversationId ?? null,
       });
     },
     citeSelection: async (input) => {
@@ -5386,13 +6078,128 @@ export function createCore(adapters: CoreAdapters): Core {
           ? input.unit
           : null;
       const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      if (input.mindId !== undefined) {
+        // One in Recently deleted is behind no wall `walledDocument` sees, so none may be cited.
+        if (documents.getMany([documentId]).length === 0) {
+          throw new NotFoundError({ key: "error.document.gone" });
+        }
+        if (walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))) {
+          throw new InvalidInputError({ key: "error.folder.wall" });
+        }
+      }
       return citeSelection(documents, {
-        documentId: parseDocumentId(input.documentId),
+        documentId,
         parts,
         ...(area !== undefined && { area }),
         unit,
         ...(around && { around }),
       });
+    },
+    createAnnotation: async (input) => {
+      if (!isRecord(input) || !Array.isArray(input.parts)) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const parts = input.parts.map(parseSelectedPart);
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
+        throw new InvalidInputError({ key: "error.selection.none" });
+      }
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      const cited = citeSelection(documents, {
+        documentId,
+        parts,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+      });
+      const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
+      // A region of a picture is cited as a picture: there is nothing in it to check.
+      const pictured = area !== undefined && cited.checkReason === "picture";
+      // A picture's place is its page: a region on a Unit the Document doesn't have is refused.
+      if (pictured && cited.location === null) {
+        throw new InvalidInputError({ key: "error.annotation.refused" });
+      }
+      if (cited.check !== "found" && !unsure && !pictured) {
+        throw new InvalidInputError({
+          key:
+            cited.checkReason === "too-many-pages"
+              ? "error.annotation.refused.pages"
+              : cited.checkReason === "in-several-places"
+                ? "error.annotation.refused.places"
+                : cited.checkReason === "no-text"
+                  ? "error.annotation.refused.noText"
+                  : "error.annotation.refused",
+        });
+      }
+      const saved = annotations.create({
+        documentId,
+        parts,
+        colour: input.colour,
+        note: typeof input.note === "string" ? input.note : null,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+        ...cited,
+      });
+      annotationsChanged(documentId);
+      return saved;
+    },
+    listAnnotations: async (documentId) => annotations.list(parseDocumentId(documentId)),
+    annotationsIn: async (input) => {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.annotation.collect" });
+      const colour = typeof input.colour === "string" ? input.colour : undefined;
+      return annotations.in({
+        ...(typeof input.documentId === "string" && { documentId: input.documentId }),
+        ...(typeof input.folderId === "string" && { folderId: input.folderId }),
+        ...(colour !== undefined && { colour: colour as AnnotationColour }),
+      });
+    },
+    annotationCounts: async () => annotations.counts(),
+    updateAnnotation: async (id, edit) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      if (!isRecord(edit)) throw new InvalidInputError({ key: "error.annotation.edit" });
+      const changed = annotations.update(id, {
+        ...(edit.note !== undefined && { note: edit.note as string | null }),
+        ...(edit.colour !== undefined && { colour: edit.colour as AnnotationColour }),
+      });
+      annotationsChanged(changed.documentId);
+      return changed;
+    },
+    deleteAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const removed = annotations.remove(id);
+      annotationsChanged(removed.documentId);
+      return removed;
+    },
+    restoreAnnotation: async (id) => {
+      if (typeof id !== "string" || id === "")
+        throw new InvalidInputError({ key: "error.annotation.needed" });
+      const restored = annotations.restore(id);
+      annotationsChanged(restored.documentId);
+      return restored;
+    },
+    searchAnnotations: async (query, options) => {
+      if (typeof query !== "string")
+        throw new InvalidInputError({ key: "error.annotation.search" });
+      const limit =
+        isRecord(options) && typeof options.limit === "number" && options.limit > 0
+          ? Math.min(Math.floor(options.limit), 200)
+          : 50;
+      return annotations.search(query, limit);
+    },
+    saveAnnotationsExport: async (documentId) => {
+      const id = parseDocumentId(documentId);
+      if (annotations.list(id).length === 0) return { status: "empty" };
+      const { name, text } = annotations.markdown(id, settings.get().language);
+      return saveExport(name, new TextEncoder().encode(text), null);
     },
     searchPassages: (query, options) => {
       const place = parsePassagePlace(isRecord(options) ? options.place : undefined);
@@ -5479,19 +6286,28 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
-      await cloudTranscription.refreshKeys();
+      await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
       return provider;
     },
     deleteChatProvider: async (id) => {
+      const riding = await hostsOnKeyOf(id);
+      const forgot = await stopSortingWith(
+        (classifier) =>
+          (classifier.kind === "decision" && riding.includes(classifier.host)) ||
+          (classifier.kind === "chat" && classifier.choice.providerId === id),
+      );
       await chat.delete(id);
+      if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
+      else if (forgot) await taggingChanged();
       // A transcription route that used this provider's key has none now.
       await cloudTranscription.refreshKeys();
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await readinessChanged();
+      await dropped;
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
@@ -5587,6 +6403,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    rewriteFromDocuments: (input) =>
+      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
@@ -5604,6 +6422,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    libraryFactsNow: async (mindId) => checks.libraryFactsNow(mindId),
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),
@@ -5714,7 +6533,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
@@ -5723,13 +6544,16 @@ export function createCore(adapters: CoreAdapters): Core {
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
       }
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
       await dataFlowsChanged();
+      await dropped;
       return revokedAt;
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       transcriptionGateChanged();
       settingsChanged();
@@ -5738,6 +6562,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listRegisteredDataFlows: () => consent.listRegistered(),
     allowDataFlow: async (flowId, serviceId) => {
       await consent.allow(flowId, serviceId);
+      // Documents waiting for embeddings carry on now that the User allowed it.
+      if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
       await dataFlowsChanged();
     },
@@ -5747,8 +6573,12 @@ export function createCore(adapters: CoreAdapters): Core {
     getModelRuntimeFolder: () => modelRuntimeFolder.present(),
     showModelRuntimeFolder: () => modelRuntimeFolder.show(),
     updatePrivacySettings: async (patch) => {
+      const before = privacy.status();
       const { changed, settings: updated } = privacy.update(patch);
       if (changed) privacyChanged();
+      // Turning usage data on never sends a completed week from before the User agreed, and
+      // the week it happens in counts only from then.
+      if (!before.usageData.enabled && updated.usageData.enabled) modelSpend.consentStarted();
       return updated;
     },
     recordUsage: async (event) => usageData.recordFromUi(event),
@@ -5810,9 +6640,30 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return routeOf(classifier);
     },
-    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
-    classifyDocuments: async (ids) => {
-      library.classify(ids);
+    proposeFolders: async (ids, options) =>
+      library.propose(ids, settings.get().language, undefined, options?.forService),
+    classifyDocuments: async (ids, options) => {
+      const run: OrganizeReviewRun = options?.folderId
+        ? { origin: "folder", folderId: library.folder(options.folderId).id }
+        : { origin: "library" };
+      const once = await allowedOnce(options);
+      if (once) {
+        // Sorted before it returns: the model it is lent is given back then.
+        try {
+          const { failed } = await library.organizeAtOnce(
+            ids ?? documents.list().map((each) => each.id),
+            lifetime.signal,
+            undefined,
+            once.permit,
+            run,
+          );
+          if (failed !== null) throw failed;
+        } finally {
+          once.giveBack();
+        }
+      } else {
+        library.classify(ids, options?.forService, run);
+      }
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({
@@ -5825,9 +6676,16 @@ export function createCore(adapters: CoreAdapters): Core {
         });
       }
     },
-    assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
+    assignDocumentGroup: async (id, groupId) => {
+      const change = library.assign(id, groupId);
+      organizeReview.filedByHand([change.documentId], groupId);
+      return change;
+    },
     restoreAssignment: async (id, before, after) => {
       const change = library.restoreAssignment(id, before, after);
+      const groupId = change?.after.assignment?.groupId ?? null;
+      if (change && (change.before.assignment?.groupId ?? null) !== groupId)
+        organizeReview.filedByHand([change.documentId], groupId);
       // A Document whose tagging goes back to pending has its turn again: the one it had was
       // dropped while Organize held it (#1928).
       if (change?.after.tagging?.status === "pending") tagger.resume();
@@ -5839,11 +6697,14 @@ export function createCore(adapters: CoreAdapters): Core {
       const current = now();
       const nowMs = Date.parse(current);
       const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
-      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
-      // deleting it again at `current` keeps it restorable (#2238).
+      // A time outside Recently deleted's 30 days, or with less than a day of them left, would
+      // list it expired or purge it at once: deleting it again at `current` keeps it restorable
+      // and its Redo possible (#2238, #2274).
       const atOf = (item: DeletedAgainRef) => {
         const time = Date.parse(item.deletedAt);
-        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+        return time >= earliest + DELETE_AGAIN_MARGIN_MS && time <= nowMs
+          ? item.deletedAt
+          : current;
       };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
@@ -5879,30 +6740,39 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new TranslatableError({ key: "error.meeting.purgeFailed" });
       }
     },
-    acceptAssignments: async (ids, checked, wall) => {
-      if (checked !== undefined && wall !== undefined) {
-        // Judged here, at the filing (#2250): a Folder that gained a wall since the check, or a
-        // Document that left it, accepts nothing. One that now waits for another Folder is the
-        // move check's to refuse, with its own words (#2243).
-        const side = wall;
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each]),
-        );
-        const crossing = ids.some((id) => {
-          const into = checked[id] ?? null;
-          const waiting = suggested.get(id);
-          if (!waiting?.suggested || waiting.groupId !== into) return false;
-          return !mayFileWithin(side, into, walledDocument(id));
-        });
-        if (crossing) {
-          throw new InvalidInputError({
-            key: side === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside",
-          });
-        }
+    getOrganizeReview: async () => organizeReview.get(),
+    editOrganizeReview: async (edit) => organizeReview.edit(edit),
+    restoreOrganizeReview: async (before, after) => organizeReview.restore(before, after),
+    confirmOrganizeReview: async (itemIds) => organizeReview.confirm(itemIds),
+    undoOrganizeReviewConfirmation: async (id) => organizeReview.undoConfirmation(id),
+    redoOrganizeReviewConfirmation: async (id) => organizeReview.redoConfirmation(id),
+    discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
+    restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
+    organizeLibrary: async (input) => {
+      const once = await allowedOnce(input);
+      try {
+        return await libraryOrganizer.organize(input, once ? { permit: once.permit } : undefined);
+      } finally {
+        once?.giveBack();
       }
-      return library.accept(ids, checked);
     },
-    rejectAssignments: async (ids) => library.reject(ids),
+    startOrganize: async () => {
+      const { start, offered } = await organizeNeeds();
+      // A model that may run without asking is kept, as the card's Allow keeps the one it names.
+      if (start.ready && offered) await keepOrganizeModel(offered);
+      return start;
+    },
+    allowOrganize: async (serviceId) => {
+      if (typeof serviceId !== "string" || serviceId === "")
+        throw new InvalidInputError({ key: "error.organize.invalid" });
+      const { start, offered } = await organizeNeeds();
+      if (start.ready || start.needs !== "consent" || start.declined) return start;
+      if (start.service.id !== serviceId) return start;
+      if (offered) await keepOrganizeModel(offered);
+      await allowOrganizeRead(start.service);
+      return (await organizeNeeds()).start;
+    },
+    stopOrganizeLibrary: async () => libraryOrganizer.stop(),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);
@@ -5931,6 +6801,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents: library.move(documentIds, folderId),
         conversations: conversations.move(conversationIds, folderId),
       }));
+      organizeReview.filedByHand(documentIds, folderId);
       // Said once it is saved, so a move that rolled back says nothing.
       const joined = move.minds.filter((item) => item.from !== folderId);
       if (joined.length > 0) mindsChanged();
@@ -5961,7 +6832,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
-        const document = documents.get(documentId);
+        const document = taggable(documentId);
         return { document, changed: tags.addToDocument(document.id, tagId) };
       });
       if (!changed) return document;
@@ -5980,7 +6851,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return updated;
     },
     addTagToDocuments: async (documentIds, tagId) =>
-      tagMany(documentIds, (id) => tags.addToDocument(id, tagId)),
+      tagMany(documentIds, (id) => tags.addToDocument(taggable(id).id, tagId)),
     removeTagFromDocuments: async (documentIds, tagId) =>
       tagMany(documentIds, (id) => tags.removeFromDocument(id, tagId)),
     listDocumentTagDecisions: async (documentIds) =>
@@ -6040,6 +6911,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagger.resume();
     },
     dismissAutomaticOffNotice: async () => library.dismissAutomaticOffNotice(),
+    reviewMovedSeen: async () => library.reviewMovedSeen(),
 
     getJevSettings: () => jev.status(),
     saveJevSettings: async (input) => {
@@ -6048,10 +6920,19 @@ export function createCore(adapters: CoreAdapters): Core {
       return jevChanged();
     },
     removeJevSettings: async () => {
+      await stopSortingWith((classifier) => classifier.kind === "jev");
       await jev.remove();
       return jevChanged();
     },
     testJevConnection: (input) => loggingTest("jev")(jev.test(input)),
+    listDecisionHosts: () => decisionHosts.list(),
+    setDecisionKey: async (input) => decisionsChanged(await decisionHosts.setKey(input)),
+    removeDecisionKey: async (host) => {
+      await stopSortingWith(
+        (classifier) => classifier.kind === "decision" && classifier.host === host,
+      );
+      return decisionsChanged(await decisionHosts.removeKey(host));
+    },
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {
@@ -6144,7 +7025,31 @@ export function createCore(adapters: CoreAdapters): Core {
       return restored;
     },
 
-    previewMindExport: async (mindId, options) => mindExports.preview(mindId, options),
+    previewMindExport: async (mindId, options, folder) => {
+      // The same saved choices the export itself uses: a plan the card shows must be the plan it writes.
+      const effective = {
+        ...optionsFor(options.format, settings.get().user.exportOptions),
+        ...options,
+      };
+      const preview = mindExports.preview(mindId, effective);
+      if (!folder) return preview;
+      // The ask names the files as this folder will take them: the next free name where one is taken.
+      const taken = new Set<string>();
+      const free = async (name: string) => {
+        const chosen = await freeFileName(folder, name, taken);
+        taken.add(chosen);
+        return chosen;
+      };
+      const fileName = await free(preview.fileName);
+      const pictures: string[] = [];
+      for (const name of preview.pictures) {
+        // A picture the folder already holds is linked, not written (#1937).
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes)))
+          continue;
+        pictures.push(await free(name));
+      }
+      return { ...preview, fileName, pictures };
+    },
     previewSharePage: (mindId, options) => mindExports.previewSharePage(mindId, options),
     setSharePageTextOnly: async (mindId, documentIds) => {
       if (!Array.isArray(documentIds) || documentIds.some((each) => typeof each !== "string")) {
@@ -6356,6 +7261,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const providers = await chat.list();
       const book = figureScheduleBook(schedule, {
         language: settings.get().language,
+        documents: documents.names(),
         modelName: (model) =>
           describeModel(providers, model.providerId, model.modelId)?.name ?? model.modelId,
       });
@@ -6370,6 +7276,20 @@ export function createCore(adapters: CoreAdapters): Core {
       const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.workbook(
         ref.mindId,
         ref.tableId,
+      );
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
+      return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
+    },
+    saveComparisonCsvExport: async (input) => {
+      const ref: Record<string, unknown> = isRecord(input) ? input : {};
+      const { fileName, data, unverifiedCitations, hiddenColumns } = comparisonExport.csv(
+        ref.mindId,
+        ref.tableId,
+        ref.documentIds,
       );
       const saved = await saveExport(
         fileName,
@@ -6422,6 +7342,13 @@ export function createCore(adapters: CoreAdapters): Core {
       await adapters.shell.openPath(path);
     },
     getMindStyle: async (mindId) => content.readSettings(minds.get(mindId).id, mindStyleOf),
+    getExportMarks: async (mindId) => content.readSettings(minds.get(mindId).id, exportMarksOf),
+    setExportMarks: async (mindId, marks) => {
+      if (!isExportMarks(marks)) throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      const mind = writableMind(mindId);
+      content.editSettings(mind.id, (mindSettings) => writeExportMarks(mindSettings, marks));
+      return content.readSettings(mind.id, exportMarksOf);
+    },
     getPageSetup: async (mindId) => {
       const mind = minds.get(mindId);
       const paper = systemPaper();
@@ -6442,7 +7369,43 @@ export function createCore(adapters: CoreAdapters): Core {
     listFileWriteRequests: async () => outputs.requests(),
     respondToFileWrite: (requestId, accept) => outputs.respond(requestId, accept),
 
+    getCalendars: async () => calendars.state(),
+    connectCalendar: (service) => calendars.connect(service),
+    cancelCalendarSignIn: () => calendars.cancelSignIn(),
+    disconnectCalendar: (accountId) => calendars.disconnect(accountId),
+    setCalendarCounted: (input) => calendars.setCounted(input),
+    syncCalendars: () => calendars.syncNow(),
+    listCalendarEvents: async (input) => calendars.list(input),
+    takeEventNotes: async (eventId) => calendars.takeNotes(eventId),
+    getNoteEvent: async (mindId) => calendars.noteEvent(mindId),
+    openCalendarSettings: () => calendars.openSettings(),
     listMeetings: async () => meetings.list(),
+    listJoinedMeetings: async () => joinedMeetings(db),
+    joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
+    undoMeetingJoin: async (id) => {
+      const { undone, moved } = db.transaction(() => {
+        const undone = undoMeetingJoin(db, id, now());
+        const moved =
+          undone.noteBackTo === undefined ? [] : minds.move([undone.mindId], undone.noteBackTo);
+        return { undone, moved };
+      });
+      if (moved.some((item) => item.from !== undone.noteBackTo)) {
+        mindsChanged();
+        if (undone.noteBackTo) checks.mindJoinedFolder(undone.mindId);
+      }
+      for (const document of documents.getMany(undone.documentIds)) {
+        events.emit("document.status", document);
+      }
+      library.moved(undone.documentIds);
+      const filedIn = db.all<{ group_id: string }>(
+        `SELECT DISTINCT group_id FROM document_groups
+         WHERE deleted_at IS NULL AND document_id IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(undone.documentIds)],
+      );
+      for (const row of filedIn) checks.folderContentsChanged(row.group_id);
+    },
+    listMeetingsLeftApart: async () => meetingsLeftApart(db),
+    meetingsLeftApartSaid: async (ids) => meetingsLeftApartSaid(db, ids, now()),
     createMeeting: async (input) => meetings.create(input),
     discardMeeting: async (meetingId) => meetings.discard(meetingId),
     startMeeting: async (input) => meetings.start(input),
@@ -6452,10 +7415,25 @@ export function createCore(adapters: CoreAdapters): Core {
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
+    followMeetingFillUndo: async (input) => {
+      const invalid = () => new InvalidInputError({ key: "error.meeting.fillUndo" });
+      if (!isRecord(input)) throw invalid();
+      const { id } = meetings.get(input.meetingId);
+      if (typeof input.undone !== "boolean") throw invalid();
+      return meetingFill.followUndo(id, input.undone);
+    },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    keepMeetingAudio: async (input) => meetings.keepAudio(input),
+    writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
+    readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
-    setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    setTranscriptionKey: async (input) => {
+      const listed = await cloudTranscription.setKey(input);
+      // A new key for the service a Meeting is sending to takes over from its next audio.
+      transcriptionGateChanged();
+      return listed;
+    },
     getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);
@@ -6465,8 +7443,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     removeTranscriptionKey: async (route) => {
       const listed = await cloudTranscription.removeKey(route);
-      transcriptionGateChanged();
+      const dropped = transcriptionGateChanged();
       settingsChanged();
+      await dropped;
       return listed;
     },
     openAudioSettings: (source) => meetings.openSettings(source),
@@ -6479,6 +7458,32 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetings.setTemplate(meetingId, template);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
+    getMeetingOffers: async () => meetingOffers.get(),
+    takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
+    declineMeetingOffer: async (input) => {
+      const offerId = isRecord(input) ? String(input.offerId) : "";
+      const always = isRecord(input) && input.always === true;
+      const app = meetingOffers.get().offer?.app;
+      if (meetingOffers.get().offer?.id !== offerId) return;
+      meetingOffers.decline(offerId, always);
+      const off = settings.get().device.callOffersOff;
+      if (!always || !app || off.includes(app)) return;
+      events.emit(
+        "settings.changed",
+        settings.update({ device: { callOffersOff: [...off, app] } }),
+      );
+    },
+    keepRecordingAfterCall: async (meetingId) =>
+      meetingOffers.keepRecording(meetings.get(meetingId).id),
+    getOpenAtLogin: async () => loginItemState(),
+    setOpenAtLogin: async (on) => {
+      const loginItem = adapters.loginItem;
+      if (!loginItem) throw new InvalidInputError({ key: "error.openAtLogin.unsupported" });
+      return loginItem.set(on === true);
+    },
+    openLoginItemSettings: async () => {
+      await adapters.loginItem?.openSettings();
+    },
 
     openDocumentFile: async (documentId) => {
       const file = await documents.openFile(documentId);
@@ -6540,7 +7545,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return unsaved.atEnd();
     },
-    systemAwake: () => meetings.awake(),
+    systemAwake: () => {
+      meetings.awake();
+      calendars.awake();
+    },
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),
     dataFlows: consent.registry,
@@ -6553,7 +7561,9 @@ export function createCore(adapters: CoreAdapters): Core {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
       // What a Meeting has captured is saved before anything else stops.
+      meetingOffers.close();
       meetings.close();
+      calendars.close();
       transcripts?.close();
       speakerModel?.close();
       // Notes being filled in are left as they were: the next start says so.
@@ -6573,7 +7583,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // the User's approval are denied, and Skill scripts running are stopped.
       answers.stopAll();
       void webSearch.close().catch((error: unknown) => console.error(error));
-      void pictureFetcher.close().catch((error: unknown) => console.error(error));
+      void publicFetcher.close().catch((error: unknown) => console.error(error));
       suggestions.stop();
       edits.stopAll();
       checks.stopAll();
@@ -6587,6 +7597,7 @@ export function createCore(adapters: CoreAdapters): Core {
       library.close();
       batches.close();
       skills.close();
+      modelSpend.close();
       stopTrackingUsage();
       consent.close();
       outputs.close();

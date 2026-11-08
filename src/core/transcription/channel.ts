@@ -6,15 +6,16 @@
  *
  * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
  * { type: "words", stream, words }, { type: "audio", stream, samples },
- * { type: "finish", id, stream } and { type: "drop", stream }. The other end
- * answers a load or a finish with { type: "done", id } or { type: "error", id,
+ * { type: "finish", id, stream }, { type: "drop", stream } and
+ * { type: "dropCloud", id, streams }. The other end answers a load, a finish or
+ * a dropCloud with { type: "done", id } or { type: "error", id,
  * message }, and reports { type: "segment", segment }, { type: "progress",
  * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
  * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
  * they happen.
  *
- * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
- * process: OpenAI's live model needs Silero VAD, which runs here.
+ * A stream opened with a cloud service (#141, #866) goes to it instead of the engine, from the
+ * same process: OpenAI's live model needs Silero VAD, which runs here.
  */
 import type {
   CloudLoss,
@@ -25,11 +26,18 @@ import type {
   TranscriberListener,
   TranscriptionModelFiles,
 } from "../adapters";
+import { createAssemblyAiStream } from "./cloud/assemblyai";
+import { createDeepgramStream } from "./cloud/deepgram";
+import { createElevenLabsStream } from "./cloud/elevenlabs";
+import { createGeminiStream } from "./cloud/gemini";
+import { createGladiaStream } from "./cloud/gladia";
 import { createOpenAiStream } from "./cloud/openai";
 import { createQwenStream } from "./cloud/qwen";
 import type { CloudConnect } from "./cloud/socket";
 import { createSonioxStream } from "./cloud/soniox";
+import { createSpeechmaticsStream } from "./cloud/speechmatics";
 import type { CloudStreamHandle } from "./cloud/stream";
+import { createXaiStream } from "./cloud/xai";
 import {
   createSpeechHost,
   type SpeechEngine,
@@ -44,7 +52,8 @@ export type TranscriberRequest =
   | { type: "words"; stream: string; words: readonly string[] }
   | { type: "audio"; stream: string; samples: Int16Array }
   | { type: "finish"; id: number; stream: string }
-  | { type: "drop"; stream: string };
+  | { type: "drop"; stream: string }
+  | { type: "dropCloud"; id: number; streams: readonly string[] };
 
 export type TranscriberResponse =
   | { type: "done"; id: number }
@@ -56,23 +65,50 @@ export type TranscriberResponse =
   | { type: "lost"; stream: string; loss: CloudLoss }
   | { type: "opened"; stream: string };
 
-/** A running process that serves the engine, as the side that sends requests sees it. */
+/**
+ * A running process that serves the engine, as the side that sends requests sees it. Its exit code
+ * 0 is the process's word for an idle unload, never a crash: a host's own exit must use another
+ * code, and a signal (null) is a crash or a stop too.
+ */
 export interface TranscriberChannel {
   send(request: TranscriberRequest): void;
   onResponse(listener: (response: TranscriberResponse) => void): void;
-  /** It stopped: crashed, ran out of memory, or was stopped. */
+  /** It stopped: crashed, ran out of memory, was stopped, or ended its engine idle with code 0 (#2673). */
   onExit(listener: (code: number | null) => void): void;
   stop(): void;
 }
 
 type Pending = { resolve(): void; reject(error: Error): void };
 
+/** A request the idle unload ended before the process answered it (#2673). */
+class IdleUnloadError extends Error {}
+
+/**
+ * How long the process has to confirm it dropped cloud streams before it is stopped (#2702). The
+ * confirm is one message each way and a socket's close, which waits on no network. On a loaded CI
+ * machine a few turns of the event loop once took over 300 ms, so this allows several times
+ * that, and still keeps a User who said no waiting only briefly.
+ */
+const DROP_CONFIRM_MS = 2000;
+
+/** Calls `late` once a confirm is overdue; what it returns calls that off. */
+export type ConfirmDeadline = (late: () => void) => () => void;
+
+const confirmWithin: ConfirmDeadline = (late) => {
+  const timer = setTimeout(late, DROP_CONFIRM_MS);
+  return () => clearTimeout(timer);
+};
+
 /**
  * The core's `Transcriber`, backed by a channel that `start` opens on the
  * first `load`. If the channel stops by itself, pending requests fail, the
- * listeners hear it, and the next `load` opens a new one.
+ * listeners hear it, and the next `load` opens a new one. A channel that
+ * doesn't confirm a `dropCloud` by `deadline` is stopped the same way.
  */
-export function createChannelTranscriber(start: () => TranscriberChannel): Transcriber {
+export function createChannelTranscriber(
+  start: () => TranscriberChannel,
+  deadline: ConfirmDeadline = confirmWithin,
+): Transcriber {
   let channel: TranscriberChannel | undefined;
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
@@ -117,17 +153,33 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       }
     });
     started.onExit((code) => {
-      if (channel !== started) return;
-      channel = undefined;
-      loadedKey = undefined;
-      clouds.clear();
-      const reason = `The transcription process stopped (exit code ${code}).`;
-      const error = new Error(reason);
-      for (const waiting of pending.values()) waiting.reject(error);
-      pending.clear();
-      for (const listener of listeners) listener.stopped(reason);
+      if (code === 0) unloaded(started);
+      else gone(started, `The transcription process stopped (exit code ${code}).`);
     });
     return started;
+  }
+
+  function gone(started: TranscriberChannel, reason: string): void {
+    if (channel !== started) return;
+    channel = undefined;
+    loadedKey = undefined;
+    clouds.clear();
+    const error = new Error(reason);
+    for (const waiting of pending.values()) waiting.reject(error);
+    pending.clear();
+    for (const listener of listeners) listener.stopped(reason);
+  }
+
+  /** The process ended its work on purpose: its engine was idle (#2673), which is not a crash. */
+  function unloaded(started: TranscriberChannel): void {
+    if (channel !== started) return;
+    channel = undefined;
+    loadedKey = undefined;
+    clouds.clear();
+    const error = new IdleUnloadError("The transcription process unloaded its models while idle.");
+    for (const waiting of pending.values()) waiting.reject(error);
+    pending.clear();
+    for (const listener of listeners) listener.unloaded();
   }
 
   function request(
@@ -145,9 +197,16 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
   return {
     async load(model) {
       const key = JSON.stringify(model);
-      if (channel && loadedKey === key) return;
+      // Always ask, even for the files the process runs: the ask tells it a Meeting needs the
+      // engine, so an idle unload waits (#2673), and it answers at once when they are loaded.
       if (loading?.key !== key) {
         const done = request({ type: "load", model })
+          // The process may end idle between this ask leaving and its answer: the engine it named
+          // never heard it, so it is asked once more, of the process the ask starts (#2673).
+          .catch((error: unknown) => {
+            if (!(error instanceof IdleUnloadError)) throw error;
+            return request({ type: "load", model });
+          })
           .then(() => {
             loadedKey = key;
           })
@@ -188,6 +247,30 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
       channel?.send({ type: "drop", stream });
     },
 
+    dropCloud(streams) {
+      for (const stream of streams) clouds.delete(stream);
+      const target = channel;
+      if (!target || streams.length === 0) return Promise.resolve();
+      const id = nextId++;
+      return new Promise<void>((resolve) => {
+        const cancel = deadline(() => {
+          pending.delete(id);
+          gone(
+            target,
+            "The transcription process didn't confirm in time that it dropped its cloud streams, so it was stopped.",
+          );
+          target.stop();
+          resolve();
+        });
+        const settle = () => {
+          cancel();
+          resolve();
+        };
+        pending.set(id, { resolve: settle, reject: settle });
+        target.send({ type: "dropCloud", id, streams });
+      });
+    },
+
     listen(listener) {
       listeners.push(listener);
     },
@@ -202,9 +285,28 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
   };
 }
 
+/**
+ * How long the engine and its models stay loaded once the last stream is finished (#2673): a
+ * Meeting saved and left alone gives the computer its memory back. The next Meeting loads them
+ * again, its audio waiting meanwhile as it does while the engine starts.
+ */
+const IDLE_UNLOAD_MS = 5 * 60_000;
+
+export interface ServingOptions {
+  /** The idle wait, for tests that would not wait minutes. */
+  idleMs?: number;
+  /**
+   * Called once the engine is closed and forgotten: the app ends its process here, which is what
+   * frees the native models a closed recognizer still holds.
+   */
+  unloaded?(): void;
+}
+
 /** What the serving end needs for streams that go to a cloud service. */
 export interface CloudServing {
   connect: CloudConnect;
+  /** For the requests a service needs before its socket: Gladia's session. */
+  fetch: typeof fetch;
   /** Silero VAD from its file, for OpenAI's turns. */
   detectors(vadFile: string): Promise<() => VoiceDetector>;
 }
@@ -217,15 +319,20 @@ export interface TranscriberPort {
 
 /**
  * Serves an engine over `port`: `createEngine` loads one for the files a
- * load names, and a load of other files replaces it.
+ * load names, and a load of other files replaces it. With no stream open for
+ * `IDLE_UNLOAD_MS`, the engine is closed, and `unloaded` hears it.
  */
 export function serveTranscriber(
   createEngine: (model: TranscriptionModelFiles) => Promise<SpeechEngine>,
   port: TranscriberPort,
   cloud?: CloudServing,
+  serving: ServingOptions = {},
 ): void {
   let host: SpeechHost | undefined;
   let loadedKey: string | undefined;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  /** Cloud streams open now: the idle unload must not end one, nor the process serving it. */
+  const cloudOpen = new Set<string>();
   /** Loads run one after the other; audio waits for the load before it. */
   let ready: Promise<void> = Promise.resolve();
   const report = {
@@ -240,14 +347,73 @@ export function serveTranscriber(
     failed: (stream: string, message: string) => port.respond({ type: "failed", stream, message }),
   };
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+  function cancelIdle(): void {
+    if (idle !== undefined) clearTimeout(idle);
+    idle = undefined;
+  }
+
+  /** An idle engine, a cloud stream with none: the wait to unload starts again. */
+  function maybeIdle(): void {
+    cancelIdle();
+    if (!host?.idle() || cloudOpen.size > 0) return;
+    idle = setTimeout(unload, serving.idleMs ?? IDLE_UNLOAD_MS);
+    idle.unref();
+  }
+
+  function unload(): void {
+    idle = undefined;
+    if (!host?.idle() || cloudOpen.size > 0) return;
+    host.close();
+    host = undefined;
+    loadedKey = undefined;
+    serving.unloaded?.();
+  }
+
   /** Cloud streams, each once its connection is made: requests for one wait for it, in order. */
   const clouds = new Map<string, Promise<CloudStreamHandle | null>>();
+  /**
+   * What came for a cloud stream before it was made: one that ended with no audio (stopped
+   * while OpenAI's voice detector loads) is never connected, so the key goes nowhere (#866).
+   */
+  const before = new Map<string, { audio: boolean; ended: boolean }>();
   const detectors = new Map<string, Promise<() => VoiceDetector>>();
+  /**
+   * Cloud audio received and not sent yet, by stream. It goes on a later turn, so a drop that
+   * arrives with it is handled first and none of it is sent (#2702).
+   */
+  const outbox = new Map<string, Int16Array[]>();
+  let sendQueued = false;
+
+  function sendHeld(stream: string): void {
+    const audio = outbox.get(stream);
+    outbox.delete(stream);
+    const handle = clouds.get(stream);
+    if (!audio || !handle) return;
+    void handle.then((each) => {
+      for (const samples of audio) each?.push(samples);
+    });
+  }
+
+  /** Forgets a cloud stream and its audio not sent: resolves once its socket is closed. */
+  function forgetCloud(stream: string): Promise<void> {
+    outbox.delete(stream);
+    const handle = clouds.get(stream);
+    clouds.delete(stream);
+    const early = before.get(stream);
+    if (early) early.ended = true;
+    const closed = handle ? handle.then((each) => each?.drop()) : Promise.resolve();
+    // One still being made, as while OpenAI's voice detector loads, sees `ended` and never
+    // connects: the confirm doesn't wait for it.
+    return early ? Promise.resolve() : closed;
+  }
 
   async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
     const lost = (loss: CloudLoss) => {
       clouds.delete(stream);
+      cloudOpen.delete(stream);
       port.respond({ type: "lost", stream, loss });
+      maybeIdle();
     };
     if (!cloud) {
       lost("dropped");
@@ -266,8 +432,26 @@ export function serveTranscriber(
       connect: cloud.connect,
       report: streamReport,
     };
-    if (config.service === "soniox") return createSonioxStream(options);
-    if (config.service === "qwen") return createQwenStream({ ...options, url: config.url });
+    switch (config.service) {
+      case "soniox":
+        return createSonioxStream(options);
+      case "qwen":
+        return createQwenStream({ ...options, url: config.url });
+      case "deepgram":
+        return createDeepgramStream({ ...options, url: config.url });
+      case "assemblyai":
+        return createAssemblyAiStream(options);
+      case "gemini":
+        return createGeminiStream(options);
+      case "elevenlabs":
+        return createElevenLabsStream(options);
+      case "speechmatics":
+        return createSpeechmaticsStream(options);
+      case "gladia":
+        return createGladiaStream({ ...options, languages: config.languages, fetch: cloud.fetch });
+      case "xai":
+        return createXaiStream(options);
+    }
     try {
       let made = detectors.get(config.vad);
       if (!made) {
@@ -275,7 +459,9 @@ export function serveTranscriber(
         detectors.set(config.vad, made);
         made.catch(() => detectors.delete(config.vad));
       }
-      return createOpenAiStream({ ...options, detector: (await made)() });
+      const detector = (await made)();
+      if (before.get(stream)?.ended) return null;
+      return createOpenAiStream({ ...options, detector });
     } catch (error) {
       // The process has no logger of its own: its output goes to the app's log.
       console.error("Silero VAD couldn't load for a cloud stream:", messageOf(error));
@@ -285,27 +471,59 @@ export function serveTranscriber(
   }
 
   port.onRequest((request) => {
+    cancelIdle();
     const handle = "stream" in request ? clouds.get(request.stream) : undefined;
     if (handle) {
+      const early = "stream" in request ? before.get(request.stream) : undefined;
       switch (request.type) {
-        case "audio":
-          void handle.then((each) => each?.push(request.samples));
+        case "audio": {
+          if (early) early.audio = true;
+          const audio = outbox.get(request.stream);
+          if (audio) audio.push(request.samples);
+          else outbox.set(request.stream, [request.samples]);
+          if (!sendQueued) {
+            sendQueued = true;
+            setTimeout(() => {
+              sendQueued = false;
+              for (const stream of [...outbox.keys()]) sendHeld(stream);
+            }, 0);
+          }
           return;
+        }
         case "finish":
+          if (early && !early.audio) early.ended = true;
+          sendHeld(request.stream);
           void handle
             .then((each) => each?.finish())
-            .then(() => port.respond({ type: "done", id: request.id }));
+            .then(() => port.respond({ type: "done", id: request.id }))
+            .finally(() => {
+              cloudOpen.delete(request.stream);
+              maybeIdle();
+            });
           return;
         case "drop":
-          clouds.delete(request.stream);
-          void handle.then((each) => each?.drop());
+          cloudOpen.delete(request.stream);
+          void forgetCloud(request.stream).finally(maybeIdle);
           return;
       }
     }
     switch (request.type) {
-      case "open":
-        clouds.set(request.stream, openCloud(request.stream, request.cloud));
+      case "dropCloud":
+        for (const stream of request.streams) cloudOpen.delete(stream);
+        void Promise.all(request.streams.map(forgetCloud))
+          .then(() => port.respond({ type: "done", id: request.id }))
+          .finally(maybeIdle);
         return;
+      case "open": {
+        const { stream } = request;
+        cloudOpen.add(stream);
+        before.set(stream, { audio: false, ended: false });
+        const made = openCloud(stream, request.cloud);
+        clouds.set(stream, made);
+        const forget = () => before.delete(stream);
+        void made.then(forget, forget);
+        return;
+      }
       case "load":
         ready = ready.then(async () => {
           try {
@@ -314,10 +532,15 @@ export function serveTranscriber(
               host?.close();
               host = undefined;
               loadedKey = undefined;
-              host = createSpeechHost(await createEngine(request.model), report);
+              host = createSpeechHost(await createEngine(request.model), report, {
+                onIdle: maybeIdle,
+              });
               loadedKey = key;
             }
             port.respond({ type: "done", id: request.id });
+            // A Meeting that never sends audio would otherwise keep the engine: no host event
+            // follows this load to start the wait again.
+            maybeIdle();
           } catch (error) {
             port.respond({ type: "error", id: request.id, message: messageOf(error) });
           }
@@ -344,7 +567,11 @@ export function serveTranscriber(
         });
         return;
       case "drop":
-        void ready.then(() => host?.drop(request.stream));
+        void ready.then(() => {
+          host?.drop(request.stream);
+          // A stream that finished already leaves the host unchanged, and with it no idle event.
+          maybeIdle();
+        });
         return;
     }
   });

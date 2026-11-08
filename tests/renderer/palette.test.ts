@@ -186,6 +186,41 @@ describe("an open card's own actions in ⌘K", () => {
   });
 });
 
+describe("⌘K's names and actions, in the order Enter takes them", () => {
+  const item = (name: string): Palette.PaletteItem => ({
+    kind: "command",
+    id: "check.againstDocuments",
+    key: `command:${name}`,
+    name,
+    meta: "",
+    purpose: "",
+    shortcut: null,
+    ranges: [],
+  });
+  const group = (id: string, names: string[]): Palette.PaletteGroup => ({
+    id,
+    title: "palette.group.actions",
+    items: names.map(item),
+  });
+  const first = (query: string, names: string[], actions: string[]) =>
+    palette.rankedNamesAndActions(
+      [group("minds", names)],
+      [group("actions", actions)],
+      palette.readQuery(query).words,
+    )[0]?.id;
+
+  // protects=⌘K's Enter runs Check with "check" typed beside a Note named "Checking: …" (#2771); fails_when=the Note's name, which only starts with the letters, is listed before the command.
+  test("a command that matches the words more closely than a Note is listed first", () => {
+    expect(
+      first("check", ["Checking: Estuary memo from a colleague"], ["Check against Documents"]),
+    ).toBe("actions");
+  });
+
+  test("a Note that is the words typed keeps its place above a command that only starts with them", () => {
+    expect(first("check", ["Check"], ["Check against Documents"])).toBe("minds");
+  });
+});
+
 describe("⌘K's actions", () => {
   const actions = (query: string, language: "en" | "zh-CN" = "en") =>
     shown(
@@ -199,7 +234,17 @@ describe("⌘K's actions", () => {
 
   test("are the registry's, found by their name or keywords in English or in Chinese", () => {
     expect(actions("settings models")).toEqual([["actions", ["Settings: Models"]]]);
-    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("new note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
     expect(actions("设置 模型")).toEqual([["actions", ["Settings: Models"]]]);
     expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
     expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
@@ -236,10 +281,30 @@ describe("⌘K's actions", () => {
 
   test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
     expect(actions("ew note")).toEqual([]);
-    expect(actions("theme")).toEqual([]);
-    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("thermal")).toEqual([]);
+    expect(actions("new note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
     // A typo of a word's start still finds the action.
-    expect(actions("neww note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("neww note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
   });
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {

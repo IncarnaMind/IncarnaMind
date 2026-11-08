@@ -1,13 +1,13 @@
 import type { ProviderError } from "../../core/api";
-import type { ErrorWording } from "../../core/errors";
+import { type ErrorWording, TranslatableError } from "../../core/errors";
 import { takeWording } from "../../shared/errorWording";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { systemReason } from "../../shared/systemReasons";
 
 /**
  * What a failure says, split four ways: the core's own sentence, its wording for the interface
- * language, plain words when the sentence is the system's code, and the technical text for a
- * "Details" disclosure.
+ * language, plain words when the sentence is the system's code, and what was being done, for the
+ * plain words of a notice's "Details" (`errorDetails`).
  */
 export interface ErrorDescription {
   /** The sentence the error carries, without Electron's wrapping, its class name or a stack. */
@@ -17,10 +17,15 @@ export interface ErrorDescription {
   /** Plain words, in the dictionary, for a failure of the system's (a full disk, a name too long). */
   reason: MessageKey | null;
   /**
-   * The core method that failed, the error's class and its sentence, for the Details of a notice.
-   * Never Electron's wrapping or a stack: they say nothing the User or a bug report can use.
+   * The core call that failed ("renameDocument"), for saying what was tried in words
+   * (`errorDoing`); null for a failure that never crossed the bridge. Never shown as it is.
    */
-  detail: string;
+  call: string | null;
+  /**
+   * The call, the error's class, its sentence and its cause, for the log, never the screen: a
+   * method's or a class's name says nothing to the User.
+   */
+  log: string;
 }
 
 /**
@@ -42,9 +47,14 @@ export function describeError(error: unknown): ErrorDescription {
   const inner = wrapped ? (wrapped[2] ?? "") : text;
   const named = CLASS_NAME.exec(inner);
   const className = named ? named[1] : error instanceof Error ? error.name : null;
-  const { sentence, wording } = takeWording(named ? (named[2] ?? "") : inner);
+  const taken = takeWording(named ? (named[2] ?? "") : inner);
+  const { sentence } = taken;
+  // One thrown in this window never crossed from the main process, so its wording is still on it.
+  const wording =
+    error instanceof TranslatableError && error.wording ? error.wording : taken.wording;
   const message = sentence.replace(STACK_FROM, "").trim();
   const reason = systemReason(message);
+  const call = /^core:(\w+)$/.exec(wrapped?.[1] ?? "")?.[1] ?? null;
   const said = `${className || "Error"}: ${message}`;
   const cause =
     error instanceof Error && error.cause !== undefined
@@ -54,7 +64,8 @@ export function describeError(error: unknown): ErrorDescription {
     message,
     wording,
     reason,
-    detail: (wrapped?.[1] ? `${wrapped[1]}\n${said}` : said) + cause,
+    call,
+    log: (wrapped?.[1] ? `${wrapped[1]}\n${said}` : said) + cause,
   };
 }
 

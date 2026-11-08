@@ -58,7 +58,7 @@ const target = (shown: string, offset: number): CheckFigure => {
 const FIGURES_REPLY = `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({
   items: [
     {
-      id: "f1",
+      id: "F1",
       verdict: "supported",
       scope: "same",
       topic: "found",

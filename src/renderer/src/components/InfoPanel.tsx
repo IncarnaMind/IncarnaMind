@@ -18,7 +18,6 @@ import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { missingFonts, useFontLoads } from "../editor/wordFonts";
-import { providerErrorText } from "../errors";
 import { addedDate, documentSummary, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
@@ -30,8 +29,10 @@ import {
   linkedFolderRowState,
   rowStateLabel,
 } from "../linkedFolders";
+import { noteOf } from "../meetingTranscript";
 import { type Box, enterFrom, useExitToward } from "../motion";
 import { useNotices } from "../notices";
+import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { scanningStatus } from "../scanStatus";
 import { useAppStore } from "../store";
 import { chipsOf } from "../tagEditing";
@@ -305,6 +306,9 @@ function DocumentInfo({ document }: { document: Document }) {
     "scan-images",
     assignment?.error?.wording?.key === "error.library.scanImagesOff",
   );
+  const organizeService = useTaggingService("classification", Boolean(assignment?.error));
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const scanImagesToAllow =
     scanImages.route.where === "cloud" && scanImages.allowed === false
       ? scanImages.route.service
@@ -318,6 +322,7 @@ function DocumentInfo({ document }: { document: Document }) {
   const importedAs = useAppStore((state) =>
     document.importedAs ? state.minds.find((each) => each.id === document.importedAs) : undefined,
   );
+  const meetingNote = useAppStore((state) => noteOf(document, state.minds));
   const units = useUnitCount(document);
   const missing = useMissingFonts(importedAs?.id);
   const chips = chipsOf(document.tags, tags);
@@ -343,6 +348,19 @@ function DocumentInfo({ document }: { document: Document }) {
         {document.web ? (
           <Row label={t("info.address")} testId="info-address">
             {document.web.address}
+          </Row>
+        ) : meetingNote ? (
+          // A Meeting's Transcript has no place of its own: it is its Note's (#2528).
+          <Row label={t("info.mind")} testId="info-meeting-note">
+            <button
+              type="button"
+              data-testid="info-open-meeting-note"
+              title={t("document.openMind")}
+              onClick={() => useAppStore.getState().openMind(meetingNote.id)}
+              className="rounded-sm text-left text-accent underline-offset-2 hover:underline"
+            >
+              {mindName(meetingNote) || t("mind.untitled")}
+            </button>
           </Row>
         ) : (
           <Row label={t("info.where")} testId="info-path">
@@ -426,30 +444,38 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">{document.failure.message}</span>
           )}
         </Row>
-        <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
-          {t(organizeState(document, assignment))}
-          {assignment?.model && (
-            <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
-          )}
-          {assignment?.error && (
-            <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
-          )}
-          {scanImagesToAllow && (
-            <button
-              type="button"
-              data-testid="info-allow-page-images"
-              onClick={() =>
-                void core
-                  .allowDataFlow("scan-images", scanImagesToAllow.id)
-                  .then(() => organizeRow.current?.focus())
-                  .catch((error: unknown) => useAppStore.getState().reportError(error))
-              }
-              className={`${buttonClass} mt-1.5`}
-            >
-              {t("scan.images.allow")}
-            </button>
-          )}
-        </Row>
+        {/* Organize never files a meeting's Transcript: its Note is its place (#2528). */}
+        {!meetingNote && (
+          <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
+            {t(organizeState(document, assignment))}
+            {assignment?.model && (
+              <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
+            )}
+            {assignment?.error && (
+              <span className="block text-ink-meta">
+                {assignment.error.wording
+                  ? t(assignment.error.wording.key, assignment.error.wording.values)
+                  : reviewReason(reviewProblemKind(assignment.error.kind), organizeServiceName, t)
+                      .title}
+              </span>
+            )}
+            {scanImagesToAllow && (
+              <button
+                type="button"
+                data-testid="info-allow-page-images"
+                onClick={() =>
+                  void core
+                    .allowDataFlow("scan-images", scanImagesToAllow.id)
+                    .then(() => organizeRow.current?.focus())
+                    .catch((error: unknown) => useAppStore.getState().reportError(error))
+                }
+                className={`${buttonClass} mt-1.5`}
+              >
+                {t("scan.images.allow")}
+              </button>
+            )}
+          </Row>
+        )}
       </Rows>
       {file && (
         <Actions

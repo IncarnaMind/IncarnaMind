@@ -15,6 +15,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type ClaimCheckAttributes,
   type ClaimCheckPart,
   type ClaimPartSpan,
   type DocumentCheckPlan,
@@ -23,7 +24,7 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { quotedWordsFoundIn } from "../../shared/citations";
+import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -31,7 +32,7 @@ import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChec
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
-import { resolveProposalsIn } from "./editWithAi";
+import { noteBusy, resolveProposalsIn, useEdits } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
 
 /** Why a check gave no marks, or what it left out, for the check badge's card. */
@@ -98,6 +99,8 @@ interface ChecksState {
    * than in the card, which draws the question in a view of its own.
    */
   documentAsk: Readonly<Record<string, { within: SearchScope; plan: DocumentCheckPlan }>>;
+  /** By Mind: the sentence check whose rewrite with what the Documents say the model works on (#1554). */
+  rewriting: Readonly<Record<string, string>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -110,6 +113,7 @@ export const useChecks = create<ChecksState>()(() => ({
   pickDocument: {},
   documentProgress: {},
   documentAsk: {},
+  rewriting: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -144,6 +148,9 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+export const setRewriting = (mindId: string, checkId: string | null) =>
+  setFor("rewriting", mindId, checkId);
 
 /** Asks the claim's card to read `within` again: it sizes the read and asks before reading. */
 export const requestDocumentRead = (id: string, within: SearchScope) =>
@@ -244,6 +251,11 @@ export async function checkSentences(
       ? "check-against-documents"
       : asked;
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
+  // A rewrite writes its reply only into a Note nothing else started on meanwhile.
+  if (useChecks.getState().rewriting[mindId]) {
+    noteBusy(mindId);
+    return;
+  }
   const stretches = (ranges ?? [editor.state.selection]).flatMap((range) => {
     const read = selectionForEdit(editor.state, range);
     return read ? [read] : [];
@@ -377,6 +389,40 @@ export function acceptAndCheck(
   });
 }
 
+/** Whether no edit, check or rewrite is running in the Mind, so one of its fixes can change it. */
+export const fixesFree = (mindId: string): boolean => {
+  const checks = useChecks.getState();
+  return (
+    !useEdits.getState().pending[mindId] && !checks.running[mindId] && !checks.rewriting[mindId]
+  );
+};
+
+/**
+ * Puts back the check a fix took the sentence's mark from, once Undo has brought its words back:
+ * every check over the sentence goes, as the re-check's may run past where the earlier one ended.
+ */
+export function restoreCheck(
+  editor: Editor,
+  claim: ShownClaim,
+  earlier: ClaimCheckAttributes,
+): void {
+  if (editor.isDestroyed) return;
+  const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
+  if (!type) return;
+  const from = Math.max(0, Math.min(claim.from, claim.sentence.from));
+  const to = Math.min(editor.state.doc.content.size, Math.max(claim.to, claim.sentence.to));
+  if (from >= to) return;
+  const tr = editor.state.tr;
+  editor.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return true;
+    if (node.marks.some((mark) => mark.type === type))
+      tr.removeMark(Math.max(from, pos), Math.min(to, pos + node.nodeSize), type);
+    return true;
+  });
+  tr.addMark(from, to, type.create({ ...earlier })).setMeta("addToHistory", false);
+  editor.view.dispatch(tr);
+}
+
 /** Stops the Mind's check: the sentences not checked yet say "stopped". */
 export function stopCheck(mindId: string): void {
   const running = useChecks.getState().running[mindId];
@@ -410,8 +456,26 @@ export function checkAgain(
     mindId,
     doc,
     action === "check-against-document" ? "check-against-documents" : action,
-    { ranges: [{ from: claim.from, to: claim.to }], allDocuments },
+    {
+      ranges: waitsForConsent(claim)
+        ? waitingWith(editor, claim)
+        : [{ from: claim.from, to: claim.to }],
+      allDocuments,
+    },
   );
+}
+
+const waitsForConsent = ({ check }: Pick<ShownClaim, "check">) =>
+  check.state === "not-checked" && check.reason === "consent-widened";
+
+/**
+ * The sentences of the write `claim` is in that wait, as it does, for the User to allow what
+ * checks send now: once they allow it, the write is checked whole (#2525).
+ */
+function waitingWith(editor: Editor, claim: ShownClaim): { from: number; to: number }[] {
+  return claimSpans(editor.state.doc)
+    .filter((each) => each.check.request === claim.check.request && waitsForConsent(each))
+    .map(({ from, to }) => ({ from, to }));
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */
@@ -432,12 +496,18 @@ export const citationClosingLength = (words: string): number =>
  * Citation's own check stands for it now. One step for ⌘Z. Only when the card
  * offers it, so a sentence already citing those words gets no second Citation.
  */
-export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
+export function addAsCitation(
+  editor: Editor,
+  claim: ShownClaim,
+  onPage?: QuotedWordsOnPage,
+): boolean {
   const evidence = claim.check.evidence;
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
   const mark = state.schema.marks[CLAIM_CHECK_MARK];
-  if (!evidence || !type || !mark || citationDecision(state, claim).kind !== "add") return false;
+  if (!evidence || !type || !mark || citationDecision(state, claim, onPage).kind !== "add") {
+    return false;
+  }
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = citationClosingLength(words);
   const at = claim.sentence.to - closing;
@@ -459,6 +529,7 @@ export function addPartCitations(
   editor: Editor,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
 ): "added" | "nothing" | "changed" {
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
@@ -467,7 +538,7 @@ export function addPartCitations(
   const inserts: { at: number; citations: CitationAttributes[] }[] = [];
   for (const part of parts) {
     // A Passage cited after one part is already cited for the next, as a second add would find.
-    const citations = partDecisions(state, claim, part).flatMap(({ evidence, decision }) =>
+    const citations = partDecisions(state, claim, part, onPage).flatMap(({ evidence, decision }) =>
       decision.kind === "add" &&
       !added.some(
         (each) => each.documentId === evidence.documentId && overlapsCitation(each, evidence),
@@ -539,21 +610,23 @@ export function widenCitation(
 
 /**
  * Points the sentence's Citation that doesn't hold at the Passage the check
- * found instead, again in place (#1620). Only that Passage's quote was
- * checked: it must hold the words the sentence put in quotation marks for the
- * Citation to be found, and those words stay on it for the core's re-check.
- * The old verdict described the old quote, so it goes.
+ * found instead, again in place (#1620). The words the sentence put in
+ * quotation marks must be on that Passage's page for the Citation to be found
+ * (`quotedWordsAt`), and they stay on it for the core's re-check. The old
+ * verdict described the old quote, so it goes.
  */
 export function replaceCitation(
   editor: Editor,
   { citation, evidence }: { citation: NumberedCitation; evidence: CitationAttributes },
+  onPage?: QuotedWordsOnPage,
 ): boolean {
-  if (!quotedWordsFoundIn(evidence.quote ?? "", citation.attributes.quotedWords)) return false;
+  if (!quotedWordsAt(citation.attributes.quotedWords, evidence, onPage)) return false;
   return rewriteCitation(editor, citation, {
     ...evidence,
     check: "found",
     checkReason: null,
     verdict: evidence.verdict ?? null,
-    quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
+    // The words not found stay for the core's re-check; a next page they ran on to was the old quote's.
+    quotedWords: evidence.quotedWords ?? parseQuotedWords(citation.attributes.quotedWords),
   });
 }

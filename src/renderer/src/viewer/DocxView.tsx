@@ -2,9 +2,12 @@ import { renderAsync } from "docx-preview";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { type DocxResult, extractDocx } from "../../../core/documents/formats/docx";
+import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { ProblemMark } from "../components/ProblemLine";
-import { useT } from "../i18n";
+import { translateNow, useT } from "../i18n";
 import type { ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea, useCitedAreaFailure } from "./citedArea";
 import {
   type DocxComment,
@@ -14,7 +17,7 @@ import {
   placeComments,
   takeComments,
 } from "./docxPages";
-import { markQuote, textNodes, unmarkQuote } from "./domQuote";
+import { markQuote, quoteNodesIn, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
 import { mapOfficeFontNames } from "./officeFontNames";
@@ -93,7 +96,7 @@ export function DocxView({ document, target }: { document: Document; target: Vie
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <DocxPages loaded={value} target={target} />}
+      ready={(value) => <DocxPages document={document} loaded={value} target={target} />}
     />
   );
 }
@@ -120,7 +123,15 @@ interface MarkPlace {
   room: number;
 }
 
-function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget }) {
+function DocxPages({
+  document,
+  loaded,
+  target,
+}: {
+  document: Document;
+  loaded: Loaded;
+  target: ViewerTarget;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -235,7 +246,10 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
     placeComments(wrapper, comments.current, zoom);
   }, [rendered, zoom]);
 
-  /** The heading elements docx-preview drew, in order: those with text, as the outline lists them. */
+  /**
+   * The heading elements docx-preview drew, in order: those with text, as the outline lists them,
+   * and none inside a table, which the core reads as body text (#2810).
+   */
   const headingElements = useCallback((): HTMLElement[] => {
     const body = host.current;
     if (!body || docx.headingStyles.length === 0) return [];
@@ -243,7 +257,7 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
       .map((id) => `section.${CLASS_NAME} > article p.${CSS.escape(styleClass(id))}`)
       .join(",");
     return [...body.querySelectorAll<HTMLElement>(selector)].filter(
-      (element) => (element.textContent ?? "").trim() !== "",
+      (element) => (element.textContent ?? "").trim() !== "" && element.closest("table") === null,
     );
   }, [docx]);
 
@@ -334,12 +348,7 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
       const find = () =>
         target.pageFrom === undefined
           ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
-          : ((section &&
-              markQuote(
-                textNodes(body, section.range).filter((node) => node.parentElement?.closest(place)),
-                quote,
-              )) ??
-            inNotes(anchoredInSection));
+          : (markQuote(quoteNodesIn(body, section, place), quote) ?? inNotes(anchoredInSection));
       found = find();
       if (!found) found = withoutFootnoteNumbers(body, find);
     }
@@ -363,6 +372,22 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
       container.scrollTop = Math.max(0, top - above);
     } else container.scrollTop = 0;
   }, [rendered, citedSection, target.request, target.quote, target.wordPlace, placed]);
+
+  // The Document's highlights (#327), after the Citation's wash, so both read.
+  const stored = useDocumentAnnotations(document.id);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(document.id);
+  }, [loadAnnotations, document.id]);
+  useEffect(() => {
+    const body = host.current;
+    if (!body || rendered !== "yes") return;
+    unmarkAnnotationsInDom(body);
+    markAnnotationsInDom(body, highlightsOf(stored), (annotation) =>
+      translateNow(annotation.note === null ? "annotations.addNote" : "annotations.menu.editNote"),
+    );
+    return () => unmarkAnnotationsInDom(body);
+  }, [rendered, stored]);
 
   // The Citation's mark: in the page's right margin, level with the quote's first line; for a
   // quote in a comment's note, in the margin between the page's text and the note (#76).
@@ -467,6 +492,11 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
           <div ref={content} className="relative">
             <div ref={styles} />
             <div ref={host} className="docx-view" style={{ zoom }} />
+            <AnnotationNoteLayer
+              container={scroller}
+              documentId={document.id}
+              annotations={stored ?? []}
+            />
             {mark && place && (
               <CitationMark
                 mark={mark}

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { describe, expect, test, vi } from "vitest";
@@ -24,12 +25,15 @@ import {
   createOnnxCrossEncoder,
   GPU_BATCH_SIZE,
   type PairSessionFactory,
+  pairEncoder,
   pairIds,
   type SessionDevice,
 } from "../../src/core/reranking/onnx";
+import { asCheckWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
+import { onnxModel } from "../helpers/onnxModels";
 
 const FILES = { model: "m.onnx", tokenizer: "t.json", tokenizerConfig: "c.json", maxTokens: 512 };
 
@@ -133,6 +137,48 @@ describe("A query and a Passage, as one pair of tokens", () => {
   });
 });
 
+describe("A Passage's tokens, kept between searches", () => {
+  // protects=a pair read with its text's tokens kept is exactly the pair read whole, cut the same way, and a text met again isn't read again (#2532); fails_when=a kept pair differs from pairIds, or a text a search met before is read again; no_claim=how fast reading is.
+  test("are read once, and give the pairs read whole", () => {
+    const tokenizer = tinyTokenizer();
+    const reads = vi.spyOn(tokenizer, "encode");
+    const pairs = pairEncoder(tokenizer, 10);
+    for (const [query, text] of [
+      ["what is", "paris lies on seine"],
+      ["what is", "a b c d e f g h"],
+      ["a b c d e f g h a b c d", "paris lies"],
+      ["what is the capital", "paris lies on seine"],
+      ["what is", ""],
+    ] as const)
+      expect(pairs(query, text)).toEqual(pairIds(tokenizer, query, text, 10));
+    reads.mockClear();
+
+    pairs("of france", "paris lies on seine");
+
+    expect(reads.mock.calls.map(([text]) => text)).toEqual(["of france"]);
+  });
+
+  // protects=a tokenizer whose pair isn't its two texts between the same special tokens reads each pair whole (#2532); fails_when=a pair is put together from a template that doesn't hold; no_claim=which tokenizers the app ships.
+  test("aren't kept for a tokenizer whose pairs don't follow one template", () => {
+    const tokenizer = tinyTokenizer();
+    const read = tokenizer.encode.bind(tokenizer);
+    vi.spyOn(tokenizer, "encode").mockImplementation((text, options) => {
+      const encoding = read(text, options);
+      return options?.text_pair
+        ? { ...encoding, ids: [...encoding.ids, encoding.ids.length] }
+        : encoding;
+    });
+    const pairs = pairEncoder(tokenizer, 512);
+
+    expect(pairs("what is", "paris lies")).toEqual(
+      tokenizer.encode("what is", { text_pair: "paris lies" }).ids,
+    );
+    expect(pairs("what is the capital of france", "a b")).toEqual(
+      tokenizer.encode("what is the capital of france", { text_pair: "a b" }).ids,
+    );
+  });
+});
+
 describe("The built-in reranking model", () => {
   const hits = [
     { id: "a", documentName: "Ships", text: "Boats float on water." },
@@ -140,6 +186,43 @@ describe("The built-in reranking model", () => {
     { id: "c", documentName: "Bread", text: "Bread rises in the oven." },
     { id: "d", documentName: "Cakes", text: "Cakes rise in the oven too." },
   ];
+
+  // protects=a search asked while warm() still loads the model waits for that load: the model behind the channel loads once, then scores (#2532); fails_when=the search starts a load of its own beside the one under way; no_claim=how long a real load takes.
+  test("a search asked while warm() is still loading waits for that load, and the model loads once", async () => {
+    const fake = createFakeCrossEncoder();
+    const held = Promise.withResolvers<void>();
+    const atModel: string[] = [];
+    const served: CrossEncoder = {
+      ...fake,
+      load: async (files) => {
+        atModel.push("load");
+        await held.promise;
+        return fake.load(files);
+      },
+      score: async (query, texts) => {
+        atModel.push("score");
+        return fake.score(query, texts);
+      },
+    };
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir: await createTempDataFolder(),
+      crossEncoder: createChannelCrossEncoder(linkedChannel(served).start),
+      emitStatus: () => {},
+    });
+
+    model.warm();
+    await vi.waitFor(() => expect(atModel).toEqual(["load"]));
+    const ranked = model.rerank("lighthouse ships", hits);
+    // A turn of the event loop: the search has asked for its load before this one ends.
+    await new Promise((turn) => setImmediate(turn));
+    held.resolve();
+
+    expect((await ranked)?.[0]?.id).toBe("b");
+    expect(atModel).toEqual(["load", "score"]);
+    model.close();
+  });
 
   test("orders hits by the model's score, from 0 to 1, keeping ties in their order", async () => {
     const dataDir = await createTempDataFolder();
@@ -218,11 +301,222 @@ describe("The built-in reranking model", () => {
     model.close();
   });
 
+  // protects=a search is scored alone, one at a time, as one request of its own texts, and gets back exactly the scores it gets alone (#2532: several searches' texts scored together changed scores and orders on the GPU); fails_when=two scorings are sent at once, searches waiting together are scored in one request, or a search gets another's scores; no_claim=the model's own scores.
+  test("searches asked at once are scored one at a time, each alone, as when asked one by one", async () => {
+    const dataDir = await createTempDataFolder();
+    const fake = createFakeCrossEncoder();
+    const requests: string[][] = [];
+    let running = 0;
+    let most = 0;
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: (files) => fake.load(files),
+        score: async (query, texts) => {
+          requests.push([query, ...texts]);
+          running++;
+          most = Math.max(most, running);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          running--;
+          return fake.score(query, texts);
+        },
+        close: () => fake.close(),
+      },
+      emitStatus: () => {},
+    });
+    const queries = ["lighthouse ships", "bread oven", "cakes rise too"];
+    const alone = [];
+    for (const query of queries) alone.push(await model.rerank(query, hits));
+    requests.length = 0;
+
+    const together = await Promise.all(queries.map((query) => model.rerank(query, hits)));
+
+    expect(together).toEqual(alone);
+    expect(together.map((each) => each?.map((hit) => hit.id))).toEqual([
+      ["b", "a", "c", "d"],
+      ["c", "d", "a", "b"],
+      ["d", "a", "b", "c"],
+    ]);
+    expect(requests).toEqual(queries.map((query) => [query, ...hits.map(rerankText)]));
+    expect(most).toBe(1);
+    model.close();
+  });
+
   test("the fake scores the share of the query's words a text has", () => {
     expect(fakeRelevance("lighthouse ships", "A lighthouse guides ships")).toBe(1);
     expect(fakeRelevance("lighthouse ships", "Boats and ships")).toBe(0.5);
     expect(fakeRelevance("灯塔", "海边的灯塔")).toBe(1);
     expect(fakeRelevance("", "anything")).toBe(0);
+  });
+});
+
+describe("The order searches are scored in", () => {
+  // protects=a search the User is waiting on goes before every check's, a check's next search before the searches of checks started after it, and one check's searches keep their order (#2532); fails_when=searches waiting are scored first come, first served, an Answer's search waits behind checks, or one check's searches change places; no_claim=how long a scoring takes.
+  test("a search outside any check goes first, then a check's next search before checks started after it", async () => {
+    const inTurn = createRerankQueue();
+    const started: string[] = [];
+    const finish = new Map<string, () => void>();
+    const scoring = (name: string) => () =>
+      new Promise<void>((resolve) => {
+        started.push(name);
+        finish.set(name, resolve);
+      });
+    const othersAsked = Promise.withResolvers<void>();
+    const askedAgain = Promise.withResolvers<void>();
+
+    const first = asCheckWork(async () => {
+      const search = inTurn(scoring("first check"));
+      await othersAsked.promise;
+      const again = inTurn(scoring("first check, again"));
+      const third = inTurn(scoring("first check, third time"));
+      askedAgain.resolve();
+      await Promise.all([search, again, third]);
+    });
+    const second = asCheckWork(() => inTurn(scoring("second check")));
+    const answer = inTurn(scoring("an Answer's search"));
+    othersAsked.resolve();
+    await askedAgain.promise;
+    for (let count = 1; count <= 5; count++) {
+      await vi.waitFor(() => expect(started).toHaveLength(count));
+      finish.get(started[count - 1] ?? "")?.();
+    }
+    await Promise.all([first, second, answer]);
+
+    expect(started).toEqual([
+      "first check",
+      "an Answer's search",
+      "first check, again",
+      "first check, third time",
+      "second check",
+    ]);
+  });
+
+  // protects=while Check this Note's ten sentences wait at the reranker, a search the User asks for meanwhile (an Answer's, Cite…'s) is scored next, not after them (#2532); fails_when=it waits behind the checks' searches; no_claim=how long the one being scored takes.
+  test("an Answer's search asked while ten sentences' searches wait is scored next", async () => {
+    const dataDir = await createTempDataFolder();
+    const scored: string[] = [];
+    const open: (() => void)[] = [];
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: async () => ({ device: "gpu" }),
+        score: async (query, texts) => {
+          scored.push(query);
+          await new Promise<void>((resolve) => open.push(resolve));
+          return texts.map(() => 0);
+        },
+        close: () => {},
+      },
+      emitStatus: () => {},
+    });
+    const hits = [
+      { documentName: "Tides", text: "Spring tides come at new moon." },
+      { documentName: "Harbour", text: "The harbour office opens at nine." },
+    ];
+    const checks = Array.from({ length: 10 }, (_, index) =>
+      asCheckWork(() => model.rerank(`sentence ${index + 1}`, hits)),
+    );
+    await vi.waitFor(() => expect(scored).toEqual(["sentence 1"]));
+
+    const answer = model.rerank("When are spring tides?", hits);
+    open.shift()?.();
+
+    await vi.waitFor(() => expect(scored).toHaveLength(2));
+    expect(scored[1]).toBe("When are spring tides?");
+    while (scored.length < 11 || open.length > 0) {
+      await vi.waitFor(() => expect(open.length).toBeGreaterThan(0));
+      open.shift()?.();
+    }
+    await Promise.all([answer, ...checks]);
+    expect(scored.slice(2)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `sentence ${index + 2}`),
+    );
+    model.close();
+  });
+});
+
+describe("A search waiting to be scored", () => {
+  // protects=a search whose Answer or check is stopped while it waits leaves at once and is never scored, so its Stop isn't held up and the searches after it go sooner (#2532); fails_when=a stopped search waits for its turn or is scored in it; no_claim=a search already being scored, which the model finishes.
+  test("leaves at once when it is stopped, is never scored, and the next goes in its place", async () => {
+    const inTurn = createRerankQueue();
+    const ran: string[] = [];
+    let finishFirst = () => {};
+    const first = inTurn(
+      () =>
+        new Promise<void>((resolve) => {
+          ran.push("first");
+          finishFirst = resolve;
+        }),
+    );
+    const stopped = new AbortController();
+    const second = inTurn(async () => {
+      ran.push("second");
+    }, stopped.signal);
+    const third = inTurn(async () => {
+      ran.push("third");
+    });
+    stopped.abort();
+
+    await expect(second).rejects.toThrow();
+    await expect(inTurn(async () => ran.push("never"), stopped.signal)).rejects.toThrow();
+    expect(ran).toEqual(["first"]);
+    finishFirst();
+    await first;
+    await third;
+    expect(ran).toEqual(["first", "third"]);
+  });
+
+  // protects=a search that waited while the model stopped (the User turned reranking off and on, or its process restarted) loads the model again in its turn instead of failing (#2532); fails_when=the model is loaded before the wait and the search fails as not loaded; no_claim=how long loading takes.
+  test("loads the model again in its turn when the model stopped while it waited", async () => {
+    const hits = [
+      { documentName: "Ships", text: "Boats float on water." },
+      { documentName: "Bread", text: "Bread rises in the oven." },
+    ];
+    const dataDir = await createTempDataFolder();
+    let loaded = false;
+    let loads = 0;
+    const scored: string[] = [];
+    let finishFirst = () => {};
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: async () => {
+          loads++;
+          loaded = true;
+          return { device: "cpu" };
+        },
+        score: async (query, texts) => {
+          if (!loaded) throw new Error("The reranking model isn't loaded.");
+          scored.push(query);
+          if (query === "first")
+            await new Promise<void>((resolve) => {
+              finishFirst = resolve;
+            });
+          return texts.map(() => 0);
+        },
+        close: () => {
+          loaded = false;
+        },
+      },
+      emitStatus: () => {},
+    });
+    const first = model.rerank("first", hits);
+    await vi.waitFor(() => expect(scored).toEqual(["first"]));
+    const second = model.rerank("second", hits);
+
+    model.unload();
+    finishFirst();
+
+    expect(await first).toHaveLength(hits.length);
+    expect(await second).toHaveLength(hits.length);
+    expect(loads).toBe(2);
+    model.close();
   });
 });
 
@@ -280,6 +574,66 @@ describe("The reranking channel", () => {
     await expect(crossEncoder.score("q", ["t"])).rejects.toThrow("The model failed on this text.");
   });
 
+  // protects=closing the model on purpose (reranking turned off, the model unloaded) fails what waits on it, so the searches queued behind it go on, and the next load starts afresh (#2532); fails_when=a scoring under way when the model is closed never settles and holds every search after it; no_claim=a process that exits by itself, which the next test covers.
+  test("closing it while it scores fails that scoring, so the searches after it go on", async () => {
+    let reachedModel = () => {};
+    const reached = new Promise<void>((resolve) => {
+      reachedModel = resolve;
+    });
+    const slow: CrossEncoder = {
+      load: async () => ({ device: "cpu" }),
+      score: (query, texts) =>
+        query === "held"
+          ? new Promise(() => {
+              reachedModel();
+            })
+          : Promise.resolve(texts.map(() => 0)),
+      close: () => {},
+    };
+    // Each start is a process of its own, as the app's are: a stopped one's work goes with it.
+    let starts = 0;
+    const start = (): CrossEncoderChannel => {
+      starts++;
+      let onRequest: (request: CrossEncoderRequest) => void = () => {};
+      let onResponse: (response: CrossEncoderResponse) => void = () => {};
+      serveCrossEncoder(slow, {
+        onRequest: (listener) => {
+          onRequest = listener;
+        },
+        respond: (response) => queueMicrotask(() => onResponse(response)),
+      });
+      return {
+        send: (request) => queueMicrotask(() => onRequest(request)),
+        onResponse: (listener) => {
+          onResponse = listener;
+        },
+        onExit: () => {},
+        stop: () => {},
+      };
+    };
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir: await createTempDataFolder(),
+      crossEncoder: createChannelCrossEncoder(start),
+      emitStatus: () => {},
+    });
+    const hits = [
+      { documentName: "Tides", text: "Spring tides come at new moon." },
+      { documentName: "Harbour", text: "The harbour office opens at nine." },
+    ];
+
+    const held = model.rerank("held", hits);
+    await reached;
+    const after = model.rerank("after", hits);
+    model.unload();
+
+    await expect(held).rejects.toThrow(/was stopped/);
+    expect(await after).toHaveLength(2);
+    expect(starts).toBe(2);
+    model.close();
+  });
+
   test("when the process stops, pending requests fail and the next load starts a new one", async () => {
     let release = () => {};
     let reachedModel = () => {};
@@ -326,7 +680,13 @@ interface FakeRun {
  * GPU after the check.
  */
 function fakeSessions(
-  options: { adapter?: boolean; gpuFails?: boolean; gpuBreaks?: boolean; gpuOffset?: number } = {},
+  options: {
+    adapter?: boolean;
+    gpuFails?: boolean;
+    gpuFailsFor?: RegExp;
+    gpuBreaks?: boolean;
+    gpuOffset?: number;
+  } = {},
 ) {
   const { adapter = true, gpuFails = false, gpuBreaks = false, gpuOffset = 0.02 } = options;
   const opened: string[] = [];
@@ -335,7 +695,8 @@ function fakeSessions(
   const createSession: PairSessionFactory = async (model, device) => {
     const name = `${typeof model === "string" ? model.split(/[/\\]/).at(-1) : "probe"} on ${device}`;
     if (device === "gpu" && !adapter) throw new Error("Failed to get a WebGPU adapter.");
-    if (device === "gpu" && gpuFails && typeof model === "string") {
+    const fails = gpuFails || (typeof model === "string" && options.gpuFailsFor?.test(model));
+    if (device === "gpu" && fails && typeof model === "string") {
       throw new Error("The WebGPU execution provider can't run this model.");
     }
     opened.push(name);
@@ -497,6 +858,174 @@ describe("The built-in reranking model on the GPU", () => {
   });
 });
 
+describe("A GPU file's copy for its WebGPU session", () => {
+  const EXPORTED = [{ op: "Neg" }, { op: "MemcpyFromHost" }, { op: "Neg" }];
+  const COPY = /^fp16\.webgpu-1-\d+-\d+\.onnx$/;
+
+  /** A GPU file as Optimum's O4 export keeps it, with its copies from host to GPU memory, and the files a load is given. */
+  async function exportedGpuFile() {
+    const folder = await createTempDataFolder();
+    const model = join(folder, "fp16.onnx");
+    await writeFile(model, onnxModel(EXPORTED));
+    return {
+      folder,
+      model,
+      files: { ...(await tinyModelFiles(folder)), gpu: { model, check: CHECK } },
+    };
+  }
+
+  const copiesIn = async (folder: string) =>
+    (await readdir(folder)).filter((name) => name.startsWith("fp16.webgpu-"));
+
+  // protects=a GPU session never opens a file that keeps a CUDA export's copies between host and GPU memory, each of which made the GPU drain once a layer (#2532); fails_when=the session opens the file as downloaded, the copy holds anything but those copies read as Identity, or it is written again at the next start; no_claim=what the copies cost on any one GPU.
+  test("opens a copy of its GPU file with its copies between host and GPU memory read as Identity, written once and kept", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const first = fakeSessions({});
+
+    const device = await createOnnxCrossEncoder({ createSession: first.createSession }).load(files);
+
+    expect(device).toEqual({
+      device: "gpu",
+      copy: { opened: true, writtenMs: expect.any(Number) },
+    });
+    const [copy] = await copiesIn(folder);
+    expect(copy).toMatch(COPY);
+    expect(first.opened.at(-1)).toBe(`${copy} on gpu`);
+    const path = join(folder, copy ?? "");
+    expect(new Uint8Array(await readFile(path))).toEqual(
+      onnxModel([{ op: "Neg" }, { op: "Identity" }, { op: "Neg" }]),
+    );
+    const written = (await stat(path)).ino;
+
+    const next = fakeSessions({});
+    const again = await createOnnxCrossEncoder({ createSession: next.createSession }).load(files);
+
+    expect(again).toEqual({ device: "gpu", copy: { opened: true } });
+    expect(next.opened.at(-1)).toBe(`${copy} on gpu`);
+    expect((await stat(path)).ino).toBe(written);
+  });
+
+  test("writes a new copy for a file downloaded again, and removes the old one", async () => {
+    const { folder, model, files } = await exportedGpuFile();
+    await createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }).load(files);
+    const [old] = await copiesIn(folder);
+    const later = new Date(Date.now() + 60_000);
+    await utimes(model, later, later);
+    const sessions = fakeSessions({});
+
+    await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(files);
+
+    const copies = await copiesIn(folder);
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).not.toBe(old);
+    expect(sessions.opened.at(-1)).toBe(`${copies[0]} on gpu`);
+  });
+
+  test("removes a copy that won't open on the GPU, opens the file as downloaded and says why", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const sessions = fakeSessions({ gpuFailsFor: /\.webgpu-/ });
+
+    const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+      files,
+    );
+
+    expect(device).toEqual({
+      device: "gpu",
+      copy: {
+        opened: false,
+        problem: expect.stringMatching(/^The copy failed .*it was removed\.$/),
+      },
+    });
+    expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+    expect(await copiesIn(folder)).toEqual([]);
+  });
+
+  test("keeps the copy when the file as downloaded fails on the GPU too, so it isn't written again", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const load = () =>
+      createOnnxCrossEncoder({
+        createSession: fakeSessions({ gpuFails: true }).createSession,
+      }).load(files);
+
+    await load();
+    const [copy] = await copiesIn(folder);
+    const written = (await stat(join(folder, copy ?? ""))).ino;
+    const again = await load();
+
+    expect(again).toEqual({
+      device: "cpu",
+      fallback: { reason: "session", message: expect.any(String) },
+      copy: {
+        opened: false,
+        problem: expect.stringMatching(/so did the file as downloaded; it was kept\.$/),
+      },
+    });
+    expect(await copiesIn(folder)).toEqual([copy]);
+    expect((await stat(join(folder, copy ?? ""))).ino).toBe(written);
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "opens the file as downloaded and says why when it can't be read for its copy",
+    async () => {
+      const { model, files } = await exportedGpuFile();
+      const sessions = fakeSessions({});
+      await chmod(model, 0o000);
+      try {
+        const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+          files,
+        );
+
+        expect(device).toEqual({
+          device: "gpu",
+          copy: { opened: false, problem: expect.stringMatching(/^The copy wasn't written: /) },
+        });
+        expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+      } finally {
+        await chmod(model, 0o644);
+      }
+    },
+  );
+
+  // A folder without write permission stops a write only for a user other than root.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "opens the file as downloaded and says why when the copy can't be written",
+    async () => {
+      const { folder, files } = await exportedGpuFile();
+      const sessions = fakeSessions({});
+      await chmod(folder, 0o555);
+      try {
+        const device = await createOnnxCrossEncoder({ createSession: sessions.createSession }).load(
+          files,
+        );
+
+        expect(device).toEqual({
+          device: "gpu",
+          copy: { opened: false, problem: expect.stringMatching(/^The copy wasn't written: /) },
+        });
+        expect(sessions.opened.at(-1)).toBe("fp16.onnx on gpu");
+      } finally {
+        await chmod(folder, 0o755);
+      }
+    },
+  );
+
+  test("removes the part of a copy a stopped write left, and keeps one another process may still be writing", async () => {
+    const { folder, files } = await exportedGpuFile();
+    const stopped = join(folder, "fp16.webgpu-1-1-1.onnx.stopped.part");
+    const writing = join(folder, "fp16.webgpu-1-1-1.onnx.writing.part");
+    await writeFile(stopped, "");
+    await writeFile(writing, "");
+    const hourAgo = new Date(Date.now() - 60 * 60_000);
+    await utimes(stopped, hourAgo, hourAgo);
+
+    await createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }).load(files);
+
+    const left = await copiesIn(folder);
+    expect(left).toContain("fp16.webgpu-1-1-1.onnx.writing.part");
+    expect(left).not.toContain("fp16.webgpu-1-1-1.onnx.stopped.part");
+  });
+});
+
 describe("The built-in reranking model's GPU file", () => {
   const HITS = TEXTS.map((text, index) => ({ id: `${index}`, documentName: "a", text }));
 
@@ -556,6 +1085,49 @@ describe("The built-in reranking model's GPU file", () => {
       },
       { level: "info", event: "reranking.device", fields: { device: "gpu" } },
     ]);
+    model.close();
+  });
+
+  test("logs the copy its GPU session opened, written without the GPU file's copies between host and GPU memory", async () => {
+    const dataDir = await createTempDataFolder();
+    const exported = onnxModel([{ op: "Neg" }, { op: "MemcpyFromHost" }, { op: "Neg" }]);
+    const file = {
+      path: "fp16.onnx",
+      size: exported.length,
+      sha256: createHash("sha256").update(exported).digest("hex"),
+    };
+    const gpuFolder = join(dataDir, "models", "tiny-gpu");
+    await mkdir(gpuFolder, { recursive: true });
+    await writeFile(join(gpuFolder, "fp16.onnx"), exported);
+    await writeFile(join(gpuFolder, "verified.json"), JSON.stringify({ files: [file] }));
+    await tinyModelFiles(join(dataDir, "models", "tiny"));
+    const { log, entries } = recordingLog();
+    const model = createRerankingModel({
+      definition: {
+        ...BUILT_IN_RERANKING_MODEL,
+        folder: "tiny",
+        files: {
+          model: "int8.onnx",
+          tokenizer: "tokenizer.json",
+          tokenizerConfig: "tokenizer_config.json",
+        },
+        gpu: { folder: "tiny-gpu", file, check: CHECK },
+      },
+      source: { baseUrl: "http://127.0.0.1:9/", files: [] },
+      dataDir,
+      crossEncoder: createOnnxCrossEncoder({ createSession: fakeSessions({}).createSession }),
+      emitStatus: () => {},
+      log,
+    });
+
+    await model.rerank("what is", HITS);
+
+    expect(model.device()).toBe("gpu");
+    expect(entries).toContainEqual({
+      level: "info",
+      event: "reranking.gpuCopy",
+      fields: { opened: true, writtenMs: expect.any(Number), problem: undefined },
+    });
     model.close();
   });
 

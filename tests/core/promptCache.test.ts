@@ -340,6 +340,40 @@ describe("Anthropic requests", () => {
     expect(marks(body).length).toBeLessThanOrEqual(4);
   });
 
+  // protects=a turn holding no text, as Claude's empty reply comes back, is never sent to Anthropic, so the mark on the turn before the newest message can't land on an empty text block, which Anthropic refuses; fails_when=the blank turn is sent with a cache mark; no_claim=other providers, whose requests this doesn't touch (#2701).
+  test("a turn that said nothing isn't sent, so no empty text block carries a mark", async () => {
+    const requests = fakeProvider("anthropic");
+
+    await run(
+      request(modelOf("anthropic"), [
+        ...FIRST,
+        { role: "assistant", content: " \n" },
+        { role: "user", content: "Your reply is empty. Say what causes the tides." },
+      ]),
+    );
+
+    const body = (requests[0] as Captured).body;
+    const messages = body.messages as {
+      role: string;
+      content: { type: string; text?: string }[];
+    }[];
+    expect(messages.map((each) => each.role)).toEqual(["user"]);
+    expect(strings(messages)).toEqual(
+      expect.arrayContaining([
+        "What causes the tides?",
+        "Your reply is empty. Say what causes the tides.",
+      ]),
+    );
+    // The joined message is the newest, which every re-ask writes anew: it takes no mark, and no
+    // empty text block is there to take one.
+    const marked = messages.flatMap((each) =>
+      (each.content as { text?: string; cache_control?: unknown }[]).filter(
+        (block) => block.cache_control,
+      ),
+    );
+    expect(marked).toEqual([]);
+  });
+
   test("in a Tool loop, the history so far is marked at every step, within four breakpoints", async () => {
     const requests: Captured[] = [];
     let step = 0;
@@ -394,6 +428,29 @@ describe("Anthropic requests", () => {
   });
 });
 
+describe("A turn that said nothing (#2701)", () => {
+  // protects=an assistant turn of blank text in a one-pass Answer's messages, as an earlier reply or a check's replayed one, is sent to no provider, not only Anthropic and Gemini; fails_when=a chat-completions provider's request carries the turn; no_claim=the providers here beyond this one.
+  test("a chat-completions provider's request leaves it out, and the note after it goes", async () => {
+    const requests = fakeProvider("deepseek");
+
+    await run(
+      request(modelOf("deepseek"), [
+        ...FIRST,
+        { role: "assistant" as const, content: " \n" },
+        { role: "user" as const, content: "Your reply is empty. Say what causes the tides." },
+      ]),
+    );
+
+    const messages = ((requests[0] as Captured).body.messages ?? []) as { role: string }[];
+    expect(messages.map((message) => message.role)).not.toContain("assistant");
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(JSON.stringify((requests[0] as Captured).body)).toContain("What causes the tides?");
+    expect(JSON.stringify((requests[0] as Captured).body)).toContain(
+      "Your reply is empty. Say what causes the tides.",
+    );
+  });
+});
+
 describe("Anthropic requests with a Mind read with the Question (#564)", () => {
   /** Where the `cache_control` marks of a request are, as `marks` above says them. */
   function marked(body: Json) {
@@ -423,6 +480,30 @@ describe("Anthropic requests with a Mind read with the Question (#564)", () => {
     const body = (requests[0] as Captured).body;
     const [first] = body.messages as { content: { text: string }[] }[];
     expect(first?.content.map((block) => block.text)).toEqual([MIND, "\n\nWhat causes the tides?"]);
+    expect(marked(body)).toEqual(["tool", "system", "message 1 part 1"]);
+  });
+
+  // protects=a Mind read with the first Question keeps its own mark when a reply that said nothing is left out and the note joins the Question (#2701); fails_when=the join drops the Mind's stable start mark or the Question's text; no_claim=what Anthropic bills.
+  test("a Mind's mark survives an empty turn left out and its note joined", async () => {
+    const requests = fakeProvider("anthropic");
+
+    await run(
+      request(modelOf("anthropic"), [
+        ...WITH_MIND,
+        { role: "assistant" as const, content: " \n" },
+        { role: "user" as const, content: "Your reply is empty. Say what causes the tides." },
+      ]),
+    );
+
+    const body = (requests[0] as Captured).body;
+    const messages = body.messages as { role: string; content: { text: string }[] }[];
+    expect(messages.map((message) => message.role)).toEqual(["user"]);
+    expect(messages[0]?.content.map((block) => block.text)).toEqual([
+      MIND,
+      "\n\nWhat causes the tides?",
+      "\n\n",
+      "Your reply is empty. Say what causes the tides.",
+    ]);
     expect(marked(body)).toEqual(["tool", "system", "message 1 part 1"]);
   });
 

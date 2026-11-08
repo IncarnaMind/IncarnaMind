@@ -13,6 +13,7 @@ import type {
   CheckPathsOverride,
   Core,
 } from "../../src/core";
+import { estimateTokens } from "../../src/core/answers/context";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
@@ -26,9 +27,35 @@ export interface Arm {
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
-  paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
+  paths?: {
+    writesThenCites?: boolean;
+    retrievesFirst?: boolean;
+  };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
+  /** Whether a call's notes start before its speakers are told apart (#2773); unset: the core's default. */
+  notes?: { beforeSpeakers?: boolean };
+  /** Whether call help's own form may be judged the model's working, as before #2778; unset: it isn't. */
+  helpFormJudged?: boolean;
+}
+
+/** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
+const STRETCH_TOKENS = 400;
+
+/** A request's live transcript cut to its newest Passages within `STRETCH_TOKENS`, the newest at least. */
+export function newestStretch(text: string): string {
+  return text.replace(/<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/, (_, shown: string) => {
+    const passages = shown.match(/<passage [^>]*>\n[\s\S]*?\n<\/passage>/g) ?? [];
+    const kept: string[] = [];
+    let left = STRETCH_TOKENS;
+    for (const passage of [...passages].reverse()) {
+      const cost = estimateTokens(passage);
+      if (kept.length > 0 && cost > left) break;
+      kept.unshift(passage);
+      left -= cost;
+    }
+    return `<live-transcript>\n${kept.join("\n\n")}\n</live-transcript>`;
+  });
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -71,6 +98,69 @@ export const ARMS: readonly Arm[] = [
         : { ...spec, thinking: "summary" },
   },
   {
+    id: "notes-without-thinking",
+    label:
+      "every call that would think as an Answer made with thinking off: in the meeting-notes set, the fill's request alone (#2773)",
+    spec: (spec) => (spec.thinking === "answer" ? { ...spec, thinking: "off" } : spec),
+  },
+  {
+    id: "speakers-first",
+    label: "a call's notes wait for its speakers to be told apart, as before #2773",
+    notes: { beforeSpeakers: false },
+  },
+  {
+    id: "notes-before-speakers",
+    label:
+      "a call's notes start once its words are final, while its speakers are told apart, and are written once the pass ends (#2773)",
+    notes: { beforeSpeakers: true },
+  },
+  {
+    id: "notes-low-effort",
+    label:
+      "every DeepSeek request that thinks does so at reasoning_effort low, one level down from its default high: in the meeting-notes set, the fill's requests and the claims' checks (#2773)",
+    request: (params) => {
+      const deepseek = params.providerOptions?.deepseek;
+      const thinking = deepseek?.thinking;
+      const off =
+        typeof thinking === "object" &&
+        thinking !== null &&
+        "type" in thinking &&
+        thinking.type === "disabled";
+      return off
+        ? params
+        : {
+            ...params,
+            providerOptions: {
+              ...params.providerOptions,
+              deepseek: { ...deepseek, reasoningEffort: "low" },
+            },
+          };
+    },
+  },
+  {
+    id: "newest-stretch",
+    label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
+    request: (params) => ({
+      ...params,
+      prompt: params.prompt.map((message) =>
+        message.role === "user"
+          ? {
+              ...message,
+              content: message.content.map((part) =>
+                part.type === "text" ? { ...part, text: newestStretch(part.text) } : part,
+              ),
+            }
+          : message,
+      ),
+    }),
+  },
+  {
+    id: "help-form-judged",
+    label:
+      "call help's own options, readings and short lines judged as the model's working, as before #2778",
+    helpFormJudged: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -91,9 +181,15 @@ export function armNamed(id: string): Arm {
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
+  /** Each request's prompt as sent, for a run that holds two arms to sending the same one. */
+  const sent: string[] = [];
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
-    transformParams: async ({ params }) => current?.request?.(params) ?? params,
+    transformParams: async ({ params }) => {
+      const next = current?.request?.(params) ?? params;
+      sent.push(JSON.stringify(next.prompt));
+      return next;
+    },
   };
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
@@ -109,6 +205,10 @@ export function armSwitch() {
         wrapLanguageModel({ model: inner(current?.spec?.(spec) ?? spec), middleware }),
     answerPaths,
     checkPaths,
+    notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
+    helpFormJudged: () => current?.helpFormJudged,
+    /** The prompts sent since it was last asked, oldest first. */
+    takeSent: (): string[] => sent.splice(0),
     use(arm: Arm): void {
       current = arm;
     },

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
+import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { verificationOf } from "../../src/shared/verification";
 import {
@@ -189,3 +190,51 @@ for (const example of CASES)
       expect(claimSpans(readMind(setup.client))).toEqual([]);
     });
   });
+
+// protects=Verify's claims step loads the built-in reranker before it asks for the claims, so its checks' first search doesn't start it (#2532); fails_when=the reranker loads only when a check searches; no_claim=how long a real model takes to load.
+test("Verify loads the reranker before it asks for the claims", async () => {
+  const events: string[] = [];
+  const fake = createFakeCrossEncoder();
+  const sentence = "The harbour wall was finished in the spring.";
+  const model = scriptedModel((call) => checkReply(call, {}), {
+    generate(call) {
+      if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+      events.push("claims asked");
+      const sentences = listedSentences(call.prompt);
+      return {
+        text: JSON.stringify({
+          sentences: sentences.map(({ number, text }) => ({
+            number,
+            parts: [{ kind: "fact", text }],
+          })),
+        }),
+      };
+    },
+  });
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    crossEncoder: {
+      ...fake,
+      load: async (files) => {
+        events.push("reranker loads");
+        return fake.load(files);
+      },
+    },
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Harbour.md", "The harbour wall was finished in spring."),
+  ]);
+  const path = await writeSourceFile(sources, "Report.pdf", buildPdf([{ lines: [sentence] }]));
+  const verified = await core.verifyDocument({ path });
+  if (!verified.ok) throw new Error(`The report wasn't verified: ${verified.reason}`);
+  events.length = 0;
+
+  expect(
+    await core.findClaims({ requestId: crypto.randomUUID(), mindId: verified.mind.id }),
+  ).toMatchObject({
+    kind: "found",
+  });
+  expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
+});

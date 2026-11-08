@@ -2,9 +2,9 @@ import type {
   AnswerPhase,
   AnswerToolCall,
   AskedFrom,
+  Citation,
   ClaimedTool,
   ConversationAnswer,
-  MarkedCitation,
   MindRead,
 } from "../../core/api";
 import { markersIn } from "../../shared/answerBlocks";
@@ -43,7 +43,7 @@ export interface StepsInput {
 }
 
 /** A source a search led to: the first of its Citations at one place in one Document. */
-export type StepSource = MarkedCitation;
+export type StepSource = Citation;
 
 /** A Document the request held whole, by id, with the name a Citation of it carries when one does. */
 export interface ReadDocument {
@@ -240,7 +240,7 @@ function modelRow(answer: StepsInput["answer"], live: LiveStep | undefined): Ste
 }
 
 /** Where a Citation points, to tell two sources apart. */
-const placeOf = (citation: MarkedCitation) =>
+export const placeOf = (citation: Citation) =>
   `${citation.documentId}\n${citation.pageFrom}-${citation.pageTo}\n${JSON.stringify(citation.location)}`;
 
 // An Answer written before searches kept their Passages can't tell its searches' Citations apart.
@@ -249,7 +249,7 @@ const forgetful = (call: AnswerToolCall) =>
 
 function searchBehind(
   calls: readonly AnswerToolCall[],
-  citation: MarkedCitation,
+  citation: Citation,
 ): AnswerToolCall | undefined {
   const searches = calls.filter((call) => isSearch(call) && call.status !== "failed");
   return searches.some(forgetful)
@@ -257,17 +257,32 @@ function searchBehind(
     : searches.find((call) => call.passages?.includes(citation.passageId));
 }
 
-// A web page the Answer read is named by its own call.
-function citedWithoutSearch({
-  toolCalls,
+/**
+ * Every Citation the Answer gave the User: its reply's, then those of the text it wrote into
+ * Notes (#2768), which are as much the sources it used. The last Answer written in as it was
+ * cites what that Answer used, not this one.
+ */
+const citedBy = ({
   citations,
-}: Pick<StepsInput["answer"], "toolCalls" | "citations">): MarkedCitation[] {
+  toolCalls,
+}: Pick<StepsInput["answer"], "citations" | "toolCalls">): Citation[] => [
+  ...citations,
+  ...toolCalls.flatMap((call) =>
+    call.input.answer === true ? [] : (call.mindChange?.citations ?? []),
+  ),
+];
+
+// A web page the Answer read is named by its own call.
+function citedWithoutSearch(
+  answer: Pick<StepsInput["answer"], "toolCalls" | "citations">,
+): Citation[] {
+  const { toolCalls } = answer;
   const pages = new Set(
     toolCalls.flatMap((call) =>
       call.webPage && "documentId" in call.webPage ? [call.webPage.documentId] : [],
     ),
   );
-  return citations.filter(
+  return citedBy(answer).filter(
     (citation) => !pages.has(citation.documentId) && !searchBehind(toolCalls, citation),
   );
 }
@@ -277,7 +292,7 @@ function citedWithoutSearch({
 function readDocuments(answer: StepsInput["answer"]): ReadDocument[] {
   const sent = answer.steps?.sent;
   const named = (documentId: string) =>
-    answer.citations.find((citation) => citation.documentId === documentId)?.documentName ?? null;
+    citedBy(answer).find((citation) => citation.documentId === documentId)?.documentName ?? null;
   return sent
     ? sent.documents.map((documentId) => ({ documentId, name: named(documentId) }))
     : documentsOf(citedWithoutSearch(answer)).map((citation) => ({
@@ -287,21 +302,21 @@ function readDocuments(answer: StepsInput["answer"]): ReadDocument[] {
 }
 
 /** The Citations into the Documents read with the Question that no search found. */
-function citedFromRead(answer: StepsInput["answer"]): MarkedCitation[] {
+function citedFromRead(answer: StepsInput["answer"]): Citation[] {
   const sent = answer.steps?.sent;
   if (!sent) return citedWithoutSearch(answer);
   const read = new Set(sent.documents);
-  return answer.citations.filter(
+  return citedBy(answer).filter(
     (citation) => read.has(citation.documentId) && !searchBehind(answer.toolCalls, citation),
   );
 }
 
-const documentsOf = (citations: readonly MarkedCitation[]) =>
+const documentsOf = (citations: readonly Citation[]) =>
   citations.filter(
     (citation, at) => citations.findIndex((each) => each.documentId === citation.documentId) === at,
   );
 
-const placesOf = (citations: readonly MarkedCitation[]) =>
+const placesOf = (citations: readonly Citation[]) =>
   citations.filter(
     (citation, at) => citations.findIndex((each) => placeOf(each) === placeOf(citation)) === at,
   );
@@ -415,7 +430,7 @@ export function stepRows(
 
   // Each Citation goes under the first search that found its Passage.
   const used = new Map<Extract<StepRow, { kind: "search" }>, Set<string>>();
-  for (const citation of answer.citations) {
+  for (const citation of citedBy(answer)) {
     const call = searchBehind(answer.toolCalls, citation);
     const search = call && searches.find((each) => each.calls.includes(call));
     if (!search) continue;
@@ -460,8 +475,8 @@ export function stepRows(
   return rows;
 }
 
-/** How many Documents the Answer cites. */
-const sourceCount = (citations: readonly MarkedCitation[]) =>
+/** How many Documents these Citations point to. */
+const sourceCount = (citations: readonly Citation[]) =>
   new Set(citations.map((citation) => citation.documentId)).size;
 
 /** How many Passages the Answer's searches read: each once, when the searches kept which. */
@@ -491,21 +506,23 @@ function extraScopes(calls: readonly AnswerToolCall[]): number {
 
 /**
  * The folded line: what was searched (the Documents, or else the web) and
- * how many Documents the Answer cites; with no search, the Documents whose
- * whole text went with the Question, with the Mind it read beside them; else
- * the Mind it read (or was asked from), or the model that answered. Null for
- * an Answer no model wrote, asked from no Mind.
+ * how many Documents the Answer cites, in its reply or in what it wrote into
+ * a Note; with no search, the Documents whose whole text went with the
+ * Question, with the Mind it read beside them; else the Mind it read (or was
+ * asked from), or the model that answered. Null for an Answer no model wrote,
+ * asked from no Mind.
  */
 export function foldedLine(input: StepsInput): FoldedLine | null {
   const { answer, meeting } = input;
-  const sources = sourceCount(answer.citations);
+  const cited = citedBy(answer);
+  const sources = sourceCount(cited);
   if (meeting) return { kind: "listened", sources };
   if (answer.toolCalls.some((call) => isSearch(call) && call.status === "done")) {
     // Never "no sources" once Passages were read: when the model cited nothing itself, what
     // was read, and what came of checking the Answer against it.
     const passages = passagesRead(answer.toolCalls);
     const citedAfterChecking = answer.steps?.citedAfterChecking ?? 0;
-    if (passages > 0 && answer.citations.length <= citedAfterChecking) {
+    if (passages > 0 && cited.length <= citedAfterChecking) {
       return { kind: "read-passages", passages, citedAfterChecking };
     }
     return { kind: "searched", sources, extraScopes: extraScopes(answer.toolCalls) };
@@ -526,7 +543,8 @@ export function foldedLine(input: StepsInput): FoldedLine | null {
 /**
  * The step an Answer being written is on, from its phase, its calls, its
  * text and its Citations: waiting for the User first; then loading,
- * checking quotes or figures, searching or another call running; then writing, which
+ * checking quotes or figures, searching or another call running; then a write being
+ * checked after the reply streamed; then writing, which
  * becomes checking once every marker in the text has its Citation; before
  * any text, thinking once the model has been asked, else reading the Mind it
  * reads, else searching.
@@ -553,6 +571,10 @@ export function liveStep({
   if (phase === "searching" || running.some(isSearch)) return { kind: "searching" };
   const call = running.find((each) => !isSearch(each));
   if (call) return { kind: "call", call };
+  // A write whose Citations came after it is checked once the reply has streamed (#1635): the
+  // line words it as its call still at work, while its row keeps what the call did.
+  const checking = answer.toolCalls.find((each) => (each.mindChange?.checking ?? 0) > 0);
+  if (checking) return { kind: "call", call: { ...checking, status: "running" } };
   if (answer.text.trim()) {
     const markers = markersIn(answer.text);
     const cited = new Set(answer.citations.map((citation) => citation.marker));
@@ -571,3 +593,15 @@ export function liveStep({
 /** Steps that stand for the same thing: a new count of Citations is the same step. */
 export const liveStepKey = (step: LiveStep): string =>
   step.kind === "call" ? `call:${step.call.id}` : step.kind;
+
+/**
+ * Whether the wait may take more of the line back: the step changed, or the step's own words did.
+ * A thinking step's label only goes Thinking ↔ Thinking… with its summary, which is not a step
+ * change (#2531).
+ */
+export function stepWordsChanged(
+  before: { label: string; stepKey: string },
+  now: { label: string; stepKey: string; kind: LiveStep["kind"] },
+): boolean {
+  return before.stepKey !== now.stepKey || (now.kind !== "thinking" && before.label !== now.label);
+}

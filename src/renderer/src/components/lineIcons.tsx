@@ -50,6 +50,16 @@ export function PlusLineIcon(props: IconProps) {
   );
 }
 
+/** A note beside a highlight: a page corner with two lines of writing (#327). */
+export function NoteLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3h8L19 7.5v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5z" />
+      <path d="M14 3v5h5M8.5 12h7M8.5 15.5h5" />
+    </LineIcon>
+  );
+}
+
 export function HomeLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
@@ -204,6 +214,16 @@ export function ChevronDownLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>
       <path d="m6 9 6 6 6-6" />
+    </LineIcon>
+  );
+}
+
+/** A pop-up button's two chevrons, up over down. */
+export function ChevronUpDownLineIcon(props: IconProps) {
+  return (
+    <LineIcon strokeWidth={2} {...props}>
+      <path d="m8 9 4-4 4 4" />
+      <path d="m8 15 4 4 4-4" />
     </LineIcon>
   );
 }
@@ -415,7 +435,7 @@ export function AppMark() {
     <span
       aria-hidden="true"
       data-testid="app-mark"
-      className="app-mark flex size-4 shrink-0 items-center justify-center rounded-sm bg-ink font-serif text-[12px] leading-none font-bold text-white"
+      className="app-mark flex size-4 shrink-0 items-center justify-center rounded-sm bg-ink font-serif text-[12px] leading-none font-bold text-on-primary"
     >
       I
     </span>
@@ -457,6 +477,15 @@ export function RecordingLineIcon(props: IconProps) {
     <LineIcon {...props}>
       <circle cx="12" cy="12" r="8.25" />
       <circle cx="12" cy="12" r="3.75" fill="currentColor" stroke="none" />
+    </LineIcon>
+  );
+}
+
+export function CalendarLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="4" y="5.5" width="16" height="14.5" rx="2" />
+      <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
     </LineIcon>
   );
 }

@@ -5,13 +5,16 @@
  * moves what it found by "lease" in one call, "Tag every invoice Finance" (给发票加上“财务”标签)
  * tags those found by "invoice", "Delete the drafts" sends those found by "draft" to Recently
  * deleted, and "Delete the document with id X" names an id nothing has. "Export this Mind as Word"
- * exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
+ * (or "as Markdown") exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
  * wrote ("with the AI marks") or not ("without the AI marks") when it says so, and "Delete this Mind"
  * sends it to Recently deleted; "Add the PDFs in /path"
  * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
  * leases into it" (新建一个叫“租约”的文件夹，把租约移进去) moves what it found into the Folder it
  * names, made for it; "Open the X beside this one" (在旁边打开“X”) opens the Document it found to
- * the side; "Check this Note" (核对这篇笔记) checks the Note in front; "Bring back the X I deleted"
+ * the side; "Check this sentence against the X" (对照“X”核对这句话) and "The source is the X"
+ * (出处是“X”) run Check against a Document and Choose the Citation on the sentence at the Note's
+ * caret with the Document it found (#1554); "Check this Note" (核对这篇笔记) checks the Note in
+ * front; "Bring back the X I deleted"
  * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
  * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
@@ -68,12 +71,15 @@ const TAG = /\btag every invoice (.+?)[.?!]*$|给发票加上“(.+?)”标签/i
 const DELETE_DRAFTS = /\bdelete the drafts\b/i;
 const DELETE_ID = /\bdelete the document with id (\S+?)[.?!]*$/i;
 const DELETE_MIND = /\bdelete this mind\b/i;
-const EXPORT = /\bexport this mind as word(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
+const EXPORT =
+  /\bexport this mind as (word|markdown)(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
 const ADD = /\badd the pdfs in (\S+?)[.?!]*$/i;
 const FOLDER_AND_MOVE =
   /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
 const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
+const AGAINST = /\bcheck this sentence against the (.+?)[.?!]*$|对照“(.+?)”核对这句话/i;
+const SOURCE = /\bthe source is the (.+?)[.?!]*$|出处是“(.+?)”/i;
 const ORGANIZE_FILES = /\bre[ -]?organi[sz]e the files\b|重新整理(?:一下)?(?:这些)?文件/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const REDUCE_TAGS = /\breduce the number of tags\b|减少标签(?:数量)?/i;
@@ -180,9 +186,9 @@ export function commandsReply(
         ? {
             command: "mind.export",
             ids: [mind.id],
-            format: "docx",
-            ...(exported[1] && { marks: exported[1].toLowerCase() === "with" ? "mark" : "leave" }),
-            ...(exported[2] && { folder: exported[2] }),
+            format: exported[1]?.toLowerCase() === "markdown" ? "markdown" : "docx",
+            ...(exported[2] && { marks: exported[2].toLowerCase() === "with" ? "mark" : "leave" }),
+            ...(exported[3] && { folder: exported[3] }),
           }
         : null;
     });
@@ -193,12 +199,27 @@ export function commandsReply(
       found[0] ? { command: "document.openBeside", ids: [found[0].id], done: true } : null,
     );
   }
+  for (const [asked, command] of [
+    [AGAINST, "check.againstDocument"],
+    [SOURCE, "check.chooseCitation"],
+  ] as const) {
+    const named = asked.exec(question);
+    if (named) {
+      return findThen(prompt, { kind: "document", name: named[1] ?? named[2] ?? "" }, (found) =>
+        found[0] ? { command, ids: [found[0].id], done: true } : null,
+      );
+    }
+  }
   if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check", done: true });
   if (ORGANIZE_FILES.test(asked)) {
     if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
     return {
       tool: "run_command",
-      input: { command: "documents.organize", about: "the files, each by what it says" },
+      input: {
+        command: "documents.organize",
+        about: "the files, each by what it says",
+        done: true,
+      },
     };
   }
   if (REDUCE_TAGS.test(asked)) {
@@ -238,6 +259,7 @@ export function commandsReply(
       command: "documents.organize",
       folder: capitalized(topic),
       about: topic,
+      done: true,
     });
   }
   const restore = RESTORE.exec(question);

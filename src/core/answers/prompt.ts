@@ -5,7 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
-import { asData, tagged } from "../promptData";
+import { asData, type PromptTag, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
@@ -26,6 +26,13 @@ export function questionLanguage(question: string): string | null {
     ? detectLanguage(question.replace(LATIN_WORDS, " "))
     : detectLanguage(question.replace(CJK_CHARACTERS, " "), QUESTION_COMMON_WORDS);
 }
+
+/** A transcript line's time and speaker ("[12:07 Them] "): who spoke and when, not what was said. */
+const SPEECH_MARK = /\[[^\]]*\]/g;
+
+/** The language a transcript's `passages` are said in, their marks left out. */
+export const languageSpoken = (passages: readonly { text: string }[]): string | null =>
+  questionLanguage(passages.map((passage) => passage.text.replace(SPEECH_MARK, " ")).join("\n"));
 
 function isWritten(question: string, documentNames: readonly string[]): boolean {
   const keys = [question.trim(), question.trim().replace(EXTENSION, "")].map(nameKey);
@@ -117,7 +124,7 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes different values for one or more of the workbook's inputs, call what_if once with all of them, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
     "- Never work a what-if out yourself, with calculate, with run_analysis or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. A number an Analysis works out in Python is the Analysis's own calculation, never the workbook's recalculation. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
@@ -138,9 +145,9 @@ export function analysisInstructions(offered: boolean): string {
     "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over the rows, up to 20,000 of each range. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
     '- A table in a PDF, Word file or deck is an input too, {"name": "costs", "passage": "P5"}: all its rows, over every page, each cited where the Document has it. Use it to add up, count or compare a table\'s rows; for a figure from two or three numbers a Passage shows, calculate is enough. A table\'s rows can hold its totals, subtotals and the lines it carries over a page: leave those out of a sum of its entries, and compare the sum with the total it prints.',
-    '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
+    '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells; a number of rows is the count of a column every row fills, figure("orders", df["order_id"], "count", "Orders"). Give each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. Every figure worked out from an input\'s rows (a coefficient, a forecast, a p-value, a share) passes those rows as of=, the DataFrame after any filtering, so its Citation leads to them: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
     "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
-    "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
+    "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself: its label is its caption, so write no line above it that only says the same. Write each label and title in the language the Answer is in.",
     "- When it stops with an error, fix the code and run it again.",
   ].join("\n");
 }
@@ -162,11 +169,11 @@ export function codeInstructions(offered: boolean, analysisOffered: boolean): st
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
+    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; propose Folders for Documents by what they say, which the User confirms (documents.organize); open things, also beside the Note, open Settings at a page, record, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
     "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing; never say a thing isn't there before list_commands looked: it also finds what is in Recently deleted. A command that acts on the window in front needs nothing found: list_commands with kind \"window\" gives its id. Checking the Note in front against the Documents, in any words, is the window's Check, mind.check: run it, never check the Note in your reply. It isn't for spelling.",
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
     "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
-    "- Putting together what the User has on a subject, by what it says rather than by its name, means the Documents themselves, in a Folder: Organize's, never a Note written about them unless a note is asked for. Run documents.organize, with a Folder named from the request when it names one. It reads each one and files it in the Folder that fits: the User allows it once, and Undo puts them back.",
+    '- Putting together what the User has on a subject, by what it says rather than by its name, or organizing or sorting Documents into Folders (整理, 归到一起, put together, into one folder), means the Documents themselves: Organize\'s, never a Note written about them unless a note is asked for, and never document.moveTo. Run documents.organize, with a Folder named from the request when it names one. It reads each one and proposes the Folder that fits; nothing moves until the User reviews and confirms the proposals. The User allows it once, and Undo takes the proposals back. Run document.moveTo only when the User names the Documents and the Folder to move them to ("move the March invoice to Finance").',
     "- Cutting down or tidying the Tags means merging them, never deleting one: run tag.merge once, with ids and tag for the one Tag kept, or with merges (each ids and tag) when more than one Tag stays. Its card lists every merge and the User allows them once, so never ask which Tags first: that card is the confirmation. In your reply name each Tag and the Tag it went into, and say the merged Tags are in Recently deleted where the User can restore them; one Undo brings them back.",
     "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
@@ -232,7 +239,7 @@ const selected = (
   quote: { documentName: string; quote: string; table?: AskedTable },
   place: string | null,
 ) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${asData(quote.table ? tableText(quote.table) : quote.quote, CALL_TAGS)}\n</selected>`;
 
 /** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
 export interface SelectedBlockQuote {
@@ -425,6 +432,28 @@ export const CALL_SCOPE_NOTE = [
 ].join("\n");
 
 /**
+ * The tags the Answer writes around text a User or a Document supplies (#2473). A Transcript's
+ * lines are speech, not the app's markup: shown as Passages they could close the transcript early
+ * or forge the note that says what the call is. Keep this in step with every tag the Answer adds.
+ */
+export const CALL_TAGS: readonly PromptTag[] = [
+  "live-transcript",
+  "found-in-documents",
+  "call",
+  "help",
+  "mind",
+  "selection",
+  "question",
+  "answer",
+  "selected-text",
+  "selected",
+  "document-text",
+  "document-skims",
+  "passage",
+  "tool-record",
+];
+
+/**
  * Connectors that are on but can't be used until the User signs in to them
  * again: their Tools aren't offered, and the Answer says so if it needed them.
  */
@@ -561,7 +590,7 @@ const FORMULA_ROWS_PASSAGE = /<passage [^>]*\bformulas="/;
  */
 export function formulaRowsNote(passages: string): string {
   if (!FORMULA_ROWS_PASSAGE.test(passages)) return "";
-  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
+  return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one or more of the workbook's inputs at other values, call what_if once with all of them.";
 }
 
 /**
@@ -698,7 +727,7 @@ export interface LibraryDocuments {
 }
 
 /** A Document name on one line of its own, and not too long. */
-function listedName(name: string): string {
+export function listedName(name: string): string {
   const line = name.replace(/\s+/g, " ").trim();
   return line.length > MAX_NAME_LENGTH ? `${line.slice(0, MAX_NAME_LENGTH - 1)}…` : line;
 }

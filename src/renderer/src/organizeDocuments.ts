@@ -1,15 +1,10 @@
 import { create } from "zustand";
-import type { DocumentGroupAssignment, LibraryGroup } from "../../core/api";
-import { organizeModelOf } from "../../shared/libraryModels";
+import type { OrganizeStart } from "../../core/api";
 import { core } from "./core";
-import { useNotices } from "./notices";
-import { removeEmpty, sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
+import { organize, organizeEach } from "./organizeReview";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
-/** Whether Organize is reading the Documents to propose Folders, before it sorts them. */
-export const useProposing = create<{ proposing: boolean }>()(() => ({ proposing: false }));
-
-/** The User's own Documents in no Folder: one waiting in a Suggested Folder counts as in it. */
+/** The User's own Documents in no Folder: what the Library's Organize sorts. */
 export function looseDocumentIds(
   state: Pick<AppState, "documents" | "library" | "examples" | "otherExamples">,
 ): string[] {
@@ -24,64 +19,119 @@ export function looseDocumentIds(
     .map((each) => each.id);
 }
 
+/** What an Organize was asked for: these Documents, those in no Folder (null), or a Folder's. */
+export type OrganizeTarget = { ids: readonly string[] | null } | { folderId: string };
+
+export type OrganizeNeeds = Extract<OrganizeStart, { ready: false }>;
+
 /**
- * Organize on these Documents, from the Library or ⌘K (#2308). With no Folders yet, Organize's
- * model first proposes a few from what the Documents say and makes them; a decision model can't
- * name a Folder, so the starter Folders open instead. Then it suggests a Folder for each, to
- * accept in To review, and one Undo takes back the suggestions and the Folders it made. With no
- * model chosen, the row under Not in a Folder asks for one first.
+ * The Organize waiting for the User at the Library's top (#1569): no model, or the first time a
+ * cloud service would read the Documents, which its card asks about.
  */
-export async function organizeDocuments(
-  ids: readonly string[],
-  /** What Undo goes back to, when it was read before something set the Documents going. */
-  read?: ReadonlyMap<string, DocumentGroupAssignment>,
+export const useOrganizeAsk = create<{
+  asked: { target: OrganizeTarget; needs: OrganizeNeeds } | null;
+  ask(target: OrganizeTarget, needs: OrganizeNeeds): void;
+  close(): void;
+}>()((set) => ({
+  asked: null,
+  ask: (target, needs) => set({ asked: { target, needs } }),
+  close: () => set({ asked: null }),
+}));
+
+/**
+ * Runs Organize on a model of this kind: planned as a whole into the Review, where nothing moves
+ * before the User confirms it. A model that can only choose among Folders (a decision model)
+ * sorts each into the Folders there are, and with none the starter Folders open instead.
+ * `forService`: the service a press was authorized for; Organize sends nowhere else. `once`:
+ * allowed for this run alone, under the User's earlier no.
+ */
+async function run(
+  target: OrganizeTarget,
+  model: Extract<OrganizeStart, { ready: true }>["model"],
+  options: { forService?: string; once?: boolean },
 ): Promise<void> {
-  // A second run while the first proposes would propose again, and its Undo would miss Folders.
-  if (useProposing.getState().proposing) return;
   const app = useAppStore.getState();
   const library = app.library;
-  const model = library ? organizeModelOf(library.settings) : null;
-  if (!library || !model) {
-    useOrganizeAsk.getState().ask(ids);
+  if (!library) return;
+  const sent = {
+    ...(options.forService !== undefined && { forService: options.forService }),
+    ...(options.once === true && { once: true }),
+  };
+  if ("folderId" in target) {
+    if (model === "chat") {
+      await organize({ folderId: target.folderId, ...sent });
+      return;
+    }
+    const inside = library.assignments
+      .filter((item) => item.groupId === target.folderId)
+      .map((item) => item.documentId);
+    await organizeEach(inside, target.folderId, sent);
     return;
   }
-  const before =
-    read ??
-    new Map<string, DocumentGroupAssignment>(
-      library.assignments
-        .filter((item) => ids.includes(item.documentId))
-        .map((item) => [item.documentId, item]),
-    );
-  let made: LibraryGroup[] = [];
-  if (library.groups.length === 0) {
-    if (model.kind !== "chat") {
-      app.openLibrary("starters");
-      return;
-    }
-    useProposing.setState({ proposing: true });
-    try {
-      made = await core.proposeFolders([...ids]);
-    } finally {
-      useProposing.setState({ proposing: false });
-    }
-    await app.refreshLibrary();
-    if (made.length === 0) {
-      useNotices.getState().confirm("library.organize.noneFit");
-      return;
-    }
+  if (model === "chat") {
+    await organize({ ...(target.ids && { documentIds: [...target.ids] }), ...sent });
+    return;
   }
-  try {
-    await core.classifyDocuments([...ids]);
-    await app.refreshLibrary();
-  } catch (error) {
-    // Nothing would offer to take back the Folders made for a run that never started. The run's
-    // own failure is what the User is told; one in taking them back is only logged.
-    if (made.length > 0) {
-      await removeEmpty(made).catch((cleanup: unknown) =>
-        console.error("The Folders Organize made couldn't be taken back.", cleanup),
-      );
-    }
-    throw error;
+  if (library.groups.length === 0) app.openLibrary("starters");
+  else await organizeEach(target.ids ?? looseDocumentIds(app), null, sent);
+}
+
+/**
+ * Organize, from the Library, ⌘K, a Folder's menu, the footer's Allow or a fix (#2308, #1569). It
+ * runs at once when nothing needs asking; otherwise the Library's top asks first: for a model
+ * when there is none, or, the first time a cloud service would read the Documents, the card that
+ * says what goes there.
+ */
+export async function organizeTarget(
+  target: OrganizeTarget,
+  options: { forService?: string } = {},
+): Promise<void> {
+  const needs = await core.startOrganize();
+  const app = useAppStore.getState();
+  if (!needs.ready) {
+    app.openLibrary();
+    useOrganizeAsk.getState().ask(target, needs);
+    return;
   }
-  sayWhenOrganized(ids, before, made);
+  useOrganizeAsk.getState().close();
+  // The model it just kept shows in the Library's settings before the run reads them.
+  await app.refreshLibrary();
+  await run(target, needs.model, options);
+}
+
+/** Organize these Documents, or (null) the Library's Documents in no Folder. */
+export function organizeDocuments(
+  ids: readonly string[] | null,
+  options: { forService?: string } = {},
+): Promise<void> {
+  return organizeTarget({ ids }, options);
+}
+
+/** Organize This Folder: its own Documents, into subfolders inside it; nothing moves out of it. */
+export function organizeFolder(folderId: string): Promise<void> {
+  useAppStore.getState().openLibrary();
+  return organizeTarget({ folderId });
+}
+
+/**
+ * The card's "Allow and organize": the consent for the service it named (ADR-0022), then the
+ * run. Under the User's earlier no it keeps nothing, and the run alone goes.
+ */
+export async function allowAndOrganize(): Promise<void> {
+  const { asked } = useOrganizeAsk.getState();
+  if (!asked || asked.needs.needs !== "consent") return;
+  const { target, needs } = asked;
+  useOrganizeAsk.getState().close();
+  const forService = needs.service.id;
+  if (needs.declined) {
+    await run(target, needs.model, { forService, once: true });
+    return;
+  }
+  const now = await core.allowOrganize(forService);
+  if (!now.ready) {
+    useOrganizeAsk.getState().ask(target, now);
+    return;
+  }
+  await useAppStore.getState().refreshLibrary();
+  await run(target, now.model, { forService });
 }

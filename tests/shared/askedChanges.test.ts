@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { type AnswerToolCall, MIND_CONTENT_FIELD, PROPOSAL_DELETE_MARK } from "../../src/core/api";
-import { appliedAsAsked, askedFor } from "../../src/shared/askedChanges";
+import {
+  type AnswerToolCall,
+  MIND_CONTENT_FIELD,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
+} from "../../src/core/api";
+import { appliedAsAsked, askedFor, ownTextRemoved } from "../../src/shared/askedChanges";
 import { recordProposalRequest } from "../../src/shared/proposals";
 
 const MIND = "mind-1";
@@ -63,5 +68,63 @@ describe("Whether the window applies an asked-for change at once (#880)", () => 
     expect(
       appliedAsAsked(doc, { mindId: MIND, request: "other-request" }, [editCall(MIND, REQUEST)]),
     ).toBe(false);
+  });
+});
+
+/** A paragraph of runs: the User's text, or a Proposal's struck (`out`) or new (`in`) text. */
+function paragraphOf(runs: readonly { text: string; out?: string; in?: string }[]): Y.XmlFragment {
+  const doc = new Y.Doc();
+  const block = new Y.XmlElement("paragraph");
+  const content = new Y.XmlText();
+  let at = 0;
+  for (const run of runs) {
+    const marks = run.out
+      ? { [PROPOSAL_DELETE_MARK]: { id: run.out, request: REQUEST } }
+      : run.in
+        ? { [PROPOSAL_INSERT_MARK]: { id: run.in, request: REQUEST } }
+        : {};
+    content.insert(at, run.text, marks);
+    at += run.text.length;
+  }
+  block.insert(0, [content]);
+  doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [block]);
+  return doc.getXmlFragment(MIND_CONTENT_FIELD);
+}
+
+describe("How much of the User's text a change takes out (#880, #2356), held out", () => {
+  // protects=the share of the User's text a change takes out is the same whether its paragraph reads whole, struck and written again, or word by word, and counts words, not the spaces and marks between them, in English as in Chinese; fails_when=the words written again, or the spaces and marks struck with them, count as taken out; no_claim=how a change reads.
+  test.each([
+    {
+      case: "en",
+      before: "The ferry leaves at nine every morning.",
+      after: "The ferry leaves at ten every morning.",
+      kept: ["The ferry leaves at ", " every morning."],
+      was: "nine",
+      now: "ten",
+      share: 4 / 32,
+    },
+    {
+      case: "zh",
+      before: "渡轮每天早上九点出发。",
+      after: "渡轮每天早上十点出发。",
+      kept: ["渡轮每天早上", "点出发。"],
+      was: "九",
+      now: "十",
+      share: 1 / 10,
+    },
+  ])("read whole or word by word, the same share goes: $case", (each) => {
+    const whole = paragraphOf([
+      { text: each.before, out: "whole" },
+      { text: each.after, in: "whole" },
+    ]);
+    const words = paragraphOf([
+      { text: each.kept[0] ?? "" },
+      { text: each.was, out: "word" },
+      { text: each.now, in: "word" },
+      { text: each.kept[1] ?? "" },
+    ]);
+
+    expect(ownTextRemoved(whole, new Set([REQUEST]))).toBeCloseTo(each.share, 5);
+    expect(ownTextRemoved(words, new Set([REQUEST]))).toBeCloseTo(each.share, 5);
   });
 });

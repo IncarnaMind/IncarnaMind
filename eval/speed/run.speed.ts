@@ -1,6 +1,6 @@
 /**
  * `npm run eval:speed` (eval/speed/README.md): the speed baseline of #1624. Each flow in ./flows,
- * on each model, in each language, a few times, over the mixed sample set in data/ and data/real/,
+ * on each model, in each language, a few times, over the mixed sample set in eval/data/ and eval/data/real/,
  * with the built-in reranker on this computer as Users have it. Prints the tables of ./report and
  * writes them to eval/results/speed-<time>/.
  *
@@ -28,7 +28,14 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { FLOWS, type Language } from "./flows";
-import { type FlowRun, flowTable, percentile, requestTable, type TimingRecord } from "./report";
+import {
+  budgetTable,
+  type FlowRun,
+  flowTable,
+  percentile,
+  requestTable,
+  type TimingRecord,
+} from "./report";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { createTokenAuditor, type TokenAuditRun, tokenReport } from "./tokens";
 
@@ -70,15 +77,16 @@ async function readScans(cacheDir: string, log: ReturnType<typeof createLog>) {
 }
 
 const NOT_MEASURED = [
-  "- DeepSeek: no key for this run.",
   "- The ChatGPT plan: its sign-in is in a browser, which a run can't do; it is timed by hand in the app.",
-  "- Call help and the meeting notes after Stop: they need a Meeting's audio and transcription, which this runner doesn't record.",
-  "- Organize and Automatic Tags run in the background as Documents are added: their requests made during a run show under `tagging` and `classification` in the requests table.",
+  "- Call help and the meeting notes after Stop: each needs a Meeting heard live in a Library of its own, so the paired runner's `call-help` and `meeting-notes` sets time them (README › Paired runs).",
+  "- Check this Mind on 10 sentences, with its first verdict: `INCARNAMIND_EVAL_SPEED_CHECK_TIMES=note` (README › Where a check's time goes).",
+  "- Transcription on this computer: `npm run eval:transcription`.",
+  "- Tagging and Organize as Documents are added run in the background: their requests made during a run show under `tagging` and `classification` in the requests table. The `tags`, `organize` and `library-grouping` flows time them pressed.",
   "- The first sign of the flows that aren't Answers is the first one the core sends; the window's own pending state, shown at once, isn't seen here.",
 ];
 
-// A paired run (./paired.speed) times its own items instead.
-const baseline = env("PAIRED") === null ? test : test.skip;
+// A paired run (./paired.speed) and the checks' own timing (./checkTimes.speed) time their own items instead.
+const baseline = env("PAIRED") === null && env("CHECK_TIMES") === null ? test : test.skip;
 
 baseline("the speed of every AI flow, on each model and language", async () => {
   const log = createLog();
@@ -171,13 +179,19 @@ baseline("the speed of every AI flow, on each model and language", async () => {
   const report = [
     "# Speed baseline",
     "",
-    `${new Date().toISOString()} · ${runs} runs a flow, model and language · times are median / 90th percentile.`,
+    `${new Date().toISOString()} · ${runs} runs a flow, model and language · times are median / 95th percentile.`,
     "",
     `This computer: ${cpu}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; ${loadLine}. Spent: $${spent.toFixed(2)}.${stopped ? ` ${stopped}` : ""}`,
     "",
     "## Flows",
     "",
     flowTable(results),
+    "",
+    "## Budgets (#1624)",
+    "",
+    "Held at the 95th percentile. Claude Sonnet, Opus and the models named Pro or Sol are Sonnet-class; every other model is held to the Haiku-class budget.",
+    "",
+    budgetTable(results),
     "",
     "## Requests and local steps",
     "",

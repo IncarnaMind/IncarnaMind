@@ -6,8 +6,15 @@
  */
 import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
+import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, createOllamaModels, type Document } from "../../src/core";
+import type { Logger } from "../../src/core/adapters";
+import {
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { contradictionWatchOf } from "../../src/shared/contradictionWatch";
@@ -94,16 +101,21 @@ async function setUp({
   calls = [] as ModelCall[],
   delayMs = 0,
   ollama,
+  model: given,
+  log,
 }: {
   office?: string;
   calls?: ModelCall[];
   delayMs?: number;
   ollama?: { baseUrl: string; modelId: string };
+  model?: MockLanguageModelV4;
+  log?: Logger;
 } = {}) {
-  const model = checkingModel(PLANS, calls);
+  const model = given ?? checkingModel(PLANS, calls);
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     contradictionWatch: { delayMs },
+    ...(log && { log }),
     ...(ollama && { ollamaModels: createOllamaModels({ memoryBytes: () => 32 * GIB }) }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model", ...ollama });
@@ -381,6 +393,72 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
     expect(await shownChecks(core, other.client, elsewhere.id)).toEqual([]);
   });
 
+  // protects=a background watch on a Note a newer version wrote hears each cited sentence once and logs the first mark it couldn't write once with the Note's id, instead of failing each claim's job into the queue (#2543); fails_when=the mark's throw ends its job, so the queue reports it once per claim with no Note named; no_claim=the watch record's counts, which this Note can't record, and how the window shows a watch that couldn't record itself.
+  test("a Note a newer version writes mid-run has each cited sentence checked once, and says once when a mark can't be written", async () => {
+    const calls: ModelCall[] = [];
+    const logged: { event: string; fields: Parameters<Logger["error"]>[1] }[] = [];
+    const log: Logger = {
+      info: () => undefined,
+      warn: () => undefined,
+      error: (event, fields) => logged.push({ event, fields }),
+    };
+    let page: MindClient | null = null;
+    let newer: Promise<void> | null = null;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const model = scriptedModel(
+        (call) => {
+          calls.push(call);
+          if (!isCheckRun(call) || call.results.length > 0 || !page) return checkReply(call, PLANS);
+          // A newer version writes the Note while the first claim's check is under way.
+          if (!newer) {
+            page.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            newer = page.settled();
+            return { ...checkReply(call, PLANS), pause: { after: 0, until: newer } };
+          }
+          return checkReply(call, PLANS);
+        },
+        { generate: checkGenerate(PLANS) },
+      );
+      const { core, tides, office, folder } = await setUp({
+        office: QUIET_OFFICE,
+        calls,
+        model,
+        log,
+      });
+      const { mind, client } = await mindCiting(core, tides, folder.id);
+      page = client;
+
+      await writeFile(office.path, OFFICE.contents);
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [office.id]);
+      await vi.waitFor(
+        () => expect(logged.some(({ event }) => event === "contradictions.markFailed")).toBe(true),
+        { timeout: 10_000 },
+      );
+      await vi.waitFor(
+        () =>
+          expect(logged.some(({ event }) => event === "contradictions.recordFailed")).toBe(true),
+        { timeout: 10_000 },
+      );
+
+      // Both cited sentences were checked, the one after the first refused mark among them.
+      expect(
+        calls.filter((call) => isCheckRun(call) && call.results.length === 0).map(sentenceOf),
+      ).toEqual([YEARLY, MOON]);
+      // One line, with the Note it happened in; its job never throws into the queue.
+      const failed = logged.filter(({ event }) => event === "contradictions.markFailed");
+      expect(failed.map(({ fields }) => [fields?.mindId, fields?.error])).toEqual([
+        [mind.id, "MindReadOnlyError"],
+      ]);
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   test("on a small model on this computer, what it found says so, on demand and in the record, for #680's notice", async () => {
     const ollama = await startOllamaServer({
       models: [
@@ -543,6 +621,105 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
     expect(asked).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
     expect(contradictionWatchOf(client.doc)).toBeNull();
+  });
+});
+
+describe("A User who allowed checks before they sent more", { timeout: 30_000 }, () => {
+  const MORE = [
+    "library-counts",
+    "library-names",
+    "file-properties",
+    "absence-documents",
+    "watched-sentences",
+  ];
+
+  /** A cloud model whose checks flow the User allowed before it sent `more`, and a note citing Tides in the Folder. */
+  async function allowedBefore(more: readonly string[]) {
+    const calls: ModelCall[] = [];
+    const model = checkingModel(PLANS, calls);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => model,
+      contradictionWatch: { delayMs: 0 },
+    });
+    const asked: string[][] = [];
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-ant-test",
+    });
+    const checks = core.dataFlows.get("checks");
+    if (!provider.service || !checks) throw new Error("The checks flow to Anthropic isn't set up.");
+    await core.revokeConsent("checks", provider.service.id);
+    core.dataFlows.register({
+      ...checks,
+      sends: checks.sends.filter((kind) => !more.includes(kind)),
+    });
+    await core.allowDataFlow("checks", provider.service.id);
+    core.dataFlows.register(checks);
+    core.on("consent.requested", (request) => {
+      asked.push([...request.newKinds]);
+      void core.respondToConsent(request.requestId, true);
+    });
+    const sources = await createTempDataFolder();
+    const [tides, office] = (await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+      await writeSourceFile(sources, OFFICE.name, QUIET_OFFICE),
+    ])) as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    await core.moveToFolder({ documentIds: [tides.id, office.id], folderId: folder.id });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    const newVersion = async () => {
+      await writeFile(office.path, OFFICE.contents);
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [office.id]);
+    };
+    return { core, calls, asked, folder, mind, client, newVersion };
+  }
+
+  // protects=the watch never stops without a word: allowed before the checks flow named its sentences, a new version records that it waits, sends nothing and asks nothing; Review…'s check asks once, for what is new, then checks (#2525); fails_when=it sends on the earlier consent, asks in the background, or records nothing.
+  test("a new version records that the watch waits for their OK, and the check that asks runs it", async () => {
+    const { core, calls, asked, folder, mind, client, newVersion } = await allowedBefore(MORE);
+    await newVersion();
+
+    await vi.waitFor(() =>
+      expect(contradictionWatchOf(client.doc)).toMatchObject({
+        documentName: "Harbour office",
+        claims: 2,
+        checked: 0,
+        stop: { reason: "consent-widened" },
+      }),
+    );
+    expect(asked).toEqual([]);
+    expect(calls).toEqual([]);
+
+    await core.checkContradictions({ requestId: "review", mindId: mind.id });
+    expect(asked).toEqual([MORE]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+      { state: "contradicted" },
+    ]);
+  });
+
+  // protects=the watch waits only on what it sends: allowed before checks sent the Library's counts and names, which the watch never sends, it runs on a new version without asking; fails_when=it waits, or asks in the background, for kinds it doesn't send.
+  test("the watch waits only on what it sends: the Library's facts missing, it still runs", async () => {
+    const { core, calls, asked, folder, client, newVersion } = await allowedBefore([
+      "library-counts",
+      "library-names",
+    ]);
+    await newVersion();
+
+    await vi.waitFor(
+      async () =>
+        expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+          { state: "contradicted" },
+        ]),
+      { timeout: 10_000 },
+    );
+    await vi.waitFor(() =>
+      expect(contradictionWatchOf(client.doc)).toMatchObject({ checked: 2, stop: null }),
+    );
+    expect(asked).toEqual([]);
+    expect(calls.length).toBeGreaterThan(0);
   });
 });
 

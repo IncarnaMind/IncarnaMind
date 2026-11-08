@@ -35,7 +35,7 @@ What an Answer is generated from: in a Note, every Block above its Question, exc
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. Automatic and suggested Organize filings count only once the User accepts them.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. A Document waiting in Suggestions counts in no Folder proposed for it until the User confirms it.
 _Avoid_: filter, context
 
 ### The assistant
@@ -53,6 +53,17 @@ _Avoid_: chat (except in "New chat"), thread, session
 **Document**:
 A file the User keeps, in a Linked folder or added on its own, that IncarnaMind has indexed for Answers to draw on, or a Web page. A file stays where the User keeps it; IncarnaMind keeps the text it read from it. A Web page's snapshot is kept in IncarnaMind's data folder. A Document is known by its Linked folder and its path inside it, or as a file of its own, never by where it is on one computer, so it stays the same Document when its Linked folder moves or is on another of the User's computers. Each version of its file is known by its content. The same file in two places is two Documents.
 _Avoid_: file, doc, source
+
+**Highlight**:
+Words in a Document's viewer that the User marked, kept with their Citation so they can be searched, added to a Note and collected; on a PDF, a drawn region is a highlight too. A PDF's own highlights are the file's content and are listed as "From the file".
+_Avoid_: annotation, mark, markup
+
+**Comment** (批注):
+Words a User attaches to selected text. In a Note it has replies, Resolve and Reopen, and goes back and forth with Word's comments. On a Document's highlight it stands alone, with no replies or Resolve.
+_Avoid_: note (a Note is the notebook), annotation, remark (and 评论 in Chinese)
+
+**Highlights and comments**:
+The pane on the right of a Document's tab, listing every Highlight and Comment in that Document. On screen the feature is never called annotations.
 
 **Web page**:
 A Document saved from a web address: a snapshot of the page's readable text, fetched from the User's computer when it is added (by the User, or by an Answer that read it in a web search), and again only when the User asks. Its Citations point at the snapshot, never at the live page, so they can always be checked.
@@ -90,16 +101,12 @@ _Avoid_: private Document, hidden Document, excluded Document
 A reference, anchored in the text of an Answer, to the Passage a claim was drawn from: the Location it cites, and a quote from the Passage that is checked against the text at that Location. Copied into your text, it stays a Citation; Question context shows it as a reference to its Document with an id, by which an Answer keeps it as the same Citation. It names its Document as the Document is named now, so a rename shows in every Citation of it, on screen, in exports and in what a model or an outside agent reads; the name it was made with is kept, never rewritten, and shown only when the Document can't be found. A History comparison keeps each Checkpoint's own names.
 _Avoid_: source, reference
 
-**Comment**:
-A remark attached to words in a Note, by the User or by a Word file's author, with replies, that can be resolved and reopened. A Word file's comments arrive as the Note's comments and go back as Word comments. Not a Citation, a check or AI text.
-_Avoid_: annotation, remark (and 评论 in Chinese)
-
 **Calculated figure**:
-A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
+A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated". A workbook's cell that holds text, a covenant's "OK" or "Breach", is a calculated figure too, its result that text (#2389).
 _Avoid_: computed figure, calculated citation, derived number, formula
 
 **What-if**:
-A Calculated figure worked out again from an Excel workbook's own formulas with one Input changed ("2027 EBITDA if growth is 3%"), in memory, never in the User's file. It names the Input it changed, the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
+A Calculated figure worked out again from an Excel workbook's own formulas with one or more Inputs changed ("2027 EBITDA if growth is 3%", or "if growth is 3% and the margin 25%"), in memory, never in the User's file. It names each Input it changed and the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
 _Avoid_: scenario, sensitivity (a table of several), simulation
 
 **Formula chain**:
@@ -154,19 +161,15 @@ _Avoid_: project (in the interface), group (a Folder's former name; a Group is n
 The one place for every Document and Note in no Folder. A Note there searches every Document except those inside a work wall.
 _Avoid_: Unsorted, Uncategorised, Inbox
 
-**Suggested Folder**:
-A Folder that Organize proposes for a Document, which waits for the User to accept it (it becomes the User's choice) or reject it (the Document stays Not in a Folder and that Folder isn't suggested for it again). While it waits, the Document counts as in that Folder, for listings and for the Folder's Search scope, marked as a suggestion.
-_Avoid_: automatic Folder, proposed Folder
-
-**To review**:
-The Library's view of what Organize suggested and the User hasn't accepted yet: the Documents waiting in a Suggested Folder, listed by that Folder, each to accept, move to another Folder or turn down ("Not this Folder"). It is the first section of the Library page while anything waits, with how many, and goes when nothing does.
-_Avoid_: inbox, queue, pending
+**Suggestions**:
+What Organize and tagging propose that the User hasn't confirmed yet (建议 in Chinese): for each Document, the Folder to put it in (one of the User's or a new one by name) or left out with its reason, and the Tags to add. Every run adds to the Library's one set, whoever started it, and it is kept across restarts. Nothing in it counts until the User confirms: no Document moves, no Folder is made and no Tag is added, and a waiting Document is in no Folder proposed for it, for listings, Search scope and walls. The interface shows them on the Library's page as "Suggested Folders" ("Suggested Tags" when only Tags were asked for), opened with Review from the count that says how many wait. Confirm makes the Folders, files the ticked Documents as the User's own choice and adds their Tags, in one step with one Undo; Not Now keeps them; Discard drops them, with Undo. What the User unticks or takes off isn't proposed again for that Document for 30 days, and a run in the background never proposes changing what the User filed or tagged.
+_Avoid_: Suggested Folder and To review (the earlier names), Review as a noun (Review changes is a Note's), automatic Folder, inbox, queue, pending
 
 **Source location**:
 The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists them as Folders on disk.
 
 **Tag**:
-A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind applies Tags automatically, and the User can add or remove them.
+A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind proposes Tags, which wait in Suggestions until the User confirms them, and the User can add or remove them.
 _Avoid_: category, label, class
 
 **Topic**:
@@ -174,7 +177,7 @@ The earlier design for a generated two-level subject tree. The current Library u
 _Avoid_: cluster, category, collection, group
 
 **Library**:
-The view of all of a User's Documents, organised into Folders with visible Tags. Users can search names or Tags, manage Folders, and organise Documents automatically or correct them by hand; manual choices are kept.
+The view of all of a User's Documents, organised into Folders with visible Tags. Users can search names or Tags, manage Folders, and organise Documents with Organize, whose Suggestions wait for the User to confirm, or by hand; manual choices are kept.
 _Avoid_: archive, index, vault
 
 **Peek**:
@@ -192,7 +195,7 @@ What a Tool call can do beyond the conversation it is part of: read data, write 
 _Avoid_: permission, capability, side effect
 
 **Analysis**:
-Python (or, on macOS and Linux, a shell command) an Answer wrote and IncarnaMind ran in a sandbox, with no network, reading the files it was given and everything outside the home folders (the system's own files, and what apps installed outside a home keep there) but no one's home folder, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
+Python (or, on macOS and Linux, a shell command) an Answer wrote and IncarnaMind ran in a sandbox, with no network, reading the files it was given and everything outside the home folders (the system's own files, and what apps installed outside a home keep there) but no one's home folder, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it. A table it gives reaches a Note as one calculated object: a caption line ending with one marker in the one number series, its cells judged from the Analysis's run, never against the Documents' text.
 _Avoid_: notebook, script, code interpreter (in the interface), Skill script
 
 **Third-party text**:
@@ -227,7 +230,7 @@ _Avoid_: default Skill, system Skill
 
 **Proposal**:
 A change to a Note, made by the AI, proposed by an outside agent or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
-_Avoid_: suggestion, edit, draft, diff
+_Avoid_: suggestion (Suggestions are what Organize and tagging propose), edit, draft, diff
 
 **AI text**:
 The words the AI wrote into a Note that the User hasn't made their own: in Answers, Answers added to a note, accepted changes and accepted suggestions. They are drawn a step softer than the User's writing. What the User types, even inside AI text, is theirs, and "Mark as mine" makes selected AI text theirs. Exports and Question context read it as any other text; a Word export can mark it with a comment.
@@ -338,7 +341,7 @@ What the User records alone, with the microphone, to think out loud: recorded an
 _Avoid_: dictation, voice note, audio note, recording
 
 **Transcript**:
-The words of a Meeting, in order and with times, kept as a Document in the Library so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
+The words of a Meeting, in order and with times, kept as a Document that belongs to the Meeting's Note, so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A meeting is one item: the Transcript has no row, Folder or Tags of its own, and is reached through its Note; it goes where its Note goes, into its Folder, behind its wall and to Recently deleted, and words found inside it are its Note's. One that an earlier version left with a wall between it and its Note stays a Document of its own, where it was. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:

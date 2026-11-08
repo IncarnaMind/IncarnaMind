@@ -19,9 +19,12 @@ import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
   AudioSource,
+  CallWatchProblem,
   CopilotProfileId,
+  DecisionHost,
   EngineSwitchReason,
   ExternalService,
+  OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
   SecretProtection,
@@ -315,10 +318,11 @@ export interface ExecRequest {
   /**
    * "minimal": of the login environment, only `MINIMAL_ENVIRONMENT` is passed on, then `env`: for
    * code a model wrote, which could print any variable to it (`DATABASE_URL`, `SSH_AUTH_SOCK`)
-   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). Not given: all of it, less names
-   * that look like secrets.
+   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). "own-python": all of it less names
+   * that look like secrets and the User's own Python's settings (`USERS_PYTHON`), for IncarnaMind's
+   * own Python. Not given: all of it, less names that look like secrets.
    */
-  environment?: "minimal";
+  environment?: "minimal" | "own-python";
   /**
    * What it may read, write and reach. Enforced from "os" up; at "none" it is
    * only declared, for approvals (see `declaredAccess` in ./execution).
@@ -366,8 +370,12 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
-  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
-  limit?: "memory" | "folder";
+  /**
+   * It was stopped with every process it started: because it went over this limit of its
+   * `ExecLimits` ("memory", "folder"), or because its disk use stayed unmeasurable
+   * ("folder-unknown"), which fails closed since unmeasured files aren't bounded.
+   */
+  limit?: "memory" | "folder" | "folder-unknown";
 }
 
 /**
@@ -391,9 +399,10 @@ export interface Executor {
 }
 
 /**
- * What Skill scripts run with (see `src/core/skills/scripts.ts`). Python and
- * bash come from the User's login-shell PATH; JavaScript runs on the app's
- * own Node.js, so the User needn't install one.
+ * What Skill scripts run with (see `src/core/skills/scripts.ts`). bash, and
+ * Python until `codeRuntime` has IncarnaMind's own installed, come from the
+ * User's login-shell PATH; JavaScript runs on the app's own Node.js, so the
+ * User needn't install one.
  */
 export interface ScriptRuntimes {
   /**
@@ -470,6 +479,12 @@ export interface RerankingDevice {
   device: "gpu" | "cpu";
   /** Set when the model has a GPU file but runs on the CPU; `message` is technical detail in English, for the log. */
   fallback?: { reason: CpuFallbackReason; message: string };
+  /**
+   * Set when the GPU file has copies between host and GPU memory for its session to leave out
+   * (src/core/reranking/hostCopies.ts): whether the session opened the copy of it written without
+   * them, how long writing it took when this load wrote it, and anything that went wrong, in English.
+   */
+  copy?: { opened: boolean; writtenMs?: number; problem?: string };
 }
 
 /**
@@ -650,12 +665,13 @@ export const MEETING_SAMPLE_RATE = 16_000;
 
 /**
  * What a capture says about one source (see `AudioCapture`):
+ * - "waiting": the system's permission prompt is open, and nothing is captured until it is answered;
  * - "recording": its audio is coming in, again after a device change too;
  * - "denied": the OS or the User doesn't allow it;
  * - "unavailable": there is no such device, or this computer can't record it;
  * - "ended": it stopped and couldn't be started again.
  */
-export type CaptureState = "recording" | "denied" | "unavailable" | "ended";
+export type CaptureState = "waiting" | "recording" | "denied" | "unavailable" | "ended";
 
 /** Where a capture delivers what it hears. */
 export interface AudioSink {
@@ -702,6 +718,36 @@ export interface AudioCapture {
 }
 
 /**
+ * Tells which call apps are using the microphone (#208), as the system says, and nothing else:
+ * no audio, no window titles, no browser tabs. The desktop app asks Core Audio on macOS, the
+ * per-app microphone record Windows keeps, and PulseAudio's recording streams on Linux.
+ */
+export interface CallWatcher {
+  /**
+   * Starts watching: `apps` gets the ids of the call apps using the microphone now
+   * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
+   * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it
+   * means. `exact` is false where the system can't say when one app lets go of the microphone
+   * (macOS 12 and 13), so an app missing then may still be in its call. Returns what stops watching.
+   */
+  watch(listener: {
+    apps(ids: readonly string[], exact: boolean): void;
+    problem(problem: CallWatchProblem): void;
+  }): () => void;
+}
+
+/**
+ * Whether the system opens IncarnaMind when the User logs in (#189): macOS's and Windows's login
+ * items, a Linux desktop's autostart entry.
+ */
+export interface LoginItem {
+  get(): OpenAtLogin;
+  set(on: boolean): OpenAtLogin;
+  /** Opens the system's settings where the User approves IncarnaMind opening at login. */
+  openSettings(): Promise<void>;
+}
+
+/**
  * Draws a cited page with the Document viewer's view for its kind, off
  * screen, so it can be saved (#133): every kind but PDF, whose pages the core
  * draws itself. Rejects when the page can't be drawn, and when `signal` aborts.
@@ -721,16 +767,25 @@ export interface TranscriptionModelFiles {
   vad: string;
   /** How many threads decoding may use. */
   threads: number;
+  /**
+   * The streaming model that reads the live words as they are said (#2662), when there is one:
+   * which kind it is, and its files by what they are, absolute paths.
+   */
+  live?: { engine: string; files: Readonly<Record<string, string>> };
 }
 
 /**
  * Speech a `Transcriber` found in a stream and decoded. While the speaker
- * goes on, the speech so far is decoded again every few seconds (partial);
- * once they pause, the whole of it is decoded once more (final).
+ * goes on, its words so far are partial: read as they are said by a
+ * streaming model (#2662), or the speech so far decoded again every few
+ * seconds. Once they pause, the whole of it is decoded (final).
  */
 export interface SpeechSegment {
   stream: string;
-  /** From 1 in its stream: a partial and the final text of the same speech share it. */
+  /**
+   * From 1 in its stream: a partial and the final text of the same speech share it. A partial
+   * that goes on into the speech after, before its final text came, has its first speech's id.
+   */
   id: number;
   /** Where it starts and ends, in ms of its stream's audio. */
   startMs: number;
@@ -743,24 +798,39 @@ export interface SpeechSegment {
   failed?: true;
   /** Who said it, as the engine tells speakers apart within the stream ("1", "2"): Soniox does. */
   speaker?: string;
+  /**
+   * Its words and when each started, in ms of its stream's audio, where the service says
+   * (#138): a final segment's, in order. The text may write them otherwise (spaces, case).
+   */
+  words?: { text: string; ms: number }[];
 }
 
 /**
- * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
- * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
- * address is the host of the key's region: a key works in no other.
+ * A stream's audio sent to a cloud transcription service instead (#141, #866), with the User's
+ * key. OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
+ * address is the host of the key's region: a key works in no other. Deepgram's is the server the
+ * User gave (Deepgram's own, Cloudflare Workers AI or their own server); its key may be empty
+ * for their own server. Gladia is told the languages the User speaks that it transcribes, as its
+ * language detection needs a short list.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
   | { service: "soniox"; model: string; apiKey: string }
-  | { service: "qwen"; model: string; apiKey: string; url: string };
+  | { service: "qwen"; model: string; apiKey: string; url: string }
+  | { service: "deepgram"; model: string; apiKey: string; url: string }
+  | { service: "assemblyai"; model: string; apiKey: string }
+  | { service: "gemini"; model: string; apiKey: string }
+  | { service: "elevenlabs"; model: string; apiKey: string }
+  | { service: "speechmatics"; model: string; apiKey: string }
+  | { service: "gladia"; model: string; apiKey: string; languages: string[] }
+  | { service: "xai"; model: string; apiKey: string };
 
 /**
- * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
- * service refused the key (Qwen: one made in the other region too) or the account has no credit
- * left ("refused").
+ * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), the
+ * service refused the key (Qwen: one made in the other region too), or the account has no credit
+ * left ("credit").
  */
-export type CloudLoss = "dropped" | "refused";
+export type CloudLoss = "dropped" | "refused" | "credit";
 
 /**
  * Turns speech into text off the core's thread (#136): the desktop app runs
@@ -788,6 +858,12 @@ export interface Transcriber {
   /** Forgets a stream, and its audio not yet decoded. */
   drop(stream: string): void;
   /**
+   * Forgets cloud streams the User said no to: their audio not sent yet is thrown away, ahead of
+   * anything else, and their sockets close. Resolves once that is confirmed; an engine that
+   * doesn't confirm in time is stopped, so it sends nothing more. Never rejects.
+   */
+  dropCloud(streams: readonly string[]): Promise<void>;
+  /**
    * The stream's audio goes to a cloud service from now on, before any is pushed. If it can't,
    * or the connection is lost, the listeners hear `lost` and the stream is gone.
    */
@@ -806,6 +882,11 @@ export interface TranscriberListener {
   failed(stream: string, message: string): void;
   /** The engine stopped by itself (it crashed, or ran out of memory): its streams are gone. */
   stopped(reason: string): void;
+  /**
+   * The engine let its models go after a long idle (#2673): its streams are gone, and the next
+   * audio loads it again. Nothing failed.
+   */
+  unloaded(): void;
   /** The transcriber moved a stream to another engine, for the stream's audio from now on. */
   switched(change: EngineSwitch): void;
   /** A cloud stream ended before it was finished (see `CloudLoss`): its audio not yet transcribed is lost. */
@@ -887,6 +968,96 @@ export interface AnalysisRuntime {
   close(): void;
 }
 
+/**
+ * Whether IncarnaMind may read the Mac's calendars (#190): allowed, refused in System Settings,
+ * held back by the Mac's administrator, or not asked yet.
+ */
+export type SystemCalendarAccess = "allowed" | "denied" | "restricted" | "not-asked";
+
+/** A calendar in the Mac's Calendar app. */
+export interface SystemCalendarInfo {
+  id: string;
+  title: string;
+  /** The account it is in there: "iCloud", "Exchange", a CalDAV server's name. */
+  source: string;
+  /** Subscribed and birthday calendars aren't the User's Meetings, and don't count by default. */
+  kind: "local" | "caldav" | "exchange" | "subscription" | "birthday" | "other";
+}
+
+/** A person on an event of the Mac's calendar. */
+export interface SystemCalendarPerson {
+  name: string | null;
+  email: string | null;
+  /** The Mac's own User. */
+  self: boolean;
+  status: "accepted" | "declined" | "tentative" | "pending" | "unknown";
+}
+
+/** An event of the Mac's calendar, one occurrence of a recurring one. */
+export interface SystemCalendarEvent {
+  calendarId: string;
+  /** The system's id of the event, the same for every occurrence of a recurring one. */
+  id: string;
+  /** The invite's own id (its iCalendar UID), the same in every calendar that holds it. */
+  externalId: string | null;
+  /** When this occurrence was meant to start (ISO 8601), for a recurring one; null otherwise. */
+  occurrence: string | null;
+  title: string;
+  /** ISO 8601. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  status: "confirmed" | "tentative" | "cancelled" | "none";
+  attendees: SystemCalendarPerson[];
+  organizer: SystemCalendarPerson | null;
+  url: string | null;
+  location: string | null;
+  notes: string | null;
+}
+
+/**
+ * The Mac's own calendars, read through the system's calendar API (#190): those of the iCloud,
+ * Exchange and CalDAV accounts added to Calendar. Read only. The desktop app runs a small helper
+ * of its own; absent where there is none (Windows, Linux).
+ */
+export interface SystemCalendar {
+  /** Whether IncarnaMind may read them. Never asks the User. */
+  access(): Promise<SystemCalendarAccess>;
+  /** Asks the system for access, which asks the User once; resolves with what they chose. */
+  requestAccess(): Promise<SystemCalendarAccess>;
+  calendars(): Promise<SystemCalendarInfo[]>;
+  /** The events of `calendarIds` that overlap `from` to `to` (ISO 8601). */
+  events(input: {
+    from: string;
+    to: string;
+    calendarIds: readonly string[];
+  }): Promise<SystemCalendarEvent[]>;
+  /** Opens System Settings at Privacy & Security › Calendars. */
+  openSettings(): Promise<void>;
+}
+
+/**
+ * A calendar service's OAuth client and addresses (#190, #209). The client IDs come from the
+ * build; a copy built without them doesn't offer the service.
+ */
+export interface CalendarServiceConfig {
+  clientId: string;
+  /**
+   * Google's client secret for an installed app, which its token endpoint asks for with PKCE too.
+   * Google doesn't treat it as confidential in an installed app; it comes from the build, never
+   * the repository, and is never logged. Microsoft's public client has none.
+   */
+  clientSecret?: string;
+  authorizeUrl: string;
+  tokenUrl: string;
+  /** Where a token is revoked at disconnect, where the service has such an address. */
+  revokeUrl?: string;
+  /** The calendar API's base, e.g. "https://www.googleapis.com/calendar/v3". */
+  apiBaseUrl: string;
+  /** Where the account's name is read (Microsoft's /me); absent where the calendars name it. */
+  accountUrl?: string;
+}
+
 export interface CoreAdapters {
   paths: Paths;
   /** The OS's preferred languages, most preferred first, as BCP 47 tags such as "zh-Hans-CN". */
@@ -928,14 +1099,16 @@ export interface CoreAdapters {
   /** How Linked folders are watched (see `LinkedFolderOptions`). */
   linkedFolders?: LinkedFolderOptions;
   /**
-   * How web pages are fetched (#261). Defaults to Node's fetch, within 20
-   * seconds and 10 MB; tests shorten the limits.
+   * How web pages are fetched (#261): through the public-internet fetcher by
+   * default, within 20 seconds and 10 MB. `fetch` stands another in for a
+   * test; tests shorten the limits.
    */
   webPages?: { fetch?: PageFetch; limits?: FetchLimits; pictureLimits?: PictureLimits };
   /**
-   * How web search's fetcher resolves host names and makes its connections
-   * (#128): the system's resolver and undici's by default. Tests stand a
-   * local server in for the web; the fetcher's guard still decides.
+   * How the fetcher a saved page and web search use resolves host names and
+   * makes its connections (#128): the system's resolver and undici's by
+   * default. Tests stand a local server in for the web; the fetcher's guard
+   * still decides.
    */
   web?: PublicFetchOptions;
   processes: ProcessLauncher;
@@ -1122,6 +1295,8 @@ export interface CoreAdapters {
    * still treats them as going to TypeSafe.
    */
   jevHostedUrl?: string;
+  /** Where each decision model host's requests go (#1907). Defaults to the hosts'; tests use a local fake. */
+  decisionOrigins?: Partial<Record<DecisionHost, string>>;
   /**
    * Where Look up (#286) and checking references ask Crossref's,
    * arXiv's and OpenAlex's APIs. Defaults to theirs; tests point them at a
@@ -1157,6 +1332,10 @@ export interface CoreAdapters {
    * at its Mind. Absent: Tasks notify nobody.
    */
   notifications?: SystemNotifications;
+  /** Which call apps use the microphone, for the offers to take notes (#208). Absent: no offers. */
+  callWatcher?: CallWatcher;
+  /** Opening at login (#189). Absent: Settings doesn't offer it. */
+  loginItem?: LoginItem;
   /** Kinds of Task the host adds to the core's own (`Core.startTask`): a test build's scripted one. */
   taskKinds?: readonly TaskKind[];
   /**
@@ -1186,6 +1365,16 @@ export interface CoreAdapters {
    * (../providers/catalog/checkPaths). Only tests and the evaluation pass one.
    */
   checkPaths?: CheckPathsOverride;
+  /**
+   * Whether a call's notes start once its words are final, while its speakers are told apart
+   * (#2773), instead of after them; unset, they do. Only tests and the evaluation pass one.
+   */
+  notesBeforeSpeakers?: () => boolean | undefined;
+  /**
+   * Whether call help's own form may be judged the model's working, as before #2778; unset, it
+   * isn't. Only tests and the evaluation pass one.
+   */
+  helpFormJudged?: () => boolean | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
@@ -1236,12 +1425,30 @@ export interface CoreAdapters {
    * Defaults to the pinned Hugging Face revisions; tests give no files for a
    * fake that needs none.
    */
-  transcriptionModelSource?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
+  transcriptionModelSource?: {
+    model: EmbeddingModelSource;
+    vad: EmbeddingModelSource;
+    live?: EmbeddingModelSource;
+  };
   /**
    * Asks a cloud transcription service whether it takes a key of its own (#141), before it is
    * kept. The global `fetch` by default; tests answer without the network.
    */
   transcriptionKeyFetch?: typeof fetch;
+  /** The Mac's own calendars (#190). Absent: this copy offers none. */
+  systemCalendar?: SystemCalendar;
+  /**
+   * Google Calendar's and Microsoft 365's OAuth clients and addresses (#190). A service left out
+   * isn't offered.
+   */
+  calendarServices?: { google?: CalendarServiceConfig; microsoft?: CalendarServiceConfig };
+  /** How the calendar services are reached: the global `fetch` by default; tests answer locally. */
+  calendarFetch?: typeof fetch;
+  /**
+   * How often calendars are read while the app runs (5 minutes), and how long it waits after a
+   * failure, doubling from the first to the last (1 to 30 minutes). Tests shorten them.
+   */
+  calendarSync?: { intervalMs?: number; retryMs?: readonly number[] };
   /** Where the core logs what happens (see `Logger`). None by default. */
   log?: Logger;
 }

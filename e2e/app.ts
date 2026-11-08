@@ -24,6 +24,8 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
+import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
+import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
@@ -147,8 +149,11 @@ export interface LaunchOptions {
    * always a fake that makes a tone: no test opens a device.
    */
   computerSound?: "allowed" | "denied" | "silent";
-  /** Whether the Meeting's fake microphone is denied: no tone, and the line that says so. */
-  microphone?: "allowed" | "denied";
+  /**
+   * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
+   * or waits for the system's permission prompt until the test answers it.
+   */
+  microphone?: "allowed" | "denied" | "waiting" | "silent";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
@@ -211,6 +216,19 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
+  /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
+  jev?: string;
+  /** A stand-in for every decision model host (#1907), at this base URL. */
+  decisions?: string;
+  /**
+   * A stand-in for Google Calendar and Microsoft 365 (#190), at this origin
+   * (tests/helpers/fakeCalendars.ts). Without it a test build offers neither.
+   */
+  calendars?: string;
+  /** What the Mac's calendar holds and answers (#190), on any system. Without it there is none. */
+  systemCalendar?: SystemCalendarFixture;
+  /** How often calendars are read while the app runs, in milliseconds, instead of 5 minutes. */
+  calendarSyncMs?: number;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -221,6 +239,11 @@ export interface LaunchOptions {
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
   switches?: readonly string[];
+  /**
+   * The pages see the system's light or dark as Electron gives it (#1262), not the light that
+   * every page is shown otherwise so a spec reads the same on any computer.
+   */
+  systemColours?: boolean;
 }
 
 /**
@@ -288,9 +311,15 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
+    jev,
+    decisions,
+    calendars,
+    systemCalendar,
+    calendarSyncMs,
     extraEnv,
     trace = false,
     switches = [],
+    systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -325,6 +354,11 @@ export async function launchApp(
     INCARNAMIND_TEST_CLAUDE: claude,
     INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
     INCARNAMIND_TEST_COPILOT: copilot,
+    INCARNAMIND_TEST_JEV: jev,
+    INCARNAMIND_TEST_DECISIONS: decisions,
+    INCARNAMIND_TEST_CALENDARS: calendars,
+    INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
+    INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
@@ -347,6 +381,7 @@ export async function launchApp(
       ...APP_ARGS,
     ],
     env,
+    ...(systemColours && { colorScheme: null }),
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
     ...(KEEP_ARTIFACTS && {
       recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
@@ -501,7 +536,9 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
               each.getBoundingClientRect().right <= frame.right + 1,
           ),
           kept:
-            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop"].every(shown) &&
+            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop", "meeting-views"].every(
+              shown,
+            ) &&
             (shown("meeting-pause") || shown("meeting-resume")),
           fits: element.scrollWidth <= element.clientWidth + 1,
           cut: buttons.some((button) =>
@@ -510,12 +547,8 @@ export async function expectBarOneRow(bar: Locator): Promise<void> {
             ),
           ),
           foldedHaveMore:
-            [
-              "meeting-mark",
-              "meeting-call-help",
-              "meeting-transcript-toggle",
-              "meeting-details-toggle",
-            ].every(shown) || shown("meeting-more"),
+            ["meeting-mark", "meeting-call-help", "meeting-details-toggle"].every(shown) ||
+            shown("meeting-more"),
         };
       }),
     )
@@ -994,6 +1027,21 @@ export async function useLocalChatModel(window: Page, modelId = "fake-model"): P
   }, modelId);
 }
 
+/** Organize plans with the first chat model set up, the scripted one with `fakeChat`, and sorts nothing by itself. */
+export async function organizeWithChatModel(window: Page, modelId = "fake-model"): Promise<void> {
+  await window.evaluate(async (model) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [provider] = await bridge.listChatProviders();
+    if (!provider) throw new Error("No AI model was set up.");
+    const { settings } = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: model } },
+      automatic: false,
+    });
+  }, modelId);
+}
+
 /**
  * Turns embeddings on with the built-in model (the smoke tests' fake), through
  * the core's bridge as Settings would: they are off by default.
@@ -1117,6 +1165,68 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;
 }
+
+/** Waits until a recording meeting's Transcript has its first finished line. */
+export async function firstTranscriptLine(window: Page, timeout = 20_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status !== "stopped" && (each.transcript?.lines ?? 0) > 0),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * After the first fill on a computer, the stopped call's chip opens its popover by itself, once,
+ * leaving the focus where it was (#2527): Esc closes it.
+ */
+export async function closeFirstFillPopover(window: Page): Promise<void> {
+  const menu = window.getByTestId("meeting-view-menu");
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+}
+
+/** Waits until a stopped meeting's Transcript is saved: its page says nothing of it (#2527). */
+export async function transcriptSaved(window: Page, timeout = 30_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+          ).some((each) => each.status === "stopped" && each.transcript?.state === "saved"),
+        ),
+      { timeout },
+    )
+    .toBe(true);
+}
+
+/**
+ * The recording bar's Transcript view, then its "Open beside" once the Transcript has a line: the
+ * live Transcript in a tab of the next group, and the meeting's page back on its notes (#138).
+ */
+export async function openTranscriptBeside(
+  window: Page,
+  bar: Locator,
+  timeout = 20_000,
+): Promise<void> {
+  await firstTranscriptLine(window, timeout);
+  await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+  const beside = window.getByTestId("meeting-transcript-beside");
+  await expect(beside).toBeEnabled();
+  await pointAndClick(window, beside);
+  await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
+  await expect(window.getByTestId("viewer-transcript")).toBeVisible();
+}
+
+/** The turn of a Transcript a line is in: its Speaker, its time and its Add to note. */
+export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
 
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
@@ -1303,6 +1413,14 @@ export async function openOptions(window: Page, title: string): Promise<void> {
   await expect(window.getByTestId("export-dialog").getByRole("heading")).toHaveText(title);
 }
 
+/** Share as a web page…, from Export › More formats; resolves once its sheet shows. */
+export async function openShareSheet(window: Page): Promise<void> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  await pointAndClick(window, window.getByTestId("export-more"));
+  await pointAndClick(window, window.getByTestId("export-share-web-page"));
+  await expect(window.getByTestId("share-dialog")).toBeVisible();
+}
+
 /**
  * Test hook for opening a folder in the system's file manager: from now on
  * the main process records the path instead (see `pathsOpened`).
@@ -1352,6 +1470,16 @@ export async function interceptOpenDialog(app: ElectronApplication, path: string
       canceled: false,
       filePaths: [picked],
     })) as unknown as typeof dialog.showOpenDialog;
+  }, path);
+}
+
+/** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
+export async function interceptSaveDialog(app: ElectronApplication, path: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: false,
+      filePath: picked,
+    })) as unknown as typeof dialog.showSaveDialog;
   }, path);
 }
 
@@ -1939,6 +2067,74 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
   );
 }
 
+/** How long a Document may take to open before the viewer says it couldn't (15 seconds), so a test needn't wait that long. */
+export async function setViewerOpenLimitMs(window: Page, ms: number): Promise<void> {
+  await window.evaluate(
+    (value) =>
+      (
+        globalThis as { incarnamindTestHooks?: TestHooks }
+      ).incarnamindTestHooks?.setViewerOpenLimitMs(value),
+    ms,
+  );
+}
+
+/** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
+export type AnswerWaitForm = {
+  at: number;
+  form: "joined" | "row";
+  text: string;
+  step: string;
+};
+
+/** Watches the wait of the latest Answer as it runs, with when each form first showed, for a test that must not miss a brief one. */
+export async function watchAnswerWaits(window: Page): Promise<() => Promise<AnswerWaitForm[]>> {
+  await window.evaluate(() => {
+    const seen: AnswerWaitForm[] = [];
+    (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits = seen;
+    let last: string | null = null;
+    const record = () => {
+      const assistant = document.querySelector('[data-testid="assistant"]');
+      const answer = [
+        ...(assistant?.querySelectorAll('[data-testid="assistant-answer"]') ?? []),
+      ].at(-1);
+      const row = answer?.querySelector('[data-testid="answer-steps-wait-row"]');
+      const joined = answer?.querySelector(
+        '.answer-steps-live-row:not(.answer-steps-live-row--second) [data-testid="answer-steps-wait"]',
+      );
+      const form: AnswerWaitForm["form"] | null = row ? "row" : joined ? "joined" : null;
+      const text = (row ?? joined)?.textContent ?? "";
+      const step =
+        answer?.querySelector('[data-testid="answer-steps-live"]')?.getAttribute("data-step") ?? "";
+      const key = form === null ? null : `${form}\u0000${text}\u0000${step}`;
+      if (key === last) return;
+      last = key;
+      if (form !== null) seen.push({ at: Date.now(), form, text, step });
+    };
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  return () =>
+    window.evaluate(
+      () => (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits,
+    );
+}
+
+/** Records the Answers already in `dataDir` as taking `ms` to their first word, so the line knows a usual wait. */
+export async function answersTookAboutAMinute(dataDir: string, ms = 62_000): Promise<void> {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run(
+      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', ?) WHERE kind = 'answer'",
+      [ms],
+    );
+  } finally {
+    db.close();
+  }
+}
+
 /** Plays every animation at `speed` (0.2: five times slower), so a test can look, or act, during one. */
 export async function setMotionSpeed(window: Page, speed: number): Promise<void> {
   await window.evaluate(
@@ -2052,6 +2248,58 @@ export function lastLineBoxOf(target: Locator) {
   });
 }
 
+/** A rectangle in the window, as a change or a page view measures one. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export const boxRight = (box: Box) => box.x + box.width;
+export const boxBottom = (box: Box) => box.y + box.height;
+export const boxesOverlap = (a: Box, b: Box) =>
+  a.x < boxRight(b) && b.x < boxRight(a) && a.y < boxBottom(b) && b.y < boxBottom(a);
+
+export async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("The element isn't on screen.");
+  return box;
+}
+
+/** What a change shows, as one box over all of its lines, and the line after it when it has one. */
+export async function changeOnScreen(
+  editor: Locator,
+  insert: Locator,
+): Promise<{ change: Box; next: Box | null }> {
+  const id = await insert.getAttribute("data-proposal-id");
+  if (!id) throw new Error("The change has no id.");
+  return editor.evaluate((board, proposalId) => {
+    const parts = [...board.querySelectorAll(`[data-proposal-id="${proposalId}"]`)];
+    let change: { x: number; y: number; width: number; height: number } | null = null;
+    for (const part of parts) {
+      const rect = part.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      const left: number = change ? Math.min(change.x, rect.x) : rect.x;
+      const top: number = change ? Math.min(change.y, rect.y) : rect.y;
+      const right: number = change ? Math.max(change.x + change.width, rect.right) : rect.right;
+      const bottom: number = change ? Math.max(change.y + change.height, rect.bottom) : rect.bottom;
+      change = { x: left, y: top, width: right - left, height: bottom - top };
+    }
+    if (!change) throw new Error("The change doesn't show.");
+    const last = parts.at(-1);
+    const block = last?.closest("p, h1, h2, h3, li, blockquote, pre");
+    const next = block?.nextElementSibling?.getBoundingClientRect();
+    return {
+      change,
+      next:
+        next && next.width > 0 && next.height > 0
+          ? { x: next.x, y: next.y, width: next.width, height: next.height }
+          : null,
+    };
+  }, id);
+}
+
 /** The rendered width of an element, in CSS pixels. */
 export async function widthOf(locator: Locator): Promise<number> {
   const box = await locator.boundingBox();
@@ -2148,11 +2396,11 @@ export async function expectDotsBetweenParts(line: Locator): Promise<boolean> {
 }
 
 /**
- * Checks that the window's first group's tabs start at the card's left edge:
- * flush with it on macOS, where the sidebar's button sits in the sidebar's
- * header beside the traffic lights; on Windows and Linux just after that
- * button, which starts the strip there (SidebarToggle), 8px in and 6px before
- * the first tab (styles.css).
+ * Checks where the window's first group's tabs start, 10px in as in every
+ * group, room for the shown tab's left foot: from the card's left edge on
+ * macOS, where the sidebar's button sits in the sidebar's header beside the
+ * traffic lights; on Windows and Linux from that button, which starts the
+ * strip there (SidebarToggle) 8px in, with its own 6px after it.
  */
 export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator): Promise<void> {
   const card = await window.getByTestId("card").boundingBox();
@@ -2161,13 +2409,13 @@ export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator)
   const toggle = window.getByTestId("tab-strip").first().getByTestId("sidebar-toggle");
   if (process.platform === "darwin") {
     await expect(toggle).toHaveCount(0);
-    expect(tab.x).toBeCloseTo(card.x, 0);
+    expect(tab.x - card.x).toBeCloseTo(10, 0);
     return;
   }
   const button = await toggle.boundingBox();
   if (!button) throw new Error("The sidebar's button isn't at the start of the strip.");
   expect(button.x - card.x).toBeCloseTo(8, 0);
-  expect(tab.x - (button.x + button.width)).toBeCloseTo(6, 0);
+  expect(tab.x - (button.x + button.width)).toBeCloseTo(16, 0);
 }
 
 /**
@@ -2192,7 +2440,12 @@ export async function pointAndClick(
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
     if (!scrolled) {
-      await target.scrollIntoViewIfNeeded();
+      // The selection menu is placed beside its words inside the window: scrolling the page
+      // under it would carry its anchor, and the menu with it, so there is nothing to bring in.
+      const inSelectionMenu = await target.evaluate(
+        (element) => element.closest(".viewer-selection-menu") !== null,
+      );
+      if (!inSelectionMenu) await target.scrollIntoViewIfNeeded();
       scrolled = true;
     }
     const held = await target.evaluate(async (element) => {
@@ -2510,6 +2763,10 @@ export const keptWords = (editor: Locator) =>
 export const frontMind = (window: Page) =>
   window.locator('[data-testid="tab-group"][data-focused] [data-testid="mind-pane"]:visible');
 
+/** The example Note's row in the sidebar, which carries no badge: its row says it is the example. */
+export const exampleRow = (window: Page) =>
+  window.locator('[data-testid="mind-list-item"][data-example]');
+
 /** The name of the Mind the User is in, as its tab shows it. */
 export const frontMindName = (window: Page) =>
   window.locator(
@@ -2525,6 +2782,18 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   const menu = window.locator('[data-testid="page-actions"]:visible');
   await expect(menu).toBeVisible();
   return menu;
+}
+
+/**
+ * The More › submenu of an object's menu that is open, opened with a click on its row, as a person
+ * opens it. Its items sit beside the menu, not inside it.
+ */
+export async function openMoreMenu(window: Page, menu: Locator): Promise<Locator> {
+  const prefix = ((await menu.getAttribute("data-testid")) ?? "").replace(/-actions$/, "");
+  await pointAndClick(window, menu.getByTestId(`${prefix}-more`));
+  const more = window.locator(`[data-testid="${prefix}-more-menu"]:visible`);
+  await expect(more).toBeVisible();
+  return more;
 }
 
 /** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
@@ -2799,6 +3068,92 @@ export const stopSamples = (window: Page) =>
     holder.sampling = false;
     return holder.samples;
   });
+
+/** What the foot of a `.scroll-fade` frame shows (#2616); the numbers are px, and `fade` is 0 when none is drawn. */
+export interface FootFade {
+  /** The frame says content lies below its foot (`data-more-after`). */
+  marked: boolean;
+  fade: number;
+  foot: number;
+  /** The fade's `position`, and where it ends: the foot when it is drawn as it should be. */
+  position: string;
+  fadeBottom: number | null;
+  scrollHeight: number;
+  /** The text line the foot cuts in two, with the line height its element sets. */
+  cut: { top: number; bottom: number; lineHeight: number } | null;
+  last: number;
+}
+
+/**
+ * Scrolls a `.scroll-fade` frame until its foot barely cuts a line of `text`, with only a tenth of
+ * it below: the next line down, or at the frame's end the last one above. A line cut that little
+ * is the one a short fade leaves sharp.
+ */
+export const cutALineAtFoot = (frame: Locator, text: string) =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const edges: number[] = [];
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0) edges.push(rect.top + rect.height * 0.9);
+        }
+      }
+    }
+    const below = edges.filter((edge) => edge > foot);
+    const nearest = below.length > 0 ? Math.min(...below) : Math.max(...edges);
+    if (!Number.isFinite(nearest)) throw new Error("The frame holds no line of text.");
+    element.scrollTop += nearest - foot;
+  }, text);
+
+/** What the foot of a `.scroll-fade` frame shows now, for the lines of `text` in it. */
+export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const edge = getComputedStyle(element, "::after");
+    let cut: FootFade["cut"] = null;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          last = Math.max(last, rect.bottom);
+          if (rect.top < foot - 0.5 && rect.bottom > foot + 0.5 && node.parentElement) {
+            cut = {
+              top: rect.top,
+              bottom: rect.bottom,
+              lineHeight: Number.parseFloat(getComputedStyle(node.parentElement).lineHeight),
+            };
+          }
+        }
+      }
+    }
+    // A pseudo-element has no box to measure: a real element with its positioning stands in.
+    let fadeBottom: number | null = null;
+    if (edge.display !== "none") {
+      const stand = document.createElement("div");
+      stand.style.cssText = `position: ${edge.position}; bottom: ${edge.bottom}; display: block; height: ${edge.height}; margin-top: ${edge.marginTop};`;
+      element.append(stand);
+      fadeBottom = stand.getBoundingClientRect().bottom;
+      stand.remove();
+    }
+    return {
+      marked: element.hasAttribute("data-more-after"),
+      fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
+      foot,
+      position: edge.position,
+      fadeBottom,
+      scrollHeight: element.scrollHeight,
+      cut,
+      last,
+    };
+  }, text);
 
 /** The assistant's Answers (#201), in the conversation it shows. */
 export const assistantAnswers = (window: Page) =>
@@ -3172,6 +3527,16 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
 export const coreOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
 
+/** How many Checkpoints the Note made last has, as its History lists them. */
+export async function checkpointsOfNewestNote(window: Page): Promise<number> {
+  return (await coreOf(window)).evaluate(async (core) => {
+    const [mind] = (await core.listMinds()).toSorted((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    return mind ? (await core.listCheckpoints(mind.id)).checkpoints.length : 0;
+  });
+}
+
 /**
  * What the core holds that a change to a Mind, Document, Folder, Tag, Linked folder or Recently
  * deleted touches, as plain data: a test compares it before and after, through the bridge and not
@@ -3188,6 +3553,10 @@ export async function coreState(window: Page): Promise<unknown> {
       core.listLinkedFolders(),
       core.listDeleted(),
     ]);
+    // A Document's highlights and notes (#327), so a change to one is seen and taken back.
+    const annotations = await Promise.all(
+      documents.map(async (document) => [document.id, await core.listAnnotations(document.id)]),
+    );
     const state = {
       minds,
       documents,
@@ -3196,6 +3565,7 @@ export async function coreState(window: Page): Promise<unknown> {
       tags,
       linkedFolders,
       deleted,
+      annotations: Object.fromEntries(annotations),
     };
     const progress = ["tagging", "taggingError"];
     return JSON.parse(
@@ -3253,6 +3623,17 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
     await expect(window.getByTestId("export-more-menu")).toBeVisible();
   }
   await pointAndClick(window, item);
+}
+
+/** Export's More formats › menu for the Mind in the shown tab, opened as a person opens it. */
+export async function openExportMore(window: Page): Promise<Locator> {
+  await pointAndClick(window, window.getByTestId("export-mind"));
+  const menu = window.getByTestId("export-menu");
+  await expect(menu).toBeVisible();
+  await pointAndClick(window, menu.getByTestId("export-more"));
+  const more = window.getByTestId("export-more-menu");
+  await expect(more).toBeVisible();
+  return more;
 }
 
 /** The fonts Chromium drew an element's text with, by name, and whether each is bundled with the app. */

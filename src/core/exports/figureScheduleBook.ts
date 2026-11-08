@@ -5,7 +5,7 @@
  * with the quote, Document, Location and reason; and a Sources sheet, a
  * Citation a row, as the comparison export has, linked back to its figure.
  */
-import { citedLocation } from "../../shared/citations";
+import { citedLocation, type LiveDocument } from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import {
   childrenOf,
@@ -28,6 +28,8 @@ import type { SheetBook, SheetCell, SheetRow } from "./sheets";
 export interface FigureScheduleBookOptions {
   language: Language;
   modelName(model: ChatModelChoice): string;
+  /** The live Documents, so a Citation of a Transcript names its Speaker as now (#138). */
+  documents?: readonly LiveDocument[];
 }
 
 const CHECK_WORDS: Readonly<Record<Citation["check"], MessageKey>> = {
@@ -123,7 +125,7 @@ export function figureScheduleBook(
       cells: [
         { ...text("figure", figure, true), link: { sheet: SCHEDULE, row, column: "figure" } },
         text("document", citation.documentName, true),
-        text("location", citedLocation(citation, t) ?? ""),
+        text("location", citedLocation(citation, t, options.documents ?? null) ?? ""),
         text("quote", citation.quote, true),
         text("result", t(CHECK_WORDS[citation.check])),
       ],
@@ -140,7 +142,7 @@ export function figureScheduleBook(
         text("number", String(row.number)),
         text(
           "figure",
-          row.calculated?.figure.workbook?.change
+          row.calculated?.figure.workbook?.changes.length
             ? `= ${row.reading.chars} · ${workbookFormulaText(row.calculated.figure, language)}`
             : `${row.calculated ? "= " : ""}${row.reading.chars}`,
         ),
@@ -150,7 +152,10 @@ export function figureScheduleBook(
           ...text("document", citation?.documentName ?? "", true),
           ...(sourceId && { link: { sheet: SOURCES, row: sourceId, column: "document" } }),
         },
-        text("location", citation ? (citedLocation(citation, t) ?? "") : ""),
+        text(
+          "location",
+          citation ? (citedLocation(citation, t, options.documents ?? null) ?? "") : "",
+        ),
         text("quote", citation?.quote ?? "", true),
         text("difference", unchecked ? "" : (differenceText(row, language) ?? "")),
         text("status", t(statusWord(row))),
@@ -159,9 +164,11 @@ export function figureScheduleBook(
       ],
     };
     // What it is worked out from, a formula's inputs or the ranges and figures its Analysis read.
-    const inputs = unchecked
-      ? []
-      : childrenOf(row, schedule).filter((line) => line.input !== undefined || line.range);
+    // An Analysis's figure is its run's, Not checked or not: what it read is still where it came from.
+    const inputs =
+      unchecked && !row.calculated?.figure.analysis
+        ? []
+        : childrenOf(row, schedule).filter((line) => line.input !== undefined || line.range);
     return [
       figureRow,
       ...inputs.map((line): SheetRow => {
@@ -179,7 +186,10 @@ export function figureScheduleBook(
               ...text("document", cited?.documentName ?? "", true),
               ...(sourceRow && { link: { sheet: SOURCES, row: sourceRow, column: "document" } }),
             },
-            text("location", cited ? (citedLocation(cited, t) ?? "") : ""),
+            text(
+              "location",
+              cited ? (citedLocation(cited, t, options.documents ?? null) ?? "") : "",
+            ),
             text("quote", cited?.quote ?? "", true),
             text("status", shows.status ? t(shows.status.word) : ""),
             text("reason", shows.status?.why ? t(shows.status.why) : ""),

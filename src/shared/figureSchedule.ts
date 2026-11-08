@@ -9,10 +9,17 @@ import type {
   FigureScheduleRow,
 } from "../core/api";
 import type { Language } from "../core/language";
+import {
+  type AnalysisTableColumn,
+  columnLine,
+  type DifferingCell,
+  differingLine,
+} from "./analysisTables";
 import { formatDateTime } from "./dates";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { formulaText } from "./formula";
 import { type MessageKey, translate } from "./i18n";
+import { listOf } from "./i18n/join";
 import { checkedByMe } from "./signOffs";
 
 export type FigureFilter = "all" | "look" | "supported" | "not-checked" | "not-mine";
@@ -25,6 +32,9 @@ export interface ScheduleLine {
   component?: FigureScheduleRow;
   omitted?: boolean;
   axis?: "row" | "column";
+  /** A column of numbers of an Analysis's table (#2378), and a cell of it that differs. */
+  column?: AnalysisTableColumn;
+  cell?: DifferingCell;
 }
 
 export const lineRef = (mindId: string, line: ScheduleLine) => ({
@@ -58,6 +68,8 @@ export function reasonKey(row: FigureScheduleRow): MessageKey | null {
       return "claim.why.quoteNotFound";
     case "doesnt-add-up":
       return "claim.why.doesntAddUp";
+    case "differs-from-analysis":
+      return "claim.why.differsFromAnalysis";
     default:
       return `claim.why.${row.reason}`;
   }
@@ -89,6 +101,12 @@ export function childrenOf(
   { rows, analyses }: Pick<FigureSchedule, "rows" | "analyses">,
 ): ScheduleLine[] {
   const children: ScheduleLine[] = [];
+  for (const column of row.analysisTable?.columns ?? []) {
+    const id = `${row.id}:column:${column.column}`;
+    children.push({ id, parent: row, column });
+    for (const [index, cell] of column.differs.entries())
+      children.push({ id: `${id}:cell:${index}`, parent: row, column, cell });
+  }
   for (const [index, input] of inputsOf(row, analyses).entries())
     children.push({ id: `${row.id}:input:${index}`, parent: row, ...input });
   for (const footing of row.footing) {
@@ -321,7 +339,8 @@ export function quotedSourceText(figure: FigureFinding): string | null {
 /** A row's source value in the note's terms, or null when there is none. */
 export function sourceValueText(row: FigureScheduleRow): string | null {
   // A what-if is no Document's number (#2347), whatever an older row kept as its source value.
-  if (row.sourceValue === null || row.calculated?.figure.workbook?.change) return null;
+  if (row.sourceValue === null || (row.calculated?.figure.workbook?.changes.length ?? 0) > 0)
+    return null;
   if (!row.sourceInput) return row.sourceShown;
   return writtenLike(row.reading, row.sourceValue, sourceDecimals(row));
 }
@@ -431,7 +450,7 @@ export const notCheckedYet = (row: FigureScheduleRow): boolean =>
   row.shown.state === "not-checked" || row.shown.state === "checking";
 
 /**
- * A workbook figure's formula (#2347), naming a what-if's change so it never reads as the
+ * A workbook figure's formula (#2347), naming a what-if's changes so it never reads as the
  * workbook's own figure: "What-if: DCF!E5 = E4*Margin, with Revenue growth at 3.0% (5.0% in the
  * workbook)". Null for any other figure.
  */
@@ -439,23 +458,49 @@ export function workbookFormulaText(figure: CalculatedFigure, language: Language
   const book = figure.workbook;
   if (!book) return null;
   const cell = `${book.cell.sheet}!${book.cell.ref}`;
-  const changed = book.change
-    ? figure.inputs.find((input) => input.name === book.change?.input)
-    : undefined;
-  if (!book.change || !changed) return `${cell} = ${book.cell.formula}`;
+  const changes = book.changes.flatMap((change) => {
+    const input = figure.inputs.find((each) => each.name === change.input);
+    return input
+      ? [
+          translate(language, "figures.workbook.whatIfChange", {
+            input: input.label,
+            from: input.number.chars,
+            to: change.shown,
+          }),
+        ]
+      : [];
+  });
+  if (changes.length === 0) return `${cell} = ${book.cell.formula}`;
   return translate(language, "figures.workbook.whatIfFormula", {
     cell,
     formula: book.cell.formula,
-    input: changed.label,
-    from: changed.number.chars,
-    to: book.change.shown,
+    changes: listOf(changes, language),
   });
 }
 
 export function lineShows(line: ScheduleLine, language: Language): LineShows {
   const { parent } = line;
-  const change = parent.calculated?.figure.workbook?.change;
-  if (line.input && change?.input === line.input.name) {
+  if (line.cell)
+    return {
+      name: differingLine(line.cell, language),
+      value: null,
+      citation: null,
+      formula: null,
+      difference: null,
+      status: { glyph: "look", word: "figures.filter.look", why: "claim.why.differsFromAnalysis" },
+    };
+  if (line.column)
+    return {
+      name: columnLine(line.column, language),
+      value: null,
+      citation: null,
+      formula: null,
+      difference: null,
+      status: null,
+    };
+  const changes = parent.calculated?.figure.workbook?.changes ?? [];
+  const change = line.input ? changes.find((each) => each.input === line.input?.name) : undefined;
+  if (line.input && change) {
     // A what-if's changed input: the value it was given, never the cell's as if it were found.
     return {
       name: line.input.label,
@@ -589,4 +634,17 @@ export function figurePlaceText(row: FigureScheduleRow, language: Language): str
         })
       : translate(language, "figures.paragraph", { number: paragraph });
   return heading ? translate(language, "figures.place", { heading, place }) : place;
+}
+
+/**
+ * What opening a Figure schedule row does: an Analysis's table opens to its columns whatever it
+ * shows, as it is never checked as text (#2378); a figure no check reached says so; a calculated
+ * figure opens to its inputs; any other opens its source.
+ */
+export function rowOpens(
+  row: Pick<FigureScheduleRow, "analysisTable" | "shown" | "calculated">,
+): "columns" | "notice" | "inputs" | "source" {
+  if (row.analysisTable) return "columns";
+  if (row.shown.state === "not-checked") return "notice";
+  return row.calculated ? "inputs" : "source";
 }

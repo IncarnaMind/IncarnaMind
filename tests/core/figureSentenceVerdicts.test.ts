@@ -72,7 +72,7 @@ interface Reply {
   /** Asked about its Figures line, it writes that line again with this item, and nothing else. */
   repair?: Record<string, unknown>;
   /** Asked about its Figures line with no `repair`, what it writes instead; `CANT_REWRITE` when absent. */
-  prose?: string;
+  prose?: string | ((call: ModelCall) => string);
   /** Its Figures line leaves the remainder out, so a Supported reply is asked for it. */
   omitsRemainder?: boolean;
   /** It never calls cite, and writes its record into the reply instead, as Claude Haiku 5.5 did. */
@@ -408,6 +408,44 @@ const VERDICT_AGAIN: Record<string, Reply> = {
       "协议写明乙方每月向甲方支付租金，付款方向与该句相反[^1]。",
     ].join("\n"),
   },
+  // Asked again, it gives its verdict with a Figures line that reads the figure another way: that decides (#2591).
+  "The salary is 59,000 per year.": {
+    quotes: [SALARY],
+    omitsRemainder: true,
+    lines: [
+      "Verdict: supported",
+      "Absence: no",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement says the salary is 61,500 per year [^1].",
+    ].join("\n"),
+    item: SUPPORTED_SALARY,
+    prose: (call: ModelCall) =>
+      [
+        "Verdict: supported",
+        "Absence: no",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The agreement says the salary is 61,500 per year [^1].",
+        `Figures: ${JSON.stringify({
+          items: requestedFigures(call).map(({ id }) => ({
+            id,
+            verdict: "unsupported",
+            scope: "same",
+            topic: "not found",
+            roles: "same",
+            says: null,
+            reading: 1,
+            relation: "equals",
+            source: null,
+            calculation: null,
+          })),
+          remainder: null,
+        })}`,
+      ].join("\n"),
+  },
   // Its figure is wrong though it calls it supported, twice: the figure's own comparison decides.
   "The salary is 62,000 per year.": {
     quotes: [SALARY],
@@ -688,13 +726,15 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
             },
           ],
         };
-      if (asked && !planned.repair)
+      if (asked && !planned.repair) {
+        const prose = typeof planned.prose === "function" ? planned.prose(call) : planned.prose;
         return {
           text:
-            planned.prose && /^Verdict:/m.test(planned.prose)
-              ? `${planned.prose}\n${SAME_DETAIL}`
-              : (planned.prose ?? CANT_REWRITE),
+            prose && /^Verdict:/m.test(prose)
+              ? `${prose}\n${SAME_DETAIL}`
+              : (prose ?? CANT_REWRITE),
         };
+      }
       const items = requestedFigures(call).map(({ id }) => ({
         id,
         says: null,
@@ -996,48 +1036,74 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
   });
 });
 
-test.each<Shape>([
+const NO_FIGURES_LINE_CASES = [
   {
     sentence: "The Company pays the Employee 950 a month for the flat.",
     state: "contradicted",
-    figures: ["supported"],
+    figures: ["not-checked"],
+    reasons: ["malformed"],
     asks: 1,
     evidence: 0,
+    quote: true,
   },
   {
     sentence: "甲方每月向乙方支付一千五百元租金。",
     state: "contradicted",
-    figures: ["supported"],
+    figures: ["not-checked"],
+    reasons: ["malformed"],
     asks: 1,
     evidence: 0,
+    quote: true,
   },
   {
     sentence: "The salary is 62,000 per year.",
-    state: "contradicted",
-    figures: ["contradicted"],
+    state: "not-checked",
+    figures: ["not-checked"],
+    reasons: ["malformed"],
     asks: 1,
     evidence: 0,
+    quote: false,
   },
   {
     sentence: "乙方月工资为人民币两万五千元。",
-    state: "contradicted",
-    figures: ["contradicted"],
+    state: "not-checked",
+    figures: ["not-checked"],
+    reasons: ["malformed"],
     asks: 1,
     evidence: 0,
+    quote: false,
   },
-])(
-  "asked for its remainder, a reply that gives its verdict again without a Figures line keeps the figures of the reply asked about: $sentence (#2184)",
-  async ({ sentence, state, figures, asks, evidence }) => {
+];
+test.each<(typeof NO_FIGURES_LINE_CASES)[number]>(NO_FIGURES_LINE_CASES)(
+  "asked for its remainder, a reply that gives its verdict again without a Figures line decides no figure, and a verdict that stood on one goes Not checked: $sentence (#2184, #2591)",
+  async ({ sentence, state, figures, reasons, asks, evidence, quote }) => {
     const checked = await checkSentence(sentence);
     expect(checked.check).toMatchObject({
       state,
-      evidence: { quote: CASES[sentence]?.quotes[0] },
+      ...(quote && { evidence: { quote: CASES[sentence]?.quotes[0] } }),
     });
-    expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
+    expect(checked.check?.figures?.map((figure) => [figure.state, figure.reason])).toEqual(
+      figures.map((figure, at) => [figure, reasons?.[at] ?? null]),
+    );
     expect(checked.asked).toHaveLength(asks);
     expect(checked.evidence).toHaveLength(evidence);
   },
 );
+
+test("a re-asked reply that reads the figure another way decides it, whatever the reply asked about said (#2591)", async () => {
+  const checked = await checkSentence("The salary is 59,000 per year.");
+  expect(checked.check).toMatchObject({ state: "unsupported" });
+  expect(checked.check?.figures?.map((figure) => [figure.state, figure.reason])).toEqual([
+    ["unsupported", null],
+  ]);
+});
+
+test("a run whose replies read alike keeps its Supported, and asks nothing (#2591)", async () => {
+  const checked = await checkSentence("The salary is 61,500 a year.");
+  expect(checked.check).toMatchObject({ state: "supported" });
+  expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+  expect(checked.asked).toHaveLength(0);
+});
 
 test.each<Shape>([
   {
@@ -1062,7 +1128,8 @@ test.each<Shape>([
     sentence: "The salary is 61,500 per year, as agreed.",
     state: "not-checked",
     reason: "malformed",
-    figures: ["supported"],
+    // A reply that can't be read backs none of its figures either (#2378).
+    figures: ["not-checked"],
     asks: 0,
     evidence: 0,
   },
@@ -1070,12 +1137,12 @@ test.each<Shape>([
     sentence: "乙方月工资为人民币一万八千元，已约定。",
     state: "not-checked",
     reason: "malformed",
-    figures: ["supported"],
+    figures: ["not-checked"],
     asks: 0,
     evidence: 0,
   },
 ])(
-  "a sentence is never Supported on a reply that refuses after an ask or gives no verdict, and its figures keep their own results: $sentence (#2184)",
+  "a sentence is never Supported on a reply that refuses after an ask or gives no verdict; a refusal keeps its figures' own results, a reply that can't be read backs none: $sentence (#2184)",
   async ({ sentence, state, reason, figures, asks, evidence }) => {
     const checked = await checkSentence(sentence);
     expect(checked.check).toMatchObject({ state, reason });

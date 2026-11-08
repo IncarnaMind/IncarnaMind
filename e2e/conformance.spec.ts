@@ -27,6 +27,8 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openDocumentAt,
+  openMoreMenu,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -95,7 +97,8 @@ interface Stage {
  */
 const NO_UNDO_YET: Record<string, string> = {
   "answer.regenerate": "an AI change is taken back from History (#113), not by the note's ⌘Z",
-  "folder.organize": "what it suggests is taken back in To review (#241), not by ⌘Z",
+  "folder.organize":
+    "its Folders wait in the Review, but the Tags the tagger gives after it come at once, until they wait there too (#2339)",
 };
 
 /** Commands that add what the system's open sheet gives: the stub answers each with a new file. */
@@ -109,6 +112,9 @@ const MAKES_A_MIND = new Set([
   "folder.newMind",
   "mind.aiUseStatement",
 ]);
+
+/** Commands that make a Mind and put words in it: the note's Undo takes the words back, then the Mind goes. */
+const MAKES_A_MIND_WITH_A_NOTE = new Set(["annotation.addToNote", "annotation.collect"]);
 
 let dataDir: string;
 let homeDir: string;
@@ -284,6 +290,8 @@ async function menuByButton(window: Page, place: Place): Promise<string[]> {
 
 async function closeMenu(window: Page, place: Place): Promise<void> {
   await window.keyboard.press("Escape");
+  // With More › open, Esc closes only that.
+  if (await place.menu.isVisible()) await window.keyboard.press("Escape");
   await expect(place.menu).toBeHidden();
 }
 
@@ -294,14 +302,20 @@ async function closeMenu(window: Page, place: Place): Promise<void> {
 function menuOf(shown: readonly string[], registry: Registry, kind: ObjectKind): string[] {
   const registered = registry.menus[kind] ?? [];
   const groupOf = (id: string) => registry.groups.indexOf(registry.commands[id]?.group ?? "");
+  // The More › row is the last of the main group, in the section of what it holds.
+  const moreAt = registered.find((each) => each.more)?.section ?? 0;
   const placed = shown
     .filter((id) => id !== "—")
-    .map((id) => ({
-      id,
-      section: registered.find((each) => each.id === id)?.section ?? -1,
-      group: groupOf(id),
-      at: registered.findIndex((each) => each.id === id),
-    }))
+    .map((id) =>
+      id.endsWith("-more")
+        ? { id, section: moreAt, group: registry.groups.indexOf("main"), at: registered.length }
+        : {
+            id,
+            section: registered.find((each) => each.id === id)?.section ?? -1,
+            group: groupOf(id),
+            at: registered.findIndex((each) => each.id === id),
+          },
+    )
     .sort((a, b) => a.section - b.section || a.group - b.group || a.at - b.at);
   return placed.flatMap((each, index) => {
     const before = placed[index - 1];
@@ -398,8 +412,13 @@ async function checkCommand(
     await pointAndClick(window, item);
   } else {
     const shown = await menuByRightClick(window, place);
-    const item = place.menu.getByTestId(commandId);
-    if (!shown.includes(commandId) || (await item.getAttribute("aria-disabled")) === "true") {
+    // A command the menu holds under More › is found there.
+    const folded = registry.menus[kind]?.some((each) => each.id === commandId && each.more);
+    const hasMore = shown.some((id) => id.endsWith("-more"));
+    const holder = folded && hasMore ? await openMoreMenu(window, place.menu) : place.menu;
+    const item = holder.getByTestId(commandId);
+    const offered = folded ? (await item.count()) > 0 : shown.includes(commandId);
+    if (!offered || (await item.getAttribute("aria-disabled")) === "true") {
       await closeMenu(window, place);
       return "not offered";
     }
@@ -440,7 +459,14 @@ async function checkCommand(
     return "ran";
   }
 
-  if (MAKES_A_MIND.has(commandId)) {
+  if (MAKES_A_MIND_WITH_A_NOTE.has(commandId)) {
+    expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
+    expect
+      .soft(await undoOffered(window), `${commandId} puts words in the note, so Undo is offered`)
+      .toBe(true);
+    await takeBack(window, stage);
+    await deleteMadeMinds(window, before);
+  } else if (MAKES_A_MIND.has(commandId)) {
     expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
     expect
       .soft(await undoOffered(window), `${commandId} makes a Mind and says nothing`)
@@ -774,6 +800,59 @@ const STAGES: Record<Staged, Stage> = {
         key,
       ),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  annotation: {
+    // A highlight on the words of a Document, made through the bridge, shown in its tab's panel.
+    async make({ window, sources: dir }) {
+      const path = join(dir, "Tides.txt");
+      await writeFile(path, "Neap tides are the smallest of the month.\n");
+      // Added through the core, so no undo line from adding it waits for a later ⌘Z.
+      await read(window, async (core, at) => core.addDocuments([at]), path);
+      await expect
+        .poll(
+          () =>
+            read(window, async (core) =>
+              (await core.listDocuments()).some((document) => document.status === "ready"),
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      return read(window, async (core) => {
+        const [document] = await core.listDocuments();
+        if (!document) return "";
+        const annotation = await core.createAnnotation({
+          documentId: document.id,
+          parts: [{ unit: null, text: "Neap tides are the smallest of the month." }],
+          colour: "yellow",
+        });
+        return `${document.id}:${annotation.id}`;
+      });
+    },
+    async show({ window }, key) {
+      const [documentId, annotationId] = key.split(":");
+      await openDocumentAt(window, { documentId: documentId ?? "" });
+      await expect(window.getByTestId("viewer-header")).toBeVisible();
+      // The header is drawn again once the file is read: act on the settled one.
+      await expect(window.getByTestId("viewer-text")).toBeVisible();
+      const toggle = window.getByTestId("viewer-annotations-toggle");
+      if (await toggle.isVisible()) {
+        // By the keyboard: a window's first pointer press only focuses it.
+        await toggle.focus();
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+          await window.keyboard.press("Enter");
+        }
+      } else {
+        const more = window.getByTestId("document-file-menu").first();
+        await more.focus();
+        await window.keyboard.press("Enter");
+        const item = window.getByTestId("document.showAnnotations").first();
+        await expect(item).toBeVisible({ timeout: 5_000 });
+        await item.click();
+      }
+      await expect(window.getByTestId("annotations-panel")).toBeVisible();
+      return annotationId ?? "";
+    },
+    hit: ({ window }) => window.getByTestId("annotation-row").first(),
   },
   folder: {
     // With a Document in it, so there is something to ask about and to organize.

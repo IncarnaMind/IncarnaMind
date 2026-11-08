@@ -6,6 +6,7 @@
  */
 import { create } from "zustand";
 import type {
+  AnnotationMatch,
   ConversationMatch,
   Document,
   DocumentKind,
@@ -21,9 +22,10 @@ import { displayName } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
+import { useAnnotations } from "./annotations";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
-import { citationHandle } from "./commands/handles";
+import { citationHandle, paletteOpen } from "./commands/handles";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
@@ -41,6 +43,7 @@ import { cursorAtBlock } from "./editor/notePlace";
 import { type FindableKind, type FoundObject, findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
 import { matchName, type NameMatch, queryWords } from "./matcher";
+import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
 import { useSelection } from "./selection";
 import { refKey } from "./selectionModel";
@@ -48,6 +51,8 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
+import { openTranscriptOfNote } from "./transcripts";
+import { viewerTabOf } from "./viewerTab";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -121,8 +126,15 @@ interface PaletteState {
 export const usePalette = create<PaletteState>()((set) => ({
   open: false,
   context: NOTHING,
-  show: () => set({ open: true, context: contextAt(document.activeElement) }),
-  hide: () => set({ open: false }),
+  show: () => {
+    // Before the dialog shows: a viewer keeps its page selection from the moment ⌘K is pressed.
+    paletteOpen.current = true;
+    set({ open: true, context: contextAt(document.activeElement) });
+  },
+  hide: () => {
+    paletteOpen.current = false;
+    set({ open: false });
+  },
 }));
 
 export type PaletteItem =
@@ -156,12 +168,28 @@ export type PaletteItem =
       key: string;
       documentId: string;
       documentKind: DocumentKind;
+      /** A Meeting's Transcript: its Note, whose hit this is (#2528). Null for any other Document. */
+      mindId: string | null;
       name: string;
       meta: string;
       pageFrom: number | null;
       pageTo: number | null;
       excerpt: string;
       highlights: TextRange[];
+    }
+  | {
+      kind: "annotation";
+      key: string;
+      annotationId: string;
+      documentId: string;
+      documentKind: DocumentKind;
+      name: string;
+      meta: string;
+      excerpt: string;
+      highlights: TextRange[];
+      quote: string;
+      pageFrom: number | null;
+      pageTo: number | null;
     }
   | {
       kind: "said";
@@ -249,6 +277,24 @@ export function nameGroups(words: readonly string[], found: Findings): PaletteGr
     const items = best(matched, SHOWN.names).map(({ item }) => item);
     return items.length > 0 ? [{ id, title, items }] : [];
   });
+}
+
+/**
+ * The name groups and the action group as the palette lists them: the actions above the names
+ * when their first matches the words typed more closely than any name does, so Enter runs Check
+ * rather than opening the Note named "Checking: Estuary memo" (#2771).
+ */
+export function rankedNamesAndActions(
+  names: readonly PaletteGroup[],
+  actions: readonly PaletteGroup[],
+  words: readonly string[],
+): PaletteGroup[] {
+  const score = (item: PaletteItem | undefined) =>
+    item === undefined ? -Infinity : (matchName(words, item.name)?.score ?? -Infinity);
+  const closestName = Math.max(-Infinity, ...names.map((group) => score(group.items[0])));
+  return score(actions[0]?.items[0]) > closestName
+    ? [...actions, ...names]
+    : [...names, ...actions];
 }
 
 /** With nothing typed: the Minds edited last, other than the one in front. */
@@ -341,7 +387,10 @@ export function actionGroup(
   return shown.length > 0 ? [{ id: "actions", items: shown }] : [];
 }
 
-/** "In your notes": the Minds the core found the words in, with the Block that holds them. */
+/**
+ * "In your text": the Minds the core found the words in, with the Block that holds them. Words
+ * said in a meeting are their own group (`meetingTextGroup`), as they are its Note's (#2579).
+ */
 export function noteGroup(
   found: readonly MindTextMatch[],
   minds: readonly Mind[],
@@ -367,8 +416,13 @@ export function noteGroup(
   return items.length > 0 ? [{ id: "notes", items: items.slice(0, SHOWN.words) }] : [];
 }
 
+/** "Said in meetings": the meetings whose Transcripts hold the words, as their Notes' hits (#2579). */
+export function meetingTextGroup(meetings: readonly PaletteItem[]): PaletteGroup[] {
+  return meetings.length > 0 ? [{ id: "meetingText", items: meetings.slice(0, SHOWN.words) }] : [];
+}
+
 /** A Document as the palette reads it. */
-export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind">;
+export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind" | "meetingMindId">;
 
 /** Where a Passage found is, for a PDF's page or a deck's slide; "" for the other kinds. */
 export function passagePlace(
@@ -398,7 +452,7 @@ export function atPassage(
   };
 }
 
-/** "In your Documents": the Documents the core found the words in, with the Passage that holds them. */
+/** "In your Documents": the Documents of the User's the core found the words in, with the Passage that holds them. */
 export function documentTextGroup(
   found: readonly DocumentTextMatch[],
   documents: readonly NamedDocument[],
@@ -407,16 +461,16 @@ export function documentTextGroup(
   const byId = new Map(documents.map((document) => [document.id, document]));
   const items = found.flatMap((match): PaletteItem[] => {
     const document = byId.get(match.documentId);
-    if (!document) return [];
-    const meta = passagePlace(document.kind, match, t);
+    if (!document || !isListedDocument(document)) return [];
     return [
       {
         kind: "passage",
         key: `passage:${match.passageId}`,
         documentId: match.documentId,
         documentKind: document.kind,
+        mindId: null,
         name: displayName(document),
-        meta,
+        meta: passagePlace(document.kind, match, t),
         pageFrom: match.pageFrom,
         pageTo: match.pageTo,
         excerpt: match.excerpt,
@@ -425,6 +479,69 @@ export function documentTextGroup(
     ];
   });
   return items.length > 0 ? [{ id: "documentText", items: items.slice(0, SHOWN.words) }] : [];
+}
+
+/** "In your highlights and notes": the annotations whose quote or note holds the words (#327). */
+export function annotationTextGroup(
+  found: readonly AnnotationMatch[],
+  documents: readonly NamedDocument[],
+  t: Translate,
+): PaletteGroup[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  const items = found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    if (!document) return [];
+    return [
+      {
+        kind: "annotation",
+        key: `annotation:${match.annotationId}`,
+        annotationId: match.annotationId,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        name: displayName(document),
+        meta: t("annotations.title"),
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+        quote: match.excerpt,
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+      },
+    ];
+  });
+  return items.length > 0 ? [{ id: "annotations", items: items.slice(0, SHOWN.words) }] : [];
+}
+
+/**
+ * Words said in a meeting, as its Note's hits: "Weekly call · Transcript, 00:07", opening the
+ * Transcript beside its Note there (#2528). None for a Transcript whose Note isn't here.
+ */
+export function meetingTextItems(
+  found: readonly DocumentTextMatch[],
+  documents: readonly NamedDocument[],
+  minds: readonly Mind[],
+  t: Translate,
+): PaletteItem[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  return found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    const note = document && noteOf(document, minds);
+    if (!document || !note) return [];
+    return [
+      {
+        kind: "passage",
+        key: `passage:${match.passageId}`,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        mindId: note.id,
+        name: transcriptInNote(note, match.atMs, t),
+        meta: "",
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+      },
+    ];
+  });
 }
 
 /** "In your conversations": the conversations whose messages hold the words, with the first that does. */
@@ -519,10 +636,30 @@ export async function runItem(
       return;
     }
     case "passage":
+      if (item.mindId !== null) {
+        await openTranscriptOfNote(item.mindId, item.documentId, atPassage(item));
+        return;
+      }
       store.openDocument(
         { documentId: item.documentId, ...atPassage(item) },
         { as: inTab ? "here" : "list" },
       );
+      return;
+    case "annotation":
+      await store.openDocument(
+        {
+          documentId: item.documentId,
+          ...(item.pageFrom !== null && {
+            pageFrom: item.pageFrom,
+            pageTo: item.pageTo ?? item.pageFrom,
+          }),
+        },
+        { as: inTab ? "here" : "list" },
+      );
+      {
+        const tab = viewerTabOf(item.documentId);
+        if (tab) useAnnotations.getState().togglePanel(true, tab);
+      }
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);

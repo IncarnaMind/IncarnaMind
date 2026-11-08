@@ -1,3 +1,4 @@
+import { REFUSAL_WORDS } from "../../../shared/changeRefusals";
 import { ProblemLine } from "../components/ProblemLine";
 import { readinessAction, readinessAlso } from "../components/providers/ChatReadinessNotice";
 import { readinessKey, serviceName } from "../components/providers/shared";
@@ -170,6 +171,12 @@ export function editProblemParts(
           : t("edit.problem.unchanged"),
         role: "status",
       };
+    case "not-placed":
+    case "misnamed":
+    case "typed-tag":
+    case "no-table":
+    case "unplaced":
+      return { text: t(REFUSAL_WORDS[problem.kind].editor), role: "alert" };
     default:
       return {
         text: t(`edit.problem.${problem.kind}`),

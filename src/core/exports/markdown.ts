@@ -10,6 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import type { TableAlign } from "../../shared/markdownTables";
+import { escapeMarkdownText } from "../../shared/markdownText";
 import type { StyledRun } from "../api";
 import {
   type Block,
@@ -87,7 +88,7 @@ export function renderMarkdown(
     options.citations !== false,
   );
   const parts: string[] = [];
-  if (title) parts.push(`# ${escapeText(title, false)}`);
+  if (title) parts.push(`# ${escapeMarkdownText(title, false)}`);
   const body = writer.blocks(blocks, { table: false });
   if (body) parts.push(body);
   if (footnotes.length > 0) {
@@ -119,11 +120,73 @@ function pictureFile(
   if (!image.src.startsWith("data:")) return image.src ? { src: image.src } : null;
   const decoded = decodeDataUrl(image.src);
   if (!decoded) return null;
-  const name = `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
+  const name = pictureName(decoded);
   if (!pictures.some((each) => each.name === name)) {
     pictures.push({ name, mediaType: decoded.mediaType, data: decoded.data });
   }
   return { src: name, alt: image.alt };
+}
+
+/**
+ * The picture files a Markdown export writes beside it, by the names it writes, each once
+ * (#1937), in the order the text first links them.
+ */
+export function picturesBeside(blocks: readonly Block[]): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const count = (image: Image) => {
+    if (!image.src.startsWith("data:")) return;
+    const decoded = decodeDataUrl(image.src);
+    if (!decoded) return;
+    const name = pictureName(decoded);
+    if (seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  };
+  const inline = (items: readonly Inline[]) => {
+    for (const item of items) {
+      if (item.kind === "image") count(item.image);
+      else if (item.kind === "footnote") inline(item.content);
+    }
+  };
+  const block = (each: Block) => {
+    switch (each.kind) {
+      case "paragraph":
+      case "heading":
+      case "question":
+        inline(each.content);
+        break;
+      case "list":
+        for (const item of each.items) item.forEach(block);
+        break;
+      case "quote":
+        each.content.forEach(block);
+        break;
+      case "table":
+        for (const row of each.rows) for (const cell of row) cell.content.forEach(block);
+        break;
+      case "image":
+        count(each.image);
+        break;
+      case "chart":
+        for (const row of each.table) for (const cell of row) cell.content.forEach(block);
+        break;
+      default:
+        break;
+    }
+  };
+  blocks.forEach(block);
+  return names;
+}
+
+function pictureName(decoded: { data: Uint8Array; extension: string }): string {
+  return `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
+}
+
+/** Whether a file named `name` holds exactly what a picture file of that name holds (#1937). */
+export function isPictureFile(name: string, data: Uint8Array): boolean {
+  const extension = name.slice(name.lastIndexOf(".") + 1);
+  return name === pictureName({ data, extension });
 }
 
 /** A `data:` URL's bytes and media type, and the extension Outlook and Word use for them. */
@@ -147,7 +210,7 @@ function runsMarkdown(runs: readonly StyledRun[], table: boolean): string {
   return runs
     .map((run) => {
       if (run.text === "") return "";
-      let text = escapeText(run.text, table);
+      let text = escapeMarkdownText(run.text, table);
       if (run.script) text = `<${run.script}>${text}</${run.script}>`;
       if (run.bold) text = `**${text}**`;
       if (run.italic) text = `*${text}*`;
@@ -223,13 +286,14 @@ class MarkdownWriter {
         return [
           `**${this.labels.contents}**`,
           ...this.headings.map(
-            (entry) => `${"  ".repeat(entry.level - lowest)}- ${escapeText(entry.text, false)}`,
+            (entry) =>
+              `${"  ".repeat(entry.level - lowest)}- ${escapeMarkdownText(entry.text, false)}`,
           ),
         ].join("\n");
       }
       case "bibliography":
         return [
-          `## ${escapeText(block.heading, false)}`,
+          `## ${escapeMarkdownText(block.heading, false)}`,
           ...block.items.map((item) => {
             const label = item.label ? `${runsMarkdown(item.label, false)} ` : "";
             return escapeLineStart(label + runsMarkdown(item.runs, false));
@@ -284,18 +348,19 @@ class MarkdownWriter {
   }
 
   private chart(block: Extract<Block, { kind: "chart" }>): string {
-    const parts = [`*${escapeText(this.labels.chart(block.chart.title), false)}*`];
+    const parts = [`*${escapeMarkdownText(this.labels.chart(block.chart.title), false)}*`];
     const table = this.table(block.table);
     if (table) parts.push(table);
     const sources: string[] = [];
     const cited = this.inline(block.sources, { table: false }).trim();
-    if (cited) sources.push(`${escapeText(this.labels.chartSources, false)}${cited}`);
+    if (cited) sources.push(`${escapeMarkdownText(this.labels.chartSources, false)}${cited}`);
     if (block.calculated > 0)
-      sources.push(escapeText(this.labels.chartCalculated(block.calculated), false));
-    if (block.uncited > 0) sources.push(escapeText(this.labels.chartUncited(block.uncited), false));
+      sources.push(escapeMarkdownText(this.labels.chartCalculated(block.calculated), false));
+    if (block.uncited > 0)
+      sources.push(escapeMarkdownText(this.labels.chartUncited(block.uncited), false));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null)
-      sources.push(escapeText(this.labels.chartCut(rows.length, cutFrom), false));
+      sources.push(escapeMarkdownText(this.labels.chartCut(rows.length, cutFrom), false));
     if (sources.length > 0) parts.push(sources.join(" "));
     return parts.join("\n\n");
   }
@@ -308,11 +373,13 @@ class MarkdownWriter {
   private image(image: Image, context: Context, block: boolean): string {
     const placed = this.picture?.(image) ?? null;
     if (!placed) {
-      const description = escapeText(image.alt, context.table);
+      const description = escapeMarkdownText(image.alt, context.table);
       return description ? (block ? description : ` ${description} `) : "";
     }
     const alt = placed.alt ?? image.alt;
-    return placed.src ? `![${escapeText(alt, context.table)}](${destination(placed.src)})` : "";
+    return placed.src
+      ? `![${escapeMarkdownText(alt, context.table)}](${destination(placed.src)})`
+      : "";
   }
 
   /**
@@ -357,7 +424,7 @@ class MarkdownWriter {
         const marked = change.kind === "insert" ? `{++${text}++}` : `{--${text}--}`;
         const ended = changeEnding(spans, at);
         if (!ended) return marked;
-        const note = notCriticMarkup(escapeText(this.labels.change(ended), context.table));
+        const note = notCriticMarkup(escapeMarkdownText(this.labels.change(ended), context.table));
         return `${marked}{>>${note}<<}`;
       })
       .join("");
@@ -408,7 +475,7 @@ class MarkdownWriter {
         for (const mark of toOpen) out += openingDelimiter(mark);
         open = [...open, ...toOpen];
       }
-      out += item.marks.code ? codeSpan(text, context) : escapeText(text, context.table);
+      out += item.marks.code ? codeSpan(text, context) : escapeMarkdownText(text, context.table);
     }
     closeFrom(0);
     return out;
@@ -419,7 +486,7 @@ class MarkdownWriter {
       case "math":
         return `$${item.latex}$`;
       case "figure":
-        return escapeText(item.figure.shown, context.table);
+        return escapeMarkdownText(item.figure.shown, context.table);
       case "citation":
         if (!this.citations) return "";
         if (context.note) return citationSource(item.footnote, this.labels);
@@ -439,7 +506,7 @@ class MarkdownWriter {
         }
         const text = runsMarkdown(item.runs, context.table);
         return item.unverified
-          ? `${text} ${escapeText(this.labels.unverified, context.table)}`
+          ? `${text} ${escapeMarkdownText(this.labels.unverified, context.table)}`
           : text;
       }
     }
@@ -449,7 +516,7 @@ class MarkdownWriter {
 /** A Citation's source, as its footnote says it, e.g. "Tides, p. 2 [unverified]". */
 function citationSource(footnote: Footnote, labels: MarkdownLabels): string {
   const marker = footnote.unverified ? ` ${labels.unverified}` : "";
-  return `${escapeText(footnote.source, false)}${marker}`;
+  return `${escapeMarkdownText(footnote.source, false)}${marker}`;
 }
 
 /** A column's cell in a table's delimiter row, which says how the column is aligned. */
@@ -506,23 +573,9 @@ function closingDelimiter(mark: OpenMark): string {
 /** A link or image destination: spaces and parentheses would end it early. */
 const destination = (url: string) => url.replace(/[ ()<>]/g, (char) => encodeURIComponent(char));
 
-/**
- * Escapes what Markdown would read as formatting: emphasis, code, links, math,
- * HTML, entities, and the "==" of a highlight. A "=" is escaped only where it
- * could make one: before another, or at either end of the text, which a
- * highlight's "==" may be written next to.
- */
 /** Text with CriticMarkup's delimiters escaped, so only the writer opens or closes a change or its note. */
 const notCriticMarkup = (text: string) =>
   text.replace(/\{(?=\+\+|--|>>|~~|==)/g, "\\{").replace(/(\+\+|--|<<|~~|==)\}/g, "$1\\}");
-
-function escapeText(text: string, table: boolean): string {
-  const escaped = text
-    .replace(/[\\`*_~[\]$<]/g, "\\$&")
-    .replace(/&(?=#?\w+;)/g, "\\&")
-    .replace(/^=|=(?==|[ \t]*$)/g, "\\=");
-  return table ? escaped.replace(/\|/g, "\\|") : escaped;
-}
 
 function codeSpan(text: string, context: Context): string {
   const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));

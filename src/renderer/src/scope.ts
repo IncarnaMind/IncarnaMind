@@ -2,8 +2,10 @@ import type {
   Document,
   DocumentGroupAssignment,
   DocumentKind,
+  DocumentTextMatch,
   Folder,
   LibraryGroup,
+  Mind,
   SearchScope,
   Tag,
 } from "../../core/api";
@@ -15,8 +17,15 @@ import {
   type ScopeKind,
   scopeIds,
 } from "../../shared/searchScope";
-import { buildFolderTree, flattenFolderTree, folderPath } from "./folders";
+import { buildFolderTree, flattenFolderTree, folderPath, folderWallOf } from "./folders";
 import { matchName, queryWords } from "./matcher";
+import {
+  isListedDocument,
+  noteOf,
+  transcriptInNote,
+  withTranscriptsFiled,
+} from "./meetingTranscript";
+import type { Translate } from "./objects";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -35,7 +44,44 @@ export interface ScopeLibrary {
   documents: readonly Document[];
   /** Which in-app Folder each Document is filed in; the counts of those Folders read it. */
   assignments?: readonly DocumentGroupAssignment[];
+  /** The Notes: a Meeting's Transcript counts in its Note's Folder (#2528), and none without them. */
+  minds?: readonly Mind[];
+  /** The words to name a Meeting's Transcript as its Note's: without them it is offered nowhere. */
+  t?: Translate;
 }
+
+/** Where the scope places each Document: a Meeting's Transcript is where its Note is (#2528). */
+const filingsOf = (library: ScopeLibrary): DocumentGroupAssignment[] =>
+  withTranscriptsFiled(library.assignments ?? [], library.documents, library.minds ?? []);
+
+/**
+ * Whether a Note behind `wall` (null: outside every wall) may not pick this choice: one behind
+ * another wall, or a Document behind its own that the User didn't file there. A meeting's
+ * Transcript is where its Note is, which the User put there (#2528).
+ */
+export function blockedFrom(
+  library: ScopeLibrary,
+  item: ScopeChoice,
+  wall: string | null,
+): boolean {
+  if (item.walled === undefined || item.walled === null) return false;
+  if (item.walled !== wall) return true;
+  if (item.kind !== "document") return false;
+  const groups = library.groups ?? [];
+  return !filingsOf(library).some(
+    (each) =>
+      each.documentId === item.id &&
+      each.groupId !== null &&
+      each.source === "user" &&
+      folderWallOf(groups, each.groupId) === wall,
+  );
+}
+
+/** A Meeting's Transcript as a scope names it: "Weekly call · Transcript", or null. */
+const transcriptName = (library: ScopeLibrary, document: Document): string | null => {
+  const note = noteOf(document, library.minds ?? []);
+  return note && library.t ? transcriptInNote(note, null, library.t) : null;
+};
 
 /** A Folder, Tag or Document the "@" picker offers for a Question's Search scope. */
 export interface ScopeChoice {
@@ -54,6 +100,8 @@ export interface ScopeChoice {
   walled?: string | null;
   /** A Document's kind, for its icon. */
   documentKind: DocumentKind | null;
+  /** A meeting's Transcript, drawn as its Note is (#2528). */
+  meeting?: boolean;
 }
 
 /** A Search scope item as a chip on its Question. */
@@ -72,6 +120,8 @@ export interface ScopeChip {
   /** Deleted since: the search ignores it. */
   deleted: boolean;
   documentKind: DocumentKind | null;
+  /** A meeting's Transcript, drawn as its Note is (#2528). */
+  meeting?: boolean;
 }
 
 /** The most choices of one kind the picker lists at once; typing narrows them. */
@@ -79,8 +129,7 @@ const MAX_CHOICES_PER_KIND = 50;
 
 /**
  * How many Documents each Folder and Tag holds that can be searched (#764): an in-app
- * Folder's filed Documents and those of the Folders inside it (suggested ones too, unless
- * a Folder there keeps its work inside it), a Linked folder's Documents with those in its
+ * Folder's filed Documents and those of the Folders inside it, a Linked folder's Documents with those in its
  * sub-Folders, and a Tag's.
  */
 export function scopeCounts(library: ScopeLibrary): Map<string, number> {
@@ -88,7 +137,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const live = library.documents.filter(holdsText);
   const liveIds = new Set(live.map((document) => document.id));
   const groups = library.groups ?? [];
-  const assignments = library.assignments ?? [];
+  const assignments = filingsOf(library);
   const byId = new Map(groups.map((group) => [group.id, group]));
   const insideWall = (id: string): boolean => {
     const seen = new Set<string>();
@@ -181,8 +230,9 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
     }
     return null;
   };
-  const documentWall = (documentId: string) => {
-    const filed = (library.assignments ?? []).find((each) => each.documentId === documentId);
+  const filings = filingsOf(library);
+  const documentWall = (document: Document) => {
+    const filed = filings.find((each) => each.documentId === document.id);
     return filed?.groupId ? groupWall(filed.groupId) : null;
   };
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
@@ -231,16 +281,22 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         count: counts.get(tag.id) ?? 0,
       }),
     ),
-    ...library.documents.map(
-      (document): ScopeChoice => ({
-        kind: "document",
-        id: document.id,
-        name: document.name,
-        path: [],
-        documentKind: document.kind,
-        walled: documentWall(document.id),
-      }),
-    ),
+    ...library.documents.flatMap((document): ScopeChoice[] => {
+      const name = isListedDocument(document) ? document.name : transcriptName(library, document);
+      return name === null
+        ? []
+        : [
+            {
+              kind: "document",
+              id: document.id,
+              name,
+              path: [],
+              documentKind: document.kind,
+              ...(!isListedDocument(document) && { meeting: true }),
+              walled: documentWall(document),
+            },
+          ];
+    }),
   ];
 }
 
@@ -277,6 +333,40 @@ export function scopeChoices(
             .map(({ choice }) => choice);
     return matching.slice(0, MAX_CHOICES_PER_KIND);
   });
+}
+
+/**
+ * The meetings whose Transcripts hold the words typed, found by the core's text search, each
+ * offered as its Note's choice with the time the words were said: "Weekly call · Transcript,
+ * 00:01" (#2528). None already in the scope or already `offered` by its name.
+ */
+export function meetingChoices(
+  library: ScopeLibrary,
+  scope: SearchScope,
+  found: ReadonlyMap<string, DocumentTextMatch> | null,
+  offered: readonly ScopeChoice[],
+): ScopeChoice[] {
+  const { t } = library;
+  if (!found || !t) return [];
+  const skip = new Set([
+    ...scope.documentIds,
+    ...offered.filter((each) => each.kind === "document").map((each) => each.id),
+  ]);
+  const byId = new Map(library.documents.map((document) => [document.id, document]));
+  const meetings = new Map(
+    everything(library)
+      .filter((choice) => choice.kind === "document" && choice.meeting)
+      .map((choice) => [choice.id, choice]),
+  );
+  return [...found.values()]
+    .flatMap((match): ScopeChoice[] => {
+      const choice = meetings.get(match.documentId);
+      const document = byId.get(match.documentId);
+      const note = document && noteOf(document, library.minds ?? []);
+      if (!choice || !note || skip.has(choice.id)) return [];
+      return [{ ...choice, name: transcriptInNote(note, match.atMs, t) }];
+    })
+    .slice(0, MAX_CHOICES_PER_KIND);
 }
 
 /** A Question's Search scope as chips, Folders first, then Tags, then Documents, each in the order chosen. */
@@ -318,10 +408,11 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
       return {
         kind: "document",
         id,
-        name: document?.name ?? null,
+        name: document ? (transcriptName(library, document) ?? document.name) : null,
         path: [],
         deleted: !document,
         documentKind: document?.kind ?? null,
+        ...(document && !isListedDocument(document) && { meeting: true }),
       };
     }),
   ];

@@ -1,0 +1,247 @@
+/**
+ * One stream to a live cloud transcription service, whatever its protocol (#866): the
+ * connection, the audio held until the service is ready for it, the end of the audio and the
+ * wait for its last text, a new connection when the service ends its sessions by design, and
+ * how the stream ended. Each service's adapter (./openai, ./soniox, ./qwen, ./deepgram,
+ * ./assemblyai, ./gemini, ./elevenlabs, ./speechmatics, ./gladia, ./xai) speaks its own messages
+ * over it.
+ */
+import { isRecord } from "../../../shared/record";
+import type { CloudLoss } from "../../adapters";
+import { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
+import type { CloudAuth, CloudSocket } from "./socket";
+import {
+  type CloudStreamHandle,
+  type CloudStreamOptions,
+  CONNECT_TIMEOUT_MS,
+  FINISH_TIMEOUT_MS,
+} from "./stream";
+
+export interface LiveLink {
+  /** Sent now once the service is ready for audio, else held until it is. */
+  send(data: string | Uint8Array): void;
+  /** Sent now, before the service is ready: the session's own setup. */
+  setup(data: string): void;
+  /** The service is ready for audio: what was held goes to it, and the core is told, once. */
+  ready(): void;
+  /** Every text has come: the stream ends with nothing lost. */
+  complete(): void;
+  /** The stream ends before all its text came. */
+  lose(loss: CloudLoss): void;
+  /**
+   * The service ends its sessions by design (a connection's time is up): a new connection is
+   * made at once, the route's setup runs again on it, and audio is held until it is ready.
+   */
+  renew(): void;
+  readonly ended: boolean;
+  readonly finishing: boolean;
+}
+
+/** Where a session's socket is, or why the service wouldn't start one. */
+export type LiveSession = { url: string } | { loss: CloudLoss };
+
+export interface LiveRoute {
+  /**
+   * Where the socket connects, with the key in `auth`'s header; or, for a service that gives
+   * each session an address of its own (Gladia), the request for it, made before each
+   * connection: that socket carries no key, as its address holds the session's token.
+   */
+  url: string | (() => Promise<LiveSession>);
+  auth?: CloudAuth;
+  /** The socket opened: the session's setup, and `ready` when no message of the service confirms it. */
+  opened(link: LiveLink): void;
+  /** A message from the service, read as JSON; any other is left out. */
+  heard(message: Record<string, unknown>, link: LiveLink): void;
+  /** The stream's audio, in order, while the stream goes on. */
+  audio(samples: Int16Array, link: LiveLink): void;
+  /** No more audio comes: tells the service so. */
+  finish(link: LiveLink): void;
+  /** The last text didn't come in time after `finish`. */
+  late(link: LiveLink): void;
+  /** The socket closed before the stream ended: by default it is lost (`closedLoss`). */
+  closed?(code: number, reason: string, link: LiveLink): void;
+}
+
+/** A socket that closed by itself: the key or credit turned away at the handshake, else dropped. */
+export const closedLoss = (code: number): CloudLoss =>
+  code === HANDSHAKE_REFUSED ? "refused" : code === HANDSHAKE_NO_CREDIT ? "credit" : "dropped";
+
+/** Audio as the bytes of signed 16-bit little-endian PCM. */
+export const pcmBytes = (samples: Int16Array): Uint8Array =>
+  new Uint8Array(samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength));
+
+export const base64Pcm = (samples: Int16Array): string =>
+  Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength).toString("base64");
+
+export const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}　-〿＀-￯]/u;
+
+/**
+ * Words a service gave one by one, as a line reads: a space between them, but none between two
+ * Chinese or Japanese ones, nor before punctuation.
+ */
+export function joinWords(words: readonly string[]): string {
+  let text = "";
+  for (const word of words) {
+    const trimmed = word.trim();
+    if (!trimmed) continue;
+    const last = text.at(-1) ?? "";
+    const spaced =
+      text !== "" &&
+      !(UNSPACED.test(last) && UNSPACED.test(trimmed[0] ?? "")) &&
+      !/^[,.!?;:%)\]}，。！？；：、）]/u.test(trimmed);
+    text += spaced ? ` ${trimmed}` : trimmed;
+  }
+  return text;
+}
+
+export function createLiveStream(options: CloudStreamOptions, route: LiveRoute): CloudStreamHandle {
+  const { report } = options;
+  let socket: CloudSocket | null = null;
+  // Each connection's events count only while it is the stream's own.
+  let connection = 0;
+  let isReady = false;
+  let told = false;
+  const waiting: (string | Uint8Array)[] = [];
+  let ended = false;
+  let finishing: { done: Promise<void>; resolve(): void } | null = null;
+  let finishTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function end(): void {
+    ended = true;
+    // What waited for the service is never sent once the stream has ended.
+    waiting.length = 0;
+    if (connectTimer) clearTimeout(connectTimer);
+    if (finishTimer) clearTimeout(finishTimer);
+    finishing?.resolve();
+  }
+
+  const link: LiveLink = {
+    send(data) {
+      if (ended) return;
+      if (isReady) socket?.send(data);
+      else waiting.push(data);
+    },
+    setup(data) {
+      if (!ended) socket?.send(data);
+    },
+    ready() {
+      if (isReady || ended) return;
+      isReady = true;
+      if (connectTimer) clearTimeout(connectTimer);
+      for (const data of waiting.splice(0)) socket?.send(data);
+      if (told) return;
+      told = true;
+      report.opened();
+    },
+    complete() {
+      if (ended) return;
+      end();
+      socket?.close();
+    },
+    lose(loss) {
+      if (ended) return;
+      end();
+      socket?.close();
+      report.lost(loss);
+    },
+    renew() {
+      if (ended) return;
+      const old = socket;
+      connect();
+      old?.close();
+    },
+    get ended() {
+      return ended;
+    },
+    get finishing() {
+      return finishing !== null;
+    },
+  };
+
+  function connect(): void {
+    const own = ++connection;
+    isReady = false;
+    if (connectTimer) clearTimeout(connectTimer);
+    const { url } = route;
+    if (typeof url === "string") {
+      open(own, url, options.apiKey);
+      return;
+    }
+    connectTimer = setTimeout(() => {
+      if (!isReady && own === connection) link.lose("dropped");
+    }, CONNECT_TIMEOUT_MS);
+    url().then(
+      (session) => {
+        if (own !== connection || ended) return;
+        if ("loss" in session) link.lose(session.loss);
+        else open(own, session.url, "");
+      },
+      (error: unknown) => {
+        // The process has no logger of its own: its output goes to the app's log.
+        console.error("The cloud service's session couldn't be started:", error);
+        if (own === connection) link.lose("dropped");
+      },
+    );
+  }
+
+  function open(own: number, url: string, apiKey: string): void {
+    if (connectTimer) clearTimeout(connectTimer);
+    const current = () => own === connection && !ended;
+    socket = options.connect(
+      url,
+      apiKey,
+      {
+        open() {
+          if (current()) route.opened(link);
+        },
+        message(text) {
+          if (!current()) return;
+          let message: unknown;
+          try {
+            message = JSON.parse(text);
+          } catch {
+            return;
+          }
+          if (isRecord(message)) route.heard(message, link);
+        },
+        closed(code, reason) {
+          if (!current()) return;
+          if (route.closed) route.closed(code, reason ?? "", link);
+          else link.lose(closedLoss(code));
+        },
+      },
+      route.auth,
+    );
+    const opening = socket;
+    connectTimer = setTimeout(() => {
+      if (!isReady && current()) opening.close();
+    }, CONNECT_TIMEOUT_MS);
+  }
+
+  connect();
+
+  return {
+    push(samples) {
+      if (ended || finishing || samples.length === 0) return;
+      route.audio(samples, link);
+    },
+
+    finish() {
+      if (ended) return Promise.resolve();
+      if (finishing) return finishing.done;
+      let resolve = () => {};
+      const done = new Promise<void>((settle) => {
+        resolve = settle;
+      });
+      finishing = { done, resolve };
+      finishTimer = setTimeout(() => route.late(link), FINISH_TIMEOUT_MS);
+      route.finish(link);
+      return done;
+    },
+
+    drop() {
+      link.complete();
+    },
+  };
+}

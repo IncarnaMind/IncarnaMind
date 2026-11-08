@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import type {
   ChatModelFactory,
   Core,
@@ -12,22 +13,27 @@ import type {
   TranscriptionModelFiles,
   VoiceTurn,
 } from "../../src/core";
+import { hashBytes } from "../../src/core/documents/files";
+import { readVtt } from "../../src/core/documents/formats/vtt";
+import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
   createChannelTranscriber,
+  type ServingOptions,
   serveTranscriber,
   type TranscriberPort,
   type TranscriberRequest,
   type TranscriberResponse,
 } from "../../src/core/transcription/channel";
+import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import {
   createFakeSpeechEngine,
   type FakeTranscriberOptions,
   failingOver,
 } from "../../src/core/transcription/fake";
-import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
+import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
-import { manualClock, startCore } from "./core";
+import { createTempDataFolder, manualClock, startCore } from "./core";
 import { scriptedModels } from "./models";
 
 /** No files to download: the fake engine needs none. */
@@ -86,8 +92,13 @@ export function inProcessTranscriber(
   options: FakeTranscriberOptions = {},
   engine: (model: TranscriptionModelFiles) => Promise<SpeechEngine> = async () =>
     createFakeSpeechEngine(options),
+  /** The cloud's connections, to watch them: the pretend service as `options.cloud` says by default. */
+  connect: CloudConnect = createFakeCloud(options.cloud),
+  /** The idle unload (#2673): an engine that went idle ends this process, as the app's does. */
+  serving: ServingOptions = {},
 ) {
   let kill: (() => void) | null = null;
+  let endIdle: (() => void) | null = null;
   let started = 0;
   const transcriber: Transcriber = createChannelTranscriber(() => {
     started++;
@@ -104,10 +115,27 @@ export function inProcessTranscriber(
           if (open) for (const listener of responses) listener(response);
         }),
     };
-    serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
-      connect: createFakeCloud(options.cloud),
-      detectors: async () => createFakeSpeechEngine(options).detector,
-    });
+    const idleExit = () => {
+      open = false;
+      for (const listener of exits) listener(0);
+    };
+    serveTranscriber(
+      engine,
+      options.failover ? failingOver(port, options.failover) : port,
+      {
+        connect,
+        fetch: createFakeCloudFetch(options.cloud),
+        detectors: async () => createFakeSpeechEngine(options).detector,
+      },
+      {
+        idleMs: serving.idleMs,
+        unloaded: () => {
+          serving.unloaded?.();
+          idleExit();
+        },
+      },
+    );
+    endIdle = idleExit;
     kill = () => {
       open = false;
       for (const listener of exits) listener(null);
@@ -127,6 +155,8 @@ export function inProcessTranscriber(
   return {
     transcriber,
     crash: () => kill?.(),
+    /** Ends the running process idle, as its own five quiet minutes do, with the requests still in flight dropped (#2673). */
+    unload: () => endIdle?.(),
     get started() {
       return started;
     },
@@ -146,6 +176,7 @@ export async function transcribingCore(
     engine = {},
     model,
     createChatModel,
+    ollamaModels,
     loads,
     log,
     capture: captureOptions,
@@ -153,8 +184,26 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    transcriptionModelSource = NO_TRANSCRIPTION_FILES,
+    cloud,
+    systemLanguages,
+    answerPaths,
+    notesBeforeSpeakers,
+    helpFormJudged,
+    examples,
+    serving,
+    engineFactory,
+    systemCalendar,
   }: {
     engine?: FakeTranscriberOptions;
+    /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
+    cloud?: CloudConnect;
+    /** The idle unload (#2673): a short wait, and what an idle engine's process ending looks like. */
+    serving?: ServingOptions;
+    /** Another engine than the fake one, e.g. one whose loading the test holds. */
+    engineFactory?: (model: TranscriptionModelFiles) => Promise<SpeechEngine>;
+    /** The computer's languages, "en-US" by default. */
+    systemLanguages?: readonly string[];
     /** What the fake capture does, e.g. the computer's sound denied. */
     capture?: FakeCaptureOptions;
     /** A capture instead of the fake one, for a start that fails after it heard audio. */
@@ -162,6 +211,7 @@ export async function transcribingCore(
     model?: Parameters<typeof scriptedModels>[0];
     /** Real chat models instead of a scripted one, for a live test. */
     createChatModel?: ChatModelFactory;
+    ollamaModels?: CoreAdapters["ollamaModels"];
     /** The engine starts once this resolves, as a model loading slowly does. */
     loads?: Promise<void>;
     log?: Logger;
@@ -170,26 +220,50 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** Where the speech models come from: none to download by default, and no streaming model. */
+    transcriptionModelSource?: CoreAdapters["transcriptionModelSource"];
+    /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
+    answerPaths?: CoreAdapters["answerPaths"];
+    /** Whether a call's notes start before its speakers are told apart, instead of the default. */
+    notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
+    helpFormJudged?: CoreAdapters["helpFormJudged"];
+    /** The shipped examples' folder, for a core that makes them. */
+    examples?: string;
+    /** The Mac's calendars, for a Meeting started from a calendar event (#190). */
+    systemCalendar?: CoreAdapters["systemCalendar"];
   } = {},
 ) {
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
-  const engineHost = inProcessTranscriber(engine, async () => {
-    await loads;
-    return createFakeSpeechEngine(engine);
-  });
+  const engineHost = inProcessTranscriber(
+    engine,
+    engineFactory ??
+      (async () => {
+        await loads;
+        return createFakeSpeechEngine(engine);
+      }),
+    cloud ?? createFakeCloud(engine.cloud),
+    serving,
+  );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
     audioCapture: audioCapture ?? capture,
     transcriber: engineHost.transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+    transcriptionModelSource,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     now: clock.now,
     ...(models && { createChatModel: models.createChatModel }),
     ...(createChatModel && { createChatModel }),
+    ...(ollamaModels && { ollamaModels }),
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(systemLanguages && { systemLanguages: () => systemLanguages }),
+    ...(answerPaths && { answerPaths }),
+    ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
+    ...(helpFormJudged && { helpFormJudged }),
+    ...(examples && { paths: { dataDir, examples } }),
+    ...(systemCalendar && { systemCalendar }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
@@ -225,4 +299,83 @@ export async function until(
     },
     { timeout: 20_000, interval: 20 },
   );
+}
+
+/**
+ * A Meeting recording for 9 seconds in a new Note, its first four lines transcribed. With
+ * `createChatModel`, its models are there for a provider the test saves.
+ */
+export async function recordedMeeting(
+  language: Language,
+  engine: FakeTranscriberOptions = {},
+  createChatModel?: ChatModelFactory,
+) {
+  const dataDir = await createTempDataFolder();
+  const recording = await transcribingCore(dataDir, {
+    engine,
+    ...(createChatModel && { createChatModel }),
+  });
+  await recording.core.updateSettings({ user: { language } });
+  const meeting = await recording.core.createMeeting();
+  await recording.core.startMeeting({ meetingId: meeting.id });
+  recording.record(9_000);
+  await until(recording.core, meeting.id, (transcript) => transcript.lines >= 4);
+  return { ...recording, dataDir, meeting };
+}
+
+/** Waits until the Transcript Document holds its file as it is now, read and ready. */
+export async function transcriptRead(
+  core: Core,
+  dataDir: string,
+  meetingId: string,
+  documentId: string,
+) {
+  const file = join(dataDir, "Transcripts", `${meetingId}.vtt`);
+  return vi.waitFor(
+    async () => {
+      const document = (await core.listDocuments()).find((each) => each.id === documentId);
+      expect(document).toMatchObject({
+        status: "ready",
+        contentHash: hashBytes(readFileSync(file)),
+      });
+      return document as NonNullable<typeof document>;
+    },
+    { timeout: 20_000, interval: 20 },
+  );
+}
+
+/** Stops the Meeting and waits for all Stop does: the Transcript saved and read, the notes tried. */
+export async function stoppedMeeting(core: Core, dataDir: string, meetingId: string) {
+  const meetingOf = async () =>
+    (await core.listMeetings()).find((each) => each.id === meetingId) as Meeting;
+  await core.stopMeeting(meetingId);
+  const { documentId } = await until(core, meetingId, (transcript) => transcript.state === "saved");
+  const document = await transcriptRead(core, dataDir, meetingId, documentId as string);
+  await vi.waitFor(async () => expect((await meetingOf()).fill?.state).toBe("off"));
+  return { meeting: await meetingOf(), document };
+}
+
+/** The saved Transcript's lines, once the speaker pass (#138) has settled. */
+export async function savedCues(core: Core, meetingId: string) {
+  const saved = await until(
+    core,
+    meetingId,
+    (transcript) => transcript.state === "saved" && !transcript.separating,
+  );
+  return readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+}
+
+/** A call of 25 seconds from `sources`, recorded and stopped: a line every two seconds a source. */
+export async function recordedCall(
+  dataDir: string,
+  options: Parameters<typeof transcribingCore>[1] = {},
+  sources: ("microphone" | "system")[] = ["microphone", "system"],
+) {
+  const { core, record } = await transcribingCore(dataDir, options);
+  const meeting = await core.createMeeting();
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: sources.includes("system") });
+  record(25_000, sources);
+  await until(core, meeting.id, (transcript) => transcript.lines >= 8);
+  await core.stopMeeting(meeting.id);
+  return { core, meeting };
 }

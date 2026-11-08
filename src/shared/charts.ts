@@ -342,6 +342,15 @@ export function chartPoints(chart: Pick<ChartAttributes, "kind" | "drawn" | "dat
   return points;
 }
 
+/**
+ * Whether every value a chart draws is an Analysis's own (#2378): such a chart is judged with its
+ * table, from the run the Note keeps, never as a claim against the Documents' text.
+ */
+export const fromAnalysisOnly = (chart: Pick<ChartAttributes, "kind" | "drawn" | "data">) => {
+  const points = chartPoints(chart);
+  return points.length > 0 && points.every(({ value }) => value.fromAnalysis === true);
+};
+
 export function chartCheckText(chart: ChartAttributes): string {
   const points = chartPoints(chart);
   const plotted = new Set(points.map(({ row, series }) => `${row}:${series}`));
@@ -424,14 +433,19 @@ function seriesUnit(data: ChartData, series: number): { key: string; unit: Figur
   const units = new Map<string, FigureUnit>();
   data.rows.forEach((row, index) => {
     const value = row.values[series];
-    if (!value || value.value === null || unitless.has(index) || !saysUnit(value)) return;
-    const key = unitKey(value);
+    if (!value || value.value === null || unitless.has(index)) return;
+    // A drawn bare number is its own unit, as the Switch counts it: beside a
+    // unit it isn't drawn on that unit's scale, so it can't share its caption (#2055).
+    const key = saysUnit(value) ? unitKey(value) : "none";
     if (!units.has(key)) units.set(key, value.unit ?? { kind: "plain" });
   });
   const entries = [...units.entries()];
   const only = entries[0];
   if (entries.length === 1 && only) {
-    return { key: only[0], unit: only[1].kind === "plain" ? null : only[1] };
+    return {
+      key: only[0],
+      unit: only[0] === "none" || only[1].kind === "plain" ? null : only[1],
+    };
   }
   const keys = entries.map(([key]) => key).sort();
   return { key: keys.length === 0 ? "none" : `mixed:${keys.join(",")}`, unit: null };
@@ -491,6 +505,11 @@ export interface ChartSources {
   /** Values that are calculated figures (#2307): never counted as quoted, nor as having no Citation. */
   calculated: number;
   inputs: ChartInputs;
+  /**
+   * Values an Analysis worked out (#2378): its run's, never counted as quoted, though the rows its
+   * inputs cite stay among the places, as an export's Sources.
+   */
+  analysis: number;
 }
 
 type Placed = Pick<
@@ -529,6 +548,15 @@ export function valueCitations(value: ChartValue): CitationAttributes[] {
     return true;
   });
 }
+
+/**
+ * The Citations a chart's foot weighs for its check mark: each drawn value's, but not an Analysis's
+ * values, which are its run's; the rows its inputs cite are found or not, never them (#2378).
+ */
+export const footCitations = (chart: Pick<ChartAttributes, "kind" | "drawn" | "data">) =>
+  chartCells(chart).flatMap(({ value }) =>
+    value.value === null || value.fromAnalysis ? [] : valueCitations(value),
+  );
 
 class Places {
   private readonly byKey = new Map<string, ChartSourcePlace>();
@@ -607,6 +635,7 @@ export function chartSources(
   const uncitedCells: ChartSources["uncitedCells"] = [];
   let notDrawn = 0;
   let noUnit = 0;
+  let analysis = 0;
   const unitless = new Map(
     chosenSeries(chart).map((series) => [series, unitlessRows(chart.data, series)]),
   );
@@ -624,7 +653,9 @@ export function chartSources(
       figures.push(value.figure);
       continue;
     }
-    if (!value.citation && !value.citations && !value.inputs) {
+    // Counted apart from quoted values, though the rows it read are still its Sources.
+    if (value.fromAnalysis) analysis++;
+    else if (!value.citation && !value.citations && !value.inputs) {
       uncitedCells.push({ row, series });
       continue;
     }
@@ -642,6 +673,7 @@ export function chartSources(
     documents: quoted.documents,
     calculated: figures.length,
     inputs: inputsOf(figures),
+    analysis,
   };
 }
 
@@ -1273,4 +1305,77 @@ export function sameChartData(a: ChartData, b: ChartData): boolean {
       value === null ? undefined : value,
     );
   return asCompared(a) === asCompared(b);
+}
+
+/**
+ * A chart's values drawn again from its table's `grid`, as an Update draws them; null when the
+ * table no longer has a column of numbers, or nothing changed.
+ */
+export function redrawnData(
+  grid: SourceGrid,
+  chart: ChartAttributes,
+  language: string,
+): ChartData | null {
+  const fresh = chartFromTable(grid, {
+    blockId: chart.source.kind === "table" ? chart.source.blockId : null,
+    title: chart.title,
+    language,
+    switched: chart.source.kind === "table" && chart.source.switched === true,
+  });
+  if (!fresh) return null;
+  const data = keepingStoredValues(fresh.data, chart.data);
+  return sameChartData(data, chart.data) ? null : data;
+}
+
+/**
+ * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
+ * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
+ * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again;
+ * a cell is known by its row's label, the series' name and its words, and each stored value is
+ * used once, so a deleted row, a repeated label or a copied row moves no value to its neighbour.
+ */
+function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
+  const key = (label: string, series: string) => JSON.stringify([label, series]);
+  const before = new Map<string, ChartValue[]>();
+  for (const row of [...stored.rows, ...stored.cutRows]) {
+    row.values.forEach((value, series) => {
+      if (!value?.fromAnalysis) return;
+      const name = key(row.label, stored.series[series] ?? "");
+      before.set(name, [...(before.get(name) ?? []), value]);
+    });
+  }
+  const used = new Map<string, Set<number>>();
+  const kept = (rows: ChartData["rows"]) =>
+    rows.map((row) => ({
+      ...row,
+      values: row.values.map((value, series) => {
+        if (!value) return value;
+        const name = key(row.label, fresh.series[series] ?? "");
+        const taken = used.get(name) ?? new Set<number>();
+        used.set(name, taken);
+        const candidates = before.get(name) ?? [];
+        // The words pick the row's own value among repeated labels; a changed row keeps its display.
+        let old: ChartValue | undefined;
+        for (let at = 0; at < candidates.length; at += 1) {
+          const candidate = candidates[at];
+          if (!candidate || taken.has(at) || candidate.shown !== value.shown) continue;
+          taken.add(at);
+          old = candidate;
+          break;
+        }
+        if (!old) return value;
+        return {
+          ...value,
+          value: old.value,
+          ...(old.inputs && { inputs: old.inputs }),
+          ...(old.figure && { figure: old.figure }),
+          fromAnalysis: true as const,
+        };
+      }),
+    }));
+  return {
+    ...fresh,
+    rows: kept(fresh.rows),
+    cutRows: kept(fresh.cutRows),
+  };
 }

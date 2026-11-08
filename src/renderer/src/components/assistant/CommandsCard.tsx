@@ -18,6 +18,7 @@ import { openFolderMenu } from "../../folderMenu";
 import { useT } from "../../i18n";
 import { useMindCheck } from "../../mindCheck";
 import type { Translate } from "../../objects";
+import { openReview } from "../../organizeReview";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, ShieldLineIcon } from "../lineIcons";
 import { Dot } from "./AskedChangesCard";
@@ -49,7 +50,8 @@ function madeLines(t: Translate, done: readonly CommandDone[]): string[] {
  * The card under the reply of an Answer that ran commands (#1110): for each Run, what changed,
  * from what the commands returned ("Renamed 3 Documents · Moved 2 Documents to “Real estate” ·
  * Undo"), then each thing changed, a rename as its old and new names. Undo takes back the whole
- * Run, as ⌘Z does; a file saved can be shown where it is. A command that failed, or that the User
+ * Run, as ⌘Z does; a file saved can be shown where it is, and what Organize proposed opens in
+ * its Review (#1569). A command that failed, or that the User
  * didn't allow, says so on a line of its own.
  */
 export function CommandsCard({
@@ -102,6 +104,7 @@ export function CommandsCard({
         const lines = [...madeLines(t, done), ...items.slice(0, ITEMS_SHOWN).map(itemText)];
         const more = items.length - Math.min(items.length, ITEMS_SHOWN);
         const going = done.every((each) => each.window?.running);
+        const proposed = !undone[run] && done.some((each) => (each.review?.count ?? 0) > 0);
         return (
           <div key={run} data-run={run}>
             <div className="mind-changes-head">
@@ -118,6 +121,17 @@ export function CommandsCard({
                 >
                   {waits ? t("mindCheck.waitingForOk") : runText(t, done)}
                 </span>
+                {proposed && (
+                  <>
+                    <Dot />
+                    <span
+                      data-testid="command-changes-nothing-moved"
+                      className="mind-changes-count"
+                    >
+                      {t("organizeReview.nothingMoved")}
+                    </span>
+                  </>
+                )}
                 {undone[run] ? (
                   <>
                     <Dot />
@@ -146,6 +160,19 @@ export function CommandsCard({
                       </button>
                     </>
                   )
+                )}
+                {proposed && (
+                  <>
+                    <Dot />
+                    <button
+                      type="button"
+                      data-testid="command-changes-review"
+                      onClick={openReview}
+                      className="mind-changes-review"
+                    >
+                      {t("library.review")}
+                    </button>
+                  </>
                 )}
                 {saved.map((file) => (
                   <span key={file.path}>

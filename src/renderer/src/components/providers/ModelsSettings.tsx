@@ -1,27 +1,34 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ChatModelGroup, ChatProvider } from "../../../../core/api";
+import type {
+  ChatModelGroup,
+  ChatProvider,
+  DecisionHostStatus,
+  JevSettings,
+  TranscriptionServiceStatus,
+} from "../../../../core/api";
 import { catalogProvider, endpointOf } from "../../../../core/providers/catalog/providers";
 import { changedFromDefaults } from "../../../../shared/libraryModels";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { joinMeta } from "../../cost";
+import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
 import { useKeyRefusals } from "../../keyRefusals";
 import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, PlusLineIcon } from "../lineIcons";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
+import { PlusLineIcon } from "../lineIcons";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import { TaggingSettings } from "../TaggingSettings";
 import { UndoLineAt } from "../UndoLine";
-import {
-  buttonClass,
-  noticeClass,
-  pageIntroClass,
-  rowTextClass,
-  ruledListClass,
-  sectionTitleClass,
-} from "../ui";
+import { buttonStyle, noticeClass } from "../ui";
 import { AddProvider } from "./AddProvider";
 import { ReadinessExplanation } from "./ChatReadinessNotice";
 import { ModelDefaults } from "./ModelDefaults";
@@ -29,7 +36,10 @@ import { PlansSettings } from "./PlansSettings";
 import { ProviderDirectory } from "./ProviderDirectory";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "./ProviderPage";
+import { SortingKeyRows } from "./SortingKeyRows";
 import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "./shared";
+import { keptForSorting } from "./sortingOptions";
+import { TranscriptionKeyRows } from "./TranscriptionKeyRows";
 import { useJevSettings } from "./useJevSettings";
 
 type View =
@@ -53,6 +63,16 @@ export function ModelsSettings() {
   const section = useRef<HTMLDivElement>(null);
   const opener = useRef<string | null>(null);
   const refused = useKeyRefusals((state) => state.showing);
+  // Read with the providers, so the page lays out once: a section landing later would move the
+  // one a link scrolled to (Plans, Advanced) out of view.
+  const [hosts, setHosts] = useDecisionHosts();
+  // One read for the page: the Meeting transcription row and the keys in Your providers. The page
+  // waits for its first answer only: a Try again after a failure keeps the page on screen.
+  const services = useTranscriptionServicesRead();
+  const [servicesAnswered, setServicesAnswered] = useState(false);
+  if (!servicesAnswered && services.state !== "loading") setServicesAnswered(true);
+  const laidOut =
+    providers !== null && hosts !== null && (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
     core.listChatProviders().then(setProviders, (failure: unknown) => {
@@ -83,11 +103,11 @@ export function ModelsSettings() {
     );
   }, [refused, providers]);
 
-  const answers = useSettingsTarget<HTMLDivElement>(ANSWERS_TARGET, providers !== null, () => {
+  const answers = useSettingsTarget<HTMLDivElement>(ANSWERS_TARGET, laidOut, () => {
     setView({ page: "list" });
     answers.current?.querySelector<HTMLSelectElement>("select")?.focus();
   });
-  useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, providers !== null, () =>
+  useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, laidOut, () =>
     setView({ page: "directory" }),
   );
   const changed = useAppStore(
@@ -95,7 +115,7 @@ export function ModelsSettings() {
       !!state.library &&
       changedFromDefaults(state.library.settings, state.library.automaticDefault),
   );
-  const [jev] = useJevSettings();
+  const [jev, setJev] = useJevSettings();
   const jevEnabled = jev?.enabled === true;
   const toTagging = useAppStore((state) => state.settingsAt === "tagging");
   const [advanced, setAdvanced] = useState(false);
@@ -114,7 +134,7 @@ export function ModelsSettings() {
     }
   }, [view.page]);
 
-  if (!providers) return null;
+  if (!providers || !hosts || !laidOut) return null;
 
   const open = (next: View, from: string) => {
     opener.current = from;
@@ -184,8 +204,9 @@ export function ModelsSettings() {
   }
 
   return (
-    <div ref={section} data-testid="models-settings" className="flex flex-col gap-7">
-      <UndoLineAt place={MODELS_UNDO_PLACE} />
+    <div ref={section} data-testid="models-settings" className="flex flex-col gap-6">
+      {/* An empty line takes no room: the gap after it would push the first section down. */}
+      <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
           {readiness && !readiness.ready && readiness.reason !== "no-provider" && (
@@ -195,11 +216,16 @@ export function ModelsSettings() {
           )}
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <div ref={answers}>
-            <ModelDefaults groups={groups ?? []} providers={providers} />
+            <ModelDefaults groups={groups ?? []} providers={providers} services={services} />
           </div>
           <YourProviders
             providers={providers}
             groups={groups ?? []}
+            hosts={hosts}
+            services={services.state === "ready" ? services.data : []}
+            jev={jev}
+            onHosts={setHosts}
+            onJev={setJev}
             onOpen={(provider) =>
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }
@@ -213,7 +239,7 @@ export function ModelsSettings() {
           >
             <summary
               data-testid="models-advanced-toggle"
-              className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
+              className="cursor-default px-4 text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink"
             >
               {t("settings.advanced")}
             </summary>
@@ -230,53 +256,77 @@ export function ModelsSettings() {
 function YourProviders({
   providers,
   groups,
+  hosts,
+  services,
+  jev,
+  onHosts,
+  onJev,
   onOpen,
   onAdd,
 }: {
   providers: readonly ChatProvider[];
   groups: readonly ChatModelGroup[];
+  hosts: readonly DecisionHostStatus[];
+  services: readonly TranscriptionServiceStatus[];
+  jev: JevSettings | null;
+  onHosts(hosts: DecisionHostStatus[]): void;
+  onJev(jev: JevSettings): void;
   onOpen(provider: ChatProvider): void;
   onAdd(): void;
 }) {
   const t = useT();
+  const sortingKeys = hosts.some(keptForSorting) || (jev?.enabled && jev.hasApiKey);
+  const transcriptionKeys = services.some((each) => each.key === "own" && each.hasKey);
+  const none = providers.length === 0 && !sortingKeys && !transcriptionKeys;
   return (
-    <section data-testid="your-providers" className="flex flex-col gap-2">
-      <h4 className={sectionTitleClass}>{t("models.providers.title")}</h4>
-      {providers.length === 0 ? (
-        <p className={pageIntroClass}>{t("models.providers.none")}</p>
-      ) : (
-        <ul className={ruledListClass}>
-          {providers.map((provider) => (
-            <ProviderRow
-              key={provider.id}
-              provider={provider}
-              group={groups.find((each) => each.provider.id === provider.id)}
-              onOpen={() => onOpen(provider)}
-            />
-          ))}
-        </ul>
-      )}
-      <button
-        type="button"
-        data-testid="models-add-provider"
-        data-opens="add-provider"
-        onClick={onAdd}
-        className={`${buttonClass} gap-1.5 self-start`}
-      >
-        <PlusLineIcon className="size-3.5" />
-        {t("models.providers.add")}
-      </button>
-    </section>
+    <SettingsSection title={t("models.providers.title")} testId="your-providers">
+      <SettingsGroup role={none ? undefined : "list"}>
+        {none ? (
+          <SettingsRow
+            label={<span className="text-ink-secondary">{t("models.providers.none")}</span>}
+          />
+        ) : (
+          <>
+            {providers.map((provider) => (
+              <ProviderRow
+                key={provider.id}
+                provider={provider}
+                group={groups.find((each) => each.provider.id === provider.id)}
+                transcribes={services.some((each) => each.providerId === provider.id)}
+                onOpen={() => onOpen(provider)}
+              />
+            ))}
+            <SortingKeyRows hosts={hosts} jev={jev} onHosts={onHosts} onJev={onJev} />
+            <TranscriptionKeyRows services={services} />
+          </>
+        )}
+      </SettingsGroup>
+      <div className="mt-3">
+        <button
+          type="button"
+          data-testid="models-add-provider"
+          data-opens="add-provider"
+          onClick={onAdd}
+          className={buttonStyle("secondary", "sm")}
+        >
+          <PlusLineIcon className="size-3.5" />
+          {t("models.providers.add")}
+        </button>
+      </div>
+    </SettingsSection>
   );
 }
 
 function ProviderRow({
   provider,
   group,
+  transcribes,
   onOpen,
 }: {
   provider: ChatProvider;
   group: ChatModelGroup | undefined;
+  /** Its key also transcribes meetings (OpenAI's, Google's, Qwen's, xAI's), so the row says both uses. */
+  transcribes: boolean;
   onOpen(): void;
 }) {
   const t = useT();
@@ -288,7 +338,7 @@ function ProviderRow({
       ? endpointOf(catalog, provider.endpoint)?.label[language === "zh-CN" ? "zh" : "en"]
       : undefined;
   const state = provider.hasApiKey
-    ? t("models.providers.keySaved")
+    ? t(transcribes ? "models.providers.forAnswersAndTranscription" : "models.providers.keySaved")
     : provider.apiKeyUnreadable
       ? t("models.providers.keyUnreadable")
       : catalog?.apiKey === "required"
@@ -304,31 +354,29 @@ function ProviderRow({
         ? t("models.providers.inMenu.one")
         : t("models.providers.inMenu.other", { count });
   return (
-    <li>
-      <button
-        type="button"
-        data-testid="provider-row"
-        data-provider-id={provider.id}
-        data-opens={`provider:${provider.id}`}
-        onClick={onOpen}
-        className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-hover"
-      >
-        <ProviderLogo id={logoIdOf(provider)} />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-ui font-semibold text-ink" title={name}>
-            {name}
-            {region && <span className="font-normal text-ink-meta"> · {region}</span>}
-          </span>
-          <span
-            data-testid="provider-row-status"
-            className="truncate text-[13px] leading-5 text-ink-meta"
-          >
-            {joinMeta([state, models])}
-          </span>
+    <SettingsRowAction
+      listItem
+      testId="provider-row"
+      data-provider-id={provider.id}
+      data-opens={`provider:${provider.id}`}
+      leading={<ProviderLogo id={logoIdOf(provider)} />}
+      label={
+        <span className="block truncate" title={name}>
+          {name}
+          {region && <span className="text-ink-meta"> · {region}</span>}
         </span>
-        <ChevronRightLineIcon aria-hidden="true" className="size-4 shrink-0 text-ink-meta" />
-      </button>
-    </li>
+      }
+      detail={
+        <span
+          data-testid="provider-row-status"
+          className="block truncate"
+          title={joinMeta([state, models])}
+        >
+          {joinMeta([state, models])}
+        </span>
+      }
+      onClick={onOpen}
+    />
   );
 }
 
@@ -356,7 +404,7 @@ function RemovedLine({
           ? t("models.removed.automatic", { provider })
           : t("models.removed", { provider });
   return (
-    <p data-testid="models-removed" role="status" className={rowTextClass}>
+    <p data-testid="models-removed" role="status" className={noticeClass}>
       {text}
     </p>
   );

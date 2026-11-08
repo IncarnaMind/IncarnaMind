@@ -1,24 +1,32 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, NodeSelection } from "@tiptap/pm/state";
-import { BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import type * as Y from "yjs";
+import { ANALYSIS_TABLE_ATTRIBUTE, BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import {
+  type AnalysisTableMatch,
+  boundTableFor,
+  keptAnalysisTables,
+} from "../../../shared/analysisTables";
 import {
   type ChartAttributes,
   type ChartData,
   type ChartKind,
-  type ChartValue,
   canSwitch,
   chartFromFigures,
   chartFromTable,
   drawnSeries,
   gridOfTable,
   readChart,
+  redrawnData,
   type SourceGrid,
   type SourceLine,
-  sameChartData,
   sourceLineOf,
   switchedChart,
+  withAnalysisValues,
 } from "../../../shared/charts";
+import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import { asOwnUndoStep } from "./selectionCommands";
 
 const readText = (node: ProseMirrorNode): SourceLine => sourceLineOf(node.toJSON());
@@ -42,11 +50,34 @@ function headingAbove(doc: ProseMirrorNode, topLevel: number): string {
   return title;
 }
 
-export function chartOfTable(state: EditorState, language: string): ChartAttributes | null {
+/** The Analysis's own table `table` is, from the run the Note `doc` keeps; null for any other table. */
+function keptAnalysisTable(
+  doc: Y.Doc | undefined,
+  table: ProseMirrorNode,
+): AnalysisTableMatch | null {
+  if (!doc || keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) === null) return null;
+  const json = table.toJSON();
+  try {
+    return boundTableFor(json, keptAnalysisTables(figureRunsFor(doc, [json])));
+  } catch (error) {
+    console.error("Reading an Analysis table's run for its chart failed:", error);
+    return null;
+  }
+}
+
+export function chartOfTable(
+  state: EditorState,
+  language: string,
+  doc: Y.Doc | undefined = ySyncPluginKey.getState(state)?.binding?.doc,
+): ChartAttributes | null {
   const table = tableAround(state);
   if (!table) return null;
   const id = table.node.attrs[BLOCK_ID_ATTRIBUTE];
-  return chartFromTable(tableGrid(table.node), {
+  // An Analysis's own table is charted from its run, never from its cells' text (#2378): its values
+  // are then the Analysis's, which Check leaves to the run.
+  const analysis = keptAnalysisTable(doc, table.node);
+  const grid = tableGrid(table.node);
+  return chartFromTable(analysis ? withAnalysisValues(grid, analysis) : grid, {
     blockId: typeof id === "string" ? id : null,
     title: headingAbove(state.doc, state.doc.resolve(table.pos).index(0)),
     language,
@@ -164,69 +195,7 @@ export function tableUpdate(
 ): ChartData | null {
   const chart = readChart(attributes);
   const table = chartTable(doc, chart);
-  if (!table) return null;
-  const fresh = chartFromTable(tableGrid(table), {
-    blockId: chart.source.kind === "table" ? chart.source.blockId : null,
-    title: chart.title,
-    language,
-    switched: chart.source.kind === "table" && chart.source.switched === true,
-  });
-  if (!fresh) return null;
-  const data = keepingStoredValues(fresh.data, chart.data);
-  return sameChartData(data, chart.data) ? null : data;
-}
-
-/**
- * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
- * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
- * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again;
- * a cell is known by its row's label, the series' name and its words, and each stored value is
- * used once, so a deleted row, a repeated label or a copied row moves no value to its neighbour.
- */
-function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
-  const key = (label: string, series: string) => JSON.stringify([label, series]);
-  const before = new Map<string, ChartValue[]>();
-  for (const row of [...stored.rows, ...stored.cutRows]) {
-    row.values.forEach((value, series) => {
-      if (!value?.fromAnalysis) return;
-      const name = key(row.label, stored.series[series] ?? "");
-      before.set(name, [...(before.get(name) ?? []), value]);
-    });
-  }
-  const used = new Map<string, Set<number>>();
-  const kept = (rows: ChartData["rows"]) =>
-    rows.map((row) => ({
-      ...row,
-      values: row.values.map((value, series) => {
-        if (!value) return value;
-        const name = key(row.label, fresh.series[series] ?? "");
-        const taken = used.get(name) ?? new Set<number>();
-        used.set(name, taken);
-        const candidates = before.get(name) ?? [];
-        // The words pick the row's own value among repeated labels; a changed row keeps its display.
-        let old: ChartValue | undefined;
-        for (let at = 0; at < candidates.length; at += 1) {
-          const candidate = candidates[at];
-          if (!candidate || taken.has(at) || candidate.shown !== value.shown) continue;
-          taken.add(at);
-          old = candidate;
-          break;
-        }
-        if (!old) return value;
-        return {
-          ...value,
-          value: old.value,
-          ...(old.inputs && { inputs: old.inputs }),
-          ...(old.figure && { figure: old.figure }),
-          fromAnalysis: true as const,
-        };
-      }),
-    }));
-  return {
-    ...fresh,
-    rows: kept(fresh.rows),
-    cutRows: kept(fresh.cutRows),
-  };
+  return table ? redrawnData(tableGrid(table), chart, language) : null;
 }
 
 /**

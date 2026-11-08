@@ -6,23 +6,22 @@ import { AddDocumentsMenu } from "../AddDocumentsMenu";
 import { SearchIcon } from "../icons";
 import { CloseLineIcon } from "../lineIcons";
 import { buttonStyle } from "../ui";
-import { quietButtonClass } from "./LibrarySection";
 
 /**
  * The page's head: "Library" and how many Documents it holds, as the
- * sidebar says, how sorting ended ("All sorted", or what Organize couldn't
- * sort with the way to look at it), the one primary "Add Documents ▾", and
+ * sidebar says, "All sorted" once nothing is left to sort, the one primary
+ * ("Organize {n} Documents" for a first sort, or "Add Documents ▾"), and
  * under them the wide search field, which `/` focuses from anywhere on the
  * page but a field, and ↓ leaves for the first row; Enter asks about it when
  * nothing matches.
  */
 export function LibraryHeader({
   count,
-  notSorted,
   sorted,
-  onReview,
+  organizeCount,
   onSortIntoFolders,
   sorting = false,
+  canAdd = true,
   search,
   onSearch,
   onDown,
@@ -30,11 +29,10 @@ export function LibraryHeader({
   field,
 }: {
   count: number;
-  /** How many Documents Organize couldn't sort. */
-  notSorted: number;
   /** Every Document is through Organize and nothing waits: nothing is left to look at. */
   sorted: boolean;
-  onReview(): void;
+  /** How many Documents the primary Organize would sort. */
+  organizeCount: number;
   /**
    * Sorting loose Documents into Folders, when there are enough of them and no Folder yet
    * (#1942): then it is the page's one primary action and Add Documents steps back.
@@ -42,6 +40,8 @@ export function LibraryHeader({
   onSortIntoFolders?: (() => void) | null;
   /** Organize is already reading or sorting them: the action waits. */
   sorting?: boolean;
+  /** Whether the header offers "Add Documents": not while the empty page holds the one place to add. */
+  canAdd?: boolean;
   search: string;
   onSearch(search: string): void;
   /** ↓ in the search field. */
@@ -81,32 +81,10 @@ export function LibraryHeader({
             {formatCount(count, language)}
           </span>
         </h1>
-        {notSorted > 0 ? (
-          <span
-            data-testid="library-not-sorted-line"
-            className="flex min-w-0 shrink items-center gap-1 text-[13px] text-ink-meta"
-          >
-            <span data-testid="library-not-sorted-count" className="truncate">
-              {t("library.notSorted.count", { count: formatCount(notSorted, language) })}
-            </span>
-            <span aria-hidden="true" className="shrink-0">
-              ·
-            </span>
-            <button
-              type="button"
-              data-testid="library-review-not-sorted"
-              onClick={onReview}
-              className={`${quietButtonClass} shrink-0`}
-            >
-              {t("library.review")}
-            </button>
+        {sorted && (
+          <span data-testid="library-sorted" className="shrink-0 text-[13px] text-ink-meta">
+            {t("library.sorted.all")}
           </span>
-        ) : (
-          sorted && (
-            <span data-testid="library-sorted" className="shrink-0 text-[13px] text-ink-meta">
-              {t("library.sorted.all")}
-            </span>
-          )
         )}
         <span className="min-w-0 flex-1" />
         {onSortIntoFolders && (
@@ -118,10 +96,10 @@ export function LibraryHeader({
             disabled={sorting}
             className={buttonStyle("primary")}
           >
-            {t("library.sortIntoFolders")}
+            {t("library.organizeCount", { count: formatCount(organizeCount, language) })}
           </button>
         )}
-        <AddDocumentsMenu secondary={!!onSortIntoFolders} />
+        {canAdd && <AddDocumentsMenu secondary={!!onSortIntoFolders} />}
       </div>
       <label
         title={t("library.search.hint")}

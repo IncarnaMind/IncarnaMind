@@ -255,6 +255,36 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  // protects=with the User's name set in Settings, a voice memo stays in their own words, "I" as they said it, and the name is never sent: the tidy isn't told it or a token for it (#2306); fails_when=the name reaches a request, the tidy is asked for a token, or the User's words change; no_claim=a real model's wording.
+  test("with the User's name set, a memo keeps their words and never sends the name", async () => {
+    const name = "Avery Lin";
+    const model = tidyingModel(
+      "# The garden\n\nSo I was thinking about the garden this morning [^1].",
+      { 1: SAID[0] as string },
+    );
+    const { core, memo, client } = await recordedMemo({
+      model,
+      before: (core) => core.updateSettings({ user: { authorName: name } }).then(() => undefined),
+    });
+    expect(await settledFill(core, memo)).toMatchObject({ state: "filled", mode: "memo" });
+    await vi.waitFor(() =>
+      expect(shown(client)).toContain(
+        "«So I was thinking about the garden this morning »\uFFFC«.»",
+      ),
+    );
+    const sent = [...model.doStreamCalls, ...model.doGenerateCalls].map((call) =>
+      JSON.stringify(call.prompt),
+    );
+    expect(sent.some((request) => request.includes("voice memo the User just recorded"))).toBe(
+      true,
+    );
+    for (const request of sent) {
+      expect(request).not.toContain(name);
+      expect(request).not.toContain("{{me}}");
+    }
+    core.close();
+  });
+
   // protects=a tidied note with a word that wasn't said never goes in: the Transcript goes in as it is, a line a paragraph with its time, and the fill says why; fails_when=the invented words land in the Mind, or nothing is written; no_claim=which words a real model adds.
   test("a tidied note that adds words gives way to the Transcript as it is", async () => {
     const model = tidyingModel(
@@ -589,6 +619,70 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
     expect(marks).toContain(GENERATED_MARK);
     core.close();
   });
+
+  test.each(["en", "zh-CN"] as const)(
+    "a failed Citation never drops a verbatim thought from a voice memo (%s)",
+    async (language) => {
+      const thoughts =
+        language === "en"
+          ? (["The garden needs water", "The fence needs fixing"] as const)
+          : (["花园需要浇水", "篱笆需要修理"] as const);
+      const title = language === "en" ? "The garden" : "花园";
+      let feedback = "";
+      const model = scriptedModel((call) => {
+        if (!isTidy(call)) return { text: "OK" };
+        const cited = call.results.filter((result) => result.tool === "cite").at(-1);
+        if (cited) {
+          feedback = cited.text;
+          return { text: `# ${title}\n\n${thoughts[0]} [^1]\n\n${thoughts[1]} [^2]` };
+        }
+        const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+          thoughts.every((thought) => each.text.includes(thought)),
+        );
+        if (!passage) throw new Error("The Transcript's two thoughts were not shown.");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: thoughts.map((quote, index) => ({
+                  marker: index + 1,
+                  passage: passage.id,
+                  location: "0:00",
+                  quote,
+                })),
+              },
+            },
+          ],
+        };
+      });
+      const { core, memo, client } = await recordedMemo({
+        model,
+        lines: thoughts,
+        before: async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      });
+      const fill = await settledFill(core, memo);
+      expect(fill.state).toBe("filled");
+      expect(feedback).toContain("Recorded [^1], [^2]");
+      expect(feedback).toContain("not found at the requested time/speaker");
+      await vi.waitFor(() => {
+        const paragraphs: string[] = [];
+        readMind(client).forEach((node) => {
+          if (node.type.name === "paragraph") paragraphs.push(node.textContent.trim());
+        });
+        expect(paragraphs).toEqual(expect.arrayContaining([...thoughts]));
+      });
+      if (fill.mode === "memo") {
+        expect(citationsIn(readMind(client)).map((citation) => citation.check)).toEqual([
+          "found",
+          "not-found",
+        ]);
+      }
+      core.close();
+    },
+  );
 });
 
 describe("What a voice memo's note is made of", () => {

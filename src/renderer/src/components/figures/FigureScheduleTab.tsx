@@ -14,6 +14,7 @@ import {
   type NoteState,
   setFigureTotalRole,
 } from "../../editor/figureActions";
+import { useCitedOrigin } from "../../editor/mindContext";
 import { currentSigner, figureMarkOf, setFigureSignOffs } from "../../editor/signOffActions";
 import { exportFigureSchedule } from "../../exports";
 import { focusFigure, useFigureSchedule } from "../../figures";
@@ -37,6 +38,7 @@ interface Choice {
 }
 
 export function FigureScheduleTab({ mindId }: { mindId: string }) {
+  const origin = useCitedOrigin();
   const [copy, setCopy] = useState<{ doc: Y.Doc; editable: boolean } | null>(null);
   const doc = copy?.doc ?? null;
   /** Undo for changes made in the copy while the note wasn't shown: they go with the copy. */
@@ -188,6 +190,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         }}
         onOpenSource={(citation) =>
           openCited(citation, {
+            origin,
             check: citation.check,
             withQuote: quoteSaysSo(citation.check),
             from: place?.groupId,

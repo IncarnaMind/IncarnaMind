@@ -7,7 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { MockLanguageModelV4 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
@@ -15,6 +15,7 @@ import {
   CITATION_NODE,
   type Core,
   DATABASE_FILE,
+  type Reranker,
   type ResearchPlan,
   type SearchScope,
   type StartResearchInput,
@@ -153,13 +154,28 @@ async function setUp(
   {
     approve = "allow-once",
     onAsk,
+    reranker,
+    webSearch,
   }: {
     approve?: "allow-once" | "deny";
     /** Done while the ask waits, before it is answered. */
     onAsk?(core: Core, request: ApprovalRequest): Promise<unknown>;
+    /** Scores Passages, a page read's among them, so a test can hold a read while it runs. */
+    reranker?: Reranker;
+    /** Each web search's request waits for it, so a test can hold the search while it runs. */
+    webSearch?: Promise<void>;
   } = {},
 ) {
-  const { model, searches } = webSearchingModel(answering, FOUND);
+  const { model: searching, searches } = webSearchingModel(answering, FOUND);
+  const model = webSearch
+    ? new MockLanguageModelV4({
+        doGenerate: (options) => searching.doGenerate(options),
+        doStream: async (options) => {
+          if (options.tools?.some((each) => each.type === "provider")) await webSearch;
+          return searching.doStream(options);
+        },
+      })
+    : searching;
   const web = await startWeb({
     "/tea": () => ({ status: 200, body: fixture("article.html") }),
     "/members": () => ({ status: 200, body: fixture("login.html") }),
@@ -174,6 +190,7 @@ async function setUp(
     },
     keychain,
     ...web.adapters,
+    ...(reranker && { reranker }),
   });
   const provider = await core.saveChatProvider({
     kind: "anthropic",
@@ -362,6 +379,125 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(done.review?.mindId).toBe(task.mindId);
     expect(minds.filter((each) => each.title === cutTitle(PLAN.title))).toHaveLength(1);
     expect((await changesIn(core, task.mindId ?? "")).ids).toHaveLength(1);
+  });
+
+  /** A reranker that holds every rerank (a page read's among them) until `release`. */
+  function heldReranks() {
+    const held = Promise.withResolvers<void>();
+    const reranker: Reranker = async (_, candidates) => {
+      await held.promise;
+      return [...candidates];
+    };
+    return { reranker, release: () => held.resolve() };
+  }
+
+  const rowsOf = async (core: Core, taskId: string) =>
+    (await core.listTaskSteps(taskId)).map((step) => [step.text, step.status]);
+
+  // protects=a step's web search shows its row as it starts, in words the app already uses while a web search runs, then what it searched once it ends (#1624); fails_when=the search's row appears only once it has ended, or reads as done while it runs; no_claim=what the search finds.
+  test("a step's web search shows its row while it runs, and what it searched once it ends", async () => {
+    const web = Promise.withResolvers<void>();
+    const { core, folder, mind } = await setUp(researcher([]), { webSearch: web.promise });
+
+    const task = await started(core, startInput(mind.id, folder.id));
+    await waitFor(async () =>
+      expect(await rowsOf(core, task.id)).toEqual([
+        ["Find who first brought tea to Europe", "running"],
+        ["Searched the Library for “gross margin”", "done"],
+        ["Searching the web for “tea reached Europe”…", "running"],
+      ]),
+    );
+    web.resolve();
+
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    expect((await rowsOf(core, task.id)).slice(0, 3)).toEqual([
+      ["Find who first brought tea to Europe", "done"],
+      ["Searched the Library for “gross margin”", "done"],
+      ["Searched the web for “tea reached Europe”", "done"],
+    ]);
+  });
+
+  // protects=a step's page read shows its row as the read starts, in the words the assistant's steps use while one runs, then the row says what it read once it ends (#1624); fails_when=a call's row appears only once its call has ended; no_claim=how the thread draws a running row.
+  test("a step's page read shows its row while it runs, and what it read once it ends", async () => {
+    const reads = heldReranks();
+    const { core, folder, mind } = await setUp(researcher([]), { reranker: reads.reranker });
+
+    const task = await started(core, startInput(mind.id, folder.id));
+    await waitFor(async () =>
+      expect(await rowsOf(core, task.id)).toContainEqual([
+        "Reading http://encyclopedia.example/tea…",
+        "running",
+      ]),
+    );
+    expect((await rowsOf(core, task.id)).slice(0, 3)).toEqual([
+      ["Find who first brought tea to Europe", "running"],
+      ["Searched the Library for “gross margin”", "done"],
+      ["Searched the web for “tea reached Europe”", "done"],
+    ]);
+    reads.release();
+
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    const rows = await rowsOf(core, task.id);
+    expect(rows).toContainEqual(["Read “Tea - The Open Encyclopedia”", "done"]);
+    expect(rows.filter(([, status]) => status === "running")).toEqual([]);
+  });
+
+  // protects=a call the Task's stop cuts short ends its row as skipped, not failed, so no row reads as running in a stopped Task and none blames the call (#1624); fails_when=the row of a page read still running at the stop stays running, or reads as failed; no_claim=what a stopped step keeps of its notes.
+  test("a page read cut short by Stop ends its row as skipped", async () => {
+    const reads = heldReranks();
+    const { core, folder, mind } = await setUp(researcher([]), { reranker: reads.reranker });
+
+    const task = await started(core, startInput(mind.id, folder.id));
+    await waitFor(async () =>
+      expect(await rowsOf(core, task.id)).toContainEqual([
+        "Reading http://encyclopedia.example/tea…",
+        "running",
+      ]),
+    );
+    await core.stopTask(task.id);
+    reads.release();
+
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    const steps = await core.listTaskSteps(task.id);
+    expect(steps.map((step) => [step.text, step.status])).toContainEqual([
+      "Read a page on encyclopedia.example",
+      "skipped",
+    ]);
+    expect(
+      steps.filter((step) => step.key.startsWith("call:") && step.status === "running"),
+    ).toEqual([]);
+  });
+
+  // protects=a call's row a quit left running is settled skipped as the Task runs again, so a resumed Task never shows a search still running from before (#1624); fails_when=the earlier attempt's row stays running; no_claim=what the step finds the second time.
+  test("a call's row a quit left running reads as skipped once the Task runs again", async () => {
+    const s = await setUp(researcher([]));
+    const task = await started(s.core, startInput(s.mind.id, s.folder.id));
+    await waitForTask(s.core, task.id, (each) => each.finishedAt !== null);
+    s.core.close();
+    // As if IncarnaMind had been quit while the first step's Library search ran.
+    const db = openDatabase(join(s.dataDir, DATABASE_FILE));
+    db.run(
+      "UPDATE run_steps SET status = 'started' WHERE run_id = ? AND key IN ('step:0', 'call:0:1:1')",
+      [task.id],
+    );
+    db.run("UPDATE runs SET status = 'running', finished_at = NULL WHERE id = ?", [task.id]);
+    db.close();
+    const { model } = webSearchingModel(researcher([]), FOUND);
+    const reopened = startCore(s.dataDir, {
+      createChatModel: () => model,
+      keychain: s.keychain,
+      ...s.web.adapters,
+    });
+
+    const again = await waitForTask(reopened, task.id, (each) => each.finishedAt !== null);
+    expect(again.status).toBe("done");
+    const steps = await reopened.listTaskSteps(task.id);
+    expect(steps.find((step) => step.key === "call:0:1:1")).toMatchObject({
+      text: "Searched the Library for “gross margin”",
+      status: "skipped",
+    });
+    expect(steps.filter((step) => step.status === "running")).toEqual([]);
+    reopened.close();
   });
 
   /** A finished Task's save step run again after a quit, its earlier Folder `walled` then or not. */
@@ -611,10 +747,11 @@ describe("Research", { timeout: 30_000 }, () => {
       expect.objectContaining({ tagId: tea?.id, source: "automatic" }),
     ]);
 
-    // The draft is a change to accept in the Mind, its Citation found; Review opens it there.
+    // The draft is a change to accept in the Mind; Review opens it there. Its sentence quotes the
+    // Question, which the page doesn't have, so its Citation is not found there as in the Answer (#2612).
     const changes = await changesIn(core, mind.id);
     expect(changes.texts).toEqual(["Notes on “How did tea reach Europe?”: the sources say so."]);
-    expect(changes.checks).toEqual(["found"]);
+    expect(changes.checks).toEqual(["not-found"]);
     expect(done.review).toEqual({ mindId: mind.id, proposalId: changes.ids[0] });
     // Accepted, it is recorded as the assistant's change, with the model that wrote it.
     const client = await connectToMind(core, mind.id);

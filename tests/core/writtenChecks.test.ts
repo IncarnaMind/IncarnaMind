@@ -1,9 +1,16 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { Core } from "../../src/core";
+import {
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
+  type Core,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
+import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown, SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import {
@@ -21,6 +28,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  type GenerateCall,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -45,6 +53,9 @@ const FAILING = "The harbour floods at every spring tide";
 const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
 const RECORD_NEXT = "Id. at 2 states another deadline";
 const RECORD_CUT = `${RECORD_SOURCE}, and the harbour floods`;
+const RECORD_SOURCE_ZH = "ECF No. 41 at 3 载明了截止日期";
+const RECORD_NEXT_ZH = "Id. at 2 载明了另一个截止日期";
+const RECORD_CUT_ZH = `${RECORD_SOURCE_ZH}，并且港口被淹没`;
 const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
 const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
 const TWO_CITED =
@@ -128,6 +139,11 @@ const RAW_PLANS: Record<string, Plan> = {
   [asChecked(RECORD_CUT)]: partly("the deadline", "the harbour floods"),
   [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_SOURCE_ZH)]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_NEXT_ZH)]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_CUT_ZH)]: partly("截止日期", "港口被淹没"),
+  [`${RECORD_SOURCE_ZH}。`]: { verdict: "unsupported", judgement: "same" },
+  [`${RECORD_NEXT_ZH}。`]: { verdict: "unsupported", judgement: "same" },
 };
 
 const PLANS: Record<string, Plan> = Object.fromEntries(
@@ -148,9 +164,15 @@ interface Writing {
   cloud?: { kind: "anthropic"; modelId: string } | { kind: "ollama"; modelId: string };
   /** How the Answer ends: a spending cap reached during the check stops it too. */
   ends?: "finished" | "failed";
-  /** The model's cut of a sentence, in place of its first clause and its marker. */
-  cut?: string;
+  /** The model's cut of a sentence, in place of its first clause and its marker, or given the cut's prompt. */
+  cut?: string | ((prompt: string) => string);
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
+  /** Hears each request that isn't streamed, answered as `PLANS` says. */
+  generated?: (call: GenerateCall) => void;
+  /** It writes before it cites: `cite` comes beside the write, after it, or in the step after. */
+  citesAfter?: "beside" | "next-step";
+  /** Its closing reply fails, so the Answer does. */
+  replyFails?: boolean;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -177,6 +199,9 @@ function writingModel(
     check,
     cut = "Spring tides come at new and full moon [1].",
     record,
+    generated,
+    citesAfter,
+    replyFails = false,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
@@ -194,7 +219,8 @@ function writingModel(
         return { ...reply, pause: { after: 0, until: waited } };
       }
       if (CUT.test(call.prompt)) {
-        return { text: `${cut}\n<why>Only what the source says.</why>` };
+        const words = typeof cut === "string" ? cut : cut(call.prompt);
+        return { text: `${words}\n<why>Only what the source says.</why>` };
       }
       const { results } = call;
       const search = results.find((result) => result.tool === "search_documents");
@@ -202,22 +228,36 @@ function writingModel(
         return {
           calls: [{ tool: "search_documents", input: { query: record?.query ?? "spring tides" } }],
         };
-      if (!results.some((result) => result.tool === "cite")) {
+      const cited = results.some((result) => result.tool === "cite");
+      const writes = results.filter((result) => result.tool === tool);
+      if (!cited) {
         const [passage] = shownPassages(search.text);
         const citation = { marker: 1, passage: passage?.id, quote: record?.quote ?? MOON };
         const citations = record ? [citation, { ...citation, marker: 2 }] : [citation];
-        return { calls: [{ tool: "cite", input: { citations } }] };
+        const cite = { tool: "cite", input: { citations } };
+        if (citesAfter && writes.length === 0) {
+          const input = into ? { content } : { title: "Tide notes", content };
+          return { calls: [{ tool, input }, ...(citesAfter === "beside" ? [cite] : [])] };
+        }
+        return { calls: [cite] };
       }
-      const writes = results.filter((result) => result.tool === tool);
       // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
       const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
       if (writes.length === 0 || refused) {
         const input = into ? { content } : { title: "Tide notes", content };
         return { calls: [{ tool, input }] };
       }
+      if (replyFails) return { error: { status: 500, message: "The service broke." } };
       return { text: "Wrote it from your Documents." };
     },
-    record ? { generate: checkGenerate(PLANS) } : undefined,
+    record || generated
+      ? {
+          generate: (call: GenerateCall) => {
+            generated?.(call);
+            return checkGenerate(PLANS)(call);
+          },
+        }
+      : undefined,
   );
 }
 
@@ -318,6 +358,110 @@ async function write(
   const page = writing.into ? client : await connectToMind(core, change?.mindId ?? "");
   await page.settled();
   return { core, model, calls, answer, change, client: page };
+}
+
+/**
+ * Makes the next mark's edit fail once it is armed, and only that once: an edit that breaks for a
+ * reason other than the Note refusing it.
+ */
+function failOneMark() {
+  let armed: boolean | null = false;
+  const format = Y.XmlText.prototype.format;
+  const spy = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
+    this: Y.XmlText,
+    ...args: Parameters<Y.XmlText["format"]>
+  ) {
+    if (armed) {
+      armed = null;
+      throw new Error("The edit broke.");
+    }
+    format.apply(this, args);
+  });
+  return {
+    arm: () => {
+      if (armed === false) armed = true;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+const ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+
+const endsCheck = (reply: ScriptedReply) =>
+  "text" in reply && typeof reply.text === "string" && !("calls" in reply && reply.calls?.length);
+
+/**
+ * Every request a write's checks send, normalized: ids, times and cache keys put by. The other
+ * sentences (as checks read them) wait for the first one's check to end, `firstEnds` being the
+ * sentence whose verdict ends it (its cut's, once cut); or, `reversed`, it waits for theirs. So
+ * the checks end in opposite orders.
+ */
+async function checkRequestsOf(
+  writing: Writing,
+  sentences: { first: string; firstEnds: string; others: readonly string[]; checked: number },
+  reversed: boolean,
+) {
+  const { first, firstEnds, others, checked } = sentences;
+  let page: MindClient | null = null;
+  const verdicts: string[] = [];
+  const generated: GenerateCall[] = [];
+  const once = (ended: () => boolean) =>
+    vi
+      .waitFor(() => expect(ended()).toBe(true), { timeout: 20_000, interval: 5 })
+      .then(() => page?.settled());
+  const { calls } = await write(
+    {
+      ...writing,
+      cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      generated: (call) => generated.push(call),
+      check: (call, core) => {
+        const reply = writing.check?.(call, core) ?? checkReply(call, PLANS);
+        if (endsCheck(reply)) verdicts.push(sentenceOf(call));
+        if (call.results.length > 0) return reply;
+        const sentence = sentenceOf(call);
+        const until = reversed
+          ? sentence === first &&
+            once(() => verdicts.filter((each) => others.includes(each)).length >= checked - 1)
+          : others.includes(sentence) && once(() => verdicts.includes(firstEnds));
+        return until ? { ...reply, pause: { after: 0, until } } : reply;
+      },
+    },
+    ({ client }) => {
+      page = client;
+    },
+  );
+  return {
+    requests: [
+      ...calls
+        .filter((call) => isCheckRun(call) || CUT.test(call.prompt))
+        .map((call) => normalized(call.options)),
+      // A sentence's comparisons and its record cites' judgements, not the reply's own checks.
+      ...generated
+        .filter((call) => /^(Compare a sentence|A sentence the User wrote)/.test(call.system))
+        .map((call) => normalized(call.options)),
+    ].sort(),
+    verdicts,
+  };
+}
+
+/**
+ * A request's whole call, its prompt's messages, Tools, settings and provider options, with
+ * only what differs between two runs of the same write put by: ids, times, cache keys, the
+ * signal, and the scripted model's Tool call ids, numbered in their order within the request.
+ */
+function normalized(options: unknown): string {
+  const toolCalls = new Map<string, string>();
+  const text = JSON.stringify(options, (key, value: unknown) => {
+    if (key === "abortSignal" || typeof value === "function") return undefined;
+    if (key === "promptCacheKey" || key === "cacheKey") return "<key>";
+    if (key === "toolCallId" && typeof value === "string") {
+      if (!toolCalls.has(value)) toolCalls.set(value, `call-${toolCalls.size}`);
+      return toolCalls.get(value);
+    }
+    return value;
+  });
+  return text.replace(ID, "<id>").replace(TIME, "<time>");
 }
 
 /** A paragraph of the Mind as checks read it: each Citation as U+FFFC. */
@@ -736,6 +880,77 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
+  // protects=a User who allowed checks before they sent more isn't asked as the assistant writes, nor is anything sent: the write's sentences land not checked, saying why, and the Check of one asks for the more and checks the whole write once allowed (#2525); fails_when=the write lands unchecked with no reason, is sent on the earlier consent, asks in the background, or Allow checks only the one sentence; no_claim=the consent dialog's words.
+  test("allowed before checks sent more, the write waits for the User's OK, then is checked whole", async () => {
+    const asked: string[][] = [];
+    const { core, calls, change, client } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      async ({ core: started, service }) => {
+        const checks = started.dataFlows.get("checks");
+        if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
+        const more = [
+          "library-counts",
+          "library-names",
+          "file-properties",
+          "absence-documents",
+          "watched-sentences",
+        ];
+        await started.revokeConsent("checks", service);
+        started.dataFlows.register({
+          ...checks,
+          sends: checks.sends.filter((kind) => !more.includes(kind)),
+        });
+        await started.allowDataFlow("checks", service);
+        started.dataFlows.register(checks);
+        started.on("consent.requested", (request) => asked.push([...request.newKinds]));
+      },
+    );
+
+    expect(asked).toEqual([]);
+    expect(calls.some(isCheckRun)).toBe(false);
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "consent-widened"],
+      ["not-checked", "consent-widened"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({
+      cited: 2,
+      sent: 2,
+      checked: 0,
+      failed: 2,
+      blocked: { reason: "consent-widened", count: 2 },
+    });
+
+    const paragraph = change?.selfCheck?.blocks?.[1];
+    if (!paragraph || !change) throw new Error("The write has no paragraph.");
+    // What the assistant wrote is a change to accept before a check reads it, as for every check.
+    await resolveChanges(client, "accept");
+    await core.checkSentences({
+      requestId: "review-consent",
+      mindId: change.mindId,
+      action: "check-against-documents",
+      from: { blockId: paragraph, offset: 0 },
+      to: { blockId: paragraph, offset: paragraphText(client, 1).length },
+    });
+
+    expect(asked).toEqual([
+      [
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ],
+    ]);
+    expect(calls.some(isCheckRun)).toBe(true);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
+      "supported",
+      "unsupported",
+    ]);
+  });
+
   // protects=one write checks at most SENTENCES_CHECKED_AT_MOST sentences; the rest land marked not checked, and the reply says so; fails_when=a long draft sends a check for every sentence, or the rest land unmarked; no_claim=how long each check takes.
   test("one write checks at most the first sentences; the rest land marked not checked", async () => {
     const many = SENTENCES_CHECKED_AT_MOST + 1;
@@ -757,6 +972,402 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(lastResult(model)).toContain(
       `Only the first ${SENTENCES_CHECKED_AT_MOST} of its ${many} sentences with Citations were checked`,
     );
+  });
+
+  // protects=a written sentence's mark lands as its own check ends, while another sentence of the write is still being checked (#2532); fails_when=the marks wait for the last check and land together; no_claim=the order in which the checks end.
+  test("a sentence's mark lands as soon as its check ends, while another is still checked", async () => {
+    let page: MindClient | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some(
+        (span) => span.sentence.text.startsWith("Spring tides") && span.check.state === "supported",
+      );
+    let markedWhileWaiting = false;
+    const { core, client } = await write(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const landed = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(
+              () => {
+                markedWhileWaiting = true;
+              },
+              () => undefined,
+            );
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: landed } };
+        },
+      },
+      ({ client: connected }) => {
+        page = connected;
+      },
+    );
+
+    expect(markedWhileWaiting).toBe(true);
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
+      ["Neap tides are twice as strong .", "unsupported"],
+    ]);
+  });
+
+  // protects=a landing that throws (here a newer version wrote the Note mid-check, so no edit may change it) is logged and never becomes its sentence's failure, and then fails the write's check as a whole, as one edit of all the marks did: the write stands and no check of it is reported (#2532); fails_when=runItems files the throw as the sentence's failure and lands it again, or the check reports normally after a mark couldn't land; no_claim=what the card says of a Note a newer version wrote.
+  test("a mark that can't land is logged, not filed as its sentence's failure, and fails the check", async () => {
+    let page: MindClient | null = null;
+    let newer: Promise<void> | null = null;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { model, calls, change } = await write(
+        {
+          content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+          into: true,
+          cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+          check: (call) => {
+            const client = page;
+            if (call.results.length > 0 || !client) return null;
+            if (!newer) {
+              client.doc
+                .getMap(MIND_SETTINGS_FIELD)
+                .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+              newer = client.settled();
+            }
+            return { ...checkReply(call, PLANS), pause: { after: 0, until: newer } };
+          },
+        },
+        ({ client }) => {
+          page = client;
+        },
+      );
+      const said = (spy: typeof errors) => spy.mock.calls.map((args) => String(args[0]));
+
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+      expect(said(errors).filter((line) => line.includes("marks couldn't land"))).toHaveLength(1);
+      expect(said(warnings).filter((line) => line.includes("couldn't be checked"))).toEqual([]);
+      expect(
+        said(errors).filter((line) => line.includes("couldn't be checked before it landed")),
+      ).toHaveLength(1);
+      expect(change?.selfCheck).toBeUndefined();
+      expect(lastResult(model)).toContain("Wrote 1 new Block");
+    } finally {
+      errors.mockRestore();
+      warnings.mockRestore();
+    }
+  });
+
+  // protects=the sentences of a table land together after every check, in one edit, as a table's marks are footed against each other and its chart drawn from them (#2532); fails_when=a table's sentence lands on its own as its check ends; no_claim=how a table foots.
+  test("a table's sentences land together after every check", async () => {
+    const seen: number[] = [];
+    const { core, client } = await write(
+      {
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      ({ client: connected }) => {
+        connected.doc.on("update", () => {
+          seen.push(claimSpans(readMind(connected)).length);
+        });
+      },
+    );
+
+    expect(await marksIn(core, client)).toHaveLength(2);
+    expect(seen).toContain(2);
+    expect(seen).not.toContain(1);
+  });
+
+  // protects=Stop while a write's sentences are checked keeps the marks that landed, and the sentence whose check Stop cut short lands Not checked saying it was stopped, never unmarked over a found Citation (#2532, #2710); fails_when=that sentence stays unmarked or lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
+  test("Stop while a write is checked keeps the marks that landed and says the rest were stopped", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let page: MindClient | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some((span) => span.sentence.text.startsWith("Spring tides"));
+    const model = writingModel(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call, core) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const stopped = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => (answer ? core.stopConversationAnswer(answer) : undefined));
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    started = core;
+    page = client;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    const stopped = await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+        return found;
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
+    ]);
+    const [change] = changesIn(stopped);
+    // The check stopped mid-way never reports its end: the row says what the call did (#2710).
+    expect(change).not.toHaveProperty("checking");
+    expect(change?.selfCheck).toBeUndefined();
+  });
+
+  // protects=a table's cell whose check ended before Stop keeps the verdict it was given, while the sentence whose check Stop cut short lands Not checked (#2710); fails_when=the held cell verdict is overwritten by the stopped mark, as when the stopped marks are chosen before the held ones land; no_claim=the verdict the scripted judge gives the first cell.
+  test("Stop while a table's write is checked keeps the cell verdict that ended, and stops the rest", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const model = writingModel(
+      {
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
+        into: true,
+        // One claim at a time, as a local model checks: the second check starting proves the first ended.
+        check: (call, core) => {
+          if (!sentenceOf(call).includes("Neap tides are twice as strong")) return null;
+          if (call.results.length > 0) return null;
+          const stopped = Promise.resolve().then(() =>
+            answer ? core.stopConversationAnswer(answer) : undefined,
+          );
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
+    started = core;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon", "unsupported", null],
+      ["Neap tides are twice as strong", "not-checked", "stopped"],
+    ]);
+  });
+
+  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands Not checked for the sentence Stop cut short (#1635, #2710); fails_when=a mark lands after Stop, the stopped sentence stays unmarked, or the Citations go; no_claim=what the Answer says once stopped.
+  test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let page: MindClient | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some((span) => span.sentence.text.startsWith("Spring tides"));
+    const model = writingModel(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        citesAfter: "next-step",
+        check: (call, core) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const stopped = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => (answer ? core.stopConversationAnswer(answer) : undefined));
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    started = core;
+    page = client;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    const stopped = await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+        return found;
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    await client.settled();
+    expect(shownWithChanges(client).at(-1)).toBe(
+      "+ Spring tides come at new and full moon ⟨found⟩. Neap tides are twice as strong ⟨found⟩.",
+    );
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
+    ]);
+    const [change] = changesIn(stopped);
+    expect(change).toMatchObject({ proposals: 1, cited: 2 });
+    expect(change).not.toHaveProperty("checking");
+    expect(change?.selfCheck).toBeUndefined();
+  });
+
+  // protects=once the Note refuses an edit, no further mark is tried, even after an earlier edit failed for another reason (#2532); fails_when=the first failure kept for the report hides the refusal and a later mark is tried again; no_claim=what makes an edit fail.
+  test("a refused edit after another failure still stops every later mark", async () => {
+    let page: MindClient | null = null;
+    let newer = false;
+    const edits = failOneMark();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { calls } = await write(
+        {
+          content: `${MOON.slice(0, -1)} [^1].\n\n${UNBACKED} [^1].\n\nThe harbour office posts the times [^1].`,
+          into: true,
+          check: (call) => {
+            const client = page;
+            if (call.results.length > 0 || !client) return null;
+            edits.arm();
+            if (sentenceOf(call) !== `${UNBACKED} .` || newer) return null;
+            // A newer version writes the Note once the first mark has failed for another reason.
+            newer = true;
+            client.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            return { ...checkReply(call, PLANS), pause: { after: 0, until: client.settled() } };
+          },
+        },
+        ({ client }) => {
+          page = client;
+        },
+      );
+      edits.restore();
+
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(3);
+      const refused = errors.mock.calls.filter(([line]) =>
+        String(line).includes("marks couldn't land"),
+      );
+      expect(refused.map(([, error]) => (error instanceof Error ? error.name : null))).toEqual([
+        "Error",
+        "MindReadOnlyError",
+      ]);
+    } finally {
+      edits.restore();
+      errors.mockRestore();
+    }
+  });
+
+  // protects=the cuts listed for the model are in the Note's order whichever check ends first (#2532); fails_when=they are listed in the order their checks ended; no_claim=what each cut keeps.
+  test("the cuts listed for the model are in the Note's order", async () => {
+    let seen: readonly ModelCall[] = [];
+    let page: MindClient | null = null;
+    const tailChecked = () =>
+      seen.some(
+        (call) =>
+          isCheckRun(call) &&
+          sentenceOf(call) === "The harbour floods in spring." &&
+          call.results.length > 0,
+      );
+    const { model } = await write(
+      {
+        content: `${OVERSTATED} [^1].\n\n${COMMA_TAIL}`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        cut: (prompt) =>
+          prompt.includes("every region")
+            ? "The harbour floods in spring [1],"
+            : "Spring tides come at new and full moon [1].",
+        check: (call) => {
+          if (sentenceOf(call) !== `${OVERSTATED} .` || call.results.length > 0) return null;
+          // The later sentence's cut is checked again before the earlier sentence is answered.
+          const ended = vi
+            .waitFor(() => expect(tailChecked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => page?.settled());
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: ended } };
+        },
+      },
+      ({ client, calls }) => {
+        page = client;
+        seen = calls;
+      },
+    );
+
+    expect(lastResult(model)).toContain(
+      "What their Citations don't support was taken out: “the yearly floods”, “every region”.",
+    );
+  });
+
+  // protects=a landing that fails on a Note that still takes edits leaves the table's marks to land after every check before the check fails (#2532); fails_when=the check fails before the last edit, and the table's sentence lands unmarked; no_claim=what makes an edit fail.
+  test("a failed landing still lets a table's marks land before the check fails", async () => {
+    const edits = failOneMark();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { core, client } = await write({
+        content: `${MOON.slice(0, -1)} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${UNBACKED} [^1] |`,
+        into: true,
+        check: (call) => {
+          // Only the paragraph's mark fails, once: the table's lands in the last edit.
+          if (sentenceOf(call) !== `${UNBACKED} .`) edits.arm();
+          return null;
+        },
+      });
+      edits.restore();
+
+      const marks = await marksIn(core, client);
+      expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+        [UNBACKED, "unsupported"],
+      ]);
+      expect(
+        errors.mock.calls.filter(([line]) =>
+          String(line).includes("couldn't be checked before it landed"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      edits.restore();
+      errors.mockRestore();
+    }
   });
 
   // protects=words the User types into what the assistant wrote while the check runs stay: only the sentences cut or marked are written, each only while unchanged (one with no cut too); fails_when=the User's words vanish, or a sentence they changed is cut over; no_claim=none beyond protects.
@@ -819,6 +1430,19 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     const marks = await marksIn(core, client);
     expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
       ["€12 million .", "unsupported"],
+    ]);
+  });
+
+  // protects=a cited table cell with a figure is checked even when the sort names no fact for it: Claude Haiku 5.5 named a bare cell an opinion or no claim, and the write landed no check on it at all (#2719); fails_when=an empty or opinion-only sort skips the figure's check and the cell lands unmarked; no_claim=the verdict the check gives.
+  test("a cited figure in a table cell is checked even when the sort names no fact", async () => {
+    const { core, change, client } = await write({
+      content: "| Item | 2024 |\n| --- | --- |\n| Revenue | 100 [^1] |",
+      generated: () => undefined,
+    });
+    expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 1, failed: 0 });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+      ["100", "unsupported"],
     ]);
   });
 
@@ -894,6 +1518,136 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
+  // protects=a cut lands after every check, so a later sentence's Id. in the same paragraph reads the Note as written and resolves as it did before marks landed as each check ends (#2532), in English and Chinese, with the Id. sentence twice; fails_when=the cut lands mid-run and the Id. sentences land with no record cite, unchecked; no_claim=how a cut sentence's own cite resolves.
+  test.each([
+    {
+      language: "en",
+      content: `> ${RECORD_CUT} [^1]. ${RECORD_NEXT} [^2]. ${RECORD_NEXT} [^2].`,
+      cut: `${RECORD_SOURCE} [1].`,
+      kept: `${RECORD_SOURCE} .`,
+      dropped: "the harbour floods",
+      next: RECORD_NEXT,
+    },
+    {
+      language: "zh-CN",
+      content: `> ${RECORD_CUT_ZH}[^1]。${RECORD_NEXT_ZH}[^2]。${RECORD_NEXT_ZH}[^2]。`,
+      cut: `${RECORD_SOURCE_ZH}[1]。`,
+      kept: `${RECORD_SOURCE_ZH}。`,
+      dropped: "港口被淹没",
+      next: RECORD_NEXT_ZH,
+    },
+  ])(
+    "an Id. after a cut sentence resolves as written ($language)",
+    async ({ content, cut, kept, dropped, next }) => {
+      const recordStated: Plan = {
+        verdict: "supported",
+        quote: RECORD_FILE.quote,
+        says: RECORD_FILE.quote,
+      };
+      const { core, client } = await write({
+        into: true,
+        record: RECORD_FILE,
+        cut,
+        content,
+        check: (call) =>
+          sentenceOf(call) === kept ? checkReply(call, { [kept]: recordStated }) : null,
+      });
+
+      expect(readMind(client).textContent).not.toContain(dropped);
+      const marks = (await marksIn(core, client)).filter(({ sentence }) => sentence.includes(next));
+      expect(marks).toHaveLength(2);
+      for (const { check } of marks) {
+        expect(check.recordCites?.[0]).toMatchObject({
+          raw: "Id. at 2",
+          outcome: "supported",
+          location: { kind: "page", from: 2, to: 2 },
+        });
+      }
+    },
+  );
+
+  // protects=normalized request equivalence: a write's checks send the same requests whichever order they end in, ids, times and cache keys put by, as marks land while other sentences are still checked and a cut lands after every check (#2532); fails_when=a mark that lands mid-run changes what a later check sends; no_claim=a check that starts after a cut would land, which the Id. test pins, nor the final marks, which a cut placed after every check changes on purpose for two identical sentences after it.
+  test.each([
+    {
+      name: "paragraphs, a table and a cut",
+      writing: {
+        content: `${OVERSTATED} [^1]. ${UNBACKED} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${MOON.slice(0, -1)} [^1] |`,
+        into: true,
+      },
+      sentences: {
+        first: `${OVERSTATED} .`,
+        firstEnds: "Spring tides come at new and full moon .",
+        others: [`${UNBACKED} .`, MOON.slice(0, -1)],
+        checked: 3,
+      },
+    },
+    {
+      name: "an Id. after a cut",
+      writing: {
+        content: `> ${RECORD_CUT} [^1]. ${RECORD_NEXT} [^2]. ${RECORD_NEXT} [^2].`,
+        into: true,
+        record: RECORD_FILE,
+        cut: `${RECORD_SOURCE} [1].`,
+        check: (call: ModelCall) =>
+          sentenceOf(call) === `${RECORD_SOURCE} .`
+            ? checkReply(call, {
+                [`${RECORD_SOURCE} .`]: {
+                  verdict: "supported",
+                  quote: RECORD_FILE.quote,
+                  says: RECORD_FILE.quote,
+                },
+              })
+            : null,
+      },
+      sentences: {
+        first: `${RECORD_CUT} .`,
+        firstEnds: `${RECORD_SOURCE} .`,
+        others: [`${RECORD_NEXT} .`],
+        checked: 3,
+      },
+    },
+    {
+      name: "two identical sentences after a cut",
+      writing: { content: `${OVERSTATED} [^1]. ${UNBACKED} [^1]. ${UNBACKED} [^1].`, into: true },
+      sentences: {
+        first: `${OVERSTATED} .`,
+        firstEnds: "Spring tides come at new and full moon .",
+        others: [`${UNBACKED} .`],
+        checked: 3,
+      },
+    },
+  ])(
+    "a write's checks send the same requests whichever order they end in ($name)",
+    async ({ writing, sentences }) => {
+      const inOrder = await checkRequestsOf(writing, sentences, false);
+      const reversed = await checkRequestsOf(writing, sentences, true);
+
+      const { firstEnds, others } = sentences;
+      const ended = (verdicts: readonly string[], sentence: string) => verdicts.indexOf(sentence);
+      for (const other of others) {
+        expect(ended(inOrder.verdicts, firstEnds)).toBeLessThan(ended(inOrder.verdicts, other));
+        expect(ended(reversed.verdicts, other)).toBeLessThan(
+          ended(reversed.verdicts, sentences.first),
+        );
+      }
+      expect(inOrder.requests.length).toBeGreaterThan(sentences.checked);
+      expect(reversed.requests).toEqual(inOrder.requests);
+    },
+  );
+
+  // protects=two identical sentences after a cut sentence in one paragraph each get their own mark, as a cut lands after every check; fails_when=the cut lands first and both marks go on the second sentence, the first left unmarked; no_claim=what the cut keeps.
+  test("two identical sentences after a cut sentence each get their own mark", async () => {
+    const { client } = await write({
+      content: `${OVERSTATED} [^1]. ${UNBACKED} [^1]. ${UNBACKED} [^1].`,
+    });
+
+    const spans = claimSpans(readMind(client)).filter((span) =>
+      span.sentence.text.startsWith(UNBACKED),
+    );
+    expect(spans.map((span) => span.check.state)).toEqual(["unsupported", "unsupported"]);
+    expect(new Set(spans.map((span) => span.sentence.from)).size).toBe(2);
+  });
+
   test("an uncited unresolved cite between proposed sentences clears Id.'s referent", async () => {
     const { core, client } = await write({
       into: true,
@@ -943,6 +1697,125 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       outcome: "supported",
       location: { kind: "page", from: 2, to: 2 },
     });
+  });
+
+  // protects=text written before `cite` recorded its markers is checked once its Citations go in after the Run: each cited sentence lands marked and the card counts it (#1635); fails_when=it lands with found Citations and no mark, which reads as checked, or the card has no check; no_claim=how often a real model writes before it cites.
+  test.each(["beside", "next-step"] as const)(
+    "a write made before cite recorded its markers is checked once they go in (%s)",
+    async (citesAfter) => {
+      const { core, calls, change, client } = await write({
+        content: `## Tides\n\nSpring tides come at new and full moon [^1].\n\n${UNBACKED} [^1].`,
+        citesAfter,
+      });
+
+      expect(shownWithChanges(client)).toEqual([
+        "+ Tides",
+        "+ Spring tides come at new and full moon ⟨found⟩.",
+        "+ Neap tides are twice as strong ⟨found⟩.",
+      ]);
+      const marks = await marksIn(core, client);
+      expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+        ["Spring tides come at new and full moon .", "supported"],
+        ["Neap tides are twice as strong .", "unsupported"],
+      ]);
+      expect(change).toMatchObject({ created: true, proposals: 3, cited: 2 });
+      expect(change).not.toHaveProperty("checking");
+      expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+    },
+  );
+
+  // protects=a write made before cite, in a Run that then fails, lands its cited sentences not checked, saying in English and Chinese that the Answer stopped with an error before the check, and sends no check to the provider that failed (#1635); fails_when=they land unmarked, which reads as checked, the line says the check failed or nothing, or a check is sent; no_claim=the words of the Answer's own failure.
+  test("a write made before cite in a Run that fails lands not checked, sending nothing", async () => {
+    const { core, calls, change, client } = await write({
+      content: "## Tides\n\nSpring tides come at new and full moon [^1].",
+      citesAfter: "next-step",
+      replyFails: true,
+      ends: "failed",
+    });
+
+    expect(shownWithChanges(client)).toEqual([
+      "+ Tides",
+      "+ Spring tides come at new and full moon ⟨found⟩.",
+    ]);
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "answer-failed"],
+    ]);
+    const shown = (language: "en" | "zh-CN") =>
+      marks.map(({ check }) =>
+        check.state === "not-checked" && check.reason
+          ? reasonText(
+              (key: MessageKey, params?: MessageParams) => translate(language, key, params),
+              language,
+              check.reason,
+              check.detail,
+            )
+          : null,
+      );
+    expect(shown("en")).toEqual(["The Answer stopped with an error before this was checked."]);
+    expect(shown("zh-CN")).toEqual(["回答出错停止，这句话尚未核对。"]);
+    expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 0, failed: 1 });
+    expect(calls.some(isCheckRun)).toBe(false);
+  });
+
+  // protects=a Note that refuses one write's Citations after the Run doesn't leave another write of the same Answer unchecked: the other is still checked and lands marked (#1635); fails_when=the refusal stops every after-Run check, so the other write's found Citations read as checked; no_claim=what makes a Note refuse edits other than a newer version.
+  test("a Note that refuses one write's Citations after the Run leaves the other write checked", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      let harbourClient: MindClient | null = null;
+      const calls: ModelCall[] = [];
+      const model = scriptedModel((call): ScriptedReply => {
+        calls.push(call);
+        if (isCheckRun(call)) return checkReply(call, PLANS);
+        const { results } = call;
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        if (!results.some((result) => result.tool === "create_mind")) {
+          const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+          return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        if (!results.some((result) => result.tool === "add_to_mind")) {
+          return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
+        }
+        if (!results.some((result) => result.tool === "cite")) {
+          // A newer version writes the Note in front: its Citations can't go in after the Run.
+          harbourClient?.doc
+            .getMap(MIND_SETTINGS_FIELD)
+            .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+          const [passage] = shownPassages(search.text);
+          const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+          return {
+            calls: [{ tool: "cite", input: { citations } }],
+            pause: { after: 0, until: harbourClient?.settled() ?? Promise.resolve() },
+          };
+        }
+        return { text: "Wrote it from your Documents." };
+      });
+      const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
+      harbourClient = client;
+
+      const answer = await askAssistant(core, {
+        text: "Add a short note on tides to this Mind and make a new note on them too",
+        mindId,
+        scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+      });
+
+      const made = changesIn(answer).find((change) => change.created);
+      expect(made?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 1 });
+      const page = await connectToMind(core, made?.mindId ?? "");
+      const marks = await marksIn(core, page);
+      expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
+        ["Spring tides come at new and full moon .", "supported"],
+      ]);
+      expect(
+        errors.mock.calls.some(([line]) => String(line).includes("couldn't go in (call")),
+      ).toBe(true);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.

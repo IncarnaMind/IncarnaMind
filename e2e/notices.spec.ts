@@ -73,7 +73,7 @@ async function copyPath(window: Page): Promise<void> {
   await window.keyboard.press("ControlOrMeta+Alt+c");
 }
 
-test("an error from the core says it in plain words, with the technical text under Details, and stays", async () => {
+test("an error from the core says it in plain words, with what was tried and what to do under Details, and stays", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 700);
@@ -89,14 +89,18 @@ test("an error from the core says it in plain words, with the technical text und
     );
     await expect(notice).toHaveAttribute("role", "alert");
 
-    // The technical text is behind Details: the method that failed and the error's class, with
-    // its sentence, and nothing of Electron's wrapping or a stack.
+    // Behind Details, in plain words: what was said, what was being done and what to do. Never the
+    // method that failed, the error's class, Electron's wrapping or a stack.
     const details = notice.getByTestId("error-notice-details");
     await expect(details).not.toHaveJSProperty("open", true);
     await details.getByText("Details").click();
     await expect(details).toHaveJSProperty("open", true);
-    await expect(details).toContainText("core:renameDocument");
-    await expect(details).toContainText(`InvalidInputError: ${TOO_LONG}`);
+    await expect(details).toContainText(TOO_LONG);
+    await expect(details).toContainText("IncarnaMind was renaming Documents when this happened.");
+    await expect(details).toContainText("Try again. If it keeps happening, restart IncarnaMind.");
+    await expect(details).not.toContainText("core:");
+    await expect(details).not.toContainText("renameDocument");
+    await expect(details).not.toContainText("InvalidInputError");
     await screenshot(window, "notice-details-open");
     const said = (await notice.textContent()) ?? "";
     expect(said).not.toContain("Error invoking remote method");
@@ -247,7 +251,7 @@ for (const { width, label } of [
 }
 
 for (const width of [900, 1600]) {
-  test(`in Chinese, a Document's name that is too long is refused in Chinese, with the English sentence under Details, at ${width}px`, async () => {
+  test(`in Chinese, a Document's name that is too long is refused in Chinese, and its Details say what was tried and what to do in Chinese, at ${width}px`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
       await setWindowSize(app, window, width, 700);
@@ -265,10 +269,14 @@ for (const width of [900, 1600]) {
       const details = notice.getByTestId("error-notice-details");
       await expect(details.locator("summary")).toHaveText("详情");
 
-      // Details keeps the English sentence, for a bug report.
+      // Details say it in Chinese too: nothing of the method, the class or the English sentence.
       await details.getByText("详情").click();
-      await expect(details).toContainText("core:renameDocument");
-      await expect(details).toContainText(`InvalidInputError: ${TOO_LONG}`);
+      await expect(details).toContainText("文档名称不能超过 500 个字符。");
+      await expect(details).toContainText("出错时，IncarnaMind 正在重命名文档。");
+      await expect(details).toContainText("请重试；如果仍然出错，请重启 IncarnaMind。");
+      await expect(details).not.toContainText("core:");
+      await expect(details).not.toContainText("InvalidInputError");
+      await expect(details).not.toContainText(TOO_LONG);
       await expect(details).not.toContainText("wording");
       await screenshot(window, `notice-zh-document-name-${width}`);
     } finally {

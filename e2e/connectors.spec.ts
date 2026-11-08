@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -32,6 +32,13 @@ async function approveInBrowser(fake: FakeRemote, authorizeUrl: string | undefin
   });
   expect(page.status).toBe(200);
   expect(await page.text()).toContain(`Signed in to ${name}`);
+}
+
+/** A Tool's choice is a pop-up button at its row's end: the option it shows, and picking another from its menu. */
+const approval = (tool: Locator) => tool.getByTestId("connector-tool-approval");
+async function pickApproval(tool: Locator, option: string) {
+  await approval(tool).click();
+  await tool.getByRole("menuitemradio", { name: option, exact: true }).click();
 }
 
 let dataDir: string;
@@ -73,10 +80,10 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   const book = tools.locator('[data-tool="book_boat"]');
   await expect(lookup).toHaveAttribute("data-read-only", "true");
   await expect(lookup.getByTestId("connector-tool-claim")).toHaveText("Reads");
-  await expect(lookup.getByRole("radio", { name: "Always allow" })).toBeChecked();
+  await expect(approval(lookup)).toHaveText("Always allow");
   await expect(book).toHaveAttribute("data-read-only", "false");
   await expect(book.getByTestId("connector-tool-claim")).toHaveText("May change things");
-  await expect(book.getByRole("radio", { name: "Ask every time" })).toBeChecked();
+  await expect(approval(book)).toHaveText("Ask every time");
 
   // The claim is only a hint: the read-only Tool can be switched to ask every time, which the
   // Privacy page lists, and revoking it there goes back to the default.
@@ -84,7 +91,7 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   await showSettingsPage(window, "privacy");
   await expect(approvals).toContainText("Nothing changed from the default.");
   await showSettingsPage(window, "connectors");
-  await lookup.getByText("Ask every time").click();
+  await pickApproval(lookup, "Ask every time");
   await expect(lookup).toHaveAttribute("data-asks", "true");
   await showSettingsPage(window, "privacy");
   const policy = approvals.getByTestId("approval-policy");
@@ -103,10 +110,10 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   await expect(policy).toHaveCount(0);
   await showSettingsPage(window, "connectors");
   await expect(lookup).toHaveAttribute("data-asks", "false");
-  await expect(lookup.getByRole("radio", { name: "Always allow" })).toBeChecked();
+  await expect(approval(lookup)).toHaveText("Always allow");
 
   // A Tool turned off isn't offered to Answers; the Privacy page lists it too.
-  await book.getByText("Off", { exact: true }).click();
+  await pickApproval(book, "Off");
   await expect(book).toHaveAttribute("data-off", "true");
   await showSettingsPage(window, "privacy");
   await expect(policy).toContainText("Tides · book_boat");
@@ -247,9 +254,26 @@ test("a remote Connector added by URL needs a sign-in, which goes through the br
     expect(await urlsOpened(app)).toEqual([]);
     expect(fake.registrations).toEqual([]);
 
-    // The service's tokens are kept with the keys: on Linux with no keyring, the User has
-    // accepted that first (in a form that saves a key; the sign-in doesn't offer it yet, #342).
-    await acceptPlainTextKeys(window);
+    // The service's tokens are kept with the keys: on Linux with no keyring, the sign-in
+    // itself offers the plain-text notice, and holds Sign in until it is accepted (#342).
+    const needsPlainText = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { protection, plainTextAccepted } = await bridge.getSecretStorage();
+      return protection === "plain-text" && !plainTextAccepted;
+    });
+    if (needsPlainText) {
+      const notice = connector.getByTestId("connector-sign-in-notice");
+      await expect(notice.getByTestId("plain-text-secrets")).toBeVisible();
+      await expect(connector.getByTestId("connector-sign-in")).toBeDisabled();
+      // A no-keyring runner is the only place this notice shows; keep it for the PR's evidence.
+      await mkdir("test-results", { recursive: true });
+      await window.screenshot({ path: "test-results/connector-sign-in-plain-text.png" });
+      await acceptPlainTextKeys(window, notice);
+      await expect(connector.getByTestId("connector-sign-in")).toBeEnabled();
+      await window.screenshot({
+        path: "test-results/connector-sign-in-plain-text-accepted.png",
+      });
+    }
     // Signing in opens the authorization request and waits for the browser.
     await connector.getByTestId("connector-sign-in").click();
     await expect(connector).toHaveAttribute("data-state", "signing-in");

@@ -20,88 +20,126 @@
     ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
+  /*
+   * Each colour is light-dark(the light theme's, the dark theme's) (#1262): the theme shown is the
+   * element's `color-scheme`, which <html> takes from Settings › General › Appearance (below,
+   * "Light or dark"). Dark keeps light's order, not an inverted copy: the sheet stays the lightest
+   * surface and the frame darker than it. Documents, pages and sheets stay paper-white in both.
+   */
+
   /* Surfaces and lines. */
-  --color-sheet: #ffffff;
-  --color-frame: #f4f5f7;
-  --color-rule: #e3e5e9;
-  --color-rule-strong: #d5d8dd;
-  --color-hover: #ebedf0;
-  --color-chip: #eef0f3;
-  /* The Mind tab strip, a step darker than the frame; an inactive tab's hover; the dividers between tabs. */
-  --color-tab-strip: #e6e8eb;
-  --color-tab-hover: #d9dce1;
-  --color-tab-divider: #c3c7ce;
+  --color-sheet: light-dark(#ffffff, #1e2024);
+  --color-frame: light-dark(#f4f5f7, #141518);
+  --color-rule: light-dark(#e3e5e9, #2c2f34);
+  --color-rule-strong: light-dark(#d5d8dd, #3a3e45);
+  --color-hover: light-dark(#ebedf0, #26292e);
+  /* One step past a hover, while a row or tab is pressed: made of the hover and the ink, so a theme that swaps those swaps this. */
+  --color-press: color-mix(in srgb, var(--color-hover), var(--color-ink) 6%);
+  --color-chip: light-dark(#eef0f3, #2a2d32);
+  /* The Mind tab strip, a step darker than the frame; an inactive tab's hover and press; the dividers between tabs. */
+  --color-tab-strip: light-dark(#e6e8eb, #0e0f11);
+  --color-tab-hover: light-dark(#d9dce1, #23262a);
+  --color-tab-press: color-mix(in srgb, var(--color-tab-hover), var(--color-ink) 8%);
+  --color-tab-divider: light-dark(#c3c7ce, #33373d);
+  /* What a Document's pages lie on in the viewer, and a Word-look Note's. */
+  --color-page-backdrop: light-dark(#eef0f3, #16181b);
   /* Text, darkest first. ink-meta passes 4.5:1 on sheet and frame. */
-  --color-ink: #17191c;
-  --color-ink-answer: #3b4048;
-  --color-ink-secondary: #4a4f57;
-  --color-ink-meta: #656b74;
-  --color-ink-placeholder: #8a9099;
+  --color-ink: light-dark(#17191c, #ecedef);
+  --color-ink-answer: light-dark(#3b4048, #c3c7cd);
+  --color-ink-secondary: light-dark(#4a4f57, #b2b7be);
+  --color-ink-meta: light-dark(#656b74, #8e949d);
+  --color-ink-placeholder: light-dark(#8a9099, #6a707a);
+  /* Text and icons on a filled control: the primary's ink, the accent, a check's colour, red. */
+  --color-on-primary: light-dark(#ffffff, #141518);
   /* Interaction: links, focus, selection. */
-  --color-accent: #2a5bd7;
-  --color-accent-strong: #1e46b0;
-  --color-accent-wash: #e7edfb;
+  --color-accent: light-dark(#2a5bd7, #7c9cff);
+  --color-accent-strong: light-dark(#1e46b0, #a3b9ff);
+  --color-accent-wash: light-dark(#e7edfb, #1d2747);
   /* The cells a User selected in a sheet, drawn as the system's selection is (#118). */
   --selection-wash: color-mix(in srgb, AccentColor, transparent 88%);
   --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
-  --color-selection-inactive: #dde1e7;
-  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
-  --color-success: #166534;
-  --color-success-wash: #dcf3e4;
-  --color-warning: #9a4a06;
-  --color-warning-wash: #fef3e2;
+  --color-selection-inactive: light-dark(#dde1e7, #33373d);
+  /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state. */
+  --color-success: light-dark(#166534, #5dc98b);
+  --color-success-wash: light-dark(#dcf3e4, #163022);
+  --color-warning: light-dark(#9a4a06, #f1a45e);
+  --color-warning-wash: light-dark(#fef3e2, #3a2715);
   /* Something waiting for the User, e.g. an approval. */
-  --color-attention: #d97706;
+  --color-attention: light-dark(#d97706, #f59e0b);
   /* A Tag awaiting review where Tags are dots: a hollow ring, darker than the orange dot. */
-  --color-review: #b45f06;
-  --color-danger: #b42318;
-  --color-danger-wash: #fef0ee;
+  --color-review: light-dark(#b45f06, #e58f33);
+  --color-danger: light-dark(#b42318, #f47067);
+  --color-danger-wash: light-dark(#fef0ee, #3b1c1a);
+  /* A destructive button pointed at: a step darker, as a primary is. */
+  --color-danger-strong: light-dark(#912018, #e35d54);
   /*
    * Tag colours (DESIGN.md, Tags; src/shared/tagColours.ts), bright and Finder-like:
    * a pale fill and its text, 7:1 or better, for named chips; a dot, for where a
    * Tag has no room for its name; and the dot's edge, a hairline darker where the
    * dot alone is under 3:1 on the frame, a hovered row or the sheet (the edge is 3:1
    * or better). A Tag awaiting review is a ring in `--color-review`, not a dot.
+   * In the dark theme every dot stands out 3:1 by itself, so its edge is the dot.
    */
-  --color-tag-red: #fbe3e2;
-  --color-tag-red-ink: #91201a;
+  --color-tag-red: light-dark(#fbe3e2, #3a2120);
+  --color-tag-red-ink: light-dark(#91201a, #f6b3ae);
   --color-tag-red-dot: #f25c54;
-  --color-tag-red-edge: #f14e46;
-  --color-tag-orange: #fbefe2;
-  --color-tag-orange-ink: #734714;
+  --color-tag-red-edge: light-dark(#f14e46, #f25c54);
+  --color-tag-orange: light-dark(#fbefe2, #3a2b1a);
+  --color-tag-orange-ink: light-dark(#734714, #f6c88e);
   --color-tag-orange-dot: #f7a03c;
-  --color-tag-orange-edge: #cc7108;
-  --color-tag-yellow: #f9f1d7;
-  --color-tag-yellow-ink: #624f11;
+  --color-tag-orange-edge: light-dark(#cc7108, #f7a03c);
+  --color-tag-yellow: light-dark(#f9f1d7, #363018);
+  --color-tag-yellow-ink: light-dark(#624f11, #ebd58a);
   --color-tag-yellow-dot: #f5c836;
-  --color-tag-yellow-edge: #a88308;
-  --color-tag-green: #e6f7ef;
-  --color-tag-green-ink: #1f5c3e;
+  --color-tag-yellow-edge: light-dark(#a88308, #f5c836);
+  --color-tag-green: light-dark(#e6f7ef, #183026);
+  --color-tag-green-ink: light-dark(#1f5c3e, #9fddbd);
   --color-tag-green-dot: #4cc38a;
-  --color-tag-green-edge: #339968;
-  --color-tag-teal: #e5f6f8;
-  --color-tag-teal-ink: #1b5962;
+  --color-tag-green-edge: light-dark(#339968, #4cc38a);
+  --color-tag-teal: light-dark(#e5f6f8, #152f33);
+  --color-tag-teal-ink: light-dark(#1b5962, #93d8e2);
   --color-tag-teal-dot: #3db8c9;
-  --color-tag-teal-edge: #2d95a3;
-  --color-tag-blue: #e2ebfb;
-  --color-tag-blue-ink: #1b4a98;
+  --color-tag-teal-edge: light-dark(#2d95a3, #3db8c9);
+  --color-tag-blue: light-dark(#e2ebfb, #1a2742);
+  --color-tag-blue-ink: light-dark(#1b4a98, #a9c6fa);
   --color-tag-blue-dot: #4a8cf7;
-  --color-tag-blue-edge: #3e84f6;
-  --color-tag-purple: #ebe2fb;
-  --color-tag-purple-ink: #5921bd;
+  --color-tag-blue-edge: light-dark(#3e84f6, #4a8cf7);
+  --color-tag-purple: light-dark(#ebe2fb, #28203f);
+  --color-tag-purple-ink: light-dark(#5921bd, #cdb6fa);
   --color-tag-purple-dot: #9b6cf0;
   --color-tag-purple-edge: #9b6cf0;
-  --color-tag-gray: #eef0f3;
-  --color-tag-gray-ink: #4a4f57;
+  --color-tag-gray: light-dark(#eef0f3, #2a2d32);
+  --color-tag-gray-ink: light-dark(#4a4f57, #c2c6cc);
   --color-tag-gray-dot: #9aa0a8;
-  --color-tag-gray-edge: #818993;
+  --color-tag-gray-edge: light-dark(#818993, #9aa0a8);
   /*
    * Charts (DESIGN.md, Colors): an earlier series in this light grey, the later
    * in `ink-secondary`, the value in focus in `accent`, a pie's slices (and
    * three series or more) in the Tag hues teal, purple, orange and yellow.
    */
-  --color-chart-prior: #b9bec6;
+  --color-chart-prior: light-dark(#b9bec6, #6a707a);
+  /*
+   * The format menu's eight text colours (formatCommands.ts). A Note keeps the light value, as a
+   * Word file does; the dark theme draws each a step lighter so it reads on the dark sheet.
+   */
+  --color-text-grey: light-dark(#6b7280, #9ca3af);
+  --color-text-brown: light-dark(#8b5e34, #c9935f);
+  --color-text-red: light-dark(#b42318, #f47067);
+  --color-text-orange: light-dark(#c2410c, #f38b4a);
+  --color-text-yellow: light-dark(#a16207, #e5b53a);
+  --color-text-green: light-dark(#15803d, #6ccb8e);
+  --color-text-blue: light-dark(#1d4ed8, #8aa8ff);
+  --color-text-purple: light-dark(#7e22ce, #c08bff);
+  /* Highlighted words in a Note, and the format menu's Highlight that makes them. */
+  --color-mark: light-dark(#fef08a, #4d4215);
+  /* Find in a Note: every match, and the one Enter is on. */
+  --color-find: light-dark(rgb(250 204 21 / 0.35), rgb(250 204 21 / 0.2));
+  --color-find-current: light-dark(rgb(250 204 21 / 0.85), rgb(250 204 21 / 0.4));
+  /* Shadows, faint to deep: a raised control or a page, a floating layer, a dialog or a scrolled edge. */
+  --color-shadow-soft: light-dark(rgb(23 25 28 / 0.06), rgb(0 0 0 / 0.3));
+  --color-shadow: light-dark(rgb(23 25 28 / 0.12), rgb(0 0 0 / 0.45));
+  --color-shadow-strong: light-dark(rgb(23 25 28 / 0.22), rgb(0 0 0 / 0.55));
 
   /* The type scale (DESIGN.md, Typography). */
   --text-display: 34px;
@@ -121,9 +159,13 @@
   --text-label: 12px;
   --text-label--line-height: 16px;
 
-  /* Depth for floating layers only; panes are flat. */
-  --shadow-popover: 0 0 0 1px var(--color-rule), 0 12px 32px rgb(23 25 28 / 0.12);
-  --shadow-dialog: 0 0 0 1px rgb(23 25 28 / 0.06), 0 24px 64px rgb(23 25 28 / 0.22);
+  /* Depth for floating layers only; panes are flat. On the dark frame an edge needs rule-strong to show. */
+  --shadow-popover:
+    0 0 0 1px light-dark(var(--color-rule), var(--color-rule-strong)),
+    0 12px 32px var(--color-shadow);
+  --shadow-dialog:
+    0 0 0 1px light-dark(rgb(23 25 28 / 0.06), var(--color-rule-strong)),
+    0 24px 64px var(--color-shadow-strong);
 }
 
 /*
@@ -156,13 +198,14 @@
  */
 @theme {
   /* Names in the sidebar and pane titles, secondary buttons' text, and a primary button's hover. */
-  --color-ink-strong: #2e3238;
-  /* A switch that is off. */
-  --color-control-off: #c9cdd3;
+  --color-ink-strong: light-dark(#2e3238, #dcdfe3);
+  /* A switch that is off, and its knob. */
+  --color-control-off: light-dark(#c9cdd3, #4a4f57);
+  --color-control-knob: light-dark(#ffffff, #d5d8dd);
   /* A chosen row in a list of choices, and its hover. */
-  --color-wash: #f7f8fa;
+  --color-wash: light-dark(#f7f8fa, #232529);
   /* Behind a dialog. */
-  --color-scrim: rgb(23 25 28 / 0.32);
+  --color-scrim: light-dark(rgb(23 25 28 / 0.32), rgb(0 0 0 / 0.5));
 }
 
 /* A thin, quiet scrollbar: the sidebar's tree shows that it scrolls without taking room from its rows. */
@@ -221,6 +264,33 @@
   /* Panes sit on the sheet; the sidebar paints its own frame. */
   body {
     @apply bg-sheet font-sans text-ink antialiased;
+  }
+
+  /*
+   * Light or dark (#1262): the system's appearance, followed live, until the User picks one in
+   * Settings › General › Appearance, which <html data-theme> then holds whatever the system says.
+   * Before the page's script runs, the main process has already told Electron the kept choice,
+   * so the first frame is in it. A Document's page sets `color-scheme: light` and so stays on
+   * paper, every token inside it taking its light value.
+   */
+  :root {
+    color-scheme: light dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  /* The system's Increase contrast: rules and the quieter inks a step stronger, in both themes. */
+  @media (prefers-contrast: more) {
+    :root {
+      --color-rule: light-dark(#c3c7ce, #4a4f57);
+      --color-rule-strong: light-dark(#8a9099, #6a707a);
+      --color-ink-meta: light-dark(#4a4f57, #b2b7be);
+      --color-ink-placeholder: light-dark(#656b74, #8e949d);
+    }
   }
 
   /*
@@ -326,8 +396,8 @@
   }
   /*
    * The divider between the sidebar and the card is the 8px gap itself: no
-   * rule at rest, a hairline while pointed at and the focus ring's line when
-   * reached by keyboard, with the grip over it.
+   * rule at rest, a hairline while pointed at and the focus ring when reached
+   * by keyboard, with the grip over it.
    */
   .pane-divider--gap {
     width: 8px;
@@ -343,8 +413,10 @@
         no-repeat;
     }
     &:focus-visible {
-      background:
-        linear-gradient(var(--color-accent), var(--color-accent)) center / 2px 100% no-repeat;
+      background: transparent;
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+      border-radius: 4px;
     }
   }
   /*
@@ -379,8 +451,10 @@
         no-repeat;
     }
     &:focus-visible {
-      background:
-        linear-gradient(var(--color-accent), var(--color-accent)) center / 100% 2px no-repeat;
+      background: transparent;
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+      border-radius: 4px;
     }
   }
 
@@ -549,7 +623,8 @@
     margin: 0;
     border-radius: 9999px;
     background: var(--color-control-off)
-      radial-gradient(circle at center, var(--color-sheet) 7.5px, transparent 8px) no-repeat;
+      radial-gradient(circle at center, var(--switch-knob) 7.5px, transparent 8px) no-repeat;
+    --switch-knob: var(--color-control-knob);
     background-size: 20px 20px;
     background-position: 0 0;
     cursor: pointer;
@@ -559,6 +634,7 @@
 
     &:checked,
     &[data-on] {
+      --switch-knob: var(--color-on-primary);
       background-color: var(--color-ink);
       background-position: 16px 0;
     }
@@ -570,6 +646,25 @@
       cursor: default;
       opacity: 0.5;
     }
+  }
+
+  /*
+   * A Settings group (components/settings/): one rounded sheet of rows. A hairline runs between
+   * rows from the text edge (`--row-inset`, 16px unless a row has an icon before its words) to the
+   * group's edge, and none shows under the last.
+   */
+  .settings-row {
+    position: relative;
+  }
+  .settings-row + .settings-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: var(--row-inset, 16px);
+    height: 1px;
+    background: var(--color-rule);
+    pointer-events: none;
   }
 
   :root:not([data-motion="on"]) :is(.pane-divider, .switch),
@@ -627,9 +722,6 @@
     padding-right: max(4px, var(--window-buttons-right));
     background: var(--color-tab-strip);
   }
-  .tab-strip[data-quiet] {
-    background: transparent;
-  }
   /* Only the last group reaches the window's buttons. */
   .tab-group:not(:last-of-type) {
     --window-buttons-right: 0px;
@@ -647,13 +739,7 @@
   :root[data-title-bar="inset"] .app-card[data-sidebar-hidden] .tab-strip > .sidebar-toggle {
     margin-left: 0;
   }
-  /*
-   * The window's first group starts flush against the card's left edge: its
-   * shown first tab has no left foot and a rounded corner. A later group's
-   * tabs start 10px in from the divider, so its shown first tab keeps its
-   * left foot and the divider stays one line. The 10px end padding is room for
-   * the last tab's right foot.
-   */
+  /* 10px at each end: room for the shown tab's feet when it is first or last. */
   .tab-list {
     display: flex;
     flex: 0 1 auto;
@@ -671,9 +757,6 @@
     &::-webkit-scrollbar {
       display: none;
     }
-  }
-  .tab-strip[data-first-group] .tab-list {
-    padding-left: 0;
   }
   /* Fades out on a side where tabs are scrolled out of sight. */
   .tab-list[data-hidden-before] {
@@ -775,6 +858,9 @@
   .tab:not([aria-selected="true"]):hover .tab-inner {
     background: var(--color-tab-hover);
   }
+  .tab:not([aria-selected="true"]):active .tab-inner {
+    background: var(--color-tab-press);
+  }
   /* The shown tab's feet: 10px concave curves outside its bottom corners, in the sheet. */
   .tab-foot {
     display: none;
@@ -794,15 +880,6 @@
   }
   .tab[aria-selected="true"] .tab-foot {
     display: block;
-  }
-  /* The window's first tab, shown, starts at the card's edge: no left foot, its content inset 16px. */
-  .tab-strip[data-first-group] .tab:first-child[aria-selected="true"] {
-    .tab-inner {
-      padding-left: 16px;
-    }
-    .tab-foot[data-side="left"] {
-      display: none;
-    }
   }
   /* The tab's icon: its kind, or in a Mind's place what the Mind is busy with. */
   .tab-icon {
@@ -832,7 +909,8 @@
   }
   /*
    * A Meeting recording, on its tab and in its bar: a small red dot, the one
-   * red outside Citation checks (the owner's choice), grey while paused.
+   * red outside Citation checks (the owner's choice), grey while paused or
+   * while the system's permission prompt is open.
    */
   .recording-dot {
     flex-shrink: 0;
@@ -841,7 +919,8 @@
     border-radius: 9999px;
     background: var(--color-danger);
 
-    &[data-status="paused"] {
+    &[data-status="paused"],
+    &[data-status="waiting"] {
       background: var(--color-ink-meta);
     }
   }
@@ -935,6 +1014,9 @@
       background: var(--color-tab-hover);
       color: var(--color-ink);
     }
+    &:active {
+      background: var(--color-tab-press);
+    }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
       outline-offset: -2px;
@@ -983,6 +1065,15 @@
     border-radius: 6px;
     font-size: 13px;
     line-height: 20px;
+  }
+  /* Waiting for a Note to export: the same button, quiet and inert. */
+  .tab-export[aria-disabled="true"] {
+    color: var(--color-ink-placeholder);
+
+    &:hover {
+      background: transparent;
+      color: var(--color-ink-placeholder);
+    }
   }
   .tab-strip-button {
     min-width: 28px;
@@ -1281,6 +1372,7 @@
     color: var(--color-danger);
   }
 
+  /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
     position: absolute;
     top: 16px;
@@ -1288,6 +1380,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    border-radius: 6px;
+    background: var(--color-sheet);
   }
 
   /*
@@ -1585,6 +1679,10 @@
       background: linear-gradient(to top, var(--color-sheet) 44px, transparent);
     }
   }
+  /* Above the Ask pill's 20px and 40px, when it may stand at this group's foot. */
+  .mind-foot-slot--over-pill {
+    padding-bottom: 68px;
+  }
   .mind-foot-count {
     position: relative;
     min-width: 0;
@@ -1635,9 +1733,10 @@
       outline-offset: 1px;
     }
   }
-  /* A running badge, or one whose card is open, keeps one width, so its words changing move
-     nothing; at rest it takes only its words' width, clear of the page's foot. The button fills
-     the pill, and its words start at one edge, so a change widens it without moving them. */
+  /* A running badge, or one showing a finished check, keeps one width, so its words changing move
+     nothing; at rest it takes only its words' width, clear of the page's foot, and opening the
+     card leaves it as it was. The button fills the pill, and its words start at one edge, so a
+     change widens it without moving them. */
   .check-badge[data-stable] {
     justify-content: flex-start;
     min-width: 252px;
@@ -1863,15 +1962,37 @@
       padding-left: 0;
     }
   }
+  /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
+     keeps the Check's own size and the words' length never moves it (#2313). */
+  .check-card-press {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+
+    & > [data-hidden] {
+      visibility: hidden;
+    }
+  }
+  .check-card-progress {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    padding-left: 0;
+  }
+  /* The foot's Stop is the badge's own, in the line's height. */
+  .check-card-progress .check-badge-stop {
+    height: 20px;
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
-    padding: 0 8px 6px;
-
-    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
-    &:empty::before {
-      content: "\00a0";
-    }
+    padding: 6px 8px 4px;
   }
   .check-card-note {
     padding: 4px 8px 6px;
@@ -1879,11 +2000,6 @@
     line-height: 18px;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
-
-    /* A run ends a moment before its record reaches the Mind: the line keeps its one line. */
-    &:empty::before {
-      content: "\00a0";
-    }
   }
   .check-card-actions {
     display: flex;
@@ -1936,8 +2052,74 @@
   .check-card-ask-title {
     font-weight: 600;
     color: var(--color-ink);
-    /* A Chinese question would otherwise leave one character alone on its last line. */
-    text-wrap: pretty;
+    /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
+    text-wrap: balance;
+  }
+  /* At the viewer's foot while a sentence waits for its Citation (#1554), as an export's result line floats. */
+  /* The page's scroll area: the line floats over it, above what runs under it (a sheet's row-limit line, its tabs). */
+  .viewer-pane :is(.viewer-backdrop, .viewer-grid-scroll) {
+    anchor-name: --viewer-page;
+  }
+  .citation-pick-line-place {
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 24px;
+    bottom: calc(anchor(--viewer-page bottom, 0px) + 24px);
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+  }
+  .citation-pick-line {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 8px 8px 8px 12px;
+    border-radius: 8px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-secondary);
+
+    & b {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+  }
+  /* The two actions keep together, after the words or under them, their words lined up with these. */
+  .citation-pick-line-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 18px;
+    min-width: 0;
+  }
+  .citation-pick-line-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+    margin-inline-start: -10px;
+  }
+  .citation-pick-line-sentence {
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The pages end lower while the line shows, so their last lines can scroll clear of it. */
+  .viewer-pane[data-foot-line] :is(.viewer-backdrop, .viewer-grid-scroll) {
+    padding-bottom: var(--viewer-foot-room);
+  }
+  /* Continue starts its own line, so it stands in one place however long the words are, in either language (#1554). */
+  .claim-stop-line > .meta-part:last-child {
+    flex-basis: 100%;
   }
   .check-card-ask-actions {
     display: flex;
@@ -2062,6 +2244,11 @@
     --check-gap: 8px;
 
     position: relative;
+  }
+  /* A Note with a Word file's look is that file's page, so it stays on paper in both themes (#1262). */
+  .mind-tab-page:has(.mind-editor-frame--word) {
+    color-scheme: light;
+    background: var(--color-sheet);
   }
 
   /*
@@ -2380,6 +2567,9 @@
     visibility: hidden;
     pointer-events: none;
   }
+  .meeting-bar-space {
+    margin-bottom: 24px;
+  }
   /* Hangs in the 24px the bar keeps below it; notes scrolled under the bar pass behind it, not through it. */
   .meeting-bar .meeting-line-over {
     position: absolute;
@@ -2492,35 +2682,65 @@
     width: 24px;
     padding: 0;
   }
-  /* Show transcript, at the bar's far end; its words give way first in a narrow Mind. */
-  .meeting-button--end {
-    flex-shrink: 1;
-    min-width: 0;
+  /* Notes | Transcript, at the bar's far end; the Transcript carries the level bars (#138). */
+  .meeting-views {
     margin-left: auto;
-
-    &:disabled {
-      color: var(--color-ink-placeholder);
-      background: none;
-    }
+  }
+  .meeting-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .meeting-button-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /*
+   * The meeting's Transcript in its Note's page, while it records: the bar stands where it stands
+   * over the notes, so switching moves nothing but the page under it.
+   */
+  .meeting-note-transcript-top {
+    flex-shrink: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    scrollbar-gutter: stable;
+  }
+  .meeting-beside {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    margin-left: auto;
+    padding: 0 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    color: var(--color-ink-secondary);
+
+    &:hover:not(:disabled) {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:disabled {
+      color: var(--color-ink-placeholder);
+    }
+  }
   .meeting-more {
     display: none;
   }
   /*
    * As the bar narrows its buttons give up their words and keep their icons (their names and
-   * keys are in their tooltips), then Mark, then Call help, then the transcript and details
-   * buttons fold into the ⋯. The state and timer, Pause my mic, Pause and Stop stay. By the
-   * bar's own width, so nothing is measured and nothing moves while the window is dragged. A
-   * row needs, in English, which needs most: 567px with words, 334px with icons, 308px without
-   * Call help (Mark is folded for the same width the ⋯ takes) and 256px with only the four that
-   * stay and the ⋯; each query below leaves 12px over that.
+   * keys are in their tooltips), then Mark and Call help, then the details button fold into the
+   * ⋯; then "Recording" leaves the dot and the timer, and the Transcript its level bars. The
+   * state and timer, Pause my mic, Pause, Stop and Notes | Transcript stay. By the bar's own
+   * width, so nothing is measured and nothing moves while the window is dragged. A row needs, in
+   * English: 585px with words, 439px with icons, 413px without Mark and Call help (the ⋯ takes
+   * Mark's place), 387px without details, 317px without "Recording" and 291px without the level
+   * bars; in Chinese, whose words are shorter, 395px, 369px, 343px, 287px and 261px. Each query
+   * is the width that still fits.
    */
-  @container meeting-bar (width < 580px) {
+  @container meeting-bar (width < 586px) {
     .meeting-button--words {
       justify-content: center;
       width: 24px;
@@ -2531,26 +2751,66 @@
       display: none;
     }
   }
-  @container meeting-bar (width < 346px) {
-    .meeting-more {
-      display: inline-flex;
+  @container meeting-bar (width < 440px) {
+    :root:not(:lang(zh)) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
     }
-    [data-fold="mark"] {
+  }
+  @container meeting-bar (width < 396px) {
+    :root:lang(zh) {
+      & .meeting-more {
+        display: inline-flex;
+      }
+      & [data-fold="mark"],
+      & [data-fold="help"] {
+        display: none;
+      }
+    }
+  }
+  @container meeting-bar (width < 414px) {
+    :root:not(:lang(zh)) [data-fold="details"] {
       display: none;
     }
   }
-  @container meeting-bar (width < 340px) {
-    [data-fold="help"] {
+  @container meeting-bar (width < 370px) {
+    :root:lang(zh) [data-fold="details"] {
       display: none;
     }
   }
-  @container meeting-bar (width < 320px) {
-    [data-fold="transcript"],
-    [data-fold="details"] {
+  @container meeting-bar (width < 388px) {
+    :root:not(:lang(zh)) .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 344px) {
+    :root:lang(zh) .meeting-bar[data-kind="meeting"] .meeting-state-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @container meeting-bar (width < 318px) {
+    :root:not(:lang(zh)) .meeting-views .level-meter {
       display: none;
     }
-    .meeting-more {
-      margin-left: auto;
+  }
+  @container meeting-bar (width < 288px) {
+    :root:lang(zh) .meeting-views .level-meter {
+      display: none;
     }
   }
   /* A quiet 22px chip: no fill until pointed at (the model, "All Documents"). */
@@ -2580,6 +2840,11 @@
   }
   .composer-scope-waiting {
     visibility: hidden;
+  }
+  /* The Search scope is never cut short beside the model: the model's name gives way first. */
+  .composer-scope-all,
+  .composer-scope-waiting {
+    flex-shrink: 0;
   }
   .composer-chip-icon {
     width: 12px;
@@ -2633,11 +2898,14 @@
     height: 24px;
     border-radius: 6px;
     background: var(--color-ink);
-    color: #fff;
+    color: var(--color-on-primary);
     transition: background-color 80ms ease-out;
 
     &:hover {
       background: var(--color-ink-strong);
+    }
+    &:active:not(:disabled) {
+      transform: scale(0.98);
     }
     &:disabled {
       background: var(--color-frame);
@@ -2653,10 +2921,10 @@
     background:
       linear-gradient(var(--color-sheet) 30%, transparent) 0 0 / 100% 28px no-repeat local,
       linear-gradient(transparent, var(--color-sheet) 70%) 0 100% / 100% 28px no-repeat local,
-      radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.22), transparent) 0 0 / 100% 10px
-      no-repeat scroll,
-      radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.22), transparent) 0 100% / 100% 10px
-      no-repeat scroll,
+      radial-gradient(farthest-side at 50% 0, var(--color-shadow-strong), transparent) 0 0 / 100%
+      10px no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, var(--color-shadow-strong), transparent) 0 100% /
+      100% 10px no-repeat scroll,
       var(--color-sheet);
   }
   /* The "@" and "/" pickers: above the composer, at its left edge. */
@@ -2906,6 +3174,30 @@
     [data-text-color] {
       color: var(--text-color);
     }
+    [data-text-color="6B7280"] {
+      color: var(--color-text-grey);
+    }
+    [data-text-color="8B5E34"] {
+      color: var(--color-text-brown);
+    }
+    [data-text-color="B42318"] {
+      color: var(--color-text-red);
+    }
+    [data-text-color="C2410C"] {
+      color: var(--color-text-orange);
+    }
+    [data-text-color="A16207"] {
+      color: var(--color-text-yellow);
+    }
+    [data-text-color="15803D"] {
+      color: var(--color-text-green);
+    }
+    [data-text-color="1D4ED8"] {
+      color: var(--color-text-blue);
+    }
+    [data-text-color="7E22CE"] {
+      color: var(--color-text-purple);
+    }
     [data-text-font] {
       font-family: var(--text-font);
     }
@@ -3093,14 +3385,14 @@
     a {
       color: var(--color-accent);
       text-decoration: underline;
-      text-decoration-color: rgb(42 91 215 / 0.4);
+      text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
       text-underline-offset: 2px;
     }
 
     /* Highlighted text. */
     mark {
       border-radius: 2px;
-      background: #fef08a;
+      background: var(--color-mark);
       color: inherit;
       box-decoration-break: clone;
       -webkit-box-decoration-break: clone;
@@ -3629,6 +3921,16 @@
   .mind-editor > .answer-folded {
     display: none;
   }
+  /* What My notes hides: lines of AI text only (see editor/myNotes). */
+  .mind-editor .my-notes-hidden {
+    display: none;
+  }
+  .my-notes-empty {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta--line-height);
+    color: var(--color-ink-meta);
+    margin-bottom: 8px;
+  }
   /* What it searched, opened from its meta line: under its text. */
   .answer-searches-open {
     font-family: var(--font-sans);
@@ -3711,7 +4013,7 @@
   }
   .answer-writing--waiting {
     font-weight: 600;
-    color: #92400e;
+    color: var(--color-warning);
 
     &::before {
       background: var(--color-attention);
@@ -3915,7 +4217,7 @@
     border: 1px solid var(--color-rule);
     border-radius: 8px;
     background: var(--color-sheet);
-    box-shadow: 0 1px 2px rgb(23 25 28 / 0.04);
+    box-shadow: 0 1px 2px var(--color-shadow-soft);
     font-family: var(--font-sans);
     color: var(--color-ink);
     user-select: none;
@@ -4025,7 +4327,7 @@
     background: var(--color-sheet);
     font-size: 13px;
     font-weight: 600;
-    color: #2e3238;
+    color: var(--color-ink-strong);
 
     &:hover {
       background: var(--color-frame);
@@ -4035,10 +4337,13 @@
     padding: 0 14px;
     border-color: transparent;
     background: var(--color-ink);
-    color: #fff;
+    color: var(--color-on-primary);
 
     &:hover {
-      background: #2e3238;
+      background: var(--color-ink-strong);
+    }
+    &:active:not(:disabled) {
+      transform: scale(0.98);
     }
   }
   .approval-button--ghost {
@@ -4052,7 +4357,16 @@
       color: var(--color-ink);
     }
   }
-  /* In the assistant's narrower column the choices take less room; when they don't fit beside the text, a narrow tray or a wide system font wraps them under it, Deny last (#400). */
+  /* An approval's choices in one row at the card's right: Deny, then the wider consent, then the one to do. */
+  .approval-actions--row {
+    justify-content: flex-end;
+    padding-left: 16px;
+
+    & .approval-button--ghost {
+      margin-left: 0;
+    }
+  }
+  /* In the assistant's narrower column the choices take less room; when they don't fit in a row, a narrow tray or a wide system font wraps them (#400). */
   .assistant-answer .approval-actions {
     gap: 4px;
     padding-right: 8px;
@@ -4116,7 +4430,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 3px;
-    color: #fff;
+    color: var(--color-on-primary);
 
     &[data-on] {
       background: var(--color-accent);
@@ -4208,6 +4522,23 @@
     max-height: 40vh;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  .answer-asked {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
+  .answer-asked-question {
+    margin: 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--color-ink-answer);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .answer-asked-turn .assistant-question {
+    margin-top: 0;
   }
   .answer-asked-line {
     font-size: 13px;
@@ -4644,6 +4975,13 @@
   .mind-editor .applied-line--problem {
     color: var(--color-ink-meta);
   }
+  /* Kept in sight at the top of the view, a line lies over its Block's words: the page's colour
+     under it keeps it readable, above them (#2123). */
+  .mind-editor .applied-line--floating {
+    position: relative;
+    z-index: 1;
+    background: var(--color-sheet);
+  }
   .applied-problem-dot {
     flex: none;
     width: 6px;
@@ -4714,9 +5052,13 @@
   }
   .change-bar-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
     min-width: 0;
+  }
+  /* A part joined to the one before it by a dot, as a `.meta-line` joins its parts (#684). */
+  .change-bar-dotted {
+    flex-shrink: 0;
   }
   /* Why the assistant made the change (#202), under the bar while the cursor is in it. */
   .change-bar-why {
@@ -4724,18 +5066,10 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
-  .change-bar-position {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .change-bar-drops {
     color: var(--color-warning);
   }
   .change-bar-author {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
   /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */
@@ -5160,7 +5494,8 @@
   .mind-picture-block {
     margin: 16px 0;
 
-    &.ProseMirror-selectednode .mind-picture-block-image {
+    &.ProseMirror-selectednode .mind-picture-block-image,
+    &[data-picture-selected] .mind-picture-block-image {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
@@ -6026,7 +6361,7 @@
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
     font-size: 13px;
     font-weight: 600;
-    color: #2e3238;
+    color: var(--color-ink-strong);
 
     &:hover:not(:disabled) {
       background: var(--color-frame);
@@ -6040,10 +6375,11 @@
   .citation-card-action--primary {
     background: var(--color-ink);
     box-shadow: none;
-    color: #fff;
+    color: var(--color-on-primary);
 
-    &:hover {
-      background: #2e3238;
+    /* As specific as the plain action's hover, so the primary fill keeps its own text colour (#2288). */
+    &:hover:not(:disabled) {
+      background: var(--color-ink-strong);
     }
   }
   /*
@@ -6356,7 +6692,7 @@
     .format-highlight {
       padding: 0 3px;
       border-radius: 2px;
-      background: #fef08a;
+      background: var(--color-mark);
       color: var(--color-ink);
     }
     /* The footnote button's label is a word with a raised number, as Word's is. */
@@ -6505,7 +6841,7 @@
     height: 20px;
     flex-shrink: 0;
     border-radius: 4px;
-    box-shadow: inset 0 0 0 1px rgb(23 25 28 / 0.12);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 12%, transparent);
     outline-offset: 1px;
 
     &[aria-checked="true"] {
@@ -6730,11 +7066,11 @@
   }
   .find-match {
     border-radius: 2px;
-    background: rgb(250 204 21 / 0.35);
+    background: var(--color-find);
     color: inherit;
   }
   .find-match--current {
-    background: rgb(250 204 21 / 0.85);
+    background: var(--color-find-current);
   }
   .mind-outline {
     width: min(320px, 92vw);
@@ -7218,7 +7554,7 @@
     background: var(--color-sheet);
     box-shadow:
       0 0 0 2px var(--color-accent),
-      0 12px 32px rgb(23 25 28 / 0.12);
+      0 12px 32px var(--color-shadow);
     opacity: 0.94;
     pointer-events: none;
     transition: opacity 80ms ease-out;
@@ -7440,10 +7776,11 @@
    */
   .assistant-thread {
     --scrollbar: 8px;
+    --fade-bleed: 12px;
 
     flex: 1 1 auto;
     min-height: 0;
-    padding: 12px calc(var(--edge) - var(--scrollbar)) 12px var(--edge);
+    padding: 12px calc(var(--edge) - var(--scrollbar)) var(--fade-bleed) var(--edge);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -7456,18 +7793,32 @@
       border-radius: 4px;
       background: var(--color-rule-strong) padding-box;
     }
-
-    /* The last 12px above the composer fade to the sheet, so text never meets its edge. */
-    &::after {
-      content: "";
-      position: sticky;
-      bottom: 0;
-      display: block;
-      height: 12px;
-      margin-top: -12px;
-      background: linear-gradient(to bottom, transparent, var(--color-sheet));
-      pointer-events: none;
-    }
+  }
+  /*
+   * A line the foot of a scrolling frame cuts fades out whole instead of looking sliced (#614,
+   * #2616). `lh` is the frame's line height, so the fade follows its text size.
+   */
+  .scroll-fade::after {
+    content: "";
+    position: sticky;
+    /* A sticky box stops at the frame's padding, so a frame with padding below reaches into it (--fade-bleed) to end at its foot. */
+    bottom: calc(0px - var(--fade-bleed, 0px));
+    display: none;
+    height: 1.5lh;
+    margin-top: -1.5lh;
+    background: linear-gradient(to bottom, transparent, var(--color-sheet));
+    pointer-events: none;
+  }
+  .scroll-fade[data-more-after]::after {
+    display: block;
+  }
+  /*
+   * What a scroll into view brings to the foot (the Answer a link back seeks, the keyboard moving
+   * focus) stops above the fade rather than under it (#2622): the frame keeps the fade's height
+   * clear at its bottom.
+   */
+  .scroll-fade {
+    scroll-padding-bottom: 1.5lh;
   }
   .assistant-empty {
     margin: 0;
@@ -8550,7 +8901,7 @@
   .answer-steps-part--end {
     padding-left: 6px;
   }
-  /* The Documents read beside the Mind: a long name is cut, and the chevron stays. */
+  /* A Document named beside the Mind: a long name is cut, and the chevron stays. A count has no such class: it never shrinks, and the Mind's name gives way to it. */
   .answer-steps-part--tail {
     flex: 0 1 auto;
     min-width: 0;
@@ -8592,8 +8943,43 @@
    * change (a layout shift the feel check counts).
    */
   .answer-steps-live {
+    /* The wait takes the first form that fits (#2531): its own row when it cannot. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     position: relative;
     align-self: stretch;
+  }
+  .answer-steps-live-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
+  .answer-steps-live-row--second {
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .answer-steps-wait-measures {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .answer-steps-wait-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    white-space: nowrap;
   }
   .answer-steps-live-toggle {
     display: inline-flex;
@@ -8645,22 +9031,13 @@
     background: var(--color-attention);
     animation: none;
   }
+  /*
+   * The wait that joins the live line after 15 seconds (#2530, #2531): never
+   * dropped; the form is measured so the step's own words stay whole.
+   */
   .answer-steps-wait {
-    max-width: calc(100% - 20px);
-    margin: 0 0 0 20px;
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--color-ink-meta);
-  }
-  .answer-steps-wait-stop {
-    padding: 0;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+    flex: none;
+    white-space: nowrap;
   }
   .answer-timeline {
     display: flex;
@@ -11728,7 +12105,7 @@ body.assistant-dragging * {
   padding: 3px 10px;
   border-radius: 6px;
   background: var(--color-accent);
-  color: #ffffff;
+  color: var(--color-on-primary);
   font-size: 12px;
   line-height: 18px;
 }

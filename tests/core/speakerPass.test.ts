@@ -4,7 +4,13 @@ import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import { labelled } from "../../src/core/meetings/speakerPass";
 import { createTempDataFolder } from "../helpers/core";
-import { fakeSeparator, transcribingCore, until } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  recordedCall,
+  savedCues,
+  transcribingCore,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 
@@ -15,33 +21,10 @@ const line = (startMs: number, speaker: string): Cue => ({
   speaker,
 });
 
-async function savedCues(core: Core, meetingId: string) {
-  const saved = await until(
-    core,
-    meetingId,
-    (transcript) => transcript.state === "saved" && !transcript.separating,
-  );
-  return readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
-}
-
 async function meetingOf(core: Core, meetingId: string) {
   const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
   if (!meeting) throw new Error(`No Meeting ${meetingId}`);
   return meeting;
-}
-
-async function recordedCall(
-  dataDir: string,
-  options: Parameters<typeof transcribingCore>[1] = {},
-  sources: ("microphone" | "system")[] = ["microphone", "system"],
-) {
-  const { core, record } = await transcribingCore(dataDir, options);
-  const meeting = await core.createMeeting();
-  await core.startMeeting({ meetingId: meeting.id, systemAudio: sources.includes("system") });
-  record(25 * SECOND, sources);
-  await until(core, meeting.id, (transcript) => transcript.lines >= 8);
-  await core.stopMeeting(meeting.id);
-  return { core, meeting };
 }
 
 describe("The labels the speaker pass gives (#138)", () => {

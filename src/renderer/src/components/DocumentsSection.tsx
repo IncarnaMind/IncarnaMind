@@ -1,17 +1,19 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
-import type { Document, DocumentStatus, Tag } from "../../../core/api";
+import type { Document, DocumentStatus, Mind, Tag } from "../../../core/api";
 import { ADDABLE_FILES_ACCEPT } from "../../../shared/addFilesAction";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
-import { addFilesLabel } from "../addFilesAction";
 import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
+import { useExampleFoldDocuments } from "../exampleFold";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { isListedDocument } from "../meetingTranscript";
+import { useOrganizeReview } from "../organizeReview";
 import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
@@ -22,6 +24,7 @@ import {
   useSelectionOrder,
   useSeveralSelected,
 } from "../selection";
+import { heldWhileAdding } from "../sidebarList";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
@@ -32,13 +35,11 @@ import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
-import { LibraryFolders } from "./LibraryFolders";
+import { Contents, LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
-import { MindRow } from "./MindRow";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
-import { ProblemLine } from "./ProblemLine";
 import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
 import { SidebarSearch } from "./SidebarSearch";
@@ -70,6 +71,7 @@ const shortStatusMessages: Record<DocumentStatus, MessageKey | null> = {
 };
 
 const NO_DOCUMENTS: readonly Document[] = [];
+const NO_MINDS: readonly Mind[] = [];
 
 /**
  * The sidebar's tree, the same on every screen: Home, Search and the Library, then
@@ -77,7 +79,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
  * use (see `SidebarTags`). On a first open it waits, with the rest of the shell, until the User
- * has a Document or a Note of their own, and then it is there (#2376). Each Document is one
+ * has a Document or a Note of their own, and then it is there (#2376); until then it holds the
+ * Examples: the example Note, then its Documents. Each Document is one
  * row: its name, its Tags' colours (see `TagMarks`) and, while it's processed, if it failed, or
  * if its file is missing or can't be reached, its status at the end. Its Tags are in its Tags
  * menu, and the Tags dialog; its "More" menu renames it, moves it, opens its file or shows it in
@@ -89,6 +92,12 @@ export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const libraryDocuments = useLibraryDocuments();
+  const heldDocuments = useAppStore((state) => state.heldDocuments);
+  // The count above follows every Document; the tree holds its rows until a batch lands (#1329).
+  const treeDocuments = useMemo(
+    () => heldWhileAdding(libraryDocuments, heldDocuments),
+    [libraryDocuments, heldDocuments],
+  );
   const libraryShown = useLibraryShown();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
@@ -97,6 +106,7 @@ export function DocumentsSection() {
   const quiet = firstOpen && !hasOwnDocuments;
   // The example folds to one row once the User has a Document of their own (#1944), and only while
   // its Mind is there for that row to open: its Documents and folder stay reachable without one.
+  // Opening one of its Documents lists them under that row again (see `useExampleFoldDocuments`).
   const exampleMindId = useAppStore((state) => {
     const id = state.examples?.mindId;
     return id !== null && id !== undefined && state.minds.some((each) => each.id === id)
@@ -112,6 +122,8 @@ export function DocumentsSection() {
       .join(" "),
   );
   const foldExamples = hasOwnDocuments && exampleMindId !== null;
+  const exampleDocuments = useExampleFoldDocuments();
+  const exampleMinds = useMemo(() => (exampleMind ? [exampleMind] : NO_MINDS), [exampleMind]);
   const folded = useMemo(
     () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
     [foldExamples, exampleFolders],
@@ -129,7 +141,7 @@ export function DocumentsSection() {
   const addDocuments = useAppStore((state) => state.addDocuments);
   const treeIsEmpty = useAppStore(
     (state) =>
-      state.documents.length === 0 &&
+      !state.documents.some(isListedDocument) &&
       state.minds.length === 0 &&
       (state.library?.groups.length ?? 0) === 0 &&
       state.linkedFolders.length === 0,
@@ -137,6 +149,10 @@ export function DocumentsSection() {
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
+  const counted = useOrganizeReview((state) => state.count);
+  const waitingNow = useAppStore((state) => state.library?.reviewCount ?? 0);
+  const reviewing = useOrganizeReview((state) => state.open);
+  const waiting = reviewing ? 0 : (counted ?? waitingNow);
   // ⌘A and Shift-click reach the rows in view: every Folder, Mind and Document the tree draws.
   useSelectionOrder("sidebar", () => rowsIn(tree.current));
   useSelectionFollowsShown(tree);
@@ -210,12 +226,28 @@ export function DocumentsSection() {
           >
             <DocumentLineIcon kind="text" className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
-            <span
-              data-testid="library-row-count"
-              className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
-            >
-              {formatCount(libraryDocuments.length, language)}
-            </span>
+            {waiting > 0 ? (
+              // What waits to be confirmed, as Mail counts unread (#1569).
+              <span
+                data-testid="library-row-count"
+                data-waiting="true"
+                className="min-w-[6ch] text-right text-[12px] font-bold tabular-nums text-ink"
+              >
+                <span aria-hidden="true">{formatCount(waiting, language)}</span>
+                <span className="sr-only">
+                  {t(waiting === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
+                    count: formatCount(waiting, language),
+                  })}
+                </span>
+              </span>
+            ) : (
+              <span
+                data-testid="library-row-count"
+                className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
+              >
+                {formatCount(libraryDocuments.length, language)}
+              </span>
+            )}
           </button>
           <div className={rowActionsClass}>
             <button
@@ -239,29 +271,19 @@ export function DocumentsSection() {
           while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : libraryDocuments}
+          documents={quiet ? NO_DOCUMENTS : treeDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
         />
         {!quiet && treeIsEmpty && (
-          <ProblemLine
+          <p
             role="status"
-            testId="documents-empty"
-            className="px-2 pt-2 pb-1"
-            action={{
-              label: t(addFilesLabel()),
-              testId: "documents-empty-add-files",
-              onClick: () => void useAppStore.getState().pickDocumentsOrFolder(),
-            }}
-            also={{
-              label: t("startGuide.documents.linkFolder"),
-              testId: "documents-empty-link-folder",
-              onClick: () => void useAppStore.getState().addLinkedFolder(),
-            }}
+            data-testid="documents-empty"
+            className="px-2 pt-2 pb-1 font-sans text-[13px] leading-5 break-words text-ink-meta"
           >
             {t("library.none")}
-          </ProblemLine>
+          </p>
         )}
         {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
             being read, where the rest of the Library waits for the first Document (#763). */}
@@ -278,7 +300,14 @@ export function DocumentsSection() {
             headingTestId="example-title"
             actions={<ExamplesMenu />}
           >
-            <MindRow mind={exampleMind} depth={0} />
+            <Contents
+              listKey="examples"
+              scope="sidebar"
+              depth={0}
+              minds={exampleMinds}
+              documents={exampleDocuments}
+              renderDocument={renderDocument}
+            />
           </SidebarSection>
         )}
       </div>

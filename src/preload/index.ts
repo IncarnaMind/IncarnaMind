@@ -115,6 +115,9 @@ const files: FilesBridge = {
   openSavedFile: (path) => invoke(FILES_CHANNELS.openSavedFile, path),
   pickOutputLocation: () => invoke(FILES_CHANNELS.pickOutputLocation),
   saveMindCopy: (mindId) => invoke(FILES_CHANNELS.saveMindCopy, mindId),
+  savePicture: (name, bytes) => invoke(FILES_CHANNELS.savePicture, name, bytes),
+  saveMeetingRecording: (meetingId, name) =>
+    invoke(FILES_CHANNELS.saveMeetingRecording, meetingId, name),
   openDataFolder: () => invoke(FILES_CHANNELS.openDataFolder),
   openLogsFolder: () => invoke(FILES_CHANNELS.openLogsFolder),
   pickSkill: (kind) => invoke(FILES_CHANNELS.pickSkill, kind),
@@ -138,6 +141,7 @@ const files: FilesBridge = {
     };
   },
   setSidebarHidden: (hidden) => send(FILES_CHANNELS.sidebarHidden, hidden),
+  setPictureViewer: (open) => send(FILES_CHANNELS.pictureViewer, open),
   setEditMenu: (state) => send(FILES_CHANNELS.editMenu, state),
   paste: () => send(FILES_CHANNELS.paste),
   setExportMenu: (mindName) => send(FILES_CHANNELS.exportMenu, mindName),

@@ -11,10 +11,10 @@ import {
   type ChartKind,
   type ChartValue,
   canSwitch,
-  chartCells,
   chartPoints,
   chartSources,
   drawnSeries,
+  footCitations,
   inputsOf,
   kindFits,
   listedRows,
@@ -31,6 +31,7 @@ import {
   type CitationState,
   citationSource,
   citationState,
+  citedSpeakers,
   withShownName,
 } from "../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../shared/locations";
@@ -39,6 +40,7 @@ import { useTabPlace } from "../components/tabs/tabItems";
 import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
+import { useKeptInsideOf } from "../turnWall";
 import { ChartFoot } from "./ChartFoot";
 import { ChartKindMenu } from "./ChartKindMenu";
 import { ChartPlot, type PointEvents, type PointRef, samePoint } from "./ChartPlot";
@@ -56,6 +58,7 @@ import {
   withKind,
 } from "./chartCommands";
 import { type ChartHandle, chartHandles } from "./chartHandles";
+import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
 
 /** As a Citation's card: the pointer rests a moment before it shows, and may leave a moment before it goes. */
@@ -173,6 +176,7 @@ export function ChartView({
   deleteNode,
   doc,
 }: ReactNodeViewProps & { doc: Y.Doc | null }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   const chart = useMemo(() => readChart(node.attrs), [node.attrs]);
@@ -190,6 +194,12 @@ export function ChartView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useKeptInsideOf();
+  const stateOfCitation = useCallback(
+    (citation: CitationAttributes) =>
+      citationState(citation, documents, kept, keptInside(citation.documentId ?? null)),
+    [documents, kept, keptInside],
+  );
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const { card, peek, hold, pin, dismiss } = usePointCard();
@@ -202,10 +212,10 @@ export function ChartView({
       if (!value || value.figure) return [];
       return valueCitations(value).map((citation) => ({
         citation,
-        state: citationState(citation, documents, kept),
+        state: stateOfCitation(citation),
       }));
     },
-    [documents, kept],
+    [stateOfCitation],
   );
   const worstOf = useCallback(
     (value: ChartValue | null | undefined) => {
@@ -224,7 +234,7 @@ export function ChartView({
   /** A calculated value's mark is its Inputs' worst check, said as calculated, never one Input's (#2307). */
   const markOf = (value: ChartValue): { check: CitationCheck | null; label: string } => {
     if (value.figure) {
-      const states = valueCitations(value).map((each) => citationState(each, documents, kept));
+      const states = valueCitations(value).map(stateOfCitation);
       return {
         check: checksOf(states).check,
         label: calculatedFrom(inputsOf([value.figure]), documents, t, language),
@@ -256,13 +266,7 @@ export function ChartView({
     of: string;
   } | null>(null);
   const findButton = useRef<HTMLButtonElement>(null);
-  const checks = checksOf(
-    chartCells(chart).flatMap(({ value }) =>
-      value.value === null
-        ? []
-        : valueCitations(value).map((each) => citationState(each, documents, kept)),
-    ),
-  );
+  const checks = checksOf(footCitations(chart).map(stateOfCitation));
 
   const change = (
     attributes: Partial<Pick<ChartAttributes, "kind" | "title" | "drawn" | "data" | "source">>,
@@ -393,7 +397,7 @@ export function ChartView({
       .map(({ citation, state }) => {
         const shown = withShownName(citation, documents);
         const badge = badgeMessage(state, shown, t);
-        return `${citationSource(shown, t).text}. ${t(badge.key, badge.params)}`;
+        return `${citationSource(shown, t, undefined, documents).text}. ${t(badge.key, badge.params)}`;
       })
       .join(" · ");
   };
@@ -408,9 +412,12 @@ export function ChartView({
     void openCited(
       { ...citation, documentId },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
-        label: location ? formatLocation(location, t) : null,
+        label: location
+          ? formatLocation(location, t, { speakers: citedSpeakers(citation, documents) })
+          : null,
         from: place?.groupId,
       },
     );

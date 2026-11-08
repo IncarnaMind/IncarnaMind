@@ -1,4 +1,4 @@
-import { writeSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   app,
@@ -11,6 +11,7 @@ import {
   protocol,
 } from "electron";
 import {
+  type CallWatcher,
   type ChatModelFactory,
   type Core,
   coreApiMethods,
@@ -24,11 +25,23 @@ import { DataFromNewerVersionError, isRecord } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
-import { channelFor, EVENT_CHANNEL, SERVED_CHANNEL } from "../shared/bridge";
+import { channelFor, EVENT_CHANNEL, FILES_CHANNELS, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { crashReloads, logAppEnd, unexpectedEnds } from "./appEnd";
+import {
+  followAppearance,
+  shownTheme,
+  startAppearance,
+  themeWindow,
+  windowColour,
+} from "./appearance";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
+import { closingLastWindowQuits, keptRunning, startsWithoutWindow } from "./background";
+import { serveBackground } from "./backgroundHost";
+import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
+import { macWatcherPath } from "./calls/macWatcher";
+import { createCallWatcher } from "./calls/watcher";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
@@ -41,6 +54,7 @@ import {
 } from "./instanceUpdate";
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
+import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./loginItem";
 import { isCaptureWindow } from "./meetings/capture";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
@@ -91,6 +105,17 @@ if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
 const logger = startLogging(app.getPath("userData"));
 const appEnd = logAppEnd(app, logger);
+
+/** Whether IncarnaMind keeps running with its window closed (#189), as the last run left it until the core says. */
+let keepsRunning: () => boolean = (() => {
+  const kept = keptRunning(app.getPath("userData"));
+  return () => kept;
+})();
+// Opened at login while it keeps running in the background, it starts with only its tray icon.
+const startedWithoutWindow = startsWithoutWindow(
+  openedAtLogin(process.platform, process.argv, app.isPackaged ? app : null),
+  keepsRunning(),
+);
 
 const reportLock = (what: string, error: unknown) => logger.exception(what, error);
 const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
@@ -233,6 +258,32 @@ async function testTaskKinds(): Promise<TaskKind[]> {
   return [];
 }
 
+/**
+ * Which call apps use the microphone, for the offers to take notes (#208). A test build watches
+ * nothing real: a smoke test that asks for it (INCARNAMIND_TEST_CALLS=1) drives a fake, as
+ * `globalThis.incarnamindFakeCalls`.
+ */
+function callWatching(): { callWatcher?: CallWatcher } {
+  if (import.meta.env.MODE === "test") {
+    if (process.env.INCARNAMIND_TEST_CALLS !== "1") return {};
+    const fake = createFakeCallWatcher();
+    (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
+    return { callWatcher: fake };
+  }
+  const program = macWatcherPath();
+  return {
+    callWatcher: createCallWatcher({
+      log: logger,
+      platform: process.platform,
+      own: {
+        pids: () => new Set(app.getAppMetrics().map((each) => each.pid)),
+        bundles: ["com.incarnamind.app", "com.github.electron"],
+      },
+      macWatcher: existsSync(program) ? program : null,
+    }),
+  };
+}
+
 let core: Core | undefined;
 
 /** The window that watches each comparison table's Mind, by the content it came from. */
@@ -309,18 +360,27 @@ const appWindows = () =>
 const listeningWindows = () =>
   BrowserWindow.getAllWindows().filter((window) => !isCaptureWindow(window));
 
-function showFront(): void {
-  if (closingForUpdate) return;
+function showFront(): BrowserWindow | null {
+  if (closingForUpdate) return null;
   const [front] = appWindows();
   if (!front) {
     // Before the core is there, the start in progress makes the first window itself.
-    if (core) createWindow();
-    return;
+    return core ? createWindow() : null;
   }
   if (front.isMinimized()) front.restore();
   front.show();
   front.focus();
   app.focus({ steal: true });
+  return front;
+}
+
+/** Shows the window and sends its page a message once the page is there: a new window's loads first. */
+function showFrontAndSend(channel: string, ...message: unknown[]): void {
+  const window = showFront();
+  if (!window) return;
+  const send = () => window.webContents.send(channel, ...message);
+  if (window.webContents.isLoading()) window.webContents.once("did-finish-load", send);
+  else send();
 }
 
 const secondLaunch = () => {
@@ -337,7 +397,7 @@ function finishStartup(): void {
     !startupComplete ||
     instanceReady ||
     closingForUpdate ||
-    !appWindows().some((window) => shownWindows.has(window))
+    (!startedWithoutWindow && !appWindows().some((window) => shownWindows.has(window)))
   )
     return;
   instanceReady = true;
@@ -431,9 +491,9 @@ function createWindow(): BrowserWindow {
     title: "IncarnaMind",
     // The frame (DESIGN.md), as the approved canvas has it: the sidebar's colour, which the
     // first paint shows at the top left, under macOS's traffic lights.
-    backgroundColor: "#F4F5F7",
+    backgroundColor: windowColour("frame"),
     // No title row of the system's: its window buttons sit in the app's top band.
-    ...titleBarOptions(process.platform),
+    ...titleBarOptions(process.platform, shownTheme()),
     ...windowIcon(),
     // A test build's window takes the size a smoke test sets: macOS keeps a window no taller
     // than the screen otherwise, and CI's Mac has a small one.
@@ -453,11 +513,14 @@ function createWindow(): BrowserWindow {
     finishStartup();
   });
   keepWindowPlace(window, dataDir);
+  themeWindow(window, "frame");
   reportFullScreen(window);
   // A Meeting's hidden capture window doesn't keep the app running once its last window
-  // closes, where closing the last window quits (Windows, Linux): quitting saves the recording.
+  // closes, where closing the last window quits (Windows, Linux, unless IncarnaMind keeps running
+  // in the tray): quitting saves the recording.
   window.on("closed", () => {
-    if (process.platform !== "darwin" && appWindows().length === 0) appEnd.quit("lastWindow");
+    if (closingLastWindowQuits(process.platform, keepsRunning()) && appWindows().length === 0)
+      appEnd.quit("lastWindow");
   });
   reopenAfterCrash(window);
   appEnd.watchSessionEnd(window, {
@@ -572,13 +635,18 @@ app.whenReady().then(async () => {
       return error instanceof DatabaseHeldError ? error : undefined;
     },
   );
-  const first = createWindow();
-  logger.info("app.startup.windowReturned");
-  // The core's start holds this thread, for seconds on a slow disk, and the page can neither load
-  // nor show while it does (#2104): the window shows its frame first, and the page's calls wait
-  // until everything is served.
-  await firstPaint(first);
-  logger.info("app.startup.windowPainted");
+  startAppearance(app.getPath("userData"));
+  if (startedWithoutWindow) {
+    logger.info("app.startup.openedAtLoginWithoutWindow");
+  } else {
+    const first = createWindow();
+    logger.info("app.startup.windowReturned");
+    // The core's start holds this thread, for seconds on a slow disk, and the page can neither
+    // load nor show while it does (#2104): the window shows its frame first, and the page's calls
+    // wait until everything is served.
+    await firstPaint(first);
+    logger.info("app.startup.windowPainted");
+  }
   const held = await storage;
   try {
     if (held) throw held;
@@ -587,6 +655,16 @@ app.whenReady().then(async () => {
     core = createCore({
       ...adapters,
       notifications: createSystemNotifications(appWindows),
+      ...callWatching(),
+      loginItem: app.isPackaged
+        ? createSystemLoginItem({
+            platform: process.platform,
+            app,
+            program: process.env.APPIMAGE ?? process.execPath,
+            configHome: process.env.XDG_CONFIG_HOME || join(homeFolder(), ".config"),
+            openUrl: (url) => systemBrowser.open(url),
+          })
+        : createFileLoginItem(app.getPath("userData")),
       ...(executor && { executor }),
       ...(sandboxProblem && { sandboxProblem }),
       ...(createChatModel && { createChatModel }),
@@ -607,6 +685,7 @@ app.whenReady().then(async () => {
   }
   started.resolve(core);
   exposeCore(core);
+  followAppearance(core, app.getPath("userData"), logger);
   const settleQuit = guardQuit(
     core,
     () => BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null,
@@ -637,6 +716,19 @@ app.whenReady().then(async () => {
     testHooks,
   });
   servePermissionGuide({ rendererUrl, appWindows, trusted: isFromOurRenderer, testHooks });
+  const background = serveBackground({
+    core,
+    dataDir: app.getPath("userData"),
+    log: logger,
+    showWindow: () => void showFront(),
+    showMeeting: (mindId) => showFrontAndSend(EVENT_CHANNEL, "meetings.notesShown", { mindId }),
+    showSettings: () => showFrontAndSend(FILES_CHANNELS.menuCommand, "settings.open"),
+    showOffer: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerShown", null),
+    keepRunning: keepsRunning(),
+    quit: () => appEnd.quit("tray"),
+    testHooks,
+  });
+  keepsRunning = background.keepsRunning;
   installMenuInLanguage(core);
   // Only a packaged app checks for updates; the smoke tests must never reach GitHub.
   const startedCore = core;
@@ -747,7 +839,8 @@ app.on("select-client-certificate", (event, _contents, _url, _list, callback) =>
 
 app.on("window-all-closed", () => {
   // The engine check's only window, the hidden Analyses one, may close and open again.
-  if (process.platform !== "darwin" && !engineCheckReport) appEnd.quit("lastWindow");
+  if (closingLastWindowQuits(process.platform, keepsRunning()) && !engineCheckReport)
+    appEnd.quit("lastWindow");
 });
 
 app.on("will-quit", () => {

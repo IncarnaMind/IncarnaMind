@@ -15,17 +15,18 @@
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-local-<date>).
  * INCARNAMIND_EVAL_WORDS=1: each case's transcriber is told its words in words.json (#1031), as a
  *   Meeting tells it its Words to know; the run scores those words either way.
+ * INCARNAMIND_EVAL_LIVE=off: without the streaming model for the live words (#2662), as before it.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadavg } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../../src/core/adapters";
-import { QWEN3_ASR_0_6B, transcriptionModelFiles } from "../../src/core/transcription/model";
+import { QWEN3_ASR_0_6B } from "../../src/core/transcription/model";
 import { createSherpaEngine } from "../../src/core/transcription/sherpa";
 import { createSpeechHost } from "../../src/core/transcription/speech";
 import { monoSamples } from "../lib/wav";
-import { FRAME, modelData } from "../transcription/clips";
+import { evalModelFiles, FRAME, modelData } from "../transcription/clips";
 import { loadCase, readCases } from "./cache";
 import { type CaseScore, formatReport, scoreCase } from "./report";
 import { formatTerms, readWords, scoreTerms, type TermScore } from "./terms";
@@ -50,7 +51,7 @@ describe("Transcription on this computer, on the meeting set", () => {
     await mkdir(out, { recursive: true });
 
     const dataDir = await modelData();
-    const files = transcriptionModelFiles(dataDir, QWEN3_ASR_0_6B);
+    const files = evalModelFiles(dataDir);
     const engine = await createSherpaEngine(files);
     const scores: CaseScore[] = [];
     const words = await readWords();
@@ -88,7 +89,7 @@ describe("Transcription on this computer, on the meeting set", () => {
 
       const hypothesis: Hypothesis = {
         case: definition.id,
-        transcriber: `${QWEN3_ASR_0_6B.name} with Silero VAD, ${files.threads} threads${TOLD ? ", told its words" : ""}`,
+        transcriber: `${QWEN3_ASR_0_6B.name} with Silero VAD, ${files.threads} threads${files.live ? ", live words from the streaming model" : ""}${TOLD ? ", told its words" : ""}`,
         processingSeconds,
         segments: segments.map((segment) => {
           const speaker = LABELS[segment.stream as Track];

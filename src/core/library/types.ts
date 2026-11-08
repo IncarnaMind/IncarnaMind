@@ -1,4 +1,5 @@
 import type { ChatModelChoice, ExternalService, ProviderError, TaggingState } from "../api";
+import type { DecisionHost } from "../providers/catalog/decisions";
 
 /** An in-app folder. The legacy Group API name keeps saved assignments compatible. */
 export interface LibraryGroup {
@@ -24,6 +25,7 @@ export interface LibraryGroup {
  * chosen by hand, and never fall back to another provider:
  * - "chat": a model on a saved chat provider;
  * - "jev": TypeSafe Jev, with the key saved on this device;
+ * - "decision": a decision model on another host, with the key it reaches (#1907);
  * - "auto": the local decision models in Ollama, picked per Document;
  * - "ollama": one local decision model, by name.
  */
@@ -31,6 +33,7 @@ export type LibraryClassifier =
   | { kind: "automatic" }
   | { kind: "chat"; choice: ChatModelChoice }
   | { kind: "jev" }
+  | { kind: "decision"; host: DecisionHost; modelId: string }
   | { kind: "auto"; baseUrl: string }
   | { kind: "ollama"; baseUrl: string; modelId: string; usePageImages?: boolean };
 
@@ -57,11 +60,11 @@ export interface TaggingModelOption {
   group: TaggingModelGroup;
   /** Its name in the catalog, else its id, e.g. "Claude Haiku 5.5", "tev1:4b". */
   name: string;
-  /** The provider it is reached through, in English and Chinese; null for Ollama's decision models. */
+  /** The host it is reached through, in English and Chinese; null for Ollama's decision models. */
   provider: { en: string; zh: string } | null;
   /** The provider's tagging model, or a local decision model: picked for tagging. */
   goodForTagging: boolean;
-  /** A local decision model in Ollama, or Ollama's decision models picked per Document ("auto"). */
+  /** A decision model: Jev, one on another host, a local one in Ollama, or Ollama's picked per Document ("auto"). */
   decisionModel: boolean;
   /** It says how likely each Tag is, so the Tags it isn't sure of are marked for review (Jev, decision models). */
   likelihoods: boolean;
@@ -128,9 +131,9 @@ export interface LibrarySettings {
   /** The one model choice for automatic tagging and Organize; "automatic" until the User picks one. */
   classifier: LibraryClassifier;
   /**
-   * While `classifier` is "automatic", the model Organize uses: Automatic's pick
-   * at the moment the User answered Organize's "Use {company}", kept from then
-   * on; null until they do. Automatic covers tagging only.
+   * While `classifier` is "automatic", the model Organize uses: Automatic's pick when Organize
+   * first ran on it, or the User allowed it on Organize's card, kept from then on; null until
+   * then. Automatic covers tagging only.
    */
   organizeWith: TaggingClassifier | null;
   /**
@@ -160,12 +163,6 @@ export interface DocumentGroupAssignment {
   /** When it joined this Folder (ISO 8601, UTC), kept by Undo; absent in older clients. */
   filedAt?: string;
   source: "automatic" | "user";
-  /**
-   * `groupId` is a Suggested Folder: Organize proposed it and it waits for the
-   * User. Meanwhile it counts as the Document's Folder, in listings and in
-   * that Folder's Search scope. Always with source "automatic".
-   */
-  suggested: boolean;
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
@@ -207,6 +204,12 @@ export interface DocumentBatch {
    * and Organize suggests only Tags. Null: Organize suggests their Folders.
    */
   groupId: string | null;
+  /**
+   * The Linked folder whose first scan found them. Null: the User's own add, or
+   * a search's Sources. Its first scan can wait, paused or out of reach, and its
+   * Documents show as what the folder found, not as a batch landing (#1329).
+   */
+  linkedFolderId: string | null;
   /** The Documents it added, in order, deleted ones left out. Files already added aren't in it. */
   documentIds: string[];
   /** More may join: the files are still being added, or a Linked folder's first scan is running. */
@@ -215,7 +218,10 @@ export interface DocumentBatch {
   read: number;
   /** How many Organize has finished with: a Folder suggested or none, and their Tags. */
   sorted: number;
-  /** How many wait in each Suggested Folder, most first. */
+  /**
+   * How many wait in Suggestions for each Folder, most first: a live Folder's id, or a proposed
+   * one's (`OrganizeReviewFolder.id`) (#1569).
+   */
   suggested: { groupId: string; count: number }[];
 }
 
@@ -239,6 +245,20 @@ export interface LibrarySnapshot {
    * each Document's name and an excerpt: the Library says so once, until the User closes the line.
    */
   automaticOffNotice?: boolean;
+  /**
+   * The cloud service Organize would sort new Documents on, while sorting them by itself isn't
+   * on for it (#2308, ADR-0022): Documents in no Folder held "off" wait for the User's Allow,
+   * which turns it on for that service and sorts them. Absent in Local mode, with no Folder, and
+   * for a model on this computer.
+   */
+  sortWaitsFor?: ExternalService;
+  /** How many Documents wait in Suggestions with something to confirm (#1569). */
+  reviewCount: number;
+  /**
+   * How many Documents an upgrade moved from their Suggested Folders into Suggestions, where they
+   * are in no Folder until confirmed: the Library's top line says so until the Review is opened.
+   */
+  reviewMoved?: number;
 }
 
 export interface LibraryGroupInput {

@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useId, useState } from "react";
 import type { Connector } from "../../../../core/api";
 import { useT } from "../../i18n";
+import { SettingsHelp } from "../settings/SettingsGroup";
 import { BackToConnectors } from "./ConnectorDetail";
 import { ConnectorForm } from "./ConnectorForm";
 import { ConnectorImport } from "./ConnectorImport";
@@ -55,7 +56,7 @@ export function AddCustomConnector({
         role="tablist"
         aria-label={t("connectors.custom.title")}
         onKeyDown={onKeyDown}
-        className="inline-flex flex-wrap gap-0.5 self-start rounded-lg bg-frame p-0.5"
+        className="inline-flex flex-wrap gap-0.5 self-start rounded-lg bg-frame p-0.5 shadow-[inset_0_0_0_1px_var(--color-rule)]"
       >
         {tabs.map((each) => (
           <button
@@ -89,7 +90,7 @@ export function AddCustomConnector({
           />
         )}
       </div>
-      <p className="text-[12px] leading-[18px] text-ink-meta">{t("connectors.custom.note")}</p>
+      <SettingsHelp>{t("connectors.custom.note")}</SettingsHelp>
     </section>
   );
 }

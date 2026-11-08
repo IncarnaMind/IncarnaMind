@@ -138,7 +138,23 @@ async function notesFilled() {
         1: PRICE,
       });
       if (citations) return citations;
-      return { text: "### L1\nThe enterprise price is 45 dollars a seat [^1]." };
+      return {
+        text: [
+          "HEADINGS: H1=NONE",
+          "### FACT P1_F1",
+          "```json",
+          '{"topic":"pricing","citations":[1],"lines":["L1"],"sections":[],"claim":false,"supersedes":[]}',
+          "```",
+          "The enterprise price is 45 dollars a seat [^1].",
+          "### END P1_F1",
+          "### OVERVIEW",
+          "```json",
+          '{"citations":[1]}',
+          "```",
+          "The call discussed enterprise pricing [^1].",
+          "### END OVERVIEW",
+        ].join("\n"),
+      };
     },
     { judgesItsAnswers: true },
   );

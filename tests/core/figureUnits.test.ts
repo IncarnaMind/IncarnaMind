@@ -632,6 +632,34 @@ describe("Checking a Chinese amount in words", { timeout: 30_000 }, () => {
   });
 });
 
+describe("A phone number beside an amount (#2215)", { timeout: 30_000 }, () => {
+  // protects=through the core with a calculating model, an agreement that holds a phone number
+  // beside the rent it writes 2万三千元, and a sentence that states the rent as 23,000 in digits;
+  // fails_when=the reader takes 2万三千 for 20,000, so the check finds no 23,000 and leaves the
+  // sentence Not checked; no_claim=the model's own verdict.
+  test("the rent the agreement writes 2万三千元 is checked as 23,000", async () => {
+    const line = "联系电话：13800138000，乙方林晓每月向甲方支付租金人民币2万三千元";
+    const claim = "乙方林晓每月向甲方支付租金人民币23,000元。";
+    const { core } = await setUpWithDocuments(
+      checkingModel({ [claim]: { verdict: "supported", quote: line, says: line } }),
+      [
+        {
+          name: "员工宿舍协议 - 林晓.txt",
+          contents: `员工宿舍协议\n甲方：明川食品有限公司　乙方：林晓\n第一条　${line}。\n`,
+        },
+      ],
+    );
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    expect(await core.checkClaim({ claim })).toMatchObject({ verdict: "supported" });
+  });
+});
+
 describe("What the assistant writes", { timeout: 30_000 }, () => {
   const WRITTEN = "The annual salary is £54,000";
   const CUT = /<task action="cut-unsupported">/;

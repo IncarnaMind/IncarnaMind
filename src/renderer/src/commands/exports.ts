@@ -1,40 +1,20 @@
-import { EXPORT_FORMATS } from "../../../core/api";
 import { exportAiUseStatement } from "../aiUseStatement";
 import { useExportDialog } from "../exportDialog";
 import { requestExportMenu } from "../exportMenuRequest";
 import {
   canChangeExport,
   changeExportChoices,
+  EXPORT_OPTIONS_FORMATS,
   exportCheckRecord,
   exportMind,
   exportPreferences,
   FORMAT_LABELS,
   useExports,
 } from "../exports";
-import { currentTabOf } from "../layoutSlice";
+import { useShareDialog } from "../shareDialog";
 import { useAppStore } from "../store";
-import { findTab } from "../tabs";
-import type { Command, CommandContext } from "./registry";
-import { onlyOne } from "./targets";
-
-/**
- * The Mind a command exports: the Mind's row or the tab its menu was opened on, else the Mind in
- * the tab the User is in (⇧⌘E, ⌘K). One Mind at a time: none for several selected.
- */
-function mindOf(ctx: CommandContext): string | null {
-  const targets = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
-  if (targets.length > 1) return null;
-  const [target] = targets;
-  if (target?.kind === "mind") return target.id;
-  const { layout } = useAppStore.getState();
-  const tab =
-    target === undefined
-      ? currentTabOf(layout)
-      : target.kind === "tab"
-        ? findTab(layout, target.id)
-        : undefined;
-  return tab?.item.kind === "mind" ? tab.item.mindId : null;
-}
+import type { Command } from "./registry";
+import { mindOf, onlyOne } from "./targets";
 
 /**
  * Exporting a Mind (#100): ⇧⌘E exports in the last format, as the tab strip's Export does; each
@@ -74,7 +54,7 @@ export const exportCommands: readonly Command[] = [
       if (mindId) return exportMind(mindId);
     },
   },
-  ...EXPORT_FORMATS.map(
+  ...EXPORT_OPTIONS_FORMATS.map(
     (format): Command => ({
       id: `mind.exportAs.${format}`,
       label: (_ctx, t) => t("export.as", { format: t(FORMAT_LABELS[format]) }),
@@ -92,6 +72,21 @@ export const exportCommands: readonly Command[] = [
       },
     }),
   ),
+  {
+    // A web page is shared from its own sheet, not exported as one of Export options' formats (#1258).
+    id: "mind.shareWebPage",
+    label: "export.share.menu",
+    keywords: ["export.keywords", "export.share.keywords"],
+    group: "main",
+    // Only opens the sheet; nothing is saved until Save.
+    reversible: true,
+    assistant: false,
+    when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindOf(ctx);
+      if (mindId) useShareDialog.getState().open(mindId);
+    },
+  },
   {
     // The same Change the Saved line offers, for the keys and ⌘K: only while that line holds a
     // file whose choices can still be changed, which is a Word or PDF export (#1945).

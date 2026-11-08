@@ -108,7 +108,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const notice = window.getByTestId("meeting-notice");
     await expect(notice).toBeVisible();
     await expect(notice.getByTestId("meeting-notice-model-size")).toHaveText(
-      language === "en" ? "The speech model is about 1 GB." : "语音模型约 1 GB。",
+      language === "en" ? "The speech models are about 1.2 GB." : "语音模型约 1.2 GB。",
     );
     await expect(notice.getByTestId("meeting-notice-start")).toHaveText(
       language === "en" ? "Download and start" : "下载并开始",
@@ -241,7 +241,7 @@ for (const language of ["en", "zh-CN"] as const) {
               documentId: null,
               state: "preparing",
               lines: 0,
-              partial: null,
+              partials: [],
               model: null,
               cloud: null,
               fellBack: null,

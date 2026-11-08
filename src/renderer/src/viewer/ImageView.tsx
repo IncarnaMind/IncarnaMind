@@ -15,7 +15,9 @@ import type { MessageKey } from "../../../shared/i18n";
 import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
 import { files } from "../core";
+import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
@@ -24,7 +26,7 @@ import { scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
 import { HeaderDivider, ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** Space around the picture, in CSS pixels. */
@@ -40,7 +42,8 @@ type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; url: string; width: number; height: number }
   | { kind: "missing" }
-  | { kind: "failed"; key: MessageKey };
+  /** `retry`: the file could be read a second time; a refusal's couldn't. */
+  | { kind: "failed"; key: MessageKey; retry?: boolean };
 
 /** What the viewer says when it refuses a picture, by why the reader refuses it. */
 function pictureProblemKey(kind: PictureProblem["kind"]): MessageKey {
@@ -119,16 +122,16 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else {
-          setLoaded({
-            kind: "failed",
-            key:
-              error instanceof TooLargeDocumentError
-                ? "viewer.pictureTooLarge"
-                : "viewer.pictureNotShown",
-          });
+        if (error instanceof MissingDocumentError) {
+          setLoaded({ kind: "missing" });
+          return;
         }
+        if (error instanceof TooLargeDocumentError) {
+          setLoaded({ kind: "failed", key: "viewer.pictureTooLarge" });
+          return;
+        }
+        logCaught(error);
+        setLoaded({ kind: "failed", key: "viewer.pictureLoadFailed", retry: true });
       });
     return () => {
       controller.abort();
@@ -217,6 +220,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
   }, [page, natural.width, natural.height, highlights, loaded.kind]);
 
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
 
   // Places the Citation's mark beside the quote's first line.
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again for each new text layer
@@ -338,7 +342,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       </ViewerHeader>
       <UnreadPagesLine document={document} />
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument key={attempt} retry={reload} />
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
@@ -346,13 +350,25 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           document={document}
           view
           reload={reload}
-          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
+          fallback={
+            <ViewerMessage
+              tone="error"
+              action={
+                loaded.retry
+                  ? { label: t("library.fix.retry"), testId: "viewer-retry", onClick: reload }
+                  : undefined
+              }
+            >
+              {t(loaded.key)}
+            </ViewerMessage>
+          }
         />
       ) : (
         <div
           ref={scroller}
           data-testid="image-scroller"
           className="viewer-backdrop relative min-w-0 flex-1 overflow-auto [overflow-anchor:none]"
+          {...pictureClick}
         >
           <div
             className="flex min-h-full w-max min-w-full items-start justify-center"
@@ -362,29 +378,37 @@ export function ImageView({ document, target }: { document: Document; target: Vi
               ref={section}
               data-page-number={1}
               data-area-unit={1}
+              data-picture-surface=""
               aria-label={t("viewer.page.label", { number: 1 })}
               className="viewer-page relative shrink-0"
               style={{ width, height }}
             >
-              <img
-                src={loaded.url}
-                alt={displayName(document)}
-                draggable={false}
-                data-testid="image-picture"
-                className="absolute inset-0 size-full select-none object-contain"
-                onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  if (image.naturalWidth > 0) {
-                    setLoaded({
-                      kind: "ready",
-                      url: loaded.url,
-                      width: image.naturalWidth,
-                      height: image.naturalHeight,
-                    });
-                  }
-                }}
-              />
+              <button
+                type="button"
+                data-picture-button=""
+                className="absolute inset-0 block size-full cursor-zoom-in border-0 bg-transparent p-0"
+              >
+                <img
+                  src={loaded.url}
+                  alt={displayName(document)}
+                  draggable={false}
+                  data-testid="image-picture"
+                  data-picture-viewer=""
+                  className="absolute inset-0 size-full select-none object-contain"
+                  onError={() => setLoaded({ kind: "failed", key: "viewer.pictureNotShown" })}
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    if (image.naturalWidth > 0) {
+                      setLoaded({
+                        kind: "ready",
+                        url: loaded.url,
+                        width: image.naturalWidth,
+                        height: image.naturalHeight,
+                      });
+                    }
+                  }}
+                />
+              </button>
               <div
                 ref={textHost}
                 className="pdf-page-text absolute top-0 left-0 origin-top-left"

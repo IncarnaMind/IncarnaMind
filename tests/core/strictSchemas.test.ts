@@ -153,8 +153,23 @@ function replyTo(body: Record<string, unknown>): Reply {
       return { text: JSON.stringify({ tags: ["Report"], newTags: [] }) };
     case "folder_proposals":
       return { text: JSON.stringify({ folders: [{ name: "Reports", description: "Reports." }] }) };
+    case "folder_plan":
+      return {
+        text: JSON.stringify({
+          folders: [{ key: "g-reports", name: "", description: "" }],
+          documents: [{ ref: "D1", folder: "g-reports" }],
+        }),
+      };
+    case "placements":
+      return { text: JSON.stringify({ placements: [{ ref: "D1", folder: "g-reports" }] }) };
+    case "subfolders":
+      return {
+        text: JSON.stringify({ groups: [{ ref: "G1", name: "Quarterly", description: "QBRs." }] }),
+      };
     case "suggestion":
       return { text: JSON.stringify({ text: "", passage: "", quote: "" }) };
+    case "parts":
+      return { text: JSON.stringify({ parts: ["working"] }) };
     default:
       return { text: "OK" };
   }

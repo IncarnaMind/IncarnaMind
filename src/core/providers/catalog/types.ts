@@ -137,10 +137,12 @@ export interface RequestQuirks {
    * How hard a model thinks for each kind of call that thinks (#1631): the provider options each
    * kind adds, each measured against the provider's default effort (#899; paired runs, eval/speed). A
    * kind left out adds none, so it thinks at the provider's default. They go where the reasoning
-   * summary goes; the small calls skip thinking instead (`thinkingOff`).
+   * summary goes; a provider without one names each model in `models`, since on a model that
+   * doesn't think by default an effort could turn thinking on. The small calls skip thinking
+   * instead (`thinkingOff`).
    */
   effort?: {
-    kinds: Partial<Record<ThinkingKind, ProviderOptions>>;
+    kinds?: Partial<Record<ThinkingKind, ProviderOptions>>;
     /** Kinds set apart for some models, by model id (dated ids too): a model's entry replaces `kinds` for each kind it names. */
     models?: Readonly<Record<string, Partial<Record<ThinkingKind, ProviderOptions>>>>;
     /** What to leave out when a refusal names `names`, for a model that takes no effort: an option set to undefined. */

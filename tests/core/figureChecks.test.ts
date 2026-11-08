@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { readFigureReply } from "../../src/core/answers/checks/figureChecks";
-import { replyAcrossTurns } from "../../src/core/answers/checks/prompt";
+import { figureHandle, replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type {
   CalculatedFigure,
@@ -46,6 +48,13 @@ const item = (id = "f1") => ({
   source: { citation: 1, position: 1, reading: null, unitQuote: null },
   calculation: null,
 });
+/** A reply as a model writes it: each figure named by the handle its request gives it. */
+const asSent = (text: string, sent: readonly CheckFigure[]) =>
+  sent.reduce(
+    (written, figure, index) =>
+      written.replaceAll(JSON.stringify(figure.id), JSON.stringify(figureHandle(index))),
+    text,
+  );
 /** A reply as the turns that read it across turns see it: its verdict, then its Figures line. */
 const bareReply = (items: unknown[], remainder: unknown = null) =>
   `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items, remainder })}`;
@@ -53,7 +62,7 @@ const reply = (items: unknown[], remainder: unknown = null) =>
   `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({ items, remainder })}`;
 
 test("a complete same-run reply binds only the exact requested occurrence ids", () => {
-  expect(readFigureReply(reply([item()]), figures, claim)).toMatchObject({
+  expect(readFigureReply(asSent(reply([item()]), figures), figures, claim)).toMatchObject({
     items: [{ id: "f1", source: { citation: 1, position: 1 } }],
     remainder: null,
   });
@@ -65,7 +74,7 @@ test.each([
   { name: "duplicate", items: [item(), item()] },
   { name: "malformed", items: [{ ...item(), relation: "maybe" }] },
 ])("$name item set is rejected", ({ items }) =>
-  expect(readFigureReply(reply(items), figures, claim)).toBeNull(),
+  expect(readFigureReply(asSent(reply(items), figures), figures, claim)).toBeNull(),
 );
 
 test("a chart's largest reply, for 500 values, is read whole", () => {
@@ -81,22 +90,33 @@ test("a chart's largest reply, for 500 values, is read whole", () => {
   }));
   const text = reply(items);
   expect(text.length).toBeGreaterThan(100_000);
-  expect(readFigureReply(text, many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
+  expect(readFigureReply(asSent(text, many), many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
 });
 
 test("missing remainder remains missing rather than explicitly empty", () => {
   expect(
-    readFigureReply(`Figures: ${JSON.stringify({ items: [item()] })}`, figures, claim)?.remainder,
+    readFigureReply(
+      asSent(`Figures: ${JSON.stringify({ items: [item()] })}`, figures),
+      figures,
+      claim,
+    )?.remainder,
   ).toBeUndefined();
 });
 
 test("only trailing citation transport annotations may follow the complete object", () => {
-  expect(readFigureReply(`${reply([item()])}[^1][^2]`, figures, claim)?.items[0]?.id).toBe("f1");
+  expect(
+    readFigureReply(asSent(`${reply([item()])}[^1][^2]`, figures), figures, claim)?.items[0]?.id,
+  ).toBe("f1");
   for (const suffix of ["garbage", " {}", "[^1] garbage", "[^0]", "[^10000]"])
-    expect(readFigureReply(`${reply([item()])}${suffix}`, figures, claim)).toBeNull();
+    expect(
+      readFigureReply(asSent(`${reply([item()])}${suffix}`, figures), figures, claim),
+    ).toBeNull();
   expect(
     readFigureReply(
-      `${reply([{ ...item(), source: { ...item().source, unitQuote: "Keep } and [^2] inside the string." } }])}[^1]`,
+      asSent(
+        `${reply([{ ...item(), source: { ...item().source, unitQuote: "Keep } and [^2] inside the string." } }])}[^1]`,
+        figures,
+      ),
       figures,
       claim,
     )?.items[0]?.source?.unitQuote,
@@ -109,18 +129,22 @@ test("a source names its number as the quote writes it, and markers written as d
     reading: "1",
     source: { citation: "1", number: "£20", unitQuote: null },
   };
-  expect(readFigureReply(reply([written]), figures, claim)?.items[0]).toMatchObject({
+  expect(
+    readFigureReply(asSent(reply([written]), figures), figures, claim)?.items[0],
+  ).toMatchObject({
     reading: 1,
     source: { citation: 1, number: "£20", position: null, reading: null },
   });
   for (const marker of ["3", { marker: 3 }]) {
     const calculated = { ...item(), source: null, calculation: marker };
-    expect(readFigureReply(reply([calculated]), figures, claim)?.items[0]?.calculation).toBe(3);
+    expect(
+      readFigureReply(asSent(reply([calculated]), figures), figures, claim)?.items[0]?.calculation,
+    ).toBe(3);
   }
   for (const marker of ["0", "one", "1.5", -1])
     expect(
       readFigureReply(
-        reply([{ ...item(), source: { ...item().source, citation: marker } }]),
+        asSent(reply([{ ...item(), source: { ...item().source, citation: marker } }]), figures),
         figures,
         claim,
       ),
@@ -131,14 +155,14 @@ test("a quote copied from a sheet row with its raw tabs is read", () => {
   const row = { ...item(), source: { passage: "P2", quote: "Fuel\t510\t450", number: "450" } };
   const written = reply([row]).replace(/\\t/g, "\t");
   expect(written).toContain("\t510");
-  expect(readFigureReply(written, figures, claim)?.items[0]?.source?.record?.quote).toBe(
-    "Fuel\t510\t450",
-  );
+  expect(
+    readFigureReply(asSent(written, figures), figures, claim)?.items[0]?.source?.record?.quote,
+  ).toBe("Fuel\t510\t450");
 });
 
 test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
   const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${bareReply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
-  expect(readFigureReply(prose, figures, claim)?.items[0]?.id).toBe("f1");
+  expect(readFigureReply(asSent(prose, figures), figures, claim)?.items[0]?.id).toBe("f1");
 });
 
 test.each([
@@ -210,6 +234,8 @@ async function checkWith(options: {
   /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
   pagesless?: boolean;
   calculations?: readonly unknown[];
+  /** It calls calculate this many times, one figure each, before its cite: a turn's Tool calls race. */
+  calculatesBeforeCite?: number;
   judgement?: string;
   failure?: { status: number; message: string };
   besideCite?: string;
@@ -223,6 +249,8 @@ async function checkWith(options: {
   providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
+  /** The sentence cites its Document, so a calculation's citation 1 names a citation it has. */
+  citeSentence?: boolean;
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
@@ -231,6 +259,7 @@ async function checkWith(options: {
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
   const calls: ModelCall[] = [];
   const confirmations: string[] = [];
+  const sent = (text: string) => asSent(text, options.figures ?? []);
   let emitted = "";
   // Where the quotes are, as a model names it: a sheet's rows, or the page.
   const sheet = options.units?.find((unit) => unit.kind === "rows")?.label;
@@ -250,10 +279,22 @@ async function checkWith(options: {
         !asked &&
         !call.results.some((result) => result.tool === "cite")
       )
-        return { text: options.text };
+        return { text: sent(options.text) };
+      if (options.calculatesBeforeCite) {
+        const made = call.results.filter((result) => result.tool === "calculate").length;
+        if (made < options.calculatesBeforeCite)
+          return {
+            calls: [
+              {
+                tool: "calculate",
+                input: { figures: (options.calculations ?? []).slice(made, made + 1) },
+              },
+            ],
+          };
+      }
       if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
-          text: options.besideCite,
+          text: options.besideCite && sent(options.besideCite),
           calls: [
             {
               tool: "cite",
@@ -271,8 +312,8 @@ async function checkWith(options: {
       if (options.calculations && !call.results.some((result) => result.tool === "calculate"))
         return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
       if (options.askedAgain && call.prompt.includes(options.askedAgain.note))
-        return { text: options.askedAgain.text };
-      return options.failure ? { error: options.failure } : { text: options.text };
+        return { text: sent(options.askedAgain.text) };
+      return options.failure ? { error: options.failure } : { text: sent(options.text) };
     },
     {
       generate(call) {
@@ -377,6 +418,15 @@ async function checkWith(options: {
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
+    ...(options.citeSentence && {
+      cited: [
+        {
+          documentName: source.documentName,
+          quote: source.text,
+          passageId: source.passageId,
+        },
+      ],
+    }),
     model: prepared,
     signal: new AbortController().signal,
   });
@@ -487,7 +537,11 @@ test("a missing remainder cannot make the parent all supported", async () => {
     figures: [target("f1")],
     text: `Figures: ${JSON.stringify({ items: [item()] })}`,
   });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  // One verdict everywhere: a reply that can't be read backs none of its figures either (#2378).
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "malformed",
+  });
   expect(result.remainder).toBeUndefined();
   expect(result.verdict).toBe("not-checked");
 });
@@ -699,6 +753,15 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(
     again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
   ).toBe(false);
+  // A saved calculation has no Document number to cite, so the undecided ask never fires for it.
+  expect(again.calls.map((call) => call.prompt).join("\n")).not.toContain(
+    "you give neither the Document's number",
+  );
+  // The saved figure goes by its handle, without its Citations' ids and versions (#2525).
+  const asked = again.calls.map((call) => call.prompt).join("\n");
+  expect(asked).toContain('"id":"F1"');
+  expect(asked).toContain('"saved":{');
+  for (const id of ["document-1", "passage-1", "hash-1"]) expect(asked).not.toContain(id);
   const elsewhere = await checkWith({
     figures: [saved],
     body,
@@ -766,11 +829,27 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     body,
     text: reply([{ ...item(), source: null }]),
   });
+  // An Analysis's figure with no record of its run: the Analysis it came from is gone (#2378).
   expect(retained.result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
-    reason: "no-evidence",
+    reason: "analysis-gone",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
+
+  // A saved calculation and an Analysis's figure have no Document number by contract, so the
+  // undecided ask never fires for either.
+  for (const each of [saved, analysis]) {
+    const undecided = await checkWith({
+      figures: [each],
+      body,
+      text: reply([
+        { ...item(), verdict: "unsupported", topic: "not found", source: null, says: null },
+      ]),
+    });
+    expect(undecided.calls.map((call) => call.prompt).join("\n")).not.toContain(
+      "you give neither the Document's number",
+    );
+  }
 });
 
 test("a saved calculation's verdict and evidence both come from working it out again, whatever source the model names", async () => {
@@ -905,6 +984,125 @@ test("a Figures line naming a calculation the check never made is asked again, a
     askedAgain: { note: "wasn't worked out in this check", text: reply([item()]) },
   });
   expect(calls.filter((call) => call.prompt.includes("wasn't worked out"))).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a figure left undecided with neither its source nor a reason is asked once, and the reply with its source binds", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([
+      { ...item(), verdict: "unsupported", topic: "not found", source: null, says: null },
+    ]),
+    askedAgain: {
+      note: "you give neither the Document's number nor what differs",
+      text: reply([item()]),
+    },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("you give neither the Document's number")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a supported figure with no source is asked for its source, and a reply without a new quote is not accepted", async () => {
+  const { result, calls } = await checkWith({
+    figures: [target("f1")],
+    text: reply([{ ...item(), source: null }]),
+    askedAgain: { note: "a supported figure needs its source", text: reply([item()]) },
+  });
+  expect(
+    calls.filter((call) => call.prompt.includes("a supported figure needs its source")),
+  ).toHaveLength(1);
+  expect(result.figures?.[0]?.result.verdict).toBe("not-checked");
+});
+
+test("a source position that names another number than the one given is read as the number the quote writes once", async () => {
+  const body = "Revenue\t100\t120";
+  const units: UnitText[] = [
+    {
+      page: 1,
+      text: body,
+      kind: "rows",
+      label: { sheet: "Budget", from: 1, to: 1, rows: [1], column: 0 },
+    },
+  ];
+  const { result } = await checkWith({
+    figures: [target("f1", "120", "Revenue 2025")],
+    claim: "Revenue was 120.",
+    body,
+    units,
+    quotes: [body],
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "120", position: 1, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a calculate that ran before the cite beside it recorded its quote is worked out again, and the reply's source binds", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+      },
+    ],
+    calculatesBeforeCite: 1,
+    text: reply([item()]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("two calculates that raced their cite are both worked out again, and the calculation binds", async () => {
+  const calculation = (marker: number) => ({
+    marker,
+    label: "Revenue",
+    formula: "source",
+    stated: "£20",
+    relation: "equals",
+    inputs: [{ name: "source", label: "Revenue", citation: 1, position: 1 }],
+  });
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [calculation(1), calculation(2)],
+    calculatesBeforeCite: 2,
+    citeSentence: true,
+    text: reply([{ ...item(), source: null, calculation: 1 }]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+test("a calculate the model abandoned for a readable source does not hide the figure", async () => {
+  const { result } = await checkWith({
+    figures: [target("f1")],
+    calculations: [
+      {
+        marker: 1,
+        label: "Revenue",
+        formula: "source",
+        stated: "£20",
+        relation: "equals",
+        inputs: [
+          {
+            name: "source",
+            label: "Revenue",
+            citation: 1,
+            position: 1,
+            unitQuote: "no such line",
+          },
+        ],
+      },
+    ],
+    text: reply([item()]),
+  });
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
 });
 
@@ -1396,7 +1594,9 @@ test.each(["same", "neither", "malformed"])(
         citation: 2,
       }),
     });
-    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.figures?.[0]?.result.verdict).toBe(
+      judgement === "malformed" ? "not-checked" : "supported",
+    );
     expect(result.remainder?.verdict).toBe(
       judgement === "malformed" ? "not-checked" : "unsupported",
     );
@@ -1599,6 +1799,38 @@ async function planUnits(growth: number): Promise<UnitText[]> {
   return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
 }
 
+/** A plan whose 2027 sales are worked out from two assumptions: its growth and its margin. */
+async function twoDriverUnits(growth: number, margin: number): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "2026")
+    .text("C1", "2027")
+    .text("A2", "Sales")
+    .number("B2", 400)
+    .formula("C2", "B2*(1+B4)*B5", 400 * (1 + growth) * margin)
+    .text("A4", "Growth")
+    .number("B4", growth, "percent")
+    .text("A5", "Margin")
+    .number("B5", margin, "percent");
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
+/** A plan whose flag cell holds a blank text: Excel writes an empty string as its result. */
+async function blankTextUnits(): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "Flag")
+    .text("A2", "Flag")
+    .formula("B2", 'IF(B3>2,"OK","")', "")
+    .text("A3", "Count")
+    .number("B3", 1);
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
 /** A workbook's Tools over `units`, read as one Passage, and the figures they record. */
 function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
   const source: CitationSource = {
@@ -1631,13 +1863,25 @@ async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
   const { trace, whatIf, context, recorded } = workbookPassage(units, language);
   await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
   await whatIf.call(
-    { passage: "P1", cell: "Plan!C2", label: "Sales 2027", input: "Plan!B4", value: "10%" },
+    {
+      passage: "P1",
+      cell: "Plan!C2",
+      label: "Sales 2027",
+      changes: [{ input: "Plan!B4", value: "10%" }],
+    },
     context,
   );
   const [traced, changed] = recorded;
   if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
   return { traced, changed };
 }
+
+test("a cell whose text is blank records no figure: there is no text to cite", async () => {
+  const { trace, context, recorded } = workbookPassage(await blankTextUnits(), "en");
+  const result = await trace.call({ passage: "P1", cell: "Plan!B2", label: "Flag" }, context);
+  expect(result).toContain("shows no text to quote, so the figure can't be cited");
+  expect(recorded).toEqual([]);
+});
 
 describe.each([
   { language: "en" as const, claim: "Sales in 2027 were 420, or 440 at 10% growth." },
@@ -1676,11 +1920,9 @@ describe.each([
     expect(whatIf?.sourceInput).toBeNull();
     const worked = whatIf?.result.verdict === "supported" ? whatIf.result.calculation : null;
     expect(worked?.figure.value).toBeCloseTo(440, 9);
-    expect(worked?.figure.workbook?.change).toEqual({
-      input: "Plan_B4",
-      value: 0.1,
-      shown: "10.0%",
-    });
+    expect(worked?.figure.workbook?.changes).toEqual([
+      { input: "Plan_B4", value: 0.1, shown: "10.0%" },
+    ]);
   });
 
   test("a figure its cell doesn't give is Contradicted, with the cell's number beside it", async () => {
@@ -1704,6 +1946,55 @@ describe.each([
     expect(translate(language, "claim.reason.workbook-changed")).toContain(
       language === "en" ? "workbook’s cells" : "工作簿现在的单元格",
     );
+  });
+
+  test("a what-if that changes two inputs at once is checked by working both out again", async () => {
+    const units = await twoDriverUnits(0.05, 0.9);
+    const { trace, whatIf, context, recorded } = workbookPassage(units, language);
+    await trace.call({ passage: "P1", cell: "Plan!C2", label: "Sales 2027" }, context);
+    await whatIf.call(
+      {
+        passage: "P1",
+        cell: "Plan!C2",
+        label: "Sales 2027",
+        changes: [
+          { input: "Plan!B4", value: "10%" },
+          { input: "Plan!B5", value: "100%" },
+        ],
+      },
+      context,
+    );
+    const [traced, changed] = recorded;
+    if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
+    expect([traced.shown, changed.shown]).toEqual(["378", "440"]);
+    expect(changed.workbook?.changes).toHaveLength(2);
+    const sentence =
+      language === "en"
+        ? "Sales in 2027 were 378, or 440 at 10% growth and a 100% margin."
+        : "2027 年销售额为 378，增长率为 10%、利润率为 100% 时为 440。";
+    const { result } = await checkWith({
+      figures: [saved("f1", traced), saved("f2", changed)],
+      claim: sentence,
+      units,
+      body: units.map((unit) => unit.text).join("\n"),
+      text: reply(
+        [1, 2].map((id) => ({
+          ...item(`f${id}`),
+          source: null,
+        })),
+      ),
+    });
+    expect(result.figures?.map((figure) => figure.result.verdict)).toEqual([
+      "supported",
+      "supported",
+    ]);
+    const worked = result.figures?.[1];
+    const calculation = worked?.result.verdict === "supported" ? worked.result.calculation : null;
+    expect(calculation?.figure.value).toBeCloseTo(440, 9);
+    expect(calculation?.figure.workbook?.changes).toEqual([
+      { input: "Plan_B4", value: 0.1, shown: "10.0%" },
+      { input: "Plan_B5", value: 1, shown: "100.0%" },
+    ]);
   });
 });
 
@@ -1964,6 +2255,1134 @@ test.each([
     expect(result.verdict).toBe("contradicted");
     expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
     expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+  },
+);
+
+// protects=#2341; fails_when=a Document that gives an amount in words and then again in figures in
+// brackets, "人民币九万八千元（¥98,000）", has its bracket read as a negative, so a correct sentence that
+// gives the figures is Contradicted; or a bracket whose figures disagree with the words before it
+// backs a sentence that gives those figures.
+const bracketed = [
+  {
+    name: "Chinese words, then ¥ figures, against a Chinese sentence",
+    claim: "月租金为¥98,000。",
+    figure: "¥98,000",
+    language: "zh-CN",
+    body: "月租金调整为人民币九万八千元（¥98,000）。",
+    number: "98,000",
+    value: 98000,
+  },
+  {
+    name: "Chinese words, then ¥ figures, against an English sentence",
+    claim: "The monthly rent is RMB 98,000.",
+    figure: "RMB 98,000",
+    language: "en",
+    body: "月租金调整为人民币九万八千元（¥98,000）。",
+    number: "98,000",
+    value: 98000,
+  },
+  {
+    name: "Chinese capitals, then figures with cents",
+    claim: "合同总价为100,000元。",
+    figure: "100,000元",
+    language: "zh-CN",
+    body: "合同总价为人民币壹拾万元整（¥100,000.00）。",
+    number: "100,000.00",
+    value: 100000,
+  },
+  {
+    name: "a scale word, then the full figures",
+    claim: "The purchase price is $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "The purchase price is USD 1.2 million ($1,200,000), payable on completion.",
+    number: "$1,200,000",
+    value: 1200000,
+  },
+  {
+    name: "a Chinese scale, then the full figures",
+    claim: "保证金为75,000元。",
+    figure: "75,000元",
+    language: "zh-CN",
+    body: "乙方应支付保证金人民币7.5万元（¥75,000）。",
+    number: "75,000",
+    value: 75000,
+  },
+  {
+    name: "English words, then figures",
+    claim: "The quarterly rent is $75,000.",
+    figure: "$75,000",
+    language: "en",
+    body: "The Tenant shall pay Seventy-Five Thousand Dollars ($75,000.00) each quarter.",
+    number: "$75,000.00",
+    value: 75000,
+  },
+] as const;
+
+test.each(bracketed)(
+  "$name: the bracket gives the same amount, and the sentence is Supported (#2341)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+
+    expect(result.figures?.[0]?.sourceInput?.number.value).toBe(each.value);
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.verdict).toBe("supported");
+  },
+);
+
+test.each([
+  {
+    claim: "月租金为¥98,000。",
+    figure: "¥98,000",
+    language: "zh-CN",
+    body: "月租金调整为人民币九万五千元（¥98,000）。",
+    number: "98,000",
+  },
+  {
+    claim: "The quarterly rent is $57,000.",
+    figure: "$57,000",
+    language: "en",
+    body: "The Tenant shall pay Seventy-Five Thousand Dollars ($57,000.00) each quarter.",
+    number: "$57,000.00",
+  },
+] as const)(
+  "figures in brackets that disagree with the words before them never back $claim (#2341)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+
+    expect(result.figures?.[0]?.result.verdict).not.toBe("supported");
+    expect(result.verdict).not.toBe("supported");
+  },
+);
+
+// protects=#2341; fails_when=a sign the words give the amount ("minus", "亏损") or a cell break
+// before the bracket is passed over, so the bracket loses its minus and backs a sentence that drops
+// the sign; or a Document that says brackets are negative has its bracket read as a plain amount.
+test.each([
+  {
+    name: "a sign in words before the amount",
+    claim: "The balance is -$64,000.",
+    figure: "-$64,000",
+    language: "en",
+    body: "The balance is minus sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: true,
+  },
+  {
+    name: "the same sentence without its sign",
+    claim: "The balance is $64,000.",
+    figure: "$64,000",
+    language: "en",
+    body: "The balance is minus sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: false,
+  },
+  {
+    name: "the same amount with no sign",
+    claim: "The balance is $64,000.",
+    figure: "$64,000",
+    language: "en",
+    body: "The balance is sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: true,
+  },
+  {
+    name: "a loss given in Chinese words",
+    claim: "本期为¥64,000。",
+    figure: "¥64,000",
+    language: "zh-CN",
+    body: "本期亏损人民币六万四千元（¥64,000）。",
+    number: "64,000",
+    supported: false,
+  },
+  {
+    name: "words cut by a tab",
+    claim: "The total is $3,700.",
+    figure: "$3,700",
+    language: "en",
+    body: "Total three thousand\tseven hundred ($3,700.00)",
+    number: "$3,700.00",
+    supported: false,
+  },
+  {
+    name: "the same words with no tab",
+    claim: "The total is $3,700.",
+    figure: "$3,700",
+    language: "en",
+    body: "Total three thousand seven hundred dollars ($3,700.00)",
+    number: "$3,700.00",
+    supported: true,
+  },
+  {
+    name: "整 after Chinese numerals",
+    claim: "尾款为¥64,000。",
+    figure: "¥64,000",
+    language: "zh-CN",
+    body: "尾款为人民币六万四千元整（¥64,000.00）。",
+    number: "64,000.00",
+    supported: true,
+  },
+  {
+    name: "a Document that says brackets are negative",
+    claim: "Net cash was £2,700,000.",
+    figure: "£2,700,000",
+    language: "en",
+    body: "Amounts in brackets are negative.\nNet cash was £2.7m (£2,700,000).",
+    number: "£2,700,000",
+    supported: false,
+  },
+  {
+    name: "a note on another line that brackets are negative",
+    claim: "Net cash was £2,700,000.",
+    figure: "£2,700,000",
+    language: "en",
+    body: "Amounts in brackets are negative.\nNet cash was £2.7m (£2,700,000).",
+    quotes: ["Net cash was £2.7m (£2,700,000)."],
+    number: "£2,700,000",
+    supported: false,
+  },
+  {
+    name: "a sign two words before English words",
+    claim: "The balance is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The account had a negative balance of sixty-two thousand dollars ($62,000.00).",
+    number: "$62,000.00",
+    supported: false,
+  },
+  {
+    name: "the signed sentence against a sign two words before",
+    claim: "The balance is -$62,000.",
+    figure: "-$62,000",
+    language: "en",
+    body: "The account had a negative balance of sixty-two thousand dollars ($62,000.00).",
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "the same balance with no sign",
+    claim: "The balance is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The account had a balance of sixty-two thousand dollars ($62,000.00).",
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "Chinese words whose sign is a question",
+    claim: "金额为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "金额为△人民币六万二千元（¥62,000）。",
+    number: "62,000",
+    supported: false,
+  },
+  {
+    name: "the same Chinese words with no sign",
+    claim: "金额为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "金额为人民币六万二千元（¥62,000）。",
+    number: "62,000",
+    supported: true,
+  },
+  {
+    name: "a negative word before an earlier number",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance fell from 98,000 to ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+  },
+  {
+    name: "the signed sentence against a negative word before an earlier number",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance fell from 98,000 to ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "the same balance with no negative word",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The balance fell from 98,000 to ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "负数 before an earlier Chinese number",
+    claim: "余额为¥95,000。",
+    figure: "¥95,000",
+    language: "zh-CN",
+    body: "负数余额从8,000元增至人民币九万五千元（¥95,000）。",
+    number: "95,000",
+    supported: false,
+  },
+  {
+    name: "the same Chinese balance with no 负数",
+    claim: "余额为¥95,000。",
+    figure: "¥95,000",
+    language: "zh-CN",
+    body: "余额从8,000元增至人民币九万五千元（¥95,000）。",
+    number: "95,000",
+    supported: true,
+  },
+  {
+    name: "a negative word far back in a long clause",
+    claim: "The movement was $75,000.",
+    figure: "$75,000",
+    language: "en",
+    body: "The negative movement recorded over the full year for the combined portfolio of the Group's subsidiaries in all of its regions after all adjustments was seventy-five thousand dollars ($75,000.00).",
+    number: "$75,000.00",
+    supported: false,
+  },
+  {
+    name: "负债, which is no sign",
+    claim: "负债总额为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "截至年末，公司负债总额为人民币六万二千元（¥62,000）。",
+    number: "62,000",
+    supported: true,
+  },
+  {
+    name: "a negative word before a comma",
+    claim: "The balance is $75,000.",
+    figure: "$75,000",
+    language: "en",
+    body: "The account had a negative balance, after all adjustments, of seventy-five thousand dollars ($75,000.00).",
+    number: "$75,000.00",
+    supported: false,
+  },
+  {
+    name: "the signed sentence against a negative word before a comma",
+    claim: "The balance is -$75,000.",
+    figure: "-$75,000",
+    language: "en",
+    body: "The account had a negative balance, after all adjustments, of seventy-five thousand dollars ($75,000.00).",
+    number: "$75,000.00",
+    supported: true,
+  },
+  {
+    name: "the same balance before a comma with no negative word",
+    claim: "The balance is $75,000.",
+    figure: "$75,000",
+    language: "en",
+    body: "The account had a balance, after all adjustments, of seventy-five thousand dollars ($75,000.00).",
+    number: "$75,000.00",
+    supported: true,
+  },
+  {
+    name: "负 before a Chinese comma",
+    claim: "余额为¥95,000。",
+    figure: "¥95,000",
+    language: "zh-CN",
+    body: "账户为负余额，经调整后为人民币九万五千元（¥95,000）。",
+    number: "95,000",
+    supported: false,
+  },
+  {
+    name: "the same Chinese balance before a comma with no 负",
+    claim: "余额为¥95,000。",
+    figure: "¥95,000",
+    language: "zh-CN",
+    body: "账户为正余额，经调整后为人民币九万五千元（¥95,000）。",
+    number: "95,000",
+    supported: true,
+  },
+  {
+    name: "a negative word before an abbreviation's stop",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance owed by Party A Inc. was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+  },
+  {
+    name: "the signed sentence against a negative word before an abbreviation's stop",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance owed by Party A Inc. was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word in the sentence before",
+    claim: "Party A Inc. paid a fee of $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "Party A had a negative result. Party A Inc. paid a fee of ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word before a place's abbreviation",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance at the St. Louis branch was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word before a place's abbreviation",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance at the St. Louis branch was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word before a title",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance due to Prof. E was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word before an account's number",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance in Account No. A12 was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word before a company's abbreviations",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance of Party B Co. Ltd. was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a sentence that ends after a company's abbreviation keeps the minus",
+    claim: "The fee is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The balance was negative for Party A Inc. The fee was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+  },
+  {
+    name: "a negative word before a lowercase abbreviation",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance in acct. A12 was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word before a lowercase abbreviation",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance in acct. A12 was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word on the line before",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance\nwas ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word on the line before",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance\nwas ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word in the sentence before that the amount still has",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The balance was negative. It was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word in the sentence before",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The balance was negative. It was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word after the amount",
+    claim: "The net position is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The fund's net position, sixty-two thousand dollars ($62,000.00), turned negative in March.",
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word after the amount",
+    claim: "The net position is -$62,000.",
+    figure: "-$62,000",
+    language: "en",
+    body: "The fund's net position, sixty-two thousand dollars ($62,000.00), turned negative in March.",
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "由盈转亏 before the amount",
+    claim: "净利润为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "公司由盈转亏，净利润为人民币六万二千元（¥62,000）。",
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a quote that starts after its sign word",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The reserve turned negative in May. At year end it stood at sixty-two thousand dollars ($62,000.00).",
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a quote that starts after its sign word",
+    claim: "The reserve was -$62,000.",
+    figure: "-$62,000",
+    language: "en",
+    body: "The reserve turned negative in May. At year end it stood at sixty-two thousand dollars ($62,000.00).",
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "the same quote with no sign word before it",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The reserve stayed positive in May. At year end it stood at sixty-two thousand dollars ($62,000.00).",
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a quote that ends before its sign word",
+    claim: "Cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Cash came to sixty-two thousand dollars ($62,000.00). That balance is negative.",
+    quotes: ["Cash came to sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a Chinese quote that starts after 透支",
+    claim: "月末余额为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "该账户本月出现透支。月末余额为人民币六万二千元（¥62,000）。",
+    quotes: ["月末余额为人民币六万二千元（¥62,000）。"],
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a quote that starts after its line's Less label",
+    claim: "The retention held back was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Less: retention held back sixty-two thousand dollars ($62,000.00)",
+    quotes: ["retention held back sixty-two thousand dollars ($62,000.00)"],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a quote far into its page under a heading after a blank line, with no sign word",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}\n\n4. Rent\nThe rent is sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a Chinese quote far into its page under a heading after a blank line, with no sign word",
+    claim: "租金为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: `${"承租人应妥善保管租赁物。".repeat(35)}\n\n第四条 租金\n租金为人民币六万二千元（¥62,000）。`,
+    quotes: ["租金为人民币六万二千元（¥62,000）。"],
+    number: "62,000",
+    supported: true,
+  },
+  {
+    name: "a quote far into its page under a numbered heading with no blank line above keeps main's minus",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}\n4. Rent\nThe rent is sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a quote far into its page under a short line with no number keeps main's minus",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}\nRent\nThe rent is sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word in the sentence a short line carries on keeps main's minus",
+    claim: "The reserve was $68,000.",
+    figure: "$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}\nand was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far sign word in the sentence a short line carries on",
+    claim: "The reserve was -$68,000.",
+    figure: "-$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}\nand was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: true,
+  },
+  {
+    name: "a far 负数 in the sentence a short line carries on keeps main's minus",
+    claim: "准备金为¥68,000。",
+    figure: "¥68,000",
+    language: "zh-CN",
+    body: `该准备金全年为负数，${"董事会在每次会议上都对该事项进行审阅，".repeat(22)}\n并列示为\n人民币六万八千元（¥68,000）。`,
+    quotes: ["人民币六万八千元（¥68,000）。"],
+    number: "68,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far 负数 in the sentence a short line carries on",
+    claim: "准备金为-¥68,000。",
+    figure: "-¥68,000",
+    language: "zh-CN",
+    body: `该准备金全年为负数，${"董事会在每次会议上都对该事项进行审阅，".repeat(22)}\n并列示为\n人民币六万八千元（¥68,000）。`,
+    quotes: ["人民币六万八千元（¥68,000）。"],
+    number: "68,000",
+    supported: true,
+  },
+  {
+    name: "a far sign word and a numbered line that carries on a sentence keep main's minus",
+    claim: "The reserve was $68,000.",
+    figure: "$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}as set out in clause\n3. Under that clause it was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word, a semicolon and a numbered line that carries on the sentence keep main's minus",
+    claim: "The reserve was $68,000.",
+    figure: "$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}and was recorded as follows;\n(1) it was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far sign word, a semicolon and a numbered line that carries on the sentence",
+    claim: "The reserve was -$68,000.",
+    figure: "-$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}and was recorded as follows;\n(1) it was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: true,
+  },
+  {
+    name: "a far 负数, a ； and a （一） line that carries on the sentence keep main's minus",
+    claim: "准备金为¥68,000。",
+    figure: "¥68,000",
+    language: "zh-CN",
+    body: `该准备金全年为负数，${"董事会在每次会议上都对该事项进行审阅，".repeat(22)}并按以下条目记录；\n（一）其列示金额为\n人民币六万八千元（¥68,000）。`,
+    quotes: ["人民币六万八千元（¥68,000）。"],
+    number: "68,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far 负数, a ； and a （一） line that carries on the sentence",
+    claim: "准备金为-¥68,000。",
+    figure: "-¥68,000",
+    language: "zh-CN",
+    body: `该准备金全年为负数，${"董事会在每次会议上都对该事项进行审阅，".repeat(22)}并按以下条目记录；\n（一）其列示金额为\n人民币六万八千元（¥68,000）。`,
+    quotes: ["人民币六万八千元（¥68,000）。"],
+    number: "68,000",
+    supported: true,
+  },
+  {
+    name: "a far sign word and a numbered line after “account no.” keep main's minus",
+    claim: "The reserve was $68,000.",
+    figure: "$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}as recorded in account no.\n3. It was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far sign word and a numbered line after “account no.”",
+    claim: "The reserve was -$68,000.",
+    figure: "-$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}as recorded in account no.\n3. It was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: true,
+  },
+  {
+    name: "a far sign word and a numbered line after “cl.” keep main's minus",
+    claim: "The reserve was $68,000.",
+    figure: "$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}as set out in cl.\n3. It was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a far sign word and a numbered line after “cl.”",
+    claim: "The reserve was -$68,000.",
+    figure: "-$68,000",
+    language: "en",
+    body: `The reserve remained negative throughout ${"the year while the board kept the matter under review ".repeat(8)}as set out in cl.\n3. It was reported as\nsixty-eight thousand dollars ($68,000.00).`,
+    quotes: ["sixty-eight thousand dollars ($68,000.00)."],
+    number: "$68,000.00",
+    supported: true,
+  },
+  {
+    name: "a quote far into its page with no heading above it keeps main's minus",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}The rent is sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a (−) on the line before the quote",
+    claim: "The net result was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Net result (−)\nsixty-two thousand dollars ($62,000.00)",
+    quotes: ["sixty-two thousand dollars ($62,000.00)"],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a full-width （−） on the line before a Chinese quote",
+    claim: "净利润为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "净利润（−）\n人民币六万二千元（¥62,000）",
+    quotes: ["人民币六万二千元（¥62,000）"],
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a sign word more than 400 characters before the quote, in an earlier paragraph",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a sign word more than 400 characters before the quote, with no break between, keeps main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}At year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a sign word more than 400 characters after the quote",
+    claim: "Cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `Cash came to sixty-two thousand dollars ($62,000.00). ${"The Tenant shall keep the premises in good repair. ".repeat(9)}That balance is negative.`,
+    quotes: ["Cash came to sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a Less label on the line before the quote keeps the minus",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Less: deposit paid\nThe rent is sixty-two thousand dollars ($62,000.00).",
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a Less label before a quote whose amount is on its second line keeps the minus",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Less: deposit paid\nThe rent is sixty-two thousand dollars ($62,000.00).",
+    quotes: ["deposit paid\nThe rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a minus sign on the page right before a quote",
+    claim: "Net cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Net cash: −sixty-two thousand dollars ($62,000.00).",
+    quotes: ["sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "below zero in the sentence before a quote",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The fund's cash dropped below zero in the spring. By year end it was sixty-two thousand dollars ($62,000.00).",
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a (−) on the line after the quote",
+    claim: "Net cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "Net cash came to sixty-two thousand dollars ($62,000.00)\nSign: (−)",
+    quotes: ["Net cash came to sixty-two thousand dollars ($62,000.00)"],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 400 characters before the quote",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(389)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 401 characters before the quote",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(390)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word ending 400 characters after the quote",
+    claim: "Cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `Cash came to sixty-two thousand dollars ($62,000.00). ${"x".repeat(390)} negative`,
+    quotes: ["Cash came to sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word ending 401 characters after the quote",
+    claim: "Cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `Cash came to sixty-two thousand dollars ($62,000.00). ${"x".repeat(391)} negative`,
+    quotes: ["Cash came to sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a second year's figure under a two-year header",
+    claim: "Revenue in 2024 was $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "Income statement\n 2025 2024\nRevenue $1.2m ($1,200,000)",
+    quotes: ["Revenue $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the same line with no header of periods",
+    claim: "Revenue was $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "Income statement\nRevenue $1.2m ($1,200,000)",
+    quotes: ["Revenue $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: true,
+  },
+  {
+    name: "a prior period's figure under 本期 上期",
+    claim: "上期营业收入为25,000。",
+    figure: "25,000",
+    language: "zh-CN",
+    body: "利润表\n项目 本期 上期\n营业收入 2.5万 （25,000）",
+    quotes: ["营业收入 2.5万 （25,000）"],
+    number: "25,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a net loss's size keeps the minus",
+    claim: "The net loss was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: "The net loss for the period came to sixty-two thousand dollars ($62,000.00).",
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a 减 label alone on a line above the quote",
+    claim: "已付定金为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: "现金流量\n减\n已付定金人民币六万二千元（¥62,000）",
+    quotes: ["已付定金人民币六万二千元（¥62,000）"],
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a second year's figure under full-width years above the quote",
+    claim: "Cash at bank in 2024 was $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "Cash flow statement\n２０２５ ２０２４\nCash at bank $1.2m ($1,200,000)",
+    quotes: ["Cash at bank $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence under full-width years above the quote",
+    claim: "Cash at bank in 2024 was -$1,200,000.",
+    figure: "-$1,200,000",
+    language: "en",
+    body: "Cash flow statement\n２０２５ ２０２４\nCash at bank $1.2m ($1,200,000)",
+    quotes: ["Cash at bank $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: true,
+  },
+  {
+    name: "a far sign word, a cut-off line and a long line above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(4)}Notes on the reserve follow\n${"The Tenant shall keep the premises in good repair. ".repeat(7)}and the parties agree that\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word and a short sentence on its own line above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\nPayment is due monthly.\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word and a line too long for a heading above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\nSchedule of the payments due under the lease in the second year\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "English words with an article",
+    claim: "The deposit is $160,000.",
+    figure: "$160,000",
+    language: "en",
+    body: "The Tenant shall pay a hundred and sixty thousand dollars ($160,000.00) on signing.",
+    number: "$160,000.00",
+    supported: true,
+  },
+] as const)("$name: Supported is $supported (#2341)", async (each) => {
+  const { result } = await checkWith({
+    claim: each.claim,
+    figures: [target("f1", each.figure, each.claim, each.language)],
+    body: each.body,
+    quotes: "quotes" in each ? each.quotes : undefined,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+
+  if (each.supported) {
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.verdict).toBe("supported");
+  } else {
+    expect(result.figures?.[0]?.result.verdict).not.toBe("supported");
+    expect(result.verdict).not.toBe("supported");
+  }
+  if ("verdict" in each) expect(result.verdict).toBe(each.verdict);
+});
+
+type Verdicts = { amount: "supported" | "contradicted"; minus: "supported" | "contradicted" };
+
+interface SignProbe {
+  id: string;
+  shape: string;
+  lang: "en" | "zh-CN";
+  body: string;
+  quote?: string;
+  amount: string;
+  number: string;
+  truth: "pos" | "neg";
+  main: Verdicts;
+  expected: Verdicts;
+}
+
+// Written before it was run (#2341): restatements beside sign words near and far, false sign
+// claims, headers of periods and "Less:" lines, each checked with its amount and with its minus.
+// Both claims are pinned to the verdict the Check gives, and main's verdicts are kept beside them.
+const signProbes = JSON.parse(
+  readFileSync(join(__dirname, "../fixtures/figures/bracket-sign-probes.json"), "utf8"),
+) as SignProbe[];
+const signs = ["amount", "minus"] as const;
+const backs = (probe: SignProbe, sign: (typeof signs)[number]) =>
+  (probe.truth === "neg") === (sign === "minus");
+
+test.each(signProbes)(
+  "$id ($shape): no claim main checks right is checked wrong here (#2341)",
+  (probe) => {
+    for (const sign of signs) {
+      const right = (verdict: string) => (verdict === "supported") === backs(probe, sign);
+      if (right(probe.main[sign])) expect(right(probe.expected[sign])).toBe(true);
+    }
+  },
+);
+
+test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))))(
+  "$id ($shape), $sign: the Check gives its pinned verdict (#2341)",
+  async (probe) => {
+    const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
+    const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+    const { result } = await checkWith({
+      claim,
+      figures: [target("f1", shown, claim, probe.lang)],
+      body: probe.body,
+      quotes: probe.quote ? [probe.quote] : undefined,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+    expect(result.verdict).toBe(probe.expected[probe.sign]);
   },
 );
 

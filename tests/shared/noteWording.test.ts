@@ -12,8 +12,9 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MIND = /\bMinds?\b/g;
 const ONE_MIND = /\bMinds?\b/;
 const NOTE = /\bnotes?\b/i;
-const HAS_NOTES = /笔记(?!本)/;
-const NOTES_ALL = /笔记(?!本)/g;
+// 笔记本 is a notebook, but 笔记本身 is the note itself (#2525).
+const HAS_NOTES = /笔记(?!本(?!身))/;
+const NOTES_ALL = /笔记(?!本(?!身))/g;
 const HAS_YOUR_TEXT = /你写的内容/;
 const YOUR_TEXT = /\byour text\b/i;
 
@@ -65,7 +66,6 @@ const RETIRED_NOTE: readonly RetiredNote[] = [
   { key: "deleted.lost.mind.one", old: 1, final: 0, englishOld: true },
   { key: "palette.group.notes", old: 1, final: 0, englishOld: true },
   { key: "palette.searching", old: 1, final: 0, englishOld: true },
-  { key: "providers.readiness.no-provider", old: 1, final: 0, englishOld: true },
   { key: "question.context.include", old: 1, final: 0, englishOld: false },
   { key: "skills.builtIn.mind-to-report", old: 1, final: 1, englishOld: true },
   { key: "skills.make.empty", old: 1, final: 1, englishOld: true },
@@ -112,11 +112,17 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
 ];
 
 /** Already says 笔记 for the Note, with an English word that never said note. */
-const CHINESE_ONLY: readonly MessageKey[] = ["history.reason.enhance"];
+const CHINESE_ONLY: readonly MessageKey[] = [
+  "history.reason.enhance",
+  // The English says meeting, the Chinese names the meeting's Note and Transcript (#2528).
+  "meetings.leftApart.one",
+  "meetings.leftApart.other",
+];
 
 /**
  * A note here is something else: Word's notes, speaker notes, a style's name,
- * or the activity of taking notes in a ⌘K keyword list.
+ * or the activity of taking notes, in a ⌘K keyword list or in the offers to
+ * take notes in a meeting (#189), which Chinese calls recording the meeting.
  */
 const ANOTHER_NOTE: readonly MessageKey[] = [
   "citation.note",
@@ -124,7 +130,16 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "citationStyle.form.note",
   "export.html.notes",
   "location.section.notes",
+  "meetings.notice.background.mac",
+  "meetings.notice.background.other",
   "meetings.record.keywords",
+  "offers.take",
+  "offers.turnOn.line",
+  "offers.turnOn.line.other",
+  "settings.calendarOffers.detail",
+  "settings.keepRunning.detail.mac",
+  "settings.keepRunning.detail.other",
+  "settings.openAtLogin.detail",
   "share.page.notes",
   "viewer.slide.notes",
   "wordImport.keptChange.content",

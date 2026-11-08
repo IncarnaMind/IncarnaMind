@@ -14,9 +14,14 @@ import { htmlMarkdown } from "../../../core/documents/formats/html";
 import { rtfMarkdown } from "../../../core/documents/formats/rtf";
 import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documents/formats/text";
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
+import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
+import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
@@ -26,15 +31,16 @@ import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./
 import { sourceSelection, useSelectionReader } from "./selectedText";
 import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
-import { FileGone, ViewerMessage } from "./ViewerMessage";
+import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
-type TextRefusal = "viewer.textTooLarge" | "viewer.textUnreadable";
+type TextFailure = "viewer.textTooLarge" | "viewer.textUnreadable" | "viewer.textLoadFailed";
 
 type Loaded =
   | { kind: "loading" }
   | { kind: "ready"; text: string }
   | { kind: "missing" }
-  | { kind: "failed"; key: TextRefusal; message: string };
+  /** `retry`: the file could be read a second time; a refusal's couldn't. */
+  | { kind: "failed"; key: TextFailure; message: string; retry?: boolean };
 
 /** Nothing to highlight. */
 const NO_HIGHLIGHT: readonly TextRange[] = [];
@@ -88,17 +94,25 @@ export function TextView({ document, target }: { document: Document; target: Vie
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
-        if (error instanceof MissingDocumentError) setLoaded({ kind: "missing" });
-        else {
+        if (error instanceof MissingDocumentError) {
+          setLoaded({ kind: "missing" });
+          return;
+        }
+        if (error instanceof TooLargeDocumentError) {
           setLoaded({
             kind: "failed",
-            key:
-              error instanceof TooLargeDocumentError
-                ? "viewer.textTooLarge"
-                : "viewer.textUnreadable",
-            message: error instanceof Error ? error.message : "",
+            key: "viewer.textTooLarge",
+            message: error.message,
           });
+          return;
         }
+        logCaught(error);
+        setLoaded({
+          kind: "failed",
+          key: "viewer.textLoadFailed",
+          message: error instanceof Error ? error.message : "",
+          retry: true,
+        });
       },
     );
     return () => controller.abort();
@@ -150,7 +164,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
         )}
       </ViewerHeader>
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument key={attempt} retry={reload} />
       ) : loaded.kind === "missing" ? (
         <FileGone quote={target.quote} />
       ) : loaded.kind === "failed" ? (
@@ -159,11 +173,23 @@ export function TextView({ document, target }: { document: Document; target: Vie
           view
           message={loaded.message}
           reload={reload}
-          fallback={<ViewerMessage tone="error">{t(loaded.key)}</ViewerMessage>}
+          fallback={
+            <ViewerMessage
+              tone="error"
+              action={
+                loaded.retry
+                  ? { label: t("library.fix.retry"), testId: "viewer-retry", onClick: reload }
+                  : undefined
+              }
+            >
+              {t(loaded.key)}
+            </ViewerMessage>
+          }
         />
       ) : (
         <MarkdownDocumentContext.Provider value={document.id}>
           <TextContent
+            documentId={document.id}
             text={loaded.text}
             markdown={markdown}
             literal={literal}
@@ -205,6 +231,7 @@ function headingIndexes(units: readonly SourceUnit[]): Map<SourceUnit, number> {
 }
 
 function TextContent({
+  documentId,
   text,
   markdown,
   literal,
@@ -213,6 +240,7 @@ function TextContent({
   outline,
   target,
 }: {
+  documentId: string;
   text: string;
   markdown: boolean;
   /** The text is the words it holds: no emphasis, code or links to read (#762). */
@@ -225,6 +253,12 @@ function TextContent({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
+  const stored = useDocumentAnnotations(documentId);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(documentId);
+  }, [loadAnnotations, documentId]);
+  const annotations = useMemo(() => annotationRangesIn(text, stored ?? []), [text, stored]);
   useSelectionReader(
     useCallback(
       (range) =>
@@ -281,6 +315,7 @@ function TextContent({
     return starts;
   }, [units]);
   const mark = quoteMarkOf(target.citation);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
 
@@ -391,15 +426,21 @@ function TextContent({
         className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
       >
         <article className="viewer-page viewer-text-page" data-area-unit="">
-          <div ref={column} className="relative">
+          <div ref={column} className="relative" {...pictureClick}>
             {blocks && !source ? (
-              <MarkdownBlocks blocks={blocks} source={text} highlight={highlight} />
+              <MarkdownBlocks
+                blocks={blocks}
+                source={text}
+                highlight={highlight}
+                annotations={annotations}
+              />
             ) : (
               <pre className={`document-plain ${blocks || code ? "document-plain--code" : ""}`}>
                 <PlainText
                   source={text}
                   units={units}
                   highlight={highlight}
+                  annotations={annotations}
                   headings={blocks ? sectionStarts : null}
                 />
               </pre>
@@ -413,6 +454,11 @@ function TextContent({
             )}
           </div>
         </article>
+        <AnnotationNoteLayer
+          container={scroller}
+          documentId={documentId}
+          annotations={stored ?? []}
+        />
       </div>
     </div>
   );
@@ -435,11 +481,13 @@ function PlainText({
   source,
   units,
   highlight,
+  annotations,
   headings,
 }: {
   source: string;
   units: readonly SourceUnit[];
   highlight: readonly TextRange[];
+  annotations: readonly AnnotationRange[];
   headings: ReadonlyMap<number, number> | null;
 }) {
   const parts: ReactNode[] = [];
@@ -453,6 +501,7 @@ function PlainText({
           start={at}
           end={unit.start}
           highlight={highlight}
+          annotations={annotations}
         />,
       );
     }
@@ -463,13 +512,26 @@ function PlainText({
         data-area-unit={unit.page}
         data-heading={headings?.get(unit.page)}
       >
-        <Slice source={source} start={unit.start} end={unit.end} highlight={highlight} />
+        <Slice
+          source={source}
+          start={unit.start}
+          end={unit.end}
+          highlight={highlight}
+          annotations={annotations}
+        />
       </span>,
     );
     at = unit.end;
   }
   parts.push(
-    <Slice key={`gap${at}`} source={source} start={at} end={source.length} highlight={highlight} />,
+    <Slice
+      key={`gap${at}`}
+      source={source}
+      start={at}
+      end={source.length}
+      highlight={highlight}
+      annotations={annotations}
+    />,
   );
   return <>{parts}</>;
 }

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { INLINE_NODE, isClaim, lastSentence, sentenceSpans } from "../../src/shared/sentences";
+import {
+  INLINE_NODE,
+  isClaim,
+  lastSentence,
+  onlyNamesItsTable,
+  sentenceSpans,
+} from "../../src/shared/sentences";
 
 const sentences = (text: string) => sentenceSpans(text).map(({ from, to }) => text.slice(from, to));
 
@@ -84,6 +90,13 @@ describe("The sentences of a paragraph", () => {
     ]);
   });
 
+  test("a record cite with no space before it belongs to the sentence it supports", () => {
+    expect(sentences("原告中午离开。Ex. 7 at 3。下一句。")).toEqual([
+      "原告中午离开。Ex. 7 at 3。",
+      "下一句。",
+    ]);
+  });
+
   test("a sentence of record cites alone belongs to the sentence it supports", () => {
     expect(sentences("Plaintiff left at noon. Smith Dep. 45:3–12. The next fact.")).toEqual([
       "Plaintiff left at noon. Smith Dep. 45:3–12.",
@@ -136,6 +149,30 @@ describe("The sentences of a paragraph", () => {
   test("nothing but spaces or a lone Citation is no sentence", () => {
     expect(sentences("   ")).toEqual([]);
     expect(sentences(` ${INLINE_NODE} `)).toEqual([]);
+  });
+});
+
+describe("An Analysis table's caption line (#2378)", () => {
+  test("only names its table while it holds one sentence that doesn't end", () => {
+    for (const caption of [
+      `Total amount by region${INLINE_NODE}`,
+      `Sales vs. budget: total amount${INLINE_NODE}`,
+      `Revenue by region (USD) ${INLINE_NODE}`,
+      `各地区金额合计${INLINE_NODE}`,
+    ])
+      expect(onlyNamesItsTable(caption)).toBe(true);
+    for (const typed of [
+      `Total amount by region.${INLINE_NODE}`,
+      `Total amount by region. ${INLINE_NODE}`,
+      `Did North lead?${INLINE_NODE}`,
+      `各地区金额合计。${INLINE_NODE}`,
+      `North led. Total amount by region${INLINE_NODE}`,
+      `North leads with 9,450${INLINE_NODE}`,
+      `North: 9,450; South: 8,700${INLINE_NODE}`,
+      `北部地区领先，金额合计 9,450${INLINE_NODE}`,
+      `Sales vs. budget, 1.5x${INLINE_NODE}`,
+    ])
+      expect(onlyNamesItsTable(typed)).toBe(false);
   });
 });
 

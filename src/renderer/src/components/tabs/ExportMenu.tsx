@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode, useEffect } from "react";
-import { type DocumentKind, EXPORT_FORMATS, type ExportFormat } from "../../../../core/api";
+import type { DocumentKind, ExportFormat } from "../../../../core/api";
 import type { CommandId } from "../../../../shared/commands";
 import { useChecks } from "../../checks";
 import { useMindFormatting } from "../../citationFormatting";
@@ -8,7 +8,7 @@ import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { ClaimMarkIcon } from "../../editor/icons";
 import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRequest";
-import { FORMAT_LABELS, useExports } from "../../exports";
+import { EXPORT_OPTIONS_FORMATS, exportFormatNow, FORMAT_LABELS, useExports } from "../../exports";
 import { useMindNoteStates } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { showCheckCard, startCheckAsking } from "../../mindCheck";
@@ -18,6 +18,7 @@ import {
   ChevronRightLineIcon,
   DocumentLineIcon,
   ExportLineIcon,
+  LinkLineIcon,
   MoreLineIcon,
   SettingsLineIcon,
 } from "../lineIcons";
@@ -28,7 +29,7 @@ const MAIN_FORMATS: readonly ExportFormat[] = ["docx", "pdf"];
 
 function exportChoices(last: ExportFormat): { shown: ExportFormat[]; more: ExportFormat[] } {
   const shown = [last, ...MAIN_FORMATS.filter((format) => format !== last)];
-  return { shown, more: EXPORT_FORMATS.filter((format) => !shown.includes(format)) };
+  return { shown, more: EXPORT_OPTIONS_FORMATS.filter((format) => !shown.includes(format)) };
 }
 
 const ICON_KIND: Readonly<Record<ExportFormat, DocumentKind>> = {
@@ -77,12 +78,35 @@ function Item({
   );
 }
 
+/**
+ * Export on a strip whose shown tab isn't a Note: every group's strip holds the same controls in
+ * the same order, so this one waits, saying what it needs.
+ */
+export function ExportIdle() {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="export-idle"
+      aria-disabled="true"
+      aria-description={t("export.idle")}
+      tabIndex={-1}
+      title={t("export.idle")}
+      className="tab-export"
+    >
+      <ExportLineIcon />
+      <span>{t("export.action")}</span>
+    </button>
+  );
+}
+
 export function ExportMenu({ mindId }: { mindId: string }) {
   const t = useT();
   const language = useLanguage();
   const menu = usePopoverMenu({ focus: "first", align: "end" });
   const submenu = useSubmenu();
-  const last = useAppStore((state) => state.settings?.user.exportOptions.format ?? "docx");
+  const stored = useAppStore((state) => state.settings?.user.exportOptions.format ?? "docx");
+  const last = exportFormatNow(stored);
   const saving = useExports(
     (state) => state.result?.mindId === mindId && state.result.state === "saving",
   );
@@ -148,6 +172,15 @@ export function ExportMenu({ mindId }: { mindId: string }) {
       label={t(FORMAT_LABELS[format])}
       {...(hint && { hint })}
       onClick={() => exportAs(format)}
+    />
+  );
+  // The web page is not a format (#1258): its own sheet shares it, next to HTML.
+  const shareWebPage = (
+    <Item
+      testId="export-share-web-page"
+      icon={<LinkLineIcon className="size-4 shrink-0 text-ink-meta" />}
+      label={t("export.share.menu")}
+      onClick={() => run("mind.shareWebPage")}
     />
   );
 
@@ -233,7 +266,26 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         data-testid="export-more-menu"
         className={menuClass}
       >
-        {more.map((format) => formatItem(format))}
+        {more.map((format) => (
+          <Fragment key={format}>
+            {formatItem(format)}
+            {format === "html" && shareWebPage}
+          </Fragment>
+        ))}
+        {!more.includes("html") && shareWebPage}
+        <div className={menuRuleClass} />
+        <Item
+          testId="export-ai-use-statement"
+          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          label={t("aiStatement.command")}
+          onClick={() => run("mind.aiUseStatement")}
+        />
+        <Item
+          testId="export-check-record"
+          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          label={t("checkRecord.command")}
+          onClick={() => run("mind.checkRecord")}
+        />
       </div>
     </>
   );

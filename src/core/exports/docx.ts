@@ -16,6 +16,7 @@
 
 import { deflateRawSync } from "node:zlib";
 import { footnoteSubjectKey } from "../../shared/citations";
+import type { PrintedMarks } from "../../shared/exportMarks";
 import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
@@ -40,6 +41,15 @@ import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
 import { noteChecks } from "./noteChecks";
 import { changedElement, formatChanges } from "./paragraphFormat";
+import {
+  FOOTER_CONTENT_TYPE,
+  FOOTER_RELATIONSHIP,
+  HEADER_CONTENT_TYPE,
+  HEADER_RELATIONSHIP,
+  pageMarksReferences,
+  pageNumberFooter,
+  watermarkHeader,
+} from "./wordFurniture";
 import {
   bookmarked,
   COMMENTS_CONTENT_TYPE,
@@ -82,6 +92,8 @@ export interface DocxOptions {
   font: string | null;
   /** The Mind's line spacing, a multiple of a single line; null: the export's own. */
   lineSpacing: number | null;
+  /** The page numbers and watermark the file carries (#1258); absent: page numbers and no watermark. */
+  marks?: PrintedMarks;
 }
 
 /** The prefixes the writer writes, and their namespaces. */
@@ -116,7 +128,6 @@ const RELATIONSHIP = {
   image: `${NS.r}/image`,
   hyperlink: `${NS.r}/hyperlink`,
 } as const;
-
 const MAIN_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml";
 
 /**
@@ -132,7 +143,7 @@ const NOTE_MARK =
   /<w:r><w:rPr><w:rStyle w:val="[^"]*"\/><\/w:rPr><w:footnoteReference w:id="(\d+)"\/><\/w:r>/g;
 
 /** One level of a list, or of a quote, indents this much (half an inch). */
-const INDENT = 720;
+export const INDENT = 720;
 /** A list item's number or bullet hangs this far left of its text. */
 const HANGING = 360;
 /** A to-do's box is at the text edge, its text 28px in; a nested to-do steps in 24px, as in the editor. */
@@ -187,6 +198,9 @@ export function renderDocx(
   lostComments: MindComment[];
 } {
   const paper = PAPER[options.paper];
+  const marks = options.marks ?? { pageNumbers: true, watermark: null };
+  const header = marks.watermark === null ? null : watermarkHeader(marks.watermark);
+  const footer = marks.pageNumbers ? pageNumberFooter() : null;
   const target = new NewDocxTarget();
   const review = options.review
     ? new Review(
@@ -213,7 +227,10 @@ export function renderDocx(
   const drawn = writer.finish(
     `${XML_DECLARATION}<w:document xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a="${NS.a}" xmlns:pic="${NS.pic}" xmlns:m="${NS.m}"><w:body>` +
       body +
-      `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
+      `<w:sectPr>${pageMarksReferences({
+        ...(header !== null && { headerId: "rIdHeader" }),
+        ...(footer !== null && { footerId: "rIdFooter" }),
+      })}<w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
       "</w:body></w:document>",
   );
   // A comment whose words were all deleted has no range to keep (#328): it is left out, not left dangling.
@@ -226,6 +243,12 @@ export function renderDocx(
     { id: "rIdSettings", type: RELATIONSHIP.settings, target: "settings.xml" },
     { id: "rIdNumbering", type: RELATIONSHIP.numbering, target: "numbering.xml" },
     { id: "rIdFootnotes", type: RELATIONSHIP.footnotes, target: "footnotes.xml" },
+    ...(header !== null
+      ? [{ id: "rIdHeader", type: HEADER_RELATIONSHIP, target: "header1.xml" }]
+      : []),
+    ...(footer !== null
+      ? [{ id: "rIdFooter", type: FOOTER_RELATIONSHIP, target: "footer1.xml" }]
+      : []),
     ...(comments.length > 0
       ? [{ id: "rIdComments", type: COMMENTS_RELATIONSHIP, target: "comments.xml" }]
       : []),
@@ -249,6 +272,7 @@ export function renderDocx(
           comments.length > 0,
           extended.length > 0,
           target.media.map((file) => file.name.slice(file.name.lastIndexOf(".") + 1)),
+          { header: header !== null, footer: footer !== null },
         ),
       },
       {
@@ -265,9 +289,11 @@ export function renderDocx(
         name: "word/styles.xml",
         data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
-      { name: "word/settings.xml", data: settings(headings.length > 0) },
+      { name: "word/settings.xml", data: settings(headings.length > 0, header !== null) },
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
+      ...(header !== null ? [{ name: "word/header1.xml", data: header }] : []),
+      ...(footer !== null ? [{ name: "word/footer1.xml", data: footer }] : []),
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),
       ...(extended.length > 0
         ? [{ name: "word/commentsExtended.xml", data: commentsExtendedPart(extended) }]
@@ -1454,7 +1480,12 @@ function imageSize(data: Buffer): Omit<DecodedImage, "data"> | null {
 /** Pictures every export lists, used or not, as it always has. */
 const LISTED_PICTURES: ReadonlySet<string> = new Set(["png", "jpeg", "gif"]);
 
-function contentTypes(comments: boolean, extended: boolean, pictures: readonly string[]): string {
+function contentTypes(
+  comments: boolean,
+  extended: boolean,
+  pictures: readonly string[],
+  furniture: { header: boolean; footer: boolean },
+): string {
   const more = [...new Set(pictures)].filter(
     (extension): extension is DecodedImage["extension"] =>
       !LISTED_PICTURES.has(extension) && extension in PICTURE_TYPES,
@@ -1474,6 +1505,12 @@ function contentTypes(comments: boolean, extended: boolean, pictures: readonly s
     `<Override PartName="/word/settings.xml" ContentType="${MAIN_CONTENT_TYPE}.settings+xml"/>`,
     `<Override PartName="/word/numbering.xml" ContentType="${MAIN_CONTENT_TYPE}.numbering+xml"/>`,
     `<Override PartName="/word/footnotes.xml" ContentType="${MAIN_CONTENT_TYPE}.footnotes+xml"/>`,
+    ...(furniture.header
+      ? [`<Override PartName="/word/header1.xml" ContentType="${HEADER_CONTENT_TYPE}"/>`]
+      : []),
+    ...(furniture.footer
+      ? [`<Override PartName="/word/footer1.xml" ContentType="${FOOTER_CONTENT_TYPE}"/>`]
+      : []),
     ...(comments
       ? [`<Override PartName="/word/comments.xml" ContentType="${COMMENTS_CONTENT_TYPE}"/>`]
       : []),
@@ -1506,8 +1543,9 @@ function coreProperties({ title, created }: DocxOptions): string {
 }
 
 /** The package's settings; a table of contents asks Word to update the fields as it opens. */
-const settings = (updateFields: boolean) =>
+const settings = (updateFields: boolean, watermark = false) =>
   `${XML_DECLARATION}<w:settings xmlns:w="${NS.w}">` +
+  (watermark ? "<w:displayBackgroundShape/>" : "") +
   '<w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/>' +
   (updateFields ? '<w:updateFields w:val="true"/>' : "") +
   '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>' +

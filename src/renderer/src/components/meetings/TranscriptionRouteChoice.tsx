@@ -9,6 +9,7 @@ import { CloudLineIcon, ComputerLineIcon } from "../lineIcons";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { CloudLine } from "./CloudLine";
+import { LanguagesLine } from "./LanguagesLine";
 
 const lineClass = "flex items-center gap-3 rounded-lg p-3 ring-1 ring-rule ring-inset";
 const linkClass =
@@ -73,6 +74,7 @@ export function TranscriptionRouteChoice() {
             {t("meetings.route.cloudOn", { provider: t(ROUTE_LABELS[chosen.route]) })}
           </p>
           <CloudLine service={chosen} className="text-[12px] leading-4 text-ink-meta" />
+          <LanguagesLine service={chosen} className="text-[12px] leading-4 text-ink-meta" />
         </div>
         <button
           type="button"
@@ -125,7 +127,7 @@ export function TranscriptionRouteChoice() {
           {t("meetings.route.slowNoKey")}{" "}
           <button
             type="button"
-            onClick={() => openSettings("meetings")}
+            onClick={() => openSettings("models", "transcription")}
             className="text-accent underline-offset-2 hover:underline"
           >
             {t("meetings.route.settingsLink")}
@@ -160,6 +162,7 @@ export function TranscriptionRouteChoice() {
               {service.dataUse && (
                 <CloudLine service={service} className="text-[12px] leading-4 text-ink-meta" />
               )}
+              <LanguagesLine service={service} className="text-[12px] leading-4 text-ink-meta" />
             </div>
           ))}
           <p className="text-[12px] leading-4 text-ink-meta">{t("meetings.route.waysNote")}</p>

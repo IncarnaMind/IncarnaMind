@@ -9,9 +9,11 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
+  firstTranscriptLine,
   focusMainWindow,
   heldGlobalKeys,
   launchApp,
+  openTranscriptBeside,
   panelOf,
   panelOpen,
   pointAndClick,
@@ -24,6 +26,7 @@ import {
   setWindowSize,
   startRecording,
   tabTo,
+  transcriptSaved,
 } from "./app";
 
 /**
@@ -95,7 +98,7 @@ async function sentSince(app: ElectronApplication, from: number) {
 
 async function recordingMeeting(window: Page): Promise<Locator> {
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+  await firstTranscriptLine(window);
   return bar;
 }
 
@@ -158,7 +161,9 @@ const linesOf = (transcript: Locator) =>
   transcript.getByTestId("transcript-line").evaluateAll((items) =>
     items.map((item) => ({
       start: Number(item.getAttribute("data-start")),
-      speaker: item.querySelector('[data-testid="transcript-speaker"]')?.textContent ?? "",
+      speaker:
+        item.closest("[data-turn]")?.querySelector('[data-testid="transcript-speaker"]')
+          ?.textContent ?? "",
     })),
   );
 
@@ -201,8 +206,7 @@ test("Pause my mic: the bar's button, ⌘K and the shortcut pause and resume the
   expect(await capture(app)).toMatchObject({ running: true, microphoneOn: true });
   await expect.poll(() => heldGlobalKeys(app, MIC_KEYS)).toBe(true);
 
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
-  await toggle.click();
+  await openTranscriptBeside(window, bar);
   const transcript = window.getByTestId("viewer-transcript");
   const speakers = transcript.getByTestId("transcript-speaker");
   await expect(speakers.filter({ hasText: /^Me$/ }).first()).toBeVisible({ timeout: 20_000 });
@@ -295,9 +299,7 @@ test("Pause my mic: the bar's button, ⌘K and the shortcut pause and resume the
   await bar.getByTestId("meeting-stop").click();
   await expect(bar).toBeHidden();
   await expect.poll(() => heldGlobalKeys(app, MIC_KEYS)).toBe(false);
-  await expect(window.getByTestId("meeting-transcript-line")).toContainText("Transcript saved", {
-    timeout: 20_000,
-  });
+  await transcriptSaved(window);
   const [stopped] = await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings(),
   );
@@ -361,7 +363,7 @@ test("Pause my mic in Chinese: the tooltips, the line, ⌘K and the mark in Chin
 
   // The live mark in the Transcript, in Chinese, beside the meeting where the window has room.
   await setWindowSize(app, window, 1440, 900);
-  await bar.getByTestId("meeting-transcript-toggle").click();
+  await openTranscriptBeside(window, bar);
   const transcript = window.getByTestId("viewer-transcript");
   const open = transcript.getByTestId("transcript-mic-paused");
   await expect(wordsOf(open)).toHaveText(/^我的麦克风自 \d\d:\d\d 起已暂停 · 恢复$/);
@@ -446,14 +448,14 @@ test("Pause my mic in the floating panel: the header's button and the line under
   await app.close();
 });
 
-test("the recording bar never wraps: from 1,600 px down to 900 px, in English and Chinese, with the transcript beside it or not, it is one row of one height and keeps the state, Pause my mic, Pause and Stop", async () => {
+test("the recording bar never wraps: from 1,600 px down to 900 px, in English and Chinese, with the transcript open beside it or not, it is one row of one height and keeps the state, Pause my mic, Pause and Stop", async () => {
   test.setTimeout(300_000);
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
   await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  const besideTabs = window.getByTestId("document-tab");
   const more = bar.getByTestId("meeting-more");
   const notes = window.getByTestId("mind-editor");
   await notes.click();
@@ -462,10 +464,11 @@ test("the recording bar never wraps: from 1,600 px down to 900 px, in English an
     await setLanguage(window, language);
     for (const beside of [false, true]) {
       await setWindowSize(app, window, 1600, 900);
-      if ((await toggle.getAttribute("aria-pressed")) !== String(beside)) {
-        await pointAndClick(window, toggle);
+      if (beside && (await besideTabs.count()) === 0) await openTranscriptBeside(window, bar);
+      if (!beside && (await besideTabs.count()) > 0) {
+        await pointAndClick(window, besideTabs.first().getByTestId("tab-close"));
       }
-      await expect(toggle).toHaveAttribute("aria-pressed", String(beside));
+      await expect(besideTabs).toHaveCount(beside ? 1 : 0);
       const folded: number[] = [];
       for (let width = 1600; width >= 900; width -= 50) {
         await setWindowSize(app, window, width, 800);
@@ -490,7 +493,7 @@ test("the recording bar never wraps: from 1,600 px down to 900 px, in English an
       await expect(items.first()).toBeFocused();
       await expect(menu.getByTestId("meeting-more-mark")).toBeEnabled();
       const hidden = [];
-      for (const id of ["meeting-mark", "meeting-call-help", "meeting-transcript-toggle"]) {
+      for (const id of ["meeting-mark", "meeting-call-help", "meeting-details-toggle"]) {
         if (!(await bar.getByTestId(id).isVisible())) hidden.push(id);
       }
       await expect(items).toHaveCount(hidden.length);

@@ -1,17 +1,18 @@
 import { create } from "zustand";
-import type {
-  CheckRecordFormat,
-  CitationPlace,
-  ExportFormat,
-  ExportMindOptions,
-  ExportPreferences,
-  MarkAiTextChoice,
-  SavedCheckRecord,
-  SavedComparisonExport,
-  SavedExport,
-  SavedMindExport,
-  SentenceChecksExported,
-  WordExportReport,
+import {
+  type CheckRecordFormat,
+  type CitationPlace,
+  EXPORT_FORMATS,
+  type ExportFormat,
+  type ExportMindOptions,
+  type ExportPreferences,
+  type MarkAiTextChoice,
+  type SavedCheckRecord,
+  type SavedComparisonExport,
+  type SavedExport,
+  type SavedMindExport,
+  type SentenceChecksExported,
+  type WordExportReport,
 } from "../../core/api";
 import {
   type CitedCount,
@@ -54,16 +55,28 @@ const DEFAULT_PREFERENCES: ExportPreferences = {
   "share-page": { includeQuestions: false, citationCards: true, checkedLine: false },
 };
 
-export const exportPreferences = (): ExportPreferences =>
-  useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
+/** The formats Export options offers and Export writes: the web page has its own Share sheet (#1258). */
+export const EXPORT_OPTIONS_FORMATS = EXPORT_FORMATS.filter((format) => format !== "share-page");
+
+/** The format Export remembers: a web page saved before the Share sheet opens as HTML (#1258). */
+export const exportFormatNow = (format: ExportFormat): ExportFormat =>
+  format === "share-page" ? "html" : format;
+
+export const exportPreferences = (): ExportPreferences => {
+  const saved = useAppStore.getState().settings?.user.exportOptions ?? DEFAULT_PREFERENCES;
+  const format = exportFormatNow(saved.format);
+  return format === saved.format ? saved : { ...saved, format };
+};
 
 export const COMPARISON_EXCEL = "comparison-xlsx";
+export const COMPARISON_CSV = "comparison-csv";
 export const FIGURE_SCHEDULE_EXCEL = "figure-schedule-xlsx";
 
 export type ExportKind =
   | ExportFormat
   | "check-record"
   | typeof COMPARISON_EXCEL
+  | typeof COMPARISON_CSV
   | typeof FIGURE_SCHEDULE_EXCEL;
 
 export const isCheckRecord = (kind: ExportKind): kind is "check-record" => kind === "check-record";
@@ -501,7 +514,8 @@ export async function exportMind(
   const options: ExportMindOptions =
     chosen === "docx" ? wordOptions(mindId, preferences) : optionsFor(chosen, preferences);
   const settle = begin(mindId, chosen);
-  if (chosen !== preferences.format) {
+  // The Share sheet saves a web page without making it the format Export options offers (#1258).
+  if (chosen !== preferences.format && chosen !== "share-page") {
     void useAppStore
       .getState()
       .updateSettings({ user: { exportOptions: { ...preferences, format: chosen } } });
@@ -587,6 +601,44 @@ export async function exportComparison(
   }
 }
 
+/**
+ * Saves a comparison table as CSV (#1839) beside Export to Excel, the rows `documentIds` names
+ * when a filter hides some; the result line says how it went.
+ */
+export async function exportComparisonCsv(
+  mindId: string,
+  tableId: string,
+  documentIds?: readonly string[],
+  first?: () => Promise<boolean>,
+): Promise<void> {
+  const settle = begin(mindId, COMPARISON_CSV, tableId);
+  if (!settle) return;
+  try {
+    if (first && !(await first())) {
+      settle(null);
+      return;
+    }
+    const saved = savedResult(
+      mindId,
+      COMPARISON_CSV,
+      await core.saveComparisonCsvExport({
+        mindId,
+        tableId,
+        ...(documentIds && { documentIds }),
+      }),
+    );
+    settle(saved && { ...saved, tableId });
+  } catch (failure) {
+    settle({
+      mindId,
+      state: "failed",
+      format: COMPARISON_CSV,
+      tableId,
+      message: errorMessage(failure, translateNow),
+    });
+  }
+}
+
 export async function exportFigureSchedule(
   mindId: string,
   first?: () => Promise<boolean>,
@@ -614,6 +666,9 @@ export function exportAgain(
   first: () => Promise<boolean>,
 ): Promise<void> {
   const { mindId, format: kind } = result;
+  // A CSV exported again keeps every row: the filter it followed may be gone.
+  if (kind === COMPARISON_CSV)
+    return exportComparisonCsv(mindId, result.tableId ?? "", undefined, first);
   if (kind === COMPARISON_EXCEL) return exportComparison(mindId, result.tableId ?? "", first);
   if (kind === FIGURE_SCHEDULE_EXCEL) return exportFigureSchedule(mindId, first);
   if (!isCheckRecord(kind)) return exportMind(mindId, kind, first);

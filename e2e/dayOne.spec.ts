@@ -11,6 +11,7 @@ import {
   launchApp,
   leaveFirstOpen,
   linkFolderFromSidebar,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -515,7 +516,6 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
           assignment: {
             groupId: null,
             source: "automatic",
-            suggested: false,
             status: "pending",
             error: null,
             model: null,
@@ -565,4 +565,37 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
   } finally {
     await first.app.close().catch(() => undefined);
   }
+});
+
+test("opening an example Document lists the examples' Documents under the example Note, and they stay after its tab closes (#1944)", async () => {
+  test.setTimeout(120_000);
+  const own = join(sources, "Tides.pdf");
+  await writeFile(own, buildPdf([{ lines: ["The Moon raises two bulges of water."] }]));
+  const { app, window } = await launchApp(dataDir, { examples: true, home: sources });
+  await setWindowSize(app, window, 1280, 800);
+  await window.getByTestId("add-documents-input").setInputFiles([own]);
+  const example = window.getByTestId("example-section");
+  await expect(example.getByTestId("mind-row")).toHaveCount(1);
+  await expect(example.getByTestId("document-list-item")).toHaveCount(0);
+
+  await pointAndClick(window, example.getByTestId("mind-list-item"));
+  const citations = window
+    .getByTestId("mind-pane")
+    .getByTestId("mind-editor")
+    .getByTestId("citation-chip");
+  await expect(citations.nth(0)).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+  await pointAndClick(window, citations.nth(0));
+  await expect(window.getByTestId("viewer-title")).toHaveText("Northwind Retail · Q3 2026 results");
+  await expect(example.getByTestId("document-list-item")).toHaveCount(2);
+
+  // The row is the selected one once the User is in the Document's pane (#1098).
+  await pointAndClick(window, window.getByTestId("viewer"));
+  const selected = example.getByRole("treeitem", { selected: true });
+  await expect(selected).toHaveCount(1);
+  await expect(selected.getByTestId("row-text")).toHaveText("Northwind Retail · Q3 2026 results");
+
+  await window.keyboard.press("ControlOrMeta+w");
+  await expect(window.getByTestId("viewer-title")).toHaveCount(0);
+  await expect(example.getByTestId("document-list-item")).toHaveCount(2);
+  await app.close();
 });

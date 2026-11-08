@@ -61,17 +61,15 @@ export function figureWithNote(
     figure.figure.inputs.map((input) => [input.name.toLowerCase(), input.label.trim()]),
   );
   const workbook = figure.figure.workbook;
-  const changed = workbook?.change
-    ? figure.figure.inputs.find((input) => input.name === workbook.change?.input)
-    : undefined;
+  const changes = (workbook?.changes ?? []).flatMap((change) => {
+    const input = figure.figure.inputs.find((each) => each.name === change.input);
+    return input ? [{ input: input.label, value: change.shown }] : [];
+  });
   const worked: FigureWorked = workbook
     ? {
         cell: `${workbook.cell.sheet}!${workbook.cell.ref}`,
         workbookFormula: workbook.cell.formula,
-        change:
-          workbook.change && changed
-            ? { input: changed.label, value: workbook.change.shown }
-            : null,
+        change: changes.length > 0 ? changes : null,
       }
     : figure.analysis === null
       ? {

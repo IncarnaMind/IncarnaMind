@@ -308,14 +308,11 @@ test("the card keeps one height as a result lands, its body taking what it needs
       ],
     );
 
-  // A claim being checked keeps the summary's line, empty until its result lands: the card is
-  // one height through it (#1312, #1941).
+  // No line is reserved empty at rest: the card takes its first paint's height (#2313).
   await write("checking");
   const card = await checkCard(window);
   await expect(card.getByTestId("health-checking")).toBeVisible();
-  const space = card.locator(".mind-health-summary");
-  await expect(space).toHaveCount(1);
-  await expect(space).toHaveText("");
+  await expect(card.locator(".mind-health-summary")).toHaveCount(0);
   const running = await card.boundingBox();
 
   await write("contradicted", {
@@ -323,8 +320,7 @@ test("the card keeps one height as a result lands, its body taking what it needs
   });
   // The result lands in the same card: the card keeps the height it opened with, so it does not
   // jump; its body holds what the result needs and scrolls if that is more (#2313).
-  const summary = card.locator(".mind-health-summary");
-  await expect(summary).toHaveCount(0);
+  await expect(card.locator(".mind-health-summary")).toHaveCount(0);
   await expect(card.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   const done = await card.boundingBox();
   expect(running).not.toBeNull();

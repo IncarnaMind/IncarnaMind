@@ -529,6 +529,34 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
     expect(third).not.toContain("content");
   });
 
+  test("an old-style escaped script stays one script, so the words after it are the page's", () => {
+    const markdown = htmlTextToMarkdown(
+      "<script><!--<script>a</script>b()--></script><p>harbour rules</p>",
+    );
+    expect(markdown).toContain("harbour rules");
+    expect(markdown).not.toContain("b()");
+    expect(markdown).not.toContain("-->");
+    // A script's tags are HTML's, so their case doesn't decide where it ends.
+    expect(htmlTextToMarkdown("<SCRIPT><!--x--></SCRIPT><p>upper</p>")).toBe("upper\n");
+  });
+
+  test("a title an svg or math never closes does not swallow the rest of the page", () => {
+    const svg = htmlTextToMarkdown("<svg><title>Chart</svg><p>harbour rules</p>");
+    expect(svg).toContain("harbour rules");
+    expect(svg).not.toContain("Chart");
+    const math = htmlTextToMarkdown("<math><title>x</math><p>tide tables</p>");
+    expect(math).toContain("tide tables");
+    expect(math).not.toContain("</p>");
+  });
+
+  test("an svg's own script is still raw text, so its code never becomes the page's", () => {
+    const svg = htmlTextToMarkdown(
+      "<svg><script>if (a<b) leak()</script><title>Chart</title></svg><p>harbour rules</p>",
+    );
+    expect(svg).toContain("harbour rules");
+    expect(svg).not.toContain("leak()");
+  });
+
   test("an alt is read, a data-alt is not, and a legacy name in an attribute stays as written", () => {
     expect(htmlTextToMarkdown('<img alt="Harbour map">')).toContain("Harbour map");
     expect(htmlTextToMarkdown('<img data-alt="should not show">')).not.toContain("should not show");
@@ -545,9 +573,12 @@ describe("RTF and HTML are read as text with their headings (#762)", () => {
         page('<meta name="description" content="we use charset=gbk"><p>caf', [0xc3, 0xa9], "</p>"),
       ),
     ).toContain("café");
-    expect(htmlMarkdown(page('<meta charset="utf-16"><p>caf', [0xc3, 0xa9], "</p>"))).toContain(
-      "café",
-    );
+    for (const label of ["utf-16", "unicode", "ucs-2", "csunicode"]) {
+      expect(
+        htmlMarkdown(page(`<meta charset="${label}"><p>caf`, [0xc3, 0xa9], "</p>")),
+        label,
+      ).toContain("café");
+    }
     expect(
       htmlMarkdown(
         page(
@@ -589,6 +620,8 @@ describe("The RTF reader stands up to broken files (#762)", () => {
 
   test("a fallback count ends with its group, so the words after it survive", () => {
     expect(rtf("\\uc2 \\u2032 {X}bc")).toContain("Xbc");
+    // The group ends with fallback characters still unspent: they are not the words after it.
+    expect(rtf("{\\uc2 \\u8242?}bc")).toContain("′bc");
   });
 
   test("a code page other than the CJK ones is decoded as it says", () => {

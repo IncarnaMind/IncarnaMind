@@ -29,17 +29,22 @@ import type {
   SettingsPatch,
   Skill,
   Tag,
+  TranscriptSpeakers,
+  WindowLayout,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
 import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
+import { errorForWindow } from "../../shared/errorWording";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
+import { attentionOrder } from "./attention";
 import {
   deleted,
   documentsAdded,
@@ -54,7 +59,7 @@ import { LIBRARY_DELETED } from "./deletedItems";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { folderPathLabel, folderWallOf, isInsideFolder } from "./folders";
-import { languageNow } from "./i18n";
+import { languageNow, translateNow } from "./i18n";
 import {
   createLayoutSlice,
   currentMindIdOf,
@@ -69,6 +74,8 @@ import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
 import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
+import { isListedDocument } from "./meetingTranscript";
+import { showNotesOf } from "./meetingViews";
 import {
   foldersMovedFrom,
   itemsOf,
@@ -88,6 +95,7 @@ import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
+import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
@@ -149,6 +157,13 @@ export interface AppState extends LayoutSlice {
   /** Most recently added first. */
   documents: Document[];
   /**
+   * The Documents the sidebar's tree may list while Document batches are still
+   * being added: those it listed when the first batch began, so no row moves
+   * down as each part of a batch lands (#1329). Null: nothing is being added.
+   * The Library's count still follows every Document.
+   */
+  heldDocuments: readonly string[] | null;
+  /**
    * The text kept of Documents unlinked with their Linked folder, so the
    * Citations that quote it can still be checked. Set once loaded, then follows the core's event.
    */
@@ -199,6 +214,15 @@ export interface AppState extends LayoutSlice {
    * again); or "starters", the starter Folders at its top.
    */
   libraryFilter: string;
+  /** The Document the sidebar's Review asked the Library to show: its row, once the page is ready. */
+  reviewTarget: string | null;
+  /**
+   * The Documents needing attention the User has already been taken to, so the
+   * sidebar's status counts the rest and goes once every one was seen (#2308).
+   */
+  reviewedAttention: ReadonlySet<string>;
+  /** The Folder the Library is open on, for a Question's Folder in front (#2529); null: none. */
+  libraryFolderId: string | null;
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
@@ -206,6 +230,13 @@ export interface AppState extends LayoutSlice {
    * or behind the one shown.
    */
   openLibrary(filter?: string, options?: { side?: boolean; behind?: boolean }): void;
+  /**
+   * Takes the User to the first Document needing attention the Library hasn't
+   * shown them yet, its row in view with its problem's line and action (#2308).
+   */
+  reviewAttention(): void;
+  /** Keeps only the reviewed Documents that still need attention, so a new failure shows again. */
+  keepReviewedAttention(live: ReadonlySet<string>): void;
   /**
    * Shows Home (one tab per window): its tab where it is open, else a new one
    * in the focused group; with `first`, as at a launch, just before the tab
@@ -223,6 +254,8 @@ export interface AppState extends LayoutSlice {
    * the Documents, the examples and the interface language.
    */
   readyQuestion: ReadyQuestion | null;
+  /** The User's own newest Document still being read, named: shown in place of the Question (#2127). */
+  readyReading: string | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -352,9 +385,10 @@ export interface AppState extends LayoutSlice {
   showSettingsPage(page: SettingsPage): void;
   /**
    * Shows a Document in a Document tab (see `OpenDocumentHow`), optionally at a
-   * page range, highlighting a quote (Citations).
+   * page range, highlighting a quote (Citations), with the layout once it is
+   * there (#2270 reads it when a Citation's page opens).
    */
-  openDocument(location: DocumentLocation, how?: OpenDocumentHow): void;
+  openDocument(location: DocumentLocation, how?: OpenDocumentHow): Promise<WindowLayout | null>;
   updateSettings(patch: SettingsPatch): Promise<void>;
   /** Changes pane widths on screen only, e.g. while dragging a divider. */
   previewLayout(layout: Partial<DeviceSettings>): void;
@@ -402,6 +436,17 @@ export interface AppState extends LayoutSlice {
    */
   locateDocumentFile(id: string): Promise<"cancelled" | "located" | "other">;
   renameDocument(id: string, name: string): Promise<void>;
+  /**
+   * Who's who in a Meeting's Transcript (#138), whole: shown at once, then kept, with one Undo
+   * whose line `said` words, named `name` in the Edit menu ("Change who speaks" when not given).
+   * Its file isn't touched, so no Citation is checked again. Null when it couldn't be kept.
+   */
+  setTranscriptSpeakers(
+    documentId: string,
+    speakers: TranscriptSpeakers,
+    said: WordsInLine,
+    name?: Undoable["name"],
+  ): Promise<SpeakersStep | null>;
   /** To Recently deleted, at once, with one undo line for all of them. */
   deleteDocuments(ids: readonly string[]): Promise<void>;
   /** Processes a Document that failed again, from its file. */
@@ -465,6 +510,14 @@ export interface AppState extends LayoutSlice {
 
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 
+/**
+ * A change to who's who just made, which a choice that completes it (who speaks the rest of a
+ * line just split) amends instead of adding a step: one Undo takes both back (#138).
+ */
+export interface SpeakersStep {
+  amend(speakers: TranscriptSpeakers): Promise<void>;
+}
+
 /** Puts a Document in the list: in place if it's there, otherwise first. */
 const upsert = (documents: Document[], item: Document) =>
   documents.some((each) => each.id === item.id)
@@ -499,6 +552,12 @@ function moveLinkSteps(from: string, to: string): void {
 /** Puts a Linked folder in the list in place, if it's there. New ones arrive with the core's event. */
 const replaceLinked = (linkedFolders: LinkedFolder[], linked: LinkedFolder) =>
   linkedFolders.map((each) => (each.id === linked.id ? linked : each));
+
+/**
+ * The batches still being added, by id: while one is, the sidebar's tree holds the rows it had
+ * when the first batch began, so nothing moves down as the rest of a batch lands (#1329).
+ */
+const addingBatches = new Set<string>();
 
 /**
  * The core's per-Document events (status, Tags, moves, removals, Library
@@ -706,8 +765,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       core.listConversations(),
     ]);
     return (
-      // A Suggested Folder still in To review is Organize's, not something the User filed here.
-      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
+      library.assignments.some((each) => each.groupId === folderId) ||
       minds.some((each) => each.folderId === folderId) ||
       conversations.some((each) => each.folderId === folderId)
     );
@@ -982,6 +1040,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     settings: null,
     chatReadiness: null,
     documents: [],
+    heldDocuments: null,
     keptCitationTexts: [],
     skippedFiles: [],
     alreadyAdded: [],
@@ -1001,6 +1060,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     tagsDialogOpen: false,
     library: null,
     libraryFilter: "all",
+    reviewTarget: null,
+    reviewedAttention: new Set(),
+    libraryFolderId: null,
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
       const library = await core.getLibrary();
@@ -1012,6 +1074,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         ...(!["all", "unsorted", "starters", LIBRARY_DELETED].includes(get().libraryFilter) &&
         !library.groups.some((g) => g.id === get().libraryFilter)
           ? { libraryFilter: "all" }
+          : {}),
+        ...(get().libraryFolderId !== null &&
+        !library.groups.some((g) => g.id === get().libraryFolderId)
+          ? { libraryFolderId: null }
           : {}),
       });
     },
@@ -1036,7 +1102,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     openLibrary: (filter = "all", options) => {
-      set({ libraryFilter: filter });
+      const folder = get().library?.groups.some((group) => group.id === filter) ?? false;
+      set({ libraryFilter: filter, libraryFolderId: folder ? filter : null });
       void get().changeLayout({
         type: "open",
         item: { kind: "library" },
@@ -1044,10 +1111,38 @@ export const useAppStore = create<AppState>()((set, get) => {
         ...(options?.behind && { behind: true }),
       });
     },
+    reviewAttention: () => {
+      const state = get();
+      // The Library takes its target once the layout has answered: a press before then, as a
+      // double click's second, would count the first Document seen without showing it.
+      if (state.reviewTarget !== null) {
+        get().openLibrary();
+        return;
+      }
+      const library = state.library;
+      const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
+      const order = attentionOrder(
+        own,
+        library?.assignments ?? [],
+        sortOf("library:all")(useSort.getState()),
+        translateNow,
+        languageNow(),
+      );
+      const next = order.find((id) => !state.reviewedAttention.has(id));
+      if (next === undefined) return;
+      set({ reviewTarget: next, reviewedAttention: new Set([...state.reviewedAttention, next]) });
+      get().openLibrary();
+    },
+    keepReviewedAttention: (live) => {
+      const reviewed = get().reviewedAttention;
+      const kept = [...reviewed].filter((id) => live.has(id));
+      if (kept.length < reviewed.size) set({ reviewedAttention: new Set(kept) });
+    },
     skills: [],
     examples: null,
     otherExamples: [],
     readyQuestion: null,
+    readyReading: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -1079,7 +1174,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           examples,
-          readyQuestion,
+          firstOpen,
           otherExamples,
           connectors,
           rerank,
@@ -1130,7 +1225,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           ...fresh,
           examples,
-          readyQuestion,
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
           otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           status: { kind: "ready" },
@@ -1265,6 +1361,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       let madeId: string | null = null;
       await attempt(async () => {
         const { minds, documents, library } = get();
+        const chosen = items ? itemsOf(items) : null;
+        // Refused before the Folder is made, so no empty Folder is left behind.
+        if (chosen && !hasRowsOfTheirOwn(chosen.documentIds)) {
+          throw errorForWindow(new TranslatableError({ key: "error.transcript.withNote" }));
+        }
         const name =
           named?.trim() ||
           untitledFolderName(
@@ -1277,7 +1378,6 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...(parentId && { parentId }),
         });
         await get().refreshLibrary();
-        const chosen = items ? itemsOf(items) : null;
         const going =
           chosen && chosen.mindIds.length + chosen.documentIds.length > 0 ? chosen : null;
         const done = going ? await move(going, folder.id) : null;
@@ -1541,6 +1641,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openMind(id, options) {
+      showNotesOf(id);
       void get().changeLayout({
         type: "open",
         item: { kind: "mind", mindId: id },
@@ -1635,7 +1736,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       useNotices.getState().showError(error);
     },
 
-    openDocument(location, how = { as: "list" }) {
+    async openDocument(location, how = { as: "list" }): Promise<WindowLayout | null> {
       // Direct navigation ends Citation-source scope; openCited records its source after this call.
       useComposer.setState({ citedSource: null });
       const { documentId, ...place } = location;
@@ -1664,7 +1765,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 where: { in: "side", ...(how.from && { from: how.from }) },
                 focus: merged && !how.stay,
               };
-      void get().changeLayout(change);
+      return get().changeLayout(change);
     },
 
     openSettings(page, at) {
@@ -1748,6 +1849,61 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (before === undefined || before === document.name) return;
         push(renamed(displayName(document), rename, { before, after: document.name }));
       }),
+
+    setTranscriptSpeakers: async (
+      documentId,
+      speakers,
+      said,
+      name = (t) => t("transcript.speaker.change"),
+    ) => {
+      let step: SpeakersStep | null = null;
+      await attempt(async () => {
+        const before = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
+        const put = async (to: TranscriptSpeakers | null) => {
+          const shown = (value: TranscriptSpeakers | null) =>
+            set((state) => ({
+              documents: state.documents.map((each) =>
+                each.id === documentId ? { ...each, speakers: value } : each,
+              ),
+            }));
+          const was = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
+          shown(to);
+          try {
+            const document = await core.setTranscriptSpeakers({
+              documentId,
+              speakers: to ?? { labels: {}, lines: {} },
+            });
+            documentUpdates.flush();
+            set((state) => ({ documents: upsert(state.documents, document) }));
+          } catch (error) {
+            shown(was);
+            throw error;
+          }
+        };
+        let after = speakers;
+        await put(speakers);
+        const change: Undoable = {
+          said,
+          name,
+          undo: () => put(before),
+          redo: () => put(after),
+        };
+        push(change);
+        step = {
+          amend: (next) =>
+            attempt(async () => {
+              // Only while it is still the last step: otherwise the choice is a step of its own.
+              if (useUndo.getState().done.at(-1) !== change) {
+                await get().setTranscriptSpeakers(documentId, next, said, name);
+                return;
+              }
+              after = next;
+              await put(next);
+            }),
+        };
+      });
+      return step;
+    },
 
     deleteDocuments: (ids) =>
       attempt(() =>
@@ -2067,10 +2223,27 @@ async function startGettingStarted(exampleMindId: string): Promise<void> {
   }
 }
 
-/** A Document of the User's own: not one of the examples. */
+/**
+ * Whether each Document has a row of its own, so it may be filed, tagged, renamed or deleted on
+ * its own: a meeting's Transcript goes with its Note (#2528). The one check every control that
+ * does so asks.
+ */
+export const hasRowsOfTheirOwn = (documentIds: readonly string[]): boolean => {
+  const { documents } = useAppStore.getState();
+  return documentIds.every((id) => {
+    const document = documents.find((each) => each.id === id);
+    return !document || isListedDocument(document);
+  });
+};
+
+/** A Document of one of the examples: it is in the Linked folder the example made. */
+export const isExampleDocument = (document: Document, examples: readonly Examples[]) =>
+  document.linkedFolderId !== null &&
+  examples.some((each) => each.linkedFolderId === document.linkedFolderId);
+
+/** A Document of the User's own, as the Library lists it: not one of the examples. */
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>
-  document.linkedFolderId === null ||
-  !examples.some((each) => each.linkedFolderId === document.linkedFolderId);
+  isListedDocument(document) && !isExampleDocument(document, examples);
 
 /** The example a first run makes, shown first; the earlier version's tea example stands in for it. */
 const FIRST_RUN_EXAMPLE: ExampleGroup = "credit";
@@ -2144,6 +2317,28 @@ core.on("document.status", (changed) => {
   if (readOwnDocument(changed, state)) state.updateGettingStarted({ indexed: true });
 });
 
+// A batch of new Documents is landing: the sidebar's tree holds the rows it had until the last
+// batch has all been added, so they don't move down as each part of it arrives (#1329). The count
+// follows every Document meanwhile.
+core.on("documents.batch", (batch) => {
+  // A Linked folder's first scan can wait, paused or out of reach, for a long while: its Documents
+  // show as what the folder found, and are no reason to hold the tree (#1329).
+  if (batch.linkedFolderId !== null) return;
+  const wasAdding = addingBatches.size > 0;
+  if (batch.adding) addingBatches.add(batch.id);
+  else addingBatches.delete(batch.id);
+  const adding = addingBatches.size > 0;
+  if (!wasAdding && adding) {
+    const { documents } = useAppStore.getState();
+    useAppStore.setState({ heldDocuments: documents.map((each) => each.id) });
+  } else if (wasAdding && !adding) {
+    // The batch has all been added: apply what its last status events say now, before its
+    // Documents are listed, so they arrive with the rest instead of one by one above them.
+    documentUpdates.flush();
+    useAppStore.setState({ heldDocuments: null });
+  }
+});
+
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
 
@@ -2157,7 +2352,11 @@ useAppStore.subscribe((state, before) => {
       state.settings?.language !== before.settings?.language)
   ) {
     core.readyQuestion().then(
-      (readyQuestion) => useAppStore.setState({ readyQuestion }),
+      (firstOpen) =>
+        useAppStore.setState({
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
+        }),
       (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
     );
   }
@@ -2245,6 +2444,9 @@ core.on("documents.moved", (moved) => documentUpdates.upsert(moved));
 
 // Renamed here, in another window or by the assistant.
 core.on("documents.renamed", (renamed) => documentUpdates.upsert(renamed));
+
+// Who's who in a Transcript changed, here, in another window or by Undo (#138).
+core.on("documents.speakersChanged", (changed) => documentUpdates.upsert(changed));
 
 // Tags change through this window or another: follow the list, and drop a deleted Tag from the filter.
 core.on("tags.changed", (tags) => {

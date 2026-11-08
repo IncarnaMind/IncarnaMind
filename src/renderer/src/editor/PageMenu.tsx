@@ -4,6 +4,7 @@ import type * as Y from "yjs";
 import { mindName } from "../../../shared/naming";
 import type { Verification } from "../../../shared/verification";
 import { offersReview, reviewApplied } from "../appliedEdits";
+import { useCitationStylePicker } from "../citationStylePicker";
 import { ExampleChoices } from "../components/ExamplesMenu";
 import { ChevronRightLineIcon } from "../components/lineIcons";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
@@ -20,7 +21,6 @@ import {
 import { useSubmenu } from "../components/usePopoverMenu";
 import { files } from "../core";
 import { showFileLabelKey } from "../fileInfo";
-import { useFirstOpen } from "../firstOpen";
 import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
@@ -48,20 +48,20 @@ export function PageMenu({
   mindId,
   verification,
   readOnly,
+  revealEditor,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification | null;
   readOnly: boolean;
+  revealEditor(): void;
 }) {
   const t = useT();
   const language = useLanguage();
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const name = (mind && mindName(mind)) || t("mind.untitled");
   const tabId = useTabPlace()?.tabId;
-  // The quiet first open shows no tab strip, so there is no tab to rename in.
-  const firstOpen = useFirstOpen();
   const holder = useRef<HTMLSpanElement>(null);
   const [moving, setMoving] = useState<HTMLElement | null>(null);
   const button = () =>
@@ -96,15 +96,14 @@ export function PageMenu({
         className="page-menu-button"
         here={{
           // Once the menu has closed and given the focus back, so the field or the picker keeps it.
-          ...(tabId &&
-            !firstOpen && {
-              "mind.rename": () =>
-                requestAnimationFrame(() => useAppStore.getState().renameTab(tabId)),
-            }),
+          ...(tabId && {
+            "mind.rename": () =>
+              requestAnimationFrame(() => useAppStore.getState().renameTab(tabId)),
+          }),
           "mind.moveTo": () => requestAnimationFrame(() => setMoving(button())),
         }}
         // The Mind is open on this page: nothing to open, and Style is below.
-        without={["mind.style", "mind.open", "mind.openTab"]}
+        without={["mind.open", "mind.openTab"]}
         more={
           readOnly && !origin && !otherExamples
             ? undefined
@@ -124,6 +123,23 @@ export function PageMenu({
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
                     </button>
                   )}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="mind.citationStyle"
+                      onClick={() => {
+                        const anchor = button();
+                        close();
+                        requestAnimationFrame(() =>
+                          useCitationStylePicker.getState().show(mindId, anchor),
+                        );
+                      }}
+                      className={`${menuItemClass} pl-2`}
+                    >
+                      <span className="flex-1">{t("citationStyle.command")}</span>
+                    </button>
+                  )}
                   {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
                   {!readOnly && offersReview(editor) && (
                     <button
@@ -132,7 +148,10 @@ export function PageMenu({
                       data-testid="page-review-changes"
                       onClick={() => {
                         close();
-                        requestAnimationFrame(() => reviewApplied(editor, { focus: true }));
+                        requestAnimationFrame(() => {
+                          revealEditor();
+                          reviewApplied(editor, { focus: true });
+                        });
                       }}
                       className={`${menuItemClass} pl-2`}
                     >
@@ -149,6 +168,7 @@ export function PageMenu({
                           data-testid="page-review"
                           onClick={() => {
                             close();
+                            revealEditor();
                             useReviewPanes.getState().open(mindId);
                           }}
                           className={`${menuItemClass} pl-2`}

@@ -16,6 +16,12 @@ import { useAppStore } from "../../store";
 import { CheckLineIcon, PencilLineIcon, TrashLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsBackLink } from "../SettingsBackLink";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+} from "../settings/SettingsGroup";
 import { buttonStyle, errorTextClass, iconButtonClass, primaryButtonClass } from "../ui";
 import { ConnectorForm } from "./ConnectorForm";
 import { ConnectorTile } from "./ConnectorTile";
@@ -66,10 +72,6 @@ async function act(action: () => Promise<unknown>) {
     useAppStore.getState().reportError(failure);
   }
 }
-
-const sectionClass = "flex flex-col gap-1";
-const sectionHeadClass = "text-[13px] leading-5 font-semibold text-ink";
-const sectionTextClass = "max-w-[600px] text-[13px] leading-5 text-ink-secondary";
 
 /**
  * A Connector's page: a directory entry before the User connects it (what it
@@ -189,51 +191,59 @@ export function ConnectorDetail({
       data-testid="connector-detail"
       data-entry-id={entry?.id}
       data-connector-id={connector?.id}
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-6"
     >
-      <BackToConnectors onBack={onBack} />
-      <div className="flex flex-wrap items-center gap-3">
-        <ConnectorTile name={name} large />
-        <div className="flex min-w-[200px] flex-1 flex-col">
-          <h4
-            data-testid="connector-name"
-            className="text-[17px] leading-6 font-semibold break-words text-ink"
-          >
-            {name}
-          </h4>
-          <p className="text-[12px] leading-[18px] text-ink-meta">{meta}</p>
+      <div className="flex flex-col gap-4">
+        <BackToConnectors onBack={onBack} />
+        <div className="flex flex-wrap items-center gap-3">
+          <ConnectorTile name={name} large />
+          <div className="flex min-w-[200px] flex-1 flex-col">
+            <h4
+              data-testid="connector-name"
+              className="text-[17px] leading-6 font-semibold break-words text-ink"
+            >
+              {name}
+            </h4>
+            <p className="text-[12px] leading-[18px] text-ink-meta">{meta}</p>
+          </div>
+          {action}
         </div>
-        {action}
+        {error && (
+          <p role="alert" className={errorTextClass}>
+            <ProblemMark />
+            {error}
+          </p>
+        )}
       </div>
-      {error && (
-        <p role="alert" className={errorTextClass}>
-          <ProblemMark />
-          {error}
-        </p>
-      )}
       {justConnected && connector?.state === "ready" && (
-        <div
-          role="status"
-          data-testid="connector-connected"
-          className="flex flex-wrap items-center gap-2.5 rounded-lg bg-frame px-3 py-2.5 text-[13px] leading-5 text-ink"
-        >
-          <CheckLineIcon className="size-3.5 shrink-0 text-ink-secondary" />
-          <span className="flex-1">{t("connectors.directory.done", { name })}</span>
-          <button
-            type="button"
-            data-testid="connector-try"
-            onClick={(event) => {
-              // The window is inert until Settings has closed: the composer can take the focus then.
-              event.currentTarget
-                .closest("dialog")
-                ?.addEventListener("close", () => focusComposer(), { once: true });
-              useAppStore.getState().closeSettings();
-            }}
-            className={buttonStyle("secondary", "sm")}
-          >
-            {t("connectors.directory.try")}
-          </button>
-        </div>
+        <SettingsGroup>
+          <SettingsRow
+            role="status"
+            data-testid="connector-connected"
+            label={
+              <span className="flex items-center gap-2">
+                <CheckLineIcon className="size-3.5 shrink-0 text-ink-secondary" />
+                {t("connectors.directory.done", { name })}
+              </span>
+            }
+            control={
+              <button
+                type="button"
+                data-testid="connector-try"
+                onClick={(event) => {
+                  // The window is inert until Settings has closed: the composer can take the focus then.
+                  event.currentTarget
+                    .closest("dialog")
+                    ?.addEventListener("close", () => focusComposer(), { once: true });
+                  useAppStore.getState().closeSettings();
+                }}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("connectors.directory.try")}
+              </button>
+            }
+          />
+        </SettingsGroup>
       )}
       {entry && !connector && ownApp && (
         <ClientForm
@@ -243,26 +253,29 @@ export function ConnectorDetail({
       )}
       {connector && <ConnectorControls connector={connector} />}
 
-      <div className={sectionClass}>
-        <h5 className={sectionHeadClass}>{t("connectors.directory.what")}</h5>
+      <SettingsSection title={t("connectors.directory.what")}>
         {connector?.state === "ready" && connector.tools ? (
           <ConnectorTools connectorId={connector.id} tools={connector.tools} policies={policies} />
         ) : entry?.tools ? (
           <ReviewedTools tools={entry.tools} />
         ) : (
-          <p className={sectionTextClass}>{t("connectors.directory.what.before")}</p>
+          <p className="px-4 text-[13px] leading-5 text-ink-meta">
+            {t("connectors.directory.what.before")}
+          </p>
         )}
-      </div>
+      </SettingsSection>
       {entry && (
         <>
-          <div className={sectionClass}>
-            <h5 className={sectionHeadClass}>{t("connectors.directory.where")}</h5>
-            <p className={sectionTextClass}>{t("connectors.directory.where.body", { name })}</p>
-          </div>
-          <div className={sectionClass}>
-            <h5 className={sectionHeadClass}>{t("connectors.directory.how")}</h5>
-            <p className={sectionTextClass}>{how}</p>
-          </div>
+          <SettingsSection title={t("connectors.directory.where")}>
+            <SettingsGroup>
+              <SettingsRow label={t("connectors.directory.where.body", { name })} />
+            </SettingsGroup>
+          </SettingsSection>
+          <SettingsSection title={t("connectors.directory.how")}>
+            <SettingsGroup>
+              <SettingsRow label={how} />
+            </SettingsGroup>
+          </SettingsSection>
         </>
       )}
     </section>
@@ -289,101 +302,117 @@ function ConnectorControls({ connector }: { connector: Connector }) {
       data-testid="connector"
       data-connector-id={id}
       data-state={connector.state}
-      className="flex flex-col gap-1 border-y border-rule py-3"
+      className="flex flex-col gap-3"
     >
-      <div className="flex items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-5 text-ink-meta">
-          {dot && <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} />}
-          {connector.transport === "http" && problem ? (
-            <ErrorNotice
-              inline
-              error={problem}
-              name={name}
-              keySignIn={keySignIn}
-              onChangeKey={() => setChangingKey(true)}
-              onRetry={() => void act(() => core.restartConnector(id))}
-            />
-          ) : (
-            <span data-testid="connector-state">
-              {t(heldBack ? "connectors.state.paused" : stateKey(connector.state))}
+      <SettingsGroup>
+        <SettingsRow
+          label={
+            <span className="flex min-w-0 items-center gap-1.5">
+              {dot && (
+                <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+              )}
+              {connector.transport === "http" && problem ? (
+                <ErrorNotice
+                  inline
+                  error={problem}
+                  name={name}
+                  keySignIn={keySignIn}
+                  onChangeKey={() => setChangingKey(true)}
+                  onRetry={() => void act(() => core.restartConnector(id))}
+                />
+              ) : (
+                <span data-testid="connector-state" className="truncate">
+                  {t(heldBack ? "connectors.state.paused" : stateKey(connector.state))}
+                </span>
+              )}
             </span>
-          )}
-        </div>
-        {connector.transport === "http" && (keySignIn || problem) && (
-          <button
-            type="button"
-            data-testid={changeKey ? "connector-change-key" : "connector-retry"}
-            onClick={() =>
-              changeKey ? setChangingKey(true) : void act(() => core.restartConnector(id))
-            }
-            className={`${buttonStyle("secondary", "sm")} shrink-0`}
-          >
-            <span className="grid">
-              <span aria-hidden="true" className="invisible col-start-1 row-start-1">
-                {t("remoteConnectors.key.change")}
+          }
+          detail={
+            <>
+              <span
+                data-testid="connector-location"
+                className="block truncate font-mono"
+                title={locationOf(connector)}
+              >
+                {locationOf(connector)}
               </span>
-              <span aria-hidden="true" className="invisible col-start-1 row-start-1">
-                {t("connectors.retry")}
-              </span>
-              <span className="col-start-1 row-start-1">
-                {t(changeKey ? "remoteConnectors.key.change" : "connectors.retry")}
-              </span>
-            </span>
-          </button>
-        )}
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={connector.enabled}
-          data-testid="connector-toggle"
-          aria-label={t("connectors.toggle", { name })}
-          checked={connector.enabled}
-          onChange={(event) => void act(() => core.setConnectorEnabled(id, event.target.checked))}
-          className="switch"
+              {connector.transport === "http" && connector.connection === "sse" && (
+                <span className="block">{t("remoteConnectors.connection.sse")}</span>
+              )}
+            </>
+          }
+          control={
+            <>
+              {connector.transport === "http" && (keySignIn || problem) && (
+                <button
+                  type="button"
+                  data-testid={changeKey ? "connector-change-key" : "connector-retry"}
+                  onClick={() =>
+                    changeKey ? setChangingKey(true) : void act(() => core.restartConnector(id))
+                  }
+                  className={`${buttonStyle("secondary", "sm")} shrink-0`}
+                >
+                  <span className="grid">
+                    <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                      {t("remoteConnectors.key.change")}
+                    </span>
+                    <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                      {t("connectors.retry")}
+                    </span>
+                    <span className="col-start-1 row-start-1">
+                      {t(changeKey ? "remoteConnectors.key.change" : "connectors.retry")}
+                    </span>
+                  </span>
+                </button>
+              )}
+              <SettingsSwitch
+                checked={connector.enabled}
+                onChange={(on) => void act(() => core.setConnectorEnabled(id, on))}
+                testId="connector-toggle"
+                ariaLabel={t("connectors.toggle", { name })}
+              />
+              {connector.transport === "stdio" && (
+                <button
+                  type="button"
+                  data-testid="connector-edit"
+                  aria-label={t("connectors.edit", { name })}
+                  title={t("connectors.edit", { name })}
+                  aria-expanded={editing}
+                  onClick={() => setEditing((open) => !open)}
+                  className={iconButtonClass}
+                >
+                  <PencilLineIcon className="size-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="connector-remove"
+                aria-label={t("connectors.remove", { name })}
+                title={t("connectors.remove", { name })}
+                onClick={() => void act(() => core.deleteConnector(id))}
+                className={iconButtonClass}
+              >
+                <TrashLineIcon className="size-4" />
+              </button>
+            </>
+          }
         />
-        {connector.transport === "stdio" && (
-          <button
-            type="button"
-            data-testid="connector-edit"
-            aria-label={t("connectors.edit", { name })}
-            title={t("connectors.edit", { name })}
-            aria-expanded={editing}
-            onClick={() => setEditing((open) => !open)}
-            className={iconButtonClass}
-          >
-            <PencilLineIcon className="size-4" />
-          </button>
+        {keySignIn && (
+          <SettingsRow
+            label={t("remoteConnectors.key.label")}
+            control={
+              <span
+                data-testid="connector-key-mask"
+                className="text-[13px] leading-5 text-ink-meta"
+              >
+                {connector.headers?.join(", ")} · ••••••••
+              </span>
+            }
+          />
         )}
-        <button
-          type="button"
-          data-testid="connector-remove"
-          aria-label={t("connectors.remove", { name })}
-          title={t("connectors.remove", { name })}
-          onClick={() => void act(() => core.deleteConnector(id))}
-          className={iconButtonClass}
-        >
-          <TrashLineIcon className="size-4" />
-        </button>
-      </div>
-      <p
-        data-testid="connector-location"
-        className="truncate font-mono text-[12px] leading-[18px] text-ink-meta"
-        title={locationOf(connector)}
-      >
-        {locationOf(connector)}
-      </p>
+      </SettingsGroup>
       {editing && connector.transport === "stdio" && (
         <ConnectorForm editing={connector} onDone={() => setEditing(false)} />
-      )}
-      {connector.transport === "http" && connector.connection === "sse" && (
-        <p className="text-[12px] leading-[18px] text-ink-meta">
-          {t("remoteConnectors.connection.sse")}
-        </p>
-      )}
-      {connector.transport === "http" && (connector.headers?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-meta">
-          <span data-testid="connector-key-mask">{connector.headers?.join(", ")} · ••••••••</span>
-        </div>
       )}
       {changingKey && connector.transport === "http" && (
         <RemoteKeyForm connector={connector} onDone={() => setChangingKey(false)} />
@@ -435,27 +464,33 @@ function ErrorNotice({
         : error.kind === "unreachable"
           ? t("remoteConnectors.error.unreachable", { name })
           : t(`connectors.error.${error.kind}`);
-  return (
-    <div
-      role="alert"
-      data-testid="connector-error"
-      data-error-kind={error.kind}
-      className={
-        inline
-          ? "min-w-0 flex-1 text-[13px] leading-5 text-ink-meta"
-          : "mt-1 flex flex-col gap-1.5 text-[13px] leading-5 text-ink"
-      }
-    >
-      <p
-        className={inline ? "truncate" : "break-words"}
-        title={inline ? `${message}${error.message ? `\n${error.message}` : ""}` : undefined}
+  if (inline) {
+    return (
+      <span
+        role="alert"
+        data-testid="connector-error"
+        data-error-kind={error.kind}
+        title={`${message}${error.message ? `\n${error.message}` : ""}`}
+        className="min-w-0 truncate"
       >
-        {!inline && <ProblemMark />}
         {message}
-      </p>
-      {!inline && (
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
-          {error.kind === "key-refused" || (keySignIn && error.kind === "missing-secrets") ? (
+      </span>
+    );
+  }
+  return (
+    <SettingsGroup>
+      <SettingsRow
+        role="alert"
+        data-testid="connector-error"
+        data-error-kind={error.kind}
+        label={
+          <span className="break-words">
+            <ProblemMark />
+            {message}
+          </span>
+        }
+        control={
+          error.kind === "key-refused" || (keySignIn && error.kind === "missing-secrets") ? (
             <button
               type="button"
               data-testid="connector-change-key"
@@ -465,22 +500,25 @@ function ErrorNotice({
               {t("remoteConnectors.key.change")}
             </button>
           ) : error.retrying && error.kind !== "unreachable" ? (
-            <span className="text-ink-meta">{t("connectors.restarting")}</span>
+            <span className="text-[13px] leading-5 text-ink-meta">
+              {t("connectors.restarting")}
+            </span>
           ) : (
             <button type="button" onClick={onRetry} className={buttonStyle("secondary", "sm")}>
               {t("connectors.retry")}
             </button>
-          )}
-          {error.kind !== "missing-command" && error.message && (
-            <details className="min-w-0 text-ink-meta">
-              <summary className="cursor-pointer">{t("connectors.details")}</summary>
-              <pre className="mt-1 max-h-32 overflow-auto font-mono whitespace-pre-wrap break-words">
-                {error.message}
-              </pre>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
+          )
+        }
+      >
+        {error.kind !== "missing-command" && error.message && (
+          <details className="min-w-0 text-[12px] leading-[18px] text-ink-meta">
+            <summary className="cursor-pointer">{t("connectors.details")}</summary>
+            <pre className="mt-1 max-h-32 overflow-auto font-mono whitespace-pre-wrap break-words">
+              {error.message}
+            </pre>
+          </details>
+        )}
+      </SettingsRow>
+    </SettingsGroup>
   );
 }

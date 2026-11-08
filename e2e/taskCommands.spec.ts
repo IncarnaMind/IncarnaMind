@@ -324,8 +324,8 @@ test("Show Tasks opens the popover in a first open, and nothing opens by itself 
   test.setTimeout(90_000);
   const { app, window } = await launchApp(dataDir, { examples: true });
   await setWindowSize(app, window, 1440, 860);
-  // The quiet first open draws no tabs: the popover's owner lives in that band all the same.
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
+  // The popover's owner lives in the tab strip's band, which a first open draws as any other.
+  await expect(window.getByTestId("tab-list")).toBeVisible();
 
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
@@ -338,7 +338,7 @@ test("Show Tasks opens the popover in a first open, and nothing opens by itself 
   await window.keyboard.press("Escape");
   await expect(popover).toBeHidden();
 
-  // The band comes back once the first open is done: nothing was left waiting to open.
+  // Nothing was left waiting to open once the first open is done.
   await leaveFirstOpen(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await expect(window.getByTestId("tasks-chip")).toHaveCount(0);

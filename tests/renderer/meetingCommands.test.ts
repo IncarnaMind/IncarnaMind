@@ -98,6 +98,21 @@ const command = (id: CommandId) => {
   return found;
 };
 
+test.each([
+  ["ready", false],
+  ["recording", true],
+  ["paused", true],
+  ["stopped", false],
+] as const)("a %s Meeting keeps its identity when checking whether it is live", (status, live) => {
+  const current = meeting("meeting", "note", status);
+  expect(stores.isLive(current)).toBe(live);
+  if (!stores.isLive(current)) expect(current.mindId).toBe("note");
+});
+
+test("a missing Meeting is not live", () => {
+  expect(stores.isLive(undefined)).toBe(false);
+});
+
 describe("the meeting commands", () => {
   test("are named in English and Chinese, and Pause/Resume says which it will do", () => {
     canRecord();
@@ -342,7 +357,7 @@ describe("Delete audio (#609)", () => {
       id,
       mindId,
       status,
-      audio: { kept: true, expiresAt: null, deletedAt: null, ...audio },
+      audio: { kept: true, expiresAt: null, deletedAt: null, keptUntilDeleted: false, ...audio },
     }) as Meeting;
   const deleteAudio = () => command("meeting.deleteAudio");
   const asked = () => useRequests.getState().deleteAudio;
@@ -427,6 +442,61 @@ describe("Delete audio (#609)", () => {
     showing("mind-1");
     await commands.run("meeting.deleteAudio", IN_MIND);
     expect(asked()).toBeNull();
+  });
+});
+
+describe("Keep audio and Save recording… (#687)", () => {
+  const withAudio = (status: Meeting["status"], audio: Partial<Meeting["audio"]> = {}): Meeting =>
+    ({
+      id: "m1",
+      mindId: "mind-1",
+      status,
+      audio: { kept: true, expiresAt: null, deletedAt: null, keptUntilDeleted: false, ...audio },
+    }) as Meeting;
+
+  // protects=Keep audio is named in both languages and runs for the Meeting in view, with its own Undo; it says why it can't run once the audio is kept, deleted or never recorded; fails_when=a Meeting already kept, or one with no audio, offers it, or it runs for another Meeting; no_claim=the core's keeping, which the core test covers.
+  test("Keep audio is for the Meeting in view, and says why not once its audio is kept or gone", async () => {
+    canRecord();
+    const keep = command("meeting.keepAudio");
+    expect(labelOf(keep, IN_MIND, en)).toBe("Keep audio");
+    expect(labelOf(keep, IN_MIND, zh)).toBe("保留音频");
+    const keepAudio = vi.fn(async () => {});
+    stores.useMeetings.setState({ keepAudio, meetings: [withAudio("stopped")] });
+    showing("mind-1");
+    expect(isEnabled(keep, IN_MIND)).toBe(true);
+    await commands.run("meeting.keepAudio", IN_MIND);
+    expect(keepAudio).toHaveBeenCalledWith("m1");
+    for (const [audio, reason] of [
+      [{ keptUntilDeleted: true }, "meetings.command.audioKeptAlready"],
+      [{ kept: false, deletedAt: "2026-10-13T09:00:00.000Z" }, "meetings.command.noAudio"],
+      [{ kept: false }, "meetings.audio.none"],
+    ] as const) {
+      stores.useMeetings.setState({ meetings: [withAudio("stopped", audio)] });
+      expect(keep.enabled?.(IN_MIND)).toEqual({ reason });
+    }
+    expect(en("meetings.command.noAudio")).toBe("This meeting’s audio was deleted");
+    expect(zh("meetings.command.audioKeptAlready")).toBe("这场会议的音频已保留");
+  });
+
+  // protects=Save recording… is in the Note's menu and ⌘K for a Note whose Meeting started, in both languages, and says why it can't run while recording or with the audio deleted or never recorded; fails_when=it is offered for a plain Note, or runs where there is no audio; no_claim=the file written, which the core test covers.
+  test("Save recording… is the Note's, and says why not while recording or with no audio", () => {
+    const save = command("meeting.saveRecording");
+    expect(labelOf(save, IN_MIND, en)).toBe("Save recording…");
+    expect(labelOf(save, IN_MIND, zh)).toBe("另存录音…");
+    const onNote = { ...IN_MIND, focus: { kind: "mind" as const, id: "mind-1" } };
+    stores.useMeetings.setState({ meetings: [] });
+    expect(offered(save, onNote)).toBe(false);
+    stores.useMeetings.setState({ meetings: [withAudio("stopped")] });
+    expect(isEnabled(save, onNote)).toBe(true);
+    for (const [meeting, reason] of [
+      [withAudio("recording"), "meetings.command.saveWhileRecording"],
+      [withAudio("stopped", { kept: false, deletedAt: "2026-10-13" }), "meetings.command.noAudio"],
+      [withAudio("stopped", { kept: false }), "meetings.audio.none"],
+    ] as const) {
+      stores.useMeetings.setState({ meetings: [meeting] });
+      expect(save.enabled?.(onNote)).toEqual({ reason });
+    }
+    expect(zh("meetings.command.saveWhileRecording")).toBe("停止录制后才能另存录音");
   });
 });
 

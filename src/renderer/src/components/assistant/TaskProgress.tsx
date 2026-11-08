@@ -1,16 +1,26 @@
-import { Fragment, type ReactNode, useEffect, useId, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Task, TaskStep } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import type { CommandId } from "../../../../shared/commands";
 import { formatDateTime } from "../../../../shared/dates";
 import { RESEARCH_TASK } from "../../../../shared/research";
+import { focusComposer } from "../../commands/assistant";
 import { shortcutLabel } from "../../commands/keymap";
 import { core } from "../../core";
-import { formatMoney } from "../../cost";
+import { atLineStart, formatMoney } from "../../cost";
 import { withShortcut } from "../../editor/withShortcut";
 import { useLanguage, useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
+import { focusLostAfterAction } from "../../taskActionFocus";
 import { taskOffers } from "../../taskActions";
 import { needsYou } from "../../taskGroups";
 import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tasks";
@@ -77,7 +87,9 @@ function details(task: Task, t: Translate, language: Language): string[] {
     parts.push(t("task.details.cells", { done: task.progress.done, total: task.progress.total }));
   }
   parts.push(t("task.details.started", { time: formatDateTime(task.startedAt, language) }));
-  if (task.cost) parts.push(t("task.details.cost", { cost: formatMoney(task.cost, language) }));
+  if (task.cost) {
+    parts.push(atLineStart(t("task.details.cost", { cost: formatMoney(task.cost, language) })));
+  }
   return parts;
 }
 
@@ -148,6 +160,8 @@ export function TaskProgress({
 }) {
   const t = useT();
   const language = useLanguage();
+  /** The Task's updatedAt when the User last pressed an action. */
+  const pressedAt = useRef<string | null>(null);
   const openSettings = useAppStore((state) => state.openSettings);
   const shown = useTasks((state) => state.shown === task.id);
   const [allWanted, setAllWanted] = useState(false);
@@ -167,6 +181,13 @@ export function TaskProgress({
       ? Math.round((task.progress.done / task.progress.total) * 100)
       : 0;
 
+  useLayoutEffect(() => {
+    const wasPressed = pressedAt.current;
+    pressedAt.current = null;
+    // The pressed action's button is gone with its answer, a Stop among them: the User's place
+    // is the composer, as when the Tasks chip goes with the Task it stopped (#2125).
+    if (focusLostAfterAction(wasPressed, task.updatedAt, document.activeElement)) focusComposer();
+  }, [task.updatedAt]);
   /** Its actions, in the design's order; Pause and Resume are one place, so the focus stays on it. */
   const offered: {
     key: string;
@@ -177,8 +198,13 @@ export function TaskProgress({
     /** The keys that do the same, for the tooltip. */
     shortcut?: CommandId;
   }[] = [];
+  /** An action the User pressed: if its button goes with the Task's answer, the focus has a way back (#2125). */
+  const pressed = (onClick: () => void) => () => {
+    pressedAt.current = task.updatedAt;
+    onClick();
+  };
   const offer = (key: string, label: string, onClick: () => void, testId = key) =>
-    offered.push({ key, testId, label, onClick });
+    offered.push({ key, testId, label, onClick: pressed(onClick) });
   const has = (action: Task["actions"][number]) => task.actions.includes(action);
   if (finished) {
     // Its plan stays: a finished Research shows the steps it ran.
@@ -191,7 +217,7 @@ export function TaskProgress({
         key: "review",
         testId: "review",
         label: t("task.action.review"),
-        onClick: () => reviewTask(task),
+        onClick: pressed(() => reviewTask(task)),
         strong: true,
       });
     }
@@ -214,7 +240,7 @@ export function TaskProgress({
         key: "stop",
         testId: "stop",
         label: t("task.stop"),
-        onClick: () => void stopTask(task.id),
+        onClick: pressed(() => void stopTask(task.id)),
         shortcut: "task.stop",
       });
     }

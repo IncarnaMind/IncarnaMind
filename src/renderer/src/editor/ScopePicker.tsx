@@ -23,11 +23,13 @@ import {
   DocumentLineIcon,
   FolderLineIcon,
   LockLineIcon,
+  MindLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
-import { type ScopeChoice, scopeChoices } from "../scope";
+import { useTextSearch } from "../libraryTextSearch";
+import { blockedFrom, meetingChoices, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
@@ -171,6 +173,7 @@ function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   if (choice.walled) return <LockLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
+  if (choice.meeting) return <MindLineIcon className={className} />;
   return <DocumentLineIcon kind={choice.documentKind ?? "text"} className={className} />;
 }
 
@@ -229,29 +232,39 @@ export function ScopeChoiceList({
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
-  const library = { folders, groups, tags, documents, assignments };
-  const shown = scopeChoices(library, scope, query).filter(
+  const minds = useAppStore((state) => state.minds);
+  const library = { folders, groups, tags, documents, assignments, minds, t };
+  // Words said in a meeting find it as its Note's choice, as the Library's search does (#2528).
+  const inside = useTextSearch(query);
+  const named = scopeChoices(library, scope, query);
+  const shown = [...named, ...meetingChoices(library, scope, inside.matches, named)].filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
-  const isBlocked = (item: ScopeChoice) => {
-    if (item.walled === undefined || item.walled === null) return false;
-    if (item.walled !== currentWalled) return true;
-    if (item.kind !== "document") return false;
-    const filings = (assignments ?? []).filter(
-      (each) =>
-        each.documentId === item.id &&
-        each.groupId !== null &&
-        groups !== undefined &&
-        folderWallOf(groups, each.groupId) === currentWalled,
-    );
-    return !filings.some((each) => each.source === "user");
-  };
+  // One order for what is drawn and what the arrows walk (#2579).
+  const grouped: { key: string; label: string; items: ScopeChoice[] }[] = SCOPE_KINDS.flatMap(
+    (kind) => {
+      const ofKind = shown.filter((item) => item.kind === kind);
+      if (ofKind.length === 0) return [];
+      // A meeting is its Note's choice, under the sidebar's own group (#2579).
+      if (kind !== "document") return [{ key: kind, label: t(GROUP_LABELS[kind]), items: ofKind }];
+      return [
+        { key: "notes", label: t("sidebar.notes"), items: ofKind.filter((item) => item.meeting) },
+        {
+          key: "documents",
+          label: t(GROUP_LABELS.document),
+          items: ofKind.filter((item) => !item.meeting),
+        },
+      ].filter((group) => group.items.length > 0);
+    },
+  );
+  const listed = grouped.flatMap((group) => group.items);
+  const isBlocked = (item: ScopeChoice) => blockedFrom(library, item, currentWalled);
   const nothing = kinds
     ? documents.length === 0
     : folders.length + (groups?.length ?? 0) + tags.length + documents.length === 0;
   // The choice belongs to a query: typing more starts again from the top.
   const [choice, setChoice] = useState({ query, index: 0 });
-  const selected = choice.query === query ? Math.min(choice.index, shown.length - 1) : 0;
+  const selected = choice.query === query ? Math.min(choice.index, listed.length - 1) : 0;
   const setSelected = (index: number) => setChoice({ query, index });
   const options = useRef<(HTMLElement | null)[]>([]);
   const reportSelected = useRef(onSelect);
@@ -265,14 +278,14 @@ export function ScopeChoiceList({
   useImperativeHandle(ref, () => ({
     onKeyDown(event) {
       // Nothing to choose: Enter asks the Question, "@" and all.
-      if (event.isComposing || shown.length === 0) return false;
+      if (event.isComposing || listed.length === 0) return false;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const step = event.key === "ArrowDown" ? 1 : -1;
-        setSelected((selected + step + shown.length) % shown.length);
+        setSelected((selected + step + listed.length) % listed.length);
         return true;
       }
       if (event.key === "Enter" || event.key === "Tab") {
-        const item = shown[selected];
+        const item = listed[selected];
         if (item && !isBlocked(item)) onChoose(item);
         else if (item?.kind === "folder" && onOpenNote) onOpenNote(item.id);
         return true;
@@ -289,7 +302,7 @@ export function ScopeChoiceList({
       aria-label={t(kinds ? "scope.picker.documents" : "scope.picker.label")}
       className="editor-menu scope-picker"
     >
-      {shown.length === 0 && (
+      {listed.length === 0 && (
         <p className="scope-picker-empty">
           {t(
             kinds
@@ -302,106 +315,102 @@ export function ScopeChoiceList({
           )}
         </p>
       )}
-      {SCOPE_KINDS.map((kind) => {
-        const ofKind = shown.filter((item) => item.kind === kind);
-        if (ofKind.length === 0) return null;
-        return (
-          // biome-ignore lint/a11y/useSemanticElements: a group of a listbox's options, which a fieldset can't hold.
-          <div key={kind} role="group" aria-label={t(GROUP_LABELS[kind])}>
-            <p aria-hidden="true" className="scope-picker-heading">
-              {t(GROUP_LABELS[kind])}
-            </p>
-            {ofKind.map((item) => {
-              const index = shown.indexOf(item);
-              if (isBlocked(item)) {
-                return (
-                  <div
-                    key={`${item.kind}:${item.id}`}
-                    ref={(element) => {
-                      options.current[index] = element;
-                    }}
-                    id={id && `${id}-${index}`}
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={index === selected}
-                    // A locked Folder can't join the scope, but it opens a Note there.
-                    aria-disabled={item.kind === "folder" && onOpenNote ? undefined : "true"}
-                    data-testid="scope-choice"
-                    data-kind={item.kind}
-                    data-id={item.id}
-                    data-walled="true"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setSelected(index)}
-                    className="editor-menu-item scope-picker-item--walled"
-                  >
-                    <span className="scope-picker-icon">
-                      <ChoiceIcon choice={item} />
-                    </span>
-                    <span className="truncate" aria-disabled="true">
-                      {item.name}
-                    </span>
-                    {item.kind === "folder" && index === selected && onOpenNote ? (
-                      <button
-                        type="button"
-                        data-testid="scope-open-note"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => onOpenNote(item.id)}
-                        className="scope-picker-path underline"
-                      >
-                        {t("scope.openNote")}
-                      </button>
-                    ) : (
-                      item.count !== undefined && (
-                        <span data-testid="scope-choice-count" className="scope-picker-path">
-                          {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
-                        </span>
-                      )
-                    )}
-                  </div>
-                );
-              }
+      {grouped.map(({ key, label, items }) => (
+        // biome-ignore lint/a11y/useSemanticElements: a group of a listbox's options, which a fieldset can't hold.
+        <div key={key} role="group" aria-label={label}>
+          <p aria-hidden="true" className="scope-picker-heading">
+            {label}
+          </p>
+          {items.map((item) => {
+            const index = listed.indexOf(item);
+            if (isBlocked(item)) {
               return (
-                <button
+                <div
                   key={`${item.kind}:${item.id}`}
                   ref={(element) => {
                     options.current[index] = element;
                   }}
                   id={id && `${id}-${index}`}
-                  type="button"
                   role="option"
+                  tabIndex={-1}
                   aria-selected={index === selected}
+                  // A locked Folder can't join the scope, but it opens a Note there.
+                  aria-disabled={item.kind === "folder" && onOpenNote ? undefined : "true"}
                   data-testid="scope-choice"
                   data-kind={item.kind}
                   data-id={item.id}
-                  // Keep the cursor where it is typed in.
+                  data-walled="true"
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseEnter={() => setSelected(index)}
-                  onClick={() => onChoose(item)}
-                  data-empty={item.count === 0 ? "true" : undefined}
-                  className={`editor-menu-item ${item.count === 0 ? "scope-picker-item--empty" : ""}`}
+                  className="editor-menu-item scope-picker-item--walled"
                 >
                   <span className="scope-picker-icon">
                     <ChoiceIcon choice={item} />
                   </span>
-                  <span className="truncate">{item.name}</span>
-                  {item.count !== undefined && (
-                    <span data-testid="scope-choice-count" className="scope-picker-path">
-                      {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
-                    </span>
+                  <span className="truncate" aria-disabled="true">
+                    {item.name}
+                  </span>
+                  {item.kind === "folder" && index === selected && onOpenNote ? (
+                    <button
+                      type="button"
+                      data-testid="scope-open-note"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onOpenNote(item.id)}
+                      className="scope-picker-path underline"
+                    >
+                      {t("scope.openNote")}
+                    </button>
+                  ) : (
+                    item.count !== undefined && (
+                      <span data-testid="scope-choice-count" className="scope-picker-path">
+                        {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
+                      </span>
+                    )
                   )}
-                  {(item.path.length > 0 || item.sourceLocation) && (
-                    <span className="scope-picker-path">
-                      {[...(item.sourceLocation ? [t("library.sources")] : []), ...item.path].join(
-                        " / ",
-                      )}
-                    </span>
-                  )}
-                </button>
+                </div>
               );
-            })}
-          </div>
-        );
-      })}
+            }
+            return (
+              <button
+                key={`${item.kind}:${item.id}`}
+                ref={(element) => {
+                  options.current[index] = element;
+                }}
+                id={id && `${id}-${index}`}
+                type="button"
+                role="option"
+                aria-selected={index === selected}
+                data-testid="scope-choice"
+                data-kind={item.kind}
+                data-id={item.id}
+                // Keep the cursor where it is typed in.
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setSelected(index)}
+                onClick={() => onChoose(item)}
+                data-empty={item.count === 0 ? "true" : undefined}
+                className={`editor-menu-item ${item.count === 0 ? "scope-picker-item--empty" : ""}`}
+              >
+                <span className="scope-picker-icon">
+                  <ChoiceIcon choice={item} />
+                </span>
+                <span className="truncate">{item.name}</span>
+                {item.count !== undefined && (
+                  <span data-testid="scope-choice-count" className="scope-picker-path">
+                    {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
+                  </span>
+                )}
+                {(item.path.length > 0 || item.sourceLocation) && (
+                  <span className="scope-picker-path">
+                    {[...(item.sourceLocation ? [t("library.sources")] : []), ...item.path].join(
+                      " / ",
+                    )}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

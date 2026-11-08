@@ -59,6 +59,7 @@ let installed: {
 let sidebarHidden = false;
 let exportedMind: string | null = null;
 let examplesRemoved = false;
+let pictureViewerOpen = false;
 
 /** Until the window says where its focus is, Undo and Redo show as a field's: enabled, naming nothing. */
 let editMenu: EditMenuState = { text: "field", undo: null, redo: null };
@@ -96,6 +97,16 @@ export function setExportMenu(mindName: string | null): void {
 export function setMenuSidebarHidden(hidden: boolean): void {
   if (hidden === sidebarHidden) return;
   sidebarHidden = hidden;
+  if (installed) buildMenu();
+}
+
+/**
+ * While the picture viewer is open, its own ⌘+, ⌘− and ⌘0 zoom the picture
+ * (#2377): the View menu's zoom items step aside, so the keys reach it.
+ */
+export function setPictureViewerOpen(open: boolean): void {
+  if (open === pictureViewerOpen) return;
+  pictureViewerOpen = open;
   if (installed) buildMenu();
 }
 
@@ -221,7 +232,14 @@ function buildMenu(): void {
         edit("redo"),
         { type: "separator" },
         { role: "cut", label: t("menu.cut") },
-        { role: "copy", label: t(isMac ? "menu.copy" : "menu.copy.other") },
+        // With the picture viewer open, Copy is the picture's: the menu item runs it, and ⌘C
+        // reaches the page, which copies the image at its own pixels (#2377).
+        pictureViewerOpen
+          ? {
+              ...command("picture.copy", isMac ? "menu.copy" : "menu.copy.other"),
+              id: "picture.copy",
+            }
+          : { role: "copy", label: t(isMac ? "menu.copy" : "menu.copy.other") },
         { role: "paste", label: t("menu.paste") },
         { ...command("edit.selectAll"), id: "edit.selectAll", click: selectAll },
       ],
@@ -246,9 +264,9 @@ function buildMenu(): void {
         command("sidebar.toggle", sidebarHidden ? "menu.showSidebar" : "menu.hideSidebar"),
         command("tab.split"),
         { type: "separator" },
-        { role: "resetZoom", label: t("menu.actualSize") },
-        { role: "zoomIn", label: t("menu.zoomIn") },
-        { role: "zoomOut", label: t("menu.zoomOut") },
+        { role: "resetZoom", label: t("menu.actualSize"), enabled: !pictureViewerOpen },
+        { role: "zoomIn", label: t("menu.zoomIn"), enabled: !pictureViewerOpen },
+        { role: "zoomOut", label: t("menu.zoomOut"), enabled: !pictureViewerOpen },
         { type: "separator" },
         { role: "togglefullscreen", label: t("menu.fullScreen") },
       ],

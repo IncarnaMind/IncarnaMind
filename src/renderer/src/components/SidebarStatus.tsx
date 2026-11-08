@@ -13,13 +13,19 @@ import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
+import { mindName } from "../../../shared/naming";
+import { allowAndSort } from "../allowSorting";
+import { attentionIds } from "../attention";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
 import { useLanguage, useT } from "../i18n";
+import { useJoinedMeetings } from "../joinedMeetings";
 import { useKeyRefusals } from "../keyRefusals";
 import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
+import { useMeetingsLeftApart } from "../meetingsLeftApart";
+import { isListedDocument } from "../meetingTranscript";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
 import { organizeStateOf } from "../organizeOutcome";
@@ -45,6 +51,7 @@ import {
 } from "../webPages";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { CloseLineIcon } from "./lineIcons";
+import { useMeetingsLeftApartDetails } from "./MeetingsLeftApart";
 import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
 import { testErrorKey } from "./providers/shared";
 import { useSkippedFilesDetails } from "./SkippedFilesLine";
@@ -53,7 +60,7 @@ import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
 
 const statusActionClass =
-  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0";
+  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0 aria-disabled:cursor-default aria-disabled:opacity-50";
 
 const statusActionPillClass =
   "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
@@ -95,7 +102,8 @@ interface Status {
   figure?: string;
   /** All of it: the tooltip, and what a screen reader reads. */
   full: string;
-  action?: { label: string; testId?: string; title?: string; run(): void };
+  /** `busy`: its work is under way, so the action shows it and takes no second press. */
+  action?: { label: string; testId?: string; title?: string; busy?: boolean; run(): void };
   dismiss?: () => void;
   /** What the dismissing control says, where "Dismiss" isn't what it does. */
   dismissLabel?: string;
@@ -209,7 +217,9 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
                 data-testid={action.testId}
                 title={action.title}
                 onClick={action.run}
-                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong"
+                aria-busy={action.busy || undefined}
+                aria-disabled={action.busy || undefined}
+                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong aria-disabled:cursor-default aria-disabled:opacity-50"
               >
                 {action.label}
               </button>
@@ -254,6 +264,8 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
             data-testid={action.testId}
             title={action.title}
             onClick={action.run}
+            aria-busy={action.busy || undefined}
+            aria-disabled={action.busy || undefined}
             className={statusActionClass}
           >
             <span className={statusActionPillClass}>{action.label}</span>
@@ -414,6 +426,14 @@ function useStatuses(): Status[] {
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
   const savedOutside = useAppStore((state) => state.savedOutside);
   const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
+  const joined = useJoinedMeetings((state) => state.joined);
+  const minds = useAppStore((state) => state.minds);
+  const leftApart = useMeetingsLeftApart((state) => state.left);
+  const leftApartDetails = useMeetingsLeftApartDetails(leftApart);
+  useEffect(() => {
+    useJoinedMeetings.getState().load().catch(useAppStore.getState().reportError);
+    useMeetingsLeftApart.getState().load().catch(useAppStore.getState().reportError);
+  }, []);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
@@ -424,10 +444,18 @@ function useStatuses(): Status[] {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return ownDocuments.map((doc) => {
       const item = held.get(doc.id);
-      return { item, state: organizeStateOf(doc, item) };
+      return { id: doc.id, item, state: organizeStateOf(doc, item) };
     });
   }, [ownDocuments, library]);
   const organizing = organizes(library);
+  const reviewedAttention = useAppStore((state) => state.reviewedAttention);
+  const needingAttention = attentionIds(ownDocuments, library?.assignments ?? []);
+  const needingAttentionKey = needingAttention.join("\n");
+  // A Document that stops needing attention is forgotten, so a later failure shows again.
+  useEffect(() => {
+    const live = needingAttentionKey === "" ? [] : needingAttentionKey.split("\n");
+    useAppStore.getState().keepReviewedAttention(new Set(live));
+  }, [needingAttentionKey]);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
   const counts = useAppStore(
@@ -453,6 +481,7 @@ function useStatuses(): Status[] {
         state.linkedFolders.filter((each) => each.status === "paused").map((each) => each.id),
       );
       for (const item of state.documents) {
+        if (!isListedDocument(item)) continue;
         if (PROCESSING.has(item.status)) {
           if (item.linkedFolderId === null || !paused.has(item.linkedFolderId)) {
             processing++;
@@ -809,6 +838,64 @@ function useStatuses(): Status[] {
     });
   }
 
+  // Said once, each, where the migration joined a meeting on the walled side of a wall's edge;
+  // gone once the User moves the Note, as Undo can no longer put it back.
+  for (const join of joined) {
+    const mind = minds.find((each) => each.id === join.mindId);
+    if (!mind) continue;
+    if (join.undone) {
+      // Undo says it worked on the same line, for its few seconds, with the meeting's name (#2579).
+      const text = t("meetings.joined.undone", { meeting: mindName(mind) || t("mind.untitled") });
+      statuses.push({
+        testId: `meeting-joined-undone-${join.id}`,
+        tone: "info",
+        short: text,
+        full: text,
+        wraps: true,
+      });
+      continue;
+    }
+    const folder = library?.groups.find((each) => each.id === join.folderId);
+    if (!folder || mind.folderId !== join.folderId) continue;
+    const text = t(join.noteMoved ? "meetings.joined" : "meetings.joined.transcript", {
+      meeting: mindName(mind) || t("mind.untitled"),
+      folder: folder.name,
+    });
+    statuses.push({
+      testId: `meeting-joined-${join.id}`,
+      tone: join.undoing ? "progress" : "info",
+      short: text,
+      full: text,
+      wraps: true,
+      action: {
+        label: t("meetings.joined.undo"),
+        testId: "meeting-joined-undo",
+        busy: join.undoing === true,
+        run: () => {
+          useJoinedMeetings.getState().undo(join.id).catch(useAppStore.getState().reportError);
+        },
+      },
+      dismiss: () => useJoinedMeetings.getState().dismiss(join.id),
+    });
+  }
+
+  // Said once: the meetings the migration left apart from their Transcripts, two walls between.
+  if (leftApart.length > 0) {
+    const text =
+      leftApart.length === 1
+        ? t("meetings.leftApart.one")
+        : t("meetings.leftApart.other", { count: leftApart.length });
+    statuses.push({
+      testId: "meetings-left-apart",
+      tone: "info",
+      short: text,
+      full: text,
+      wraps: true,
+      details: leftApartDetails,
+      dismiss: () => useMeetingsLeftApart.getState().dismiss(),
+    });
+  }
+
   if (savedOutside.length > 0) {
     const names = savedOutside.map((each) =>
       each.folder === "" ? each.name : `${each.name} (${each.folder})`,
@@ -1039,23 +1126,19 @@ function useStatuses(): Status[] {
 
   if (organizing && library) {
     const pending = liveStates.filter(({ state }) => state.run === "working").length;
-    const attention = liveStates.filter(
-      ({ item, state }) =>
-        !state.manual &&
-        (state.run === "failed" ||
-          (state.run === "waiting" &&
-            item?.error?.kind !== "rate-limit" &&
-            item?.error?.kind !== "auth" &&
-            item?.error?.kind !== "plan-limit")),
-    ).length;
+    const attention = needingAttention.filter((id) => !reviewedAttention.has(id)).length;
     if (attention)
       statuses.push({
         testId: "organization-attention",
         tone: "waiting",
         alerts: true,
         short: t("library.needsAttention"),
-        full: t("library.waiting", { count: attention }),
-        action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
+        full: t(attention === 1 ? "library.waiting.one" : "library.waiting", { count: attention }),
+        action: {
+          label: t("library.review"),
+          testId: "organization-attention-review",
+          run: () => useAppStore.getState().reviewAttention(),
+        },
       });
     if (pending) {
       const service =
@@ -1081,6 +1164,39 @@ function useStatuses(): Status[] {
         action: stop,
       });
     }
+  }
+
+  // Dropped Documents a cloud service may not read yet wait for the User (#2308, ADR-0022): the
+  // row names the service, and its Allow is the consent for that service only. It asks, so it
+  // comes first, never behind "+N".
+  const waitsFor = library?.sortWaitsFor;
+  const toSort = waitsFor
+    ? ownDocuments
+        .filter(
+          (doc, at) => !liveStates[at]?.item && doc.tagging === "off" && isListedDocument(doc),
+        )
+        .map((doc) => doc.id)
+    : [];
+  if (waitsFor && toSort.length > 0 && !capturing) {
+    const count = toSort.length;
+    const service = waitsFor.name;
+    const sends =
+      count === 1
+        ? t("library.toSort.sends.one", { service })
+        : t("library.toSort.sends.other", { count, service });
+    statuses.unshift({
+      testId: "sort-consent",
+      tone: "waiting",
+      asks: true,
+      short: count === 1 ? t("library.toSort.one") : t("library.toSort.other", { count }),
+      full: sends,
+      sends,
+      action: {
+        label: t("library.toSort.allow", { service }),
+        testId: "sort-consent-allow",
+        run: () => void allowAndSort(toSort),
+      },
+    });
   }
   return statuses;
 }

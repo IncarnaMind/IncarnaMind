@@ -423,7 +423,8 @@ function writingItsRecord(sentence: string, given: string, second?: "alone" | "l
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You checked a sentence")) return checkGenerate({})(call);
+          if (!call.system.startsWith("You checked a sentence"))
+            return checkGenerate({ [sentence]: { judgement: "same" } })(call);
           const passages = [
             ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
           ]
@@ -508,6 +509,7 @@ describe.each([
     },
   );
 
+  // A reply that can't be read backs none of its figures either: one verdict everywhere (#2378).
   test("a Supported verdict set aside is never read past words of a later turn set aside, whatever they say", async () => {
     for (const between of language.takesBack.between) {
       const { check: decoy } = await check(language, language.decoy, {
@@ -516,7 +518,7 @@ describe.each([
         between,
       });
       expect(decoy, between).toMatchObject({ state: "not-checked", reason: "malformed" });
-      expect(decoy?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+      expect(decoy?.figures?.map((figure) => figure.state)).toEqual(["not-checked"]);
     }
 
     const { check: stated } = await check(language, language.stated.sentence, {
@@ -533,7 +535,7 @@ describe.each([
       before: language.takesBack.figures,
     });
     expect(decoy).toMatchObject({ state: "not-checked", reason: "malformed" });
-    expect(decoy?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(decoy?.figures?.map((figure) => figure.state)).toEqual(["not-checked"]);
   });
 
   test("a verdict written before the search, or a refusal for a last word, is never Supported", async () => {
@@ -542,7 +544,7 @@ describe.each([
       remainder: true,
     });
     expect(unlooked).toMatchObject({ state: "not-checked", reason: "malformed" });
-    expect(unlooked?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(unlooked?.figures?.map((figure) => figure.state)).toEqual(["not-checked"]);
 
     const { check: refused } = await check(language, language.stated.sentence, {
       verdict: "cite",
@@ -557,7 +559,7 @@ describe.each([
       between: "I'm sorry, I can't help with that.",
     });
     expect(refusedBetween).toMatchObject({ state: "not-checked", reason: "malformed" });
-    expect(refusedBetween?.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(refusedBetween?.figures?.map((figure) => figure.state)).toEqual(["not-checked"]);
   });
 });
 

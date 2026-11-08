@@ -688,16 +688,14 @@ function ToolApprovalCard({ request, keys }: { request: ToolApprovalRequest; key
         <ThirdPartyLine request={request} />
       </div>
       <ApprovalArguments input={request.input} />
-      <div className="approval-actions">
+      <div className="approval-actions approval-actions--row">
         <button
           type="button"
-          data-testid="approval-allow-once"
-          onClick={() => decide("allow-once")}
-          className="approval-button approval-button--primary"
-          {...withShortcut(t("approvals.card.allowOnce"), keys)}
+          data-testid="approval-deny"
+          onClick={() => decide("deny")}
+          className="approval-button approval-button--ghost"
         >
-          {t("approvals.card.allowOnce")}
-          {keys && <span className="approval-keys">{keys}</span>}
+          {t("approvals.card.deny")}
         </button>
         {!thirdParty && (
           <button
@@ -712,11 +710,13 @@ function ToolApprovalCard({ request, keys }: { request: ToolApprovalRequest; key
         )}
         <button
           type="button"
-          data-testid="approval-deny"
-          onClick={() => decide("deny")}
-          className="approval-button approval-button--ghost"
+          data-testid="approval-allow-once"
+          onClick={() => decide("allow-once")}
+          className="approval-button approval-button--primary"
+          {...withShortcut(t("approvals.card.allowOnce"), keys)}
         >
-          {t("approvals.card.deny")}
+          {t("approvals.card.allowOnce")}
+          {keys && <span className="approval-keys">{keys}</span>}
         </button>
       </div>
     </div>
@@ -851,16 +851,14 @@ function ScriptApprovalCard({
           </div>
         </div>
       ) : (
-        <div className="approval-actions">
+        <div className="approval-actions approval-actions--row">
           <button
             type="button"
-            data-testid="approval-allow-once"
-            onClick={() => respond(request.requestId, "allow-once")}
-            className="approval-button approval-button--primary"
-            {...withShortcut(t("scripts.card.allowOnce"), keys)}
+            data-testid="approval-deny"
+            onClick={() => respond(request.requestId, "deny")}
+            className="approval-button approval-button--ghost"
           >
-            {t("scripts.card.allowOnce")}
-            {keys && <span className="approval-keys">{keys}</span>}
+            {t("scripts.card.deny")}
           </button>
           {!asksAfterThirdParty(request) && (
             <button
@@ -875,11 +873,13 @@ function ScriptApprovalCard({
           )}
           <button
             type="button"
-            data-testid="approval-deny"
-            onClick={() => respond(request.requestId, "deny")}
-            className="approval-button approval-button--ghost"
+            data-testid="approval-allow-once"
+            onClick={() => respond(request.requestId, "allow-once")}
+            className="approval-button approval-button--primary"
+            {...withShortcut(t("scripts.card.allowOnce"), keys)}
           >
-            {t("scripts.card.deny")}
+            {t("scripts.card.allowOnce")}
+            {keys && <span className="approval-keys">{keys}</span>}
           </button>
         </div>
       )}
@@ -942,9 +942,11 @@ function ScriptCall({ call }: { call: AnswerToolCall }) {
             ? t("scripts.call.cantRun", params)
             : run?.timedOut
               ? t("scripts.call.timedOut", params)
-              : run && run.exitCode !== null
-                ? t("scripts.call.exited", { ...params, code: run.exitCode })
-                : t("scripts.call.stopped", params);
+              : run?.diskUnmeasured
+                ? t("scripts.call.diskUnmeasured", params)
+                : run && run.exitCode !== null
+                  ? t("scripts.call.exited", { ...params, code: run.exitCode })
+                  : t("scripts.call.stopped", params);
   const limit = SKILL_SCRIPT_LIMITS.maxOutputBytes;
   return (
     <div

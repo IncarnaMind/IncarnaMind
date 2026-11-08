@@ -48,6 +48,9 @@ const QUOTES: readonly DocQuote[] = [
     params: { en: { location: "p. 68" }, "zh-CN": { location: "第 68 页" } },
   },
   { page: "check", key: "citation.badge.cantCheck" },
+  { page: "check", key: "citation.badge.pictureNotChecked" },
+  { page: "check", key: "citation.badge.checkPage" },
+  { page: "check", key: "citation.quotedName" },
   { page: "check", key: "citation.meaning" },
   { page: "check", key: "aiStatement.citations.notFound" },
   { page: "check", key: "editor.ai.checkAgainstDocuments" },
@@ -77,6 +80,22 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "checks.smallModel" },
   { page: "check", key: "claim.courtDecision.body" },
   { page: "check", key: "health.unexamined.one" },
+  {
+    page: "check",
+    key: "figures.table.recalculated.sum.other",
+    params: {
+      en: { heading: "Amount", count: "40", key: "Region" },
+      "zh-CN": { heading: "Amount", count: "40", key: "Region" },
+    },
+  },
+  {
+    page: "check",
+    key: "figures.table.notRecalculated",
+    params: { en: { heading: "Share" }, "zh-CN": { heading: "Share" } },
+  },
+  { page: "check", key: "claim.why.differsFromAnalysis" },
+  { page: "check", key: "claim.reason.analysis" },
+  { page: "check", key: "health.state.notRecalculated.one" },
   { page: "data", key: "embeddingProviders.localOnly.label" },
   { page: "data", key: "tagging.automatic.switch" },
   { page: "data", key: "skills.make.command" },
@@ -138,4 +157,36 @@ describe("docs pages 3 and 4 quote the interface", () => {
     expect(PAGES.data.en).toContain("[简体中文](where-your-data-goes.zh-CN.md)");
     expect(PAGES.data["zh-CN"]).toContain("[English](where-your-data-goes.md)");
   });
+});
+
+// The per-flow rows name exactly what each request builder sends (#2308): Tags never Folders or a
+// deck's or workbook's outline, Organize both; the shared rows say which goes with which.
+describe("the data pages name what tagging and Organize send", () => {
+  const privacy = read("docs/privacy.md");
+  const row = (flow: string) =>
+    privacy.split("\n").find((line) => line.includes(`(\`${flow}\`)`)) ?? "";
+  test("tagging's row names no Folder or outline, Organize's names both", () => {
+    expect(row("tagging")).toContain("its kind and page count, and the start of its text");
+    expect(row("tagging")).toContain("No Folder, and no slide titles or sheet names.");
+    expect(row("classification")).toContain(
+      "a deck's slide titles or a workbook's sheet names (up to 16)",
+    );
+    expect(row("classification")).toContain("every Folder except those you turned down for it");
+  });
+  test.each(["en", "zh-CN"] as const)(
+    "the %s data page splits the shared row by flow",
+    (language) => {
+      const wanted = {
+        en: [
+          "Tags: a Document's name, kind and page count and the start of its text, with Tag names and descriptions.",
+          "Organize: the same, its slide titles or sheet names, and every Folder's name and description.",
+        ],
+        "zh-CN": [
+          "打标签：文档的名称、类型和页数及开头部分的文字，连同标签的名称与描述。",
+          "整理：以上内容、幻灯片标题或工作表名称，以及每个文件夹的名称与描述。",
+        ],
+      }[language];
+      for (const line of wanted) expect(PAGES.data[language]).toContain(line);
+    },
+  );
 });

@@ -1,5 +1,5 @@
 /**
- * Lays the sample Documents in `data/` out as PDF pages: wrapped Helvetica
+ * Lays the sample Documents in `eval/data/` out as PDF pages: wrapped Helvetica
  * text, tables and bar charts, through the PDF writer the tests use. Each
  * spec is one page, and a spec that doesn't fit is an error, not a page the
  * reader loses the end of.

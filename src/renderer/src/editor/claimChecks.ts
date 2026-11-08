@@ -63,6 +63,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "checkedAt",
   "kept",
   "read",
+  "fromAnswer",
   "figures",
   "remainder",
 ];
@@ -84,7 +85,9 @@ export const ClaimCheck = Mark.create({
       ATTRIBUTES.map((name) => [
         name,
         {
-          default: name === "remainder" ? undefined : null,
+          // Only a carried check names its Answer: a null `fromAnswer` stored on every other
+          // checked sentence would take a long Note past its size bound (#2220).
+          default: name === "remainder" || name === "fromAnswer" ? undefined : null,
           parseHTML: () => null,
           renderHTML: () => ({}),
         },
@@ -329,6 +332,8 @@ export interface ClaimContext {
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }
 
 export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
@@ -544,6 +549,15 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
 }
 
+/** The table row a position is in, as the Note's check reads a row's figures together; null outside a table. */
+function rowAround(doc: ProseMirrorNode, at: number): { from: number; to: number } | null {
+  const place = doc.resolve(Math.min(at, doc.content.size));
+  for (let depth = place.depth; depth > 0; depth--)
+    if (place.node(depth).type.name === "tableRow")
+      return { from: place.before(depth), to: place.after(depth) };
+  return null;
+}
+
 /**
  * How a figure's check shows, and whether that check worked it out again from its kept
  * inputs (a calculated figure's "Inputs found · recalculated").
@@ -553,9 +567,21 @@ export function figureShownIn(
   id: string,
   run: RetainedFigureAnalysis | null = null,
   result: string | null = null,
+  /** Where the figure is: only the check of the sentence that holds it is its own (#2378). */
+  at: number | null = null,
 ): ClaimCheckShown & { recalculated?: true } {
   const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
+  const row = at === null ? null : rowAround(state.doc, at);
   for (const span of claimSpans(state.doc)) {
+    // A figure pasted elsewhere with the same id never takes another sentence's check; a table
+    // cell's figure is checked with its row's.
+    if (
+      at !== null &&
+      (row
+        ? span.sentence.to <= row.from || span.sentence.from >= row.to
+        : at < span.sentence.from || at >= span.sentence.to)
+    )
+      continue;
     const now = { ...context, text: span.sentence.text };
     const child = span.check.figures?.find((figure) => figure.id === id);
     if (!child) {
@@ -563,6 +589,8 @@ export function figureShownIn(
       // Keep or a run of its own; its verdict alone is no figure's evidence (#1932, #2378).
       if (!span.check.figures?.length) {
         if (span.check.kept) return claimCheckShown(span.check, now);
+        // An Analysis's figure is its run's: no check of the sentence's words stands for it (#2378).
+        if (result !== null) continue;
         const legacy = claimCheckShown({ ...span.check, figures: undefined }, now);
         if (
           legacy.state === "needs-recheck" ||
@@ -575,10 +603,11 @@ export function figureShownIn(
     }
     if (span.check.kept) return claimCheckShown(span.check, now);
     const shown = analysisFigureShown(figureCheckShown(child, now), {
-      checked: true,
       run,
       result,
       versions: now.versions,
+      keptInside: context.keptInside ?? null,
+      check: child,
     });
     // A workbook's figure shows how it was worked out on its own card (#2347).
     return shown.state === "supported" && child.calculation && !child.calculation.figure.workbook
@@ -587,7 +616,7 @@ export function figureShownIn(
   }
   return analysisFigureShown(
     { state: "not-checked", reason: "unread" },
-    { checked: false, run, result, versions: context.versions },
+    { run, result, versions: context.versions, keptInside: context.keptInside ?? null },
   );
 }
 
@@ -609,7 +638,8 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     now.folderId === context.folderId &&
     sameScopes &&
     now.figureContexts === context.figureContexts &&
-    now.figurePlaces === context.figurePlaces
+    now.figurePlaces === context.figurePlaces &&
+    now.keptInside === context.keptInside
   )
     return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));

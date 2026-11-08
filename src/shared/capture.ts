@@ -59,7 +59,7 @@ export function createMicrophoneRelay(page: {
 }
 
 /** How a source is doing, as the capture window sees it (`CaptureState` in the core's adapters). */
-export type CaptureWindowState = "recording" | "denied" | "unavailable" | "ended";
+export type CaptureWindowState = "waiting" | "recording" | "denied" | "unavailable" | "ended";
 
 export interface CaptureBridge {
   onStart(listener: (request: CaptureStart) => void): void;

@@ -312,6 +312,7 @@ describe("A scan told to stop (#1502)", () => {
         if (read === 0) queueMicrotask(() => stop.abort());
       },
       log: () => undefined,
+      head: () => undefined,
       read: (page) => {
         asked.push(page);
         return new Promise(() => undefined);

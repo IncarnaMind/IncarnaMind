@@ -14,6 +14,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   useLocalChatModel as enableLocalModel,
+  exampleRow,
   expectReadyDocuments,
   gettingStarted,
   interceptOpenDialog,
@@ -171,7 +172,11 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
         await window.keyboard.press("ControlOrMeta+z");
         await expect(exampleRow()).toHaveCount(0);
-        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
+        // Back on the first open: the examples' two Documents are listed, and none of the User's.
+        await expect(sidebar.getByTestId("document-list-item")).toHaveCount(2);
+        await expect(
+          sidebar.getByTestId("document-list-item").filter({ hasText: "Harbours" }),
+        ).toHaveCount(0);
 
         // Back in, then 2 Ask, from the card's title with the keyboard.
         await window.getByTestId("add-documents-input").setInputFiles([harbours]);
@@ -217,7 +222,9 @@ for (const language of ["en", "zh-CN"] as const) {
           beside.push(await height());
         }
         expectOne(beside, `${language} ${width} px, step 3`);
-        await expect(card).toContainText(language === "en" ? "You’re set up." : "准备好了。");
+        await expect(card.locator("h2")).toHaveText(
+          language === "en" ? "You’re set up" : "准备好了",
+        );
         await window.keyboard.press("Escape");
 
         // ⌘K reaches what the steps teach.
@@ -272,6 +279,11 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     });
     const sidebar = window.getByTestId("sidebar");
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
+    // Under the Examples heading nothing is badged: the heading says it, and the example's Linked
+    // folder isn't listed there.
+    const examples = window.getByTestId("example-section");
+    await expect(examples.getByTestId("example-chip")).toHaveCount(0);
+    await expect(examples.getByTestId("linked-folder-row")).toHaveCount(0);
 
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -283,6 +295,10 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     await expect(window.getByTestId("example-section")).toHaveCount(0);
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+    // Under Linked folders nothing else says the folder is the example's, so its row keeps the badge.
+    await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toHaveText(
+      "Example",
+    );
     const exampleDocuments = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const examples = await bridge.getExamples();
@@ -408,7 +424,7 @@ async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: bo
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1600]) {
-    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
+    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a second Document makes it neutral (${language}, ${width}px)`, async () => {
       test.setTimeout(180_000);
       const sources = await createDataFolder();
       const slow = join(sources, "Harbour times.pdf");
@@ -471,23 +487,17 @@ for (const language of ["en", "zh-CN"] as const) {
         ready = await height();
         expect(ready, `${language} ${width}px, reading to ready`).toBe(reading);
 
+        // A second Document of theirs: the Question turns neutral and asks about both, so the line
+        // keeps its one height with a Question short enough to fit. The line's cut is tested below.
         await a.window.getByTestId("add-documents-input").setInputFiles([long]);
-        await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
+        const neutral =
+          language === "en"
+            ? "Ask: “What do your 2 Documents say?”"
+            : "提问：这 2 个文档讲了什么？";
+        await expect(button).toHaveAttribute("title", neutral);
         const cut = await height();
-        expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
-        // The whole Question stays the line's name and its tooltip, and the line cuts it.
-        expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
-        const wholeLabel = (await button.getAttribute("title")) ?? "";
-        const shownLabel = await button.innerText();
-        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
-        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
-        if (language === "en")
-          // English cuts at a word's end, so what follows the shown text starts a word.
-          expect(
-            wholeLabel.slice(shownLabel.length - 1),
-            `${language} ${width}px, a word's end`,
-          ).toMatch(/^\s/u);
-        await shot(a.window, `ask-line-long-${language}-${width}`);
+        expect(cut, `${language} ${width}px, two Documents`).toBe(reading);
+        await shot(a.window, `ask-line-two-${language}-${width}`);
       } finally {
         await a.app.close();
         await removeDataFolder(first);
@@ -740,9 +750,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, language);
     await dismissChatSetup(window);
-    const examples = window
-      .getByTestId("mind-list-item")
-      .filter({ has: window.getByTestId("example-chip") });
+    const examples = exampleRow(window);
 
     await newMind(window);
     const own = await openPageMenu(window);

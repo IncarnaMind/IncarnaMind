@@ -276,7 +276,7 @@ function SizeChoice({ mindId }: { mindId: string }) {
               onClick={() => void chooseSize(mindId, each)}
               className={`h-6 truncate rounded-md px-1 text-[13px] leading-5 -outline-offset-2 ${
                 chosen
-                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_rgb(23_25_28/0.08)]"
+                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
                   : "text-ink-secondary hover:text-ink"
               }`}
             >
@@ -317,7 +317,7 @@ function LineSpacingChoice({ mindId, onCustom }: { mindId: string; onCustom(): v
               onClick={() => void chooseLineSpacing(mindId, each)}
               className={`h-6 flex-auto truncate rounded-md px-1 text-[13px] leading-5 -outline-offset-2 ${
                 chosen
-                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_rgb(23_25_28/0.08)]"
+                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
                   : "text-ink-secondary hover:text-ink"
               }`}
             >

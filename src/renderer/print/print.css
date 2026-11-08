@@ -54,11 +54,30 @@ body {
   display: flex;
   flex-direction: column;
   break-after: page;
+  z-index: 0;
 }
 
 .page-body {
   display: flow-root;
   flex: none;
+}
+
+.page-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* Behind the text and its number, which are not raised above it: a PDF's text reads in the order
+     it is drawn, the page's number last (#2758). */
+  z-index: -1;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  transform-origin: center;
+  font-family: var(--sans);
+  font-size: 84pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: #c7ccd3;
+  opacity: 0.5;
 }
 
 .page-notes {
@@ -262,6 +281,14 @@ ol {
 
 li > p {
   margin-bottom: 3pt;
+}
+
+/*
+ * Each numbered item's marker as the editor draws it (#2334), as its own ::marker: Chromium draws
+ * a positioned box after the text around it, so the PDF would read "Clause one.1." (#2663).
+ */
+ol.numbered > li:not(.continued)::marker {
+  content: attr(data-marker) " ";
 }
 
 li.continued {

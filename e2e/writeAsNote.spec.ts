@@ -10,6 +10,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   frontMind,
   frontMindName,
   launchApp,
@@ -49,6 +50,7 @@ const WORDS = {
     choose: "Choose a note to add it to",
     named: (note: string) => `Add to “${note}”`,
     added: (note: string) => `Added to “${note}”`,
+    wrote: (note: string) => `Wrote “${note}”`,
     kept: "Kept the Block you edited",
     placeholder: "Ask, or say ‘write a note on…’",
     chat: "This note’s chat",
@@ -64,6 +66,7 @@ const WORDS = {
     choose: "选择要添加到的笔记",
     named: (note: string) => `添加到“${note}”`,
     added: (note: string) => `已添加到“${note}”`,
+    wrote: (note: string) => `已写入“${note}”`,
     kept: "保留了 1 个你编辑过的块",
     placeholder: "提问，或说“写一篇关于……的笔记”",
     chat: "这篇笔记的对话",
@@ -157,7 +160,7 @@ for (const language of LANGUAGES) {
       await expect(frontMind(window).getByTestId("mind-editor")).toContainText(opening);
       await expect(frontMindName(window)).not.toHaveText(/^(Untitled|未命名)$/);
       const made = ((await frontMindName(window).textContent()) ?? "").trim();
-      await expect(answer.getByTestId("answer-added")).toContainText(w.added(made));
+      await expect(answer.getByTestId("answer-added")).toContainText(w.wrote(made));
       expect(await frontMind(window).getByTestId("proposal-bar").count()).toBe(0);
 
       // Undo takes the Answer back out; the note it made stays, and Delete would take it back.
@@ -368,10 +371,7 @@ for (const language of LANGUAGES) {
       await expect(guide).toContainText(w.startGuide);
       await expect(guide).toContainText(w.answerGuide);
       await expect(guide).toContainText(w.connectApp);
-      await pointAndClick(
-        window,
-        window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-      );
+      await pointAndClick(window, exampleRow(window));
       await expect(window.getByTestId("first-open-steps")).toBeVisible();
       await pointAndClick(
         window,

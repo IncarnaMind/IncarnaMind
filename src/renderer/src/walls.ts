@@ -2,19 +2,41 @@
  * Folder walls as the window sees them (#1934): which walled Folder keeps a Document inside it,
  * judged from where a Note is. The core decides what is read and filed; this only says so.
  */
-import { CITATION_NODE, type LibrarySnapshot, type SearchScope } from "../../core/api";
+import {
+  CITATION_NODE,
+  type Document,
+  type LibrarySnapshot,
+  type Mind,
+  type SearchScope,
+} from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 import { folderWallOf, isInsideFolder } from "./folders";
+import { withTranscriptsFiled } from "./meetingTranscript";
 import type { Translate } from "./objects";
 
-/** What of the Library the walls are read from. */
+/**
+ * What of the Library the walls are read from. With the Documents and the Notes, a meeting's
+ * Transcript is behind its Note's wall (#2528).
+ */
 type Walls = {
   groups: readonly Pick<
     LibrarySnapshot["groups"][number],
     "id" | "name" | "parentId" | "keepInside"
   >[];
   assignments: readonly Pick<LibrarySnapshot["assignments"][number], "documentId" | "groupId">[];
+  documents?: readonly Pick<Document, "id" | "meetingMindId">[];
+  minds?: readonly Pick<Mind, "id" | "folderId">[];
 } | null;
+
+/** The walls as the store holds them, with its Documents and Notes. */
+export const wallsOf = (state: {
+  library: LibrarySnapshot | null;
+  documents: readonly Document[];
+  minds: readonly Mind[];
+}): Walls => state.library && { ...state.library, documents: state.documents, minds: state.minds };
+
+const filingsOf = (library: NonNullable<Walls>) =>
+  withTranscriptsFiled(library.assignments, library.documents ?? [], library.minds ?? []);
 
 /**
  * What a move across walls says after its own line, in the ruled words: the wall it entered and
@@ -66,7 +88,7 @@ export function keptInsideName(
   folderId: string | null,
 ): string | null {
   if (documentId === null || library === null) return null;
-  const groupId = library.assignments.find((each) => each.documentId === documentId)?.groupId;
+  const groupId = filingsOf(library).find((each) => each.documentId === documentId)?.groupId;
   const wall = wallBehind(library, groupId ?? null);
   if (wall === null) return null;
   const inside =
@@ -107,7 +129,7 @@ export function scopeOutsideWalls(
   if (scope === null) return null;
   if (folderId !== null && wallBehind(library, folderId) !== null) return scope;
   const walled = new Set(
-    (library?.assignments ?? []).flatMap((each) =>
+    (library ? filingsOf(library) : []).flatMap((each) =>
       wallBehind(library, each.groupId) === null ? [] : [each.documentId],
     ),
   );

@@ -11,6 +11,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openMoreMenu,
   openSteps,
   pointAt,
   removeDataFolder,
@@ -222,28 +223,28 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await shortlist.hover();
     await shortlist.getByTestId("mind-menu").click();
     const actions = shortlist.getByTestId("mind-actions");
-    // In the shared order, each with its shortcut.
+    // In the shared order, each with its shortcut: Move to… is a row of its own, the rest are
+    // under More ›.
     await expect(actions.getByRole("menuitem")).toHaveText([
       /^Open$/,
       /^Open in new tab$/,
-      /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
       /^Duplicate$/,
-      /^Use as a source$/,
-      /^Export…$/,
-      /^Export AI use statement$/,
-      /^Export check record…$/,
-      /^History$/,
       /^Check$/,
       /^Tie out figures$/,
-      /^Check for contradictions$/,
-      /^Citation style…$/,
-      /^Style…$/,
-      /^Make this a Skill$/,
+      /^Export…$/,
+      /^History$/,
+      /^More$/,
       /^Move to…(⇧⌘M|Ctrl\+Shift\+M)$/,
-      /^New Folder with this note(⌃⌘N)?$/,
-      /^Tidy Chinese text$/,
       /^RenameF2$/,
       /^Delete$/,
+    ]);
+    const more = await openMoreMenu(window, actions);
+    await expect(more.getByRole("menuitem")).toHaveText([
+      /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
+      /^Check for contradictions$/,
+      /^Use as a source$/,
+      /^Make this a Skill$/,
+      /^New Folder with this note(⌃⌘N)?$/,
     ]);
     await actions.getByTestId("mind.moveTo").click();
     const picker = window.getByTestId("move-to-picker");

@@ -1,13 +1,27 @@
 import { describe, expect, test } from "vitest";
+import { citedLocation, citedSpeakers } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
+import { formatLocation } from "../../src/shared/locations";
 import {
   isTheirs,
+  looksLikeLabel,
+  markWords,
   numberedVoice,
+  parseTranscriptSpeakers,
+  partStartOf,
+  partsOf,
+  readStoredSpeakers,
   SPEAKER_ME,
   SPEAKER_THEM,
   SPEAKER_UNKNOWN,
+  shownSpeaker,
   speakerKey,
+  speakerMark,
   speakerName,
+  speakersIn,
+  splitsHold,
+  withLineSplit,
+  withSpeakerChosen,
 } from "../../src/shared/speakers";
 
 describe("The words for who said a live line (#941)", () => {
@@ -42,5 +56,332 @@ describe("The words for who said a live line (#941)", () => {
   test("every line but the User's microphone and an unknown speaker's is another person's", () => {
     expect([numberedVoice(2), SPEAKER_THEM, "Them 2", "Dana"].every(isTheirs)).toBe(true);
     expect([SPEAKER_ME, SPEAKER_UNKNOWN, null].some(isTheirs)).toBe(false);
+  });
+});
+
+const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+  translate("en", key, params);
+const zh = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+  translate("zh-CN", key, params);
+
+/** A call: Me at 0 s and 4 s, Speaker 1 at 2 s and 6 s, Speaker 2 at 8 s. */
+const CALL = [
+  { startMs: 0, label: "Me" },
+  { startMs: 2000, label: "Speaker 1" },
+  { startMs: 4000, label: "Me" },
+  { startMs: 6000, label: "Speaker 1" },
+  { startMs: 8000, label: "Speaker 2" },
+];
+const at = (startMs: number) => CALL.find((line) => line.startMs === startMs) as (typeof CALL)[0];
+
+describe("Who's who in a Transcript (#138)", () => {
+  // protects=Apply to all with a new name names the line's Speaker, without it a new "Speaker N" takes the line, and renaming that Speaker later renames the line; fails_when=a name is stored on a line, the new label reuses one the file has, or the rename misses the moved line; no_claim=what the window shows, which the renderer test covers.
+  test("a new name with Apply to all names the Speaker, and alone gives the line a new Speaker that a later rename follows", () => {
+    const named = withSpeakerChosen(null, CALL, at(2000), { name: "Dana" }, true);
+    expect(named).toEqual({ labels: { "Speaker 1": "Dana" }, lines: {} });
+    expect(shownSpeaker(named, 6000, "Speaker 1", en)).toBe("Dana");
+
+    const moved = withSpeakerChosen(named, CALL, at(8000), { name: "Priya" }, false);
+    expect(moved).toEqual({
+      labels: { "Speaker 1": "Dana", "Speaker 3": "Priya" },
+      lines: { "8000 Speaker 2": "Speaker 3" },
+    });
+    const renamed = withSpeakerChosen(moved, CALL, at(8000), { name: "Priya Shah" }, true);
+    expect(shownSpeaker(renamed, 8000, "Speaker 2", en)).toBe("Priya Shah");
+    expect(renamed.lines).toEqual({ "8000 Speaker 2": "Speaker 3" });
+  });
+
+  // protects=picking a Speaker moves one line, or with Apply to all every line by the line's Speaker now, and a line given back to its file's label keeps no entry; fails_when=Apply to all moves lines by another Speaker, or leaves an entry that says what the file says; no_claim=the menu's keys.
+  test("picking a Speaker moves the line, or every line by its Speaker, and giving a line back leaves no entry", () => {
+    const one = withSpeakerChosen(null, CALL, at(6000), { label: "Speaker 2" }, false);
+    expect(one.lines).toEqual({ "6000 Speaker 1": "Speaker 2" });
+    const all = withSpeakerChosen(one, CALL, at(8000), { label: "Me" }, true);
+    expect(all.lines).toEqual({ "6000 Speaker 1": "Me", "8000 Speaker 2": "Me" });
+    expect(speakersIn(all, CALL)).toEqual(["Me", "Speaker 1"]);
+    const back = withSpeakerChosen(all, CALL, at(6000), { label: "Speaker 1" }, false);
+    expect(back.lines).toEqual({ "8000 Speaker 2": "Me" });
+  });
+
+  // protects=Me is the User: a new name for every line by Me moves them to a new Speaker, so Me is never named, and the model still reads Me; fails_when=Me takes a name, or a model reads a name for the User; no_claim=the fill's wording, which the real-model check covers.
+  test('"Me" is never named: its lines go to a new Speaker, and a model reads "Me" for the User', () => {
+    const moved = withSpeakerChosen(null, CALL, at(0), { name: "Sam" }, true);
+    expect(moved).toEqual({
+      labels: { "Speaker 3": "Sam" },
+      lines: { "0 Me": "Speaker 3", "4000 Me": "Speaker 3" },
+    });
+    const given = withSpeakerChosen(null, CALL, at(2000), { label: SPEAKER_ME }, false);
+    expect(speakerMark(given, 2000, "Speaker 1")).toBe("Me");
+    expect(shownSpeaker(given, 2000, "Speaker 1", zh)).toBe("我");
+    expect(parseTranscriptSpeakers({ labels: { Me: "Joey" }, lines: {} })).toEqual({
+      speakers: null,
+      dropped: 1,
+    });
+  });
+
+  // protects=a Citation's Location words its Speaker by the name as it is now, from the label it stores, in English and Chinese, and keeps the label's words when nobody is named; fails_when=a Location shows the stored label for a named Speaker, or a name in place of "Me"; no_claim=where each place gets the map from, which the core tests cover.
+  test("a Citation's Location names its Speaker as the User named them, from the label it stores", () => {
+    const speakers = withSpeakerChosen(null, CALL, at(2000), { name: "王丽" }, true);
+    const location = { kind: "time" as const, from: 2000, to: 3000, speaker: "Speaker 1" };
+    expect(formatLocation(location, en, { speakers })).toBe("王丽 · 0:02");
+    expect(formatLocation(location, zh, { speakers })).toBe("王丽 · 0:02");
+    expect(formatLocation(location, zh)).toBe("发言人 1 · 0:02");
+    expect(formatLocation({ ...location, from: 0, speaker: "Me" }, zh, { speakers })).toBe(
+      "我 · 0:00",
+    );
+    expect(formatLocation(location, en, { speakers, speaker: false })).toBe("0:02");
+    // The Location as a Note keeps it, JSON text, and as an object.
+    const documents = [{ id: "t", contentHash: "h", speakers }];
+    for (const stored of [JSON.stringify(location), location]) {
+      const found = citedSpeakers(
+        { documentId: "t", contentHash: "h", location: stored },
+        documents,
+      );
+      expect(found).toEqual(speakers);
+      expect(formatLocation(location, en, { speakers: found })).toBe("王丽 · 0:02");
+    }
+    expect(citedLocation({ documentId: "t", contentHash: "h", location }, en, documents)).toBe(
+      "王丽 · 0:02",
+    );
+  });
+
+  // protects=who's who as stored or sent keeps only what holds: a line known by its start and label, names of 1 to 200 characters, a label like "__proto__" kept as a label; text that isn't JSON is said as dropped; fails_when=a bad entry is kept, a good one dropped, or a label reaches the object's prototype; no_claim=the core's refusal, which the core test covers.
+  test("who's who keeps only what holds, a label named like an object's own key included", () => {
+    expect(
+      parseTranscriptSpeakers({
+        labels: { "Speaker 1": "Dana", "Speaker 2": " ", "Speaker 3": "x".repeat(201) },
+        lines: { "2000 Speaker 1": "Me", "no start": "Me" },
+      }),
+    ).toEqual({
+      speakers: { labels: { "Speaker 1": "Dana" }, lines: { "2000 Speaker 1": "Me" } },
+      dropped: 3,
+    });
+    const odd = withSpeakerChosen(
+      null,
+      [{ startMs: 0, label: "__proto__" }],
+      { startMs: 0, label: "__proto__" },
+      { name: "Dana" },
+      true,
+    );
+    expect(Object.keys(odd.labels)).toEqual(["__proto__"]);
+    expect(shownSpeaker(odd, 0, "__proto__", en)).toBe("Dana");
+    expect(shownSpeaker(null, 0, "constructor", en)).toBe("constructor");
+    expect(readStoredSpeakers("{")).toEqual({ speakers: null, dropped: 1 });
+    // A name a label's words make, one a format character hides, or one past what a mark carries.
+    expect(
+      parseTranscriptSpeakers({
+        labels: {
+          "Speaker 1": "发言人 2",
+          "Speaker 2": "Dana\u202E",
+          "Speaker 3": "x".repeat(61),
+          "Speaker 4": "y".repeat(60),
+        },
+        lines: {},
+      }),
+    ).toEqual({ speakers: { labels: { "Speaker 4": "y".repeat(60) }, lines: {} }, dropped: 3 });
+  });
+
+  // protects=the words of every label a Meeting's Transcript can have, in English and Chinese, half-width or full-width, are known as a label's, and a person's name with a digit or brackets isn't; a mark makes brackets spaces; fails_when=a label's words pass as a name, or a name is refused; no_claim=a .vtt the User added, whose own labels can be any words.
+  test("a label's words are known in either language, and a mark makes brackets spaces", () => {
+    for (const words of [
+      "Me",
+      "me",
+      "我",
+      "Them",
+      "对方",
+      "Speaker ?",
+      "Speaker 12",
+      "Them 3",
+      "发言人 2",
+      "发言人２",
+      "发言人？",
+    ]) {
+      expect(looksLikeLabel(words)).toBe(true);
+    }
+    for (const name of [
+      "Dana",
+      "3M rep",
+      "(Client) Dana",
+      "Dana [CFO]",
+      "王总（客户）",
+      "Meg",
+      "Speaker Lin",
+    ]) {
+      expect(looksLikeLabel(name)).toBe(false);
+    }
+    expect(markWords("Dana [CFO]")).toBe("Dana CFO");
+    expect(markWords("[Lin]\nWu")).toBe("Lin Wu");
+    expect(readStoredSpeakers(null)).toEqual({ speakers: null, dropped: 0 });
+  });
+});
+
+/** A line of the call's file, said by Speaker 1 from 2 s to 6 s. */
+const LINE = {
+  startMs: 2000,
+  endMs: 6000,
+  text: "We sign on Friday. No, I need the budget first.",
+  label: "Speaker 1",
+};
+const REST = LINE.text.indexOf("No,");
+
+describe("Splitting a line (#138)", () => {
+  // protects=a split keeps the file's line and makes two parts, each with its own start and words, the rest said by the Speaker of the part it was in until the User says otherwise; one more split makes three; fails_when=a part loses words or a space, the rest starts at the line's start, the new part shares a start with another, or the whole line's Speaker changes; no_claim=the window, which the window spec covers.
+  test("a line split in two keeps its words, each part with its own start and Speaker", () => {
+    expect(partsOf(null, LINE)).toEqual([
+      { startMs: 2000, endMs: 6000, at: 0, text: LINE.text, label: "Speaker 1", lineMs: 2000 },
+    ]);
+    const split = withLineSplit(null, LINE, REST, 4100);
+    const parts = partsOf(split, LINE);
+    expect(parts.map((part) => [part.startMs, part.endMs, part.text])).toEqual([
+      [2000, 4100, "We sign on Friday."],
+      [4100, 6000, "No, I need the budget first."],
+    ]);
+    expect(parts.map((part) => shownSpeaker(split, part.startMs, part.label, en))).toEqual([
+      "Speaker 1",
+      "Speaker 1",
+    ]);
+    // Who speaks the rest: the second part alone.
+    const told = withSpeakerChosen(
+      split,
+      [...CALL, { startMs: 4100, label: "Speaker 1" }],
+      { startMs: 4100, label: "Speaker 1" },
+      { name: "Sam" },
+      false,
+    );
+    expect(
+      partsOf(told, LINE).map((part) => shownSpeaker(told, part.startMs, part.label, en)),
+    ).toEqual(["Speaker 1", "Sam"]);
+    // A time outside the part is brought inside it, and a third part follows the second's Speaker.
+    const third = withLineSplit(told, LINE, LINE.text.indexOf("the budget"), 9000);
+    expect(partsOf(third, LINE).map((part) => [part.startMs, part.text])).toEqual([
+      [2000, "We sign on Friday."],
+      [4100, "No, I need"],
+      [5999, "the budget first."],
+    ]);
+    expect(shownSpeaker(third, 5999, "Speaker 1", en)).toBe("Sam");
+  });
+
+  // protects=a split at a part's own start, outside the line, or in a part too short to hold another start changes nothing, and a split whose line reads otherwise now is left out; fails_when=an empty part is made, two parts share a start, or a stale split cuts another text; no_claim=the caret's rule about a part's first word, which the window spec covers.
+  test("a split at a part's start, outside the line or in a part too short changes nothing", () => {
+    const split = withLineSplit(null, LINE, REST, 4100);
+    expect(withLineSplit(split, LINE, REST, 5000)).toBe(split);
+    expect(withLineSplit(null, LINE, 0, 2500)).toEqual({ labels: {}, lines: {} });
+    expect(withLineSplit(null, LINE, LINE.text.length, 2500)).toEqual({ labels: {}, lines: {} });
+    const short = { ...LINE, endMs: 2001 };
+    expect(withLineSplit(null, short, REST, 2000)).toEqual({ labels: {}, lines: {} });
+    expect(partsOf(split, { ...LINE, text: "Another text now." })).toHaveLength(1);
+  });
+
+  // protects=a Citation stores its file's line and quote, and shows the part its quote starts in, by that part's time and Speaker, in English and Chinese; a quote not found shows the line; fails_when=the Citation shows the line's first time or Speaker for words of the rest; no_claim=the core's checks, which the core test covers.
+  test("a Citation into a split line shows the part its quote is in", () => {
+    const speakers = withSpeakerChosen(
+      withLineSplit(null, LINE, REST, 4100),
+      [...CALL, { startMs: 4100, label: "Speaker 1" }],
+      { startMs: 4100, label: "Speaker 1" },
+      { name: "王丽" },
+      false,
+    );
+    const location = { kind: "time" as const, from: 2000, to: 6000, speaker: "Speaker 1" };
+    expect(partStartOf(speakers, 2000, "Speaker 1", "the budget first")).toBe(4100);
+    expect(formatLocation(location, en, { speakers, quote: "I need the budget" })).toBe(
+      "王丽 · 0:04",
+    );
+    expect(formatLocation(location, zh, { speakers, quote: "I need the budget" })).toBe(
+      "王丽 · 0:04",
+    );
+    expect(formatLocation(location, en, { speakers, quote: "We sign on Friday" })).toBe(
+      "Speaker 1 · 0:02",
+    );
+    expect(formatLocation(location, zh, { speakers, quote: "Nothing like it" })).toBe(
+      "发言人 1 · 0:02",
+    );
+    expect(
+      citedLocation(
+        { documentId: "t", contentHash: "h", location, quote: "No, I need the budget first." },
+        en,
+        [{ id: "t", contentHash: "h", speakers }],
+      ),
+    ).toBe("王丽 · 0:04");
+  });
+
+  // protects=a part said outside its line, before its start or after its end, never counts: the map drops one at or before the line's start, the line reads whole with one at or after its end, and the core's check refuses both; fails_when=a part outside its line gives the line another Speaker; no_claim=the core's reading of the file, which the core test covers.
+  test("a split whose part lies outside its line is left out", () => {
+    const outside = {
+      labels: {},
+      lines: { "7000 Speaker 1": "Speaker 2" },
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 7000 }] } },
+    };
+    expect(partsOf(outside, LINE)).toHaveLength(1);
+    expect(shownSpeaker(outside, LINE.startMs, LINE.label, en)).toBe("Speaker 1");
+    expect(splitsHold(outside, [LINE])).toBe(false);
+    const before = {
+      ...outside,
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 1500 }] } },
+    };
+    expect(parseTranscriptSpeakers(before)).toEqual({
+      speakers: { labels: {}, lines: { "7000 Speaker 1": "Speaker 2" } },
+      dropped: 1,
+    });
+    expect(splitsHold(withLineSplit(null, LINE, REST, 4100), [LINE])).toBe(true);
+  });
+
+  // protects=the rest is known by its start and label, so it never starts where another line by its label does: with contiguous or touching cues it takes the nearest free time inside its part, and the core refuses a split that clashes; fails_when=the rest and another line share a key, so one choice moves both; no_claim=lines by other labels, which never share a key.
+  test("the rest never starts where another line by its label starts", () => {
+    const next = {
+      startMs: 5999,
+      endMs: 9000,
+      text: "Then the board reads it.",
+      label: "Speaker 1",
+    };
+    const lines = [
+      { startMs: LINE.startMs, label: LINE.label },
+      { startMs: next.startMs, label: next.label },
+    ];
+    const last = LINE.text.lastIndexOf("first.");
+    const split = withLineSplit(null, LINE, last, 5999, lines);
+    expect(partsOf(split, LINE).map((part) => part.startMs)).toEqual([2000, 5998]);
+    expect(splitsHold(split, [LINE, next])).toBe(true);
+    const clash = {
+      labels: {},
+      lines: {},
+      splits: { "2000 Speaker 1": { text: LINE.text, parts: [{ at: last, ms: 5999 }] } },
+    };
+    expect(splitsHold(clash, [LINE, next])).toBe(false);
+    // Another label's line starting then is no clash.
+    expect(withLineSplit(null, LINE, last, 5999, [{ startMs: 5999, label: "Me" }])).toMatchObject({
+      splits: { "2000 Speaker 1": { parts: [{ at: last, ms: 5999 }] } },
+    });
+  });
+
+  // protects=splits as stored or sent keep only what holds: the line's text, and parts after one another in text and time, inside it; fails_when=a split with parts out of order, at the same time, outside the text or with a bad key is kept; no_claim=the core's refusal, which the core test covers.
+  test("splits as stored keep only what holds", () => {
+    const good = { text: LINE.text, parts: [{ at: REST, ms: 4100 }] };
+    const parsed = parseTranscriptSpeakers({
+      labels: {},
+      lines: {},
+      splits: {
+        "2000 Speaker 1": good,
+        "3000 Speaker 1": {
+          text: LINE.text,
+          parts: [
+            { at: REST, ms: 4100 },
+            { at: 3, ms: 4200 },
+          ],
+        },
+        "4000 Speaker 1": {
+          text: LINE.text,
+          parts: [
+            { at: 3, ms: 4100 },
+            { at: REST, ms: 4100 },
+          ],
+        },
+        "5000 Speaker 1": { text: LINE.text, parts: [{ at: LINE.text.length, ms: 6100 }] },
+        "6000 Speaker 1": { text: LINE.text, parts: [{ at: REST, ms: 6000 }] },
+        "no start": good,
+      },
+    });
+    expect(parsed).toEqual({
+      speakers: { labels: {}, lines: {}, splits: { "2000 Speaker 1": good } },
+      dropped: 5,
+    });
   });
 });

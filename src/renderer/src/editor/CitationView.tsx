@@ -1,5 +1,15 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   ANSWER_BLOCK,
@@ -20,9 +30,12 @@ import {
   citationSource,
   citationState,
   citedName,
+  citedSpeakers,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
+  quotedNameOf,
+  quotedWordsRunOnTo,
   quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
@@ -38,6 +51,7 @@ import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
+import { applyCitationWording, citationWordingFix } from "../citationWording";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { CheckTheRest } from "../components/assistant/CheckTheRest";
@@ -58,6 +72,7 @@ import {
   takePinnedCitation,
   unpinCitation,
 } from "../pinnedCitation";
+import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { recordUsage, useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
@@ -81,11 +96,14 @@ import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
+  AssistantFoldedContext,
+  ConversationIdContext,
   InFootnoteContext,
   JudgedAnswerContext,
   MindIdContext,
   RegenerateAnswerContext,
   SignOffsContext,
+  useCitedOrigin,
 } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation, useCitationPeek } from "./peek";
@@ -169,6 +187,7 @@ export function CitationView({
   updateAttributes,
   decorations,
 }: ReactNodeViewProps) {
+  const origin = useCitedOrigin();
   const t = useT();
   const language = useLanguage();
   // None in the assistant, whose Answers are read only and say how they are written again.
@@ -181,30 +200,46 @@ export function CitationView({
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInside(attributes.documentId);
+  /** Its card waits while the assistant is folded, and comes back with it (#2270). */
+  const assistantFolded = useContext(AssistantFoldedContext) === true;
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
+  const conversationId = useContext(ConversationIdContext);
   const looked = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
     mindId,
+    conversationId,
   );
   // Kept inside a wall, nothing of the new version was read: the card says Kept inside and its last result.
   const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
-  const where = location ? formatLocation(location, t) : null;
+  const speakers = citedSpeakers(attributes, documents);
+  const where = location
+    ? formatLocation(location, t, { speakers, quote: attributes.quote })
+    : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
   // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
   const lookedAt =
     recheck !== null && recheck !== "failed" && recheck.contentHash === liveVersion
       ? liveVersion
       : null;
-  const newVersion = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
+  const update = editor.isEditable && lookedAt ? newVersionCitation(attributes, recheck) : null;
+  const asked = update ? parseQuotedWords(attributes.quotedWords) : null;
+  const onPage = useQuotedWordsOnPage(
+    update && asked
+      ? [{ words: asked, cited: { ...update, documentId: attributes.documentId } }]
+      : [],
+    mindId,
+    conversationId,
+  );
+  const newVersion = asked ? newVersionCitation(attributes, recheck, onPage) : update;
   const badge = badgeMessage(state, shown, t);
   const badgeText = recheckAsked ? t("citation.badge.recheck") : t(badge.key, badge.params);
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).
@@ -213,12 +248,14 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const pointsTo = citationSource(shown, t, language).text;
+  const pointsTo = citationSource(shown, t, language, documents).text;
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
   const { peeking, hold, clear: clearPeek } = useCitationPeek();
   const open = pinned || peeking;
+  /** Shown, and what ⌘K's "Open cited page" acts on: not while it waits in a folded assistant (#2270). */
+  const cardShown = open && !assistantFolded;
   const marker = useRef<HTMLButtonElement>(null);
   /** Whether the editor took the marker's last press to extend the selection. */
   const pressTaken = useRef(false);
@@ -272,6 +309,7 @@ export function CitationView({
     openCitedPlace(
       { ...attributes, documentId },
       {
+        origin,
         check: state.check,
         ...(state.reason && { checkReason: state.reason }),
         withQuote,
@@ -362,10 +400,11 @@ export function CitationView({
         offerEditorUndo(editor, (t) => t("citation.updated"));
         // The Note stays in front, in a window of one group too: the new words are one tab away.
         openCitedPlace(moved, {
+          origin,
           check: moved.check,
           withQuote: true,
           number,
-          label: moved.location ? formatLocation(moved.location, t) : null,
+          label: moved.location ? formatLocation(moved.location, t, { speakers }) : null,
           from: place?.groupId,
           keep: true,
           stay: true,
@@ -393,16 +432,41 @@ export function CitationView({
           editor.view.focus();
         }
       : null;
+  // The Note's copy, which the check after Use the Document's wording reads its words from.
+  const mindDoc = mindId !== null ? ySyncPluginKey.getState(editor.state)?.doc : undefined;
+  const citationAt = getPos();
+  const wordingFix =
+    mindDoc && citationAt !== undefined && !inFootnote
+      ? citationWordingFix(editor, citationAt)
+      : null;
+  const useDocumentWording =
+    wordingFix && mindId !== null && mindDoc
+      ? () => {
+          if (applyCitationWording(editor, mindId, mindDoc, wordingFix.citation)) dismiss();
+        }
+      : null;
+  /** The open card: Tab from the marker goes into it, so its buttons are reached from the keyboard. */
+  const cardRef = useRef<HTMLDivElement>(null);
+  const tabIntoCard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "Tab" || event.shiftKey || !open) return;
+    const first = cardRef.current?.querySelector<HTMLElement>(
+      "button:not([tabindex='-1']), a[href], input, select, textarea",
+    );
+    if (!first) return;
+    event.preventDefault();
+    first.focus();
+  };
   const choices = {
     update: recheckAsked && newVersion ? updateSentence : null,
     keepOld: recheckAsked && lookedAt ? keepOldVersion : null,
     pageChecked: pageCheck,
+    useDocumentWording,
   };
   const choicesRef = useRef(choices);
   choicesRef.current = choices;
   // "Open cited page" (a command) opens the Citation whose card shows.
   useEffect(() => {
-    if (!open) return;
+    if (!cardShown) return;
     const handle = {
       open: () => openFromCardRef.current(),
       choices: () => choicesRef.current,
@@ -412,7 +476,7 @@ export function CitationView({
     return () => {
       if (citationHandle.current === handle) citationHandle.current = null;
     };
-  }, [open]);
+  }, [cardShown]);
 
   // The User's own "Checked by me" (#1933): in a Note they can change, not in a footnote's text.
   const { records } = useContext(SignOffsContext);
@@ -532,6 +596,7 @@ export function CitationView({
           if (!isQuietFocus(event.currentTarget)) hold("focus", true);
         }}
         onBlur={() => hold("focus", false)}
+        onKeyDown={tabIntoCard}
         onClick={(event) => {
           // A Shift-press the editor took extended the selection, so it is not an activation of
           // the Citation; a key's click, or a press with nothing to extend, still is.
@@ -584,7 +649,7 @@ export function CitationView({
         className="citation-menu-anchor"
         tabIndex={-1}
       />
-      {open &&
+      {cardShown &&
         marker.current &&
         // In the body, not the editor: ProseMirror must not see the card's events.
         createPortal(
@@ -601,6 +666,7 @@ export function CitationView({
             onBlur={() => hold("card-focus", false)}
           >
             <CitationCard
+              card={cardRef}
               state={state}
               attributes={shown}
               recheck={recheck}
@@ -610,6 +676,7 @@ export function CitationView({
               onUpdate={choices.update}
               onKeep={choices.keepOld}
               onPageChecked={choices.pageChecked}
+              onUseDocumentWording={choices.useDocumentWording}
               checkAgainOf={
                 state.check === "not-checked" && state.reason !== "small-model"
                   ? judgedAnswer
@@ -753,6 +820,7 @@ function ClusterRuns({
  * what to do next (for a web page, also "Open the live page").
  */
 function CitationCard({
+  card,
   state,
   attributes,
   recheck,
@@ -764,6 +832,7 @@ function CitationCard({
   onUpdate,
   onKeep,
   onPageChecked,
+  onUseDocumentWording,
   checkAgainOf,
   onRemove,
   onRegenerate,
@@ -771,6 +840,8 @@ function CitationCard({
   signOff,
   onSignOff,
 }: {
+  /** The card's own element, for Tab from the marker to reach its buttons. */
+  card: RefObject<HTMLDivElement | null>;
   /** The User's own check of it (#1933), apart from IncarnaMind's. */
   signOff: SignOffNow | null;
   /** Null where it can't be marked, such as an Answer in the assistant. */
@@ -791,6 +862,8 @@ function CitationCard({
   onKeep: (() => void) | null;
   /** Matches the page: null where the User can't check it, such as an Answer in the assistant (#535). */
   onPageChecked: (() => void) | null;
+  /** Use the Document's wording: null where the quote differs in more than its marks, or can't be changed. */
+  onUseDocumentWording: (() => void) | null;
   /** An Answer's Citation not checked: the Answer whose sentences Check again judges (#2311). */
   checkAgainOf: { id: string; conversationId: string } | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
@@ -804,7 +877,13 @@ function CitationCard({
   const web = live?.web ?? null;
   const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
-  const where = location ? formatLocation(location, t) : null;
+  const lives = live ? [live] : null;
+  const where = location
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(attributes, lives),
+        quote: attributes.quote,
+      })
+    : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
   const name = nameWithPlace(citedName(attributes, t, language), place);
@@ -829,7 +908,7 @@ function CitationCard({
         ? name
         : null
       : where
-        ? citationSource(attributes, t, language).text
+        ? citationSource(attributes, t, language, lives).text
         : name);
   const stoppedAt = useJudgementLimit();
   const reason =
@@ -853,6 +932,8 @@ function CitationCard({
                     : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
+  const runOn = quotedWordsRunOnTo(attributes.quotedWords);
+  const quotedName = quotedNameOf(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const scannedText = useScannedText(state.reason === "unsure-word" ? state.documentId : null);
   const quote = useReadableQuote(attributes);
@@ -868,7 +949,11 @@ function CitationCard({
   // A saved page says it was fetched again, with the day; any other Document says when it changed.
   const changedOn = web ? (changed?.notice ?? null) : on;
   return (
-    <div className={`citation-card citation-card--${state.check}`} contentEditable={false}>
+    <div
+      ref={card}
+      className={`citation-card citation-card--${state.check}`}
+      contentEditable={false}
+    >
       <div data-testid="citation-card-head" className="citation-card-head">
         <p
           data-testid="citation-badge"
@@ -944,7 +1029,24 @@ function CitationCard({
       {state.reason === "unsure-word" && (
         <ScanPagePicture attributes={attributes} scanned={scannedText} />
       )}
-      {state.check === "not-found" && <CitationQuotedWords attributes={attributes} />}
+      {state.check === "not-found" && (
+        <>
+          <CitationQuotedWords attributes={attributes} />
+          {onUseDocumentWording && (
+            // Under the two texts, beside what differs: the one fix for a quote whose marks alone are the Answer's.
+            <div className="citation-card-actions">
+              <button
+                type="button"
+                data-testid="citation-use-document-wording"
+                className="citation-card-action"
+                onClick={onUseDocumentWording}
+              >
+                {t("citation.useDocumentWording")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
       {changed && (
         <div data-testid="citation-changed" className="citation-card-changed">
           {words ? (
@@ -979,6 +1081,16 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
+      {runOn && state.check === "found" && (
+        <p data-testid="citation-quoted-run-on" className="citation-card-note">
+          {t("citation.quotedWordsRunOn", { place: formatLocation(runOn, t) })}
+        </p>
+      )}
+      {quotedName && (
+        <p data-testid="citation-quoted-name" className="citation-card-note">
+          {t("citation.quotedName")}
+        </p>
+      )}
       {state.pageChecked && (
         <p data-testid="citation-page-checked" className="citation-card-note">
           {t("citation.pageChecked.done")}

@@ -12,11 +12,14 @@ import type {
   CitationCheckReason,
   CitationLocation,
   CitationRecheck,
+  CitationToRecheck,
   Document,
   KeptCitationText,
   QuotedPiece,
   QuotedWords,
+  QuotedWordsCheck,
   RecheckResult,
+  TranscriptSpeakers,
 } from "../core/api";
 import type { Language } from "../core/language";
 import { formatDate, formatShortDate } from "./dates";
@@ -27,6 +30,7 @@ import {
   englishPrintedLocation,
   formatLocation,
   isTranscriptLocation,
+  parseLocation,
   readsIn,
   type Translate,
 } from "./locations";
@@ -141,7 +145,7 @@ export function citedTextKept(
 
 /** What a Citation needs of a live Document: whether it is there, and the name to show for it. */
 export type LiveDocument = Pick<Document, "id" | "contentHash"> &
-  Partial<Pick<Document, "name" | "title">>;
+  Partial<Pick<Document, "name" | "title" | "speakers">>;
 
 /** A list of Documents by ID and by content: the first in the list with each. */
 interface DocumentIndex {
@@ -452,11 +456,18 @@ export function needsRecheck(
 /**
  * What Update the sentence… makes a Citation (#99): the words now at its place in its Document's
  * current version when they changed, or its quote where it is now when it moved, checked there.
- * Null when the current version holds nothing to cite in its place.
+ * Null when the current version holds nothing to cite in its place. `onPage`: the core's verdict
+ * on the words the sentence quoted at that place (`quotedWordsOnPage`).
  */
 export function newVersionCitation(
-  attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
+  attributes: Partial<
+    Pick<
+      CitationAttributes,
+      "documentId" | "pageFrom" | "pageTo" | "location" | "quote" | "quotedWords"
+    >
+  >,
   recheck: RecheckResult | "failed" | null,
+  onPage?: QuotedWordsOnPage,
 ): Partial<CitationAttributes> | null {
   if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
   if (recheck.contentHash === null) return null;
@@ -466,6 +477,16 @@ export function newVersionCitation(
       ? { ...recheck, quote: attributes.quote ?? "" }
       : null);
   if (!now || now.contentHash === null) return null;
+  // The sentence keeps the words it quoted whether the quote moved or its words changed, and a
+  // rewrite to the changed words can fail or be refused: words not found stay not found unless the
+  // quote cited now has them (#2612). Their closest words were the old version's.
+  const asked = parseQuotedWords(attributes.quotedWords);
+  const notFound =
+    asked &&
+    now.check === "found" &&
+    !quotedWordsAt(asked, { ...now, documentId: attributes.documentId ?? null }, onPage)
+      ? { answer: asked.answer, closest: null }
+      : null;
   return {
     passageId: now.passageId,
     contentHash: now.contentHash,
@@ -473,14 +494,14 @@ export function newVersionCitation(
     pageTo: now.pageTo,
     location: now.location,
     quote: now.quote,
-    check: now.check,
-    checkReason: now.checkReason,
+    check: notFound ? "not-found" : now.check,
+    checkReason: notFound ? "quoted-words-not-on-pages" : now.checkReason,
     // The version it moves to has the date of that version of the User's note (#335).
     ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,
-    quotedWords: null,
+    quotedWords: notFound,
     verdict: null,
     keptOver: null,
   };
@@ -494,9 +515,30 @@ export function newVersionCitation(
 export function citedLocation(
   attributes: Partial<CitationAttributes>,
   t: Translate,
+  documents: readonly LiveDocument[] | null = null,
 ): string | null {
   const location = citationLocation(attributes);
-  return location ? formatLocation(location, t) : null;
+  return location
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(attributes, documents),
+        ...(typeof attributes.quote === "string" && { quote: attributes.quote }),
+      })
+    : null;
+}
+
+/**
+ * Who's who in the Transcript a Citation quotes (#138), so its Speaker shows as the User named
+ * them now: the Citation stores only its line's label, never a name. Null for any other Document.
+ */
+export function citedSpeakers(
+  attributes: Partial<Pick<CitationAttributes, "documentId" | "contentHash">> & {
+    location?: unknown;
+  },
+  documents: readonly LiveDocument[] | null,
+): TranscriptSpeakers | null {
+  // A Note keeps its Citations' Locations as JSON text, as the editor stores an attribute.
+  if (!documents || parseLocation(attributes.location)?.kind !== "time") return null;
+  return liveDocumentOf(attributes, documents)?.speakers ?? null;
 }
 
 /**
@@ -527,6 +569,7 @@ export function citationSource(
   attributes: Partial<CitationAttributes>,
   t: Translate,
   language?: Language,
+  documents: readonly LiveDocument[] | null = null,
 ): { name: string; where: string | null; text: string } {
   const name = language ? citedName(attributes, t, language) : (attributes.documentName ?? "");
   const location = citationLocation(attributes);
@@ -538,7 +581,10 @@ export function citationSource(
     location.kind === "rows" && location.sheet !== null && sameName(location.sheet)
       ? { ...location, sheet: null }
       : location;
-  const where = formatLocation(shown, t);
+  const where = formatLocation(shown, t, {
+    speakers: citedSpeakers(attributes, documents),
+    ...(typeof attributes.quote === "string" && { quote: attributes.quote }),
+  });
   return { name, where, text: t("citation.where", { document: name, location: where }) };
 }
 
@@ -609,7 +655,7 @@ function placeOf(
   if (location === null) {
     return { where: "document", params: { document: attributes.documentName ?? "" } };
   }
-  const params = { location: formatLocation(location, t, false) };
+  const params = { location: formatLocation(location, t, { speaker: false }) };
   // A Transcript's is labelled so, so its check isn't taken for a page's.
   if (isTranscriptLocation(location)) return { where: "transcript", params };
   return { where: readsIn(location) ? "in" : "on", params };
@@ -685,9 +731,47 @@ export function parseQuotedWords(value: unknown): QuotedWords | null {
     }
   }
   if (typeof value !== "object" || value === null) return null;
-  const { answer, closest } = value as Record<string, unknown>;
+  const { answer, closest, documentWording } = value as Record<string, unknown>;
   if (!isPieces(answer) || answer.length === 0) return null;
-  return { answer, closest: isPieces(closest) && closest.length > 0 ? closest : null };
+  return {
+    answer,
+    closest: isPieces(closest) && closest.length > 0 ? closest : null,
+    ...(typeof documentWording === "string" && documentWording !== "" && { documentWording }),
+  };
+}
+
+/** The page a Citation's quoted words were found running on to (#2504), checked; null if none. */
+export function quotedWordsRunOnTo(value: unknown): CitationLocation | null {
+  if (typeof value === "string") {
+    try {
+      return quotedWordsRunOnTo(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  return parseLocation((value as Record<string, unknown>).runsOnTo);
+}
+
+/** The words a Citation's Answer quoted that are a cited Document's name (#2504); null if none. */
+export function quotedNameOf(value: unknown): string | null {
+  if (typeof value === "string") {
+    try {
+      return quotedNameOf(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { name } = value as Record<string, unknown>;
+  return typeof name === "string" && name.trim() !== "" ? name : null;
+}
+
+/** What a Citation stores of the check of its Answer's quoted words, any kind, checked; null if nothing. */
+export function parseQuotedWordsCheck(value: unknown): QuotedWordsCheck | null {
+  const runsOnTo = quotedWordsRunOnTo(value);
+  const name = quotedNameOf(value);
+  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo }) ?? (name !== null ? { name } : null);
 }
 
 /**
@@ -700,4 +784,66 @@ export function quotedWordsFoundIn(text: string, value: unknown): boolean {
   const quoted = parseQuotedWords(value);
   if (quoted === null) return true;
   return findQuote(text, quoted.answer.map((piece) => piece.text).join("")) !== null;
+}
+
+/** The place a Citation would cite once Update the sentence… or Replace rewrites it. */
+export type PlaceToCite = Partial<
+  Pick<
+    CitationAttributes,
+    "documentId" | "contentHash" | "pageFrom" | "pageTo" | "location" | "quote"
+  >
+>;
+
+/**
+ * The core's verdict on a Citation's quoted words at a place (`quotedWordsOnPage`): true or false
+ * once it has one, null when it couldn't read the place, undefined until it has answered.
+ */
+export type QuotedWordsOnPage = (
+  words: QuotedWords,
+  cited: PlaceToCite,
+) => boolean | null | undefined;
+
+/**
+ * Whether the words a Citation's sentence quoted that its check didn't find (#483) are at
+ * `cited`, as one rule judges them wherever a Citation is checked (#2712): by the core's verdict
+ * on the cited page; until it has one, only when they are in the quote it cites there, which the
+ * page holds. A Citation that asked for none counts as found.
+ */
+export function quotedWordsAt(
+  value: unknown,
+  cited: PlaceToCite,
+  onPage?: QuotedWordsOnPage,
+): boolean {
+  const words = parseQuotedWords(value);
+  if (words === null) return true;
+  return onPage?.(words, cited) ?? quotedWordsFoundIn(cited.quote ?? "", words);
+}
+
+/**
+ * The core's verdict on a Citation's quoted words at a place it would cite (#2712): the
+ * Citation it would become, checked again with them, so it reads found only where a re-check
+ * would find it too. Null when the core couldn't read that place: kept inside a wall, its
+ * version's text gone, or a page it can't check.
+ */
+export async function quotedWordsOnPage(
+  recheck: (input: CitationToRecheck) => RecheckResult | Promise<RecheckResult>,
+  cited: PlaceToCite,
+  words: QuotedWords,
+): Promise<boolean | null> {
+  const { documentId, quote } = cited;
+  if (!documentId || !quote) return null;
+  const result = await recheck({
+    documentId,
+    quote,
+    pageFrom: cited.pageFrom ?? null,
+    pageTo: cited.pageTo ?? null,
+    contentHash: cited.contentHash ?? null,
+    location: cited.location ?? null,
+    quotedWords: words,
+  });
+  if ("keptInside" in result || result.contentHash === null) return null;
+  const checked =
+    cited.contentHash && result.contentHash !== cited.contentHash ? result.inQuotedVersion : result;
+  if (!checked || checked.check === "cant-check") return null;
+  return checked.check === "found";
 }

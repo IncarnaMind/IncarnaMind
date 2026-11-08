@@ -3,6 +3,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ToggleEvent,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -136,6 +137,18 @@ function place(
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
   return { left, top, width, height: Math.min(height, room) };
+}
+
+/**
+ * Fits a menu already showing to the window, keeping the place it was put in: moving it while
+ * the User is on their way to an item puts another item under the pointer.
+ */
+function fitHeight(menu: HTMLElement): void {
+  menu.style.removeProperty("max-height");
+  const placed = Number.parseFloat(menu.style.top);
+  const top = Number.isFinite(placed) ? placed : menu.getBoundingClientRect().top;
+  const room = window.innerHeight - EDGE_PX - top;
+  if (menu.offsetHeight > room) menu.style.maxHeight = `${Math.max(0, room)}px`;
 }
 
 /** The checked item, or the first; with `first`, the first whatever is checked. */
@@ -308,6 +321,8 @@ export function openMenuFromRightClick(
  * `whenFocusGone` is the last place to send the focus Esc wanted back: for a
  * menu whose button went while it was open, such as a chip no Task shows once
  * the last one stops.
+ * `show` opens it without a click; `quiet` leaves the focus where the User is,
+ * for a menu that opens by itself while they may be typing.
  */
 export function usePopoverMenu({
   around,
@@ -337,6 +352,8 @@ export function usePopoverMenu({
   const focusReturn = useFocusReturn();
   /** Esc asked for the focus back: it is given once the popover has closed (see `onToggle`). */
   const returnWanted = useRef(false);
+  /** Opened by `show` with `quiet`: it takes no focus. */
+  const quiet = useRef(false);
 
   const stopCrossing = () => {
     if (crossing.current) window.clearTimeout(crossing.current.timer);
@@ -376,6 +393,7 @@ export function usePopoverMenu({
     // Once each time it opens: a menu that stays open is never animated again.
     if (menu.current && box && !entered.current) enterFrom(menu.current, sourceOf(anchor), box);
     entered.current = true;
+    if (quiet.current) return;
     if (menu.current?.matches(":popover-open")) focusFirst(menu.current, first);
     else autofocusFirst(menu.current, first);
   }, [open, first, align]);
@@ -417,14 +435,18 @@ export function usePopoverMenu({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open]);
 
-  // Items that come after it opened, such as models still being listed then: placed again for
-  // the menu's new size, and the checked one focused, as it would have been had it been there.
+  // Items that come after it opened, such as models still being listed then: a menu already
+  // showing keeps the place the User is aiming in and only fits its new height; one not yet
+  // showing is placed again. The checked item takes the focus as it would have had it been there.
   useEffect(() => {
     const element = menu.current;
     if (!open || !element) return;
     const observer = new MutationObserver(() => {
-      const anchor = button.current;
-      place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align);
+      if (element.matches(":popover-open")) fitHeight(element);
+      else {
+        const anchor = button.current;
+        place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align);
+      }
       if (!touched.current && element.matches(":popover-open")) focusFirst(element, first);
     });
     observer.observe(element, { childList: true, subtree: true });
@@ -463,8 +485,18 @@ export function usePopoverMenu({
     closeSubmenusBut(menu.current, item);
   };
 
+  const show = useCallback((options: { quiet?: boolean } = {}) => {
+    const element = menu.current;
+    if (!element || element.matches(":popover-open")) return;
+    quiet.current = options.quiet ?? false;
+    // An item marked to take the focus when it last opened would take it now.
+    if (quiet.current) clearAutofocus(element);
+    element.showPopover();
+  }, []);
+
   return {
     open,
+    show,
     close: () => menu.current?.hidePopover(),
     buttonProps: {
       ref: button,
@@ -482,8 +514,9 @@ export function usePopoverMenu({
         if (event.newState === "closed" && menu.current)
           exitToward(menu.current, sourceOf(button.current));
         // Untouched from the moment it opens, not from a render after: keys can come first.
+        if (event.newState === "closed") quiet.current = false;
         if (event.newState === "open") {
-          touched.current = false;
+          touched.current = quiet.current;
           returnWanted.current = false;
           typed.current = { text: "", at: 0 };
           focusReturn.remember();

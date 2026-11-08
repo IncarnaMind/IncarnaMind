@@ -2,18 +2,24 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { AudioSource, Meeting, Settings } from "../../core/api";
 import { meetingTimeAt } from "../../shared/blockTimes";
+import { isPartialMeetingFill } from "../../shared/meetingFill";
 import { mindName } from "../../shared/naming";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
+import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
+import { offersCanTurnOn } from "./platformOffers";
 import { useAppStore } from "./store";
+import { closeTip } from "./tips";
 import { useUndo } from "./undo";
 
 interface MeetingsState {
   meetings: Meeting[];
   /** What went wrong with the last thing done to a Meeting, by its id, until the next try. */
   problems: Readonly<Record<string, string>>;
+  /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
+  audioProblems: Readonly<Record<string, string>>;
   /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
   noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
   starting: Readonly<Record<string, true>>;
@@ -34,6 +40,12 @@ interface MeetingsState {
    */
   record(): Promise<void>;
   /**
+   * Join and record (#190): a Meeting in this Note, the one a calendar event's Take notes made,
+   * recording at once once the User has read the one-time notice; the Meeting recording now is
+   * opened instead, as Record a meeting opens it.
+   */
+  recordIn(mindId: string): Promise<void>;
+  /**
    * "Record a voice memo" (#1568): the Meeting recording now, opened; else a memo records at
    * once, in the empty Mind in front, or in a new Mind in a tab of its own, in the Folder of the
    * Mind in front (#1362). The first time, after the one-time recording notice.
@@ -51,12 +63,19 @@ interface MeetingsState {
   stop(meetingId: string): Promise<void>;
   discard(meetingId: string): Promise<void>;
   deleteAudio(meetingId: string): Promise<void>;
+  /** Keep audio (#687): kept until the User deletes it, with one Undo that lets it go again. */
+  keepAudio(meetingId: string): Promise<void>;
   /** Tries the Meeting's Transcript again after a problem: the model's download, its engine, or saving it. */
   retryTranscript(meetingId: string): Promise<void>;
   /** Fills the notes in from the Transcript again (#142): Try again, or after an Undo. */
   fillNotes(meetingId: string): Promise<void>;
-  /** Takes back what filling the notes in added (#142). */
-  undoFill(meetingId: string): Promise<void>;
+  /**
+   * Takes back what filling the notes in added (#142). `editor`: the one whose line asks, which
+   * takes the fill back itself while it holds it on top.
+   */
+  undoFill(meetingId: string, editor?: object): Promise<void>;
+  /** The fill was taken back, or put back, with an editor's own Undo: the core follows. */
+  followFillUndo(meetingId: string, undone: boolean): Promise<void>;
   openSettings(meetingId: string, source: AudioSource): Promise<void>;
   dismissGaps(meetingId: string): void;
   /** Shows or hides a Meeting's recording details; with no `shown`, the other way from now. */
@@ -73,6 +92,20 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     } catch (error) {
       set((state) => ({
         problems: { ...state.problems, [meetingId]: errorMessage(error, translateNow) },
+      }));
+    }
+  };
+
+  const onAudio = async (meetingId: string, action: () => Promise<unknown>) => {
+    set((state) => ({ audioProblems: withoutKey(state.audioProblems, meetingId) }));
+    try {
+      await action();
+    } catch (error) {
+      set((state) => ({
+        audioProblems: {
+          ...state.audioProblems,
+          [meetingId]: errorMessage(error, translateNow),
+        },
       }));
     }
   };
@@ -117,9 +150,28 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     }
   };
 
+  /**
+   * A Meeting just made, shown (`show`) and started: at once once the one-time notice was read,
+   * else from its start block, which then takes the focus.
+   */
+  const startMade = async (meeting: Meeting, settings: Settings, show: () => Promise<unknown>) => {
+    const starts = settings.device.meetingNoticeAccepted;
+    if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
+    // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
+    // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
+    if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
+    else set({ startToFocus: meeting.id });
+    await show();
+    if (starts) await get().start(meeting.id, meeting.systemAudio);
+    // The core's event can come after start() returns, and showing the start block between
+    // would flash it: the Meeting leaves "starting" with its status, or here if the start failed.
+    if (meeting.id in get().problems) set(stopStarting(meeting.id));
+  };
+
   return {
     meetings: [],
     problems: {},
+    audioProblems: {},
     noticeFor: null,
     cantRecord: false,
     starting: {},
@@ -153,22 +205,41 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         const folderId = minds.find((each) => each.id === inView)?.folderId ?? null;
         const meeting = await core.createMeeting(folderId ? { folderId } : undefined);
         created = meeting.id;
-        const starts = settings.device.meetingNoticeAccepted;
-        if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
-        // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
-        // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
-        if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
-        else set({ startToFocus: meeting.id });
-        // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
-        await useAppStore.getState().changeLayout({
-          type: "open",
-          item: { kind: "mind", mindId: meeting.mindId },
-          where: { in: "group" },
-        });
-        if (starts) await get().start(meeting.id, meeting.systemAudio);
-        // The core's event can come after start() returns, and showing the start block between
-        // would flash it: the Meeting leaves "starting" with its status, or here if the start failed.
-        if (meeting.id in get().problems) set(stopStarting(meeting.id));
+        await startMade(meeting, settings, () =>
+          // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
+          useAppStore.getState().changeLayout({
+            type: "open",
+            item: { kind: "mind", mindId: meeting.mindId },
+            where: { in: "group" },
+          }),
+        );
+      } catch (error) {
+        useAppStore.getState().reportError(error);
+        if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
+      }
+    },
+
+    async recordIn(mindId) {
+      const recording = get().meetings.find((each) => each.status === "recording");
+      if (recording) {
+        useAppStore.getState().openMind(recording.mindId);
+        return;
+      }
+      const { settings } = useAppStore.getState();
+      if (!settings) return;
+      if (settings.meetingAudio === "none") {
+        set({ cantRecord: true });
+        return;
+      }
+      let created: string | null = null;
+      try {
+        const meeting = await core.createMeeting({ mindId });
+        created = meeting.id;
+        // Listed at once, so the Note shows its start or its bar from the next paint.
+        set((state) => ({
+          meetings: [meeting, ...state.meetings.filter((each) => each.id !== meeting.id)],
+        }));
+        await startMade(meeting, settings, async () => undefined);
       } catch (error) {
         useAppStore.getState().reportError(error);
         if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
@@ -219,7 +290,17 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         return;
       }
       await attempt(waiting.meetingId, async () => {
-        await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+        // Setting up Meetings turns on the offers to take notes and what they need (#189), as the
+        // sheet says: Home's line for those set up before has nothing left to ask.
+        const offers = offersCanTurnOn();
+        await core.updateSettings({
+          device: {
+            meetingNoticeAccepted: true,
+            ...(offers && { keepRunning: true, callOffers: true }),
+          },
+        });
+        closeTip("call-offers");
+        if (offers) core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
         await core.startMeeting(waiting);
       });
     },
@@ -260,10 +341,38 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       // The block it leaves had the focus: the Mind stays as a note, and its text takes the cursor.
       if (mindId && !(meetingId in get().problems)) useAppStore.setState({ bodyToFocus: mindId });
     },
-    deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    deleteAudio: (meetingId) => onAudio(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    keepAudio: (meetingId) =>
+      onAudio(meetingId, async () => {
+        const keep = (kept: boolean) => async () => {
+          await core.keepMeetingAudio({ meetingId, kept });
+        };
+        await keep(true)();
+        // Taken back past the day's end, the audio goes at the next sweep, as it would have.
+        useUndo.getState().push({
+          said: (t) => t("meetings.audio.keptLine"),
+          name: (t) => t("meetings.command.keepAudio"),
+          undo: keep(false),
+          redo: keep(true),
+        });
+      }),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
-    fillNotes: (meetingId) => attempt(meetingId, () => core.fillMeetingNotes(meetingId)),
-    undoFill: (meetingId) => attempt(meetingId, () => core.undoMeetingFill(meetingId)),
+    fillNotes: (meetingId) =>
+      attempt(meetingId, async () => {
+        // At once, before the core says it fills: ⇧⌘Z can't put the old fill back beside the new.
+        // The core fills anew only after an Undo it knows of, which a failed follow left it without.
+        if (letGoOfUndoneFill(meetingId)) {
+          await core.followMeetingFillUndo({ meetingId, undone: true });
+        }
+        await core.fillMeetingNotes(meetingId);
+      }),
+    // An editor showing the Note holds a fill it took in as its own step: Undo is that step's.
+    undoFill: (meetingId, editor) =>
+      attempt(meetingId, async () => {
+        if (!(await undoFillInEditor(meetingId, editor))) await core.undoMeetingFill(meetingId);
+      }),
+    followFillUndo: (meetingId, undone) =>
+      attempt(meetingId, () => core.followMeetingFillUndo({ meetingId, undone })),
     openSettings: (meetingId, source) =>
       attempt(meetingId, async () => {
         await core.openAudioSettings(source);
@@ -300,12 +409,20 @@ function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Record
 /** Notes just filled in go on the undo stack, as a change made for the User: ⌘Z takes them back. */
 function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]): void {
   for (const meeting of after) {
-    if (meeting.fill?.state !== "filled") continue;
+    // The editor showing the Note took it in as its own Undo, with its line there.
+    if (meeting.fill?.state !== "filled" || fillHeldInEditor(meeting.id)) continue;
     const was = before.find((each) => each.id === meeting.id)?.fill?.state;
     if (was === undefined || was === "filled") continue;
     const memo = meeting.kind === "memo";
     useUndo.getState().push({
-      said: (t) => t(memo ? "memos.fill.filled" : "meetings.fill.filled"),
+      said: (t) =>
+        t(
+          memo
+            ? "memos.fill.filled"
+            : isPartialMeetingFill(meeting.fill)
+              ? "meetings.fill.partial"
+              : "meetings.fill.filled",
+        ),
       name: (t) => t(memo ? "memos.fill.undoName" : "meetings.fill.undoName"),
       undo: () => core.undoMeetingFill(meeting.id).then(() => undefined),
       also: {
@@ -339,8 +456,14 @@ export const useMeetingOf = (mindId: string): Meeting | undefined =>
   useMeetings((state) => state.meetings.find((each) => each.mindId === mindId));
 
 /** A Meeting is recording or paused: its Mind shows the meeting bar. */
-export const isLive = (meeting: Meeting | undefined): meeting is Meeting =>
+export const isLive = (
+  meeting: Meeting | undefined,
+): meeting is Meeting & { status: "recording" | "paused" } =>
   meeting?.status === "recording" || meeting?.status === "paused";
+
+/** It is recording, but the system's microphone prompt is still open: nothing is captured yet. */
+export const isWaitingForPermission = (meeting: Meeting | undefined): boolean =>
+  meeting?.status === "recording" && meeting.sources.microphone === "waiting";
 
 /** Whether some Meeting's audio is being captured now: background work waits meanwhile. */
 export const useCapturing = (): boolean =>

@@ -371,6 +371,54 @@ describe("Lines of a text file", () => {
 });
 
 describe("A Location as the model writes it", () => {
+  test.each(["Dana", "李明", "Dana Kim-Smith", "Dana K.", "发言人 2", "Speaker ?"])(
+    "reads a Transcript cue label with speaker %s without losing its time constraint",
+    (speaker) => {
+      for (const label of [`0:11 ${speaker}`, `[0:11 ${speaker}]`]) {
+        expect(parseRequestedLocation(label)).toEqual({
+          kind: "time",
+          from: 11_000,
+          to: 11_000,
+          speaker,
+        });
+      }
+    },
+  );
+
+  test("keeps Transcript ranges separate from speaker labels and refuses malformed times", () => {
+    expect(parseRequestedLocation("[0:07–0:10 Dana]")).toEqual({
+      kind: "time",
+      from: 7000,
+      to: 10_000,
+      speaker: "Dana",
+    });
+    expect(parseRequestedLocation("0:07–0:10")).toEqual({
+      kind: "time",
+      from: 7000,
+      to: 10_000,
+    });
+    // A name the User gave a Speaker (#138), as its mark carries it: a digit or a bracket first.
+    for (const speaker of ["3M rep", "(Client) Dana", "Dana CFO", "王总（客户）"]) {
+      expect(parseRequestedLocation(`[0:07 ${speaker}]`)).toEqual({
+        kind: "time",
+        from: 7000,
+        to: 7000,
+        speaker,
+      });
+    }
+    for (const label of [
+      "Dana",
+      "李明",
+      "0:99 Dana",
+      "0:07–0:99 Dana",
+      "0:07–later",
+      "0:07 0:10 Dana",
+      "0:07\nDana",
+    ]) {
+      expect(parseRequestedLocation(label)).toBeNull();
+    }
+  });
+
   test("is read from its label, its plural, a cell range, or the old page form", () => {
     expect(parseRequestedLocation("p. 4")).toEqual({ kind: "page", from: 4, to: 4 });
     expect(parseRequestedLocation("pp. 4–5")).toEqual({ kind: "page", from: 4, to: 5 });
@@ -394,6 +442,18 @@ describe("A Location as the model writes it", () => {
       sheet: "Revenue",
       from: 7,
       to: 8,
+    });
+    expect(parseRequestedLocation("0:11 Dana, rows 2–3")).toEqual({
+      kind: "rows",
+      sheet: "0:11 Dana",
+      from: 2,
+      to: 3,
+    });
+    expect(parseRequestedLocation("0:11 李明!A2:F3")).toEqual({
+      kind: "rows",
+      sheet: "0:11 李明",
+      from: 2,
+      to: 3,
     });
     expect(parseRequestedLocation("§ 2.1 Sensitivity")).toEqual({
       kind: "section",

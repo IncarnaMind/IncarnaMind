@@ -7,7 +7,6 @@
  * (./policy). An entry the window marks as the User's alone is never run.
  */
 import {
-  ACCEPT_SUGGESTIONS,
   type CommandId,
   type CommandTarget,
   type OfferedCommand,
@@ -15,7 +14,6 @@ import {
 } from "../../../shared/commands";
 import type { Effect } from "../../api";
 import { InvalidInputError } from "../../errors";
-import type { Findable } from "./find";
 import { FOLDER_CHECKERS } from "./folders";
 import { organizeChecker } from "./organize";
 import { restoreChecker } from "./restore";
@@ -66,7 +64,8 @@ export const CORE_COMMANDS = {
   "document.moveTo": {
     on: "document",
     does: "app",
-    takes: "ids; folder: a Folder's name, made if there is none",
+    takes:
+      "ids; folder: a Folder's name, made if there is none. Only for a move the User asks for by naming the Documents and the Folder: organizing, sorting or putting Documents together by what they say is documents.organize",
     check: LIBRARY_CHECKERS["document.moveTo"],
   },
   "document.tags": {
@@ -86,7 +85,7 @@ export const CORE_COMMANDS = {
     on: "document",
     does: "app",
     takes:
-      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, made if there is none, or none; about: what belongs in it, in the User's words. It reads each and files it in the Folder that fits: the User allows it once, and Undo puts them back",
+      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, proposed if there is none, or none; about: what belongs in it, in the User's words; alsoAsked: what else the request asks for, or empty. It reads each and proposes the Folder that fits; nothing moves until the User confirms them with Review, and IncarnaMind writes the reply about it. The User allows it once, and Undo takes the proposals back",
     check: organizeChecker,
   },
   "mind.rename": {
@@ -225,24 +224,6 @@ export function commandEffects(input: Record<string, unknown>): Effect[] {
   }
 }
 
-/**
- * The live Documents waiting in a suggested Folder, as To review lists them, and what names them;
- * refused when none waits. A suggestion counts as behind its Folder's wall, which the gate holds
- * it to, though a Note there doesn't search it yet: so they are named here, not by what is found.
- */
-async function waitingSuggestions(
-  host: CommandsHost,
-): Promise<{ ids: string[]; named: Findable; into: Map<string, string | null> }> {
-  const [library, listed] = await Promise.all([host.core.getLibrary(), host.core.listDocuments()]);
-  const into = new Map(
-    library.assignments.filter((a) => a.suggested).map((a) => [a.documentId, a.groupId]),
-  );
-  const documents = listed.filter((each) => into.has(each.id));
-  if (documents.length === 0) throw new InvalidInputError({ key: "error.commands.nothingWaiting" });
-  const named = { documents, minds: [], library, tags: [], deleted: [] };
-  return { ids: documents.map((each) => each.id), named, into };
-}
-
 /** The Folder a request for a wall's switch is about: the one it names, the Note's, or the only walled one. */
 async function wallAskedAbout(
   input: CommandInput,
@@ -292,39 +273,17 @@ export async function checkCommand(
   if (input.command === WALL_SWITCH) {
     return yoursChecked(WALL_SWITCH, "wall", await wallAskedAbout(input, host, context.mindId));
   }
-  const offered = context.offered.find((each) => each.id === input.command);
-  // Accept all names no ids: it acts on the suggestions waiting now, which the wall gate checks
-  // and the window then accepts alone, so one that lands meanwhile isn't filed unchecked (#2243).
-  const acceptAll = offered?.id === ACCEPT_SUGGESTIONS && offered.yours === null;
-  // Both accepts file each suggestion in its Folder: the Folders they wait for go with the check,
-  // so the window accepts them for those alone, the walls judged again at the filing (#2250).
-  const accepting = offered !== undefined && (acceptAll || input.command === "document.accept");
-  const waiting = accepting ? await waitingSuggestions(host) : null;
-  const call = waiting && acceptAll ? { ...input, ids: waiting.ids } : input;
-  const entry: OfferedCommand | undefined =
-    acceptAll && offered ? { ...offered, on: ["document"] } : offered;
+  const entry = context.offered.find((each) => each.id === input.command);
   // Every command, the core's and the window's, is held to the Folder wall first, by what it
   // declares it touches (#1934); one the gate can't place is refused there.
-  const touches: CommandTouch[] = isCoreCommand(call.command)
-    ? [CORE_COMMANDS[call.command].on]
+  const touches: CommandTouch[] = isCoreCommand(input.command)
+    ? [CORE_COMMANDS[input.command].on]
     : entry
       ? (entry.on ?? ["front"])
       : [];
-  await host.allows?.(call, touches, context.mindId, context.wallId);
+  await host.allows?.(input, touches, context.mindId, context.wallId);
   if (entry && (entry.yours !== null || !isCoreCommand(entry.id))) {
-    const findable = acceptAll && waiting ? waiting.named : await context.findable();
-    const into = waiting
-      ? new Map([...waiting.into].filter(([id]) => call.ids.includes(id)))
-      : undefined;
-    return windowChecked(
-      entry,
-      call.ids,
-      findable,
-      context,
-      host.window,
-      into,
-      context.wallId ?? null,
-    );
+    return windowChecked(entry, input.ids, await context.findable(), context, host.window);
   }
   if (isCoreCommand(input.command)) {
     const command: CoreCommand = CORE_COMMANDS[input.command];

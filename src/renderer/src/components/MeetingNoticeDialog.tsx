@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { offersCanTurnOn, onMac } from "../platformOffers";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
 import { TranscriptionRouteChoice } from "./meetings/TranscriptionRouteChoice";
@@ -79,6 +80,11 @@ export function MeetingNoticeDialog() {
             {kept}
           </p>
           {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
+          {!memo && offersCanTurnOn() && (
+            <p data-testid="meeting-notice-background" className={dialogTextClass}>
+              {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
+            </p>
+          )}
           {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
           {downloads && (
             <p data-testid="meeting-notice-model-size" className={dialogTextClass}>

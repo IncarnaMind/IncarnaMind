@@ -1,23 +1,21 @@
-import { type ChangeEvent, useEffect, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useState } from "react";
 import type { ConnectorImportEntry, SecretStorageStatus } from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
+import { SettingsGroup, SettingsHelp, SettingsRow } from "../settings/SettingsGroup";
 import { TypingTextarea } from "../TypingTextarea";
 import {
   buttonClass,
   errorTextClass,
-  fieldLabelClass,
+  fieldClass,
   ghostButtonClass,
-  hintClass,
-  inputClass,
   primaryButtonClass,
-  rowTitleClass,
-  ruledListClass,
 } from "../ui";
 import { commandLine } from "./commandLine";
+import { importNeedsKeychain } from "./importNeeds";
 
 /**
  * Imports Connectors from Claude Desktop's or Cursor's `mcpServers` JSON,
@@ -26,6 +24,7 @@ import { commandLine } from "./commandLine";
  */
 export function ConnectorImport({ onDone }: { onDone(): void }) {
   const t = useT();
+  const jsonId = useId();
   const [json, setJson] = useState("");
   const [preview, setPreview] = useState<ConnectorImportEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,9 +55,7 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
   };
 
   const adding = preview?.filter((entry) => entry.action === "add") ?? [];
-  const needsKeychain = adding.some(
-    (entry) => entry.env.length > 0 || (entry.headers?.length ?? 0) > 0,
-  );
+  const needsKeychain = importNeedsKeychain(adding);
   const blocked = needsKeychain && secretStorage !== null && !secretStorage.canSave;
 
   const confirm = async () => {
@@ -86,22 +83,24 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
     <div data-testid="connector-import-form" className="flex flex-col gap-3">
       <p className="text-[13px] leading-5 text-ink-secondary">{t("connectors.import.body")}</p>
       {!preview && (
-        <label className={fieldLabelClass}>
-          {t("connectors.import.json")}
-          <TypingTextarea
-            value={json}
-            onChange={(event) => {
-              setJson(event.target.value);
-              setPreview(null);
-            }}
-            rows={6}
-            spellCheck={false}
-            placeholder={
-              '{\n  "mcpServers": {\n    "github": { "command": "npx", "args": ["-y", "…"] }\n  }\n}'
-            }
-            className={`${inputClass} font-mono`}
-          />
-        </label>
+        <SettingsGroup>
+          <SettingsRow label={t("connectors.import.json")} htmlFor={jsonId}>
+            <TypingTextarea
+              id={jsonId}
+              value={json}
+              onChange={(event) => {
+                setJson(event.target.value);
+                setPreview(null);
+              }}
+              rows={6}
+              spellCheck={false}
+              placeholder={
+                '{\n  "mcpServers": {\n    "github": { "command": "npx", "args": ["-y", "…"] }\n  }\n}'
+              }
+              className={`block w-full ${fieldClass} font-mono`}
+            />
+          </SettingsRow>
+        </SettingsGroup>
       )}
       <div className="flex flex-wrap items-center gap-2">
         <label className={`${buttonClass} cursor-pointer`}>
@@ -136,53 +135,59 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
           >
             {t("connectors.import.change")}
           </button>
-          <ul data-testid="connector-import-preview" className={ruledListClass}>
+          <SettingsGroup data-testid="connector-import-preview">
             {preview.map((entry) => (
-              <li
+              <SettingsRow
                 key={entry.name}
                 data-action={entry.action}
-                className="flex flex-col gap-0.5 py-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className={`min-w-0 flex-1 truncate ${rowTitleClass}`}>{entry.name}</span>
+                label={<span className="break-words">{entry.name}</span>}
+                align="start"
+                detail={
+                  <>
+                    {entry.command && (
+                      <span className="block truncate font-mono">
+                        {commandLine(entry.command, entry.args)}
+                      </span>
+                    )}
+                    {entry.url && <span className="block truncate font-mono">{entry.url}</span>}
+                    {entry.env.length > 0 && (
+                      <span className="block">
+                        {t("connectors.import.env", { names: entry.env.join(", ") })}
+                      </span>
+                    )}
+                    {entry.connection === "sse" && (
+                      <span className="block">{t("remoteConnectors.connection.sse")}</span>
+                    )}
+                    {(entry.headers?.length ?? 0) > 0 && (
+                      <span className="block">
+                        {t("remoteConnectors.import.headers", {
+                          names: entry.headers?.join(", ") ?? "",
+                        })}
+                      </span>
+                    )}
+                    {entry.placeholders?.map((each) => (
+                      <span
+                        key={`${each.header}:${each.variable}`}
+                        data-testid="connector-import-placeholder"
+                        className="block"
+                      >
+                        {t("connectors.import.placeholder", { name: each.variable })}
+                      </span>
+                    ))}
+                  </>
+                }
+                control={
                   <span
-                    className={`shrink-0 text-[13px] leading-5 ${
+                    className={`max-w-56 text-right text-[13px] leading-5 ${
                       entry.action === "add" ? "font-semibold text-ink" : "text-ink-meta"
                     }`}
                   >
                     {t(`connectors.import.action.${entry.action}`)}
                   </span>
-                </div>
-                {entry.command && (
-                  <p className="truncate font-mono text-[12px] leading-[18px] text-ink-meta">
-                    {commandLine(entry.command, entry.args)}
-                  </p>
-                )}
-                {entry.url && (
-                  <p className="truncate font-mono text-[12px] leading-[18px] text-ink-meta">
-                    {entry.url}
-                  </p>
-                )}
-                {entry.env.length > 0 && (
-                  <p className="text-[12px] leading-[18px] text-ink-meta">
-                    {t("connectors.import.env", { names: entry.env.join(", ") })}
-                  </p>
-                )}
-                {entry.connection === "sse" && (
-                  <p className="text-[12px] leading-[18px] text-ink-meta">
-                    {t("remoteConnectors.connection.sse")}
-                  </p>
-                )}
-                {(entry.headers?.length ?? 0) > 0 && (
-                  <p className="text-[12px] leading-[18px] text-ink-meta">
-                    {t("remoteConnectors.import.headers", {
-                      names: entry.headers?.join(", ") ?? "",
-                    })}
-                  </p>
-                )}
-              </li>
+                }
+              />
             ))}
-          </ul>
+          </SettingsGroup>
           {needsKeychain && secretStorage && !secretStorage.canSave && (
             <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
           )}
@@ -192,9 +197,9 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
             </p>
           ) : (
             <div className="flex flex-col items-start gap-2">
-              <p data-testid="connector-import-sends" className={hintClass}>
+              <SettingsHelp data-testid="connector-import-sends">
                 {t("connectors.import.sends")}
-              </p>
+              </SettingsHelp>
               <button
                 type="button"
                 data-testid="connector-import-confirm"

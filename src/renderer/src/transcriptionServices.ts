@@ -9,8 +9,6 @@ import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { formatMoney, joinMeta } from "./cost";
-import { errorMessage } from "./errors";
-import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
@@ -21,9 +19,9 @@ interface TranscriptionServicesState {
   revision: number;
   /** Reads the list and resolves with what is held after it; rejects when the core can't answer. */
   load(): Promise<TranscriptionServiceStatus[]>;
-  /** Keeps a service's own key once it accepts it; what went wrong, in words, otherwise. */
-  setKey(route: CloudTranscriptionRoute, apiKey: string): Promise<string | null>;
-  removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
+  /** Keeps a service's own key, with Deepgram's server, once it accepts it; rejects with why it didn't. */
+  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<void>;
+  removeKey(route: CloudTranscriptionRoute): Promise<void>;
 }
 
 /**
@@ -36,14 +34,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   const take = ({ revision, services }: TranscriptionServices) => {
     if (revision >= get().revision) set({ services, revision });
   };
-  const change = async (action: () => Promise<TranscriptionServices>) => {
-    try {
-      take(await action());
-      return null;
-    } catch (error) {
-      return errorMessage(error, translateNow);
-    }
-  };
+  const change = async (action: () => Promise<TranscriptionServices>) => take(await action());
   return {
     services: null,
     revision: 0,
@@ -51,7 +42,10 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
       take(await core.listTranscriptionServices());
       return get().services ?? [];
     },
-    setKey: (route, apiKey) => change(() => core.setTranscriptionKey({ route, apiKey })),
+    setKey: (route, apiKey, server) =>
+      change(() =>
+        core.setTranscriptionKey({ route, apiKey, ...(server !== undefined && { server }) }),
+      ),
     removeKey: (route) => change(() => core.removeTranscriptionKey(route)),
   };
 });
@@ -90,12 +84,60 @@ export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
   openai: "meetings.route.openai",
   soniox: "meetings.route.soniox",
   qwen: "meetings.route.qwen",
+  deepgram: "meetings.route.deepgram",
+  assemblyai: "meetings.route.assemblyai",
+  gemini: "meetings.route.gemini",
+  elevenlabs: "meetings.route.elevenlabs",
+  speechmatics: "meetings.route.speechmatics",
+  gladia: "meetings.route.gladia",
+  xai: "meetings.route.xai",
 };
 
-/** Where a Meeting's recording stays, said so it holds with a cloud route chosen too. */
+/** The services as held, or read now when no view has read them yet (the meeting bar's lines). */
+async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
+  const { services, load } = useTranscriptionServices.getState();
+  return services ?? load();
+}
+
+/**
+ * Where a route's key is changed, in Settings › Models: a key of its own on its row in Your
+ * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
+ * provider's key in Your providers.
+ */
+export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Promise<void> {
+  const { openSettings } = useAppStore.getState();
+  try {
+    const service = (await servicesNow()).find((each) => each.route === route);
+    if (service?.key !== "own") openSettings("models");
+    else openSettings("models", service.hasKey ? `transcription-key:${route}` : "transcription");
+  } catch (error) {
+    console.error("The transcription services couldn't be read.", error);
+    openSettings("models");
+  }
+}
+
+/** Where credit is added to the account a route's key is for, or its key's settings when none is known. */
+export async function addTranscriptionCredit(route: CloudTranscriptionRoute): Promise<void> {
+  let url: string | null = null;
+  try {
+    url = (await servicesNow()).find((each) => each.route === route)?.billingUrl ?? null;
+  } catch (error) {
+    console.error("The transcription services couldn't be read.", error);
+  }
+  if (url) window.open(url, "_blank", "noreferrer");
+  else await checkTranscriptionKey(route);
+}
+
+/**
+ * Where a Meeting's recording stays and for how long, said so it holds with a cloud route chosen
+ * too: a day, or until the User deletes it with "Keep a meeting's audio" on (#687).
+ */
 export function useAudioKeptKey(): MessageKey {
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute);
-  return route && route !== "local" ? "meetings.audio.keptCloud" : "meetings.audio.kept";
+  const kept = useAppStore((state) => state.settings?.device.keepMeetingAudio === true);
+  const cloud = route !== undefined && route !== null && route !== "local";
+  if (kept) return cloud ? "meetings.audio.keptToDeleteCloud" : "meetings.audio.keptToDelete";
+  return cloud ? "meetings.audio.keptCloud" : "meetings.audio.kept";
 }
 
 /** "gpt-live-transcribe · about $1.02 an hour · uses your OpenAI key". */
@@ -104,7 +146,10 @@ export function serviceMeta(service: TranscriptionServiceStatus, t: Translate, l
   const named = service.key === "provider";
   return joinMeta([
     named ? service.model : "",
-    t(named ? "meetings.route.perHour" : "meetings.route.perHourFirst", { price }),
+    // A server of the User's own costs nothing IncarnaMind can count.
+    service.perHour.amount === 0
+      ? t("meetings.route.ownServer")
+      : t(named ? "meetings.route.perHour" : "meetings.route.perHourFirst", { price }),
     t(named ? "meetings.route.providerKey" : "meetings.route.ownKey", {
       provider: t(ROUTE_LABELS[service.route]),
     }),

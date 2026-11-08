@@ -13,8 +13,8 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openExportMore,
   pointAndClick,
-  pointAt,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -132,7 +132,7 @@ const tablesOf = (editor: Locator) =>
       ),
     );
 
-/** Runs the command from the Mind's row ⋯ menu, or from ⌘K, as a person does. */
+/** Runs the command from Export's More formats › menu, or from ⌘K, as a person does. */
 async function runCommand(
   window: Page,
   via: "menu" | "palette",
@@ -140,18 +140,10 @@ async function runCommand(
   shot: string,
 ): Promise<void> {
   if (via === "menu") {
-    const row = window.getByTestId("mind-row").filter({ hasText: "Thesis" });
-    await pointAt(window, row);
-    await pointAndClick(window, row.getByTestId("mind-menu"));
-    const menu = row.getByTestId("mind-actions");
-    // In the menu's order: right after Export….
-    const ids = await menu
-      .getByRole("menuitem")
-      .evaluateAll((items) => items.map((item) => item.getAttribute("data-testid")));
-    expect(ids.indexOf("mind.aiUseStatement")).toBe(ids.indexOf("mind.exportMenu") + 1);
-    await expect(menu.getByTestId("mind.aiUseStatement")).toHaveText(text.command);
+    const more = await openExportMore(window);
+    await expect(more.getByTestId("export-ai-use-statement")).toHaveText(text.command);
     await screenshot(window, `${shot}-menu`);
-    await pointAndClick(window, menu.getByTestId("mind.aiUseStatement"));
+    await pointAndClick(window, more.getByTestId("export-ai-use-statement"));
   } else {
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
@@ -171,7 +163,7 @@ const CASES = [
 ] as const;
 
 for (const { language, width, via } of CASES) {
-  test(`${via === "menu" ? "from the Mind's ⋯ menu" : "from ⌘K"} it opens in a new tab beside the Mind, to edit, and Undo takes it back (${language}, ${width} px)`, async () => {
+  test(`${via === "menu" ? "from Export's More formats" : "from ⌘K"} it opens in a new tab beside the Mind, to edit, and Undo takes it back (${language}, ${width} px)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -196,9 +188,13 @@ for (const { language, width, via } of CASES) {
     await expect(window.getByTestId("undo-message")).toHaveCount(0);
     await screenshot(window, shot);
 
-    // The counts are the Mind's: its Answer added once, its one Citation found, its heading's section.
+    // The counts are the Mind's: its Answer added once, with the sentence its judgement checked
+    // (#2313), its one Citation found, its heading's section.
     const [uses, byHeading, citations] = await tablesOf(statement);
-    expect(uses?.at(-1)).toEqual([text.added, "fake-model", "1"]);
+    expect(uses?.slice(-2)).toEqual([
+      [text.added, "fake-model", "1"],
+      [text.checkedUse, "fake-model", "1"],
+    ]);
     expect(byHeading?.at(1)?.slice(0, 3)).toEqual([text.heading, "1", "0"]);
     expect(Number(byHeading?.at(1)?.[3])).toBeGreaterThan(0);
     expect(citations?.at(1)).toEqual([text.found, String(found)]);

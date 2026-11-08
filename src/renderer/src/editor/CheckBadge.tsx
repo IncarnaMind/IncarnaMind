@@ -18,6 +18,7 @@ import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
+import { useScrollFade } from "../components/useScrollFade";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
 import type { EstimateLine } from "../cost";
@@ -33,7 +34,7 @@ import {
   useMindCheckRun,
 } from "../mindCheck";
 import { useFade } from "../motion";
-import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -49,6 +50,7 @@ import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
+import { shownPhase } from "./verifyPhase";
 
 /**
  * What a check the User started checked, from the render its run ends in
@@ -64,7 +66,9 @@ function useJustChecked<Run>(
   const [checked, setChecked] = useState<number | null>(null);
   if (run !== last) {
     setLast(run);
-    setChecked(run === null && last !== null ? count(last) || null : null);
+    // A check that marked nothing still finished: its badge keeps the width it had while running
+    // until the User types, as a check that marked some does (#2519).
+    setChecked(run === null && last !== null ? count(last) : null);
   }
   useEffect(() => {
     if (checked === null) return;
@@ -132,6 +136,9 @@ function MindBadge({
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
   const running = useChecks((state) => state.running[mindId]);
+  // A check that finished keeps the badge's one width until the User types, as a running one
+  // does; what it marked is the Note's resting state's to say (#2519).
+  const justChecked = useJustChecked(editor, running ?? null, () => 0);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
@@ -140,17 +147,6 @@ function MindBadge({
   // Planned only while the card is open: the estimate is what the card shows before a press.
   const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
   const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
-  // The card's height holds only once its content is settled: a question, a problem or an
-  // estimate on its way sizes to its content, and a run's verdicts land in the held room.
-  const askingNow = askingMind || askingContradictions || problem;
-  const ready = !askingNow && (running !== undefined || estimateState !== "pending");
-  const [heldOnce, setHeldOnce] = useState(false);
-  useEffect(() => {
-    if (!open) setHeldOnce(false);
-  }, [open]);
-  useLayoutEffect(() => {
-    if (open && ready && !heldOnce) setHeldOnce(true);
-  }, [open, ready, heldOnce]);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
     marks: {
@@ -163,7 +159,7 @@ function MindBadge({
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
-    checked: null,
+    checked: justChecked,
     quiet,
   };
   return (
@@ -174,7 +170,6 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
-      holds={!askingNow && (ready || heldOnce)}
       actions={
         <CheckActions
           editor={editor}
@@ -225,6 +220,33 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
+  // The price line stays as it was through a run and until a new estimate replaces it, so the
+  // foot never goes blank and keeps its height until the card closes.
+  const [lastPrice, setLastPrice] = useState<EstimateLine | null>(estimate);
+  useEffect(() => {
+    if (!running && estimate) setLastPrice(estimate);
+  }, [estimate, running]);
+  const price = estimate ?? lastPrice;
+  // The press disables Check and the focus falls to the page: it goes to Stop, so a keyboard User
+  // can stop the run, and back to Check when the run ends. A focus somewhere else, such as the
+  // composer being typed in, stays where the User put it.
+  const checkPress = useRef<HTMLButtonElement>(null);
+  const stopPress = useRef<HTMLButtonElement>(null);
+  const wasRunning = useRef(running);
+  useLayoutEffect(() => {
+    if (wasRunning.current === running) return;
+    wasRunning.current = running;
+    const active = document.activeElement;
+    const lost =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      !active.isConnected ||
+      active === checkPress.current ||
+      active.matches(":disabled");
+    if (!lost) return;
+    if (running) stopPress.current?.focus();
+    else checkPress.current?.focus();
+  }, [running]);
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -236,9 +258,9 @@ export function CheckActions({
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
       )}
-      {estimate && !running && (
+      {price && (
         <div className="check-card-estimate">
-          <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
+          <MetaLine data-testid="check-estimate" parts={price.parts} title={price.title} />
         </div>
       )}
       <div className="check-card-actions">
@@ -249,7 +271,7 @@ export function CheckActions({
             disabled={running || editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
-              if (correctContradictions(editor, mindId) === 0) return;
+              if (correctContradictions(editor, mindId, doc) === 0) return;
               setCheckCardOpen(place, false);
               requestAnimationFrame(() => {
                 if (!editor.isDestroyed) editor.view.focus();
@@ -261,20 +283,45 @@ export function CheckActions({
             })}
           </button>
         )}
-        <button
-          type="button"
-          data-testid="badge-check-mind"
-          disabled={running}
-          title={planned === null ? undefined : checkTitle(t, planned)}
-          className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
-          onClick={() =>
-            void (checkPressOf(estimateState) === "ask"
-              ? startCheckUnpriced(mindId)
-              : startCheck(mindId, planned ?? undefined))
-          }
-        >
-          {t("mindCheck.command")}
-        </button>
+        <div className="check-card-press">
+          <button
+            ref={checkPress}
+            type="button"
+            data-testid="badge-check-mind"
+            data-hidden={running ? "" : undefined}
+            aria-hidden={running || undefined}
+            disabled={running}
+            title={planned === null ? undefined : checkTitle(t, planned)}
+            className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
+            onClick={() =>
+              void (checkPressOf(estimateState) === "ask"
+                ? startCheckUnpriced(mindId)
+                : startCheck(mindId, planned ?? undefined))
+            }
+          >
+            {t("mindCheck.command")}
+          </button>
+          {running && (
+            <MetaLine
+              as="div"
+              data-testid="card-foot-progress"
+              className="check-card-progress"
+              parts={[
+                <RunningText key="words" editor={editor} mindId={mindId} testId="card-progress" />,
+                <button
+                  key="stop"
+                  ref={stopPress}
+                  type="button"
+                  data-testid="card-foot-stop"
+                  className="check-badge-stop"
+                  onClick={() => stopCheck(mindId)}
+                >
+                  {t("checks.stop")}
+                </button>,
+              ]}
+            />
+          )}
+        </div>
       </div>
     </>
   );
@@ -298,6 +345,7 @@ function VerifyBadge({
   const place = useCardPlace(mindId);
   const state = useVerifyState(editor, doc, mindId, verification);
   const { rows, marked, checking } = state.marks;
+  const phase = shownPhase(state.running, marked);
   const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
   const toCheck = state.asking ? state.total : 0;
   // No claims to check, or none found yet: the card says why, so the page isn't silently bare.
@@ -325,9 +373,9 @@ function VerifyBadge({
       state={null}
       ask={input.asking || input.problem}
       running={
-        state.running === "finding" ? (
+        phase === "finding" ? (
           t("verify.finding")
-        ) : state.running === "checking" ? (
+        ) : phase === "checking" ? (
           <span data-testid="badge-progress" className="tabular-nums">
             {t("badge.checking", { done: format(marked - checking), total: format(marked) })}
           </span>
@@ -383,7 +431,6 @@ function BadgeFrame({
   running,
   onStop,
   foot,
-  holds = true,
   actions,
   children,
 }: {
@@ -395,11 +442,6 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
-  /**
-   * Whether the card holds its opening height. False while its content is still on its way (a
-   * question, a problem, an estimate).
-   */
-  holds?: boolean;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
@@ -414,20 +456,20 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  // Once its content is settled, the card keeps the height it opened with, so rows and verdicts
-  // landing do not make it jump; content that needs more room scrolls, and the next open fits
-  // the result (#2313).
+  // The card takes its first paint's height, so what lands later never moves what is above it;
+  // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (!open || !holds) {
+    if (!open) {
       setHeldHeight(null);
       return;
     }
     if (heldHeight !== null) return;
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
-  }, [open, holds, heldHeight]);
+  }, [open, heldHeight]);
+  useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -448,9 +490,8 @@ function BadgeFrame({
     cardClosed(mindId, how);
     setCheckCardOpen(place, false);
   };
-  // The card is placed from this box's right edge, and the badge in it keeps one width while
-  // the card is open: a card placed from the badge's own text moved with every change of it,
-  // and the pill resized under it as a check ended (#1312).
+  // The card is placed from this box's right edge, which the badge growing left never moves, so
+  // the run's wider badge leaves the card where it was (#1312, #2313).
   return (
     <div ref={setAnchor} className="check-badge-place">
       {badge ? (
@@ -459,7 +500,7 @@ function BadgeFrame({
           state={state}
           open={open}
           running={running}
-          stable={badge.running || badge.checked !== null || open}
+          stable={badge.running || badge.checked !== null}
           onToggle={() => {
             // The badge closes the card as its × does: the question closes with it.
             if (open) cardClosed(mindId, "toggle");
@@ -483,21 +524,23 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className="check-card-body"
+            className="check-card-body scroll-fade"
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
-            {children}
-            {foot && (
-              <>
-                <div className="check-card-sep" />
-                <div className="check-card-foot">{foot}</div>
-              </>
-            )}
+            <div>
+              {children}
+              {foot && (
+                <>
+                  <div className="check-card-sep" />
+                  <div className="check-card-foot">{foot}</div>
+                </>
+              )}
+            </div>
           </div>
           {actions && (
             <>
               <div className="check-card-sep" />
-              {actions}
+              <div data-testid="check-card-foot">{actions}</div>
             </>
           )}
         </Popover>
@@ -563,7 +606,7 @@ function BadgePill({
   state: NoteState | null;
   open: boolean;
   running: ReactNode;
-  /** It keeps one width: a run is on, or its card, placed from it, is open. */
+  /** It keeps one width while a run is on or a finished check shows; opening the card leaves it. */
   stable: boolean;
   onToggle(): void;
   onStop(): void;
@@ -584,7 +627,9 @@ function BadgePill({
           }),
         ]
       : []),
-    ...(badge.checked !== null ? [t("badge.checked", { count: format(badge.checked) })] : []),
+    ...(badge.checked !== null && badge.checked > 0
+      ? [t("badge.checked", { count: format(badge.checked) })]
+      : []),
   ];
   const label =
     said.length > 0
@@ -614,26 +659,10 @@ function BadgePill({
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
         )}
         {/* Under 400 px the full words are hidden, so what is left is said in its short form. */}
-        {state.kind === "checked" && (state.cantCheck > 0 || state.needsCheck > 0) && (
+        {state.kind === "checked" && checkedCaveat(state, t, format) && (
           <span className="check-badge-short check-badge-short-caveat">
             {" · "}
-            {state.cantCheck > 0
-              ? t(
-                  state.cantCheck === 1
-                    ? "health.state.cantCheck.short.one"
-                    : "health.state.cantCheck.short",
-                  { count: format(state.cantCheck) },
-                )
-              : null}
-            {state.cantCheck > 0 && state.needsCheck > 0 ? " · " : null}
-            {state.needsCheck > 0
-              ? t(
-                  state.needsCheck === 1
-                    ? "health.state.needsCheck.short.one"
-                    : "health.state.needsCheck.short",
-                  { count: format(state.needsCheck) },
-                )
-              : null}
+            {checkedCaveat(state, t, format)}
           </span>
         )}
         {resting.slice(1).map((part) => (
@@ -663,7 +692,7 @@ function BadgePill({
         </span>,
       );
     }
-    if (parts.length === 0 && badge.checked !== null) {
+    if (parts.length === 0 && badge.checked !== null && badge.checked > 0) {
       parts.push(
         <span key="checked" className="check-badge-mark" data-part="checked">
           <CheckMarkIcon check="found" className="mind-health-icon" />

@@ -1,18 +1,12 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { RemoteConnector, SecretStorageStatus } from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
-import {
-  errorTextClass,
-  fieldLabelClass,
-  ghostButtonClass,
-  hintClass,
-  inputClass,
-  primaryButtonClass,
-} from "../ui";
+import { SettingsGroup, SettingsRow } from "../settings/SettingsGroup";
+import { errorTextClass, ghostButtonClass, primaryButtonClass, rowFieldClass } from "../ui";
 
 export const keyHeader = (name: string, value: string) => ({
   [name.trim()]:
@@ -29,20 +23,29 @@ export function ConnectorKeyFields({
   onChange(value: string): void;
 }) {
   const t = useT();
+  const id = useId();
   return (
-    <label className={fieldLabelClass}>
-      {t("remoteConnectors.key.label")}
-      <input
-        type="password"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        autoComplete="off"
-        spellCheck={false}
-        className={inputClass}
-      />
-      <span className={hintClass}>{t("remoteConnectors.key.hint")}</span>
-      <span className={hintClass}>{t("remoteConnectors.key.destination")}</span>
-    </label>
+    <SettingsRow
+      label={t("remoteConnectors.key.label")}
+      htmlFor={id}
+      detail={
+        <>
+          <span className="block">{t("remoteConnectors.key.hint")}</span>
+          <span className="block">{t("remoteConnectors.key.destination")}</span>
+        </>
+      }
+      control={
+        <input
+          id={id}
+          type="password"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          className={`${rowFieldClass} w-72`}
+        />
+      }
+    />
   );
 }
 
@@ -54,18 +57,23 @@ export function HeaderNameField({
   onChange(value: string): void;
 }) {
   const t = useT();
+  const id = useId();
   return (
-    <label className={fieldLabelClass}>
-      {t("remoteConnectors.key.header")}
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        autoComplete="off"
-        spellCheck={false}
-        className={`${inputClass} font-mono`}
-      />
-      <span className={hintClass}>{t("remoteConnectors.key.bearer")}</span>
-    </label>
+    <SettingsRow
+      label={t("remoteConnectors.key.header")}
+      htmlFor={id}
+      detail={t("remoteConnectors.key.bearer")}
+      control={
+        <input
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          className={`${rowFieldClass} w-72 font-mono`}
+        />
+      }
+    />
   );
 }
 
@@ -83,6 +91,7 @@ export function RemoteKeyForm({
   const [error, setError] = useState<string | null>(null);
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const firstField = useRef<HTMLInputElement>(null);
+  const fieldId = useId();
   useEffect(
     () => () => {
       document
@@ -122,23 +131,29 @@ export function RemoteKeyForm({
         event.stopPropagation();
         onDone();
       }}
-      className="mt-2 flex flex-col gap-3"
+      className="flex flex-col gap-3"
     >
-      {names.map((name) => (
-        <label key={name} className={fieldLabelClass}>
-          {t("remoteConnectors.key.label")}
-          {names.length > 1 ? ` · ${name}` : ""}
-          <input
-            ref={name === names[0] ? firstField : undefined}
-            required
-            type="password"
-            autoComplete="off"
-            value={values[name] ?? ""}
-            onChange={(event) => setValues({ ...values, [name]: event.target.value })}
-            className={inputClass}
+      <SettingsGroup>
+        {names.map((name, index) => (
+          <SettingsRow
+            key={name}
+            label={`${t("remoteConnectors.key.label")}${names.length > 1 ? ` · ${name}` : ""}`}
+            htmlFor={`${fieldId}-${index}`}
+            control={
+              <input
+                id={`${fieldId}-${index}`}
+                ref={name === names[0] ? firstField : undefined}
+                required
+                type="password"
+                autoComplete="off"
+                value={values[name] ?? ""}
+                onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+                className={`${rowFieldClass} w-72`}
+              />
+            }
           />
-        </label>
-      ))}
+        ))}
+      </SettingsGroup>
       {storage && !storage.canSave && (
         <SecretStorageNotice
           status={storage}
@@ -162,7 +177,7 @@ export function RemoteKeyForm({
         </button>
       </div>
       {error && (
-        <p role="alert" className={errorTextClass}>
+        <p role="alert" className={`px-4 ${errorTextClass}`}>
           <ProblemMark />
           {error}
         </p>

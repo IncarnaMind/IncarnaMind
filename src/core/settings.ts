@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isRecentStyles } from "../shared/citationStyles";
+import { isMeetingAppId, MEETING_APPS } from "../shared/meetingApps";
 import { isHelpKeys } from "../shared/meetingHelp";
 import {
   type ChineseScript,
@@ -9,6 +10,8 @@ import {
 } from "../shared/meetingWords";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
+  APPEARANCES,
+  type Appearance,
   type ChatModelChoice,
   CITATION_PLACES,
   type DeviceSettings,
@@ -269,13 +272,19 @@ const deviceScope: Scope<DeviceSettings> = {
     suggestionOffers: 0,
     tips: {},
     meetingSystemAudio: true,
+    keepMeetingAudio: false,
     transcriptionRoute: null,
     modelSource: "auto",
     meetingNoticeAccepted: false,
     meetingPanel: true,
     meetingPanelHidden: true,
     meetingHelpKeys: {},
+    keepRunning: false,
+    calendarOffers: true,
+    callOffers: false,
+    callOffersOff: [],
     motion: "system",
+    appearance: "system",
     lastChatModel: null,
   },
   validators: {
@@ -290,6 +299,7 @@ const deviceScope: Scope<DeviceSettings> = {
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100,
     tips: isTipCounts,
     meetingSystemAudio: isBoolean,
+    keepMeetingAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
       value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
     modelSource: (value): value is ModelSourceChoice =>
@@ -298,8 +308,17 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
     meetingHelpKeys: isHelpKeys,
+    keepRunning: isBoolean,
+    calendarOffers: isBoolean,
+    callOffers: isBoolean,
+    callOffersOff: (value): value is string[] =>
+      Array.isArray(value) &&
+      value.length <= MEETING_APPS.length &&
+      value.every(isMeetingAppId) &&
+      new Set(value).size === value.length,
     motion: (value): value is MotionPreference =>
       MOTION_PREFERENCES.some((preference) => preference === value),
+    appearance: (value): value is Appearance => APPEARANCES.some((each) => each === value),
     lastChatModel: isModelSetting,
   },
 };

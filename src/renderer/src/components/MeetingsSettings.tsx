@@ -4,18 +4,19 @@ import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWord
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
+import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
-import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
+import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
+import { useTranscriptionSetUp } from "./meetings/TranscriptionSetUp";
 import { WordsToKnow } from "./meetings/WordsToKnow";
+import { PopUpSelect } from "./settings/PopUpButton";
 import {
-  hintClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRow,
-  sectionTitleClass,
-} from "./ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "./settings/SettingsGroup";
 
 const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
   simplified: "meetings.script.simplified",
@@ -32,98 +33,104 @@ export function MeetingsSettings() {
   const scriptId = useId();
   const script = useAppStore((state) => state.settings?.chineseScript);
   const keptKey = useAudioKeptKey();
-  // The one read of this section: the route line, the choice and the key rows draw from it.
+  // The one read of this section: the route line and the choice draw from it.
   const services = useTranscriptionServicesRead();
+  const setUp = useTranscriptionSetUp(routeId, services);
   if (!device || !canRecord || !script) return null;
   const microphoneOnly = canRecord !== "both";
   const both = device.meetingSystemAudio && !microphoneOnly;
 
   return (
     <>
-      <section data-testid="meetings-settings" className="flex flex-col">
-        <h4 className={`mb-2 ${sectionTitleClass}`}>{t("meetings.settings.title")}</h4>
-        <div className={ruledListClass}>
-          <div className={ruledRow("center")}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label htmlFor={whatId} className={rowTitleClass}>
-                {t("meetings.settings.what")}
-              </label>
-              <p className={rowTextClass}>
-                {t(
-                  canRecord === "none"
-                    ? "meetings.settings.cantRecord"
-                    : microphoneOnly
-                      ? "meetings.line.systemUnavailable"
-                      : both
-                        ? "meetings.settings.whatBoth"
-                        : "meetings.settings.whatMe",
-                )}
-              </p>
-            </div>
-            <select
-              id={whatId}
-              data-testid="meetings-what"
-              value={both ? "both" : "me"}
-              disabled={microphoneOnly}
-              onChange={(event) =>
-                void updateSettings({
-                  device: { meetingSystemAudio: event.target.value === "both" },
-                })
-              }
-              className="h-8 rounded-sm border border-rule-strong bg-sheet px-2 text-[13px] leading-5 text-ink focus:border-accent disabled:opacity-60"
-            >
-              <option value="both">{t("meetings.audio.both")}</option>
-              <option value="me">{t("meetings.audio.me")}</option>
-            </select>
-          </div>
-          <div className={ruledRow("center")}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label
-                htmlFor={routeId}
-                title={t("models.defaults.meetings.tip")}
-                className={rowTitleClass}
+      <CalendarSettings />
+      <SettingsSection
+        title={t("meetings.settings.title")}
+        testId="meetings-settings"
+        help={t(keptKey)}
+      >
+        <SettingsGroup>
+          <SettingsRow
+            label={t("meetings.settings.what")}
+            htmlFor={whatId}
+            detail={t(
+              canRecord === "none"
+                ? "meetings.settings.cantRecord"
+                : microphoneOnly
+                  ? "meetings.line.systemUnavailable"
+                  : both
+                    ? "meetings.settings.whatBoth"
+                    : "meetings.settings.whatMe",
+            )}
+            control={
+              <PopUpSelect
+                id={whatId}
+                data-testid="meetings-what"
+                value={both ? "both" : "me"}
+                disabled={microphoneOnly}
+                onChange={(event) =>
+                  void updateSettings({
+                    device: { meetingSystemAudio: event.target.value === "both" },
+                  })
+                }
               >
-                {t("meetings.settings.route")}
-              </label>
-              <TranscriptionRouteLine read={services} />
-            </div>
-            <span id={`${routeId}-tip`} className="sr-only">
-              {t("models.defaults.meetings.tip")}
-            </span>
-            <TranscriptionRouteSelect
-              id={routeId}
-              className="h-8 rounded-sm border border-rule-strong bg-sheet px-2 text-[13px] leading-5 text-ink focus:border-accent"
-              read={services}
-            />
-          </div>
-          <TranscriptionKeyRows read={services} />
-          <div className={ruledRow("center")}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label htmlFor={scriptId} className={rowTitleClass}>
-                {t("meetings.script.title")}
-              </label>
-              <p className={rowTextClass}>{t("meetings.script.body")}</p>
-            </div>
-            <select
-              id={scriptId}
-              data-testid="meeting-script"
-              value={script}
-              onChange={(event) => {
-                const chosen = CHINESE_SCRIPTS.find((each) => each === event.target.value);
-                if (chosen) void updateSettings({ user: { transcriptScript: chosen } });
-              }}
-              className="h-8 rounded-sm border border-rule-strong bg-sheet px-2 text-[13px] leading-5 text-ink focus:border-accent"
-            >
-              {CHINESE_SCRIPTS.map((each) => (
-                <option key={each} value={each}>
-                  {t(SCRIPT_LABELS[each])}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <p className={hintClass}>{t(keptKey)}</p>
-      </section>
+                <option value="both">{t("meetings.audio.both")}</option>
+                <option value="me">{t("meetings.audio.me")}</option>
+              </PopUpSelect>
+            }
+          />
+          <SettingsSwitchRow
+            label={t("meetings.settings.keepAudio")}
+            detail={t(
+              device.keepMeetingAudio
+                ? "meetings.settings.keepAudioOn"
+                : "meetings.settings.keepAudioOff",
+            )}
+            checked={device.keepMeetingAudio}
+            onChange={(keepMeetingAudio) => void updateSettings({ device: { keepMeetingAudio } })}
+            switchTestId="meetings-keep-audio"
+          />
+          <SettingsRow
+            label={t("meetings.settings.route")}
+            htmlFor={routeId}
+            tip={t("models.defaults.meetings.tip")}
+            tipId={`${routeId}-tip`}
+            detail={<TranscriptionRouteLine read={services} />}
+            control={
+              <TranscriptionRouteSelect
+                id={routeId}
+                popUp
+                read={services}
+                setUp={setUp.rows}
+                onChosen={setUp.onChosen}
+              />
+            }
+          >
+            {setUp.panel}
+          </SettingsRow>
+          <SettingsRow
+            label={t("meetings.script.title")}
+            htmlFor={scriptId}
+            detail={t("meetings.script.body")}
+            control={
+              <PopUpSelect
+                id={scriptId}
+                data-testid="meeting-script"
+                value={script}
+                onChange={(event) => {
+                  const chosen = CHINESE_SCRIPTS.find((each) => each === event.target.value);
+                  if (chosen) void updateSettings({ user: { transcriptScript: chosen } });
+                }}
+              >
+                {CHINESE_SCRIPTS.map((each) => (
+                  <option key={each} value={each}>
+                    {t(SCRIPT_LABELS[each])}
+                  </option>
+                ))}
+              </PopUpSelect>
+            }
+          />
+        </SettingsGroup>
+      </SettingsSection>
       <WordsToKnow />
       <HelpSettings />
     </>

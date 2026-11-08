@@ -6,7 +6,7 @@
  * one from the computer's sound "Them" (#941); in a room with no computer
  * sound, "Speaker ?"; in a voice memo (#1568), no one is named. The Transcript
  * is a Document from its first line, kept in the data folder's "Transcripts"
- * and in the Library, indexed again as lines come; at Stop it is finished
+ * and belonging to the Meeting's Note (#2528), indexed again as lines come; at Stop it is finished
  * there, with nothing asked about where files go (#763). Then, while the
  * audio is kept, the speaker pass (./speakerPass, #138) tells voices apart and
  * relabels it; a voice memo has no such pass.
@@ -22,13 +22,14 @@
  *
  * Where the User chose a cloud service (#141), the live audio goes to it
  * instead, each chunk through the cloud's send gate and counted against the
- * monthly cap first. A lost connection, or the service refusing its key,
- * hands the live audio to this computer: what the cloud hadn't given text for
- * is a gap, filled in after Stop. At the cap, the cloud's streams finish what
- * they were sent. When the gate closes (Local mode, consent revoked, another
- * route chosen, the key removed), its streams are dropped with nothing more
- * sent, and this computer transcribes that stretch after Stop. Recording never
- * stops, and the bar says why, except where the User chose.
+ * monthly cap first. A lost connection, the service refusing its key, or its
+ * account out of credit, hands the live audio to this computer: what the cloud
+ * hadn't given text for is a gap, filled in after Stop. At the cap, the cloud's
+ * streams finish what they were sent. When the gate closes (Local mode, consent
+ * revoked, another route chosen, the key removed), its streams are dropped with
+ * nothing more sent, and this computer transcribes that stretch after Stop. A
+ * new key for the same service opens them again on it. Recording never stops,
+ * and the bar says why, except where the User chose.
  *
  * What is needed to pick up after a crash is in files beside the Transcript,
  * as the audio's parts are (ADR-0015): its lines and gaps in the WebVTT file,
@@ -46,6 +47,7 @@ import {
   SPEAKER_THEM,
   SPEAKER_UNKNOWN,
 } from "../../shared/speakers";
+import { alignWords } from "../../shared/wordTimes";
 import type {
   CloudLoss,
   CloudStream,
@@ -100,8 +102,12 @@ const SWITCH_TOGETHER_MS = 10_000;
 const CATCH_UP_CHUNK_MS = 20_000;
 /** The speed probe counts once this much audio has been decoded live. */
 const PROBE_MS = 30_000;
-/** Partial text reaches the window at most this often. */
-const PARTIAL_EVERY_MS = 500;
+/**
+ * Partial text reaches the window at once, then at most this often: cloud services send theirs
+ * every 0.2 to 0.3 s, and the live Transcript keeps up with them without layout shifts or long
+ * tasks (#138).
+ */
+const PARTIAL_EVERY_MS = 250;
 /** Cloud audio is counted against the cap this much ahead of what is sent, so the cap is never passed. */
 const COUNTED_AHEAD_MS = 10_000;
 
@@ -166,6 +172,8 @@ interface Live {
   /** Microphone streams a pause ended, until their last lines are in: a closed gate drops them too. */
   finishing: Finishing[];
   started: boolean;
+  /** The engine let its models go while idle: the next audio starts it again (#2673). */
+  unloaded: boolean;
   /** Audio waiting for the engine to start. */
   held: TrackedAudio[];
   /** How far audio has gone to the engine, and how far its text is final on every stream, in the Meeting's time. */
@@ -224,17 +232,21 @@ interface State extends Saved {
   lastIndexed: number;
   indexTimer: ReturnType<typeof setTimeout> | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
+  /** Partial text changed while `partialTimer` waits. */
+  partialDue: boolean;
   finishing: Promise<void> | null;
   /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
   memo: boolean;
   /** The words its speech may hold, once gathered (`TranscriptsOptions.wordsOf`). */
   words: readonly string[] | null;
+  /** Where the capture began waiting for the system's permission, in the Meeting's time; null otherwise. */
+  waitingFrom: number | null;
 }
 
 export interface TranscriptDocuments {
   /**
-   * Makes the Meeting's Transcript Document from its file: named for its note, in its Folder,
-   * and, while the note waits in Recently deleted, deleted with it (#1253).
+   * Makes the Meeting's Transcript Document from its file: named for its note, which it belongs
+   * to and goes with (#2528), and, while the note waits in Recently deleted, deleted with it (#1253).
    */
   add(meetingId: string, id: string, file: SnapshotFile): void;
   check(path: string): Promise<void>;
@@ -266,9 +278,16 @@ export interface TranscriptsOptions {
   decoded?(modelId: string, decodeMs: number, audioSeconds: number): void;
   /**
    * The Meeting's Transcript is finished (#142): saved, its Document in its place and its
-   * speakers told apart (#138), or with no lines.
+   * speakers told apart (#138), or with no lines. `renamed`: the speaker pass changed who spoke
+   * a line, so what was read of it before has other labels now.
    */
-  saved?(meetingId: string): void;
+  saved?(meetingId: string, renamed: boolean): void;
+  /**
+   * A call's Transcript is saved, its Document in its place, and its speakers are being told
+   * apart (#138): its words are final, and its labels change only where the pass finds more than
+   * one voice on the other side (#2773).
+   */
+  written?(meetingId: string): void;
   /**
    * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, and
    * told to the engine on this computer for each of its streams.
@@ -299,7 +318,8 @@ const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): stri
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
 
-type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode" | "moved";
+/** Why live audio leaves a cloud service: as `CloudLoss`, or a gate, or "renew", to open again on a new key. */
+type Leaving = "dropped" | "refused" | "credit" | "cap" | "user" | "local-mode" | "moved" | "renew";
 
 /** The engine couldn't start, or stopped, while what was left was being transcribed. */
 class EngineError extends Error {}
@@ -386,9 +406,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       lastIndexed: 0,
       indexTimer: null,
       partialTimer: null,
+      partialDue: false,
       finishing: null,
       memo: options.memo?.(meetingId) ?? false,
       words: null,
+      waitingFrom: null,
     };
     states.set(meetingId, state);
     return state;
@@ -589,13 +611,14 @@ export function createTranscripts(options: TranscriptsOptions) {
     });
   }
 
-  function shownPartial(state: State): MeetingTranscript["partial"] {
+  // Both sides can speak at once, so each shows (#138); the microphone's echo of theirs doesn't.
+  function shownPartials(state: State): MeetingTranscript["partials"] {
     const all = [...state.partials.values()];
     const theirs = all.filter((each) => isTheirs(each.speaker)).map((each) => each.text);
-    const newest = all
+    return all
       .filter((each) => each.speaker !== SPEAKER_ME || !repeats(each.text, theirs))
-      .sort((a, b) => b.startMs - a.startMs)[0];
-    return newest ? { startMs: newest.startMs, text: newest.text, speaker: newest.speaker } : null;
+      .sort((a, b) => a.startMs - b.startMs)
+      .map(({ startMs, text, speaker }) => ({ startMs, text, speaker }));
   }
 
   function heardSegment(segment: SpeechSegment): void {
@@ -614,16 +637,28 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!segment.final) {
       if (!live || state.state !== "live") return;
       state.partials.set(segment.stream, { startMs, text, id: segment.id, speaker });
-      state.partialTimer ??= setTimeout(() => {
-        state.partialTimer = null;
-        options.changed();
-      }, PARTIAL_EVERY_MS);
+      partialChanged(state);
       return;
     }
     if (live && state.partials.get(segment.stream)?.id === segment.id) {
       state.partials.delete(segment.stream);
     }
-    const cue = { startMs, endMs: baseMs + segment.endMs, text, speaker };
+    const words = segment.words
+      ? alignWords(
+          text,
+          segment.words.map((word) => ({
+            text: options.lineText ? options.lineText(word.text, meetingWords(state)) : word.text,
+            ms: baseMs + word.ms,
+          })),
+        )
+      : [];
+    const cue: Cue = {
+      startMs,
+      endMs: baseMs + segment.endMs,
+      text,
+      speaker,
+      ...(words.length > 0 && { words }),
+    };
     if (text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
       if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
@@ -639,6 +674,20 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     writeLines(state);
     options.changed();
+  }
+
+  /** Tells the window of the partial text: at once, then the latest at most every `PARTIAL_EVERY_MS` (#2662). */
+  function partialChanged(state: State): void {
+    if (state.partialTimer) {
+      state.partialDue = true;
+      return;
+    }
+    state.partialDue = false;
+    options.changed();
+    state.partialTimer = setTimeout(() => {
+      state.partialTimer = null;
+      if (state.partialDue) partialChanged(state);
+    }, PARTIAL_EVERY_MS);
   }
 
   /** The speed probe: how long decoding takes for the audio it decodes, kept for the next Meeting's choice of model. */
@@ -720,6 +769,37 @@ export function createTranscripts(options: TranscriptsOptions) {
     options.changed();
   }
 
+  /** The engine unloaded its models after a long idle (#2673): nothing failed, and its next audio starts it again. */
+  function engineUnloaded(): void {
+    if (closed) return;
+    log.info("transcript.engineUnloaded", {});
+    for (const state of states.values()) {
+      const live = state.live;
+      if (!live?.started) continue;
+      // The process ends only with no stream open: audio still sent on a stream the core holds was
+      // never decoded, so it is a gap from that stream's own progress and read again from the kept
+      // audio after Stop, as a crash's is (#2673). A pause's finished stream has left
+      // `live.streams` already, and its last stretch is transcribed, so it is no gap.
+      const open = Object.values(live.streams);
+      if (open.length > 0) {
+        const from = Math.min(...open.map((each) => each.doneMs));
+        const lost = { fromMs: from, toMs: Math.max(from, live.pushedMs) };
+        if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
+          state.gaps.push({ ...lost, reason: "restarted" });
+          state.pending = addRange(state.pending, lost);
+        }
+      }
+      live.started = false;
+      live.unloaded = true;
+      live.stream = `${state.meetingId}:${++streams}`;
+      live.streams = {};
+      live.doneMs = live.pushedMs;
+      live.heardMs = live.doneMs;
+      state.partials.clear();
+    }
+    options.changed();
+  }
+
   /** The transcriber moved a stream to another engine (#141, #462): the Meeting's health says when, and why. */
   function heardSwitch(change: EngineSwitch): void {
     const found = owner(change.stream);
@@ -753,26 +833,28 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live) leaveCloud(found.state, live, loss);
   }
 
-  // Dropped, refused or the gate closed: the cloud's streams are dropped, nothing they queued is
-  // sent, and the stretch this computer didn't hear is transcribed after Stop. At the cap, the
-  // streams finish with what they were already sent.
-  function leaveCloud(state: State, live: Live, reason: Leaving): void {
-    if (live.engine === "local") return;
+  // Dropped, refused, out of credit or the gate closed: the cloud's streams are dropped, nothing
+  // they queued is sent, and the stretch this computer didn't hear is transcribed after Stop. At
+  // the cap, the streams finish with what they were already sent. A new key for the same service
+  // opens the streams again on it, from the next audio (#866). Resolves once the transcription
+  // process has dropped the streams.
+  function leaveCloud(state: State, live: Live, reason: Leaving): Promise<void> {
+    if (live.engine === "local") return Promise.resolve();
     const route = live.engine;
     const atMs = live.pushedMs;
+    const failed = reason === "dropped" || reason === "refused" || reason === "credit";
+    let dropped: Promise<void> | null = null;
     if (reason === "cap") {
       if (live.started) finishStreams(state, live, atMs);
     } else {
-      dropStreams(live);
+      dropped = dropStreams(live);
       const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
       if (live.started && live.pendingFrom === null && lost.toMs > lost.fromMs) {
-        if (reason === "dropped" || reason === "refused") {
-          state.gaps.push({ ...lost, reason: "cloud" });
-        }
+        if (failed) state.gaps.push({ ...lost, reason: "cloud" });
         state.pending = addRange(state.pending, lost);
       }
     }
-    if (reason === "refused") options.cloud?.refuse(route);
+    if (reason === "refused" && live.cloud) options.cloud?.refuse(route, live.cloud.stream);
     live.engine = "local";
     live.cloud = null;
     live.started = false;
@@ -782,19 +864,37 @@ export function createTranscripts(options: TranscriptsOptions) {
     live.heardMs = live.doneMs;
     live.backlogEnd = live.pushedMs;
     state.partials.clear();
-    if (reason !== "user") state.fellBack = { route, atMs, reason };
+    if (reason === "renew" && options.cloud) {
+      live.choosing = true;
+      log.info("transcript.cloudRenewed", { meetingId: state.meetingId, route });
+      choose(state, live, options.cloud);
+      persist(state);
+      options.changed();
+      return dropped ?? Promise.resolve();
+    }
+    if (reason !== "user" && reason !== "renew") state.fellBack = { route, atMs, reason };
     health.add(state.meetingId, {
       kind: "switched",
       atMs,
       from: "cloud",
       to: "local",
-      reason:
-        reason === "dropped" || reason === "refused" ? "failed" : reason === "cap" ? "cap" : "user",
+      reason: failed ? "failed" : reason === "cap" ? "cap" : "user",
     });
-    startEngine(state);
+    if (dropped) {
+      // Loading this computer's engine waits for the drop: a process stopped for not confirming
+      // it then fails no load, and the next one loads afresh (#2702).
+      void dropped.then(() => {
+        if (closed || state.live !== live) return;
+        startEngine(state);
+        options.changed();
+      });
+    } else {
+      startEngine(state);
+    }
     writeLines(state, { now: true });
     persist(state);
     options.changed();
+    return dropped ?? Promise.resolve();
   }
 
   function gateClosed(live: Live): Leaving | null {
@@ -830,6 +930,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     // Not the engine's message: one from a cloud service could quote what it was sent.
     failed: (stream) => log.warn("transcript.decodeFailed", { stream }),
     stopped: engineStopped,
+    unloaded: engineUnloaded,
     switched: heardSwitch,
     lost: heardLost,
     opened: heardOpened,
@@ -865,9 +966,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       startCloud(state, live);
       return;
     }
+    // Ready too: a speech model from before #2662 gets its streaming model in the background.
+    model.ensure();
     if (model.status().state !== "ready") {
       state.state = "preparing";
-      model.ensure();
       return;
     }
     if (state.state !== "behind") state.state = "preparing";
@@ -1010,14 +1112,17 @@ export function createTranscripts(options: TranscriptsOptions) {
     live.finishing.push({ stream: own.stream, reading, done, drop });
   }
 
-  function dropStreams(live: Live): void {
-    for (const own of Object.values(live.streams)) transcriber.drop(own.stream);
+  function dropStreams(live: Live): Promise<void> {
+    const dropped = Object.values(live.streams).map((own) => own.stream);
     for (const each of live.finishing) {
-      transcriber.drop(each.stream);
+      dropped.push(each.stream);
       // Its stretch is transcribed from the audio after Stop, as any stream lost is.
       each.reading.lost = true;
       each.drop();
     }
+    if (live.engine !== "local") return transcriber.dropCloud(dropped);
+    for (const stream of dropped) transcriber.drop(stream);
+    return Promise.resolve();
   }
 
   function send(state: State, live: Live, audio: TrackedAudio): void {
@@ -1088,6 +1193,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       return;
     }
     live.held.push(audio);
+    if (live.unloaded) {
+      live.unloaded = false;
+      startEngine(state);
+    }
     // Audio that waited too long is transcribed after Stop: live text starts from what is left.
     const newest = audio.atMs + audio.lengthMs;
     while ((live.held[0]?.atMs ?? newest) < newest - HELD_MS) {
@@ -1110,6 +1219,29 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   // ---- Finishing ----
 
+  /** Adds a gap, merging one that overlaps a gap of its reason: a stall both sources saw is one gap. */
+  function addGap(state: State, gap: TranscriptGap): void {
+    const overlapping = state.gaps.filter(
+      (each) => each.reason === gap.reason && each.fromMs <= gap.toMs && gap.fromMs <= each.toMs,
+    );
+    if (overlapping.length === 0) {
+      state.gaps.push(gap);
+      return;
+    }
+    const fromMs = Math.min(gap.fromMs, ...overlapping.map((each) => each.fromMs));
+    const toMs = Math.max(gap.toMs, ...overlapping.map((each) => each.toMs));
+    state.gaps = state.gaps.filter((each) => !overlapping.includes(each));
+    state.gaps.push({ fromMs, toMs, reason: gap.reason });
+  }
+
+  /** Ends a wait for the system's permission at `toMs`: the stretch it took is a gap that says so. */
+  function closeWaiting(state: State, toMs: number): void {
+    const fromMs = state.waitingFrom;
+    if (fromMs === null) return;
+    state.waitingFrom = null;
+    if (toMs - fromMs >= MIN_GAP_MS) addGap(state, { fromMs, toMs, reason: "permission" });
+  }
+
   /** Transcribes a stretch from the audio on disk, each source on its own; the part with no audio left is a gap. */
   async function catchUp(state: State, range: Range): Promise<void> {
     const parts = options
@@ -1121,8 +1253,13 @@ export function createTranscripts(options: TranscriptsOptions) {
     for (const part of parts) {
       covered = addRange(covered, { fromMs: part.offsetMs, toMs: part.offsetMs + part.durationMs });
     }
+    // These stretches had no audio to transcribe, for a reason its own gap already says.
+    for (const gap of state.gaps) {
+      if (gap.reason === "muted" || gap.reason === "permission" || gap.reason === "stalled") {
+        covered = addRange(covered, gap);
+      }
+    }
     const pauses = state.gaps.filter((gap) => gap.reason === "muted");
-    for (const pause of pauses) covered = addRange(covered, pause);
     const reason = options.audioDeleted(state.meetingId) ? "lost" : "uncaptured";
     let at = range.fromMs;
     for (const each of [...covered, { fromMs: range.toMs, toMs: range.toMs }]) {
@@ -1253,7 +1390,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   async function save(state: State): Promise<void> {
     if (state.cues.length === 0) {
       state.state = "empty";
-      options.saved?.(state.meetingId);
+      options.saved?.(state.meetingId, false);
       return;
     }
     const file = writeWhole(vttPath(state.meetingId), transcriptOf(state));
@@ -1263,7 +1400,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
     if (options.speakers && !state.memo) state.speakers = "due";
     await documents.checkNow(state.documentId, file.path);
-    if (state.speakers !== "due") options.saved?.(state.meetingId);
+    if (state.speakers !== "due") options.saved?.(state.meetingId, false);
   }
 
   // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
@@ -1272,25 +1409,51 @@ export function createTranscripts(options: TranscriptsOptions) {
     return Object.keys(state.voices ?? {}).some((key) => key.includes(side));
   };
 
+  // A Transcript the User has said who's who in keeps its labels: their names and lines hang on
+  // them (#138), and a pass run again after a failure would move them under other people.
+  const named = (state: State) =>
+    state.documentId !== null && documents.find(state.documentId)?.speakers != null;
+
   // A quit during the pass leaves it due, for the next start. Whatever else ends it, the notes
   // go ahead with the labels the Transcript has, so a failed pass never holds them up.
   function separate(state: State): void {
     const pass = options.speakers;
     if (!pass || state.separating || closed) return;
-    if (!state.savedPath || options.audioDeleted(state.meetingId) || toldApart(state)) {
+    if (
+      !state.savedPath ||
+      options.audioDeleted(state.meetingId) ||
+      toldApart(state) ||
+      named(state)
+    ) {
       settle(state, "done");
       return;
     }
     state.separating = true;
     options.changed();
+    if (isCall(state.cues)) {
+      // The pass runs whatever the notes do with this: they wait for its end at the latest.
+      try {
+        options.written?.(state.meetingId);
+      } catch (error) {
+        log.error("transcript.writtenFailed", {
+          meetingId: state.meetingId,
+          message: messageOf(error),
+        });
+      }
+    }
     const saved = transcriptOf(state);
     const current = () => !closed && states.get(state.meetingId) === state;
+    let renamed = false;
     pass
       .run(state.meetingId, [...state.cues])
       .then(
-        (cues) => {
-          if (current() && cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)) {
-            relabel(state, cues, saved);
+        async (cues) => {
+          if (
+            current() &&
+            !named(state) &&
+            cues?.some((cue, at) => cue.speaker !== state.cues[at]?.speaker)
+          ) {
+            renamed = await relabel(state, cues, saved);
           }
           return "done" as const;
         },
@@ -1301,7 +1464,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       )
       .then((outcome) => {
         state.separating = false;
-        if (current()) settle(state, outcome);
+        if (current()) settle(state, outcome, renamed);
       })
       .catch((error: unknown) => {
         log.error("speakers.settleFailed", {
@@ -1311,11 +1474,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       });
   }
 
-  function settle(state: State, outcome: "done" | "failed"): void {
+  function settle(state: State, outcome: "done" | "failed", renamed = false): void {
     state.speakers = outcome;
     persist(state);
     options.changed();
-    options.saved?.(state.meetingId);
+    options.saved?.(state.meetingId, renamed);
   }
 
   function modelProblem(state: State, status: TranscriptionModelStatus): TranscriptProblem | null {
@@ -1330,27 +1493,34 @@ export function createTranscripts(options: TranscriptsOptions) {
   const speakersProblem = (state: State): TranscriptProblem | null =>
     state.speakers === "failed" ? { kind: "speakers", message: "" } : null;
 
-  function relabel(state: State, cues: Cue[], saved: string): void {
+  /**
+   * Whether the lines were written with their new labels. Its Document is read again before this
+   * resolves, so what reads the Transcript once it is finished reads them (#2773).
+   */
+  async function relabel(state: State, cues: Cue[], saved: string): Promise<boolean> {
     const path = state.savedPath;
-    if (!path) return;
+    if (!path) return false;
     try {
       // Written over only while it still holds the lines that were saved.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
-        return;
+        return false;
       }
       state.cues = cues;
       writeWhole(path, transcriptOf(state));
     } catch (error) {
       log.error("speakers.writeFailed", { meetingId: state.meetingId, message: messageOf(error) });
-      return;
+      return false;
     }
-    documents.check(path).catch((error: unknown) => {
+    try {
+      await documents.checkNow(state.documentId, path);
+    } catch (error) {
       log.error("transcript.indexFailed", {
         meetingId: state.meetingId,
         message: messageOf(error),
       });
-    });
+    }
+    return true;
   }
 
   function finishStreams(state: State, live: Live, endMs: number): void {
@@ -1414,6 +1584,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   function endLive(state: State, endMs: number): void {
     const live = state.live;
     if (!live) return;
+    closeWaiting(state, endMs);
     feed(state, live.tracks.flush());
     const leaving = gateClosed(live);
     if (leaving) leaveCloud(state, live, leaving);
@@ -1484,7 +1655,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         documentId: state.documentId,
         state: state.state,
         lines: state.cues.length,
-        partial: shownPartial(state),
+        partials: shownPartials(state),
         model:
           (state.state === "preparing" ||
             state.state === "finishing" ||
@@ -1509,13 +1680,16 @@ export function createTranscripts(options: TranscriptsOptions) {
     /**
      * Where meeting audio may go changed (Local mode, consent, the chosen route, a key): every
      * live cloud stream whose gate is now closed is dropped at once, not at its next chunk.
+     * Resolves once the transcription process has dropped them.
      */
-    recheckCloud(): void {
+    recheckCloud(): Promise<void> {
+      const dropping: Promise<void>[] = [];
       for (const state of states.values()) {
         const live = state.live;
         const leaving = live && gateClosed(live);
-        if (live && leaving) leaveCloud(state, live, leaving);
+        if (live && leaving) dropping.push(leaveCloud(state, live, leaving));
       }
+      return Promise.all(dropping).then(() => {});
     },
 
     /**
@@ -1535,6 +1709,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         microphoneStreams: 0,
         finishing: [],
         started: false,
+        unloaded: false,
         held: [],
         pushedMs: offsetMs,
         doneMs: offsetMs,
@@ -1585,6 +1760,30 @@ export function createTranscripts(options: TranscriptsOptions) {
       const state = load(meetingId);
       if (state.savedPath) return;
       state.gaps.push({ fromMs, toMs, reason: "muted" });
+      writeLines(state, { now: true });
+      options.changed();
+    },
+
+    /** The capture began waiting for the system's permission at `atMs`: nothing is captured until it is answered. */
+    waitingForPermission(meetingId: string, atMs: number): void {
+      const state = states.get(meetingId);
+      if (state && state.waitingFrom === null) state.waitingFrom = atMs;
+    },
+
+    /** The permission was answered at `atMs`: the stretch it took is a gap that says the capture waited. */
+    permissionAnswered(meetingId: string, atMs: number): void {
+      const state = states.get(meetingId);
+      if (state) closeWaiting(state, atMs);
+    },
+
+    /**
+     * Audio came again at `toMs` after a stretch with none: from `fromMs` to there the capture
+     * stalled, and the gap says so rather than that the audio went.
+     */
+    captureStalled(meetingId: string, fromMs: number, toMs: number): void {
+      const state = states.get(meetingId);
+      if (!state || state.savedPath || toMs - fromMs < MIN_GAP_MS) return;
+      addGap(state, { fromMs, toMs, reason: "stalled" });
       writeLines(state, { now: true });
       options.changed();
     },

@@ -17,11 +17,13 @@ import {
   type CitationLocation,
   type CitedArea,
   filePropertyNames,
+  type TranscriptSpeakers,
 } from "../core/api";
 import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
+import { parseLibraryFact, parseLibrarySource } from "./libraryFacts";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
-import { speakerName } from "./speakers";
+import { partStartOf, shownSpeaker } from "./speakers";
 import {
   anchorsOf,
   isPrintedName,
@@ -150,6 +152,11 @@ export function parseLocation(value: unknown): CitationLocation | null {
         ? { kind, property, value }
         : null;
     }
+    case "library": {
+      const source = parseLibrarySource(location.source);
+      const fact = parseLibraryFact(location.fact);
+      return source && fact ? { kind, source, fact } : null;
+    }
     default:
       return null;
   }
@@ -203,12 +210,26 @@ export function citationLocation(
 /** Words a Location in a language: `t` is the renderer's `t` or the core's `translate`. */
 export type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/** How a Transcript's Location names who said its quote. */
+export interface SpeakerWording {
+  /** False: the time alone. */
+  speaker?: boolean;
+  /** The Transcript's who's who (#138), so the Speaker shows as the User named them now. */
+  speakers?: TranscriptSpeakers | null;
+  /** The Citation's quote, which places it in the part of a line the User split (#138). */
+  quote?: string | null;
+}
+
 /**
  * A Location's short label, e.g. "slide 4" or "Revenue, rows 12–14", and in a
  * Transcript "Me · 12:03": who said it, then the time, unless `speaker` is false.
  * A section that names no place (see `saysWhere`) has none: its label is "".
  */
-export function formatLocation(location: CitationLocation, t: Translate, speaker = true): string {
+export function formatLocation(
+  location: CitationLocation,
+  t: Translate,
+  { speaker = true, speakers = null, quote }: SpeakerWording = {},
+): string {
   switch (location.kind) {
     case "page": {
       const { from, to } = location.printed ?? location;
@@ -243,13 +264,17 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
       return t(location.to !== location.from ? "location.lines.other" : "location.lines.one", {
         range: span(location.from, location.to),
       });
-    case "time":
+    case "time": {
+      const from = location.speaker
+        ? partStartOf(speakers, location.from, location.speaker, quote)
+        : location.from;
       return speaker && location.speaker
         ? t("location.time.speaker", {
-            speaker: speakerName(location.speaker, t),
-            time: clockTime(location.from),
+            speaker: shownSpeaker(speakers, from, location.speaker, t),
+            time: clockTime(from),
           })
-        : clockTime(location.from);
+        : clockTime(from);
+    }
     case "section": {
       const section = location.notes
         ? t("location.section.notes")
@@ -280,6 +305,8 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
     }
     case "properties":
       return t("location.properties");
+    case "library":
+      return t("claim.library.source.library");
   }
 }
 
@@ -298,7 +325,7 @@ export function formatLocationWithPdf(location: CitationLocation, t: Translate):
 const english: Translate = (key, params) => translate("en", key, params);
 
 /** A PDF page by its number in the PDF, which is how a model cites it. */
-export const englishLocation = (location: CitationLocation, speaker = true): string =>
+export const englishLocation = (location: CitationLocation, wording: SpeakerWording = {}): string =>
   formatLocation(
     location.kind === "page"
       ? {
@@ -310,12 +337,15 @@ export const englishLocation = (location: CitationLocation, speaker = true): str
         }
       : location,
     english,
-    speaker,
+    wording,
   );
 
 /** The English label of a place, for a prompt: null where there is none to name. */
-export const englishPlace = (location: CitationLocation | null): string | null =>
-  location && saysWhere(location) ? englishLocation(location) : null;
+export const englishPlace = (
+  location: CitationLocation | null,
+  speakers: TranscriptSpeakers | null = null,
+): string | null =>
+  location && saysWhere(location) ? englishLocation(location, { speakers }) : null;
 
 /** A Citation copied as text names the page the Document prints. */
 export const englishPrintedLocation = (location: CitationLocation): string =>
@@ -323,7 +353,9 @@ export const englishPrintedLocation = (location: CitationLocation): string =>
 
 /** The kinds of Location the card's "Open …" button names: the page, the slide, the section… */
 export const openKind = (location: CitationLocation | null) =>
-  location === null || location.kind === "properties" ? "document" : location.kind;
+  location === null || location.kind === "properties" || location.kind === "library"
+    ? "document"
+    : location.kind;
 
 /** A Citation of a Transcript, whose Location is a time: checked against the Transcript's text, not a page. */
 export const isTranscriptLocation = (location: CitationLocation | null) =>
@@ -625,8 +657,8 @@ export type RequestedLocation =
   | { kind: "page" | "slide" | "lines"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "section"; heading: string }
-  /** A time in a Transcript, "14:26" or "14:26–15:02", in ms. */
-  | { kind: "time"; from: number; to: number };
+  /** A time in a Transcript, "14:26 Dana" or "14:26–15:02", in ms. */
+  | { kind: "time"; from: number; to: number; speaker?: string };
 
 /**
  * What a comment's Location adds after its section, as its label words it in
@@ -648,7 +680,7 @@ const range = (from: string | undefined, to: string | undefined) => {
 
 /**
  * Reads a Location written as its label ("slide 4", "Revenue, rows 12–14",
- * "§ 2.1 Sensitivity", "lines 120–134", "p. 4", "14:26"), or as a cell range
+ * "§ 2.1 Sensitivity", "lines 120–134", "p. 4", "14:26 Dana"), or as a cell range
  * ("Revenue!A12:F14"). Null if it can't be read.
  */
 export function parseRequestedLocation(input: string): RequestedLocation | null {
@@ -665,15 +697,6 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
       .trim();
   }
   if (!text) return null;
-  const times =
-    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?$/i.exec(text);
-  if (times) {
-    const from = parseClockTime(times[1] as string);
-    const to = times[2] === undefined ? from : parseClockTime(times[2]);
-    if (from !== null && to !== null) {
-      return { kind: "time", from: Math.min(from, to), to: Math.max(from, to) };
-    }
-  }
   let match = new RegExp(String.raw`^(?:pp?\.?|pages?)\s*${RANGE}$`, "i").exec(text);
   if (match) return { kind: "page", ...range(match[1], match[2]) };
   match = new RegExp(
@@ -690,6 +713,26 @@ export function parseRequestedLocation(input: string): RequestedLocation | null 
   match = /^(?:§+|sections?\b|heading\b)\s*(.+)$/i.exec(text);
   const heading = match?.[1]?.replace(A_PARAGRAPH, "").replace(A_COMMENT, "").trim();
   if (heading) return { kind: "section", heading };
+  // A sheet name may start with a clock time; its rows or cells still take precedence.
+  const written = input.trim();
+  const cueLabel =
+    written.startsWith("[") && written.endsWith("]") ? written.slice(1, -1).trim() : written;
+  const timePattern =
+    /^(?:at\s+)?(\d{1,2}(?::\d{2}){1,2})(?:\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2}))?(?:[ \t]+(?!\d{1,2}:\d{2})([^\s[\]][^\r\n[\]]*))?$/iu;
+  const times = timePattern.exec(cueLabel) ?? timePattern.exec(text);
+  if (times) {
+    const from = parseClockTime(times[1] as string);
+    const to = times[2] === undefined ? from : parseClockTime(times[2]);
+    const speaker = times[3]?.trim();
+    if (from !== null && to !== null) {
+      return {
+        kind: "time",
+        from: Math.min(from, to),
+        to: Math.max(from, to),
+        ...(speaker && { speaker }),
+      };
+    }
+  }
   return null;
 }
 

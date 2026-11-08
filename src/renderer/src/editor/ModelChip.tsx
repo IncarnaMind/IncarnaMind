@@ -5,6 +5,7 @@ import type { ChatGptPlanStatus, ChatModelChoice, ChatProvider } from "../../../
 import { isCloudModelName } from "../../../core/providers/ollamaCloud";
 import type { MessageKey } from "../../../shared/i18n";
 import { sameModel, setMindModel } from "../../../shared/mindModel";
+import { shortModelName } from "../../../shared/modelName";
 import { useAnswers } from "../answers";
 import { CheckLineIcon } from "../components/lineIcons";
 import { OnThisComputer } from "../components/OnThisComputer";
@@ -166,9 +167,10 @@ export function ModelChip({
     standIn && provider?.kind === "chatgpt" && standIn.insteadOf === current.modelId
       ? { name: nameOf(standIn.modelId, current.providerId).name, until: standIn.untilTime }
       : null;
-  const chipText = answering?.until
+  const fullText = answering?.until
     ? t("composer.model.standIn", { model: answering.name, time: answering.until })
     : (answering?.name ?? shown.name);
+  const chipText = answering ? fullText : shortModelName(fullText);
   const named = shown.id ? `${shown.name} · ${shown.id}` : shown.name;
   const title = answering
     ? answering.until
@@ -182,8 +184,8 @@ export function ModelChip({
       ? `${named} · ${via}`
       : named;
   const label = via
-    ? t("composer.model.label", { model: chipText, via })
-    : t("composer.model.labelPlain", { model: chipText });
+    ? t("composer.model.label", { model: fullText, via })
+    : t("composer.model.labelPlain", { model: fullText });
 
   const choose = (choice: ChatModelChoice) => {
     // The User's own pick wins over a stand-in, for the model it stood in for too.

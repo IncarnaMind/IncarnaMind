@@ -14,14 +14,12 @@ import { files } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
-  hintClass,
-  rowTextClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRow,
-  ruledRowClass,
-  sectionTitleClass,
-} from "../ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "../settings/SettingsGroup";
+import { buttonStyle } from "../ui";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -57,7 +55,7 @@ type KeysProblem =
  * One shortcut: click, then press the new keys; Esc keeps the old ones, Backspace takes the
  * shortcut away. Keys another app holds say so, and the old ones stay.
  */
-function KeysField({ kind, device }: { kind: HelpShortcut; device: Settings["device"] }) {
+function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["device"] }) {
   const t = useT();
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [recording, setRecording] = useState(false);
@@ -108,53 +106,55 @@ function KeysField({ kind, device }: { kind: HelpShortcut; device: Settings["dev
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-2">
-        {keys !== standard && (
+    <SettingsRow
+      data-testid="help-keys-row"
+      label={name}
+      control={
+        <>
+          {keys !== standard && (
+            <button
+              type="button"
+              data-testid={standard ? "help-keys-default" : "help-keys-remove"}
+              onClick={() => {
+                setProblem(null);
+                void save(standard ?? "");
+              }}
+              className="text-[13px] leading-5 text-accent hover:underline"
+            >
+              {t(standard ? "meetings.settings.keysDefault" : "meetings.settings.keysRemove")}
+            </button>
+          )}
           <button
+            id={id}
             type="button"
-            data-testid={standard ? "help-keys-default" : "help-keys-remove"}
+            data-testid="help-keys"
+            data-kind={kind}
+            data-recording={recording ? "" : undefined}
+            aria-label={t("meetings.settings.keysChange", { name })}
+            aria-describedby={problem ? `${id}-problem` : undefined}
             onClick={() => {
               setProblem(null);
-              void save(standard ?? "");
+              setRecording(true);
             }}
-            className="text-[13px] leading-5 text-accent hover:underline"
+            onBlur={() => setRecording(false)}
+            onKeyDown={(event) => void onKeyDown(event)}
+            className={`${buttonStyle("secondary", "sm")} min-w-24 data-recording:border-accent data-recording:text-ink-meta`}
           >
-            {t(standard ? "meetings.settings.keysDefault" : "meetings.settings.keysRemove")}
+            {recording
+              ? t("meetings.settings.keysPress")
+              : keys
+                ? keysHere(keys)
+                : t("meetings.settings.keysNone")}
           </button>
-        )}
-        <button
-          id={id}
-          type="button"
-          data-testid="help-keys"
-          data-kind={kind}
-          aria-label={t("meetings.settings.keysChange", { name })}
-          aria-describedby={problem ? `${id}-problem` : undefined}
-          onClick={() => {
-            setProblem(null);
-            setRecording(true);
-          }}
-          onBlur={() => setRecording(false)}
-          onKeyDown={(event) => void onKeyDown(event)}
-          className={`h-8 min-w-24 rounded-sm border px-2 text-[13px] leading-5 ${
-            recording
-              ? "border-accent text-ink-meta"
-              : "border-rule-strong bg-sheet text-ink hover:bg-hover"
-          }`}
-        >
-          {recording
-            ? t("meetings.settings.keysPress")
-            : keys
-              ? keysHere(keys)
-              : t("meetings.settings.keysNone")}
-        </button>
-      </div>
+        </>
+      }
+    >
       {problem && (
         <p
           id={`${id}-problem`}
           role="alert"
           data-testid="help-keys-problem"
-          className="text-right text-[12px] leading-[18px] text-ink-secondary"
+          className="text-[12px] leading-[18px] text-ink-secondary"
         >
           {problem.kind === "invalid" &&
             t(isMac ? "meetings.settings.keysInvalid.mac" : "meetings.settings.keysInvalid.other")}
@@ -179,7 +179,7 @@ function KeysField({ kind, device }: { kind: HelpShortcut; device: Settings["dev
           )}
         </p>
       )}
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -191,74 +191,41 @@ export function HelpSettings() {
   const t = useT();
   const device = useAppStore((state) => state.settings?.device);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const panelId = useId();
-  const hiddenId = useId();
   if (!device) return null;
   return (
-    <section data-testid="help-settings" className="mt-6 flex flex-col">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("meetings.help.label")}</h4>
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <label htmlFor={panelId} className={rowTitleClass}>
-              {t("meetings.callHelp.show")}
-            </label>
-            <p id={`${panelId}-description`} className={rowTextClass}>
-              {t("meetings.settings.panelBody")}
-            </p>
-          </div>
-          <input
-            id={panelId}
-            type="checkbox"
-            role="switch"
-            aria-checked={device.meetingPanel}
-            aria-describedby={`${panelId}-description`}
-            data-testid="help-panel-setting"
+    <div data-testid="help-settings" className="flex flex-col gap-6">
+      <SettingsSection title={t("meetings.help.label")}>
+        <SettingsGroup>
+          <SettingsSwitchRow
+            label={t("meetings.callHelp.show")}
+            detail={t("meetings.settings.panelBody")}
             checked={device.meetingPanel}
-            onChange={(event) =>
-              void updateSettings({ device: { meetingPanel: event.target.checked } })
-            }
-            className="switch"
+            onChange={(meetingPanel) => void updateSettings({ device: { meetingPanel } })}
+            switchTestId="help-panel-setting"
           />
-        </div>
-        {SAYS_HIDDEN_FROM_SHARES && (
-          <div className={ruledRowClass}>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <label htmlFor={hiddenId} className={rowTitleClass}>
-                {t("meetings.settings.hidden")}
-              </label>
-              <p id={`${hiddenId}-description`} className={rowTextClass}>
-                {t("meetings.panel.hidden")}
-              </p>
-            </div>
-            <input
-              id={hiddenId}
-              type="checkbox"
-              role="switch"
-              aria-checked={device.meetingPanelHidden}
-              aria-describedby={`${hiddenId}-description`}
-              data-testid="help-hidden-setting"
+          {SAYS_HIDDEN_FROM_SHARES && (
+            <SettingsSwitchRow
+              label={t("meetings.settings.hidden")}
+              detail={t("meetings.panel.hidden")}
               checked={device.meetingPanelHidden}
-              onChange={(event) =>
-                void updateSettings({ device: { meetingPanelHidden: event.target.checked } })
+              onChange={(meetingPanelHidden) =>
+                void updateSettings({ device: { meetingPanelHidden } })
               }
-              className="switch"
+              switchTestId="help-hidden-setting"
             />
-          </div>
-        )}
-      </div>
-      <h5 className={`mt-4 mb-1 ${rowTitleClass}`}>{t("meetings.settings.keys")}</h5>
-      <p className={`mb-2 ${hintClass}`}>
-        {t(isMac ? "meetings.settings.keysBody.mac" : "meetings.settings.keysBody.other")}
-      </p>
-      <div className={ruledListClass}>
-        {HELP_SHORTCUTS.map((kind) => (
-          <div key={kind} data-testid="help-keys-row" className={ruledRow("center")}>
-            <span className={rowTextClass}>{t(helpShortcutLabel(kind))}</span>
-            <KeysField kind={kind} device={device} />
-          </div>
-        ))}
-      </div>
-    </section>
+          )}
+        </SettingsGroup>
+      </SettingsSection>
+      <SettingsSection
+        title={t("meetings.settings.keys")}
+        help={t(isMac ? "meetings.settings.keysBody.mac" : "meetings.settings.keysBody.other")}
+      >
+        <SettingsGroup>
+          {HELP_SHORTCUTS.map((kind) => (
+            <ShortcutRow key={kind} kind={kind} device={device} />
+          ))}
+        </SettingsGroup>
+      </SettingsSection>
+    </div>
   );
 }

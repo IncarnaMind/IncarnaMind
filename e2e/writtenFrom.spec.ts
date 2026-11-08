@@ -112,6 +112,14 @@ for (const [language, request, line, useAll] of [
     const lineBox = await from.boundingBox();
     const replyBox = await answer.getByTestId("assistant-answer-text").boundingBox();
     expect(lineBox && replyBox && lineBox.y < replyBox.y).toBe(true);
+    const order = await answer.evaluate((node) =>
+      [
+        ...node.querySelectorAll(
+          '[data-testid="answer-steps"], [data-testid="answer-written-from"], [data-testid="assistant-answer-text"]',
+        ),
+      ].map((each) => each.getAttribute("data-testid")),
+    );
+    expect(order).toEqual(["answer-steps", "answer-written-from", "assistant-answer-text"]);
     const editor = window.getByTestId("mind-editor");
     await expect(tab(window, "Summary")).toHaveAttribute("aria-selected", "true");
     await expect(editor).toContainText("Written from Lease 1, Lease 2.");

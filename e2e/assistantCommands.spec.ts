@@ -1,6 +1,7 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -14,6 +15,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  organizeWithChatModel,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -58,6 +60,8 @@ const DOCUMENTS = [
   "Lease Harbour Street",
   "Lease Mill Lane",
 ];
+/** Organize proposes a new Folder only for three or more Documents: a third of each. */
+const TO_ORGANIZE = [...DOCUMENTS, "Northwind invoice May", "Lease Quay Road"];
 
 const library = (window: Page) =>
   window.evaluate(async () => {
@@ -79,11 +83,12 @@ async function setUp(
   app: ElectronApplication,
   window: Page,
   language: "en" | "zh-CN" = "en",
+  names: readonly string[] = DOCUMENTS,
 ): Promise<void> {
   await setLanguage(window, language);
   await setWindowSize(app, window, 1440, 900);
   const paths = await Promise.all(
-    DOCUMENTS.map(async (name) => {
+    names.map(async (name) => {
       const path = join(sources, `${name}.md`);
       await writeFile(path, `# ${name}\n\nSigned in 2026.\n`);
       return path;
@@ -286,6 +291,147 @@ test("export as Word saves into the Output location at once; to another folder i
   await app.close();
 });
 
+test("a file that appears while the export card waits refreshes it, marks the new name, and writes only after a second Allow", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await useOutputLocation(window, out);
+
+  const card = await askAndWait(window, `Export this Mind as Word to ${elsewhere}`);
+  await expect(card.getByTestId("approval-file")).toHaveText(["Deal notes.docx"]);
+  await writeFile(
+    join(elsewhere, "Deal notes.docx"),
+    "A file that appeared while the card waited.",
+  );
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const refreshed = window.getByTestId("approval-card").last();
+  await expect(refreshed).toContainText("The files changed since you looked. Allow these instead?");
+  await expect(refreshed.getByTestId("approval-file")).toContainText("Deal notes 2.docx");
+  await expect(refreshed.getByTestId("approval-file-new")).toHaveText("New");
+  await expect(refreshed.getByTestId("approval-allow-once")).toBeDisabled();
+  expect(await readdir(elsewhere)).toEqual(["Deal notes.docx"]);
+  await screenshot(window, "commands-export-changed");
+  await expect(refreshed.getByTestId("approval-allow-once")).toBeEnabled({ timeout: 3_000 });
+  await pointAndClick(window, refreshed.getByTestId("approval-allow-once"));
+
+  const allowed = assistantAnswers(window).last();
+  await expect(allowed).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect.poll(() => readdir(elsewhere)).toEqual(["Deal notes 2.docx", "Deal notes.docx"]);
+  await app.close();
+});
+
+/** Pictures at the end of the Note in front, each its own colour so each is its own file (#2514). */
+async function addPictures(window: Page, from: number, count: number): Promise<void> {
+  await window.getByTestId("mind-editor").evaluate(
+    (dom, [first, many]) => {
+      const pictures = Array.from({ length: many }, (_, index) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const drawing = canvas.getContext("2d");
+        if (!drawing) throw new Error("Canvas is unavailable.");
+        drawing.fillStyle = `hsl(${(first + index) * 13}, 70%, 50%)`;
+        drawing.fillRect(0, 0, 8, 8);
+        return {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: { src: canvas.toDataURL("image/png"), alt: `Chart ${first + index}` },
+            },
+          ],
+        };
+      });
+      const { editor } = dom as unknown as { editor: Editor };
+      editor.commands.insertContentAt(editor.state.doc.content.size, pictures);
+    },
+    [from, count] as const,
+  );
+}
+
+test("a Markdown export with pictures names every file on its card, a long list scrolls inside it, and the keyboard allows it, narrow and wide, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await useOutputLocation(window, out);
+  await addPictures(window, 1, 2);
+  const names = (card: Locator) =>
+    card
+      .getByTestId("approval-file")
+      .evaluateAll((rows) => rows.map((row) => row.firstChild?.textContent ?? ""));
+
+  const words = {
+    en: { 3: "This writes 3 new files", 25: "This writes 25 new files" },
+    "zh-CN": { 3: "写入 3 个新文件", 25: "写入 25 个新文件" },
+  } as const;
+  /** The card at a wide and a narrow window, in English and Chinese, while it waits. */
+  async function everyLayout(card: Locator, count: 3 | 25): Promise<string[]> {
+    const listed = await names(card);
+    expect(listed).toHaveLength(count);
+    expect(listed[0]).toBe("Deal notes.md");
+    expect(listed.slice(1).every((name) => /^picture-[0-9a-f]{12}\.png$/.test(name))).toBe(true);
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const width of [1440, 900]) {
+        await setWindowSize(app, window, width, 900);
+        await expect(card.locator(".approval-explanation")).toContainText(words[language][count]);
+        // One name to a row, each whole: a long name wraps inside the card rather than being cut.
+        const files = card.getByTestId("approval-files");
+        expect(
+          await files.evaluate((list) => {
+            const rows = [...list.children].map((row) => row.getBoundingClientRect());
+            return {
+              oneColumn: rows.every((row) => row.left === rows[0]?.left),
+              cut: list.scrollWidth > list.clientWidth,
+            };
+          }),
+        ).toEqual({ oneColumn: true, cut: false });
+        // The list scrolls inside the card, and the card's buttons stay in the window.
+        expect(await files.evaluate((list) => list.scrollHeight > list.clientHeight)).toBe(
+          count === 25,
+        );
+        await expect(card.getByTestId("approval-allow-once")).toBeInViewport();
+        await screenshot(window, `commands-export-${count}-files-${language}-${width}`);
+      }
+    }
+    await setLanguage(window, "en");
+    return listed;
+  }
+
+  const three = await askAndWait(window, `Export this Mind as Markdown to ${elsewhere}`);
+  await everyLayout(three, 3);
+  await pointAndClick(window, three.getByTestId("approval-deny"));
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 15_000,
+  });
+  expect(await readdir(elsewhere)).toEqual([]);
+
+  // By the keyboard: from the card's title, Tab reaches the long list, End scrolls it to its
+  // last name, Tab reaches Don't allow, the next Tab reaches Allow, and Enter allows.
+  await addPictures(window, 3, 22);
+  const card = await askAndWait(window, `Export this Mind as Markdown to ${elsewhere}`);
+  const listed = await everyLayout(card, 25);
+  const files = card.getByTestId("approval-files");
+  await pointAndClick(window, card.locator(".approval-title-text"));
+  await window.keyboard.press("Tab");
+  await expect(files).toBeFocused();
+  await window.keyboard.press("End");
+  await expect(card.getByTestId("approval-file").last()).toBeInViewport();
+  await window.keyboard.press("Tab");
+  await expect(card.getByTestId("approval-deny")).toBeFocused();
+  await window.keyboard.press("Tab");
+  await expect(card.getByTestId("approval-allow-once")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
+    timeout: 15_000,
+  });
+  await expect.poll(async () => (await readdir(elsewhere)).sort()).toEqual([...listed].sort());
+  await app.close();
+});
+
 test("adding the PDFs in a folder lists them and waits for Allow, then adds them, and one Undo takes them out", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -345,18 +491,6 @@ test("in Chinese, tagging says what changed in the card and the undo line, at a 
  * The assistant does what the User can in the app, from the one command list (#1421), as the
  * prototype's Guide flow "Ask the assistant to organize files" has it.
  */
-
-async function organizeWithTheFake(window: Page): Promise<void> {
-  await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const [provider] = await core.listChatProviders();
-    if (!provider) throw new Error("No provider.");
-    await core.saveLibrarySettings({
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-      automatic: false,
-    });
-  });
-}
 
 test("a Folder made and the leases moved into it are one request: the card, the undo line and ⌘Z take both back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -561,7 +695,7 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   await app.close();
 });
 
-test("put the documents about rent together files them, and one Undo puts them back", async () => {
+test("put the documents about rent together proposes them for Rent, the reply's Review opens them, and one Undo takes the proposal back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -581,48 +715,36 @@ test("put the documents about rent together files them, and one Undo puts them b
     }),
   );
   await addDocuments(window, paths);
-  await organizeWithTheFake(window);
+  await organizeWithChatModel(window);
   await newMind(window);
 
   const answer = await askAndFinish(window, "Put the documents about rent together");
   const changes = answer.getByTestId("command-changes");
-  await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 2 Documents");
-  // Nothing is left waiting in To review: the User's request was the acceptance.
-  expect(
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { assignments } = await core.getLibrary();
-      return assignments.filter((each) => each.suggested).length;
-    }),
-  ).toBe(0);
-  const placed = await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const [{ assignments, groups }, documents] = await Promise.all([
-      core.getLibrary(),
-      core.listDocuments(),
-    ]);
-    const rent = groups.find((group) => group.name === "Rent");
-    return documents
-      .map((document) => {
-        const held = assignments.find((each) => each.documentId === document.id);
-        return {
-          name: document.name,
-          inRent: held?.groupId === rent?.id,
-          chosenByUser: held?.source === "user",
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  });
-  expect(placed).toEqual([
-    { name: "Harbour Street", inRent: true, chosenByUser: true },
-    { name: "Q3 commentary", inRent: false, chosenByUser: false },
-    { name: "Scan 0042", inRent: true, chosenByUser: true },
-  ]);
+  await expect(changes.getByTestId("command-changes-title")).toHaveText(
+    "2 Documents wait in Suggested Folders",
+  );
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveText(
+    "Nothing has moved yet",
+  );
+  // Nothing moves from the chat: Rent waits in Suggestions with the two, and isn't made yet.
+  expect(await proposedOf(window)).toEqual({ Rent: ["Harbour Street", "Scan 0042"] });
+  expect(await foldersOf(window)).toEqual({});
   await screenshot(window, "commands-organized-en");
+
+  await pointAndClick(window, changes.getByTestId("command-changes-review"));
+  const review = window.getByTestId("organize-review");
+  await expect(review).toBeVisible();
+  const rent = review.getByTestId("organize-review-card").filter({
+    has: window.getByTestId("organize-review-card-name").filter({ hasText: /(^|› )Rent$/ }),
+  });
+  await expect
+    .poll(async () => (await rent.getByTestId("organize-review-name").allTextContents()).sort())
+    .toEqual(["Harbour Street", "Scan 0042"]);
 
   await pointAndClick(window, changes.getByTestId("command-changes-undo"));
   await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
-  await expect.poll(async () => (await foldersOf(window)).Rent ?? []).toEqual([]);
+  await expect.poll(() => proposedOf(window)).toEqual({});
+  expect(await foldersOf(window)).toEqual({});
   await app.close();
 });
 
@@ -630,8 +752,8 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await setUp(app, window);
-  await organizeWithTheFake(window);
+  await setUp(app, window, "en", TO_ORGANIZE);
+  await organizeWithChatModel(window);
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -652,10 +774,10 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
 
   const card = await askAndWait(window, "Re organise the files");
   await expect(card).toHaveAttribute("data-reason", "organize");
-  await expect(card).toContainText("Organize 4 Documents into Folders?");
-  await expect(card).toContainText("Sends document names and excerpts to OpenAI.");
+  await expect(card).toContainText("Organize 6 Documents into Folders?");
+  // The Library's card's own line of what goes (#1569).
   await expect(card).toContainText(
-    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI.",
+    "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to OpenAI, each time you organize.",
   );
   await screenshot(window, "commands-organize-cloud-asks-en");
   await setWindowSize(app, window, 900, 900);
@@ -666,7 +788,9 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
 
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
+  await expect(answer.getByTestId("command-changes-title")).toHaveText(
+    "6 Documents wait in Suggested Folders",
+  );
   const consent = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
@@ -679,8 +803,8 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await setUp(app, window, "zh-CN");
-  await organizeWithTheFake(window);
+  await setUp(app, window, "zh-CN", TO_ORGANIZE);
+  await organizeWithChatModel(window);
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -701,12 +825,11 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
 
   const card = await askAndWait(window, "重新整理一下这些文件");
   await expect(card).toHaveAttribute("data-reason", "organize");
-  await expect(card).toContainText("整理 4 个文档，放进文件夹？");
-  await expect(card).toContainText(
-    "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。",
-  );
+  await expect(card).toContainText("整理 6 个文档，放进文件夹？");
   // The card's Chinese sentences meet with full-width punctuation, never an ASCII space.
-  await expect(card).toContainText("可以用撤销恢复。会把文档名称和摘录发送给 OpenAI。");
+  await expect(card).toContainText(
+    "你确认前不会移动任何文档。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。",
+  );
   await screenshot(window, "commands-organize-cloud-asks-zh");
   await setWindowSize(app, window, 900, 900);
   await card.evaluate((each) => each.scrollIntoView({ block: "start" }));
@@ -716,7 +839,9 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
 
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
+  await expect(answer.getByTestId("command-changes-title")).toHaveText(
+    "6 个文档在“建议的文件夹”中待确认",
+  );
   const consent = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
@@ -725,50 +850,63 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   await app.close();
 });
 
-test("Re organise the files files every Document, and one Undo puts them back", async () => {
+test("Re organise the files proposes a Folder for every Document, makes none, and one Undo takes the proposals back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await setUp(app, window);
-  await organizeWithTheFake(window);
+  await setUp(app, window, "en", TO_ORGANIZE);
+  await organizeWithChatModel(window);
 
   const answer = await askAndFinish(window, "Re organise the files");
   const changes = answer.getByTestId("command-changes");
-  await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText(
+    "6 Documents wait in Suggested Folders",
+  );
   await expect
-    .poll(() => foldersOf(window))
+    .poll(() => proposedOf(window))
     .toEqual({
-      Lease: ["Lease Harbour Street", "Lease Mill Lane"],
-      Northwind: ["Northwind invoice April", "Northwind invoice March"],
+      Lease: ["Lease Harbour Street", "Lease Mill Lane", "Lease Quay Road"],
+      Northwind: ["Northwind invoice April", "Northwind invoice March", "Northwind invoice May"],
     });
+  expect(await foldersOf(window)).toEqual({});
 
   await pointAndClick(window, changes.getByTestId("command-changes-undo"));
   await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
-  await expect.poll(() => foldersOf(window)).toEqual({});
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveCount(0);
+  await expect.poll(() => proposedOf(window)).toEqual({});
+  expect(await foldersOf(window)).toEqual({});
   await app.close();
 });
 
-test("重新整理文件：整理完成后撤销一次就恢复原样", async () => {
+test("重新整理文件：为每个文档建议文件夹，不新建文件夹，撤销一次就收回建议", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await setUp(app, window, "zh-CN");
-  await organizeWithTheFake(window);
+  await setUp(app, window, "zh-CN", TO_ORGANIZE);
+  await organizeWithChatModel(window);
 
   const answer = await askAndFinish(window, "重新整理一下这些文件");
   const changes = answer.getByTestId("command-changes");
-  await expect(changes.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText(
+    "6 个文档在“建议的文件夹”中待确认",
+  );
+  await expect(changes.getByTestId("command-changes-nothing-moved")).toHaveText(
+    "还没有移动任何文档",
+  );
+  await expect(changes.getByTestId("command-changes-review")).toHaveText("查看");
   await expect
-    .poll(() => foldersOf(window))
+    .poll(() => proposedOf(window))
     .toEqual({
-      Lease: ["Lease Harbour Street", "Lease Mill Lane"],
-      Northwind: ["Northwind invoice April", "Northwind invoice March"],
+      Lease: ["Lease Harbour Street", "Lease Mill Lane", "Lease Quay Road"],
+      Northwind: ["Northwind invoice April", "Northwind invoice March", "Northwind invoice May"],
     });
+  expect(await foldersOf(window)).toEqual({});
   await screenshot(window, "commands-organized-zh");
 
   await pointAndClick(window, changes.getByTestId("command-changes-undo"));
   await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
-  await expect.poll(() => foldersOf(window)).toEqual({});
+  await expect(changes.getByTestId("command-changes-review")).toHaveCount(0);
+  await expect.poll(() => proposedOf(window)).toEqual({});
   await app.close();
 });
 
@@ -865,6 +1003,31 @@ const foldersOf = (window: Page) =>
           .sort(),
       ]),
     );
+  });
+
+/** What waits in Suggestions, by the Folder proposed, its Documents by name, sorted. */
+const proposedOf = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [review, library, documents] = await Promise.all([
+      core.getOrganizeReview(),
+      core.getLibrary(),
+      core.listDocuments(),
+    ]);
+    const names = new Map(documents.map((each) => [each.id, each.name]));
+    const into: Record<string, string[]> = {};
+    for (const item of review.items) {
+      const { placement } = item;
+      const folder =
+        placement.kind === "folder"
+          ? library.groups.find((group) => group.id === placement.folderId)?.name
+          : placement.kind === "newFolder"
+            ? review.folders.find((each) => each.id === placement.newFolderId)?.name
+            : undefined;
+      if (folder === undefined) continue;
+      into[folder] = [...(into[folder] ?? []), names.get(item.documentId) ?? ""].sort();
+    }
+    return into;
   });
 
 /** Each pair is two Tags, the shorter a prefix of the longer, the first of them on a lease. */

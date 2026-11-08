@@ -13,7 +13,7 @@ export interface FetchLimits {
 
 export const FETCH_LIMITS: FetchLimits = { timeoutMs: 20_000, maxBytes: 10 * 1024 * 1024 };
 
-/** What `fetchPage` asks of a fetch: the global `fetch`, or web search's (../../tools/web/fetcher). */
+/** What `fetchPage` asks of a fetch: the public-internet one (../../tools/web/fetcher), or one a test gives. */
 export interface PageRequest {
   redirect: "follow";
   credentials: "omit";

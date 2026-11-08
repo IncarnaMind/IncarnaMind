@@ -3,6 +3,7 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useState,
@@ -27,9 +28,11 @@ import {
   sideMax,
   sideWidth,
 } from "../../assistantPlace";
+import { useAssistantYields } from "../../assistantYields";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { useCardWidth } from "../../layoutSlice";
+import { useSettingUp } from "../../modelSetup";
 import { useQuestionRoom } from "../../questionRoom";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useAppStore } from "../../store";
@@ -95,12 +98,22 @@ export function Workbench({
   const groups = useMemo(() => <TabGroups />, []);
 
   const width = sideWidth(shown.width, room.width);
-  const waits = useQuestionRoom((state) => state.fits !== null) && dock === "bottom" && !folded;
-  const fits = useQuestionRoom((state) => (state.resized ? null : state.fits));
+  useAssistantYields({ dock, folded, width, quiet, room: room.width });
+  // The first Question waits on choosing a model: its card grows the dock to the height a dock may
+  // take, which keeps the Note's own room, so every way in shows in a short window (#2270).
+  const settingUp = useSettingUp();
+  const resized = useQuestionRoom((state) => state.resized);
+  const trayWaiting = useQuestionRoom((state) => state.fits !== null);
+  const trayFits = useQuestionRoom((state) => (state.resized ? null : state.fits));
+  const setupFits =
+    settingUp && !resized && dock === "bottom" && !folded ? bottomMax(room.height) : null;
+  const needed = trayFits ?? setupFits;
+  const waits = (trayWaiting || settingUp) && dock === "bottom" && !folded;
   // One largest height while a question waits, for its growth, the keys and a drag alike.
   const tallest = waits ? questionMax(room.height) : bottomMax(room.height);
   const ownHeight = bottomHeight(shown.height, room.height, tallest);
-  const height = waits && fits !== null ? questionHeight(ownHeight, fits, room.height) : ownHeight;
+  const height =
+    waits && needed !== null ? questionHeight(ownHeight, needed, room.height) : ownHeight;
   const float = floatRect(shown.float, folded, viewport);
   const atWindowLeft = dock === "left" && sidebarHidden;
 
@@ -127,8 +140,15 @@ export function Workbench({
   const beside = quiet ? 0 : side ? (folded ? RAIL : width) + GAP : 0;
 
   const resizedNow = () => {
-    if (useQuestionRoom.getState().fits !== null) useQuestionRoom.setState({ resized: true });
+    if (useQuestionRoom.getState().fits !== null || (settingUp && dock === "bottom")) {
+      useQuestionRoom.setState({ resized: true });
+    }
   };
+  // A height the User dragged while the setup card showed is theirs only until it ends.
+  useEffect(() => {
+    if (!settingUp) return;
+    return () => useQuestionRoom.setState({ resized: false });
+  }, [settingUp]);
   const resize = (next: Partial<AssistantPlace>) => {
     resizedNow();
     setPreview(next);

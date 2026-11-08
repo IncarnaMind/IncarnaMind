@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { recordMeeting, startRecording, useOutputLocation } from "../app";
+import { recordMeeting, startRecording, transcriptSaved, useOutputLocation } from "../app";
 import {
   copyModelsIn,
   copyModelsOut,
@@ -42,7 +42,7 @@ test.afterEach(async () => {
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
 
-// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
+// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), with its streaming model's live words while a line is said (#2662), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
 test("the packaged app transcribes a meeting from the microphone on this computer, and tells its speakers apart", async () => {
   expect(existsSync(packagedExecutable), `${packagedExecutable}: run npm run dist:dir first`).toBe(
     true,
@@ -67,17 +67,22 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   await start.getByTestId("meeting-start-audio").selectOption("me");
   const bar = await startRecording(window, start, { notice: true });
 
-  // The toggle is greyed until the Transcript has its first line: the model is downloaded and
+  // "Open beside" is greyed until the Transcript has its first line: the model is downloaded and
   // the engine runs. An engine that doesn't load says so instead, and the test stops there.
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+  const beside = window.getByTestId("meeting-transcript-beside");
   const stopped = window
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(toggle.and(window.locator(":enabled")).or(stopped)).toBeVisible({
+  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
     timeout: 20 * 60_000,
   });
   await expect(stopped).toHaveCount(0);
-  await toggle.click();
+  // The words being said, before their line is finished: the streaming model loaded and reads.
+  await expect(window.getByTestId("transcript-partial").first()).toContainText(/\p{L}/u, {
+    timeout: 2 * 60_000,
+  });
+  await beside.click();
   const lines = window.getByTestId("transcript-lines");
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });
@@ -91,10 +96,7 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   if (process.platform === "win32") await expectSpeechEngineOnTheAppsRuntime(app);
 
   await bar.getByTestId("meeting-stop").click();
-  const saved = window
-    .getByTestId("meeting-transcript-line")
-    .filter({ hasText: "Transcript saved" });
-  await expect(saved).toBeVisible({ timeout: 5 * 60_000 });
+  await transcriptSaved(window, 5 * 60_000);
   // Finished, it is kept in the Library: its file is the data folder's own, and the chosen
   // Output location gets nothing (#763).
   expect(await readdir(join(dataDir, "Transcripts"))).not.toHaveLength(0);
@@ -139,19 +141,20 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   const start = await recordMeeting(window);
   await start.getByTestId("meeting-start-audio").selectOption("me");
   const bar = await startRecording(window, start, { notice: true });
-  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+  const beside = window.getByTestId("meeting-transcript-beside");
   const stopped = window
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(toggle.and(window.locator(":enabled")).or(stopped)).toBeVisible({
+  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
     timeout: 20 * 60_000,
   });
   await expect(stopped).toHaveCount(0);
-  await toggle.click();
+  await beside.click();
 
   // One play of the file is its three lines. A slow runner's live text can fall behind before
   // them; the rest is then transcribed from the recording after Stop.
-  const words = window.getByTestId("transcript-line").locator(".transcript-text");
+  const words = window.getByTestId("transcript-line");
   const behind = window.getByTestId("transcript-behind");
   await expect
     .poll(async () => (await words.count()) >= 3 || (await behind.count()) > 0, {
@@ -160,9 +163,7 @@ test("the packaged app keeps the short first word of each Chinese line", async (
     .toBe(true);
   if ((await words.count()) < 3) {
     await bar.getByTestId("meeting-stop").click();
-    await expect(
-      window.getByTestId("meeting-transcript-line").filter({ hasText: "Transcript saved" }),
-    ).toBeVisible({ timeout: 5 * 60_000 });
+    await transcriptSaved(window, 5 * 60_000);
   }
   const said = await words.allTextContents();
   // Each line with its first word, as tests/fixtures/speech/README.md has them.

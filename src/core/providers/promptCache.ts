@@ -22,6 +22,7 @@
 import { createHash } from "node:crypto";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { TokenUsage } from "../runs/engine";
+import { saysNothing } from "./emptyTurns";
 import type { ChatLanguageModel } from "./models";
 
 type Params = Parameters<NonNullable<LanguageModelMiddleware["transformParams"]>>[0]["params"];
@@ -101,9 +102,13 @@ export function withCacheBreakpoints(model: ChatLanguageModel): ChatLanguageMode
     middleware: {
       specificationVersion: "v4",
       transformParams: async ({ params }) => {
-        const marks = new Set(breakpointsOf(params.prompt));
+        // Anthropic refuses a cache mark on an empty text block, which such a turn would get (#2701).
+        // The model leaves such turns out before this (./emptyTurns); it stands here too, as the
+        // tests of this step compose it on its own.
+        const sent = params.prompt.filter((message) => !saysNothing(message)) as Prompt;
+        const marks = new Set(breakpointsOf(sent));
         let prefixes = 0;
-        const prompt = params.prompt.map((message, at) => {
+        const prompt = sent.map((message, at) => {
           const split = prefixes === 0 ? withStablePrefix(message) : null;
           if (split) prefixes++;
           const each = split ?? message;

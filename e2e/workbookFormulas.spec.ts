@@ -5,6 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { dcfWorkbook } from "../tests/helpers/financeWorkbooks";
+import { rentalPropertyWorkbook } from "../tests/helpers/rentalHeldOut";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -150,9 +151,11 @@ for (const [language, width] of [
         t("figures.workbook.whatIfFormula", {
           cell: "DCF!E5",
           formula: "E4*Margin",
-          input: "Revenue growth (Growth)",
-          from: "5.0%",
-          to: "3.0%",
+          changes: t("figures.workbook.whatIfChange", {
+            input: "Revenue growth (Growth)",
+            from: "5.0%",
+            to: "3.0%",
+          }),
         }),
       );
       await shot(window, `workbook-figure-schedule-${language}`);
@@ -167,3 +170,104 @@ for (const [language, width] of [
     }
   });
 }
+
+const TWO_INPUTS_QUESTION = {
+  en: "What if growth were 3% and the EBITDA margin 25% at the same time?",
+  "zh-CN": "如果增长率是 3%，同时 EBITDA 利润率是 25%，会怎样？",
+} as const;
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["zh-CN", 900],
+] as const) {
+  test(`a what-if's card lists each input it changed (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(language, key, params);
+    const file = join(sources, "DCF model.xlsx");
+    await writeFile(file, dcfWorkbook().xlsx());
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, width, 900);
+      await dismissChatSetup(window);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+      });
+      await addDocuments(window, [file]);
+      await setLanguage(window, language);
+      await newMind(window);
+      const answer = await askInAssistant(window, TWO_INPUTS_QUESTION[language]);
+      await addToNote(window, answer);
+
+      const editor = window.getByTestId("mind-editor");
+      const figures = editor.getByTestId("calculated-figure");
+      await expect(figures).toHaveCount(2);
+      await expect(figures.nth(0)).toContainText("273.2");
+      const card = window.locator(".calculated-figure-card");
+      await pointAt(window, editor.getByTestId("calculated-figure-marker").nth(0));
+      await expect(card).toBeVisible();
+      await expect(card).toContainText(
+        t("figures.workbook.change", {
+          input: "Revenue growth (Growth)",
+          cell: "Assumptions!B4",
+          from: "5.0%",
+          to: "3.0%",
+        }),
+      );
+      await expect(card).toContainText(
+        t("figures.workbook.change", {
+          input: "EBITDA margin (Margin)",
+          cell: "Assumptions!B5",
+          from: "22.0%",
+          to: "25.0%",
+        }),
+      );
+      await expect(card).toContainText(t("figures.workbook.inWorkbook", { value: "254.7" }));
+      await shot(window, `workbook-two-inputs-${language}`);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+test("a text figure's card shows the text its cell holds, traced to its inputs", async () => {
+  test.setTimeout(240_000);
+  const file = join(sources, "Rental property.xlsx");
+  await writeFile(file, rentalPropertyWorkbook().xlsx());
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+    });
+    await addDocuments(window, [file]);
+    await newMind(window);
+    const answer = await askInAssistant(window, "Is the covenant met in year 1? Trace the flag.");
+    await addToNote(window, answer);
+    const editor = window.getByTestId("mind-editor");
+    const figure = editor.getByTestId("calculated-figure");
+    await expect(figure).toHaveCount(1);
+    await expect(figure).toContainText("Breach");
+    const card = window.locator(".calculated-figure-card");
+    await pointAt(window, editor.getByTestId("calculated-figure-marker").nth(0));
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('Operations!B18 = IF(B17>=MinDSCR,"OK","Breach")');
+    await expect(card).toContainText("Assumptions!B15");
+    await shot(window, "workbook-text-figure");
+  } finally {
+    await app.close();
+  }
+});

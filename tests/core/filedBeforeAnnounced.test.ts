@@ -20,18 +20,28 @@ for (const stopped of [false, true]) {
         for (const each of list)
           heard.push(`Folder ${each.groupId === folder.id ? "Harbour" : each.groupId}`);
       });
-      core.on("document.status", (document) => heard.push(`Document ${document.status}`));
+      core.on("document.status", (document) =>
+        heard.push(`Document ${document.id}: ${document.status}`),
+      );
       core.on("documents.tagged", () => heard.push("Document tagged"));
 
       const filed = await writeSourceFile(sources, "Supply contract.md", "Supply contract.\n");
-      await core.addDocuments([filed], { groupId: folder.id });
+      const first = await core.addDocuments([filed], { groupId: folder.id });
+      const filedId = first.documents[0]?.id;
+      if (!filedId) throw new Error("The first Document wasn't added.");
       expect(heard[0]).toBe("Folder Harbour");
-      expect(heard).toContain("Document queued");
+      expect(heard).toContain(`Document ${filedId}: queued`);
 
+      // The first Document's own processing can still report after this: only the second one's
+      // events say what this add did (#2714).
       heard.length = 0;
       const loose = await writeSourceFile(sources, "Draft brief.md", "Draft brief.\n");
-      await core.addDocuments([loose]);
-      expect(heard[0]).toBe("Document queued");
+      const second = await core.addDocuments([loose]);
+      const looseId = second.documents[0]?.id;
+      if (!looseId) throw new Error("The second Document wasn't added.");
+      expect(heard.filter((each) => each.startsWith(`Document ${looseId}:`))[0]).toBe(
+        `Document ${looseId}: queued`,
+      );
     } finally {
       await core.close();
     }

@@ -336,6 +336,7 @@ export interface AgentAccessDeps {
     quote: string;
     pageFrom: number | null;
     pageTo: number | null;
+    location?: CitationLocation | null;
   }): CitationRecheck;
   /** Shows a Citation in the viewer, the app in front. */
   show(place: AgentCitationShown): void;
@@ -565,7 +566,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     location: CitationLocation | null,
     pageFrom: number | null,
     pageTo: number | null,
-  ) => citedLocation({ location, pageFrom, pageTo }, t);
+    documentId?: string | null,
+  ) =>
+    citedLocation(
+      { location, pageFrom, pageTo, documentId },
+      t,
+      location?.kind === "time" && documentId ? deps.liveDocuments() : null,
+    );
 
   /** Runs a call: admits the pairing, then records what came of it. */
   async function call<T>(
@@ -651,7 +658,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
 
   const passageLocation = (passage: WindowedPassage) => {
     const location = deps.citing.locate(passage);
-    return label(location, passage.pageFrom, passage.pageTo);
+    return label(location, passage.pageFrom, passage.pageTo, passage.documentId);
   };
 
   /** Mints the token of a Citation the check found. */
@@ -676,7 +683,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       documentId: passage.documentId,
       document: passage.documentName,
       location: found
-        ? label(found.location, found.pageFrom, found.pageTo)
+        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId)
         : passageLocation(passage),
       quote: found ? found.quote : null,
       cite: minted ? citeTag(minted.token) : null,
@@ -714,6 +721,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       quote: kept.quote,
       pageFrom: kept.pageFrom,
       pageTo: kept.pageTo,
+      location: kept.location,
     });
     const check = now.check === "found" || now.check === "cant-check" ? now.check : "not-found";
     const changed = now.contentHash !== null && now.contentHash !== kept.contentHash;
@@ -754,7 +762,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         cite: citeTag(token),
         check,
         document: withShownName(kept, live).documentName,
-        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo),
+        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo, kept.documentId),
         quote: kept.quote,
         changed,
       },
@@ -932,7 +940,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             check,
             cite: minted ? citeTag(minted.token) : null,
             document: citation.documentName,
-            location: label(citation.location, citation.pageFrom, citation.pageTo),
+            location: label(
+              citation.location,
+              citation.pageFrom,
+              citation.pageTo,
+              passage.documentId,
+            ),
             text: check === "found" ? null : excerpt(passage.text, null),
           };
         });
@@ -972,6 +985,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             quote: kept.quote,
             pageFrom: kept.pageFrom,
             pageTo: kept.pageTo,
+            location: kept.location,
           });
           const check =
             now.check === "found" || now.check === "cant-check" ? now.check : "not-found";
@@ -979,7 +993,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             cite: citeTag(token),
             check,
             document: withShownName(kept, live).documentName,
-            location: label(now.location ?? kept.location, now.pageFrom, now.pageTo),
+            location: label(
+              now.location ?? kept.location,
+              now.pageFrom,
+              now.pageTo,
+              kept.documentId,
+            ),
             quote: kept.quote,
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
           });
@@ -1007,11 +1026,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           quote: kept.quote,
           pageFrom: kept.pageFrom,
           pageTo: kept.pageTo,
+          location: kept.location,
         });
         if (now.contentHash === null) {
           throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
         }
-        const where = label(now.location ?? kept.location, now.pageFrom, now.pageTo);
+        const location = now.location ?? kept.location;
+        const where = label(location, now.pageFrom, now.pageTo, kept.documentId);
         deps.show({
           documentId: kept.documentId,
           ...(now.pageFrom !== null && { pageFrom: now.pageFrom }),
@@ -1021,6 +1042,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             check: now.check,
             ...(where && { label: where }),
             contentHash: now.contentHash,
+            ...(location && { location }),
           },
         });
         return {
@@ -1103,7 +1125,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             return { source: t("agents.mind.outsideCitation"), unverified: false };
           }
           const citation = withShownName(citationOf(attributes), live);
-          const where = label(citation.location, citation.pageFrom, citation.pageTo);
+          const where = label(
+            citation.location,
+            citation.pageFrom,
+            citation.pageTo,
+            citation.documentId,
+          );
           const source = where ? `${citation.documentName}, ${where}` : citation.documentName;
           if (citation.check !== "found") return { source, unverified: true };
           cited.push(documentId);
@@ -1172,7 +1199,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               citations.push({
                 cite: tag,
                 document: citation.documentName,
-                location: label(citation.location, citation.pageFrom, citation.pageTo),
+                location: label(
+                  citation.location,
+                  citation.pageFrom,
+                  citation.pageTo,
+                  citation.documentId,
+                ),
                 quote: citation.quote,
               });
             }

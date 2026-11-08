@@ -11,7 +11,12 @@ import type {
   ClaimPartSpan,
   WholeRead,
 } from "../../../core/api";
-import { citationState, shownDocumentName } from "../../../shared/citations";
+import {
+  citationState,
+  citedSpeakers,
+  type QuotedWordsOnPage,
+  shownDocumentName,
+} from "../../../shared/citations";
 import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
@@ -31,7 +36,8 @@ import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
-import { SignOffsContext } from "./mindContext";
+import { LibrarySource } from "./LibrarySource";
+import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
@@ -54,6 +60,7 @@ function PartCitation({
   citation: CitationAttributes;
   onOpen(): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
@@ -63,7 +70,13 @@ function PartCitation({
   const quote = useReadableQuote(citation);
   const location = citationLocation(citation);
   const property = location?.kind === "properties" ? location : null;
-  const where = location ? formatLocation(location, t) : null;
+  const library = location?.kind === "library" ? location : null;
+  const where = location
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(citation, documents),
+        quote: citation.quote,
+      })
+    : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
   const personId = usePersonId();
@@ -84,11 +97,11 @@ function PartCitation({
     if (id && signer) toggleCitationSignOff(editor, id, signer);
   };
   const open = () => {
-    if (!citation.documentId) return;
+    if (!citation.documentId || library) return;
     if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
-      { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
+      { origin, check: state.check, withQuote: quoteSaysSo(state.check), label: where },
     );
     onOpen();
   };
@@ -102,7 +115,13 @@ function PartCitation({
   );
   return (
     <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
-      {property ? (
+      {library ? (
+        <LibrarySource
+          location={library}
+          className="claim-part-citation claim-part-source claim-property"
+          testId="claim-part-library"
+        />
+      ) : property ? (
         <PropertySource
           citation={citation}
           location={property}
@@ -134,7 +153,7 @@ function PartCitation({
           align="end"
           without={["citation.update", "citation.keepOld", "citation.remove"]}
           here={{
-            ...(citation.documentId && { "citation.open": open }),
+            ...(citation.documentId && !library && { "citation.open": open }),
             ...(canSignOff &&
               (checkedByMe(signOff)
                 ? { "citation.signOffRemove": toggle }
@@ -151,14 +170,17 @@ export const citesMore = (
   state: EditorState,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
 ) =>
   cardRows(parts).some(({ part }) =>
-    partDecisions(state, claim, part).some(({ decision }) => decision.kind === "add"),
+    partDecisions(state, claim, part, onPage).some(({ decision }) => decision.kind === "add"),
   );
 
 /** What a marked sentence's card does with the Citations of what its parts found (#2002). */
 export interface PartCitations {
   claim: ShownClaim;
+  /** The core's verdicts on the sentence's quoted words at the places its parts found. */
+  onPage?: QuotedWordsOnPage;
   onAdd(parts: readonly ClaimCheckPart[]): void;
   onWiden(decision: Extract<CitationDecision, { kind: "widen" }>): void;
   onReplace(decision: Extract<CitationDecision, { kind: "replace" }>): void;
@@ -331,7 +353,7 @@ function PartRow({
         {state !== null && <ClaimMarkIcon state={state} className="citation-badge-icon" />}
         <span>
           {state === null
-            ? t("claim.opinion")
+            ? t(part.itself ? "claim.itself" : "claim.opinion")
             : state === "checking"
               ? t("claim.part.checking")
               : state === "unsupported" && showsNotFound
@@ -499,7 +521,9 @@ export function ClaimPartRows({
   const visible = expanded ? rows : rows.slice(0, 4);
   const citing = rows.map(({ part }) =>
     citations && !stale && !checking
-      ? partDecisions(editor.state, citations.claim, part).map(({ decision }) => decision)
+      ? partDecisions(editor.state, citations.claim, part, citations.onPage).map(
+          ({ decision }) => decision,
+        )
       : [],
   );
   const addable = rows.flatMap(({ part }, index) =>

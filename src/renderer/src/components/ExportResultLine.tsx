@@ -9,6 +9,7 @@ import { useDismissOnEscape } from "../escapeDismiss";
 import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
+  COMPARISON_CSV,
   COMPARISON_EXCEL,
   canChangeExport,
   cancelChange,
@@ -34,6 +35,7 @@ import {
   noteStateParts,
   noteStateShowsUnread,
   noteStateUnreadWords,
+  nothingLeft,
 } from "../noteState";
 import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { useAppStore } from "../store";
@@ -154,11 +156,14 @@ function ResultBody({
     return () => clearTimeout(timer);
   }, [plain, held, dismiss]);
 
-  const saving = isWorkbook(result.format)
-    ? t("export.excel.saving")
-    : isCheckRecord(result.format)
-      ? t("checkRecord.saving")
-      : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
+  const saving =
+    result.format === COMPARISON_CSV
+      ? t("export.csv.saving")
+      : isWorkbook(result.format)
+        ? t("export.excel.saving")
+        : isCheckRecord(result.format)
+          ? t("checkRecord.saving")
+          : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
   const fix = (): ProblemAction | undefined => {
     if (result.state === "failed") {
       return {
@@ -390,8 +395,8 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 /** A workbook the app writes from a note, the comparison or the figure schedule: not the note's own file. */
 const isWorkbook = (
   format: SavedResult["format"],
-): format is typeof COMPARISON_EXCEL | typeof FIGURE_SCHEDULE_EXCEL =>
-  format === COMPARISON_EXCEL || format === FIGURE_SCHEDULE_EXCEL;
+): format is typeof COMPARISON_EXCEL | typeof COMPARISON_CSV | typeof FIGURE_SCHEDULE_EXCEL =>
+  format === COMPARISON_EXCEL || format === COMPARISON_CSV || format === FIGURE_SCHEDULE_EXCEL;
 
 function useExportNoteState(mindId: string | null): NoteState | null {
   const mind = useAppStore((state) =>
@@ -427,14 +432,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     markAiText: result.markAiText,
   });
   const unread = state === null ? null : noteStateUnreadWords(state, t, language);
-  const standing =
-    state === null ||
-    (state.kind === "checked" &&
-      state.unread === 0 &&
-      state.cantCheck === 0 &&
-      state.needsCheck === 0)
-      ? []
-      : noteStateParts(state, t, language);
+  const standing = state === null || nothingLeft(state) ? [] : noteStateParts(state, t, language);
   // The unread count has words of its own at the line's end, in green and in amber for a narrow check; the line keeps its other parts.
   const beforeUnread =
     state !== null && noteStateShowsUnread(state) && unread !== null

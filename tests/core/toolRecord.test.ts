@@ -210,8 +210,8 @@ describe("The record of an Answer's Tool calls", () => {
     );
   });
 
-  // protects=Organize's record says how many Documents it was asked to sort, which a reply's "7 of the 8" adds up from (#2252); fails_when=the total is left out and the claim check flags a true count; no_claim=how a model reads it.
-  test("Organize's record says how many Documents it read (#2252)", () => {
+  // protects=Organize's record says what happened: the Folders it proposed, that they wait for the User's Review and that nothing was filed or moved (#1569), and how many Documents it was asked to sort, which a reply's "7 of the 8" adds up from (#2252); fails_when=the record says the Documents were filed, or the total is left out; no_claim=how a model reads it.
+  test("Organize's record says what it proposed, that nothing moved, and how many it read", () => {
     const line = toolRecordLines(
       [
         call({
@@ -221,6 +221,7 @@ describe("The record of an Answer's Tool calls", () => {
             command: "documents.organize",
             run: "r",
             items: [{ kind: "document", id: "d1", name: "Mill Lane" }],
+            into: { kind: "folder", id: "f1", name: "Leases", made: false },
             folders: [{ name: "Leases", count: 1 }],
             unsorted: 1,
             considered: 2,
@@ -229,9 +230,9 @@ describe("The record of an Answer's Tool calls", () => {
       ],
       names,
     ).at(0);
-    expect(line).toContain("filed 1 item in the folder “Leases”");
-    expect(line).toContain("1 item not sorted");
-    expect(line).toContain("read 2 items");
+    expect(line).toBe(
+      "- run_command documents.organize: 1 item (“Mill Lane”); proposed Folders for them: “Leases” for 1 item; they wait in Suggested Folders for the User's Review, and nothing was filed or moved; 1 item not sorted; read 2 items",
+    );
   });
 
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.

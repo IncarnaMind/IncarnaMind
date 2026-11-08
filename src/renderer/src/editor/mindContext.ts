@@ -4,6 +4,11 @@ import type { SignOffRecord } from "../../../shared/signOffs";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
 export const MindIdContext = createContext<string | null>(null);
+/**
+ * The conversation an Answer is shown in, when it is shown in one: a Citation in it is judged
+ * against that conversation's wall, as one in a Note is against the Note's (#2782).
+ */
+export const ConversationIdContext = createContext<string | null>(null);
 
 /**
  * Writes the Answer an editor shows again: an Answer in the assistant (#201),
@@ -16,6 +21,30 @@ export const RegenerateAnswerContext = createContext<(() => void) | null>(null);
 export const JudgedAnswerContext = createContext<{ id: string; conversationId: string } | null>(
   null,
 );
+
+/**
+ * Whether the assistant this is drawn in is folded (#2270): its Citations keep
+ * their cards open but out of sight, and they come back with the assistant.
+ * Null outside the assistant, where a Citation's page is opened from the Note.
+ */
+export const AssistantFoldedContext = createContext<boolean | null>(null);
+
+/**
+ * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
+ * or the Note and what acts beside it (its Citations, cards, tabs and commands).
+ */
+export type CitedOrigin = "note" | "assistant";
+
+/** The origin of a page opened from this component: the assistant it is drawn in, else the Note. */
+export const useCitedOrigin = (): CitedOrigin =>
+  useContext(AssistantFoldedContext) === null ? "note" : "assistant";
+
+/**
+ * Whether an editor holds one Answer's Blocks alone, as the assistant's does:
+ * its pictures are that Answer's, whatever Block they are in (#2377). Null in
+ * a Mind, where a picture's own Answer around it decides.
+ */
+export const PictureSurfaceContext = createContext<"answer" | null>(null);
 
 /**
  * Where a Mind's composer is drawn: the assistant's composer slot, given only

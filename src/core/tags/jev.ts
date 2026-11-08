@@ -21,7 +21,7 @@ import {
   type JevSettings,
 } from "../api";
 import type { Consent } from "../consent";
-import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
+import { InvalidInputError, isRecord, LocalModeError, TaggingNotReadyError } from "../errors";
 import { decisionGroupClassifier, reviewBandFor } from "../library/classifier";
 import { parseApiKey } from "../providers/apiKey";
 import {
@@ -41,6 +41,7 @@ import {
   documentType,
   excerptFromPassages,
   oneLine,
+  TAG_DOES_NOT_FIT,
   type TagClassifier,
   type TagDecision,
   type TagDefinition,
@@ -111,8 +112,14 @@ function parseReviewBand(value: unknown): JevReviewBand {
   return { low: value.low, high: value.high };
 }
 
-/** One yes/no question per Tag, keyed by the Tag's id (Jev doesn't see the keys). */
-function tagQuestions(tags: readonly TagDefinition[]): Record<string, JevNoulQuestion> {
+/**
+ * One yes/no question per Tag, keyed by the Tag's id (Jev doesn't see the keys). `bothCriteria`:
+ * what a no means too, for a host that refuses a question without it (OpenRouter).
+ */
+export function tagQuestions(
+  tags: readonly TagDefinition[],
+  bothCriteria = false,
+): Record<string, JevNoulQuestion> {
   return Object.fromEntries(
     tags.map((tag) => {
       const question: JevNoulQuestion = {
@@ -120,14 +127,19 @@ function tagQuestions(tags: readonly TagDefinition[]): Record<string, JevNoulQue
         instructions: `Does the Tag “${oneLine(tag.name)}” fit this Document as a whole?`,
       };
       // What a yes means: the Tag's own description.
-      if (tag.description) question.criteria = { true: oneLine(tag.description) };
+      if (bothCriteria) {
+        question.criteria = {
+          true: oneLine(tag.description || tag.name),
+          false: TAG_DOES_NOT_FIT,
+        };
+      } else if (tag.description) question.criteria = { true: oneLine(tag.description) };
       return [tag.id, question];
     }),
   );
 }
 
 /** What Jev reads: the Document's name and type, and the beginning of its text. */
-const jevState = (excerpt: DocumentExcerpt) => ({
+export const jevState = (excerpt: DocumentExcerpt) => ({
   name: excerpt.name,
   type: documentType(excerpt),
   excerpt: excerpt.text,
@@ -365,6 +377,8 @@ export function createJevTagging(options: {
           key: "error.provider.keyMissing",
           values: { provider: "Jev" },
         });
+      // The key is the User's too: in Local mode it goes to no cloud server (ADR-0022, #2615).
+      if (options.localOnly() && serviceOf(endpoint)) throw new LocalModeError();
       try {
         await askJev({
           baseUrl: baseUrlOf(endpoint),

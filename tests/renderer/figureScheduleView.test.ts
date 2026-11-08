@@ -374,7 +374,7 @@ test("a run in progress disables export and offers Stop; figures left unchecked 
   ]);
   await render({ ...source, progress: { done: 0, total: 2 } });
   expect(container.textContent).toContain("Checking 0 of 2 figures…");
-  expect(button("Export schedule…")?.hasAttribute("disabled")).toBe(true);
+  expect(button("Export schedule")?.hasAttribute("disabled")).toBe(true);
   await click(button("Stop"));
   expect(actions.onStop).toHaveBeenCalledWith();
   await render(source);
@@ -656,6 +656,13 @@ test.each(["en", "zh-CN"] as const)(
       cell: { sheet: "Assumptions", ref: "B4", stored: 0.05 },
       unitStatement: null,
     };
+    const margin: FigureInput = {
+      ...growth,
+      name: "Assumptions_B5",
+      label: "EBITDA margin (Margin)",
+      number: { ...growth.number, chars: "22.0%", value: 0.22 },
+      cell: { sheet: "Assumptions", ref: "B5", stored: 0.22 },
+    };
     const base = calculated.calculated?.figure;
     if (!base) throw new Error("Missing calculated fixture");
     const step = {
@@ -675,7 +682,7 @@ test.each(["en", "zh-CN"] as const)(
         figure: {
           ...base,
           formula: "",
-          inputs: [growth, input],
+          inputs: [growth, margin, input],
           workbook: {
             cell: {
               ...step,
@@ -686,7 +693,11 @@ test.each(["en", "zh-CN"] as const)(
             moreInputs: 0,
             saved: 254.7,
             savedShown: "254.7",
-            change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+            text: null,
+            changes: [
+              { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+              { input: "Assumptions_B5", value: 0.25, shown: "25.0%" },
+            ],
             kept: [],
             engine: 1,
           },
@@ -695,13 +706,17 @@ test.each(["en", "zh-CN"] as const)(
     });
     expect(lineShows({ id: "what-if", parent: whatIf }, language).formula).toBe(
       language === "en"
-        ? "What-if: DCF!E5 = E4*Margin, with Revenue growth (Growth) at 3.0% (5.0% in the workbook)"
-        : "假设情形：DCF!E5 = E4*Margin，其中“Revenue growth (Growth)”取 3.0%（工作簿中为 5.0%）",
+        ? "What-if: DCF!E5 = E4*Margin, with Revenue growth (Growth) at 3.0% (5.0% in the workbook) and EBITDA margin (Margin) at 25.0% (22.0% in the workbook)"
+        : "假设情形：DCF!E5 = E4*Margin，其中“Revenue growth (Growth)”取 3.0%（工作簿中为 5.0%）和“EBITDA margin (Margin)”取 25.0%（工作簿中为 22.0%）",
     );
     // A what-if is no Document's number: it has no source value, in the schedule or its export.
     expect(lineShows({ id: "what-if", parent: whatIf }, language).value).toBeNull();
     expect(lineShows({ id: "kid", parent: whatIf, input: growth }, language)).toMatchObject({
       value: "3.0%",
+      status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
+    });
+    expect(lineShows({ id: "kid", parent: whatIf, input: margin }, language)).toMatchObject({
+      value: "25.0%",
       status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
     });
     expect(lineShows({ id: "kid", parent: whatIf, input }, language)).toMatchObject({

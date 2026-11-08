@@ -1,8 +1,9 @@
 import type { Meeting } from "../../../core/api";
-import { formatBytes } from "../../../shared/bytes";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { showMeetingNoteView } from "../meetingViews";
+import { speechModelDownload } from "../speechModelDownload";
 import { showTranscript } from "../transcripts";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -17,11 +18,14 @@ export function TranscriptLines({
   meeting,
   className = "meeting-line",
   over = false,
+  problemsOnly = false,
 }: {
   meeting: Meeting;
   className?: string;
   /** In the meeting bar, a status line that comes and goes with the engine hangs below the bar, so the page never moves. A problem never hangs: it has the bar's own row, whole. */
   over?: boolean;
+  /** Above a stopped call's notes, which stay bare (#2527): what went wrong, and nothing else. */
+  problemsOnly?: boolean;
 }) {
   const t = useT();
   const place = useTabPlace();
@@ -38,20 +42,18 @@ export function TranscriptLines({
     testId: "meeting-transcript-retry",
     onClick: () => void useMeetings.getState().retryTranscript(meeting.id),
   });
-  const downloading =
-    model?.state === "downloading" || model?.state === "not-downloaded"
-      ? {
-          percent: Math.floor((model.downloadedBytes / Math.max(1, model.totalBytes)) * 100),
-          size: formatBytes(model.totalBytes, t),
-        }
-      : null;
+  const downloading = speechModelDownload(model, t);
 
   const documentId = transcript.documentId;
   const open: ProblemAction | undefined = documentId
     ? {
         label: t("meetings.transcript.open"),
         testId: "meeting-transcript-open",
-        onClick: () => showTranscript(documentId, place?.groupId),
+        onClick: () => {
+          if (meeting.kind === "meeting" && meeting.status === "stopped" && place) {
+            showMeetingNoteView(place.tabId, meeting.mindId, "transcript", { focus: true });
+          } else showTranscript(documentId, place?.groupId);
+        },
       }
     : undefined;
 
@@ -61,6 +63,7 @@ export function TranscriptLines({
     also?: ProblemAction;
     role: "alert" | "status";
   } | null = null;
+  if (problemsOnly && !problem) return null;
   if (problem) {
     const message = problem.message;
     if (problem.kind === "speakers") {

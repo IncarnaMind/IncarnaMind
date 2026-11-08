@@ -2,12 +2,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { openDatabase } from "../src/core/storage";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  type AnswerWaitForm,
   acceptPlainTextKeys,
   addDocuments,
   addTideConnector,
+  answersTookAboutAMinute,
   assistantAnswers,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -22,7 +23,9 @@ import {
   setSilentWaitMs,
   setWindowSize,
   sidebarFolder,
+  sizeAssistant,
   slideToHandle,
+  watchAnswerWaits,
 } from "./app";
 
 /**
@@ -126,8 +129,13 @@ const core = (window: Page) => ({
 });
 
 /** The app with Tides added; the chat model on an Anthropic key, or, `local`, on this computer. */
-async function start(options: { documents?: boolean; local?: boolean; model?: string } = {}) {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+async function start(
+  options: { documents?: boolean; examples?: boolean; local?: boolean; model?: string } = {},
+) {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    ...(options.examples && { examples: true }),
+  });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
   if (options.local) {
@@ -240,19 +248,22 @@ test("while an Answer is written, its line moves from Reading through Thinking o
   await app.close();
 });
 
-/** What an Answer being written shows, as it changes: its line only, then how long it takes, then its text. */
+/** What the latest Answer being written shows, as it changes: its step line alone, with the wait, then its text. */
 async function watchWait(window: Page): Promise<() => Promise<string[]>> {
   await window.evaluate(() => {
     const shown: string[] = [];
     (globalThis as unknown as { shownWaits: string[] }).shownWaits = shown;
     const record = () => {
       const assistant = document.querySelector('[data-testid="assistant"]');
-      const text = assistant?.querySelector('[data-testid="assistant-answer-text"]')?.textContent;
+      const answer = [
+        ...(assistant?.querySelectorAll('[data-testid="assistant-answer"]') ?? []),
+      ].at(-1);
+      const text = answer?.querySelector('[data-testid="assistant-answer-text"]')?.textContent;
       const state = text?.trim()
         ? "text"
-        : assistant?.querySelector('[data-testid="answer-wait"]')
+        : answer?.querySelector('[data-testid="answer-steps-wait"]')
           ? "wait"
-          : assistant?.querySelector('[data-testid="answer-steps-live"]')
+          : answer?.querySelector('[data-testid="answer-steps-live"]')
             ? "line"
             : "none";
       if (shown.at(-1) !== state) shown.push(state);
@@ -274,49 +285,85 @@ async function askSlowly(window: Page, question: string): Promise<void> {
   await window.keyboard.press("Enter");
 }
 
-test("a slow Answer shows its step line from the start, then how long it is taking with Stop, then its text; Stop works from that line", async () => {
-  const { app, window } = await start();
-  await core(window).mind("Lit review: tides");
-  await setSilentWaitMs(window, 600);
+/** After the wait gave up the line, a step change brought it back onto the first row, joined. */
+async function expectComeback(waits: () => Promise<AnswerWaitForm[]>, from: number): Promise<void> {
+  const seen = (await waits()).slice(from);
+  const row = seen.findIndex((each) => each.form === "row");
+  expect(row).toBeGreaterThanOrEqual(0);
+  const back = seen
+    .slice(row + 1)
+    .find((each) => each.form === "joined" && each.step !== seen[row]?.step);
+  expect(back).toBeDefined();
+  expect(back?.text.startsWith("· ")).toBe(true);
+}
+
+test("a slow Answer's step line takes the wait after 15 seconds, in English, and the composer's ■ is its one Stop", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  await setWindowSize(app, window, 900, 760);
+  await setSilentWaitMs(window, 300);
   const shown = await watchWait(window);
 
-  await askSlowly(window, "When do spring tides happen? Answer slowly.");
+  await askSlowly(window, "Where do neap tides come from? Answer slowly without searching.");
   const answer = assistantAnswers(window).last();
-  await expect(answer.getByTestId("answer-wait")).toBeVisible();
-  // Nothing in its history yet: it says it is working, and Stop is on that line, once.
-  await expect(answer.getByTestId("answer-wait")).toHaveText("Still working · Stop");
+  const wait = answer.getByTestId("answer-steps-wait");
+  // The wait joins the line itself: no second Stop, and no "Still working".
+  await expect(wait).toHaveText(`· usually about a minute with ${MODEL_NAME}`);
+  expect(await wait.evaluate((element) => element.textContent)).toBe(
+    `· usually about a minute with ${MODEL_NAME}`,
+  );
+  await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
   await expect(answer.getByTestId("answer-steps-live")).toBeVisible();
-  await expect(answer.getByTestId("answer-stop")).toHaveCount(1);
-  await expect(answer.getByTestId("answer-stop")).toBeVisible();
-  await expect(answer.getByTestId("answer-actions").getByRole("button")).toHaveCount(0);
-  await screenshot(window, "wait-still-en");
+  await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
+  await expect(answer).not.toContainText("Still working");
+  await expect(window.getByTestId("composer-stop")).toBeVisible();
+  await screenshot(window, "wait-joined-en");
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-  expect((await shown()).filter((state) => state !== "none")).toEqual(["line", "wait", "text"]);
-  await expect(answer.getByTestId("answer-wait")).toHaveCount(0);
-
-  // Stop, from the line, keeps what is written and says so.
-  await askSlowly(window, "When do neap tides happen? Answer slowly.");
-  const second = assistantAnswers(window).last();
-  await expect(second.getByTestId("answer-wait")).toBeVisible();
-  await pointAndClick(window, second.getByTestId("answer-wait").getByTestId("answer-stop"));
-  await expect(second).toHaveAttribute("data-status", "stopped");
-  await expect(second.getByTestId("answer-stopped")).toHaveText("Stopped");
-  await expect(second.getByTestId("answer-wait")).toHaveCount(0);
+  const states = (await shown()).filter((state) => state !== "none");
+  const lineAt = states.lastIndexOf("line");
+  expect(lineAt).toBeGreaterThanOrEqual(0);
+  expect(states.slice(lineAt)).toContain("wait");
+  expect(states.at(-1)).toBe("text");
+  await expect(wait).toHaveCount(0);
   await app.close();
 });
 
-test("in Chinese, the step line and the wait line say so in Chinese", async () => {
-  const { app, window } = await start();
-  await core(window).mind("Lit review: tides");
-  await core(window).language("zh-CN");
-  await setSilentWaitMs(window, 600);
+test("before its 15 seconds the step line has no wait, and the composer's ■ stops the Answer", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  await setWindowSize(app, window, 900, 760);
+  await setSilentWaitMs(window, 600_000);
 
-  await askSlowly(window, "春潮什么时候出现？ Answer slowly.");
+  await askSlowly(window, "Where do neap tides come from? Answer slowly without searching.");
   const answer = assistantAnswers(window).last();
-  await expect(answer.getByTestId("answer-wait")).toHaveText("仍在处理 · 停止");
-  await expect(answer.getByTestId("answer-steps-live")).toHaveText(/^正在/);
-  await screenshot(window, "wait-still-zh");
-  await pointAndClick(window, answer.getByTestId("answer-wait").getByTestId("answer-stop"));
+  await expect(answer.getByTestId("answer-steps-live")).toBeVisible();
+  await expect(answer.getByTestId("answer-steps-wait")).toHaveCount(0);
+  await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
+  await screenshot(window, "wait-before-en");
+  await pointAndClick(window, window.getByTestId("composer-stop"));
+  await expect(answer).toHaveAttribute("data-status", "stopped");
+  await expect(answer.getByTestId("answer-stopped")).toHaveText("Stopped");
+  await app.close();
+});
+
+test("in Chinese, the wait joins the step line in Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  await setWindowSize(app, window, 900, 760);
+  await setSilentWaitMs(window, 300);
+  await core(window).language("zh-CN");
+
+  await askSlowly(window, "春潮什么时候出现？Answer slowly，不用搜索。");
+  const answer = assistantAnswers(window).last();
+  await expect(answer.getByTestId("answer-steps-wait")).toHaveText(
+    `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
+  );
+  expect(
+    await answer.getByTestId("answer-steps-wait").evaluate((element) => element.textContent),
+  ).toBe(`· 用 ${MODEL_NAME} 通常要 1 分钟左右`);
+  await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
+  await screenshot(window, "wait-joined-zh");
+  await pointAndClick(window, window.getByTestId("composer-stop"));
   await expect(answer).toHaveAttribute("data-status", "stopped");
   await app.close();
 });
@@ -333,14 +380,7 @@ async function startWithMinuteHistory(model?: string) {
     await ask(first.window, question);
   }
   await first.app.close();
-  const db = openDatabase(join(dataDir, "incarnamind.db"));
-  try {
-    db.run(
-      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', 62000) WHERE kind = 'answer'",
-    );
-  } finally {
-    db.close();
-  }
+  await answersTookAboutAMinute(dataDir);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await setSilentWaitMs(window, 600);
@@ -348,91 +388,175 @@ async function startWithMinuteHistory(model?: string) {
   return { app, window };
 }
 
-test("with earlier Answers that took about a minute, the line says how long this model usually takes", async () => {
+test("at the default 320px assistant the wait joins in its first fitting form, in English and Chinese, and the whole sentence stays in the tooltip", async () => {
+  test.setTimeout(180_000);
   const { app, window } = await startWithMinuteHistory();
-  await askSlowly(window, "Where do neap tides come from? Answer slowly.");
-  const answer = assistantAnswers(window).last();
-  await expect(answer.getByTestId("answer-wait")).toHaveText(
-    `Usually about a minute with ${MODEL_NAME} · Stop`,
-  );
-  await screenshot(window, "wait-usually-en");
-  await window.evaluate(async () => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    await bridge.updateSettings({ user: { language: "zh-CN" } });
-  });
-  await expect(answer.getByTestId("answer-wait")).toHaveText(
-    `用 ${MODEL_NAME} 通常要 1 分钟左右 · 停止`,
-  );
-  await screenshot(window, "wait-usually-zh");
-  await pointAndClick(window, answer.getByTestId("answer-wait").getByTestId("answer-stop"));
-  await expect(answer).toHaveAttribute("data-status", "stopped");
-  await app.close();
-});
-
-test("a long model name stays on one line inside the wait line, and Stop stays inside the Answer", async () => {
-  const { app, window } = await startWithMinuteHistory(
-    "claude-haiku-5-5-with-a-very-long-experimental-identifier-20261016",
-  );
-  await askSlowly(window, "Where do neap tides come from? Answer slowly.");
-  const answer = assistantAnswers(window).last();
-  const wait = answer.getByTestId("answer-wait");
-  await expect(wait).toContainText("Usually about a minute with claude-haiku-5-5-with-a-very-long");
-  const name = wait.getByTestId("answer-wait-model");
-  expect(await name.evaluate((node) => node.getClientRects().length)).toBe(1);
-  const stop = await wait.getByTestId("answer-stop").boundingBox();
-  const inside = await answer.boundingBox();
-  expect((stop?.x ?? 0) + (stop?.width ?? 0)).toBeLessThanOrEqual(
-    (inside?.x ?? 0) + (inside?.width ?? 0) + 1,
-  );
-  expect(await wait.evaluate((line) => line.scrollWidth <= line.clientWidth + 1)).toBe(true);
-  await screenshot(window, "wait-long-name-en");
-  await pointAndClick(window, wait.getByTestId("answer-stop"));
-  await expect(answer).toHaveAttribute("data-status", "stopped");
-  await app.close();
-});
-
-test("at 1,100 × 760, in English and Chinese, the wait line keeps the model's name on one line, and Stop is only the composer's ■ until the wait line brings its own, each stopping the Answer", async () => {
-  const { app, window } = await startWithMinuteHistory();
-  await setWindowSize(app, window, 1100, 760);
-  const composerStop = window.getByTestId("composer-stop");
+  await addTideConnector(window);
   const languages = [
-    ["en", "Usually about a minute with Claude Haiku 5.5 · Stop"],
-    ["zh-CN", "用 Claude Haiku 5.5 通常要 1 分钟左右 · 停止"],
+    [
+      "en",
+      "When do spring tides happen? Please lookup_tide slowly",
+      "Searching",
+      "Usually about a minute",
+      `· usually about a minute with ${MODEL_NAME}`,
+    ],
+    [
+      "zh-CN",
+      "春潮什么时候出现？Please lookup_tide slowly",
+      "正在搜索",
+      "通常要 1 分钟左右",
+      `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
+    ],
+  ] as const;
+  const waits = await watchAnswerWaits(window);
+
+  for (const [index, [language, question, searching, short, whole]] of languages.entries()) {
+    const from = (await waits()).length;
+    await core(window).language(language);
+    await askSlowly(window, question);
+    if (index === 0) {
+      const consent = window.getByTestId("consent-dialog");
+      await expect(consent).toBeVisible({ timeout: 15_000 });
+      await pointAndClick(window, consent.getByTestId("consent-allow"));
+    }
+    const answer = assistantAnswers(window).last();
+    const live = answer.getByTestId("answer-steps-live");
+    const words = live.getByTestId("answer-writing");
+    const wait = answer.getByTestId("answer-steps-wait");
+    // The search step's words leave no room for the model's name: the short wait takes the second row.
+    await expect(live).toHaveAttribute("data-step", "searching", { timeout: 30_000 });
+    await expect(words).toContainText(searching, { timeout: 30_000 });
+    await expect(wait).toHaveText(short, { timeout: 30_000 });
+    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(1);
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+    await expect.poll(async () => (await live.getAttribute("title")) ?? "").toContain(whole);
+    await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
+    expect(await words.evaluate((step) => step.scrollWidth <= step.clientWidth + 1)).toBe(true);
+    expect(await live.evaluate((line) => line.scrollWidth <= line.clientWidth + 1)).toBe(true);
+    await screenshot(window, `wait-320-${language}`);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expectComeback(waits, from);
+  }
+  await app.close();
+});
+
+test("the wait keeps the form that fits as the steps change, and the summary keeps the first row, in English and Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  await addTideConnector(window);
+  const languages = [
+    [
+      "en",
+      430,
+      "When do spring tides happen? Please lookup_tide slowly",
+      "· usually about a minute",
+      `· usually about a minute with ${MODEL_NAME}`,
+    ],
+    [
+      "zh-CN",
+      380,
+      "春潮什么时候出现？Please lookup_tide slowly",
+      "· 通常要 1 分钟左右",
+      `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
+    ],
+  ] as const;
+  const waits = await watchAnswerWaits(window);
+
+  for (const [index, [language, width, question, short, whole]] of languages.entries()) {
+    const from = (await waits()).length;
+    await core(window).language(language);
+    await sizeAssistant(window, width);
+    await setSilentWaitMs(window, 300);
+    await askSlowly(window, question);
+    if (index === 0) {
+      const consent = window.getByTestId("consent-dialog");
+      await expect(consent).toBeVisible({ timeout: 15_000 });
+      await pointAndClick(window, consent.getByTestId("consent-allow"));
+    }
+    const answer = assistantAnswers(window).last();
+    const live = answer.getByTestId("answer-steps-live");
+    const wait = answer.getByTestId("answer-steps-wait");
+    // Thinking: the summary keeps the first row, and the wait takes the second in its own form.
+    await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
+    const summary = live.getByTestId("answer-steps-summary");
+    await expect(summary).toBeVisible({ timeout: 30_000 });
+    // It keeps more than five of the dot's own widths: never cut to its dot.
+    const dotWidth = await live
+      .locator(".answer-steps-dot")
+      .evaluate((element) => element.getBoundingClientRect().width);
+    await expect
+      .poll(() => summary.evaluate((element) => element.getBoundingClientRect().width), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(dotWidth * 5);
+    const alone = short.replace(/^· /, "").replace(/^./, (letter) => letter.toUpperCase());
+    await expect(wait).toHaveText(alone, { timeout: 30_000 });
+    expect(await wait.evaluate((element) => element.textContent)).toBe(alone);
+    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(1);
+    await expect(wait).not.toContainText(MODEL_NAME);
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+    expect(
+      await live
+        .getByTestId("answer-writing")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // A shorter step frees the line: the wait comes back onto the first row, and the record shows it.
+    await expectComeback(waits, from);
+  }
+  await app.close();
+});
+
+test("just above the whole wait's threshold the step's words stay whole, in English and Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  const languages = [
+    ["en", 430, "Thinking"],
+    ["zh-CN", 380, "正在思考"],
   ] as const;
 
-  for (const [language, said] of languages) {
+  for (const [language, width, thinking] of languages) {
     await core(window).language(language);
-
-    // Before the wait line: nothing under the step line stops the Answer; the composer's ■ does.
-    await setSilentWaitMs(window, 600_000);
-    await askSlowly(window, "When do spring tides happen? Answer slowly.");
-    const early = assistantAnswers(window).last();
-    await expect(early.getByTestId("answer-steps-live")).toBeVisible();
-    await expect(early.getByTestId("answer-wait")).toHaveCount(0);
-    await expect(early.getByTestId("answer-stop")).toHaveCount(0);
-    await expect(early.getByTestId("answer-actions").getByRole("button")).toHaveCount(0);
-    await expect(composerStop).toBeVisible();
-    const resting = await composerStop.boundingBox();
-    await screenshot(window, `wait-before-${language}`);
-    await pointAndClick(window, composerStop);
-    await expect(early).toHaveAttribute("data-status", "stopped");
-
-    // The wait line brings its own Stop beside the composer's, which has not moved.
-    await setSilentWaitMs(window, 600);
-    await askSlowly(window, "When do neap tides happen? Answer slowly.");
+    await sizeAssistant(window, width);
+    await setSilentWaitMs(window, 300);
+    await askSlowly(
+      window,
+      language === "en"
+        ? "Where do neap tides come from? Answer slowly without searching."
+        : "春潮什么时候出现？Answer slowly，不用搜索。",
+    );
     const answer = assistantAnswers(window).last();
-    const wait = answer.getByTestId("answer-wait");
-    await expect(wait).toHaveText(said);
-    const name = wait.getByTestId("answer-wait-model");
-    await expect(name).toHaveText(MODEL_NAME);
-    expect(await name.evaluate((node) => node.getClientRects().length)).toBe(1);
-    await expect(answer.getByTestId("answer-stop")).toHaveCount(1);
-    await expect(answer.getByTestId("answer-actions").getByRole("button")).toHaveCount(0);
-    expect(await composerStop.boundingBox()).toEqual(resting);
-    await screenshot(window, `wait-after-${language}`);
-    await pointAndClick(window, wait.getByTestId("answer-stop"));
-    await expect(answer).toHaveAttribute("data-status", "stopped");
+    const live = answer.getByTestId("answer-steps-live");
+    const words = live.getByTestId("answer-writing");
+    await expect(words).toContainText(thinking);
+    await expect(answer.getByTestId("answer-steps-wait")).toBeVisible();
+    expect(await words.evaluate((step) => step.scrollWidth <= step.clientWidth + 1)).toBe(true);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   }
+  await app.close();
+});
+
+test("a long model name keeps the step's words whole on one line, and the whole sentence in the tooltip", async () => {
+  test.setTimeout(180_000);
+  const long = "claude-haiku-5-5-with-a-very-long-experimental-identifier-20261016";
+  const { app, window } = await startWithMinuteHistory(long);
+  await setWindowSize(app, window, 900, 760);
+  await setSilentWaitMs(window, 300);
+  await askSlowly(window, "Where do neap tides come from? Answer slowly without searching.");
+  const answer = assistantAnswers(window).last();
+  const live = answer.getByTestId("answer-steps-live");
+  const words = live.getByTestId("answer-writing");
+  const wait = answer.getByTestId("answer-steps-wait");
+  const whole = `· usually about a minute with ${long}`;
+  await expect(wait).toBeVisible();
+  await expect(wait).not.toContainText(long);
+  await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+  await expect.poll(async () => (await live.getAttribute("title")) ?? "").toContain(whole);
+  expect(await words.evaluate((step) => step.getClientRects().length)).toBe(1);
+  expect(await words.evaluate((step) => step.scrollWidth <= step.clientWidth + 1)).toBe(true);
+  expect(await live.evaluate((line) => line.scrollWidth <= line.clientWidth + 1)).toBe(true);
+  await screenshot(window, "wait-long-name");
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   await app.close();
 });
 
@@ -639,6 +763,31 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
 
   const line = answer.getByTestId("answer-steps-line");
   await expect(line).toHaveText("Read “Credit report draft” and 2 Documents");
+  // In the narrowest assistant the Note's name gives way and the count stays whole.
+  await sizeAssistant(window, 280);
+  // The count's part is the line's last button: it keeps its whole width, inside the line, and
+  // the Note's name is what is cut.
+  const tail = line.locator("button").last();
+  await expect(tail).toHaveText("” and 2 Documents");
+  const [lineBox, tailBox, nameBox] = await Promise.all([
+    line.boundingBox(),
+    tail.boundingBox(),
+    line.getByTestId("answer-steps-mind").boundingBox(),
+  ]);
+  if (!lineBox || !tailBox || !nameBox) throw new Error("The step line isn't showing.");
+  expect(tailBox.x + tailBox.width, "the count ends inside the line").toBeLessThanOrEqual(
+    lineBox.x + lineBox.width + 1,
+  );
+  expect(
+    await tail.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    "the count is drawn whole",
+  ).toBe(true);
+  expect(
+    await line
+      .getByTestId("answer-steps-mind")
+      .evaluate((element) => element.scrollWidth > element.clientWidth),
+    "the Note's name gives way",
+  ).toBe(true);
   const timeline = await openSteps(window, answer);
   expect(await stepsOf(timeline)).toEqual(["answered", "read", "read-documents"]);
   const read = timeline.locator('[data-step="read-documents"]');
@@ -650,6 +799,62 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
   await expect(read).toContainText("读了 2 个文档");
   await app.close();
 });
+
+const EXAMPLE_LINES = {
+  en: {
+    note: "Draft: credit committee paper",
+    question: "What is the monthly rent in the lease? Answer without searching and without citing.",
+    line: "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
+    row: "Read 2 of your Documents and 2 example Documents",
+  },
+  "zh-CN": {
+    note: "授信委员会报告（草稿）",
+    question: "租赁合同里的月租金是多少？不用搜索，也不用引用。",
+    line: "读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档",
+    row: "读了你的 2 个文档和 2 个示例文档",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`asked from the example's Note, the line counts the User's two Documents as the sidebar does, and the example's apart (${language})`, async () => {
+    test.setTimeout(180_000);
+    const words = EXAMPLE_LINES[language];
+    const { app, window } = await start({ documents: false, examples: true });
+    await core(window).language(language);
+    await expect(window.getByTestId("mind-editor")).toContainText(words.note);
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const { linkedFolderId } = await bridge.getExamples();
+            const read = (await bridge.listDocuments()).filter(
+              (each) => each.linkedFolderId === linkedFolderId && each.status === "ready",
+            );
+            return read.length;
+          }),
+        { timeout: 60_000 },
+      )
+      .toBe(2);
+    await writeFile(join(sources, "Lease 2026.pdf"), LEASE);
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    await addDocuments(window, [join(sources, "Lease 2026.pdf"), join(sources, "Tides.pdf")]);
+    await expect(
+      window.getByTestId("not-in-a-folder-section").getByTestId("sidebar-section-count"),
+    ).toHaveText("2");
+
+    const answer = await ask(window, words.question);
+
+    // The scripted model searches in English though all four Documents went with the Question, so
+    // only the Chinese line folds to what was read; the timeline's row names it in both.
+    if (language === "zh-CN") {
+      await expect(answer.getByTestId("answer-steps-line")).toHaveText(words.line);
+    }
+    const timeline = await openSteps(window, answer);
+    await expect(timeline.locator('[data-step="read-documents"]')).toContainText(words.row);
+    await app.close();
+  });
+}
 
 test("at a 320px assistant a long Mind title and a long Document name are cut, the line stays on one line inside the Answer, and the whole line is its tooltip", async () => {
   const { app, window } = await start({ documents: false });
@@ -730,7 +935,7 @@ test("an empty conversation says once what it reads and searches, following focu
   const thread = window.getByTestId("assistant-thread");
   await core(window).mind("Alpha");
   const reads = window.getByTestId("assistant-reads");
-  await expect(reads).toHaveText("Reads “Alpha” · searches All Documents");
+  await expect(reads).toHaveText("Reads “Alpha” and All Documents");
   // In the conversation, above its words: the header has nothing under it.
   await expect(thread.getByTestId("assistant-reads")).toBeVisible();
   const header = await window.getByTestId("assistant-header").boundingBox();
@@ -739,7 +944,7 @@ test("an empty conversation says once what it reads and searches, following focu
   await expect(reads).toHaveCSS("font-size", "14px");
   await expect(window.getByTestId("assistant-empty")).toHaveCSS("font-size", "14px");
   await core(window).mind("Beta");
-  await expect(reads).toHaveText("Reads “Beta” · searches All Documents");
+  await expect(reads).toHaveText("Reads “Beta” and All Documents");
   await pointAndClick(window, window.getByTestId("open-library"));
   await expect(reads).toHaveText("Searches All Documents");
   await screenshot(window, "steps-empty-en");

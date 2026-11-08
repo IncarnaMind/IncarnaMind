@@ -372,7 +372,7 @@ export function listCitations(
     if (!citation.footnote.unverified) continue;
     const key = sourceKeyOf(citation.work, context);
     const places = unverifiedAt.get(key) ?? new Set<string>();
-    places.add(citedLocation(citation.work, t) ?? "");
+    places.add(citedLocation(citation.work, t, context.documents) ?? "");
     unverifiedAt.set(key, places);
   }
   return [

@@ -1,15 +1,20 @@
 /**
- * Live text from VAD segments, decoded again as speech goes on (#136): what
- * runs beside the engine, in the transcription process. Silero VAD finds
- * where each stretch of speech starts and ends. While one lasts, the speech
- * so far is decoded again every few seconds, as partial text; once the
- * speaker pauses, the whole stretch is decoded once more, as its final text.
- * One decode runs at a time, final text before partial, and a partial waits
- * only while nothing else does.
+ * Live text from VAD segments (#136): what runs beside the engine, in the
+ * transcription process. Silero VAD finds where each stretch of speech starts
+ * and ends; once the speaker pauses, the whole stretch is decoded, as its
+ * final text. One decode runs at a time.
  *
- * Engine-neutral: the detector and the recognizer are passed in, Qwen3-ASR
- * and Silero through sherpa-onnx today (./sherpa), another engine with #137.
+ * While a stretch lasts, its words so far are partial text. An engine with a
+ * streaming model reads them as they are said (#2662, ADR-0027): each stretch
+ * not yet final keeps its live words until its final text replaces them.
+ * Without one, or once it can't keep up, the speech so far is decoded again
+ * every few seconds, final text first, and a partial waits only while
+ * nothing else does.
+ *
+ * Engine-neutral: the detector and the recognizers are passed in, Qwen3-ASR,
+ * the streaming model and Silero through sherpa-onnx today (./sherpa).
  */
+import { gap } from "../../shared/i18n/join";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../adapters";
 import { cleanSpeech } from "./speechText";
 
@@ -33,10 +38,23 @@ export interface Recognizer {
   decode(samples: Float32Array, stream: string, words: readonly string[]): Promise<string>;
 }
 
-/** An engine, loaded: a detector for each stream, and one recognizer they share. */
+/** A streaming model's reading of one stretch of speech, fed its audio as it comes. */
+export interface LiveReading {
+  /** Takes the next audio and gives the words heard so far. */
+  hear(samples: Float32Array): string;
+  /** No more audio comes: the words of the whole stretch. */
+  end(): string;
+}
+
+/**
+ * An engine, loaded: a detector for each stream, and one recognizer they share. `live`, when the
+ * engine has a streaming model, starts a reading of a stretch, whose words are the stretch's
+ * partial text until the recognizer gives its final text.
+ */
 export interface SpeechEngine {
   detector(): VoiceDetector;
   recognizer: Recognizer;
+  live?(stream: string): LiveReading;
   close(): void;
 }
 
@@ -45,6 +63,11 @@ export interface SpeechReport {
   progress(stream: string, doneMs: number): void;
   /** A stretch couldn't be decoded: it has no text, and the stream goes on. */
   failed(stream: string, message: string): void;
+}
+
+export interface SpeechHostOptions {
+  /** Called when the host has nothing left to do: no stream open and nothing being decoded. */
+  onIdle?(): void;
 }
 
 /** How often speech in progress is decoded again. */
@@ -77,6 +100,12 @@ const TOLD_LOAD = 0.5;
 const LOAD_WINDOW_MS = 60_000;
 /** A stream counts towards the load once it has this much audio. */
 const LOAD_FROM_MS = 10_000;
+/**
+ * The streaming model reads at most this share of the audio's time, every stream's reading
+ * counted, or live words go back to decoding the speech again: it reads each chunk as it comes,
+ * before the next, so a slower one would hold up the final text of every stream.
+ */
+const LIVE_LOAD = 0.5;
 
 const msOf = (samples: number) => (samples * 1000) / MEETING_SAMPLE_RATE;
 const samplesOf = (ms: number) => Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
@@ -123,6 +152,11 @@ interface Stream {
   keptLength: number;
   /** The speech in progress: its id, and where it was first heard. */
   speech: { id: number; start: number; lastPartial: number } | null;
+  /** The streaming model's reading of the speech in progress, and its words so far. */
+  reading: { live: LiveReading; text: string } | null;
+  /** The live words of each stretch whose final text hasn't come, by id. */
+  drafts: Map<number, { start: number; text: string }>;
+  shown: string;
   level: (samples: Float32Array) => Float32Array;
   nextId: number;
   words: readonly string[];
@@ -131,19 +165,38 @@ interface Stream {
    * faster than it is spoken, as from a file, counts at the time it covers.
    */
   work: { atMs: number; ms: number }[];
+  liveWork: { atMs: number; ms: number }[];
   /** Final decodes queued or running, by where they start. */
   unfinished: Set<number>;
   finishing: { resolve(): void } | null;
   dropped: boolean;
 }
 
-export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
+export function createSpeechHost(
+  engine: SpeechEngine,
+  report: SpeechReport,
+  options: SpeechHostOptions = {},
+) {
   const streams = new Map<string, Stream>();
   const finals: Job[] = [];
   /** The latest partial asked for, by stream: an older one is no use. */
   const partials = new Map<string, Job>();
   let decoding = false;
   let closed = false;
+  /**
+   * Live words come from the streaming model, until it fails or can't keep up; tried again once
+   * no stream is open, so each Meeting starts with them.
+   */
+  let reads = engine.live !== undefined;
+
+  /** Nothing is open and nothing is decoded: the engine has no work until a stream comes again. */
+  function idle(): boolean {
+    return streams.size === 0 && !decoding && finals.length === 0 && partials.size === 0;
+  }
+
+  function becameIdle(): void {
+    if (idle()) options.onIdle?.();
+  }
 
   /** The kept samples from `from` to `to` (exclusive), in the stream's samples. */
   function slice(stream: Stream, from: number, to = stream.received): Float32Array {
@@ -191,19 +244,90 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       streams.delete(stream.name);
       resolve();
     }
+    becameIdle();
   }
 
-  /** Decoding time over audio time, every stream's over the last minute of its audio. */
-  function load(): number {
+  /** Decoding time over audio time, every stream's over the last minute of its audio: `liveWork`, the streaming model's. */
+  function load(of: "work" | "liveWork" = "work"): number {
     let sum = 0;
     for (const stream of streams.values()) {
       const heardMs = msOf(stream.received);
-      stream.work = stream.work.filter((each) => each.atMs > heardMs - LOAD_WINDOW_MS);
+      stream[of] = stream[of].filter((each) => each.atMs > heardMs - LOAD_WINDOW_MS);
       if (heardMs < LOAD_FROM_MS) continue;
-      const busy = stream.work.reduce((total, each) => total + each.ms, 0);
+      const busy = stream[of].reduce((total, each) => total + each.ms, 0);
       sum += busy / Math.min(heardMs, LOAD_WINDOW_MS);
     }
     return sum;
+  }
+
+  /** Live words go back to decoding the speech again, for every stream: those already heard stay until their final text. */
+  function stopReading(why: string): void {
+    reads = false;
+    // The process has no logger of its own: its output goes to the app's log.
+    console.warn(`Live words go back to reading the speech again: ${why}`);
+    for (const stream of streams.values()) stream.reading = null;
+  }
+
+  /** The words of the stream's speech that have no final text yet, as one partial, when they changed. */
+  function showLive(stream: Stream, decodeMs: number): void {
+    const said = [...stream.drafts];
+    if (stream.speech && stream.reading) {
+      said.push([stream.speech.id, { start: stream.speech.start, text: stream.reading.text }]);
+    }
+    const heard = said.filter(([, each]) => each.text);
+    const text = heard.reduce(
+      (all, [, each]) => all + gap("zh-CN", all, each.text) + each.text,
+      "",
+    );
+    if (text === stream.shown) return;
+    stream.shown = text;
+    const [first] = heard;
+    if (!first) return;
+    const [id, { start }] = first;
+    report.segment({
+      stream: stream.name,
+      id,
+      startMs: msOf(start),
+      endMs: msOf(stream.received),
+      text,
+      final: false,
+      decodeMs,
+    });
+  }
+
+  /** Feeds the streaming model the speech's next audio: how long it took, in ms. */
+  function hear(stream: Stream, samples: Float32Array): number {
+    const { reading } = stream;
+    if (!reading || samples.length === 0) return 0;
+    const started = Date.now();
+    try {
+      reading.text = cleanSpeech(reading.live.hear(samples));
+    } catch (error) {
+      stopReading(
+        `the streaming model failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return 0;
+    }
+    const ms = Date.now() - started;
+    stream.liveWork.push({ atMs: msOf(stream.received), ms });
+    if (load("liveWork") > LIVE_LOAD) stopReading("the streaming model can't keep up");
+    return ms;
+  }
+
+  /** The streaming model's reading of the speech that ended: its words stay until the stretch's final text. */
+  function endReading(stream: Stream, id: number, start: number): void {
+    const { reading } = stream;
+    stream.reading = null;
+    if (!reading) return;
+    let text = reading.text;
+    try {
+      text = cleanSpeech(reading.live.end());
+    } catch (error) {
+      stopReading(
+        `the streaming model failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (text) stream.drafts.set(id, { start, text });
   }
 
   async function pump(): Promise<void> {
@@ -242,18 +366,29 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       }
       if (job.final) {
         stream.unfinished.delete(job.start);
+        // The final text drops the partial that has its id, words of later speech included:
+        // those still unfinished are reported again.
+        stream.drafts.delete(job.id);
+        stream.shown = "";
+        showLive(stream, 0);
         settle(stream);
       }
     }
     void pump();
+    becameIdle();
   }
 
-  /** Queues the stretches of speech that have ended, and a partial of the one going on. */
-  function look(stream: Stream): void {
+  /**
+   * Queues the stretches of speech that have ended, and reads the one going on: `heard`, the
+   * audio just taken, goes to the streaming model, or a partial is queued.
+   */
+  function look(stream: Stream, heard?: Float32Array): void {
+    let readMs = 0;
     for (let found = stream.detector.next(); found; found = stream.detector.next()) {
       const id = stream.speech?.id ?? stream.nextId++;
-      stream.speech = null;
       const start = Math.max(stream.keptFrom, found.start - samplesOf(PAD_MS));
+      endReading(stream, id, start);
+      stream.speech = null;
       const before = slice(stream, start, found.start);
       const samples = new Float32Array(before.length + found.samples.length);
       samples.set(before);
@@ -268,9 +403,16 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
           start: Math.max(0, stream.received - samplesOf(LEAD_IN_MS)),
           lastPartial: stream.received,
         };
+        if (reads && engine.live) {
+          stream.reading = { live: engine.live(stream.name), text: "" };
+          readMs = hear(stream, slice(stream, stream.speech.start));
+        }
+      } else if (heard) {
+        readMs = hear(stream, heard);
       }
       const { speech } = stream;
       if (
+        !stream.reading &&
         msOf(stream.received - speech.lastPartial) >= PARTIAL_EVERY_MS &&
         msOf(stream.received - speech.start) >= MIN_PARTIAL_MS
       ) {
@@ -286,13 +428,16 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       }
     } else {
       stream.speech = null;
+      stream.reading = null;
     }
+    showLive(stream, readMs);
     void pump();
   }
 
   function streamOf(name: string): Stream {
     let stream = streams.get(name);
     if (!stream) {
+      if (streams.size === 0) reads = engine.live !== undefined;
       stream = {
         name,
         detector: engine.detector(),
@@ -301,10 +446,14 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         keptFrom: 0,
         keptLength: 0,
         speech: null,
+        reading: null,
+        drafts: new Map(),
+        shown: "",
         level: createLeveler(),
         nextId: 1,
         words: [],
         work: [],
+        liveWork: [],
         unfinished: new Set(),
         finishing: null,
         dropped: false,
@@ -321,6 +470,8 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       streamOf(name).words = words;
     },
 
+    idle,
+
     push(name: string, samples: Float32Array): void {
       if (closed || samples.length === 0) return;
       const stream = streamOf(name);
@@ -329,7 +480,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       stream.detector.accept(leveled);
       keep(stream, leveled);
       stream.received += leveled.length;
-      look(stream);
+      look(stream, leveled);
       settle(stream);
     },
 
@@ -341,6 +492,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         stream.detector.flush();
         look(stream);
         stream.speech = null;
+        stream.reading = null;
         partials.delete(name);
         settle(stream);
       });
@@ -356,6 +508,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         if (finals[i]?.stream === name) finals.splice(i, 1);
       }
       stream.finishing?.resolve();
+      becameIdle();
     },
 
     close(): void {

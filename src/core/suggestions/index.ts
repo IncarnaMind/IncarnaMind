@@ -39,6 +39,7 @@ import type {
   SuggestionOutcome,
   SuggestionRequest,
   SuggestionStatus,
+  TranscriptSpeakers,
 } from "../api";
 import type { Consent } from "../consent";
 import { keywordTerms } from "../documents/keywords";
@@ -170,6 +171,8 @@ export interface SuggestionsOptions {
   searchedScope(scope: SearchScope, mindId: string): SearchScope | null;
   /** How many of these Documents (null: all) have Passages to search. */
   searchableCount(documentIds: readonly string[] | null): number;
+  /** Who's who in a Transcript (#138), so its Passages are placed by the names the User gave. */
+  speakersOf(documentId: string): TranscriptSpeakers | null;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
   events: ReturnType<typeof createEventHub>;
@@ -257,7 +260,7 @@ export function createSuggestions(options: SuggestionsOptions) {
     passages: readonly FoundPassage[],
     signal: AbortSignal,
   ) {
-    const prompt = suggestionPrompt(paragraph, passages);
+    const prompt = suggestionPrompt(paragraph, passages, options.speakersOf);
     const abortSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
     let value: unknown;
     if (givesStructuredOutput(prepared.capabilities) === false) {
@@ -322,7 +325,8 @@ export function createSuggestions(options: SuggestionsOptions) {
     if ((await pausedFor(choice)) !== null || !choice || signal.aborted) return NONE;
 
     const query = queryOf(paragraph);
-    const found = (await citing.findPassages(query, documentIds, signal)).filter(
+    // A pause is background work: the search uses only flows already allowed, asking never.
+    const found = (await citing.findPassages(query, documentIds, signal, true)).filter(
       (passage) => !passage.notCited,
     );
     const best = found[0];

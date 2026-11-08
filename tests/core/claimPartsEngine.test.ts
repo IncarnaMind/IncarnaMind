@@ -28,6 +28,8 @@ type Outcome = {
   asWritten?: true;
   /** The fields-only second reply of a check that disagreed with itself. */
   again?: string;
+  /** What a judgement of the sentence beside a quote says, by the quote; `judgement` when absent. */
+  judge?: (quote: string) => "same" | "neither";
 };
 
 /** Requests whose Run was still going when they were made: one made after it stopped never leaves the computer. */
@@ -141,7 +143,10 @@ async function check(
         if (call.system.startsWith("Compare a sentence")) {
           judgements.push(call.system);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
-          return { text: outcomes[target]?.judgement ?? "neither" };
+          const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
+          return {
+            text: outcomes[target]?.judge?.(quote) ?? outcomes[target]?.judgement ?? "neither",
+          };
         }
         if (call.system.startsWith("Your last check of this sentence")) {
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
@@ -199,6 +204,19 @@ async function check(
     looks,
   };
 }
+
+/** A part's verdict, and how many times its check asked the second look. */
+function partOutcome(checked: Awaited<ReturnType<typeof check>>, claim: string, part: string) {
+  return {
+    verdict: checked.result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    )?.verdict,
+    looks: checked.looks.get(part) ?? 0,
+  };
+}
+
+const unsupportedUnasked = { verdict: "unsupported", looks: 0 };
+const notCheckedAsked = { verdict: "not-checked", looks: 1 };
 
 describe("literal sentence parts", () => {
   test.each([
@@ -272,7 +290,7 @@ describe("literal sentence parts", () => {
       reason: "文件写的是 4.2%，不是 3.9%；引导流程重新设计的时点在文件中已有说明。",
     },
   ])(
-    "a part the quote states on its own is Supported, though the reply called the sentence contradicted ($language)",
+    "a part the quote states on its own is asked once more, and Not checked, never Supported, though the reply called the sentence contradicted ($language, #2816)",
     async ({ language, claim, first, timing, quote, reason }) => {
       const { result } = await check(
         claim,
@@ -301,7 +319,7 @@ describe("literal sentence parts", () => {
         result.verdict,
         result.verdict === "not-checked" ? `${result.reason}: ${result.detail}` : undefined,
       ).toBe("contradicted");
-      expect(result.parts?.map((part) => part.verdict)).toEqual(["contradicted", "supported"]);
+      expect(result.parts?.map((part) => part.verdict)).toEqual(["contradicted", "not-checked"]);
       const judged = result.parts?.[1];
       expect(judged?.says).toBeNull();
       expect(judged?.unsupported).toBeNull();
@@ -341,22 +359,20 @@ describe("literal sentence parts", () => {
             [part]: { quotes: [stated], reply: reply(fields), judgement: "same" },
           },
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(said)).result.parts ?? [])).not.toBe("supported");
-      // Paired: with its own Roles, Time and Scope agreeing, the same part is Supported.
+      expect(partOutcome(await run(said), claim, part)).toEqual(unsupportedUnasked);
+      // Paired: with its own Roles, Time and Scope agreeing, the same part is asked once more,
+      // which can't make it Supported (#2816).
       expect(
-        judged(
-          (
-            await run(
-              "Roles: the Tenant pays / the Tenant pays, same\nTime: none / none, same\nScope: none, same",
-              claim,
-            )
-          ).result.parts ?? [],
+        partOutcome(
+          await run(
+            "Roles: the Tenant pays / the Tenant pays, same\nTime: none / none, same\nScope: none, same",
+            claim,
+          ),
+          claim,
+          part,
         ),
-      ).toBe("supported");
+      ).toEqual(notCheckedAsked);
     },
   );
 
@@ -398,14 +414,11 @@ describe("literal sentence parts", () => {
             },
           },
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(other)).result.parts ?? [])).not.toBe("supported");
+      expect(partOutcome(await run(other), claim, part)).toEqual(unsupportedUnasked);
       // The quote states the part, and the reply's Roles line copies other words: the fields-only
       // second look is what keeps it from being read as support.
-      expect(judged((await run(other, claim)).result.parts ?? [])).not.toBe("supported");
+      expect(partOutcome(await run(other, claim), claim, part)).toEqual(unsupportedUnasked);
       const noSides = await check(
         claim,
         [
@@ -422,10 +435,10 @@ describe("literal sentence parts", () => {
           },
         },
       );
-      expect(judged(noSides.result.parts ?? [])).not.toBe("supported");
+      expect(partOutcome(noSides, claim, part)).toEqual(unsupportedUnasked);
       // Paired: with its own words as the Roles line's first side, and the quote stating it, the
-      // part is Supported.
-      expect(judged((await run(own, claim)).result.parts ?? [])).toBe("supported");
+      // part is asked once more, which can't make it Supported (#2816).
+      expect(partOutcome(await run(own, claim), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -433,9 +446,6 @@ describe("literal sentence parts", () => {
     const claim = "The harbour office publishes the times of high water every week.";
     const first = "The harbour office publishes the times of high water";
     const part = "every week";
-    const judged = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
     const run = (quote: string) =>
       check(
         claim,
@@ -453,24 +463,22 @@ describe("literal sentence parts", () => {
         },
       );
     expect(
-      judged(
-        (await run("The harbour office publishes the times of high water every weekday.")).result
-          .parts ?? [],
+      partOutcome(
+        await run("The harbour office publishes the times of high water every weekday."),
+        claim,
+        part,
       ),
-    ).not.toBe("supported");
+    ).toEqual(unsupportedUnasked);
     expect(
-      judged(
-        (await run("The harbour office publishes the times of high water every week.")).result
-          .parts ?? [],
+      partOutcome(
+        await run("The harbour office publishes the times of high water every week."),
+        claim,
+        part,
       ),
-    ).toBe("supported");
+    ).toEqual(notCheckedAsked);
 
     const negated = "The fee is not capped.";
     const negatedPart = "not capped";
-    const judgedNegated = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) =>
-      parts.find((each) => negated.slice(each.span.start, each.span.end) === negatedPart)?.verdict;
     const runNegated = (quote: string) =>
       check(
         negated,
@@ -487,11 +495,11 @@ describe("literal sentence parts", () => {
           },
         },
       );
-    expect(judgedNegated((await runNegated("The fee is capped.")).result.parts ?? [])).not.toBe(
-      "supported",
+    expect(partOutcome(await runNegated("The fee is capped."), negated, negatedPart)).toEqual(
+      unsupportedUnasked,
     );
-    expect(judgedNegated((await runNegated("The fee is not capped.")).result.parts ?? [])).toBe(
-      "supported",
+    expect(partOutcome(await runNegated("The fee is not capped."), negated, negatedPart)).toEqual(
+      notCheckedAsked,
     );
   });
 
@@ -601,13 +609,11 @@ describe("literal sentence parts", () => {
           },
           language ?? "en",
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
-      // Paired: the same words with the part's own negation (or none) are Supported.
-      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(unsupportedUnasked);
+      // Paired: the same words with the part's own negation (or none) are asked once more, which
+      // can't make them Supported (#2816).
+      expect(partOutcome(await run(own), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -657,12 +663,9 @@ describe("literal sentence parts", () => {
           },
           language ?? "en",
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
-      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(unsupportedUnasked);
+      expect(partOutcome(await run(own), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -720,12 +723,9 @@ describe("literal sentence parts", () => {
           },
           language ?? "en",
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
-      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(unsupportedUnasked);
+      expect(partOutcome(await run(own), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -777,12 +777,9 @@ describe("literal sentence parts", () => {
             },
           },
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).toBe("supported");
-      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(notCheckedAsked);
+      expect(partOutcome(await run(claim), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -807,14 +804,11 @@ describe("literal sentence parts", () => {
         },
         "zh-CN",
       );
-    const judged = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-    expect(judged((await run("根据公告，ABC公司每年公布一次报告。")).result.parts ?? [])).toBe(
-      "supported",
+    expect(partOutcome(await run("根据公告，ABC公司每年公布一次报告。"), claim, part)).toEqual(
+      notCheckedAsked,
     );
-    expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+    expect(partOutcome(await run(claim), claim, part)).toEqual(notCheckedAsked);
 
     const dutyClaim = "根据合同，乙方应当支付违约金。";
     const dutyPart = "乙方应当支付违约金";
@@ -835,13 +829,9 @@ describe("literal sentence parts", () => {
         },
         "zh-CN",
       );
-    const judgedDuty = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) =>
-      parts.find((each) => dutyClaim.slice(each.span.start, each.span.end) === dutyPart)?.verdict;
 
-    expect(judgedDuty((await duty("根据合同，乙方应该支付违约金。")).result.parts ?? [])).not.toBe(
-      "supported",
+    expect(partOutcome(await duty("根据合同，乙方应该支付违约金。"), dutyClaim, dutyPart)).toEqual(
+      unsupportedUnasked,
     );
   });
 
@@ -924,12 +914,9 @@ describe("literal sentence parts", () => {
           },
           language ?? "en",
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
-      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(unsupportedUnasked);
+      expect(partOutcome(await run(claim), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
@@ -968,16 +955,13 @@ describe("literal sentence parts", () => {
           },
           "zh-CN",
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
-      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+      expect(partOutcome(await run(quote), claim, part)).toEqual(unsupportedUnasked);
+      expect(partOutcome(await run(claim), claim, part)).toEqual(notCheckedAsked);
     },
   );
 
-  test("the walk's part is Supported when the re-asked judge agrees, and Not checked when it still disagrees with itself (#2313)", async () => {
+  test("the walk's part is Not checked when the re-asked judge agrees, as when it still disagrees with itself, and Unsupported when a field differs (#2313, #2816)", async () => {
     const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
     const part = "after the onboarding redesign";
     const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
@@ -1004,7 +988,7 @@ describe("literal sentence parts", () => {
     const agreedRun = await run(
       `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\n${SAME_DETAIL}\nThe Document states it.\nEvidence: [1]`,
     );
-    expect(judged(agreedRun.result)?.verdict).toBe("supported");
+    expect(judged(agreedRun.result)?.verdict).toBe("not-checked");
     expect(agreedRun.looks.get(part)).toBe(1);
 
     const still = judged(
@@ -1028,18 +1012,88 @@ describe("literal sentence parts", () => {
   });
 
   test.each([
-    { name: "Roles other", roles: "Roles: the Tenant pays / someone else, other" },
+    {
+      language: "en" as const,
+      claim: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      part: "after the onboarding redesign",
+      quote: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      part: "时点在引导流程重新设计之后",
+      quote: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ])(
+    "a second reply with every line the same is Not checked, and one whose field differs is Unsupported ($language, #2816)",
+    async ({ language, claim, first, part, quote }) => {
+      const judged = async (again: string) =>
+        (
+          await check(
+            claim,
+            [
+              { kind: "fact", text: first },
+              { kind: "fact", text: part },
+            ],
+            {
+              [part]: {
+                quotes: [quote],
+                reply: `Verdict: contradicted\nAbsence: no\nRoles: ${part} / ${part}, same\nThe Document gives another figure.\nEvidence: [1]`,
+                judgement: "same",
+                again,
+              },
+              [first]: { quotes: [quote] },
+            },
+            language,
+          )
+        ).result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part)
+          ?.verdict;
+
+      expect(
+        await judged(
+          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: none / none, same\nCondition: none / none, same\nThe Document states it.\nEvidence: [1]`,
+        ),
+      ).toBe("not-checked");
+      expect(
+        await judged(
+          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: has happened / is still to happen, differs\nThe Document states it.\nEvidence: [1]`,
+        ),
+      ).toBe("unsupported");
+    },
+  );
+
+  test.each([
+    {
+      name: "Roles other",
+      roles: "Roles: the Tenant pays / someone else, other",
+      ends: { verdict: "not-checked", reason: "malformed" },
+    },
     {
       name: "a Roles side copied from the Passage",
       roles: "Roles: the Passage's words / the Passage's words, same",
+      ends: { verdict: "not-checked", reason: "malformed" },
     },
-    { name: "Topic not found", topic: "Topic: not found" },
-    { name: "Evidence none", evidence: "Evidence: none" },
-    { name: "Scope wider", scope: "Scope: staff, wider" },
-    { name: "Time differs", time: "Time: has closed / will close, differs" },
+    {
+      name: "Topic not found",
+      topic: "Topic: not found",
+      ends: { verdict: "not-checked", reason: "malformed" },
+    },
+    {
+      name: "Evidence none",
+      evidence: "Evidence: none",
+      ends: { verdict: "not-checked", reason: "malformed" },
+    },
+    { name: "Scope wider", scope: "Scope: staff, wider", ends: { verdict: "unsupported" } },
+    {
+      name: "Time differs",
+      time: "Time: has closed / will close, differs",
+      ends: { verdict: "unsupported" },
+    },
   ])(
     "a supported second reply passes the first reply's checks ($name, #2313)",
-    async ({ roles, topic, evidence, scope, time }) => {
+    async ({ roles, topic, evidence, scope, time, ends }) => {
       const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
       const part = "after the onboarding redesign";
       const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
@@ -1072,7 +1126,9 @@ describe("literal sentence parts", () => {
         time ?? "The Document states it.",
         evidence ?? "Evidence: [1]",
       ].join("\n");
-      expect(judged((await run(said)).result)?.verdict).not.toBe("supported");
+      const ran = await run(said);
+      expect(judged(ran.result)).toMatchObject(ends);
+      expect(ran.looks.get(part)).toBe(1);
     },
   );
 
@@ -1125,7 +1181,7 @@ describe("literal sentence parts", () => {
     const judged = result.result.parts?.find(
       (each) => claim.slice(each.span.start, each.span.end) === part,
     );
-    expect(judged?.verdict).not.toBe("supported");
+    expect(judged?.verdict).toBe("unsupported");
     expect(result.looks.get(part) ?? 0).toBe(0);
   });
 
@@ -1177,7 +1233,8 @@ describe("literal sentence parts", () => {
     const judged = result.result.parts?.find(
       (each) => claim.slice(each.span.start, each.span.end) === part,
     );
-    expect(judged?.verdict).toBe("supported");
+    expect(judged?.verdict).toBe("not-checked");
+    expect(result.looks.get(part)).toBe(1);
   });
 
   test.each([
@@ -1204,41 +1261,39 @@ describe("literal sentence parts", () => {
             [part]: { quotes: [stated], reply, judgement: "same" },
           },
         );
-      const judged = (
-        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
       expect(
-        judged(
-          (
-            await run(
-              `Verdict: contradicted\n${fields}The Document gives it the other way.\nEvidence: [1]`,
-            )
-          ).result.parts ?? [],
+        partOutcome(
+          await run(
+            `Verdict: contradicted\n${fields}The Document gives it the other way.\nEvidence: [1]`,
+          ),
+          claim,
+          part,
         ),
-      ).not.toBe("supported");
+      ).toEqual(unsupportedUnasked);
       // The quote states the part; the reply's Roles line gives no side to compare.
       expect(
-        judged(
-          (
-            await run(
-              "Verdict: contradicted\nRoles: same\nThe Document gives it the other way.\nEvidence: [1]",
-              claim,
-            )
-          ).result.parts ?? [],
+        partOutcome(
+          await run(
+            "Verdict: contradicted\nRoles: same\nThe Document gives it the other way.\nEvidence: [1]",
+            claim,
+          ),
+          claim,
+          part,
         ),
-      ).not.toBe("supported");
-      // Paired: the part's own words as the Roles line's first side are Supported.
+      ).toEqual(unsupportedUnasked);
+      // Paired: the part's own words as the Roles line's first side are asked once more, which
+      // can't make them Supported (#2816).
       expect(
-        judged(
-          (
-            await run(
-              `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it the other way.\nEvidence: [1]`,
-              claim,
-            )
-          ).result.parts ?? [],
+        partOutcome(
+          await run(
+            `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it the other way.\nEvidence: [1]`,
+            claim,
+          ),
+          claim,
+          part,
         ),
-      ).toBe("supported");
+      ).toEqual(notCheckedAsked);
     },
   );
 
@@ -1262,23 +1317,23 @@ describe("literal sentence parts", () => {
           },
         },
       );
-    const judged = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
     expect(
-      judged(
-        (await run("The harbour office publishes the times of high water every week.")).result
-          .parts ?? [],
+      partOutcome(
+        await run("The harbour office publishes the times of high water every week."),
+        claim,
+        part,
       ),
-    ).not.toBe("supported");
-    // Paired: the same part, stated by the quote, is Supported.
+    ).toEqual(unsupportedUnasked);
+    // Paired: the same part, stated by the quote, is asked once more, which can't make it
+    // Supported (#2816).
     expect(
-      judged(
-        (await run("The harbour office publishes the times of high water every year.")).result
-          .parts ?? [],
+      partOutcome(
+        await run("The harbour office publishes the times of high water every year."),
+        claim,
+        part,
       ),
-    ).toBe("supported");
+    ).toEqual(notCheckedAsked);
   });
 
   test("a part whose quote states its figure without its unit stays Unsupported (#2313)", async () => {
@@ -1301,16 +1356,14 @@ describe("literal sentence parts", () => {
           },
         },
       );
-    const judged = (
-      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
-    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
-    expect(judged((await run("The fee is 3,100,000 in total.")).result.parts ?? [])).not.toBe(
-      "supported",
+    expect(partOutcome(await run("The fee is 3,100,000 in total."), claim, part)).toEqual(
+      unsupportedUnasked,
     );
-    // Paired: the same value with its unit stated in the quote is Supported.
-    expect(judged((await run("The fee is £3.1 million in total.")).result.parts ?? [])).toBe(
-      "supported",
+    // Paired: the same value with its unit stated in the quote is asked once more, which can't
+    // make it Supported (#2816).
+    expect(partOutcome(await run("The fee is £3.1 million in total."), claim, part)).toEqual(
+      notCheckedAsked,
     );
   });
 
@@ -1340,7 +1393,10 @@ describe("literal sentence parts", () => {
       );
 
     const unsolved = await run(claim);
-    expect(unsolved.result.parts?.[1]?.verdict).not.toBe("supported");
+    expect(unsolved.result.parts?.[1]).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+    });
     // Paired: with every quantity it states settled, the part stands on its working.
     const settled = await run("The leverage was 3.25x.");
     expect(settled.result.parts?.[1]?.verdict).toBe("supported");
@@ -1356,8 +1412,13 @@ describe("literal sentence parts", () => {
       judgement: "same" as const,
     };
     const whole = await check(claim, [{ kind: "fact", text: part }], { [part]: outcome });
-    expect(whole.result.parts?.[0]?.verdict).not.toBe("supported");
-    // Paired: the walk's real part, with words around it, is Supported on its quote.
+    expect(whole.result.parts?.[0]).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+    });
+    expect(whole.looks.get(part) ?? 0).toBe(0);
+    // Paired: the walk's real part, with words around it, is asked once more on its quote, which
+    // can't make it Supported (#2816).
     const genuine = await check(
       "Customer churn fell to 4.2 per cent after the onboarding redesign.",
       [
@@ -1375,7 +1436,8 @@ describe("literal sentence parts", () => {
         },
       },
     );
-    expect(genuine.result.parts?.[1]?.verdict).toBe("supported");
+    expect(genuine.result.parts?.[1]?.verdict).toBe("not-checked");
+    expect(genuine.looks.get("after the onboarding redesign")).toBe(1);
   });
 
   test("keeps independent facts and their separate Sources without quantified coverage", async () => {
@@ -2138,6 +2200,92 @@ describe.each(["en", "zh-CN"] as const)("%s reply lines that declare nothing", (
   });
 });
 
+describe.each([
+  {
+    language: "en" as const,
+    claim: "Pell Logistics opened a depot in Derby.",
+    right: "In May, Pell Logistics opened a depot in Derby, its third in the Midlands.",
+    again: "Pell Logistics opened a depot in Derby in May 2026.",
+    stray: "The office is closed on public holidays.",
+    stated: "three",
+    count: "Elm recorded three consecutive years of revenue growth ending in 2025.",
+  },
+  {
+    language: "zh-CN" as const,
+    claim: "远航食品在成都开设了新工厂。",
+    right: "今年五月，远航食品在成都开设了新工厂，这是其在西南地区的第三家工厂。",
+    again: "远航食品在成都开设了新工厂，于五月投产。",
+    stray: "办公室在法定节假日休息。",
+    stated: "三年",
+    count: "截至2025年，榆木公司的收入连续三年增长。",
+  },
+])("$language: a quote given after a Supported verdict, judged on its own (#2816)", (each) => {
+  const judge = (quote: string) => (quote.trim() === each.stray ? "neither" : "same");
+
+  test("is no Citation when it doesn't back the sentence, though a quote beside it does", async () => {
+    const run = (given: string) =>
+      check(
+        each.claim,
+        [{ kind: "fact", text: each.claim }],
+        {
+          [each.claim]: {
+            quotes: [each.right],
+            sourceQuotes: [each.right, each.again, each.stray],
+            reply: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${each.claim} / ${each.right}, same\nThe Documents establish this.\nEvidence: [1, 2]\nCalculation: none`,
+            recovery: [{ marker: 2, quote: given }],
+            judge,
+          },
+        },
+        each.language,
+      );
+
+    const unbacked = (await run(each.stray)).result;
+    expect(unbacked).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(unbacked.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([each.right]);
+    const backed = (await run(each.again)).result;
+    expect(backed.verdict).toBe("supported");
+    expect(backed.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([
+      each.right,
+      each.again,
+    ]);
+  });
+
+  test("is judged on a figure worked out by calculation too", async () => {
+    const inputs = [100, 110, 120, 130].map((number, index) => ({
+      name: `r${2022 + index}`,
+      number: String(number),
+      quote: `Revenue for ${2022 + index} was GBP ${number}.`,
+    }));
+    const run = (given: string) =>
+      check(
+        each.count,
+        [{ kind: "fact", text: each.count }],
+        {
+          [each.count]: {
+            quotes: [],
+            sourceQuotes: inputs.map((input, index) =>
+              index === inputs.length - 1 ? `${input.quote} ${each.stray}` : input.quote,
+            ),
+            calculation: { stated: each.stated, inputs, formula: INCREASES },
+            reply: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${each.count} / ${each.count}, same\nThe Documents establish this.\nEvidence: [5]\nCalculation: ${each.stated}`,
+            recovery: [{ marker: 5, quote: given }],
+            judge,
+          },
+        },
+        each.language,
+      );
+
+    expect((await run(each.stray)).result).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+    });
+    expect((await run("Revenue for 2025 was GBP 130.")).result).toMatchObject({
+      verdict: "supported",
+      calculation: { agrees: true },
+    });
+  });
+});
+
 describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (language) => {
   const claim =
     language === "en" ? "Rook operated North and South branches." : "白鸦公司经营北区和南区分店。";
@@ -2158,6 +2306,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
             { marker: 1, quote: north },
             { marker: 2, quote: south },
           ],
+          judgement: "same",
         },
       },
       language,
@@ -2183,6 +2332,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
           sourceQuotes: [north, south],
           reply,
           recovery: [{ marker: 2, quote: south }],
+          judgement: "same",
         },
       },
       language,
@@ -2319,6 +2469,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
             { marker: 2, quote: south },
             { marker: 3, quote: domain },
           ],
+          judgement: "same",
         },
       },
       language,
@@ -2560,11 +2711,11 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
     expect(judged(result.parts ?? [])).toBe(verdict);
   });
 
-  test("a Supported second look with both lines the same is Supported, as the judge said", async () => {
+  test("a Supported second look with both lines the same is Not checked: a second look only lowers (#2816)", async () => {
     const stated = "The berth costs 30 pounds a night, and berth holders may run a generator.";
     const { result, looks } = await run(both, looked(both), stated);
     expect(looks.get(part)).toBe(1);
-    expect(judged(result.parts ?? [])).toBe("supported");
+    expect(judged(result.parts ?? [])).toBe("not-checked");
   });
 
   test("a part whose own reply is Supported, both lines the same, is Supported as the judge said", async () => {

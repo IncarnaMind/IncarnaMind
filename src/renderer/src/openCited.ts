@@ -1,8 +1,10 @@
 import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
-import { citationState, quoteStanding } from "../../shared/citations";
+import { citationState, citedSpeakers, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
+import { citationPageOpened } from "./assistantYields";
 import { type CitedSource, useComposer } from "./composer";
 import { core } from "./core";
+import type { CitedOrigin } from "./editor/mindContext";
 import { translateNow } from "./i18n";
 import { currentTabOf } from "./layoutSlice";
 import { type AppState, useAppStore } from "./store";
@@ -42,6 +44,7 @@ export function openCited(
     location?: CitationAttributes["location"];
   },
   how: {
+    origin: CitedOrigin;
     check: CitationCheck;
     /** Why it can't be checked, when `check` is "cant-check" (#535). */
     checkReason?: CitationCheckReason;
@@ -66,7 +69,7 @@ export function openCited(
     : previous && sourceIsUsable(previous, useAppStore.getState())
       ? { ...previous, documentId: citation.documentId }
       : null;
-  useAppStore.getState().openDocument(
+  const opened = useAppStore.getState().openDocument(
     {
       documentId: citation.documentId,
       // A whole TXT or Markdown file cited before Locations, whose quote wasn't found, opens at the top.
@@ -96,6 +99,9 @@ export function openCited(
     },
   );
   useComposer.setState({ citedSource: source });
+  void Promise.resolve(opened).then((layout) => {
+    if (layout) citationPageOpened(layout, how.origin);
+  });
 }
 
 /**
@@ -121,6 +127,7 @@ async function movedPlace(
       pageFrom: citation.pageFrom,
       pageTo: citation.pageTo,
       contentHash: citation.contentHash,
+      location: citation.location,
     })
     .catch((failure: unknown) => {
       console.error("A moved quote couldn't be looked for in its Document's new version.", failure);
@@ -133,7 +140,11 @@ async function movedPlace(
   return {
     place: { pageFrom: recheck.pageFrom, pageTo: recheck.pageTo },
     location,
-    label: location ? formatLocation(location, translateNow) : null,
+    label: location
+      ? formatLocation(location, translateNow, {
+          speakers: citedSpeakers(citation, useAppStore.getState().documents),
+        })
+      : null,
   };
 }
 

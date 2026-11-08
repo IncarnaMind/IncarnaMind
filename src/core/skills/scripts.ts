@@ -4,11 +4,18 @@
  * ../approvals); this module only runs what was allowed.
  *
  * - The interpreter is chosen by the file's extension: Python through
- *   `python3` (`python` on Windows) and shell scripts through `bash`, both
+ *   IncarnaMind's own Python once `run_code` has got it (ADR-0025), else
+ *   `python3` (`python` on Windows), and shell scripts through `bash`, both
  *   found on the User's login-shell PATH; JavaScript through the app's own
  *   Node.js (Electron's, as plain Node), so nothing needs installing for it.
  *   Shell scripts on Windows, TypeScript and other kinds give a plain error,
  *   and so does an interpreter that isn't installed, naming what to install.
+ * - IncarnaMind's own Python that can't start is said so, and the script
+ *   isn't run on `python3` instead: it would see other packages than the
+ *   locked ones, without the User knowing. A script that stops at importing a
+ *   package it doesn't include is a Problem naming the package, never its
+ *   traceback; the model is also told that installing it on this computer
+ *   won't help, which it otherwise tells the User to do.
  * - The script finds its Skill's folder in the `SKILL_DIR` environment variable.
  * - The core's `Executor` (see ../execution) runs it: in a new, empty
  *   temporary working folder, removed afterwards; with no input, until it
@@ -26,9 +33,12 @@
  * reaching the network (see `access`). That is why each run asks first.
  */
 import { join } from "node:path";
-import type { ExecAllow, Executor, ScriptRuntimes } from "../adapters";
+import { translate } from "../../shared/i18n";
+import type { ExecAllow, ExecRequest, Executor, ScriptRuntimes } from "../adapters";
 import { SKILL_SCRIPT_LIMITS, type SkillScriptRun } from "../api";
 import { declaredAccess, type ExecAccess, WORKING_FOLDER } from "../execution";
+import type { Language } from "../language";
+import type { InstalledPython } from "../runCode";
 
 /**
  * Why a script can't run, in plain language: for the model, and for the
@@ -36,14 +46,29 @@ import { declaredAccess, type ExecAccess, WORKING_FOLDER } from "../execution";
  */
 class SkillScriptError extends Error {
   override name = "SkillScriptError";
+  constructor(
+    message: string,
+    /** What the model is told, where it needs more than the card says. */
+    readonly toModel = message,
+  ) {
+    super(message);
+  }
 }
+
+/** What the model is told of a script that couldn't run, where that isn't the card's reason. */
+export const toldTheModel = (error: unknown): string | null =>
+  error instanceof SkillScriptError ? error.toModel : null;
 
 /** What runs a script: the command, and what its environment needs. */
 export interface Interpreter {
   command: string;
+  /** Given before the script's path. */
+  flags: readonly string[];
   env: Readonly<Record<string, string>>;
   /** What to install when the command isn't there, e.g. "Python 3". */
   install: string;
+  /** IncarnaMind's own Python, when it is that. */
+  own?: InstalledPython;
 }
 
 /** One script to run, already checked to be a script file inside its Skill's folder. */
@@ -56,12 +81,16 @@ export interface ScriptToRun {
   timeoutMs: number;
   /** Stops the script, e.g. when the User stops the Answer. */
   signal: AbortSignal;
+  /** The interface's, which a Problem the User reads on the script's card is written in. */
+  language: Language;
 }
 
 export interface ScriptRunnerOptions {
   /** Runs the scripts: the core's, at its sandbox level. */
   executor: Executor;
   runtimes?: ScriptRuntimes;
+  /** IncarnaMind's own Python, once it is installed here: asked at each run. */
+  python?: () => InstalledPython | null;
 }
 
 const extensionOf = (path: string): string => {
@@ -85,25 +114,53 @@ function runtimesFrom(given: ScriptRuntimes = {}): Runtimes {
   };
 }
 
+/** No __pycache__ written into the Skill's folder; UTF-8 output on Windows too. */
+const PYTHON_ENV = { PYTHONDONTWRITEBYTECODE: "1", PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
+
 /**
- * What runs the script at `path` (inside its Skill), by its extension.
- * Throws `SkillScriptError` for one that can't run here.
+ * -E and -s keep the PYTHON* variables and user site-packages meant for the User's own Python out
+ * of IncarnaMind's: a PYTHONHOME stops it starting, a PYTHONPATH mixes another Python's packages
+ * into its locked ones. -B and -X utf8 do what `PYTHON_ENV` does, which -E ignores. Not -I: it
+ * takes the script's folder off sys.path, and a script may import the modules beside it.
  */
-function interpreterFor(path: string, given?: ScriptRuntimes): Interpreter {
+const OWN_PYTHON_FLAGS = ["-E", "-s", "-B", "-X", "utf8"];
+
+/** Python starts in well under a second in the sandbox (ADR-0025); one that hasn't by then won't. */
+const START_CHECK_MS = 30_000;
+
+/**
+ * What runs the script at `path` (inside its Skill), by its extension: a Python script on `own`
+ * when that is given. Throws `SkillScriptError` for one that can't run here.
+ */
+function interpreterFor(
+  path: string,
+  given?: ScriptRuntimes,
+  own?: InstalledPython | null,
+): Interpreter {
   const { node, platform } = runtimesFrom(given);
   const windows = platform === "win32";
   switch (extensionOf(path)) {
     case "py":
+      // IncarnaMind's own Python is built for macOS and Linux only (ADR-0025).
+      if (own && !windows) {
+        return {
+          command: own.command,
+          flags: OWN_PYTHON_FLAGS,
+          env: PYTHON_ENV,
+          install: "Python 3",
+          own,
+        };
+      }
       return {
         command: windows ? "python" : "python3",
-        // No __pycache__ written into the Skill's folder; UTF-8 output on Windows too.
-        env: { PYTHONDONTWRITEBYTECODE: "1", PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+        flags: [],
+        env: PYTHON_ENV,
         install: "Python 3",
       };
     case "js":
     case "mjs":
     case "cjs":
-      return { command: node.command, env: { ...node.env }, install: "Node.js" };
+      return { command: node.command, flags: [], env: { ...node.env }, install: "Node.js" };
     case "sh":
     case "bash":
       if (windows) {
@@ -111,7 +168,7 @@ function interpreterFor(path: string, given?: ScriptRuntimes): Interpreter {
           `${path} is a shell script, and shell scripts can't run on Windows. ${supported(platform)}`,
         );
       }
-      return { command: "bash", env: {}, install: "bash" };
+      return { command: "bash", flags: [], env: {}, install: "bash" };
     case "ts":
     case "mts":
     case "cts":
@@ -194,13 +251,57 @@ export function scriptResultText(script: string, run: SkillScriptRun, timeoutSec
 
 /**
  * What a script of the Skill in `skillDir` may touch: the Skill's folder and
- * its working folder to read, its working folder to write, and no network.
+ * its working folder to read, and IncarnaMind's own Python's when it runs on
+ * that; its working folder to write; and no network.
  */
-const scriptAllow = (skillDir: string): ExecAllow => ({
-  read: [skillDir, WORKING_FOLDER],
+const scriptAllow = (skillDir: string, own?: InstalledPython): ExecAllow => ({
+  read: [skillDir, WORKING_FOLDER, ...(own ? [own.prefix] : [])],
   write: [WORKING_FOLDER],
   network: "none",
 });
+
+const ownPythonCantStart = (script: string, why: string) =>
+  new SkillScriptError(
+    `IncarnaMind's own Python couldn't start on this computer, so ${script} didn't run: ${why}`,
+  );
+
+/**
+ * Why IncarnaMind's own Python can't start, in its own words, or null if it starts. A script that
+ * failed on it may have failed on its own: started again with nothing to run, as the script was,
+ * the interpreter tells the two apart.
+ */
+async function whyOwnPythonFails(executor: Executor, check: ExecRequest): Promise<string | null> {
+  const ran = await executor.run(check);
+  if (ran.exitCode === 0) return null;
+  const said = ran.stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+  if (said) return said;
+  if (ran.timedOut) return `it didn't start within ${START_CHECK_MS / 1000} seconds.`;
+  return ran.exitCode === null ? "the system stopped it." : `it exited with code ${ran.exitCode}.`;
+}
+
+/**
+ * The package a script couldn't import, when the last line of its error output is that import's
+ * error, or null. The name is the script's own text: only a plain module name is ever shown, and
+ * nothing else it wrote. Python names a dotted module only once the package above it has
+ * imported, so a dotted name is never a package that is missing.
+ */
+function missingPackage(stderr: string): string | null {
+  const last = stderr.trimEnd().split("\n").at(-1)?.trim() ?? "";
+  const named =
+    /^ModuleNotFoundError: No module named '([^']*)'$/.exec(last)?.[1] ??
+    /^ImportError: No module named '?([^'\s]*)'?$/.exec(last)?.[1];
+  return named !== undefined && /^[A-Za-z0-9_]{1,64}$/.test(named) ? named : null;
+}
+
+/**
+ * Exits with 3 when the runtime has no module of the name it is given. Run from the run's own
+ * empty working folder, so neither the Skill's folder nor anything the script wrote counts.
+ */
+const NOT_INCLUDED =
+  "import importlib.util, sys; sys.exit(3 if importlib.util.find_spec(sys.argv[1]) is None else 0)";
 
 export function createScriptRunner(options: ScriptRunnerOptions) {
   const { executor } = options;
@@ -230,26 +331,63 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
      * start, e.g. its interpreter isn't installed.
      */
     async run(request: ScriptToRun): Promise<SkillScriptRun> {
-      const interpreter = interpreterFor(request.script, runtimes);
+      const interpreter = interpreterFor(request.script, runtimes, options.python?.());
       if (closed) throw new SkillScriptError("IncarnaMind is closing, so the script didn't run.");
       request.signal.throwIfAborted();
       // Stopped by `stopAll` or `close`, as well as by the request's own signal.
       const stop = new AbortController();
       running.add(stop);
+      const signal = AbortSignal.any([request.signal, stop.signal]);
+      const program = {
+        command: interpreter.command,
+        env: { ...interpreter.env, SKILL_DIR: request.skillDir },
+        ...(interpreter.own && { environment: "own-python" as const }),
+        allow: scriptAllow(request.skillDir, interpreter.own),
+        maxOutputBytes: SKILL_SCRIPT_LIMITS.maxOutputBytes,
+        signal,
+      };
       try {
         const run = await executor.run({
-          command: interpreter.command,
-          args: [join(request.skillDir, ...request.script.split("/")), ...request.args],
-          env: { ...interpreter.env, SKILL_DIR: request.skillDir },
-          allow: scriptAllow(request.skillDir),
+          ...program,
+          args: [
+            ...interpreter.flags,
+            join(request.skillDir, ...request.script.split("/")),
+            ...request.args,
+          ],
           timeoutMs: request.timeoutMs,
-          maxOutputBytes: SKILL_SCRIPT_LIMITS.maxOutputBytes,
-          signal: AbortSignal.any([request.signal, stop.signal]),
         });
+        if (interpreter.own && run.exitCode !== 0 && !run.timedOut && !signal.aborted) {
+          const why = await whyOwnPythonFails(executor, {
+            ...program,
+            args: [...interpreter.flags, "-c", ""],
+            timeoutMs: START_CHECK_MS,
+          });
+          if (why !== null && !signal.aborted) throw ownPythonCantStart(request.script, why);
+          // Python ends with 1 on an exception nothing caught: any other run went on past it.
+          const missing = run.exitCode === 1 && !signal.aborted ? missingPackage(run.stderr) : null;
+          const notIncluded = async (name: string) =>
+            (
+              await executor.run({
+                ...program,
+                args: [...interpreter.flags, "-c", NOT_INCLUDED, name],
+                timeoutMs: START_CHECK_MS,
+              })
+            ).exitCode === 3;
+          if (missing !== null && (await notIncluded(missing))) {
+            const problem = translate(request.language, "scripts.call.missingPackage", {
+              package: missing,
+            });
+            throw new SkillScriptError(
+              problem,
+              translate(request.language, "scripts.call.missingPackage.model", { problem }),
+            );
+          }
+        }
         // Field by field: the card stores exactly these in the Mind.
         return {
           exitCode: run.exitCode,
           timedOut: run.timedOut,
+          ...(run.limit === "folder-unknown" && { diskUnmeasured: true }),
           stdout: run.stdout,
           stderr: run.stderr,
           stdoutTruncated: run.stdoutTruncated,
@@ -258,6 +396,8 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
         };
       } catch (error) {
         if (!isNotFound(error)) throw error;
+        if (interpreter.own)
+          throw ownPythonCantStart(request.script, "its program can't be found.");
         throw new SkillScriptError(
           `${commandName(interpreter.command)} not found: install ${interpreter.install} to run ${request.script}.`,
         );

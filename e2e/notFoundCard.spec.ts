@@ -56,6 +56,7 @@ const LANGUAGES = {
     keep: "Keep as my view",
     searchAll: "Search all Documents",
     checkDocument: "Check against a Document…",
+    chooseCitation: "Choose the Citation…",
     findSources: "Find sources…",
     findSourcesSearch: "find sources",
     findSourcesFor: "Find sources for this sentence",
@@ -72,6 +73,7 @@ const LANGUAGES = {
     keep: "保留为我的观点",
     searchAll: "搜索全部文档",
     checkDocument: "对照指定文档核对…",
+    chooseCitation: "选择引用…",
     findSources: "查找资料…",
     findSourcesSearch: "查找资料",
     findSourcesFor: "为这句话查找资料",
@@ -85,6 +87,7 @@ const LANGUAGES = {
 const IDS = {
   searchAll: "claim-search-all",
   checkDocument: "claim-check-document",
+  chooseCitation: "claim-choose-citation",
   cut: "claim-cut-sentence",
   keep: "claim-keep",
   searchWeb: "claim-search-web",
@@ -94,7 +97,15 @@ const IDS = {
 } as const;
 
 /** The card's actions, in the order they are drawn; Find sources waits in its ⋯. */
-const ORDER = [IDS.searchAll, IDS.checkDocument, IDS.cut, IDS.keep, IDS.searchWeb, IDS.remove];
+const ORDER = [
+  IDS.searchAll,
+  IDS.checkDocument,
+  IDS.chooseCitation,
+  IDS.cut,
+  IDS.keep,
+  IDS.searchWeb,
+  IDS.remove,
+];
 
 /** Whether the first box sits inside the second. */
 const inside = async (inner: Locator, outer: Locator) => {
@@ -234,6 +245,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(shown).toEqual(ORDER);
       await expect(card.getByTestId(IDS.searchAll)).toHaveText(words.searchAll);
       await expect(card.getByTestId(IDS.checkDocument)).toHaveText(words.checkDocument);
+      await expect(card.getByTestId(IDS.chooseCitation)).toHaveText(words.chooseCitation);
       await expect(card.getByTestId(IDS.cut)).toHaveText(words.cut);
       await expect(card.getByTestId(IDS.keep)).toHaveText(words.keep);
       await expect(card.getByTestId(IDS.searchWeb)).toHaveText(words.searchWeb);

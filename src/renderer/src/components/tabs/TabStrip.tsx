@@ -8,7 +8,6 @@ import {
 } from "react";
 import type { LayoutGroup, LayoutTab } from "../../../../core/api";
 import { shortcutLabel } from "../../commands/keymap";
-import { useFirstOpen } from "../../firstOpen";
 import { useT } from "../../i18n";
 import { focusedGroupOf, groupOfTab } from "../../layoutSlice";
 import { onMiddleClick } from "../../middleClick";
@@ -20,7 +19,7 @@ import { CloseLineIcon, PinLineIcon, PlusLineIcon, SplitLineIcon } from "../line
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
-import { ExportMenu } from "./ExportMenu";
+import { ExportIdle, ExportMenu } from "./ExportMenu";
 import { ShowAllTabs } from "./ShowAllTabs";
 import { GroupMenu, StripButton } from "./TabMenus";
 import { splitToTheRight } from "./tabActions";
@@ -31,9 +30,9 @@ import { useTabStripFit } from "./useTabStripFit";
 /*
  * A group's tab strip (DESIGN.md, Components: Mind tabs, which now hold
  * everything that opens): the tabs, then "+" for a new Mind in this group,
- * then the Tasks chip (in the last group's strip), Export (for a Mind), Split
- * and ⋯. This file is their behaviour and
- * structure; their whole look is the `.tab-strip` block in styles.css.
+ * then the Tasks chip (in the last group's strip), Export, Split and ⋯. This
+ * file is their behaviour and structure; their whole look is the `.tab-strip`
+ * block in styles.css.
  */
 
 /** The tabs of a group, or, merged, of every group in order, with the one shown. */
@@ -82,24 +81,6 @@ export function TabStrip({
     void useAppStore.getState().changeLayout({ type: "show", tabId: next.id });
     focusTab(next.id);
   };
-
-  const quiet = useFirstOpen() && layout?.groups.flatMap((each) => each.tabs).length === 1;
-  if (quiet) {
-    return (
-      <header
-        data-testid="tab-strip"
-        data-group-id={group.id}
-        data-first-group={index === 0 || undefined}
-        data-quiet=""
-        className="tab-strip title-bar"
-      >
-        {index === 0 && <SidebarToggle place="band" />}
-        <span className="tab-strip-spacer" />
-        {/* Its slot in the band: "Show Tasks" is in ⌘K here too, and it needs somewhere to open from. */}
-        {last && <TasksChip />}
-      </header>
-    );
-  }
 
   return (
     <header
@@ -151,7 +132,7 @@ export function TabStrip({
       <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
-      {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}
+      {shown?.item.kind === "mind" ? <ExportMenu mindId={shown.item.mindId} /> : <ExportIdle />}
       {!merged && (
         <span className="tab-split">
           <StripButton

@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { analysisInputCitations } from "../../../shared/analysisTables";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import { citedCases } from "../../../shared/caseCitations";
 import {
@@ -10,17 +11,22 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
+import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import {
   countFigureSteps,
   type FigureContext,
   type FigureFacts,
   FiguresNotRead,
   figureFactsOf,
+  type HeaderRead,
   readFigures,
+  readHeader,
 } from "../../../shared/figures";
 import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
@@ -32,7 +38,15 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
-import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf, wordsReader } from "./sentences";
+import { statesAFrame } from "./analysisNaming";
+import {
+  isTableCaption,
+  type SelectedSentence,
+  sentenceSpansIn,
+  textOf,
+  wordsOf,
+  wordsReader,
+} from "./sentences";
 
 interface Around {
   span: { from: number; to: number };
@@ -57,7 +71,131 @@ export interface FigureOccurrence extends CheckFigure {
   };
 }
 
-function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid>) {
+interface TableRowLayout {
+  rowLabel: string;
+  rowText: string;
+  /** The heading of each of the row's columns above it, by the column's place in the row. */
+  columnLabels: readonly string[];
+  /** The row's cells' columns, in order: the columns a rowspan doesn't continue. */
+  anchors: readonly number[];
+  /** A row above that only names a group ("Revenue:", its other cells empty), which heads this one. */
+  section: string;
+}
+
+export interface TableLayout {
+  grid: SourceGrid;
+  caption: string;
+  /** The caption's stated units, read once for the table (#2523). */
+  captionRead?: HeaderRead;
+  rows: TableRowLayout[];
+  rowIndex: Map<Y.XmlElement, number>;
+  headerReads: Map<string, HeaderRead>;
+}
+
+/** A first column that numbers its rows: its cells are not the rows' names. */
+const ROW_NUMBERS = /^\s*(?:序号|序號|项次|項次|编号|編號|#|no\.?|nr\.?)\s*$/iu;
+/** A first column headed by a period holds that period's values, not the rows' names. */
+const PERIOD_HEADING =
+  /^\s*(?:(?:fy|cy|year|年度)\s*)?(?:\d{4}\s*年?|[QH][1-4](?:\s+\d{2,4})?)\s*$/iu;
+
+/**
+ * The words naming a row in a figure's label. A first column that numbers its rows (序号, #) names
+ * none of them: the name is the row's next cell that isn't a figure, or none. A first column
+ * headed by a period (2024年) holds values, so a figure there names no row, while a genuine label
+ * keeps its words. Elsewhere the first cell is the name, a year among the rows included.
+ */
+function rowLabelOf(
+  slots: TableLayout["grid"][number],
+  headings: readonly { text: string }[],
+): string {
+  const first = slots[0]?.text ?? "";
+  const heading = headings[0]?.text ?? "";
+  /** Whether a cell's words are one figure, a number with its currency and scale, not a name. */
+  const isFigure = (text: string) => {
+    const words = text.trim();
+    const read = readFigures(words, documentFigureContext([{ text: words }]));
+    return read.length === 1 && read[0]?.chars === words;
+  };
+  if (ROW_NUMBERS.test(heading))
+    return (
+      slots
+        .slice(1)
+        .find((slot) => slot !== null && slot.text.trim() !== "" && !isFigure(slot.text))?.text ??
+      ""
+    );
+  return PERIOD_HEADING.test(heading) && isFigure(first) ? "" : first;
+}
+
+function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
+  const known = layouts.get(table);
+  if (known) return known;
+  const grid = gridOfTable(nodeOf(table));
+  const rows = table.toArray().filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
+  const before = table.prevSibling;
+  const caption =
+    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
+  const columns = grid.reduce((most, slots) => Math.max(most, slots.length), 0);
+  // Each cell's read counts this once, not once for each cell (#2523).
+  countFigureSteps(rows.length * (columns + 1) + caption.length);
+  const headings = Array.from({ length: columns }, () => ({ seen: new Set<string>(), text: "" }));
+  const layout: TableLayout = {
+    grid,
+    caption,
+    rows: [],
+    rowIndex: new Map(),
+    headerReads: new Map(),
+  };
+  let section = "";
+  for (const [index, row] of rows.entries()) {
+    const slots = grid[index] ?? [];
+    layout.rowIndex.set(row, index);
+    layout.rows.push({
+      rowLabel: rowLabelOf(slots, headings),
+      rowText: slots.map((slot) => slot?.text ?? "").join(" | "),
+      columnLabels: headings.map((heading) => heading.text),
+      anchors: slots.flatMap((slot, column) => (slot && !slot.continued ? [column] : [])),
+      section,
+    });
+    // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
+    // a "Total" under it is that group's.
+    if (slots[0]?.text && !slots[0].header && slots.slice(1).every((slot) => !slot?.text))
+      section = slots[0].text;
+    for (const [column, slot] of slots.entries()) {
+      const heading = headings[column];
+      if (!heading || !slot?.header || !slot.text || heading.seen.has(slot.text)) continue;
+      heading.seen.add(slot.text);
+      heading.text = heading.text ? `${heading.text}\n${slot.text}` : slot.text;
+    }
+  }
+  layouts.set(table, layout);
+  return layout;
+}
+
+/**
+ * What a cell's header states, the caption read once for the table and the row's own headings once
+ * for the row: a table of many cells reads its caption once, not once for each cell (#2523).
+ */
+function tableHeaderRead(
+  layout: TableLayout,
+  rowHeader: string,
+  note: FigureContext,
+): HeaderRead | null {
+  if (!layout.caption) return rowHeader ? readHeader(rowHeader, note) : null;
+  const captionRead = layout.captionRead ?? readHeader(layout.caption, note);
+  layout.captionRead = captionRead;
+  if (!rowHeader) return captionRead;
+  const known = layout.headerReads.get(rowHeader);
+  if (known) return known;
+  const rowRead = readHeader(rowHeader, note);
+  const read: HeaderRead = {
+    statements: [...rowRead.statements, ...captionRead.statements],
+    periodColumns: rowRead.periodColumns || captionRead.periodColumns,
+  };
+  layout.headerReads.set(rowHeader, read);
+  return read;
+}
+
+function tableContext(element: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>) {
   let cell: unknown = element.parent;
   while (
     cell instanceof Y.XmlElement &&
@@ -72,52 +210,36 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
     return null;
   const blockId = table.getAttribute("id");
   if (typeof blockId !== "string") return null;
-  const rows = table.toArray().filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
-  const rowIndex = rows.indexOf(row);
+  const layout = tableLayout(table, layouts);
+  const rowIndex = layout.rowIndex.get(row);
+  if (rowIndex === undefined) return null;
+  const placed = layout.rows[rowIndex];
+  if (!placed) return null;
   const cellIndex = row
     .toArray()
     .filter((each) => each instanceof Y.XmlElement)
     .indexOf(cell);
-  const grid = grids.get(table) ?? gridOfTable(nodeOf(table));
-  grids.set(table, grid);
-  const anchors = (grid[rowIndex] ?? []).flatMap((slot, column) =>
-    slot && !slot.continued ? [column] : [],
-  );
-  const column = anchors[cellIndex];
+  const column = placed.anchors[cellIndex];
   if (column === undefined) return null;
-  const columnLabel = [
-    ...new Set(
-      grid.slice(0, rowIndex).flatMap((slots) => {
-        const slot = slots[column];
-        return slot?.header && slot.text ? [slot.text] : [];
-      }),
-    ),
-  ].join("\n");
-  const rowLabel = grid[rowIndex]?.[0]?.text ?? "";
-  const rowText = (grid[rowIndex] ?? []).map((slot) => slot?.text ?? "").join(" | ");
-  // A row that only names a group ("Revenue:", its other cells empty) heads the rows below it, so
-  // a "Total" under it is that group's.
-  const section =
-    grid
-      .slice(0, rowIndex)
-      .reverse()
-      .find(
-        ([first, ...rest]) => first?.text && !first.header && rest.every((slot) => !slot?.text),
-      )?.[0]?.text ?? "";
-  const before = table.prevSibling;
-  const caption =
-    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
+  const columnLabel = placed.columnLabels[column] ?? "";
+  const rowHeader = [columnLabel, placed.section, placed.rowText].filter(Boolean).join("\n");
   return {
     place: {
       blockId,
       row: rowIndex,
       column,
-      rowLabel,
+      rowLabel: placed.rowLabel,
       columnLabel,
       header: cell.nodeName === "tableHeader",
-      value: givesValue(grid, rowIndex, cellIndex),
+      value: givesValue(layout.grid, rowIndex, cellIndex),
     },
-    header: [columnLabel, section, rowText, caption].filter(Boolean).join("\n"),
+    header: layout.caption
+      ? rowHeader
+        ? `${rowHeader}\n${layout.caption}`
+        : layout.caption
+      : rowHeader,
+    rowHeader,
+    layout,
   };
 }
 
@@ -129,11 +251,11 @@ function tableContext(element: Y.XmlElement, grids: Map<Y.XmlElement, SourceGrid
  */
 function inSentence(
   sentence: SelectedSentence,
-  grids: Map<Y.XmlElement, SourceGrid>,
+  layouts: Map<Y.XmlElement, TableLayout>,
   note: FigureContext,
 ): FigureOccurrence[] {
   if (sentence.element.nodeName !== "paragraph") return [];
-  const table = tableContext(sentence.element, grids);
+  const table = tableContext(sentence.element, layouts);
   if (table?.place.header) return [];
   const raw = textOf(sentence.element);
   const parts = layout(sentence.element);
@@ -185,12 +307,22 @@ function inSentence(
     : {};
   // A court decision's citation ("512 S.W.3d 101 (Tex. 2017)") and a record cite ("Smith Dep.
   // 45:3–12", "Ex. 7 at 3") hold no figure to tie out: their numbers say where, not how much.
-  const citations = [...citedCases(raw), ...recordCiteSpans(raw)];
-  const found: FigureOccurrence[] = readFigures(raw, { ...note, header: table?.header ?? null })
+  const citations = [...citedCases(raw), ...recordCiteSpans(raw)].sort((a, b) => a.from - b.from);
+  countFigureSteps(citations.length);
+  // The readings come in order, so one place in the citations serves them all (#2523).
+  let citationAt = 0;
+  const inCitation = (start: number, end: number): boolean => {
+    while ((citations[citationAt]?.to ?? Number.POSITIVE_INFINITY) <= start) citationAt++;
+    const citation = citations[citationAt];
+    return citation !== undefined && citation.from < end;
+  };
+  const found: FigureOccurrence[] = readFigures(raw, {
+    ...note,
+    header: table?.header ?? null,
+    headerRead: table ? tableHeaderRead(table.layout, table.rowHeader, note) : null,
+  })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
-    .filter(
-      (reading) => !citations.some((each) => reading.start < each.to && reading.end > each.from),
-    )
+    .filter((reading) => !inCitation(reading.start, reading.end))
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
       return {
@@ -232,10 +364,12 @@ function inSentence(
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
     const { context, stretch } = around(start, start + 1);
+    const analysisRecord = calculated.figure.analysis ? recordOf(node) : undefined;
     found.push({
       ...common,
       sentence: stretch,
       context,
+      ...(analysisRecord && { analysisRecord }),
       id: calculated.id,
       locator: {
         kind: "text",
@@ -249,6 +383,136 @@ function inSentence(
   return found.sort((a, b) => a.reading.start - b.reading.start);
 }
 
+/** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
+const JUDGED_CODE = 3000;
+
+function topBlockOf(node: Y.XmlElement): Y.XmlElement {
+  let block: Y.XmlElement = node;
+  while (block.parent instanceof Y.XmlElement) block = block.parent;
+  return block;
+}
+
+/** The heading above a top-level Block, as the judge reads a scale or unit stated there. */
+function headingAbove(block: Y.XmlElement): { heading?: string } {
+  for (let at = block.prevSibling; at; at = at.prevSibling)
+    if (at instanceof Y.XmlElement && at.nodeName === "heading") {
+      const words = plainText(at).trim();
+      return words ? { heading: words.slice(0, 200) } : {};
+    }
+  return {};
+}
+
+/** How much of the Note above a sentence its Analysis figures' scale and currency are read in. */
+const ABOVE_CHARACTERS = 2000;
+
+/**
+ * The lines above a top-level Block that are said of it, nearest first (#2544): its section's
+ * lines, each heading it is under up to the Note's title, and each enclosing section's own opening
+ * lines ("# Report / All amounts below are in thousands. / ## North"). A sibling section's lines
+ * aren't its, nor is a table or chart above, with its caption, which states its own cells' units.
+ * Lines are read up to a bound; the headings above always are.
+ */
+function linesAbove(block: Y.XmlElement): string[] {
+  const lines: string[] = [];
+  let pending: string[] = [];
+  let under = Number.POSITIVE_INFINITY;
+  let read = 0;
+  for (let at = block.prevSibling; at && under > 1; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    if (at.nodeName === "heading") {
+      const level = Number(at.getAttribute("level")) || 1;
+      if (level < under) {
+        under = level;
+        lines.push(plainText(at).trim(), ...pending);
+      } else read -= pending.reduce((sum, each) => sum + each.length, 0);
+      // A sibling section's lines aren't the sentence's, and take nothing from the bound.
+      pending = [];
+      continue;
+    }
+    if (read >= ABOVE_CHARACTERS || !saysOfText(at)) continue;
+    const words = plainText(at)
+      .trim()
+      .slice(-(ABOVE_CHARACTERS - read));
+    read += words.length;
+    if (under === Number.POSITIVE_INFINITY) lines.push(words);
+    else pending.push(words);
+  }
+  // Lines before the first heading open the whole Note.
+  return [...lines, ...pending].filter(Boolean);
+}
+
+/** A record without what it read above its Block, which `withAboveNow` reads again. */
+const withoutAbove = ({
+  heading: _heading,
+  above: _above,
+  ...record
+}: NonNullable<CheckFigure["analysisRecord"]>) => record;
+
+/**
+ * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
+ * when a check sends its sentence (#2544): a heading or line typed above since the Block's
+ * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
+ * are kept, since the check's record keeps them.
+ */
+export function withAboveNow<Figure extends CheckFigure>(
+  figures: readonly Figure[],
+  element: Y.XmlElement,
+): Figure[] {
+  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  const block = topBlockOf(element);
+  const framing = linesAbove(block).filter(statesAFrame);
+  return figures.map((figure) =>
+    figure.analysisRecord
+      ? {
+          ...figure,
+          analysisRecord: {
+            ...withoutAbove(figure.analysisRecord),
+            ...headingAbove(block),
+            ...(framing.length > 0 && { above: framing.join("\n") }),
+          },
+        }
+      : figure,
+  );
+}
+
+/** A line of the Note's own text, not a table, a chart or a table's caption. */
+const saysOfText = (line: Y.XmlElement) =>
+  line.nodeName !== "table" &&
+  line.nodeName !== CHART_NODE &&
+  !(line.nextSibling instanceof Y.XmlElement && line.nextSibling.nodeName === "table") &&
+  !line
+    .toArray()
+    .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
+
+/** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
+function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
+  const doc = node.doc;
+  const figure = readCalculatedFigureAttributes(node.getAttributes());
+  if (!doc || !figure?.figure.analysis) return { recalculated: false, citations: [] };
+  try {
+    const [run] = figureRunsFor(doc, [nodeOf(node)]);
+    const value = run?.values.find((each) => each.name === figure.figure.analysis?.result);
+    // No record of it: the Analysis it came from is gone.
+    if (!run || !value) return undefined;
+    return {
+      recalculated: value.check?.kind === "same",
+      citations: analysisInputCitations(run.inputs),
+      label: value.label,
+      of: value.of ?? null,
+      vocabulary: [
+        ...(value.of ? [value.of.input, ...value.of.columns] : []),
+        ...(value.unit ? [value.unit] : []),
+      ],
+      code: run.code.slice(0, JUDGED_CODE),
+      unit: value.unit ?? null,
+      ...headingAbove(topBlockOf(node)),
+    };
+  } catch (error) {
+    console.error("Reading an Analysis figure's record for its check failed:", error);
+    return { recalculated: false, citations: [] };
+  }
+}
+
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
   return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
 }
@@ -259,9 +523,9 @@ export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[
  */
 export function cellHeadings(
   element: Y.XmlElement,
-  grids: Map<Y.XmlElement, SourceGrid>,
+  layouts: Map<Y.XmlElement, TableLayout>,
 ): { row?: string; column?: string } {
-  const table = tableContext(element, grids);
+  const table = tableContext(element, layouts);
   if (!table?.place.value) return {};
   const row = table.place.column > 0 ? table.place.rowLabel : "";
   const column = table.place.columnLabel.split("\n").join(" · ");
@@ -290,7 +554,8 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
     },
   ]);
   return chartCells(chart).flatMap(({ row, series, value }): FigureOccurrence[] => {
-    if (!plotted.has(`${row}:${series}`)) return [];
+    // An Analysis's own value is its table's, which counts once, as the run's (#2378).
+    if (!plotted.has(`${row}:${series}`) || value.fromAnalysis) return [];
     const readings = readFigures(value.shown, {
       ...document,
       dates: true,
@@ -370,14 +635,20 @@ function figuresOfBlock(
     block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
       ? `${noteKey}\u0000${plainText(before)}`
       : noteKey;
+  // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
+  if (
+    block.nodeName === "table" &&
+    keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+  )
+    return [];
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;
-  const grids = new Map<Y.XmlElement, SourceGrid>();
+  const layouts = new Map<Y.XmlElement, TableLayout>();
   const found: FigureOccurrence[] = [];
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
-    else if (element.nodeName === "paragraph") {
+    else if (element.nodeName === "paragraph" && !isTableCaption(element)) {
       const blockId = element.getAttribute("id");
       if (typeof blockId !== "string") continue;
       const text = textOf(element);
@@ -393,7 +664,7 @@ function figuresOfBlock(
             context: text,
             cited: [],
           },
-          grids,
+          layouts,
           note,
         );
         for (const figure of figures) found.push(figure);

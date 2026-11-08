@@ -4,7 +4,7 @@ import type { AssignmentState, DocumentGroupAssignment } from "../../src/core/ap
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 
 /** An assignment as a change carries it: its fields and the Document's tagging row. */
 const stateOf = (item: DocumentGroupAssignment): AssignmentState => {
@@ -75,7 +75,9 @@ describe("Library groups", () => {
     const { core, fake, group, specs, dataDir } = await setup();
     const doc = await add(core);
     await core.classifyDocuments([doc.id]);
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: group.id, source: "automatic" });
+    // It proposes the Folder, and files nothing before the User confirms it (#1569).
+    expect(await settled(core, doc.id)).toMatchObject({ groupId: null, source: "automatic" });
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     expect(specs).toContain("small-classifier");
     const calls = fake.calls.length;
     await core.getLibrary();
@@ -83,7 +85,7 @@ describe("Library groups", () => {
     expect(fake.calls).toHaveLength(calls);
     core.close();
     const reopened = startCore(dataDir, { createChatModel: () => fake.model });
-    expect((await reopened.getLibrary()).assignments[0]?.groupId).toBe(group.id);
+    expect(await proposedFor(reopened, doc.id)).toBe(group.id);
     expect(fake.calls).toHaveLength(calls);
   });
 
@@ -149,7 +151,7 @@ describe("Library groups", () => {
     expect((await core.listDocuments())[0]?.tags.map((t) => t.tagId).sort()).toEqual(
       [relevant.id, manual.id].sort(),
     );
-    expect((await core.getLibrary()).assignments[0]?.groupId).toBe(group.id);
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     expect(specs).not.toContain("main-model");
     await core.removeDocumentTag(doc.id, relevant.id);
     await core.assignDocumentGroup(doc.id, null);
@@ -283,7 +285,8 @@ describe("Library groups", () => {
       name: "Papers",
       description: "Scientific papers",
     });
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: replacement.id });
+    await settled(core, doc.id);
+    expect(await proposedFor(core, doc.id)).toBe(replacement.id);
   });
 
   test("editing tags during inference reruns the complete organization decision", async () => {
@@ -534,7 +537,8 @@ describe("Library groups", () => {
     });
     const doc = await add(core, "研究.txt", "膜分离技术与 water filtration. ".repeat(350));
     await core.classifyDocuments([doc.id]);
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: group.id });
+    await settled(core, doc.id);
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     const body = server.requests[0]?.body;
     expect(body?.model).toBe("tev1:4b");
     expect(body?.questions.group?.type).toBe("choice");
@@ -547,5 +551,105 @@ describe("Library groups", () => {
         automatic: false,
       }),
     ).rejects.toThrow(/this computer/);
+  });
+});
+
+describe("A Folder's name is unique among the Folders in its place (#2425)", () => {
+  test("two Folders in different Folders share a name, and two in one place do not", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    const chapterA = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisA.id,
+    });
+    const chapterB = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisB.id,
+    });
+    expect(
+      (await core.getLibrary()).groups
+        .filter((each) => each.name === "Chapter 1")
+        .map((each) => each.parentId)
+        .sort(),
+    ).toEqual([thesisA.id, thesisB.id].sort());
+    await expect(
+      core.createLibraryGroup({ name: " chapter 1 ", description: "", parentId: thesisA.id }),
+    ).rejects.toThrow(/already exists/);
+    // A Folder's own name is no clash with itself, and a name another branch has is free.
+    await expect(
+      core.updateLibraryGroup(chapterB.id, { name: "Chapter 1", description: "" }),
+    ).resolves.toMatchObject({ name: "Chapter 1" });
+    await expect(
+      core.updateLibraryGroup(chapterB.id, { name: "Chapter 2", description: "" }),
+    ).resolves.toMatchObject({ name: "Chapter 2" });
+    expect(chapterA.id).not.toBe(chapterB.id);
+  });
+
+  test("a move that would make two Folders in one place share a name is refused before anything moves", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    await core.createLibraryGroup({ name: "Chapter 1", description: "", parentId: thesisA.id });
+    const chapterB = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisB.id,
+    });
+    const notes = await core.createLibraryGroup({
+      name: "Notes",
+      description: "",
+      parentId: thesisB.id,
+    });
+    // The fine move and the clashing one go together: neither happens.
+    await expect(
+      core.moveLibraryGroups([
+        { id: notes.id, parentId: thesisA.id },
+        { id: chapterB.id, parentId: thesisA.id },
+      ]),
+    ).rejects.toThrow(/already exists/);
+    const groups = new Map((await core.getLibrary()).groups.map((each) => [each.id, each]));
+    expect(groups.get(notes.id)?.parentId).toBe(thesisB.id);
+    expect(groups.get(chapterB.id)?.parentId).toBe(thesisB.id);
+    // A place without the name takes it.
+    await expect(core.moveLibraryGroups([{ id: notes.id, parentId: thesisA.id }])).resolves.toEqual(
+      [notes.id],
+    );
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+    await expect(
+      core.moveLibraryGroups([{ id: chapterB.id, parentId: other.id }]),
+    ).resolves.toEqual([chapterB.id]);
+  });
+
+  test("restoring keeps the rule: refused beside a Folder with its name, allowed where only another branch has it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    const gone = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisA.id,
+    });
+    await core.deleteLibraryGroup(gone.id);
+    // Free in its place again, so a new Folder takes it; the deleted one may not come back over it.
+    await core.createLibraryGroup({ name: "Chapter 1", description: "", parentId: thesisA.id });
+    await expect(core.restore([{ kind: "folder", id: gone.id }])).rejects.toThrow(
+      /Rename it, then restore/,
+    );
+    expect((await core.getLibrary()).groups.find((each) => each.id === gone.id)).toBeUndefined();
+
+    const comeBack = await core.createLibraryGroup({
+      name: "Chapter 2",
+      description: "",
+      parentId: thesisA.id,
+    });
+    await core.deleteLibraryGroup(comeBack.id);
+    await core.createLibraryGroup({ name: "Chapter 2", description: "", parentId: thesisB.id });
+    await core.restore([{ kind: "folder", id: comeBack.id }]);
+    expect((await core.getLibrary()).groups.find((each) => each.id === comeBack.id)?.parentId).toBe(
+      thesisA.id,
+    );
   });
 });

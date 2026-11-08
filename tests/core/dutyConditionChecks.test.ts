@@ -677,11 +677,11 @@ describe("the second look at a reply that disagreed with itself asks for and rea
     condition: SAME,
   };
 
-  test("its form asks for every line it reads", async () => {
+  test("its form asks for the Duty and Condition lines it reads", async () => {
     const looks: string[] = [];
     await check({ ...dropped, look: looked(both) }, BERTHS, [], looks);
     expect(looks).toHaveLength(1);
-    for (const label of ["Absence", "Duty", "Condition"])
+    for (const label of ["Duty", "Condition"])
       expect(looks[0]).toMatch(new RegExp(`^${label}:`, "m"));
   });
 
@@ -735,7 +735,7 @@ describe("the second look at a reply that disagreed with itself asks for and rea
     expect(checked?.state).toBe(state);
   });
 
-  test("Supported again with both lines the same is Supported, as the judge said", async () => {
+  test("Supported again with both lines the same is Not checked: a second look only lowers (#2816)", async () => {
     const looks: string[] = [];
     const checked = await check(
       {
@@ -751,7 +751,7 @@ describe("the second look at a reply that disagreed with itself asks for and rea
       looks,
     );
     expect(looks).toHaveLength(1);
-    expect(checked?.state).toBe("supported");
+    expect(checked?.state).toBe("not-checked");
   });
 });
 

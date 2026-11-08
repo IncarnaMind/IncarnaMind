@@ -8,6 +8,7 @@ import type {
   CitationLocation,
   CoreBridge,
 } from "../src/core/api";
+import { contrast } from "../tests/helpers/contrast";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -113,6 +114,29 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
   await removeDataFolder(sources);
 });
+
+/** The button's text against its fill as the browser draws it now, as WCAG's ratio. */
+async function textContrast(button: Locator): Promise<number> {
+  const [ink, fill] = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.color, style.backgroundColor];
+  });
+  const hex = (colour: string) =>
+    `#${(colour.match(/\d+/g) ?? [])
+      .slice(0, 3)
+      .map((each) => Number(each).toString(16).padStart(2, "0"))
+      .join("")}`;
+  return contrast(hex(ink ?? ""), hex(fill ?? ""));
+}
+
+/** A primary action on a Citation's card stays readable under the pointer and under focus (#2288). */
+async function expectReadable(window: Page, button: Locator, shot: string): Promise<void> {
+  await button.focus();
+  expect(await textContrast(button)).toBeGreaterThanOrEqual(4.5);
+  await button.hover();
+  await screenshot(window, shot);
+  expect(await textContrast(button)).toBeGreaterThanOrEqual(4.5);
+}
 
 const inside = async (inner: Locator, outer: Locator) => {
   const [a, b] = [await inner.boundingBox(), await outer.boundingBox()];
@@ -244,6 +268,7 @@ test("Check on a note whose sentences cite their Passages: the ones that already
   await expect(card.getByTestId("claim-quote")).toHaveText("Spring tides happen at new moon");
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
   await expect(card.getByTestId("claim-open")).toHaveClass(/citation-card-action--primary/);
+  await expectReadable(window, card.getByTestId("claim-open"), "primary-hover-en");
   expect(await inside(card.getByTestId("claim-open"), card)).toBe(true);
   await screenshot(window, "already-cited-en");
   await window.keyboard.press("Escape");
@@ -266,6 +291,11 @@ test("Check on a note whose sentences cite their Passages: the ones that already
     await expect(card.getByTestId("claim-add-citation")).toBeVisible();
     await expect(card.getByTestId("claim-add-citation")).toHaveClass(
       /citation-card-action--primary/,
+    );
+    await expectReadable(
+      window,
+      card.getByTestId("claim-add-citation"),
+      "add-as-citation-hover-en",
     );
     if (index === 3) await screenshot(window, "add-as-citation-en");
     await pointAndClick(window, card.getByTestId("claim-add-citation"));
@@ -333,6 +363,7 @@ test("In Chinese and a narrow window: a Citation whose quote differs in punctuat
 
   await openCard(window, marks(window).nth(1));
   await expect(card.getByTestId("claim-add-citation")).toHaveText("添加为引用");
+  await expectReadable(window, card.getByTestId("claim-add-citation"), "add-as-citation-hover-zh");
   await screenshot(window, "add-as-citation-zh-narrow");
   await pointAndClick(window, card.getByTestId("claim-add-citation"));
   await expect(lines.nth(1).getByTestId("citation")).toHaveCount(2);

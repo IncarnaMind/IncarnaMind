@@ -8,7 +8,7 @@ variables, `sceneTable.ts` for what each scene shows, and `stills.ts` for the pi
 
 Every file here is written by the recorder, invented for the recording, and never committed:
 no company, person, figure or publisher's text is real. They are built as the shipped examples
-are (`resources/examples`, `data/README.md`):
+are (`resources/examples`, `eval/data/README.md`):
 
 | File | Format | What it is for |
 |---|---|---|

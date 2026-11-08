@@ -4,7 +4,7 @@ import type { Document, LibraryGroup } from "../../../core/api";
 import { focusComposer } from "../commands/assistant";
 import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
-import { errorMessage, providerErrorText } from "../errors";
+import { errorMessage } from "../errors";
 import { useFindSources } from "../findSources";
 import { folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
@@ -35,17 +35,24 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
-import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDocuments";
+import { meetingHitsOf } from "../meetingTranscript";
+import { organizeDocuments } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
+import { openReview, useOrganizeReview } from "../organizeReview";
+import {
+  DAY_ONE_DOCUMENTS,
+  ownsATag,
+  useLibraryDocuments,
+  useListedDocuments,
+  useOwnDocuments,
+} from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
+import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
-import { hasNotSorted, waitingIds } from "../suggestionReview";
-import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
 import { FindSourcesPanel } from "./FindSourcesPanel";
@@ -57,18 +64,17 @@ import { LibraryBar } from "./library/LibraryBar";
 import { LibraryEmpty } from "./library/LibraryEmpty";
 import { LibraryHeader } from "./library/LibraryHeader";
 import { LibrarySection } from "./library/LibrarySection";
-import { ToReview } from "./library/ToReview";
+import { MeetingHits } from "./library/MeetingHits";
+import { OrganizeLines } from "./library/OrganizeLines";
+import { OrganizeReviewPage } from "./library/OrganizeReviewPage";
 import { useFittingColumns } from "./library/useFittingColumns";
-import { useReviewFocus } from "./library/useReviewFocus";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
+import { useTaggingService } from "./useTaggingService";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
 const NO_DOCUMENTS: readonly Document[] = [];
-
-const inReviewList = (target: EventTarget) =>
-  target instanceof Element && target.closest("[data-review]") !== null;
 
 /** The Library's one order for every section, remembered on this computer. */
 const SORT_SCOPE = "library:all" as const;
@@ -97,14 +103,26 @@ export function LibraryPane() {
   const linkedFolders = useAppStore((state) => state.linkedFolders);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
+  const reviewTarget = useAppStore((state) => state.reviewTarget);
   const findingSources = useFindSources((state) => state.open);
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // The Folder the Library shows is the one its own Folder filter narrows to; clearing it shows
+  // everything, so no Folder is in front (#2529).
+  const folderFilter = facetFilter.folder?.length === 1 ? (facetFilter.folder[0] ?? null) : null;
+  const narrowedTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (folderFilter !== null) useAppStore.setState({ libraryFolderId: folderFilter });
+    else if (narrowedTo.current !== null) useAppStore.setState({ libraryFolderId: null });
+    narrowedTo.current = folderFilter;
+  }, [folderFilter]);
   // A source's view lists that source's Documents even when they are the examples': the examples
   // leave the Library once the User has a Document of their own, but their Linked folder's row
   // stays the way back to them (#1944).
-  const everyDocument = useAppStore((state) => state.documents);
+  const everyDocument = useListedDocuments();
+  const allDocuments = useAppStore((state) => state.documents);
+  const minds = useAppStore((state) => state.minds);
   const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
@@ -220,75 +238,61 @@ export function LibraryPane() {
     [folders, folderOf],
   );
   const folded = useLibraryFolds((state) => state.folded);
-  const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
   const states = useMemo(() => {
     const held = new Map((snapshot?.assignments ?? []).map((item) => [item.documentId, item]));
     return new Map(documents.map((doc) => [doc.id, organizeStateOf(doc, held.get(doc.id))]));
   }, [documents, snapshot?.assignments]);
+  const anyFailed = useMemo(
+    () => [...states.values()].some((state) => state.run === "failed"),
+    [states],
+  );
+  // Only a failure's line names the service Organize sends to, so the route is read then alone.
+  const organizeService = useTaggingService("classification", anyFailed);
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const unsortedIds = useMemo(
     () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
     [states],
   );
-  const notSortedOf = useCallback(
+  const reasonOf = useCallback(
     (documentId: string) => {
-      if (!unsortedIds.has(documentId)) return null;
       const said = assignments.get(documentId)?.error;
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return reviewReason(said ? reviewProblemKind(said.kind) : "other", organizeServiceName, t);
     },
-    [unsortedIds, assignments, t],
+    [assignments, t, organizeServiceName],
+  );
+  const notSortedOf = useCallback(
+    (documentId: string) => (unsortedIds.has(documentId) ? reasonOf(documentId) : null),
+    [unsortedIds, reasonOf],
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
       const state = states.get(documentId);
-      if (!state?.suggested || state.run !== "failed") return null;
-      const said = assignments.get(documentId)?.error;
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return state?.run === "failed" && !state.manual && state.place !== "notSorted"
+        ? reasonOf(documentId)
+        : null;
     },
-    [states, assignments, t],
+    [states, reasonOf],
   );
-  const notSorted = useMemo(
-    () =>
-      unsortedIds.size === 0 ? NO_DOCUMENTS : ordered.filter((doc) => unsortedIds.has(doc.id)),
-    [ordered, unsortedIds],
-  );
-  const notSortedCount = unsortedIds.size;
   const allSorted = useMemo(
     () => documents.length > 0 && documents.every((doc) => states.get(doc.id)?.place === "sorted"),
     [documents, states],
   );
-  // 8 or more loose Documents of the User's own and no Folder yet: sorting them is the page's
-  // one primary action (#1942). It runs here, and one Undo takes back the suggestions and the
-  // Folders it made. The example's own Documents are not counted: they are never sorted.
+  // 8 or more loose Documents of the User's own and no Folder yet, and nothing waiting to be
+  // confirmed: Organize is the page's one primary action (#1942, #1569). The example's own
+  // Documents are not counted: they are never sorted.
   const ownDocuments = useOwnDocuments();
   const looseOwn = useMemo(
     () => ownDocuments.filter((document) => folderOf(document.id) === null).length,
     [ownDocuments, folderOf],
   );
-  const proposing = useProposing((state) => state.proposing);
-  const organizing = proposing || [...states.values()].some((state) => state.run === "working");
+  const running = useOrganizeReview((state) => state.run !== null);
+  const reviewOpen = useOrganizeReview((state) => state.open);
+  const waiting = useOrganizeReview((state) => state.count) ?? snapshot?.reviewCount ?? 0;
   const sortIntoFolders =
-    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing
-      ? () =>
-          organizeDocuments(looseDocumentIds(useAppStore.getState())).catch(
-            useAppStore.getState().reportError,
-          )
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && waiting === 0
+      ? () => organizeDocuments(null).catch(useAppStore.getState().reportError)
       : null;
-  const review = useMemo(
-    () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
-    [ordered, folders, snapshot?.assignments],
-  );
-  const reviewing = !narrowing && (review.count > 0 || notSorted.length > 0);
-  useEffect(() => {
-    useLibraryFolds.getState().setReviewShown(reviewing);
-    return () => useLibraryFolds.getState().setReviewShown(false);
-  }, [reviewing]);
-  const reviewList = useMemo(
-    () =>
-      reviewing && reviewOpen ? [...reviewIds(review), ...notSorted.map((doc) => doc.id)] : [],
-    [review, reviewing, reviewOpen, notSorted],
-  );
   const subOpen = useLibraryFolds((state) => state.subOpen);
   const shownIds = useMemo(
     () =>
@@ -302,34 +306,69 @@ export function LibraryPane() {
       }),
     [sections, folders, documentsOf, folded, subOpen, narrowing],
   );
-  // ⌘A and Shift-click reach every row in an open section, drawn or not; in To review, its own.
-  const inReview = useRef(false);
-  useSelectionOrder("library", () =>
-    (inReview.current && reviewList.length > 0 ? reviewList : shownIds).map((id) => ({
-      kind: "document",
-      id,
-    })),
-  );
+  // ⌘A and Shift-click reach every row in an open section, drawn or not.
+  useSelectionOrder("library", () => shownIds.map((id) => ({ kind: "document", id })));
   // What is selected stays in view: a search, a filter or a fold that hides it, or a deletion, drops it.
   useEffect(() => {
     const held = useSelection.getState();
     if (held.surface !== "library") return;
-    const visible = new Set([...shownIds, ...reviewList]);
+    const visible = new Set(shownIds);
     held.keepOnly((ref) => visible.has(ref.id));
-  }, [shownIds, reviewList]);
-  useReviewFocus(grid, reviewList.join());
+  }, [shownIds]);
+  // The row may hide behind the search, a filter or a folded section: clear what hides it before
+  // the reveal looks, which gives up after 120 frames (#2308).
+  useEffect(() => {
+    if (reviewTarget === null) return;
+    useAppStore.setState({ reviewTarget: null });
+    useOrganizeReview.setState({ open: false });
+    setSearch("");
+    setFacetFilter((current) => (isFiltering(current) ? {} : current));
+    if (useAppStore.getState().tagFilter.length > 0) useAppStore.getState().setTagFilter([]);
+    const folds = useLibraryFolds.getState();
+    const folderId = folderOf(reviewTarget);
+    if (folderId === null) {
+      folds.setOpen(NOT_IN_A_FOLDER, true);
+      folds.showAll(NOT_IN_A_FOLDER);
+    } else {
+      const chain: string[] = [];
+      const seen = new Set<string>();
+      let at: string | null = folderId;
+      while (at !== null && !seen.has(at)) {
+        const folder = folders.find((each) => each.id === at);
+        if (!folder) break;
+        seen.add(at);
+        chain.unshift(at);
+        at = folder.parentId;
+      }
+      const [top] = chain;
+      if (top !== undefined) {
+        folds.setOpen(top, true);
+        folds.showAll(top);
+      }
+      for (const each of chain) {
+        folds.setSubOpen(each, true);
+        folds.showAll(each);
+      }
+    }
+    const id = reviewTarget;
+    const within = `[data-document-id="${CSS.escape(id)}"]`;
+    let frames = 0;
+    const reveal = () => {
+      const row = page.current?.querySelector<HTMLElement>(within);
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+        useSelection.getState().choose("library", { kind: "document", id });
+        row.querySelector<HTMLElement>("[data-row-main]")?.focus({ preventScroll: true });
+        return;
+      }
+      if (frames++ < 120) requestAnimationFrame(reveal);
+    };
+    requestAnimationFrame(reveal);
+  }, [reviewTarget, folders, folderOf]);
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
 
-  const suggestedOf = useCallback(
-    (documentId: string) => {
-      if (!states.get(documentId)?.suggested) return null;
-      const folderId = assignments.get(documentId)?.groupId;
-      return folderId ? folderPathLabel(groups, folderId) : null;
-    },
-    [states, assignments, groups],
-  );
   const problem = useMemo(() => problemOf(documents), [documents]);
   // Files in the Linked folders that aren't Documents because their format isn't read yet (#740).
   const unreadFormats = useUnreadFiles(null).filter((file) => file.reason === "format");
@@ -337,14 +376,12 @@ export function LibraryPane() {
   // A Folder, Not in a Folder or Recently deleted asked for (from the sidebar, a menu or ⌘K): its section opens and comes into view.
   useEffect(() => {
     if (request === "review") {
-      setSearch("");
-      setFacetFilter({});
-      useAppStore.getState().setTagFilter([]);
-      if (waitingIds().length > 0 || hasNotSorted()) useLibraryFolds.getState().showReview();
       useAppStore.setState({ libraryFilter: "all" });
+      openReview();
       return;
     }
     if (FORMS.includes(request)) return;
+    useOrganizeReview.setState({ open: false });
     const linkedFolderId = SOURCE_REQUEST.exec(request)?.[1];
     if (linkedFolderId) {
       setSearch("");
@@ -390,7 +427,10 @@ export function LibraryPane() {
     setFacetFilter({});
     useAppStore.getState().setTagFilter([]);
   };
-  const nothingMatches = narrowing && sections.length === 0 && !inside.waiting;
+  const meetingHits = meetingHitsOf(inside.matches, allDocuments, minds);
+  const emptyLibrary = documents.length === 0 && meetingHits.length === 0;
+  const nothingMatches =
+    narrowing && sections.length === 0 && !inside.waiting && meetingHits.length === 0;
   const query = search.trim();
   /** Nothing in the Library matches what was typed: ask the assistant about it instead (#763). */
   const askAbout =
@@ -417,169 +457,165 @@ export function LibraryPane() {
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet text-ui text-ink"
     >
       <div ref={page} className="group/page @container/page min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
-          <LibraryHeader
-            count={headerCount}
-            notSorted={notSortedCount}
-            sorted={allSorted}
-            onReview={() => useAppStore.getState().openLibrary("review")}
-            onSortIntoFolders={sortIntoFolders}
-            sorting={organizing}
-            search={search}
-            onSearch={setSearch}
-            onEnter={askAbout}
-            onDown={() =>
-              // The first Document found, as Finder's first result; the first head when none is open.
-              (
-                grid.current?.querySelector<HTMLElement>("[data-document-id] [data-row-main]") ??
-                grid.current?.querySelector<HTMLElement>("[data-tree-row]")
-              )?.focus()
-            }
-            field={field}
-          />
-          {findingSources && <FindSourcesPanel />}
-          <ReferenceImportPanel />
-          {request === "starters" && <StarterFolders close={closeForm} />}
-          {!snapshot ? (
-            <p role="status" className="mt-6 text-[13px] text-ink-meta">
-              {t("library.loading")}
-            </p>
-          ) : documents.length === 0 ? (
-            <LibraryEmpty />
-          ) : (
-            <>
-              {selectingMany ? (
-                <LibrarySelectionBar shownIds={shownIds} />
+        {reviewOpen ? (
+          <div className="mx-auto w-full max-w-[880px] px-8 pb-24 @max-[680px]/page:px-4">
+            <OrganizeReviewPage />
+          </div>
+        ) : (
+          <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
+            <LibraryHeader
+              count={headerCount}
+              sorted={allSorted && waiting === 0}
+              organizeCount={looseOwn}
+              onSortIntoFolders={sortIntoFolders}
+              sorting={running}
+              canAdd={snapshot !== null && !emptyLibrary}
+              search={search}
+              onSearch={setSearch}
+              onEnter={askAbout}
+              onDown={() =>
+                // The first Document found, as Finder's first result; the first head when none is open.
+                (
+                  grid.current?.querySelector<HTMLElement>("[data-document-id] [data-row-main]") ??
+                  grid.current?.querySelector<HTMLElement>("[data-tree-row]")
+                )?.focus()
+              }
+              field={field}
+            />
+            {findingSources && <FindSourcesPanel />}
+            <ReferenceImportPanel />
+            {request === "starters" && <StarterFolders close={closeForm} />}
+            {!snapshot ? (
+              <p role="status" className="mt-6 text-[13px] text-ink-meta">
+                {t("library.loading")}
+              </p>
+            ) : documents.length === 0 ? (
+              // A Library of meetings alone still finds them by their words.
+              meetingHits.length > 0 ? (
+                <MeetingHits matches={inside.matches} />
               ) : (
-                <LibraryBar
-                  facets={facets}
-                  options={options}
-                  selection={selection}
-                  onToggle={(facetId, value) => {
-                    if (facetId === "tag") useAppStore.getState().toggleTagFilter(value);
-                    else setFacetFilter((current) => toggleFilterValue(current, facetId, value));
-                  }}
-                  onRemove={(facetId) => {
-                    if (facetId === "tag") useAppStore.getState().setTagFilter([]);
-                    else setFacetFilter(({ [facetId]: _removed, ...rest }) => rest);
-                  }}
-                  sort={chosenSort ?? DEFAULT_SORT}
-                  sortScope={SORT_SCOPE}
-                  allFolded={allFolded}
-                  onFoldAll={() => useLibraryFolds.getState().setAll(sectionKeys, allFolded)}
-                />
-              )}
-              <AutomaticOffNotice />
-              {problem && (
-                <ProblemLine
-                  role="status"
-                  testId="library-problem"
-                  className="mt-1"
-                  action={{
-                    label: t("library.problem.show"),
-                    testId: "library-problem-show",
-                    onClick: () =>
-                      setFacetFilter((current) => ({ ...current, status: problem.statuses })),
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="mr-2 mb-px inline-block size-1.5 rounded-full bg-attention align-middle"
-                  />
-                  {problemText(problem, t)}
-                </ProblemLine>
-              )}
-              <UnreadFilesLine files={unreadFormats} testId="library-unread" className="mt-1" />
-              {/* biome-ignore lint/a11y/useSemanticElements: sections of rows laid out as columns, not a table. */}
-              <div
-                ref={grid}
-                role="grid"
-                aria-multiselectable="true"
-                aria-label={t("library.sections")}
-                // Where the pointer or the focus went last says which list a Shift-click ranges over.
-                onPointerDownCapture={(event) => {
-                  inReview.current = inReviewList(event.target);
-                }}
-                onFocusCapture={(event) => {
-                  inReview.current = inReviewList(event.target);
-                }}
-                onKeyDown={(event) => {
-                  if (moveThroughRows(event) || extendThroughRows(event, "library")) return;
-                  // ↑ on the first row goes back to the search, as ↓ came from it.
-                  const plain =
-                    !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-                  if (
-                    event.key === "ArrowUp" &&
-                    plain &&
-                    event.target === grid.current?.querySelector("[data-tree-row]")
-                  ) {
-                    event.preventDefault();
-                    field.current?.focus();
-                  }
-                }}
-              >
-                {reviewing && (
-                  <ToReview
-                    review={review}
-                    notSorted={notSorted}
-                    suggestedIn={suggestedOf}
-                    notSortedOf={notSortedOf}
-                    sortFailedOf={sortFailedOf}
+                <LibraryEmpty />
+              )
+            ) : (
+              <>
+                {selectingMany ? (
+                  <LibrarySelectionBar shownIds={shownIds} />
+                ) : (
+                  <LibraryBar
+                    facets={facets}
+                    options={options}
+                    selection={selection}
+                    onToggle={(facetId, value) => {
+                      if (facetId === "tag") useAppStore.getState().toggleTagFilter(value);
+                      else setFacetFilter((current) => toggleFilterValue(current, facetId, value));
+                    }}
+                    onRemove={(facetId) => {
+                      if (facetId === "tag") useAppStore.getState().setTagFilter([]);
+                      else setFacetFilter(({ [facetId]: _removed, ...rest }) => rest);
+                    }}
+                    sort={chosenSort ?? DEFAULT_SORT}
+                    sortScope={SORT_SCOPE}
+                    allFolded={allFolded}
+                    onFoldAll={() => useLibraryFolds.getState().setAll(sectionKeys, allFolded)}
                   />
                 )}
-                {sections.map((section) => (
-                  <LibrarySection
-                    key={section.key}
-                    section={section}
-                    narrowing={narrowing}
-                    matches={matches}
-                    folders={folders}
-                    counts={counts}
-                    documentsOf={documentsOf}
-                    pathOf={pathOf}
-                    suggestedOf={suggestedOf}
-                    notSortedOf={notSortedOf}
-                    sortFailedOf={sortFailedOf}
-                  />
-                ))}
-              </div>
-              {inside.failure && (
-                <ProblemLine
-                  role="alert"
-                  testId="library-inside-failed"
-                  className="mt-4"
-                  action={{
-                    label: t("library.inside.retry"),
-                    testId: "library-inside-retry",
-                    onClick: inside.retry,
+                <OrganizeLines />
+                <AutomaticOffNotice />
+                {problem && (
+                  <ProblemLine
+                    role="status"
+                    testId="library-problem"
+                    className="mt-1"
+                    action={{
+                      label: t("library.problem.show"),
+                      testId: "library-problem-show",
+                      onClick: () =>
+                        setFacetFilter((current) => ({ ...current, status: problem.statuses })),
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="mr-2 mb-px inline-block size-1.5 rounded-full bg-attention align-middle"
+                    />
+                    {problemText(problem, t)}
+                  </ProblemLine>
+                )}
+                <UnreadFilesLine files={unreadFormats} testId="library-unread" className="mt-1" />
+                {/* biome-ignore lint/a11y/useSemanticElements: sections of rows laid out as columns, not a table. */}
+                <div
+                  ref={grid}
+                  role="grid"
+                  aria-multiselectable="true"
+                  aria-label={t("library.sections")}
+                  onKeyDown={(event) => {
+                    if (moveThroughRows(event) || extendThroughRows(event, "library")) return;
+                    // ↑ on the first row goes back to the search, as ↓ came from it.
+                    const plain =
+                      !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+                    if (
+                      event.key === "ArrowUp" &&
+                      plain &&
+                      event.target === grid.current?.querySelector("[data-tree-row]")
+                    ) {
+                      event.preventDefault();
+                      field.current?.focus();
+                    }
                   }}
                 >
-                  {t("library.inside.failed", { reason: errorMessage(inside.failure.error, t) })}
-                </ProblemLine>
-              )}
-              {nothingMatches && (
-                <ProblemLine
-                  role="status"
-                  testId="library-no-match"
-                  className="mt-6"
-                  action={
-                    askAbout
-                      ? {
-                          label: t("palette.ask", { text: query }),
-                          testId: "library-ask",
-                          onClick: askAbout,
-                        }
-                      : clearAction
-                  }
-                  also={askAbout ? clearAction : undefined}
-                >
-                  {t("library.noMatch")}
-                </ProblemLine>
-              )}
-            </>
-          )}
-          {!narrowing && <DeletedSection />}
-        </div>
+                  {sections.map((section) => (
+                    <LibrarySection
+                      key={section.key}
+                      section={section}
+                      narrowing={narrowing}
+                      matches={matches}
+                      folders={folders}
+                      counts={counts}
+                      documentsOf={documentsOf}
+                      pathOf={pathOf}
+                      notSortedOf={notSortedOf}
+                      sortFailedOf={sortFailedOf}
+                    />
+                  ))}
+                </div>
+                <MeetingHits matches={inside.matches} />
+                {inside.failure && (
+                  <ProblemLine
+                    role="alert"
+                    testId="library-inside-failed"
+                    className="mt-4"
+                    action={{
+                      label: t("library.inside.retry"),
+                      testId: "library-inside-retry",
+                      onClick: inside.retry,
+                    }}
+                  >
+                    {t("library.inside.failed", { reason: errorMessage(inside.failure.error, t) })}
+                  </ProblemLine>
+                )}
+                {nothingMatches && (
+                  <ProblemLine
+                    role="status"
+                    testId="library-no-match"
+                    className="mt-6"
+                    action={
+                      askAbout
+                        ? {
+                            label: t("palette.ask", { text: query }),
+                            testId: "library-ask",
+                            onClick: askAbout,
+                          }
+                        : clearAction
+                    }
+                    also={askAbout ? clearAction : undefined}
+                  >
+                    {t("library.noMatch")}
+                  </ProblemLine>
+                )}
+              </>
+            )}
+            {!narrowing && <DeletedSection />}
+          </div>
+        )}
       </div>
     </section>
   );

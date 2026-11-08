@@ -22,6 +22,7 @@ import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
 import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { citationsIn } from "./copyNotes";
+import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
 import { SignOffLine } from "./SignOff";
 import { useComparisonCellSignOff } from "./signOffActions";
@@ -33,6 +34,7 @@ export function ComparisonCellCard({
   handle: ComparisonCellHandle;
   replace: boolean;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const place = useTabPlace();
   const first = useRef<HTMLButtonElement>(null);
@@ -54,7 +56,7 @@ export function ComparisonCellCard({
   const cell = comparisonCellOf(location.cell.attrs);
   const mine = checkedByMe(signOff);
   const citations = citationsIn(location.cell.content);
-  const firstLocation = citations[0] ? citedLocation(citations[0], t) : null;
+  const firstLocation = citations[0] ? citedLocation(citations[0], t, documents) : null;
   const documentName =
     documents.find((document) => document.id === handle.documentId)?.name ??
     String(location.cell.attrs.documentName ?? "");
@@ -101,10 +103,11 @@ export function ComparisonCellCard({
         ...(citation.location && { location: citation.location }),
       },
       {
+        origin,
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
         number: index + 1,
-        label: citedLocation(citation, t),
+        label: citedLocation(citation, t, documents),
         from: place?.groupId,
       },
     );
@@ -165,7 +168,7 @@ export function ComparisonCellCard({
               key={`${citation.passageId ?? "citation"}-${citation.contentHash ?? ""}-${citation.pageFrom ?? ""}-${citation.quote ?? ""}`}
             >
               <div className="comparison-cell-citation-location">
-                {citedLocation(citation, t) ?? t(badge.key, badge.params)}
+                {citedLocation(citation, t, documents) ?? t(badge.key, badge.params)}
               </div>
               {citation.quote && <blockquote>{citation.quote}</blockquote>}
               <button

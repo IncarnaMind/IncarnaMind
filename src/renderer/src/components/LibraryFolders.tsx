@@ -10,8 +10,7 @@ import { buildFolderTree, type FolderNode, folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { treeCounts } from "../libraryPage";
-import { formatCount } from "../linkedFolders";
-import { DAY_ONE_DOCUMENTS } from "../ownDocuments";
+import { DAY_ONE_DOCUMENTS, useExampleDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
@@ -52,7 +51,6 @@ const NOT_IN_A_FOLDER = "not-in-a-folder";
 
 const NO_DOCUMENTS: readonly Document[] = [];
 const NO_MINDS: readonly Mind[] = [];
-const NO_DOCUMENT_IDS: ReadonlySet<string> = new Set();
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
 
@@ -186,17 +184,6 @@ export function LibraryFolders({
     const parents = new Map(orderedGroups.map((folder) => [folder.id, folder.parentId]));
     return (id: string) => parents.get(id) ?? null;
   }, [orderedGroups]);
-  const assignments = useAppStore((state) => state.library?.assignments);
-  const suggestedByFolder = useMemo(() => {
-    const byFolder = new Map<string, Set<string>>();
-    for (const item of assignments ?? []) {
-      if (!item.suggested || item.groupId === null) continue;
-      const ids = byFolder.get(item.groupId) ?? new Set<string>();
-      ids.add(item.documentId);
-      byFolder.set(item.groupId, ids);
-    }
-    return byFolder;
-  }, [assignments]);
   // How many Documents and Minds each Folder holds, those in its sub-Folders too (its row's count).
   const counts = useMemo(
     () =>
@@ -209,19 +196,6 @@ export function LibraryFolders({
         ),
       ]),
     [orderedGroups, documentsByFolder, mindsByFolder],
-  );
-  // How many Documents each Folder only suggests, those suggested inside it too.
-  const suggestedCounts = useMemo(
-    () =>
-      treeCounts(
-        orderedGroups,
-        orderedGroups.flatMap((folder) =>
-          [...(suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS)].map(() => ({
-            folderId: folder.id,
-          })),
-        ),
-      ),
-    [orderedGroups, suggestedByFolder],
   );
   const tree = useMemo(() => buildFolderTree(orderedGroups), [orderedGroups]);
   const paths = useMemo(
@@ -280,9 +254,7 @@ export function LibraryFolders({
                 node={node}
                 mindsByFolder={mindsByFolder}
                 documentsByFolder={documentsByFolder}
-                suggestedByFolder={suggestedByFolder}
                 counts={counts}
-                suggestedCounts={suggestedCounts}
                 paths={paths}
                 parentOf={parentOf}
                 renderDocument={renderDocument}
@@ -306,7 +278,7 @@ export function LibraryFolders({
 }
 
 /** A Folder's or Not in a Folder's contents: its sub-Folders, then its Minds and Documents. */
-function Contents({
+export function Contents({
   listKey,
   scope,
   depth,
@@ -381,10 +353,8 @@ interface FolderGroupProps {
   node: FolderNode<LibraryGroup>;
   mindsByFolder: ReadonlyMap<string | null, readonly Mind[]>;
   documentsByFolder: ReadonlyMap<string | null, readonly Document[]>;
-  suggestedByFolder: ReadonlyMap<string, ReadonlySet<string>>;
   /** How many Documents and Minds each Folder holds, its sub-Folders too. */
   counts: ReadonlyMap<string, number>;
-  suggestedCounts: ReadonlyMap<string, number>;
   /** Each Folder's place, "Thesis › Chapter 2", for its tooltip while it is inside another Folder. */
   paths: ReadonlyMap<string, string>;
   parentOf: (id: string) => string | null;
@@ -403,9 +373,7 @@ function FolderGroup({
   node,
   mindsByFolder,
   documentsByFolder,
-  suggestedByFolder,
   counts,
-  suggestedCounts,
   paths,
   parentOf,
   renderDocument,
@@ -415,7 +383,7 @@ function FolderGroup({
   const expanded = useFolds((state) => state.open.has(folder.id));
   const shownInLibrary = useAppStore(
     (state) =>
-      currentTabOf(state.layout)?.item.kind === "library" && state.libraryFilter === folder.id,
+      currentTabOf(state.layout)?.item.kind === "library" && state.libraryFolderId === folder.id,
   );
   const toggle = () => useFolds.getState().toggle(folder.id);
   const row = useRef<HTMLDivElement>(null);
@@ -450,13 +418,11 @@ function FolderGroup({
     return first ? nameNewFolder(folder.id, name) : renameFolder(folder.id, name);
   });
   const t = useT();
-  const language = useLanguage();
   const objectMenu = useObjectMenu(object);
   const treeItem = useTreeItem({ depth, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
   const count = counts.get(folder.id) ?? 0;
-  const suggestedCount = suggestedCounts.get(folder.id) ?? 0;
   const place =
     drop.over?.place === "before"
       ? dropBeforeClass
@@ -473,9 +439,7 @@ function FolderGroup({
             node={child}
             mindsByFolder={mindsByFolder}
             documentsByFolder={documentsByFolder}
-            suggestedByFolder={suggestedByFolder}
             counts={counts}
-            suggestedCounts={suggestedCounts}
             paths={paths}
             parentOf={parentOf}
             renderDocument={renderDocument}
@@ -573,10 +537,6 @@ function FolderGroup({
               className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
               {count}
-              {suggestedCount > 0 &&
-                ` · ${t("sidebar.folder.suggested", {
-                  count: formatCount(suggestedCount, language),
-                })}`}
             </span>
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>
@@ -635,6 +595,9 @@ function NotInAFolder({
 }) {
   const t = useT();
   const drop = useDropTarget("sidebar-folder:none", folderTarget(null));
+  // The quiet first open hands the tree no Documents, so the Examples section brings its own: a
+  // Document opened from a Citation always has its row there (#2376).
+  const exampleDocuments = useExampleDocuments();
   const examplesOnly = useAppStore((state) => {
     const examples = allExamples(state);
     return (
@@ -709,7 +672,7 @@ function NotInAFolder({
             scope="sidebar"
             depth={0}
             minds={apart ? NO_MINDS : minds}
-            documents={documents}
+            documents={examplesOnly ? exampleDocuments : documents}
             renderDocument={renderDocument}
           />
           {offerFolder && (
@@ -746,7 +709,7 @@ function NotInAFolder({
             scope="sidebar"
             depth={0}
             minds={exampleMinds}
-            documents={NO_DOCUMENTS}
+            documents={quiet ? exampleDocuments : NO_DOCUMENTS}
             renderDocument={renderDocument}
           />
         </SidebarSection>

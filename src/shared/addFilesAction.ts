@@ -17,6 +17,7 @@ export const ADDABLE_EXTENSIONS: readonly string[] = [
   "txt",
   "md",
   "markdown",
+  "vtt",
   "jpg",
   "jpeg",
   "png",

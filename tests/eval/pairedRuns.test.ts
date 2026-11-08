@@ -7,12 +7,23 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { openLibrary } from "../../eval/lib/library";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
-import { type ArmRun, type GroupOptions, openForArms } from "../../eval/speed/paired";
 import {
+  type ArmRun,
+  type GroupOptions,
+  openForArms,
+  type RequestTiming,
+} from "../../eval/speed/paired";
+import {
+  armTurns,
+  cellOf,
   guards,
   newFalseSupported,
   type PairedRow,
   pairedSection,
+  sameRequestOf,
+  timeTable,
+  wentFirst,
+  wentFirstByCell,
 } from "../../eval/speed/pairedReport";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import {
@@ -49,6 +60,7 @@ const row = (baseline: Partial<ArmRun>, candidate: Partial<ArmRun>, id = "en-01"
   language: "en",
   model: "anthropic/claude-haiku-5-5",
   run: 1,
+  first: 0,
   baseline: { ...RUN, ...baseline },
   candidate: { ...RUN, ...candidate },
 });
@@ -91,6 +103,18 @@ describe("the guards", () => {
     expect(newFalseSupported(fresh)).toBe(true);
     expect(named([both], "False Supported")?.holds).toBe(true);
     expect(named([both, fresh], "False Supported")).toMatchObject({ lost: 1, holds: false });
+  });
+
+  test("counted over the set, a false Supported only the candidate gives holds against one only the baseline gives, and two against one don't", () => {
+    const fresh = row({}, { falseSupported: 1 }, "en-01");
+    const gone = row({ falseSupported: 1 }, {}, "en-02");
+    const another = row({}, { falseSupported: 2 }, "en-03");
+    const counted = (rows: PairedRow[]) =>
+      guards(rows, 0, true).find((each) => each.name === "False Supported");
+
+    expect(counted([fresh, gone])).toMatchObject({ lost: 1, gained: 1, holds: true });
+    expect(counted([fresh, gone, another])).toMatchObject({ lost: 2, gained: 1, holds: false });
+    expect(named([fresh, gone], "False Supported")?.holds).toBe(false);
   });
 
   test("a duplicate Answer or an unmade change only the candidate gives fails", () => {
@@ -196,6 +220,41 @@ describe("the report", () => {
   });
 });
 
+describe("where a help reply's time went", () => {
+  const request = (model: string, startMs: number, step: string | null = null): RequestTiming => ({
+    kind: "model",
+    step,
+    model,
+    reasoning: null,
+    startMs,
+    firstByteMs: 500,
+    firstReasoningMs: null,
+    firstTextMs: 700,
+    firstToolMs: null,
+    endMs: 1500,
+    inputTokens: 4000,
+    outputTokens: 200,
+  });
+
+  test("times each of the reply's own requests from the User's action, apart from the other steps' requests, and counts a reply written again by another model", () => {
+    const table = timeTable(
+      [
+        row(
+          { requests: [request("sonnet", 100), request("haiku", 1700, "change-claim-check")] },
+          { requests: [request("haiku", 100), request("sonnet", 1700)], firstOptionMs: 900 },
+        ),
+      ],
+      ["today", "quick-help"],
+    );
+
+    expect(table).toContain("| Request 1: first byte | 0.6 s | 0.6 s |");
+    expect(table).toContain("| Request 2: end | – | 3.2 s |");
+    expect(table).toContain("| Written again by another model (share) | 0.00 | 1.00 |");
+    expect(table).toContain("| Requests for change-claim-check, how many | 1.00 | 0.00 |");
+    expect(table).toContain("| First whole option | – | 0.9 s |");
+  });
+});
+
 describe("the arm switch", () => {
   test("each request goes as the arm in use has it", async () => {
     const systems: string[] = [];
@@ -248,25 +307,24 @@ describe("the arms' Answer paths", () => {
   });
 
   test.each([
-    [
-      "Claude Sonnet 5.5, on no list",
-      "claude-sonnet-5-5",
-      { searchesFirst: false, writesFirst: false },
-    ],
-    [
-      "Claude Haiku 5.5, on the write-then-cite list only",
-      "claude-haiku-5-5",
-      { searchesFirst: false, writesFirst: true },
-    ],
+    ["A model on no list", false, { searchesFirst: false, writesFirst: false }],
+    ["A model on the write-then-cite list only", true, { searchesFirst: false, writesFirst: true }],
   ])(
     "%s: each arm decides the path it compares, the citation arms in the loop from its first call; today keeps the lists'",
-    (_, modelId, listed) => {
+    (_, onList, listed) => {
       const switcher = armSwitch();
-      const model = { catalogId: "anthropic", modelId };
+      const model = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
+      // The lists name no model since #2720, so a list naming this one stands in wherever an
+      // arm leaves the path to the lists.
+      const paths: AnswerPathsOverride = {
+        writesThenCites: (each) =>
+          switcher.answerPaths.writesThenCites?.(each) ?? (onList || undefined),
+        retrievesFirst: (each) => switcher.answerPaths.retrievesFirst?.(each),
+      };
       const seen = Object.fromEntries(
         ["cite-first", "write-then-cite", "loop", "retrieve-first", "today"].map((id) => {
           switcher.use(armNamed(id));
-          return [id, pathOf(model, switcher.answerPaths)];
+          return [id, pathOf(model, paths)];
         }),
       );
       expect(seen).toEqual({
@@ -278,4 +336,100 @@ describe("the arms' Answer paths", () => {
       });
     },
   );
+});
+
+describe("Which arm goes first (#2791)", () => {
+  // protects=a run whose groups each hold one item, as the meeting-notes and call-help sets do, on two models and in two languages, turns which arm goes first from pair to pair within each model, set and language, the cells a gate reads, so each arm goes first in half of each cell's pairs, and the report counts it per cell; fails_when=the order turns only on an item's place in its group, or on one count across the run, so in some cell one arm goes first in every pair; no_claim=how a cache or a model's load favours the arm that goes second.
+  test("over one-item groups, two models and two languages, each arm goes first in half of each cell's pairs", () => {
+    const turn = armTurns();
+    const models = ["anthropic/claude-haiku-5-5", "deepseek/deepseek-flash"];
+    const rows: Pick<PairedRow, "first" | "model" | "language">[] = [];
+    for (const language of ["en", "zh-CN"] as const) {
+      for (let group = 0; group < 6; group++) {
+        for (const model of models) {
+          rows.push({ first: turn(`${model} · meeting-notes · ${language}`)[0], model, language });
+        }
+      }
+    }
+    for (const language of ["en", "zh-CN"]) {
+      for (const model of models) {
+        const cell = rows.filter((row) => row.model === model && row.language === language);
+        expect(cell.map((row) => row.first)).toEqual([0, 1, 0, 1, 0, 1]);
+      }
+    }
+    expect(wentFirst(rows)).toEqual([12, 12]);
+  });
+
+  // protects=the report says how many pairs each arm went first in, for each model, set and language, in the order the cells ran; fails_when=a cell is left out, merged with another, or counted for the other arm; no_claim=none beyond protects.
+  test("the report counts the order cell by cell", () => {
+    const row = (model: string, language: "en" | "zh-CN", first: 0 | 1) => ({
+      model,
+      set: "meeting-notes" as const,
+      language,
+      first,
+    });
+    const rows = [
+      row("deepseek/deepseek-flash", "en", 0),
+      row("deepseek/deepseek-flash", "en", 1),
+      row("deepseek/deepseek-flash", "zh-CN", 0),
+      row("anthropic/claude-haiku-5-5", "en", 1),
+    ];
+    expect(cellOf(rows[0] as (typeof rows)[number])).toBe(
+      "deepseek/deepseek-flash · meeting-notes · en",
+    );
+    expect(wentFirstByCell(rows)).toEqual([
+      ["deepseek/deepseek-flash · meeting-notes · en", [1, 1]],
+      ["deepseek/deepseek-flash · meeting-notes · zh-CN", [1, 0]],
+      ["anthropic/claude-haiku-5-5 · meeting-notes · en", [0, 1]],
+    ]);
+  });
+
+  test("an odd number of pairs in a cell leaves one arm first once more", () => {
+    const turn = armTurns();
+    const rows = Array.from({ length: 5 }, () => ({
+      first: turn("deepseek/deepseek-flash · meeting-notes · en")[0],
+    }));
+    expect(wentFirst(rows)).toEqual([3, 2]);
+  });
+});
+
+describe("The same first request (#2773)", () => {
+  const prompt = (id: string, made: string, words: string) =>
+    JSON.stringify([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `<passage id="${id}" file-modified="${made}">\n[0:05 Them] ${words}\n</passage>`,
+          },
+        ],
+      },
+    ]);
+
+  // protects=two arms' libraries give their files other ids and times, which don't make a request another one, while any change in what is asked does; fails_when=ids or times count as a change, or a changed word doesn't; no_claim=what a model does with either request.
+  test("ids and the times files were made aside, the words decide", () => {
+    const today = prompt(
+      "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+      "2026-11-08T02:10:04.629Z",
+      "Is the price fixed?",
+    );
+    const other = prompt(
+      "6ec0bd7f-11c0-43da-975e-2a8ad9ebae0b",
+      "2026-11-08T02:14:31.221Z",
+      "Is the price fixed?",
+    );
+    expect(sameRequestOf(today, other)).toBe(true);
+    expect(
+      sameRequestOf(
+        today,
+        prompt(
+          "6ec0bd7f-11c0-43da-975e-2a8ad9ebae0b",
+          "2026-11-08T02:14:31.221Z",
+          "Is the price final?",
+        ),
+      ),
+    ).toBe(false);
+    expect(sameRequestOf(today, null)).toBe(false);
+  });
 });

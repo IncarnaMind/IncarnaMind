@@ -19,6 +19,13 @@
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
+ * - a superscript digit or a circled mark directly after a figure reads as a
+ *   footnote's mark, not a digit, as the figure reader reads one: a quote that
+ *   joins the mark to the figure ("1,240.501") is not in "1,240.50¹" or
+ *   "1,240.50①", while a quote that keeps the mark is found where a drawn page
+ *   keeps the mark a digit ("1,240.50¹" in "1,240.501", as a Word page draws
+ *   one). A mark elsewhere is no mark: "see note¹", "x²", "Ca²⁺" and "2ⁿᵈ"
+ *   read "see note1", "x2", "Ca2+" and "2nd" (#2474, #2646);
  * - a soft hyphen that ends a line is read as a hyphen, so the word split
  *   there is joined like any other ("inter\u00ad\nnational");
  * - a pipe that breaks a table's cells, a lone "|" with whitespace or a
@@ -84,7 +91,7 @@
  * and so quoted, in its number format ("Jun: 1,560") (#76). A quote found as
  * it is stays found, so a slide's other text is matched as before.
  */
-import { numberFormatting } from "./figures";
+import { FOOTNOTE_MARK_CHAR, isFootnoteAfterFigure, numberFormatting } from "./figures";
 import { SIMPLIFIED } from "./hanVariants";
 import { type NormalisedUnit, normaliseWithOffsets } from "./text";
 
@@ -160,6 +167,8 @@ function cellBreaksAsSpaces(text: string): string {
 export interface MatchOptions {
   /** Refuse a quote with more than one matching place, including overlapping matches. */
   unique?: boolean;
+  /** Keep only complete matches accepted at their original UTF-16 ranges, before uniqueness. */
+  acceptMatch?: (ranges: readonly TextRange[]) => boolean;
   /**
    * Normalise number formatting in the quote and the text: always for
    * spreadsheets (true); for slides, only when the quote isn't found as it
@@ -261,10 +270,14 @@ function normaliseNumbers(units: NormalisedUnit[], text: string, spaces: GroupSp
  */
 function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
   // Same length, so the offsets of the units still point into `text`.
-  const { units } = normaliseWithOffsets(
-    cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
-  );
-  const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
+  const original = text.replace(SOFT_HYPHEN_AT_LINE_END, "-");
+  const { units } = normaliseWithOffsets(cellBreaksAsSpaces(original));
+  const folded = units.map((unit) => ({
+    ...unit,
+    char: isFootnoteAfterFigure(original, unit.start, unit.end)
+      ? FOOTNOTE_MARK_CHAR
+      : fold(unit.char),
+  }));
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
     let end = at + 2;
@@ -329,6 +342,14 @@ function wholeNumbers(units: readonly NormalisedUnit[]): Accept {
   };
 }
 
+/**
+ * Whether the text's `unit` is the `wanted` character: a footnote's mark in the
+ * quote is a digit where the drawn page keeps it one, as a Word page draws a
+ * superscript ("1,240.50¹" in "1,240.501"), so its highlight is found (#2474).
+ */
+const matches = (unit: string, wanted: string): boolean =>
+  unit === wanted || (wanted === FOOTNOTE_MARK_CHAR && DIGIT.test(unit));
+
 /** The index of the last unit of a match of `needle` starting at `first`, or -1. */
 function matchAt(units: readonly NormalisedUnit[], needle: string, first: number): number {
   let at = first;
@@ -339,7 +360,7 @@ function matchAt(units: readonly NormalisedUnit[], needle: string, first: number
     at++;
     if (unit.optional && needle[index] !== "-") continue; // skip a line-end hyphen
     if (!unit.optional && unit.removed) continue;
-    if (unit.char !== needle[index]) return -1;
+    if (!matches(unit.char, needle[index] as string)) return -1;
     last = at - 1;
     index++;
     // The line break after a line-end hyphen, copied as a space ("inter- national").
@@ -357,7 +378,7 @@ function findFrom(
 ): { first: number; last: number } | null {
   for (let first = from; first < units.length; first++) {
     const unit = units[first] as NormalisedUnit;
-    if (unit.removed || unit.char !== needle[0]) continue;
+    if (unit.removed || !matches(unit.char, needle[0] as string)) continue;
     const last = matchAt(units, needle, first);
     if (last >= 0 && (!accept || accept(needle, first, last))) return { first, last };
   }
@@ -380,6 +401,7 @@ function findNeedle(
   needle: string,
   accept?: Accept,
   unique = false,
+  acceptMatch?: MatchOptions["acceptMatch"],
 ): TextRange[] | "ambiguous" | null {
   if (!needle) return null;
   // With numbers, a match takes in the formatting around its figures: "£", ")" and ".00".
@@ -396,15 +418,47 @@ function findNeedle(
   };
 
   const whole = findFrom(units, needle, 0, accept);
-  if (whole)
+  if (whole && !acceptMatch)
     return unique && findFrom(units, needle, whole.first + 1, accept)
       ? "ambiguous"
       : [range(whole)];
-  if (!ELLIPSIS.test(needle)) return null;
+  if (!whole && !ELLIPSIS.test(needle)) return null;
 
-  const parts = needle.split(ELLIPSIS).filter((part) => part !== "");
+  const parts = whole ? [needle] : needle.split(ELLIPSIS).filter((part) => part !== "");
   if (parts.length === 0) return null;
-  if (parts.length > 1 && !parts.every(longEnough)) return null;
+  if (!whole && parts.length > 1 && !parts.every(longEnough)) return null;
+  if (acceptMatch) {
+    const matches: { first: number; last: number }[] = [];
+    let kept: TextRange[] | null = null;
+    let index = 0;
+    let from = 0;
+    while (index >= 0) {
+      const part = parts[index];
+      if (part === undefined) break;
+      const match = findFrom(units, part, from, accept);
+      if (!match) {
+        index--;
+        const previous = matches[index];
+        if (!previous) break;
+        from = previous.first + 1;
+        continue;
+      }
+      matches[index] = match;
+      if (index < parts.length - 1) {
+        index++;
+        from = match.last + 1;
+        continue;
+      }
+      const candidate = matches.map(range);
+      if (acceptMatch(candidate)) {
+        if (kept) return "ambiguous";
+        kept = candidate;
+        if (!unique) return kept;
+      }
+      from = match.first + 1;
+    }
+    return kept;
+  }
   const found: TextRange[] = [];
   const starts: number[] = [];
   let from = 0;
@@ -443,12 +497,37 @@ export function findQuote(
   const readings = options.numbers === "if-needed" ? [false, true] : [options.numbers === true];
   for (const numbers of readings) {
     const found =
-      findRead(text, quote, numbers, false, options.unique) ??
-      (options.lostLigatures ? findRead(text, quote, numbers, true, options.unique) : null);
+      findRead(text, quote, numbers, false, options.unique, options.acceptMatch) ??
+      (options.lostLigatures
+        ? findRead(text, quote, numbers, true, options.unique, options.acceptMatch)
+        : null);
     if (found === "ambiguous") return null;
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * Every place `quote` is in `text`, not only the first: a highlight's mark is
+ * drawn at the place its selection's words around it fit, which is not always
+ * the first of the same words.
+ */
+export function findQuoteOccurrences(text: string, quote: string): TextRange[] {
+  const units = matchUnits(text);
+  const needle = needleOf(quote);
+  if (!needle) return [];
+  const found: TextRange[] = [];
+  let from = 0;
+  for (;;) {
+    const match = findFrom(units, needle, from);
+    if (!match) break;
+    const first = units[match.first];
+    const last = units[match.last];
+    if (!first || !last) break;
+    found.push({ start: first.start, end: last.end });
+    from = match.last + 1;
+  }
+  return found;
 }
 
 /**
@@ -461,18 +540,25 @@ function findRead(
   numbers: boolean,
   withoutLigatureLetters: boolean,
   unique = false,
+  acceptMatch?: MatchOptions["acceptMatch"],
 ): TextRange[] | "ambiguous" | null {
   const shape = withoutLigatureLetters ? withoutLigatures : (needle: string) => needle;
   const read = withoutLigatureLetters ? unitsWithoutLigatures : (units: NormalisedUnit[]) => units;
   if (!numbers)
-    return findNeedle(read(matchUnits(text)), shape(needleOf(quote)), undefined, unique);
+    return findNeedle(
+      read(matchUnits(text)),
+      shape(needleOf(quote)),
+      undefined,
+      unique,
+      acceptMatch,
+    );
   const units = read(matchUnits(text, "text"));
   const accept = wholeNumbers(units);
   const grouped = shape(needleOf(quote, "all"));
-  const found = findNeedle(units, grouped, accept, unique);
+  const found = findNeedle(units, grouped, accept, unique, acceptMatch);
   if (found) return found;
   const spaced = shape(needleOf(quote, "none"));
-  return spaced === grouped ? null : findNeedle(units, spaced, accept, unique);
+  return spaced === grouped ? null : findNeedle(units, spaced, accept, unique, acceptMatch);
 }
 
 /**

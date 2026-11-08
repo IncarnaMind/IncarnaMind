@@ -1,13 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  Document,
-  LibraryGroup,
-  LibrarySettings,
-  TaggingClassifier,
-  TaggingModelOption,
-} from "../../../../core/api";
-import { organizeModelOf } from "../../../../shared/libraryModels";
-import { core } from "../../core";
+import type { Document, LibraryGroup } from "../../../../core/api";
 import { useDraggedRef, useDragSource, useDropTarget } from "../../dragDrop";
 import { folderDrag, folderTarget } from "../../folderDrag";
 import { folderPathLabel } from "../../folders";
@@ -21,26 +13,32 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
-import { organizeDocuments, useProposing } from "../../organizeDocuments";
-import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
-import { useOrganizeAsk } from "../../organizeRun";
+import { organizeDocuments } from "../../organizeDocuments";
+import { fixOrganizeProblem } from "../../organizeFix";
+import { organizeStateOf } from "../../organizeOutcome";
+import { useOrganizeReview } from "../../organizeReview";
+import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
+import type { ReviewReason } from "../../reviewProblems";
+import {
+  notOrganizedLine,
+  PROBLEM_FIX,
+  retryableIds,
+  unsettledProblemsOf,
+} from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
-import { DetailsLine } from "../DetailsLine";
 import { InlineName } from "../InlineName";
 import { ChevronRightLineIcon, FolderLineIcon, LockLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
-import { NeedsModelCard } from "../providers/NeedsModelCard";
 import {
   dropAfterClass,
   dropBeforeClass,
   dropIntoClass,
   rowActionButtonClass,
 } from "../sidebarRows";
-import { providerOf } from "../TaggingSettings";
 import { FolderForm } from "./FolderForm";
 import { LibraryRow, pageRowClass } from "./LibraryRow";
 import { SectionHead, sectionNameClass } from "./SectionHead";
@@ -64,7 +62,6 @@ export function LibrarySection({
   counts,
   documentsOf,
   pathOf,
-  suggestedOf,
   notSortedOf,
   sortFailedOf,
 }: {
@@ -81,11 +78,10 @@ export function LibrarySection({
   /** Where a Document is, while a search names it out of its tree: "Thesis › Chapter 2". */
   pathOf(documentId: string): string | null;
   /** The Suggested Folder a Document waits in, by its id, if it waits in one. */
-  suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
-  notSortedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
   /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
-  sortFailedOf(documentId: string): string | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -114,7 +110,6 @@ export function LibrarySection({
       ) : (
         <LooseHead documents={documents} open={open} />
       )}
-      {!section.folder && <OrganizeNeedsModel />}
       {open &&
         section.folder &&
         childrenOf(folders, section.folder.id)
@@ -130,7 +125,6 @@ export function LibrarySection({
               narrowing={narrowing}
               matches={matches}
               pathOf={pathOf}
-              suggestedOf={suggestedOf}
               notSortedOf={notSortedOf}
               sortFailedOf={sortFailedOf}
             />
@@ -140,7 +134,6 @@ export function LibrarySection({
           <LibraryRow
             key={doc.id}
             doc={doc}
-            suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
             sortFailed={sortFailedOf(doc.id)}
             match={matches?.get(doc.id) ?? null}
@@ -177,7 +170,6 @@ function SubfolderRow({
   narrowing,
   matches,
   pathOf,
-  suggestedOf,
   notSortedOf,
   sortFailedOf,
 }: {
@@ -190,9 +182,8 @@ function SubfolderRow({
   narrowing: boolean;
   matches: ReadonlyMap<string, SearchMatch> | null;
   pathOf(documentId: string): string | null;
-  suggestedOf(documentId: string): string | null;
-  notSortedOf(documentId: string): string | null;
-  sortFailedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -359,7 +350,6 @@ function SubfolderRow({
               narrowing={narrowing}
               matches={matches}
               pathOf={pathOf}
-              suggestedOf={suggestedOf}
               notSortedOf={notSortedOf}
               sortFailedOf={sortFailedOf}
             />
@@ -370,7 +360,6 @@ function SubfolderRow({
             key={doc.id}
             doc={doc}
             depth={depth + 1}
-            suggestedIn={suggestedOf(doc.id)}
             notSorted={notSortedOf(doc.id)}
             sortFailed={sortFailedOf(doc.id)}
             match={matches?.get(doc.id) ?? null}
@@ -598,53 +587,79 @@ function LooseHead({ documents, open }: { documents: readonly Document[]; open: 
   );
 }
 
-const organizeHasModel = (settings: LibrarySettings | undefined) =>
-  !!settings && organizeModelOf(settings) !== null;
-
 /**
  * Organize, for the Documents in no Folder, Folders or none (#2308), or how it is going, or what
  * it couldn't do, with one action.
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
   const t = useT();
-  const all = useAppStore((state) => state.documents);
+  const all = useListedDocuments();
   const library = useAppStore((state) => state.library);
-  const proposing = useProposing((state) => state.proposing);
+  // The Library's top says how a run of the User's own is going (#1569).
+  const running = useOrganizeReview((state) => state.run !== null);
+  const counted = useOrganizeReview((state) => state.count);
+  const waiting = counted ?? library?.reviewCount ?? 0;
   const states = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
   }, [all, library]);
   const pending = states.filter((state) => state.run === "working").length;
-  const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
+  const problems = useMemo(
+    () => unsettledProblemsOf(documents, library?.assignments ?? []),
+    [documents, library],
+  );
+  // The count, the causes and Try again's list all come from the same failures (#2308).
+  const failedCount = problems.reduce((count, problem) => count + problem.documentIds.length, 0);
+  const retryIds = retryableIds(problems);
   const run = (ids: readonly string[]) => {
     organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
-  if (proposing || pending > 0) {
+  // While Documents wait to be confirmed, the Library's top offers their Review instead.
+  if (running || waiting > 0) return null;
+  if (pending > 0) {
     return (
       <span
         role="status"
         data-testid="library-organizing"
         className="shrink-0 text-[13px] text-ink-meta"
       >
-        {proposing ? t("library.organize.reading") : t("library.organizing", { count: pending })}
+        {t("library.organizing", { count: pending })}
       </span>
     );
   }
-  if (failed.size > 0) {
-    const retry = () => run([...failed]);
+  if (failedCount > 0) {
+    const retry = () => run(retryIds);
+    // The one press that fixes a cause, such as adding credit, before Try again can help (#2308).
+    const fixable = problems.find((problem) => PROBLEM_FIX[problem.kind] !== undefined);
+    const fixLabel = fixable ? PROBLEM_FIX[fixable.kind] : undefined;
     return (
       <span
         role="alert"
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {t(failed.size === 1 ? "library.organize.failed.one" : "library.organize.failed", {
-          count: failed.size,
-        })}
-        <span aria-hidden="true"> · </span>
-        <button type="button" onClick={retry} className={quietButtonClass}>
-          {t("library.organize.retry")}
-        </button>
+        {notOrganizedLine(problems, failedCount, t)}
+        {fixable && fixLabel && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <button
+              type="button"
+              data-testid="library-organize-fix"
+              onClick={() => void fixOrganizeProblem(fixable.kind)}
+              className={quietButtonClass}
+            >
+              {t(fixLabel)}
+            </button>
+          </>
+        )}
+        {retryIds.length > 0 && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <button type="button" onClick={retry} className={quietButtonClass}>
+              {t("library.organize.retry")}
+            </button>
+          </>
+        )}
       </span>
     );
   }
@@ -659,135 +674,5 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     >
       {t("library.classify")}
     </button>
-  );
-}
-
-/**
- * Organize with no model chosen (#763): a row under Not in a Folder's head says so where it was
- * asked. With no AI model at all, first run's key field is offered in place (#1922); once one
- * works, the model Automatic sorts with, saying what would go to its company. The answer is
- * kept, so Organize asks once.
- */
-function OrganizeNeedsModel() {
-  const t = useT();
-  const language = useLanguage();
-  const ids = useOrganizeAsk((state) => state.ids);
-  const hasModel = useAppStore((state) => organizeHasModel(state.library?.settings));
-  // Only "no provider at all" is what first run's key field answers; every other reason has its own line.
-  const noProvider = useAppStore(
-    (state) => state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider",
-  );
-  const [automatic, setAutomatic] = useState<TaggingModelOption | null>(null);
-  const asked = ids !== null && !hasModel;
-  useEffect(() => {
-    if (!asked || noProvider) return;
-    let current = true;
-    const load = () =>
-      core.getTaggingModels().then(
-        (models) => {
-          if (current) setAutomatic(models.automatic);
-        },
-        (error: unknown) => console.error("Organize couldn't work out the model to offer.", error),
-      );
-    load();
-    const stop = core.on("chatReadiness.changed", () => void load());
-    return () => {
-      current = false;
-      stop();
-    };
-  }, [asked, noProvider]);
-  if (!asked) return null;
-  const close = () => useOrganizeAsk.getState().close();
-  const use = async (classifier: TaggingClassifier) => {
-    const settings = useAppStore.getState().library?.settings;
-    if (!settings || ids === null) return;
-    // Saving the model sets the waiting Documents going, so what Undo goes back to is read first.
-    const undoing = new Map(
-      (useAppStore.getState().library?.assignments ?? [])
-        .filter((item) => ids.includes(item.documentId))
-        .map((item) => [item.documentId, item]),
-    );
-    try {
-      await core.saveLibrarySettings({ ...settings, organizeWith: classifier });
-      await useAppStore.getState().refreshLibrary();
-      close();
-      await organizeDocuments(ids, undoing);
-    } catch (error) {
-      useAppStore.getState().reportError(error);
-    }
-  };
-  const dismiss = (
-    <button
-      type="button"
-      data-testid="library-organize-dismiss"
-      onClick={close}
-      className={`self-start ${quietButtonClass}`}
-    >
-      {t("library.organize.dismiss")}
-    </button>
-  );
-  if (noProvider) {
-    return (
-      <div
-        role="status"
-        data-testid="library-organize-needs-model"
-        className="flex flex-col gap-1 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
-      >
-        <NeedsModelCard
-          line="needsModel.organize"
-          testId="library-organize-key"
-          onDone={() => {
-            // The key saved, Organize goes on with the model it now reaches (#1922).
-            void core.getTaggingModels().then(
-              (models) => models.automatic && use(models.automatic.classifier),
-              (error: unknown) => useAppStore.getState().reportError(error),
-            );
-          }}
-        />
-        {dismiss}
-      </div>
-    );
-  }
-  const company = automatic && (providerOf(automatic, language) ?? t("providers.kind.ollama"));
-  return (
-    <div
-      role="status"
-      data-testid="library-organize-needs-model"
-      className="flex flex-col gap-0.5 border-b border-rule py-2 pl-14 text-[13px] leading-5 text-ink-meta"
-    >
-      <p>{t("library.organize.needsModel")}</p>
-      {automatic && automatic.group !== "local" && company && (
-        <DetailsLine
-          testId="library-organize-sends"
-          details={t("library.organize.sends.details", { company })}
-        >
-          {t("library.organize.sends", { company })}
-        </DetailsLine>
-      )}
-      <p className="flex flex-wrap gap-x-4">
-        {automatic && company && (
-          <button
-            type="button"
-            data-testid="library-organize-use"
-            onClick={() => void use(automatic.classifier)}
-            className={quietButtonClass}
-          >
-            {t("library.organize.use", { company })}
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="library-organize-set-up"
-          onClick={() => {
-            close();
-            useAppStore.getState().openSettings("models", "tagging");
-          }}
-          className={quietButtonClass}
-        >
-          {t("library.organize.setUp")}
-        </button>
-        {dismiss}
-      </p>
-    </div>
   );
 }

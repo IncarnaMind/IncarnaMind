@@ -477,9 +477,12 @@ async function call(take: Take): Promise<void> {
   // heard off camera; the film keeps the transcript and the Answers, not the wait for speech.
   await hand.cut(async () => {
     await speak(take, 0, 3);
-    await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 240_000 });
+    await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+    await expect(window.getByTestId("meeting-transcript-beside")).toBeEnabled({
+      timeout: 240_000,
+    });
   });
-  await hand.click(bar.getByTestId("meeting-transcript-toggle"));
+  await hand.click(window.getByTestId("meeting-transcript-beside"));
   await expect(window.getByTestId("transcript-line").first()).toBeVisible({ timeout: 120_000 });
   // The transcript has the expert's words before the follow-up, and the User's line on the Me
   // side: content and speakers, not how many rows the engine split the speech into.
@@ -489,7 +492,11 @@ async function call(take: Take): Promise<void> {
       .poll(async () => (await lines.allInnerTexts()).join(" "), { timeout: 300_000 })
       .toMatch(script.words.heard);
     await expect(
-      lines.getByTestId("transcript-speaker").filter({ hasText: script.words.me }).first(),
+      window
+        .getByTestId("transcript-turn")
+        .getByTestId("transcript-speaker")
+        .filter({ hasText: script.words.me })
+        .first(),
     ).toBeVisible({ timeout: 120_000 });
   });
   await hand.hold(700);
@@ -510,7 +517,6 @@ async function call(take: Take): Promise<void> {
   // The talk drifts away from the guide; its words are read off camera.
   await hand.cut(async () => {
     await speak(take, 3, 5);
-    await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 240_000 });
     await window.getByTestId("document-tab").last().click();
     await expect
       .poll(async () => (await window.getByTestId("transcript-line").allInnerTexts()).join(" "), {

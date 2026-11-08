@@ -2,7 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
-import { activeTabOf, focusedGroupOf } from "../../layoutSlice";
+import { activeTabOf, focusedGroupOf, GROUP_MIN_WIDTH } from "../../layoutSlice";
+import { useShareDialog } from "../../shareDialog";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
@@ -11,14 +12,12 @@ import { FigureScheduleTab } from "../figures/FigureScheduleTab";
 import { HomePane } from "../home/HomePane";
 import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
+import { ShareDialog } from "../ShareDialog";
 import { DocumentTab } from "./DocumentTab";
 import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
-
-/** A group is never dragged narrower than this. */
-const GROUP_MIN_PX = 220;
 
 /**
  * The card's content: up to three groups side by side, each with its tab
@@ -43,6 +42,9 @@ export function TabGroups() {
   /** The Mind whose Export options sheet is open (⋯, ⌘K, or its References block's Export…). */
   const exporting = useExportDialog((state) => state.mindId);
   const exportMind = useAppStore((state) => state.minds.find((mind) => mind.id === exporting));
+  /** The Mind whose Share sheet is open (Export › More formats, ⌘K). */
+  const sharing = useShareDialog((state) => state.mindId);
+  const shareMind = useAppStore((state) => state.minds.find((mind) => mind.id === sharing));
 
   // A double-click on a divider makes the groups equal, as in VS Code.
   useEffect(() => {
@@ -103,6 +105,7 @@ export function TabGroups() {
       </div>
       <DragFeedback dragged={drag.draggedTabId !== null} target={drag.target} />
       <ExportDialog mind={exportMind ?? null} onClose={() => useExportDialog.getState().close()} />
+      <ShareDialog mind={shareMind ?? null} onClose={() => useShareDialog.getState().close()} />
     </>
   );
 }
@@ -148,7 +151,7 @@ function GroupDivider({
   };
   const pairPx = Math.round(pair * room);
   // Two groups too narrow for their minimum each keep half.
-  const min = Math.min(GROUP_MIN_PX, Math.floor(pairPx / 2));
+  const min = Math.min(GROUP_MIN_WIDTH, Math.floor(pairPx / 2));
   return (
     <ResizeRod
       testId="group-divider"
@@ -194,6 +197,10 @@ function TabGroup({
       className="tab-group"
       style={{ flexGrow: share }}
       onPointerDownCapture={() => {
+        if (!focused)
+          void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
+      }}
+      onFocusCapture={() => {
         if (!focused)
           void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
       }}

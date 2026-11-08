@@ -25,6 +25,9 @@ import type {
   LibraryGroup,
   MarkAiTextChoice,
   Mind,
+  OrganizeLibraryResult,
+  OrganizeReviewChange,
+  OrganizeReviewFolder,
   SavedFile,
   TaggingClassifier,
   TaggingRoute,
@@ -38,6 +41,8 @@ import type {
 import { EXPORT_FORMATS, RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
+import { ExportChangedError } from "../../exports";
+import { NameTakenError } from "../../fileNames";
 import type { Language } from "../../language";
 import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
@@ -48,6 +53,8 @@ export type CommandsCore = Pick<
   | "listDocuments"
   | "listMinds"
   | "getLibrary"
+  | "getOrganizeReview"
+  | "restoreOrganizeReview"
   | "listTags"
   | "renameDocument"
   | "renameMind"
@@ -72,7 +79,6 @@ export type CommandsCore = Pick<
   | "updateLibraryGroup"
   | "updateTag"
   | "classifyDocuments"
-  | "acceptAssignments"
   | "mergeTags"
   | "getTaggingRoute"
   | "listDataFlows"
@@ -101,6 +107,9 @@ export type CommandAsking =
   | ((question: (language: Language) => UserQuestion) => Promise<UserAnswer>)
   | null;
 
+/** Asks the User again with a changed ask, after the first Allow: true when they allow it (#2514). */
+export type CommandReask = (ask: CommandAsk) => Promise<boolean>;
+
 /** How a Word file's choice about marking the text IncarnaMind wrote was settled for an export. */
 export type MarkingSettled = ExportMarking;
 
@@ -109,28 +118,49 @@ export interface CommandsHost {
   /**
    * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
    * the Library's Organize, which the background queue can't run while an Answer is written.
+   * What it chooses waits in Suggestions under `runId` (#1569).
    */
   organizeAtOnce(
     ids: readonly string[],
     signal: AbortSignal,
     wall: string | null,
-    permit?: CloudReadPermit,
+    permit: CloudReadPermit | undefined,
+    runId: string,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
-  /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
-  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
+  /**
+   * Plans these Documents as the Library's Organize does, at any size, with the run's permit, and
+   * proposes into Suggestions under `runId`, into Folders outside every wall (#1569). Null when
+   * Organize's model can't name Folders and there are Folders to sort into one by one instead.
+   */
+  organizeByPlan(
+    ids: readonly string[],
+    signal: AbortSignal,
+    permit: CloudReadPermit | undefined,
+    runId: string,
+  ): Promise<OrganizeLibraryResult | null>;
+  /** Proposes a Folder by name, made only when the User confirms it; null when one has that name. */
+  proposeFolder(name: string, about: string): OrganizeReviewFolder | null;
+  /**
+   * Takes a run's proposals out of Suggestions, but those the User edited, and these proposed
+   * Folders once nothing waits in them; `restoreOrganizeReview` with the change puts them back.
+   * A null run takes out only the Folders.
+   */
+  withdrawOrganizeRun(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange;
   /**
    * The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022):
    * stores the consent and tells the window, so the Privacy page shows it.
    */
   allowCloudRead(service: ExternalService): Promise<void>;
   /**
-   * With no model chosen for Organize, the one the Library offers as "Use {company}" (Automatic's
-   * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
+   * With no model chosen for Organize, the one the Library offers (Automatic's pick) and where
+   * it sends; null when one is chosen or Automatic has none (#2252).
    */
   offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
+  /** Local mode is on: nothing goes to a cloud service, so nothing asks to send there (ADR-0022). */
+  localOnly(): boolean;
   /**
    * Saves that pick as Organize's model. It records no consent and lifts no decline: the card's
-   * Allow is the consent, and the Library's "Use {company}" is the answer that does both.
+   * Allow is the consent, and the Library's "Allow and organize" does both.
    */
   keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
   /**
@@ -164,6 +194,8 @@ export interface CommandsHost {
     folder: string | null,
     approved: boolean,
     marking: { named: MarkAiTextChoice | null },
+    /** The names the card showed: the write is exactly these, or nothing (#2514). */
+    approvedFiles?: { fileName: string; pictures: readonly string[] },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
   /**
    * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it: how it
@@ -197,6 +229,8 @@ export interface CommandInput {
   value: string | null;
   /** A Tag merge's groups, instead of ids and tag, when more than one Tag stays (#2252). */
   merges: { ids: string[]; tag: string | null }[];
+  /** Organize: what else the User's request asks for, in their words; null when nothing (#1569). */
+  alsoAsked: string | null;
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -204,6 +238,8 @@ export interface Ran {
   done: Omit<CommandDone, "command" | "run">;
   step: CommandStep | null;
   said: string;
+  /** What it did is the whole reply, which the app writes: the turn ends, whatever the done mark. */
+  ends?: true;
 }
 
 /**
@@ -237,13 +273,31 @@ export interface CheckedCommand {
   cloud?: ExternalService;
   /** The User said no to sending Documents for sorting before: this Allow is for this request only (#2252). */
   cloudDeclined?: boolean;
-  run(asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit): Promise<Ran>;
+  run(
+    asking: CommandAsking,
+    signal: AbortSignal,
+    permit?: CloudReadPermit,
+    reask?: CommandReask,
+  ): Promise<Ran>;
 }
 
 export const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
 
+const sameFiles = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((name, index) => name === b[index]);
+
 export const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+
+/** The most of what else the User asked for an Organize call names (#1569). */
+const ALSO_ASKED_MOST = 200;
+
+/** What else the User asked for, as the call named it: one line of plain words, at most `ALSO_ASKED_MOST` characters. */
+const askedAlso = (value: unknown): string | null => {
+  const said = text(value)?.replace(/\s+/g, " ");
+  if (!said) return null;
+  return said.length > ALSO_ASKED_MOST ? `${said.slice(0, ALSO_ASKED_MOST - 1).trimEnd()}…` : said;
+};
 
 const texts = (value: unknown): string[] =>
   Array.isArray(value) ? value.flatMap((each) => text(each) ?? []) : [];
@@ -270,6 +324,7 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
           isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
         )
       : [],
+    alsoAsked: askedAlso(input.alsoAsked),
   };
 }
 
@@ -723,26 +778,6 @@ export const LIBRARY_CHECKERS = {
     // Only the Output location itself: a folder in it may be one a sync service shares.
     const elsewhere = given !== null && given !== output;
     const into = elsewhere ? given : null;
-    const run = async (): Promise<Ran> => {
-      const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
-        named: input.format === "docx" ? input.marks : null,
-      });
-      return {
-        done: {
-          items: [mindItem(mind)],
-          file: {
-            path: file.path,
-            name: file.name,
-            folder: file.folder,
-            inDefaultFolder: file.inDefaultFolder,
-          },
-          inOutputLocation: !elsewhere,
-          ...(marking && { marking }),
-        },
-        step: null,
-        said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.${markingSaid(marking)}`,
-      };
-    };
     const items = [mindItem(mind)];
     if (!elsewhere || given === null) {
       return {
@@ -752,24 +787,105 @@ export const LIBRARY_CHECKERS = {
         into: null,
         outside: null,
         ...OUTSIDE_IT,
-        run,
+        run: async (): Promise<Ran> => {
+          const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
+            named: input.format === "docx" ? input.marks : null,
+          });
+          return {
+            done: {
+              items,
+              file: {
+                path: file.path,
+                name: file.name,
+                folder: file.folder,
+                inDefaultFolder: file.inDefaultFolder,
+              },
+              inOutputLocation: !elsewhere,
+              ...(marking && { marking }),
+            },
+            step: null,
+            said: `Saved “${mindName(mind)}” as “${file.name}” in ${elsewhere ? file.folder : `the Output location, ${file.folder}`}. A file can't be taken back with Undo.${markingSaid(marking)}`,
+          };
+        },
       };
     }
-    const { fileName } = await host.core.previewMindExport(mind.id, { format: input.format });
+    const { fileName, pictures } = await host.core.previewMindExport(
+      mind.id,
+      { format: input.format },
+      given,
+    );
+    const outside: CommandAsk = {
+      kind: "export",
+      mind: { id: mind.id, name: mindName(mind) },
+      format: input.format,
+      folder: given,
+      fileName,
+      pictures,
+    };
+    // What the card showed last: the files written must be exactly these (#2514).
+    let shown = { fileName, pictures: [...pictures] };
     return {
       command: "mind.export",
       effects: [{ action: "write", scope: { kind: "folder", path: given } }],
       items,
       into: null,
-      outside: {
-        kind: "export",
-        mind: { id: mind.id, name: mindName(mind) },
-        format: input.format,
-        folder: given,
-        fileName,
-      },
+      outside,
       ...OUTSIDE_IT,
-      run,
+      run: async (_asking, _signal, _permit, reask?: CommandReask): Promise<Ran> => {
+        const askTheChange = async (now: { fileName: string; pictures: readonly string[] }) => {
+          const allowed = reask
+            ? await reask({
+                ...outside,
+                fileName: now.fileName,
+                pictures: now.pictures,
+                previous: shown,
+              })
+            : false;
+          if (!allowed) throw new InvalidInputError({ key: "error.commands.exportDenied" });
+          shown = { fileName: now.fileName, pictures: [...now.pictures] };
+        };
+        // Anything that would change the list since the User looked asks again before writing,
+        // and so does a name taken, or a list changed, between that look and the write (#2514).
+        let mustAsk = false;
+        for (;;) {
+          const now = await host.core.previewMindExport(mind.id, { format: input.format }, given);
+          const changed =
+            now.fileName !== shown.fileName || !sameFiles(now.pictures, shown.pictures);
+          if (mustAsk || changed) {
+            await askTheChange(now);
+            mustAsk = false;
+          }
+          try {
+            const { file, marking } = await host.exportMind(
+              mind.id,
+              input.format,
+              into,
+              elsewhere,
+              { named: input.format === "docx" ? input.marks : null },
+              shown,
+            );
+            return {
+              done: {
+                items,
+                file: {
+                  path: file.path,
+                  name: file.name,
+                  folder: file.folder,
+                  inDefaultFolder: file.inDefaultFolder,
+                },
+                inOutputLocation: !elsewhere,
+                ...(marking && { marking }),
+              },
+              step: null,
+              said: `Saved “${mindName(mind)}” as “${file.name}” in ${file.folder}. A file can't be taken back with Undo.${markingSaid(marking)}`,
+            };
+          } catch (error) {
+            if (!(error instanceof NameTakenError) && !(error instanceof ExportChangedError))
+              throw error;
+            mustAsk = true;
+          }
+        }
+      },
     };
   },
 

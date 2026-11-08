@@ -51,6 +51,8 @@ export type Formula = (string | CellRef | { from: CellRef; to: CellRef })[];
 export interface SheetCell {
   column: string;
   value: CellValue;
+  /** The words a number or a day was written with, for a file that has no number formats: a CSV. */
+  shown?: string;
   /** An Excel number format: "0.0%", `"$"#,##0.0,,"m"`, "d mmmm yyyy". None: General. */
   format?: string;
   /** Excel works it out on opening; `value` is shown until then, if anything. */

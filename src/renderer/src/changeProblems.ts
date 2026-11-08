@@ -5,6 +5,7 @@
  * call changed nothing. Only data and words.
  */
 import type { AnswerSteps, AnswerToolCall, ConversationAnswer, MindProblem } from "../../core/api";
+import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { changedMinds } from "./changedMinds";
 import type { Translate } from "./objects";
 
@@ -129,16 +130,12 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.newVersion", { mind, text: problem.text });
     case "stopped":
       return t("mindCall.failed.stopped", { mind });
-    case "no-table":
-      return t("mindCall.failed.noTable", { mind });
-    case "unplaced":
-      return t("mindCall.failed.unplaced", { mind });
-    case "misnamed":
-      return t("mindCall.failed.misnamed", { mind });
-    case "typed-tag":
-      return t("mindCall.failed.typedTag", { mind });
     case "not-placed":
-      return t("mindCall.failed.notPlaced", { mind });
+    case "misnamed":
+    case "typed-tag":
+    case "no-table":
+    case "unplaced":
+      return t(REFUSAL_WORDS[problem.kind].card, { mind });
     case "uncited":
       return t("mindCall.failed.uncited", { mind });
     case "length":

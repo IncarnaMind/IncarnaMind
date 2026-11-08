@@ -1,16 +1,20 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
-import {
-  EXPORT_FORMATS,
-  type ExportFormat,
-  type ExportPreferences,
-  type Mind,
-  type MindCitationStyle,
-  type OutputSettings,
-  type SharePagePreferences,
-  type SharePagePreview,
-  type TheirChangesShown,
-  type WordExportPreferences,
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import type {
+  ExportFormat,
+  ExportPreferences,
+  Mind,
+  MindCitationStyle,
+  OutputSettings,
+  TheirChangesShown,
+  WordExportPreferences,
 } from "../../../core/api";
+import {
+  type ExportMarks,
+  MAX_WATERMARK_WORDS,
+  settledMarks,
+  WATERMARK_CHOICES,
+  type WatermarkChoice,
+} from "../../../shared/exportMarks";
 import { hasCitationPlace, hasQuestionsOption } from "../../../shared/exportOptions";
 import type { MessageKey } from "../../../shared/i18n";
 import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
@@ -18,7 +22,7 @@ import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
 import { commentsHint } from "../exportChecks";
-import { exportPreferences, FORMAT_LABELS } from "../exports";
+import { EXPORT_OPTIONS_FORMATS, exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
@@ -26,15 +30,15 @@ import { CitationPlaceRow } from "./CitationPlace";
 import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
 import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
-import { SharePageContents } from "./SharePageContents";
+import { SwitchRow } from "./SwitchRow";
 import {
   buttonClass,
   dialogActionsClass,
-  dialogFrameClass,
   dialogTitleClass,
   hintClass,
   primaryButtonClass,
   ruledListClass,
+  tabSheetClass,
 } from "./ui";
 import { useModal } from "./useModal";
 
@@ -50,48 +54,6 @@ const FORMAT_NOTES: Readonly<Record<ExportFormat, MessageKey>> = {
 
 /** A ruled row of the sheet: its words on the left, its control on the right. */
 const rowClass = "flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2";
-
-/** A switch in a row of the sheet, with what it does under its label. */
-function SwitchRow({
-  label,
-  hint,
-  checked,
-  onChange,
-  testId,
-}: {
-  label: string;
-  hint?: ReactNode;
-  checked: boolean;
-  onChange(checked: boolean): void;
-  testId: string;
-}) {
-  const id = useId();
-  return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div className="flex min-w-0 flex-col">
-        <label htmlFor={id} className="text-ui text-ink">
-          {label}
-        </label>
-        {hint && (
-          <span id={`${id}-hint`} className={hintClass}>
-            {hint}
-          </span>
-        )}
-      </div>
-      <input
-        id={id}
-        type="checkbox"
-        role="switch"
-        data-testid={testId}
-        checked={checked}
-        aria-checked={checked}
-        aria-describedby={hint ? `${id}-hint` : undefined}
-        onChange={(event) => onChange(event.target.checked)}
-        className="switch shrink-0"
-      />
-    </div>
-  );
-}
 
 /** The hint of the tracked-changes switch, with the name a link to where it is changed. */
 function TrackedAsHint({ name }: { name: string }) {
@@ -192,43 +154,6 @@ function WordReviewRows({
   );
 }
 
-function SharePageRows({
-  draft,
-  onChange,
-  contents,
-}: {
-  draft: SharePagePreferences;
-  onChange(next: SharePagePreferences): void;
-  contents: {
-    preview: SharePagePreview;
-    textOnly: ReadonlySet<string>;
-    onChange(textOnly: Set<string>): void;
-  } | null;
-}) {
-  const t = useT();
-  return (
-    <>
-      <SwitchRow
-        label={t("export.share.cards")}
-        hint={t("export.share.cards.hint")}
-        checked={draft.citationCards}
-        onChange={(citationCards) => onChange({ ...draft, citationCards })}
-        testId="export-citation-cards"
-      />
-      {draft.citationCards && contents && <SharePageContents {...contents} />}
-      {draft.citationCards && (
-        <SwitchRow
-          label={t("export.share.checkedLine")}
-          hint={t("export.share.checkedLine.hint")}
-          checked={draft.checkedLine}
-          onChange={(checkedLine) => onChange({ ...draft, checkedLine })}
-          testId="export-checked-line"
-        />
-      )}
-    </>
-  );
-}
-
 /**
  * How a PDF, an HTML file or Markdown shows someone's changes from a Word file
  * still waiting (#734): marked as changes, as Word prints them, or as if each
@@ -275,6 +200,83 @@ function TheirChangesRow({
         <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
       </span>
     </div>
+  );
+}
+
+const WATERMARK_LABELS: Readonly<Record<WatermarkChoice, MessageKey>> = {
+  none: "export.watermark.none",
+  draft: "export.watermark.draft",
+  confidential: "export.watermark.confidential",
+  words: "export.watermark.words",
+};
+
+/**
+ * What the pages of a Word file or a PDF carry (#1258): page numbers, and a watermark of its own,
+ * a preset word or the User's; a Note that hasn't chosen has page numbers and no watermark.
+ */
+function MarksRows({ marks, onChange }: { marks: ExportMarks; onChange(next: ExportMarks): void }) {
+  const t = useT();
+  const id = useId();
+  const words = useRef<HTMLInputElement>(null);
+  const before = useRef(marks.watermark);
+  // Choosing the User's own word puts the cursor in it; a Note that already had one keeps focus elsewhere.
+  useEffect(() => {
+    if (marks.watermark === "words" && before.current !== "words") words.current?.focus();
+    before.current = marks.watermark;
+  }, [marks.watermark]);
+  return (
+    <>
+      <SwitchRow
+        label={t("export.pageNumbers")}
+        hint={t("export.pageNumbers.hint")}
+        checked={marks.pageNumbers}
+        onChange={(pageNumbers) => onChange({ ...marks, pageNumbers })}
+        testId="export-page-numbers"
+      />
+      <div className="flex flex-col py-2">
+        <div className={rowClass}>
+          <label htmlFor={id} className="text-ui text-ink">
+            {t("export.watermark")}
+          </label>
+          <span className="relative flex shrink-0">
+            <select
+              id={id}
+              data-testid="export-watermark"
+              value={marks.watermark}
+              aria-describedby={`${id}-hint`}
+              onChange={(event) => {
+                const chosen = WATERMARK_CHOICES.find((each) => each === event.target.value);
+                if (chosen) onChange({ ...marks, watermark: chosen });
+              }}
+              className="h-8 w-52 max-w-full appearance-none rounded-sm border border-rule-strong bg-sheet pr-8 pl-2.5 text-ui text-ink focus:border-accent"
+            >
+              {WATERMARK_CHOICES.map((each) => (
+                <option key={each} value={each}>
+                  {t(WATERMARK_LABELS[each])}
+                </option>
+              ))}
+            </select>
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+          </span>
+        </div>
+        <span id={`${id}-hint`} className={hintClass}>
+          {t("export.watermark.hint")}
+        </span>
+        {marks.watermark === "words" && (
+          <input
+            ref={words}
+            type="text"
+            data-testid="export-watermark-words"
+            aria-label={t("export.watermark.wordsLabel")}
+            placeholder={t("export.watermark.wordsLabel")}
+            value={marks.words ?? ""}
+            maxLength={MAX_WATERMARK_WORDS}
+            onChange={(event) => onChange({ ...marks, words: event.target.value })}
+            className="mt-2 h-8 w-full rounded-sm border border-rule-strong bg-sheet px-2.5 text-ui text-ink focus:border-accent"
+          />
+        )}
+      </div>
+    </>
   );
 }
 
@@ -414,8 +416,7 @@ export function ExportDialog({ mind, onClose }: { mind: Mind | null; onClose(): 
       onClose={onClose}
       data-testid="export-dialog"
       aria-labelledby="export-title"
-      // A sheet hanging from the tab strip, as the design has it, rather than a dialog in the middle.
-      className={`${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`}
+      className={tabSheetClass}
     >
       {/* Mounted only while open, so each opening starts from the options last saved. */}
       {mind && <ExportOptionsForm mind={mind} onDone={onClose} />}
@@ -443,39 +444,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   } | null>(null);
   /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
   const [othersComments, setOthersComments] = useState<boolean | null>(null);
+  /** This Note's page numbers and watermark (#1258); null until the core has said. */
+  const [marks, setMarks] = useState<ExportMarks | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
-  const [shared, setShared] = useState<SharePagePreview | null>(null);
-  const [textOnly, setTextOnly] = useState<Set<string> | null>(null);
-  const wantsShared = format === "share-page";
-
-  const { includeQuestions, checkedLine } = draft["share-page"];
-  const theirChanges = draft.theirChanges ?? "shown";
   const citationStyle = useMindCitationStyle(mind.id);
-
-  useEffect(() => {
-    if (!wantsShared) return;
-    let current = true;
-    const options = { format: "share-page", includeQuestions, checkedLine, theirChanges } as const;
-    core.previewSharePage(mind.id, options).then(
-      (preview) => {
-        if (!current) return;
-        setShared(preview);
-        setTextOnly(
-          (kept) =>
-            kept ??
-            new Set(
-              preview.documents.filter((each) => each.textOnly).map((each) => each.documentId),
-            ),
-        );
-      },
-      (error: unknown) => useAppStore.getState().reportError(error),
-    );
-    return () => {
-      current = false;
-    };
-  }, [mind.id, wantsShared, includeQuestions, checkedLine, theirChanges]);
 
   // How many Questions the Mind has, which a deliverable leaves out unless asked: said under its
   // switch; and how many Citations a source pack would hold, since with none it says so.
@@ -503,6 +477,19 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     };
   }, [mind.id]);
 
+  useEffect(() => {
+    let current = true;
+    core.getExportMarks(mind.id).then(
+      (found) => {
+        if (current) setMarks(found);
+      },
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [mind.id]);
+
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -510,18 +497,9 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
+      if (marks) await core.setExportMarks(mind.id, settledMarks(marks));
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
-      }
-      const before = shared?.documents
-        .filter((each) => each.textOnly)
-        .map((each) => each.documentId);
-      if (
-        textOnly &&
-        before &&
-        (before.length !== textOnly.size || before.some((id) => !textOnly.has(id)))
-      ) {
-        await core.setSharePageTextOnly(mind.id, [...textOnly]);
       }
       onDone();
     } catch (failure) {
@@ -534,6 +512,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const leftOut =
     hasQuestionsOption(format) && !draft[format].includeQuestions ? (counts?.questions ?? 0) : 0;
   const emptyPack = format === "source-pack" && counts?.packCitations === 0;
+  const wordsMissing = marks?.watermark === "words" && (marks.words ?? "").trim() === "";
 
   return (
     <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-col">
@@ -571,7 +550,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
               }
               className="h-8 w-52 max-w-full appearance-none rounded-sm border border-rule-strong bg-sheet pr-8 pl-2.5 text-ui text-ink focus:border-accent"
             >
-              {EXPORT_FORMATS.map((each) => (
+              {EXPORT_OPTIONS_FORMATS.map((each) => (
                 <option key={each} value={each}>
                   {t(FORMAT_LABELS[each])}
                 </option>
@@ -598,16 +577,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
               ? t("export.hiddenColumns.one")
               : t("export.hiddenColumns.other", { count: counts?.hiddenColumns ?? 0 })}
           </p>
-        )}
-
-        {format === "share-page" && (
-          <SharePageRows
-            draft={draft["share-page"]}
-            onChange={(sharePage) => setDraft({ ...draft, "share-page": sharePage })}
-            contents={
-              shared && textOnly ? { preview: shared, textOnly, onChange: setTextOnly } : null
-            }
-          />
         )}
 
         {hasQuestionsOption(format) && (
@@ -642,10 +611,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           </div>
         )}
 
-        {(format === "pdf" ||
-          format === "html" ||
-          format === "share-page" ||
-          format === "markdown") &&
+        {(format === "pdf" || format === "html" || format === "markdown") &&
           (counts?.theirChanges ?? 0) > 0 && (
             <TheirChangesRow
               count={counts?.theirChanges ?? 0}
@@ -677,6 +643,10 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
+        {marks && (format === "docx" || format === "pdf") && (
+          <MarksRows marks={marks} onChange={setMarks} />
+        )}
+
         {hasCitationPlace(format) && citationStyle && (
           <CitationPlaceRow
             value={draft.citationPlace}
@@ -685,9 +655,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
-        {(format !== "share-page" || !draft["share-page"].citationCards) && (
-          <CitationStyleRow mindId={mind.id} />
-        )}
+        <CitationStyleRow mindId={mind.id} />
         <SaveToRow />
       </div>
 
@@ -704,7 +672,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         <button
           type="submit"
           data-testid="export-save"
-          disabled={saving}
+          disabled={saving || wordsMissing}
           aria-describedby={hintId}
           title={hint}
           className={primaryButtonClass}

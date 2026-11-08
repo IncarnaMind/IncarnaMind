@@ -586,6 +586,17 @@ function discard(copy: HTMLElement): void {
 }
 
 /**
+ * Ends the leaving copies, as a dialog just shown as a modal does: it has taken the screen, and
+ * the layer would sit over it in the top layer, holding Esc from the dialog (#2752).
+ */
+export function endLeavingCopies(): void {
+  if (!layer) return;
+  for (const copy of Array.from(layer.root.children)) discard(copy as HTMLElement);
+  for (const copy of retiring) discard(copy);
+  retiring.clear();
+}
+
+/**
  * Takes a finished leaving copy off the page. Chromium ends the run of typing that Undo takes back
  * as one whenever a node leaves the page, any node (FrameSelection::NodeWillBeRemoved), so while the
  * User is in a field that takes text the copy only hides, and goes once the focus has left it (#1140).
@@ -639,6 +650,7 @@ function leaving(
   if (!plan) return null;
   const copy = copyOf(element, box);
   const scrollTop = element.scrollTop;
+  const modalThen = document.querySelector("dialog:modal");
   // The element itself is at rest at once, whatever it was doing: it is going.
   haltUncounted(element);
   unstyle([element]);
@@ -649,6 +661,10 @@ function leaving(
     requestAnimationFrame(() => {
       pending--;
       if (mode === "off") return;
+      // A dialog shown since this left has taken the screen: a copy over it would be a ghost,
+      // and the layer would sit above it, holding Esc from the dialog (#2752).
+      const modalNow = document.querySelector("dialog:modal");
+      if (modalNow !== null && modalNow !== element && modalNow !== modalThen) return;
       try {
         leavingLayer().append(copy);
       } catch (error) {
@@ -679,13 +695,23 @@ export function enter(
 /**
  * Grows from what opened it (DESIGN.md: menus, popovers, the Citation card):
  * from the edge that faces it, 4px toward it at 0.96. `box`: where the
- * element is laid out, if it isn't showing yet to be measured.
+ * element is laid out, if it isn't showing yet to be measured. `spring`: the
+ * panel token for what grows as a whole, as the picture viewer does.
  */
-export function enterFrom(element: HTMLElement, source: Element | Box | null, box?: Box): void {
+export function enterFrom(
+  element: HTMLElement,
+  source: Element | Box | null,
+  box?: Box,
+  { spring: name = "snappy" }: { spring?: SpringName } = {},
+): void {
   if (mode === "off") return;
   const toward = towardSource(box ?? boxOf(element.getBoundingClientRect()), sourceBox(source));
   sources.set(element, toward);
-  enter(element, { x: toward.x, y: toward.y, scale: SOURCE_SCALE }, { origin: toward.origin });
+  enter(
+    element,
+    { x: toward.x, y: toward.y, scale: SOURCE_SCALE },
+    { origin: toward.origin, spring: name },
+  );
 }
 
 /**

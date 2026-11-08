@@ -16,13 +16,13 @@ directories:
 afterPack: ./scripts/afterPack.mjs
 
 # Only the bundled app goes in. The production dependencies in node_modules are added
-# automatically; the rest of the repo (sources, tests, the sample PDFs in data/) stays out.
+# automatically; the rest of the repo (sources, tests, the sample PDFs in eval/data/) stays out.
 # electron-builder arranges them itself, and a direct dependency's version wins the top
 # level: so zod is one (4.6.5, as the AI SDK uses it), and sandbox-runtime's zod 3 nests.
 #
 # A platform's own `files` list REPLACES this one rather than adding to it: with only
 # exclusions there, electron-builder falls back to "**/*" and packs the whole checkout
-# (sources, tests, data, untracked files) into app.asar. So every platform below restates
+# (sources, tests, eval/data, untracked files) into app.asar. So every platform below restates
 # out/**/* and the exclusions below, and scripts/check-package.mjs fails the release build if
 # anything else gets in.
 files:
@@ -64,7 +64,8 @@ extraResources:
       - "**/*"
   # The licence notices: what the model catalog is generated from (scripts/catalogModels.ts),
   # the citation-style engine's crates and where the CSL styles come from, the Speex code the
-  # Meetings echo canceller is derived from, and what Analyses run with.
+  # Meetings echo canceller is derived from, what Analyses run with, and the speech models
+  # Meetings are transcribed with, which are downloaded.
   - from: resources/notices
     to: notices
     filter:
@@ -102,6 +103,10 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "When you record a meeting, IncarnaMind records your microphone. The audio stays on this Mac."
     NSAudioCaptureUsageDescription: "When you record a meeting, IncarnaMind records the computer's sound: the other people in the meeting. The audio stays on this Mac."
+    # Meetings coming up (#190): what macOS says when the User connects the Mac's calendar, the
+    # first key from macOS 14, the second before it (tests/main/meetingPermissions.test.ts).
+    NSCalendarsFullAccessUsageDescription: "IncarnaMind reads your calendar to show the meetings coming up and fill in a meeting’s notes. Your events stay on this Mac."
+    NSCalendarsUsageDescription: "IncarnaMind reads your calendar to show the meetings coming up and fill in a meeting’s notes. Your events stay on this Mac."
     CFBundleIconName: AppIcon
   extraResources:
     - from: build/zh_CN.lproj
@@ -114,8 +119,9 @@ mac:
       to: python-native
       filter:
         - runtime.json
-  # electron-builder's default entitlements, and the microphone, which a hardened-runtime build
-  # can't open without it.
+  # electron-builder's default entitlements, the microphone, and the calendars (#190), which a
+  # hardened-runtime build can't open without them. The calendar helper, built by afterPack into
+  # Contents/Resources, is signed with the inherited ones.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   files:

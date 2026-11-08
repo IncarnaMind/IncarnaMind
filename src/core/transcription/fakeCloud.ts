@@ -1,15 +1,27 @@
 /**
- * A pretend cloud transcription service, for the tests and the smoke tests (#141): it speaks
- * enough of OpenAI's, Soniox's and Qwen's protocols for their adapters (./cloud) and never
- * touches the network. Soniox's side gives a line, with a speaker, for every two seconds of
- * sound it is sent, and Qwen's a sentence, with a heartbeat for each second of quiet; OpenAI's
- * gives one for each turn committed. It can refuse the key, or drop the connection after so much
- * audio, as a lost network does.
+ * A pretend cloud transcription service, for the tests and the smoke tests (#141, #866): it
+ * speaks enough of each service's protocol for its adapter (./cloud) and never touches the
+ * network. Soniox's side gives a line, with a speaker, for every two seconds of sound it is sent,
+ * its words coming first as tokens that aren't final yet, as the real service sends them; Qwen's
+ * a sentence, with a heartbeat for each second of quiet; OpenAI's gives one for each
+ * turn committed; the other services' are in ./fakeLive. It can refuse the key, say the account
+ * is out of credit, or drop the connection after so much audio, as a lost network does.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
+import type { CloudServing } from "./channel";
 import { OPENAI_TRANSCRIPTION_URL } from "./cloud/openai";
 import { HANDSHAKE_REFUSED, QWEN_REALTIME_PATH } from "./cloud/protocol";
 import type { CloudConnect, CloudSocket } from "./cloud/socket";
+import {
+  fakeAssemblyAi,
+  fakeDeepgram,
+  fakeElevenLabs,
+  fakeGemini,
+  fakeGladia,
+  fakeGladiaFetch,
+  fakeSpeechmatics,
+  fakeXai,
+} from "./fakeLive";
 
 export const FAKE_CLOUD_LINES: readonly string[] = [
   "The budget holds at one point two million.",
@@ -23,8 +35,14 @@ export interface FakeCloudOptions {
   dropAfterMs?: number;
   /** The service refuses the key. */
   refuse?: boolean;
+  /** The account the key is for has no credit left. */
+  noCredit?: boolean;
+  /** Gemini's side says the connection ends (`goAway`) after this much audio. */
+  goAwayAfterMs?: number;
   /** How many voices Soniox's side tells apart, taking turns line by line: 2 by default. */
   voices?: number;
+  /** How much sound makes each of Soniox's lines, in ms: 2000 by default, longer to watch its unfinished words. */
+  lineMs?: number;
   /** A first Qwen sentence that stays partial, so a drop leaves its speech unfinished. */
   latePartial?: { atMs: number; beginMs: number; text: string; dropOnFinish?: boolean };
 }
@@ -33,14 +51,34 @@ export interface FakeCloudOptions {
 const FRAME = MEETING_SAMPLE_RATE / 50;
 const LEVEL = 0.01 * 32768;
 const LINE_MS = 2000;
+/** How often Soniox's side sends the words of the line being said, before it is final. */
+const UNFINISHED_EVERY_MS = 400;
 
 const later = (run: () => void) => setTimeout(run, 0);
+
+/** The requests a pretend service needs before its socket (Gladia's session), as `options` says. */
+export const createFakeCloudFetch = (options: FakeCloudOptions = {}): CloudServing["fetch"] =>
+  fakeGladiaFetch(options);
 
 export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
   let said = 0;
   const nextLine = () => FAKE_CLOUD_LINES[said++ % FAKE_CLOUD_LINES.length] as string;
 
+  const lineMs = options.lineMs ?? LINE_MS;
+
   return (url, _apiKey, events) => {
+    const { hostname, pathname } = new URL(url);
+    if (pathname.endsWith("/v1/listen") || pathname.includes("/ai/run/@cf/deepgram/")) {
+      return fakeDeepgram(options, nextLine, events);
+    }
+    if (hostname === "streaming.assemblyai.com") return fakeAssemblyAi(options, nextLine, events);
+    if (pathname.endsWith("BidiGenerateContent")) return fakeGemini(options, nextLine, events);
+    if (hostname === "api.x.ai") return fakeXai(options, nextLine, events);
+    if (hostname.endsWith(".rt.speechmatics.com")) {
+      return fakeSpeechmatics(options, nextLine, events);
+    }
+    if (hostname === "api.elevenlabs.io") return fakeElevenLabs(options, nextLine, events);
+    if (hostname === "api.gladia.io") return fakeGladia(options, nextLine, events);
     const openai = url === OPENAI_TRANSCRIPTION_URL;
     const qwen = new URL(url).pathname === QWEN_REALTIME_PATH;
     let closed = false;
@@ -50,6 +88,7 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     let loudMs = 0;
     let quietMs = 0;
     let lineStartMs: number | null = null;
+    let saying: { text: string; speaker: string } | null = null;
     let items = 0;
     let previous: string | null = null;
     const reply = (message: object) => {
@@ -104,6 +143,18 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
         }
         if (qwen && typeof data === "string") {
           const { action } = (JSON.parse(data) as { header: { action: string } }).header;
+          if (action === "run-task" && options.noCredit) {
+            reply({
+              header: {
+                event: "task-failed",
+                error_code: "Arrearage",
+                error_message: "Access denied, please make sure your account is in good standing.",
+              },
+              payload: {},
+            });
+            close(1000);
+            return;
+          }
           if (action === "run-task") reply({ header: { event: "task-started" }, payload: {} });
           if (action === "finish-task") {
             if (options.latePartial?.dropOnFinish) {
@@ -126,6 +177,9 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
             close(1000);
           } else if (options.refuse) {
             reply({ tokens: [], error_code: 401, error_message: "Incorrect API key provided." });
+            later(() => close(1000));
+          } else if (options.noCredit) {
+            reply({ tokens: [], error_code: 402, error_message: "Payment required." });
             later(() => close(1000));
           }
           return;
@@ -179,11 +233,36 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
           quietMs = 0;
           lineStartMs ??= frameMs;
           loudMs += 20;
-          if (loudMs >= LINE_MS) {
+          if (!qwen && !late) {
+            saying ??= { speaker: String((said % (options.voices ?? 2)) + 1), text: nextLine() };
+            if (loudMs < lineMs && loudMs % UNFINISHED_EVERY_MS === 0) {
+              const words = saying.text.split(" ");
+              const shown = Math.max(1, Math.floor((words.length * loudMs) / lineMs));
+              reply({
+                tokens: [
+                  {
+                    text: words.slice(0, shown).join(" "),
+                    start_ms: lineStartMs,
+                    end_ms: frameMs + 20,
+                    is_final: false,
+                    speaker: saying.speaker,
+                  },
+                ],
+                total_audio_proc_ms: frameMs + 20,
+              });
+            }
+          }
+          if (loudMs >= (qwen ? LINE_MS : lineMs)) {
             const start = lineStartMs;
             const end = frameMs + 20;
-            const speaker = String((said % (options.voices ?? 2)) + 1);
-            if (!late)
+            const line =
+              saying ??
+              (late
+                ? null
+                : { speaker: String((said % (options.voices ?? 2)) + 1), text: nextLine() });
+            saying = null;
+            if (line) {
+              const { speaker, text } = line;
               reply(
                 qwen
                   ? {
@@ -193,7 +272,7 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
                           sentence: {
                             begin_time: start,
                             end_time: end,
-                            text: nextLine(),
+                            text,
                             heartbeat: false,
                             sentence_end: true,
                             sentence_id: ++sentences,
@@ -204,20 +283,22 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
                       },
                     }
                   : {
+                      // A token a word, each timed evenly over the line, as Soniox times them.
                       tokens: [
-                        {
-                          text: nextLine(),
-                          start_ms: start,
-                          end_ms: end,
+                        ...text.split(" ").map((word, index, words) => ({
+                          text: index === 0 ? word : ` ${word}`,
+                          start_ms: start + Math.round(((end - start) * index) / words.length),
+                          end_ms: start + Math.round(((end - start) * (index + 1)) / words.length),
                           is_final: true,
                           speaker,
-                        },
+                        })),
                         { text: "<end>", is_final: true },
                       ],
                       final_audio_proc_ms: end,
                       total_audio_proc_ms: end,
                     },
               );
+            }
             loudMs = 0;
             lineStartMs = null;
           }
@@ -235,6 +316,10 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
       events.open();
       if (openai && options.refuse) {
         reply({ type: "error", error: { type: "invalid_request_error", code: "invalid_api_key" } });
+        later(() => close(3000));
+      }
+      if (openai && options.noCredit) {
+        reply({ type: "error", error: { type: "insufficient_quota", code: "insufficient_quota" } });
         later(() => close(3000));
       }
     });

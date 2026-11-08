@@ -19,7 +19,7 @@ import { formatDate } from "../../../../shared/dates";
 import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
-import { formatMoney, formatSpent, joinMeta, setAsideText } from "../../cost";
+import { formatSpent, joinMeta, perHundredAnswers, setAsideText } from "../../cost";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { type KeyRefusal, useKeyRefusals } from "../../keyRefusals";
@@ -27,16 +27,25 @@ import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
+import { PlusLineIcon, TrashLineIcon } from "../lineIcons";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsBackLink } from "../SettingsBackLink";
 import { useCostSummary } from "../SpendingCapSettings";
+import { SettingsPopUpRow } from "../settings/PopUpButton";
 import {
-  buttonClass,
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+  SettingsSwitch,
+} from "../settings/SettingsGroup";
+import {
+  buttonStyle,
   errorTextClass,
   fieldClass,
-  fieldLabelClass,
   hintClass,
+  rowFieldClass,
   successTextClass,
 } from "../ui";
 import { KeyCheckLine, useKeyCheck } from "./keyCheck";
@@ -221,12 +230,39 @@ export function ProviderPage({
   const regions = catalog && catalog.endpoints.length > 1 ? catalog.endpoints : [];
   // A hosted provider is named by its region; a server the User runs, by its address.
   const address = fieldValue ?? (catalog?.endpoints.length ? null : provider.baseUrl);
+  const keyLabel =
+    catalog?.apiKey === "required"
+      ? t("providers.form.apiKey")
+      : t("providers.form.apiKeyOptional");
+  const notes = catalog?.notes ?? [];
+
+  const action =
+    key.text !== "" ? (
+      <button
+        type="submit"
+        data-testid="provider-page-save-key"
+        disabled={saving || !someModel || key.stray !== null || keyCheck.blocked}
+        className={buttonStyle("secondary", "sm")}
+      >
+        {t("models.provider.saveKey")}
+      </button>
+    ) : (
+      <button
+        type="button"
+        data-testid="provider-test"
+        disabled={testing}
+        onClick={() => void test()}
+        className={buttonStyle("secondary", "sm")}
+      >
+        {testing ? t("models.provider.testing") : t("models.provider.test")}
+      </button>
+    );
 
   return (
     <section
       data-testid="provider-page"
       data-provider-id={provider.id}
-      className="flex flex-col gap-5"
+      className="flex flex-col gap-6"
     >
       <SettingsBackLink label={t("settings.pages.models")} testId="models-back" onBack={onBack} />
       <header className="flex items-start gap-3">
@@ -239,23 +275,6 @@ export function ProviderPage({
           >
             {name}
           </h4>
-          {regions.length > 0 && (
-            <label className="flex items-center gap-2 text-[13px] leading-5 text-ink-secondary">
-              {t("providers.form.region")}
-              <select
-                data-testid="provider-page-region"
-                value={endpoint?.id ?? ""}
-                onChange={(event) => onRegion(event.target.value)}
-                className={`${fieldClass} h-7 w-auto py-0`}
-              >
-                {regions.map((each) => (
-                  <option key={each.id} value={each.id}>
-                    {each.label[words]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           {address && (
             <span
               data-testid="provider-page-address"
@@ -267,121 +286,119 @@ export function ProviderPage({
           )}
           <ProviderCostLine providerId={provider.id} />
         </div>
-        {!plan && (
-          <button
-            type="button"
-            data-testid="provider-remove"
-            onClick={() => void remove()}
-            className={`${buttonClass} shrink-0`}
-          >
-            {t("providers.settings.remove")}
-          </button>
-        )}
       </header>
 
       {provider.service && provider.kind !== "ollama" && <LocalModeUnavailable />}
 
-      {provider.service ? (
-        <ProviderSendsLine
-          provider={provider.service.name}
-          // Ollama's cloud models run at ollama.com, which its own line covers.
-          dataUse={catalog && dataUseOf(catalog, provider.service.id !== OLLAMA_CLOUD.id)}
-        />
-      ) : (
-        <p className="text-[13px] leading-5">
-          <OnThisComputer>{t("providers.choice.local")}</OnThisComputer>
-        </p>
-      )}
-
-      <form onSubmit={(event) => void saveKey(event)} className="flex flex-col gap-1">
-        {takesKey && (
-          <label htmlFor={`${id}-key`} className={fieldLabelClass}>
-            {catalog?.apiKey === "required"
-              ? t("providers.form.apiKey")
-              : t("providers.form.apiKeyOptional")}
-          </label>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          {takesKey && (
-            <input
-              id={`${id}-key`}
-              ref={keyField}
-              type="password"
-              data-testid="provider-page-key"
-              value={key.apiKey}
-              placeholder={provider.hasApiKey ? t("models.providers.keySaved") : ""}
-              onChange={(event) => key.type(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={key.stray ? true : undefined}
-              aria-describedby={
-                key.stray ? `${id}-stray` : refusedHere ? `${id}-refused` : undefined
-              }
-              className={`${fieldClass} min-w-0 flex-1 basis-56`}
-            />
-          )}
-          {key.text !== "" ? (
-            <button
-              type="submit"
-              data-testid="provider-page-save-key"
-              disabled={saving || !someModel || key.stray !== null || keyCheck.blocked}
-              className={buttonClass}
-            >
-              {t("models.provider.saveKey")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="provider-test"
-              disabled={testing}
-              onClick={() => void test()}
-              className={buttonClass}
-            >
-              {testing ? t("models.provider.testing") : t("models.provider.test")}
-            </button>
-          )}
-          {takesKey && keyUrl && (
-            <a
-              href={keyUrl}
-              target="_blank"
-              rel="noreferrer"
-              data-testid="provider-page-get-key"
-              className="text-[13px] leading-5 text-accent underline-offset-2 hover:underline"
-            >
-              {t("models.provider.getKey")} ↗
-            </a>
-          )}
-        </div>
-        {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
-        <KeyCheckLine
-          check={keyCheck.check}
-          provider={name}
-          nameOf={(catalogId) => keyProviderName(catalogId, t, language)}
-          onAnyway={() => keyCheck.agree()}
-        />
-        {refusedHere && refused && <KeyRefusedLine id={`${id}-refused`} refused={refused} />}
-        {provider.apiKeyUnreadable && (
-          <span data-testid="provider-key-unreadable" role="status" className={hintClass}>
-            {t("providers.form.apiKeyUnreadable")}
-          </span>
-        )}
-        {notChecked && localOnly && key.text === "" && <KeyNotCheckedLine provider={name} />}
-        {keyError && (
-          <p
-            role="alert"
-            data-testid="provider-page-key-error"
-            className={`${errorTextClass} mt-1`}
-          >
-            <ProblemMark />
-            {keyError}
-          </p>
-        )}
-        {(catalog?.notes ?? []).map((note) => (
-          <span key={note.en} data-testid="provider-note" className={hintClass}>
-            {note[words]}
-          </span>
-        ))}
-        <TestLine provider={provider} name={name} result={result} />
+      <form onSubmit={(event) => void saveKey(event)}>
+        <SettingsSection
+          help={
+            <>
+              {provider.service ? (
+                <ProviderSendsLine
+                  provider={provider.service.name}
+                  // Ollama's cloud models run at ollama.com, which its own line covers.
+                  dataUse={catalog && dataUseOf(catalog, provider.service.id !== OLLAMA_CLOUD.id)}
+                />
+              ) : (
+                <div>
+                  <OnThisComputer>{t("providers.choice.local")}</OnThisComputer>
+                </div>
+              )}
+              {notes.map((note) => (
+                <span key={note.en} data-testid="provider-note" className={hintClass}>
+                  {note[words]}
+                </span>
+              ))}
+            </>
+          }
+        >
+          <SettingsGroup>
+            {regions.length > 0 && (
+              <SettingsPopUpRow
+                label={t("providers.form.region")}
+                value={endpoint?.id ?? ""}
+                options={regions.map((each) => ({ value: each.id, label: each.label[words] }))}
+                onChange={(region) => {
+                  if (region !== endpoint?.id) onRegion(region);
+                }}
+                buttonTestId="provider-page-region"
+              />
+            )}
+            {takesKey ? (
+              <SettingsRow
+                label={keyLabel}
+                htmlFor={`${id}-key`}
+                control={
+                  <>
+                    {keyUrl && (
+                      <a
+                        href={keyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid="provider-page-get-key"
+                        className="text-[13px] leading-5 text-accent underline-offset-2 hover:underline"
+                      >
+                        {t("models.provider.getKey")} ↗
+                      </a>
+                    )}
+                    {action}
+                  </>
+                }
+              >
+                <input
+                  id={`${id}-key`}
+                  ref={keyField}
+                  type="password"
+                  data-testid="provider-page-key"
+                  value={key.apiKey}
+                  placeholder={provider.hasApiKey ? t("models.providers.keySaved") : ""}
+                  onChange={(event) => key.type(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={key.stray ? true : undefined}
+                  aria-describedby={
+                    key.stray ? `${id}-stray` : refusedHere ? `${id}-refused` : undefined
+                  }
+                  className={`${fieldClass} block w-full`}
+                />
+                {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
+                <KeyCheckLine
+                  check={keyCheck.check}
+                  provider={name}
+                  nameOf={(catalogId) => keyProviderName(catalogId, t, language)}
+                  onAnyway={() => keyCheck.agree()}
+                />
+                {refusedHere && refused && (
+                  <KeyRefusedLine id={`${id}-refused`} refused={refused} />
+                )}
+                {provider.apiKeyUnreadable && (
+                  <span data-testid="provider-key-unreadable" role="status" className={hintClass}>
+                    {t("providers.form.apiKeyUnreadable")}
+                  </span>
+                )}
+                {notChecked && localOnly && key.text === "" && (
+                  <KeyNotCheckedLine provider={name} />
+                )}
+                {keyError && (
+                  <p
+                    role="alert"
+                    data-testid="provider-page-key-error"
+                    className={`${errorTextClass} mt-1`}
+                  >
+                    <ProblemMark />
+                    {keyError}
+                  </p>
+                )}
+                <TestLine provider={provider} name={name} result={result} />
+              </SettingsRow>
+            ) : (
+              <SettingsRow label={t("providers.form.test")} control={action}>
+                <TestLine provider={provider} name={name} result={result} />
+              </SettingsRow>
+            )}
+          </SettingsGroup>
+        </SettingsSection>
       </form>
 
       {group && (
@@ -407,6 +424,18 @@ export function ProviderPage({
         }}
         taken={[...(group?.models ?? []), ...(group?.hidden ?? [])]}
       />
+      {!plan && (
+        <SettingsSection>
+          <SettingsGroup>
+            <SettingsRowAction
+              label={t("providers.settings.remove")}
+              testId="provider-remove"
+              onClick={() => void remove()}
+              trailing={<TrashLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+      )}
     </section>
   );
 }
@@ -468,92 +497,87 @@ function ModelsList({
   const priced = group.offered.some((id) => group.about[id]?.cost?.kind === "estimate");
   if (group.offered.length === 0) return null;
   return (
-    <section data-testid="provider-models" className="flex flex-col gap-1">
-      <h5 className="text-[13px] leading-5 font-semibold text-ink">
-        {t("models.provider.models")}
-      </h5>
-      <table className="w-full table-fixed border-collapse text-left">
-        <thead>
-          <tr className="text-[12px] leading-4 text-ink-meta">
-            <th className="pb-1 font-normal">{t("models.provider.model")}</th>
-            <th data-testid="provider-cost-head" className="w-[38%] pb-1 font-normal">
-              {t("models.provider.cost")}
-              {prices && priced && (
+    <SettingsSection
+      title={t("models.provider.models")}
+      titleAs="h5"
+      testId="provider-models"
+      help={
+        <>
+          <p>{t("models.provider.inMenu.help")}</p>
+          <p data-testid="provider-cost-head">
+            {t("models.provider.cost")}
+            {prices && priced && (
+              <>
+                {" · "}
+                <a
+                  href={prices.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="provider-pricing"
+                  className="underline underline-offset-2 hover:text-ink"
+                >
+                  {t("models.provider.pricing")} ↗
+                </a>
+              </>
+            )}
+          </p>
+        </>
+      }
+    >
+      <SettingsGroup role="group" aria-label={t("models.provider.inMenu")}>
+        {group.offered.map((modelId) => {
+          const shown = nameOf(modelId, group.provider.id);
+          const about = group.about[modelId];
+          const abilities = group.unknown.includes(modelId)
+            ? t("models.other.group.unknown")
+            : abilitiesOf(about, t);
+          const isDefault = modelId === defaultModel;
+          const checkbox = `${group.provider.id}-${modelId}`;
+          return (
+            <SettingsRow
+              key={modelId}
+              data-testid="provider-model-row"
+              data-model={modelId}
+              label={
+                <span title={shown.id} className="break-words">
+                  {shown.name}
+                </span>
+              }
+              htmlFor={checkbox}
+              detailId={`${checkbox}-detail`}
+              detail={
+                (abilities || isDefault) && (
+                  <>
+                    {abilities && <div>{abilities}</div>}
+                    {isDefault && <div>{t("models.provider.isDefault")}</div>}
+                  </>
+                )
+              }
+              control={
                 <>
-                  {" · "}
-                  <a
-                    href={prices.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-testid="provider-pricing"
-                    className="underline underline-offset-2 hover:text-ink"
-                  >
-                    {t("models.provider.pricing")} ↗
-                  </a>
-                </>
-              )}
-            </th>
-            <th className="w-[5.5rem] pb-1 text-right font-normal">
-              {t("models.provider.inMenu")}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {group.offered.map((modelId) => {
-            const shown = nameOf(modelId, group.provider.id);
-            const about = group.about[modelId];
-            const abilities = group.unknown.includes(modelId)
-              ? t("models.other.group.unknown")
-              : abilitiesOf(about, t);
-            const isDefault = modelId === defaultModel;
-            const checkbox = `${group.provider.id}-${modelId}`;
-            return (
-              <tr
-                key={modelId}
-                data-testid="provider-model-row"
-                data-model={modelId}
-                className="border-t border-rule align-top"
-              >
-                <td className="py-2 pr-3">
-                  <label
-                    htmlFor={checkbox}
-                    title={shown.id}
-                    className="block truncate text-[13px] leading-5 font-semibold text-ink"
-                  >
-                    {shown.name}
-                  </label>
-                  {abilities && (
-                    <span className="block text-[12px] leading-[18px] text-ink-meta">
-                      {abilities}
-                    </span>
-                  )}
-                </td>
-                <td className="py-2 pr-3 text-[12px] leading-5 text-ink-secondary">
-                  <CostText
-                    cost={about?.cost ?? null}
-                    provider={name}
-                    checked={prices?.checked}
-                    language={language}
-                  />
-                </td>
-                <td className="py-2 text-right">
-                  <input
+                  <span className="text-[12px] leading-5 text-ink-meta">
+                    <CostText
+                      cost={about?.cost ?? null}
+                      provider={name}
+                      checked={prices?.checked}
+                      language={language}
+                    />
+                  </span>
+                  <SettingsSwitch
                     id={checkbox}
-                    type="checkbox"
-                    data-testid="provider-model-in-menu"
+                    testId="provider-model-in-menu"
                     checked={isDefault || !group.hidden.includes(modelId)}
                     disabled={isDefault}
-                    title={isDefault ? t("models.provider.isDefault") : t("models.provider.inMenu")}
-                    onChange={(event) => onToggle(modelId, event.target.checked)}
-                    className="mt-0.5 size-4 accent-ink"
+                    describedBy={isDefault ? `${checkbox}-detail` : undefined}
+                    onChange={(inMenu) => onToggle(modelId, inMenu)}
                   />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </section>
+                </>
+              }
+            />
+          );
+        })}
+      </SettingsGroup>
+    </SettingsSection>
   );
 }
 
@@ -575,6 +599,8 @@ function CostText({
     return <span data-testid="provider-model-cost">{t("models.provider.cost.free")}</span>;
   if (cost.kind === "plan")
     return <span data-testid="provider-model-cost">{t("models.provider.cost.plan")}</span>;
+  const about = perHundredAnswers(cost, t, language);
+  if (!about) return null;
   const tip =
     checked &&
     t("models.provider.cost.tip", {
@@ -591,7 +617,7 @@ function CostText({
         aria-describedby={tip ? tipId : undefined}
         className="rounded-sm"
       >
-        {t("models.provider.cost.estimate", { amount: formatMoney(cost, language) })}
+        {about}
       </span>
       {tip && (
         <span id={tipId} className="sr-only">
@@ -620,14 +646,16 @@ function AddModelId({
   const modelId = value.trim();
   if (!open) {
     return (
-      <button
-        type="button"
-        data-testid="provider-add-model"
-        onClick={() => setOpen(true)}
-        className={`${buttonClass} self-start`}
-      >
-        {t("models.provider.addModel")}
-      </button>
+      <SettingsSection>
+        <SettingsGroup>
+          <SettingsRowAction
+            label={t("models.provider.addModel")}
+            testId="provider-add-model"
+            onClick={() => setOpen(true)}
+            trailing={<PlusLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+          />
+        </SettingsGroup>
+      </SettingsSection>
     );
   }
   return (
@@ -641,37 +669,44 @@ function AddModelId({
           setOpen(false);
         });
       }}
-      className="flex flex-wrap items-center gap-2"
     >
-      <label htmlFor={id} className="sr-only">
-        {t("providers.form.modelId")}
-      </label>
-      <input
-        id={id}
-        ref={field}
-        data-testid="provider-add-model-id"
-        value={value}
-        placeholder={t("providers.form.modelId")}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== "Escape") return;
-          // Esc puts the field away before it closes Settings.
-          event.preventDefault();
-          setValue("");
-          setOpen(false);
-        }}
-        spellCheck={false}
-        autoComplete="off"
-        className={`${fieldClass} min-w-0 flex-1 basis-56`}
-      />
-      <button
-        type="submit"
-        data-testid="provider-add-model-save"
-        disabled={modelId === "" || taken.includes(modelId)}
-        className={buttonClass}
-      >
-        {t("models.provider.add")}
-      </button>
+      <SettingsSection>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("providers.form.modelId")}
+            htmlFor={id}
+            control={
+              <>
+                <input
+                  id={id}
+                  ref={field}
+                  data-testid="provider-add-model-id"
+                  value={value}
+                  onChange={(event) => setValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape") return;
+                    // Esc puts the field away before it closes Settings.
+                    event.preventDefault();
+                    setValue("");
+                    setOpen(false);
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className={`${rowFieldClass} w-56`}
+                />
+                <button
+                  type="submit"
+                  data-testid="provider-add-model-save"
+                  disabled={modelId === "" || taken.includes(modelId)}
+                  className={buttonStyle("secondary", "sm")}
+                >
+                  {t("models.provider.add")}
+                </button>
+              </>
+            }
+          />
+        </SettingsGroup>
+      </SettingsSection>
     </form>
   );
 }

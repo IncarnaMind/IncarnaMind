@@ -3,7 +3,6 @@
 
 @layer components {
   .viewer-pane {
-    container: viewer / inline-size;
     /* The quote's wash: a found Citation's green, unless the scroller says otherwise. */
     --quote-wash: var(--color-success-wash);
     --quote-edge: var(--color-success);
@@ -45,6 +44,12 @@
   .viewer-header {
     @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-rule bg-sheet pr-1.5 pl-2 text-[13px] leading-5 text-ink-secondary;
     scrollbar-width: none;
+  }
+  /* Closer together at a narrow viewer, so the fifth control's room is taken from the gaps. */
+  @container viewer (width < 1100px) {
+    .viewer-header {
+      @apply gap-0.5;
+    }
   }
   .viewer-kind {
     @apply size-4 shrink-0 text-ink-meta;
@@ -152,6 +157,12 @@
       min-width: 0;
     }
   }
+  /* Fifth, after the page count and before the dividers: then it is in the ⋯ menu too. */
+  @container viewer (width < 590px) {
+    .viewer-annotations-toggle {
+      @apply hidden;
+    }
+  }
   @container viewer (width < 600px) {
     .viewer-page-count {
       @apply sr-only;
@@ -215,7 +226,7 @@
 
   /* Pages lie on a grey backdrop: sheets with a hairline edge, no heavy shadow. */
   .viewer-backdrop {
-    background: var(--color-chip);
+    background: var(--color-page-backdrop);
   }
   [data-quote-tone="not-found"] {
     --quote-wash: var(--color-warning-wash);
@@ -239,11 +250,13 @@
       outline-offset: -1.5px;
     }
   }
+  /* A Document's page is paper in both themes, with its own ink (#1262). */
   .viewer-page {
     @apply bg-sheet;
+    color-scheme: light;
     box-shadow:
       0 0 0 1px var(--color-rule),
-      0 1px 2px rgb(23 25 28 / 0.06);
+      0 1px 2px var(--color-shadow-soft);
   }
 
   /* A TXT or Markdown Document: one page, the Mind's serif at a readable measure. */
@@ -289,11 +302,11 @@
   .transcript-lines[data-hours] {
     --transcript-time: 54px;
   }
-  .transcript-line,
+  .transcript-turn,
   .transcript-gap {
     @apply grid grid-cols-[var(--transcript-time)_minmax(0,1fr)] gap-x-3 border-b border-rule py-1.5;
   }
-  .transcript-line:last-child,
+  .transcript-turn:last-child,
   .transcript-gap:last-child {
     @apply border-b-0;
   }
@@ -303,21 +316,67 @@
   .transcript-speaker {
     @apply m-0 text-[12px] leading-[18px] font-semibold text-ink-secondary;
   }
+  /* On a saved Transcript the Speaker opens who speaks the line (#138): its words stay in place. */
+  .transcript-speaker-button {
+    @apply -ml-1 block max-w-full truncate rounded-sm px-1 text-left hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent;
+  }
+  .speaker-initials {
+    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-full bg-chip text-[10px] leading-none font-semibold text-ink-secondary;
+  }
+  /* Drawn, not text: typing a Speaker's first letters in the menu jumps by their name alone. */
+  .speaker-initials[data-initials]::before {
+    content: attr(data-initials);
+  }
   .transcript-text {
     @apply m-0 text-[14px] leading-[22px] break-words text-ink;
+  }
+  /* A turn's paragraphs, a line's height apart: one Speaker's words read on, as in a script. */
+  .transcript-text + .transcript-text {
+    @apply mt-2;
+  }
+  /* A line of a turn: the arrow keys and Enter act on it, and the focus rings it in place. */
+  .transcript-sentence {
+    @apply rounded-[3px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent;
+  }
+  /* The line Add to note adds, while it is shown. */
+  .transcript-turn:is(:hover, :focus-within) .transcript-sentence[data-aimed] {
+    @apply bg-hover;
+  }
+  .transcript-sentence--partial {
+    @apply text-ink-placeholder;
   }
   /*
    * Add to note: in a column of its own at the line's end, reserved always so the
    * words never move or sit under it; shown while pointed at or focused. Enter does it too.
    */
-  .transcript-line {
-    @apply relative -mx-2 grid-cols-[var(--transcript-time)_minmax(0,1fr)_auto] rounded-sm px-2 outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-accent;
+  .transcript-turn {
+    @apply relative -mx-2 grid-cols-[var(--transcript-time)_minmax(0,1fr)_auto] rounded-sm px-2;
   }
   .transcript-add {
     @apply inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-[12px] leading-5 font-semibold whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
   }
-  .transcript-line--partial .transcript-text {
+  .transcript-turn--partial .transcript-text {
     @apply text-ink-placeholder;
+  }
+  /*
+   * In a narrow group the words keep the width: Add to note keeps only its icon, and the page
+   * its least margins, so a line never wraps a letter at a time.
+   */
+  @container viewer (width < 520px) {
+    .transcript-add {
+      @apply w-7 justify-center px-0;
+    }
+    .transcript-add-word {
+      @apply sr-only;
+    }
+  }
+  @container viewer (width < 400px) {
+    .viewer-text-backdrop:has(.transcript-page) {
+      @apply px-2 pt-2;
+    }
+    .transcript-page {
+      @apply pt-4 pr-3 pl-3;
+    }
   }
   .transcript-gap {
     @apply text-[13px] leading-5 text-ink-meta;
@@ -330,6 +389,39 @@
   }
   .transcript-follow {
     @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-[12px] leading-5 font-semibold text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;
+  }
+  /*
+   * A saved Meeting's Transcript plays from a clicked word while its audio is kept (#138): the
+   * word being said is washed, the caret Enter splits the line at is a bar before its word, and
+   * the player sits at the foot, the last line kept clear of it.
+   */
+  .transcript-word {
+    @apply rounded-[3px];
+  }
+  .transcript-word[data-playable]:hover {
+    @apply cursor-pointer bg-hover;
+  }
+  .transcript-word[data-playing] {
+    @apply bg-accent-wash;
+  }
+  .transcript-word[data-caret] {
+    box-shadow: -2px 0 0 var(--color-ink);
+  }
+  .transcript-page[data-player] {
+    @apply pb-20;
+  }
+  .transcript-player {
+    @apply absolute bottom-5 left-1/2 z-10 m-0 flex h-11 w-[520px] max-w-[calc(100%-32px)] min-w-0 -translate-x-1/2 items-center gap-3 rounded-[10px] border-0 bg-sheet pr-2.5 pl-1.5 font-sans text-[13px] leading-5 text-ink-secondary;
+    box-shadow: var(--shadow-popover);
+  }
+  .transcript-player-toggle {
+    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink text-on-primary hover:bg-ink-strong disabled:opacity-50;
+  }
+  .transcript-player-track {
+    @apply block h-1 min-w-10 flex-auto overflow-hidden rounded-sm bg-rule;
+  }
+  .transcript-player-track > span {
+    @apply block h-full origin-left bg-ink-secondary;
   }
 
   .document-plain {
@@ -647,6 +739,7 @@
    */
   .viewer-sheet {
     @apply bg-sheet;
+    color-scheme: light;
     --grid-line: var(--color-rule);
     --grid-freeze: var(--color-ink-placeholder);
     /* The quote's wash over a cell's own fill. */
@@ -881,9 +974,10 @@
 }
 .docx-view .docx-wrapper > section.docx {
   margin-bottom: 0;
+  color-scheme: light;
   box-shadow:
     0 0 0 1px var(--color-rule),
-    0 1px 2px rgb(23 25 28 / 0.06);
+    0 1px 2px var(--color-shadow-soft);
   /* Word's own defaults for what a document leaves unset: Times New Roman, 10pt, single spacing. */
   font-family: "Times New Roman", var(--font-serif);
   font-size: 10pt;
@@ -973,6 +1067,221 @@
 }
 .peek-view :is(.viewer-header, .viewer-sheet-tabs, .viewer-slide-number) {
   display: none;
+}
+
+@layer components {
+  /*
+   * A Document's highlights (#327): a wash of its colour under any Citation's,
+   * the words never moved. The note's small mark follows the words it is on.
+   */
+  .annotation-highlight {
+    @apply rounded-[2px] text-inherit;
+    padding: 1px;
+    margin-inline: -1px;
+    background: var(--annotation-wash);
+    box-decoration-break: clone;
+  }
+  .annotation-highlight--yellow,
+  .annotation-area--yellow {
+    --annotation-wash: #ffe066;
+  }
+  .annotation-highlight--green,
+  .annotation-area--green {
+    --annotation-wash: #d4f0cc;
+  }
+  .annotation-highlight--blue,
+  .annotation-area--blue {
+    --annotation-wash: #d6e8ff;
+  }
+  .annotation-highlight--pink,
+  .annotation-area--pink {
+    --annotation-wash: #ffc2da;
+  }
+  .annotation-highlight--purple,
+  .annotation-area--purple {
+    --annotation-wash: #d6bdff;
+  }
+
+  /* A region the User highlighted (#327, #118): its wash over the picture, under the words' ink. */
+  .annotation-area {
+    @apply pointer-events-none absolute rounded-[2px];
+    background: var(--annotation-wash);
+    mix-blend-mode: multiply;
+  }
+
+  .annotation-note-mark {
+    @apply ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-rule-strong bg-sheet align-baseline text-ink-meta;
+  }
+  .annotation-note-mark:hover {
+    @apply bg-hover text-ink-secondary;
+  }
+  .annotation-note-mark:focus-visible {
+    @apply outline-2 outline-offset-1 outline-accent;
+  }
+  /* In a PDF page, in its right margin level with the quote: under the Citation's mark. */
+  .annotation-note-mark--in-page {
+    @apply pointer-events-auto absolute z-[1];
+    margin: 0;
+  }
+
+  /* A highlight's colour: a dot where chosen, a ring where it can be chosen. */
+  .annotation-colour {
+    @apply size-3 shrink-0 rounded-full border border-black/15;
+  }
+  .annotation-colour--yellow {
+    background: #f3d64c;
+  }
+  .annotation-colour--green {
+    background: #7ac574;
+  }
+  .annotation-colour--blue {
+    background: #6aa8ee;
+  }
+  .annotation-colour--pink {
+    background: #ee8fb7;
+  }
+  .annotation-colour--purple {
+    background: #b28ce8;
+  }
+  .annotation-colour--chosen {
+    box-shadow:
+      0 0 0 1.5px var(--color-sheet),
+      0 0 0 3px var(--color-ink-secondary);
+  }
+  .annotation-swatches {
+    @apply m-0 flex min-w-0 shrink-0 items-center gap-1.5 border-0 p-0;
+  }
+  .annotation-swatches .annotation-colour {
+    cursor: pointer;
+  }
+
+  /* A note, beside its mark: its quote, the User's note in place, its colour and what it can do. */
+  .annotation-popover {
+    @apply flex w-80 flex-col gap-2 rounded-[10px] border border-rule bg-sheet p-3 font-sans text-ui text-ink;
+    box-shadow: 0 8px 24px var(--color-shadow);
+  }
+  .annotation-popover-head {
+    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+  }
+  .annotation-place {
+    @apply min-w-0 truncate tabular-nums;
+  }
+  .annotation-file {
+    @apply ml-auto shrink-0 rounded-sm bg-chip px-1.5 py-0.5 text-[11px] font-semibold text-ink-secondary;
+  }
+  .annotation-quote {
+    @apply border-l-2 border-rule-strong pl-2 text-[13px] leading-5 text-ink-secondary;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .annotation-missing {
+    @apply text-[12px] text-warning;
+  }
+  .annotation-note {
+    @apply cursor-text text-left text-[13px] leading-5 whitespace-pre-wrap text-ink;
+  }
+  .annotation-note-field {
+    @apply w-full resize-y rounded-sm border border-rule bg-sheet px-2 py-1 text-[13px] leading-5 text-ink;
+  }
+  .annotation-edit {
+    @apply flex flex-col gap-1;
+  }
+  .annotation-edit-actions {
+    @apply flex justify-end gap-2;
+  }
+  .annotation-action {
+    @apply rounded-sm px-1.5 py-0.5 text-[12px] text-ink-secondary;
+  }
+  .annotation-action:hover {
+    @apply bg-hover text-ink;
+  }
+  .annotation-action--primary {
+    @apply font-semibold text-accent;
+  }
+  .annotation-popover-foot {
+    @apply flex items-center justify-between gap-2 border-t border-rule pt-2;
+  }
+  .annotation-foot-actions {
+    @apply flex shrink-0 items-center gap-1;
+  }
+
+  /* The list takes the page's place below 760px: the toolbar keeps its height, its page controls dimmed. */
+  .viewer-header--list-only [inert] > * {
+    @apply opacity-40;
+  }
+  /* A Document tab's list beside the page, which gives way; in place of the page when it must. */
+  .annotations-panel {
+    @apply flex w-[280px] shrink-0 flex-col border-l border-rule bg-sheet;
+  }
+  .annotations-panel--in-place {
+    @apply min-h-0 w-auto flex-1 border-l-0;
+  }
+
+  /* An export's Saved line over the page's foot, as a Mind's is (DESIGN.md, Export). */
+  .annotation-export-line {
+    @apply absolute inset-x-0 bottom-4 z-[5] mx-auto flex w-fit max-w-[min(560px,92%)] flex-wrap items-center gap-x-4 gap-y-1 rounded-[8px] border border-rule bg-sheet px-3 py-1.5 text-[13px] leading-5 text-ink-meta;
+    box-shadow: var(--shadow-popover);
+  }
+  .annotations-panel-head {
+    @apply grid shrink-0 items-center gap-x-1 gap-y-0.5 border-b border-rule px-3 py-2;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .annotations-panel-title {
+    @apply min-w-0 text-[13px] leading-4 font-semibold text-ink;
+    grid-column: 1 / -1;
+  }
+  .annotations-panel-count {
+    @apply min-w-0 text-[12px] leading-4 text-ink-meta tabular-nums;
+  }
+  .annotations-panel-empty,
+  .annotations-panel-problem {
+    @apply px-3 py-4 text-[13px] leading-5 text-ink-meta;
+  }
+  .annotations-panel-problem {
+    @apply text-warning;
+  }
+  .annotations-list {
+    @apply flex min-h-0 flex-1 flex-col overflow-y-auto;
+  }
+  .annotation-row {
+    @apply flex cursor-pointer flex-col gap-1 border-b border-rule px-3 py-2;
+  }
+  .annotation-row:hover {
+    @apply bg-hover;
+  }
+  .annotation-row:focus-visible {
+    @apply outline-2 -outline-offset-2 outline-accent;
+  }
+  .annotation-row-head {
+    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+  }
+  .annotation-row-menu {
+    @apply ml-auto shrink-0;
+  }
+  .annotation-row-quote {
+    @apply text-left text-[13px] leading-5 text-ink;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .annotation-row-note {
+    @apply text-[12px] leading-5 whitespace-pre-wrap text-ink-secondary;
+  }
+  .annotation-row-edit {
+    @apply flex flex-col gap-1;
+  }
+  .annotation-row-edit-button {
+    @apply ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-ink-meta;
+  }
+  .annotation-row-edit-button:hover {
+    @apply bg-hover text-ink-secondary;
+  }
+  .annotation-row-actions {
+    @apply flex justify-end;
+  }
 }
 
 /*

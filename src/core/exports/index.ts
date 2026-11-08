@@ -6,6 +6,7 @@
  * HTML, whole.
  */
 import * as Y from "yjs";
+import { analysisTableNote, tableShownIn } from "../../shared/analysisTables";
 import { layoutChart } from "../../shared/chartLayout";
 import { chartSvg } from "../../shared/chartSvg";
 import { seriesName } from "../../shared/charts";
@@ -15,8 +16,10 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
+import { type ExportMarks, type PrintedMarks, printedMarks } from "../../shared/exportMarks";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
+import { factWords, sourceWords } from "../../shared/libraryFacts";
 import { citationLocation, type Translate } from "../../shared/locations";
 import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -30,6 +33,7 @@ import type { UnitText } from "../../shared/units";
 import { verificationOf } from "../../shared/verification";
 import { wordFileOf, wordImportProgressOf, wordOriginOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
+import { nodeOf } from "../answers/blocks";
 import { citationSentences } from "../answers/checks/sentences";
 import {
   CITATION_PLACES,
@@ -78,7 +82,7 @@ import { addSources, listCitations, styleCitations, withFigureNotes } from "./ci
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
-import { renderMarkdown } from "./markdown";
+import { picturesBeside, renderMarkdown } from "./markdown";
 import { printedPdf } from "./printedPdf";
 import { renderPrintHtml } from "./printHtml";
 import { failedSentences } from "./sentenceChecks";
@@ -98,6 +102,11 @@ import { INCARNAMIND } from "./wordReview";
 /** What a footnote needs of a live Document: a web page's site, address and fetch dates. */
 type LiveDocument = SourceDocument;
 
+/** The files a rendered export would write differ from the list the User allowed (#2514). */
+export class ExportChangedError extends Error {
+  override name = "ExportChangedError";
+}
+
 export interface ExportsDependencies {
   /** The Mind; throws if it doesn't exist or was deleted. */
   mind(mindId: unknown): Mind;
@@ -113,12 +122,16 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
+  /** The Library's facts the Mind's checks rest on, as it gives them now (`CoreApi.libraryFactsNow`). */
+  libraryFactsNow(mindId: string): Record<string, string>;
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
   font(mindId: string): string | null;
   /** The Mind's line spacing, a multiple of a single line; null: its text size's own. */
   lineSpacing(mindId: string): number | null;
+  /** The page numbers and watermark the Mind's Word file and PDF carry (#1258). */
+  exportMarks(mindId: string): ExportMarks;
   /** Whether the Mind shows its Bibliography without a citation style (#102). */
   bibliography(mindId: string): boolean;
   /** Formats Citations in a style, as the editor does (see `CoreApi.formatCitations`). */
@@ -207,11 +220,16 @@ interface Prepared {
   listed: boolean;
   font: string | null;
   lineSpacing: number | null;
+  /** What the Word file or PDF prints at its foot and across its pages; null for another format. */
+  marks: PrintedMarks | null;
   /** Each Citation's footnote with the attributes it was made from, for the source pack. */
   attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
   /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
   comments: MindComment[];
 }
+
+/** What a page printed by a format with no marks choice has: page numbers, as PDFs always have, and no watermark. */
+const DEFAULT_PRINTED_MARKS: PrintedMarks = { pageNumbers: true, watermark: null };
 
 export function createExports(deps: ExportsDependencies) {
   /** `othersComments`: for someone else's file, the comment choice to write with instead of the Note's. */
@@ -250,11 +268,17 @@ export function createExports(deps: ExportsDependencies) {
       trimBeforeCitation,
       trimBeforeFootnote: true,
       comparisonText: (key, params) => translate(language, key, params),
+      // A table whose cells the User changed is no longer all the Analysis's: no note says it is.
+      tableNote: (run, table) =>
+        table.doc && tableShownIn(table.doc, nodeOf(table), language, null).state.kind === "differs"
+          ? null
+          : analysisTableNote(run, language),
       documentRemoved: (documentId) => !live.has(documentId),
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,
       leavesApp: true,
     };
+    const libraryNow = Object.entries(deps.libraryFactsNow(mind.id));
     const {
       read,
       questions,
@@ -277,16 +301,20 @@ export function createExports(deps: ExportsDependencies) {
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
-        versions: new Map(documents.map((document) => [document.id, document.contentHash])),
+        versions: new Map([
+          ...documents.map((document) => [document.id, document.contentHash] as const),
+          ...libraryNow,
+        ]),
         folderId: mind.folderId,
         scope: doc ? mindScopeOf(doc) : null,
         scopeItemName: deps.scopeItemName,
         sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
         quoteOf: (passage) => {
           const location = citationLocation(passage);
-          return location?.kind === "properties"
-            ? propertyWords(location, (key, params) => translate(language, key, params), language)
-            : (passage.quote ?? "");
+          const t: Translate = (key, params) => translate(language, key, params);
+          if (location?.kind === "properties") return propertyWords(location, t, language);
+          if (location?.kind === "library") return factWords(location.fact, t, language);
+          return passage.quote ?? "";
         },
       });
       checkedOf = checkedLines(fragment, documents, language);
@@ -358,6 +386,7 @@ export function createExports(deps: ExportsDependencies) {
         : null;
     const preview: MindExportPreview = {
       fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name: fileStem }) : fileStem}.${EXTENSIONS[format]}`,
+      pictures: format === "markdown" ? picturesBeside(blocks) : [],
       citations: footnotes.length,
       citedDocuments: sourcesOf(
         footnotes.map((each) => attributesOf.get(each) ?? {}),
@@ -398,6 +427,10 @@ export function createExports(deps: ExportsDependencies) {
       listed,
       font: deps.font(mind.id),
       lineSpacing: deps.lineSpacing(mind.id),
+      marks:
+        format === "docx" || format === "pdf"
+          ? printedMarks(deps.exportMarks(mind.id), language)
+          : null,
       attributesOf,
       comments: writtenComments,
     };
@@ -690,6 +723,7 @@ export function createExports(deps: ExportsDependencies) {
       const { blocks, labels } = await styledBlocks(prepared, thin);
       const drawn = await withPictures(blocks, prepared.language, deps);
       const { body, notes } = renderPrintHtml(drawn, labels);
+      const marks = prepared.marks ?? DEFAULT_PRINTED_MARKS;
       try {
         await deps.printer.printToPrinter({
           language: prepared.language,
@@ -698,6 +732,8 @@ export function createExports(deps: ExportsDependencies) {
           ...(prepared.font !== null && { fontFamily: bodyFamily(prepared.font) }),
           body,
           notes,
+          pageNumbers: marks.pageNumbers,
+          ...(marks.watermark !== null && { watermark: marks.watermark }),
         });
       } catch (error) {
         deps.log.error("export.printOnPrinterFailed", {
@@ -757,6 +793,7 @@ export function createExports(deps: ExportsDependencies) {
             comments: prepared.comments,
             font: prepared.font,
             lineSpacing: prepared.lineSpacing,
+            marks: prepared.marks ?? DEFAULT_PRINTED_MARKS,
           },
         ));
       } else if (format === "html" || format === "share-page") {
@@ -773,6 +810,7 @@ export function createExports(deps: ExportsDependencies) {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
         const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
+        const marks = prepared.marks ?? DEFAULT_PRINTED_MARKS;
         data = await printedPdf(deps.printer as Printer, {
           language,
           paper: deps.paper(),
@@ -780,6 +818,8 @@ export function createExports(deps: ExportsDependencies) {
           ...(prepared.font !== null && { fontFamily: bodyFamily(prepared.font) }),
           body,
           notes,
+          pageNumbers: marks.pageNumbers,
+          ...(marks.watermark !== null && { watermark: marks.watermark }),
         });
         footnotes = printedFootnotes;
       }
@@ -854,6 +894,7 @@ export function createExports(deps: ExportsDependencies) {
         withPictures: (blocks) => withPictures(blocks, language, deps),
         review: reviewChoices(prepared, true),
         comments: prepared.comments,
+        marks: prepared.marks ?? DEFAULT_PRINTED_MARKS,
       });
       deps.log.info("export.word", {
         notKept: report.notKept.length,
@@ -1124,7 +1165,7 @@ export function footnoteOf(
       t,
       language,
     ) || t("export.unnamedDocument");
-  const location = citedLocation(attributes, t);
+  const location = citedLocation(attributes, t, documents);
   const state = citationState(attributes, documents, kept);
   const unverified = state.check !== "found";
   const failed: FailedCheck | null =
@@ -1136,6 +1177,11 @@ export function footnoteOf(
         }
       : null;
   const web = documents.find((each) => each.id === state.documentId)?.web;
+  const ofLibrary = citationLocation(attributes);
+  // The Library's facts are no Document's: the note names where they came from (#2525).
+  if (ofLibrary?.kind === "library") {
+    return { source: sourceWords(ofLibrary.source, t, language), unverified: false };
+  }
   if (!web) {
     return {
       // A file's properties are no place in its text: a plain note says what was read (#2458).

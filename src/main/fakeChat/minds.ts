@@ -42,8 +42,11 @@
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
  * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
  * the packing list" gives its new text, one item changed, one left out and one added.
+ * "Add a revenue table for checking" (添加核对用的收入表格) cites, then adds the table; "…, citing
+ * after" (…，写完再引用) adds it first and cites in the next step, as a model sometimes does (#1635).
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
+ * "…, with a section for each" (各写一节) is `sectionsReply`'s.
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -62,6 +65,7 @@ import {
   userText,
 } from "./prompt";
 import { REGIONAL_CHART, regionalChart } from "./regionalChart";
+import { sectionsReply } from "./sections";
 
 /** A Question about the User's notes or what they selected in them. */
 const ABOUT_THE_MIND = /\bnotes?\b|\bselect(?:ed|ion)\b|笔记|选中/i;
@@ -106,6 +110,8 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+/** "Delete the second paragraph of the note" (删除笔记的第二段): asked only to take text out (#2356). */
+const DELETES_SECOND = /^delete the second paragraph of the note|^删除笔记的第二段/i;
 const LONGER_TWICE = /\bmake it longer twice\b/i;
 const RETELL = /\bretell the summary\b|重述总结/i;
 const RETOLD = [
@@ -123,6 +129,7 @@ const QUARTER_LEVERAGE = /Net debt to EBITDA in (Q\d) was ([\d.]+ times)/g;
 const RENT_CHART = /\bchart of rent by lease\b/i;
 /** A table whose every cell is a claim, for the one check count (#1909). */
 const CHECK_TABLE = /\brevenue table for checking\b|核对用的收入表格/iu;
+const CITES_AFTER = /\bciting after\b|写完再引用/iu;
 const UNIT_RENT = /The monthly rent for (unit \d+) is (€[\d,]+)/g;
 const LEASES_SUMMARY = /\bwrite a summary of my leases\b|根据我的租约写一份总结/i;
 const BRIEF_SUMMARY = /\bbrief summary\b|简要总结/i;
@@ -253,6 +260,8 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   const paragraphs = paragraphsReply(prompt, question);
   if (paragraphs) return paragraphs;
+  const sections = sectionsReply(prompt, question);
+  if (sections) return sections;
   const both = ADD_AND_NEW.exec(question);
   if (both) {
     if (lastResult(prompt, "add_to_mind") === undefined) {
@@ -341,6 +350,14 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     if (result === undefined) return { tool: "edit_mind", input: { content: RETOLD } };
     return { text: firstSentence(result) };
   }
+  if (DELETES_SECOND.test(question)) {
+    const result = lastResult(prompt, "edit_mind");
+    if (result !== undefined) return { text: firstSentence(result) };
+    const instruction = /\p{Script=Han}/u.test(question)
+      ? "删除第二段"
+      : "delete the second paragraph";
+    return { tool: "edit_mind", input: { instruction, removes_only: true } };
+  }
   if (
     SHORTEN.test(question) ||
     LONGER.test(question) ||
@@ -425,8 +442,10 @@ const RENT: ChartedFigures = {
 
 /** A table of the Document's revenue lines, each cell a claim that cites the line (#1909). */
 function checkTable(prompt: Prompt, question: string): Reply {
+  const after = CITES_AFTER.test(question);
+  const cited = toolResults(prompt, "cite").length > 0;
   const added = lastResult(prompt, "add_to_mind");
-  if (added !== undefined) return { text: firstSentence(added) };
+  if (added !== undefined && (cited || !after)) return { text: firstSentence(added) };
   const [searched] = toolResults(prompt, "search_documents");
   if (searched === undefined) {
     return { tool: "search_documents", input: { query: "revenue by quarter" } };
@@ -441,7 +460,7 @@ function checkTable(prompt: Prompt, question: string): Reply {
       })),
     )
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  if (toolResults(prompt, "cite").length === 0) {
+  if (!cited && (added !== undefined || !after)) {
     return {
       tool: "cite",
       input: {

@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
+  firstTranscriptLine,
   heldGlobalKeys as held,
   launchApp,
   openSettings,
@@ -64,7 +65,7 @@ const core = (window: Page) =>
 /** A meeting recording from both sides, its first lines in. */
 async function recordingMeeting(window: Page) {
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
+  await firstTranscriptLine(window);
   return bar;
 }
 
@@ -268,11 +269,22 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   const panel = await panelOf(app);
   await expectLines(await pressIn(panel, "Sum up so far"));
 
-  // Folded to a pill: the level bars move with the voices, and pointed at or focused, are Stop.
+  // Folded to a pill: only the dot, the time, the level bars and expand show; the rest is in its
+  // name. The level bars move with the voices, and pointed at or focused, are Stop.
   await pointAndClick(panel, panel.getByTestId("panel-collapse"));
   const pill = panel.getByTestId("panel-pill");
   await expect(pill).toBeVisible();
-  await expect(pill.getByTestId("panel-keys")).toHaveText(mac ? "⌃⌥1–7" : "Ctrl+Alt+1–7");
+  const keys = mac ? "⌃⌥1–7" : "Ctrl\\+Alt\\+1–7";
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^Call help · Recording \\d+:\\d\\d · ${keys} for help$`),
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(pill).toHaveAccessibleName(
+    new RegExp(`^通话助手 · 正在录制 \\d+:\\d\\d · ${keys} 获取帮助$`),
+  );
+  await expect(pill).toHaveText(/^\d+:\d\d$/);
+  await setLanguage(window, "en");
   const stop = pill.getByTestId("level-stop");
   await expect(stop.getByTestId("level-bar")).toHaveCount(5);
   await shot(panel, "help-panel-pill-en");
@@ -523,6 +535,165 @@ test("help during the call: Answer their question cites the price sheet, checked
   await expect.poll(() => held(app, "Ctrl+Alt+9")).toBe(false);
   await app.close();
   await removeDataFolder(sources);
+});
+
+// protects=the notes a model writes before its records, which the core takes back, never show in the panel: its outline holds until the first option, then the options stand; fails_when=the notes are drawn and then vanish; no_claim=what a real model writes (#2526).
+test("help during the call: a model's notes before its records never show, the outline holding until its first option", async () => {
+  const sources = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-notes-first");
+  const sheet = join(sources, "Price sheet.txt");
+  await writeFile(sheet, `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\n`);
+  await (await core(window)).evaluate((bridge, path) => bridge.addDocuments([path]), sheet);
+  await expect
+    .poll(async () =>
+      (await core(window)).evaluate(async (bridge) =>
+        (await bridge.listDocuments()).map((document) => document.status),
+      ),
+    )
+    .toEqual(["ready"]);
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-button").filter({ hasText: "Answer their question" }),
+  );
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
+  const seen: string[] = [];
+  while ((await suggestion.getAttribute("data-status")) === "streaming") {
+    seen.push(await suggestion.innerText());
+    if (seen.length === 1) await expect(suggestion.getByTestId("help-outline")).toHaveCount(2);
+    if (seen.length === 12) await shot(panel, "help-panel-notes-streaming");
+  }
+  expect(seen.some((text) => /newest lines ask|最新的几句/.test(text))).toBe(false);
+  await expect(suggestion).toHaveAttribute("data-status", "done");
+  await expect(suggestion.getByTestId("help-option-say").first()).toContainText("$45 per seat");
+  await expect(suggestion).not.toContainText("newest lines ask");
+  await shot(panel, "help-panel-notes-done");
+  await removeDataFolder(sources);
+});
+
+// protects=a reading that showed while it was written stays once the reply ends, though it came without its "→" line, instead of the panel keeping only its heading; fails_when=the reading vanishes when the reply ends; no_claim=why a reply comes without the line (#2767).
+test("help during the call: a reading that came without its → line stays once the reply ends", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-moves-taken-back");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-button").filter({ hasText: "What do they want?" }),
+  );
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await shot(panel, "help-panel-move-taken-back-done");
+  const reading = suggestion.getByTestId("help-option");
+  await expect(reading).toHaveCount(1);
+  await expect(reading).toHaveAttribute("data-recommended", "true");
+  await expect(reading.getByTestId("help-option-say")).toHaveText(
+    "They want a firm date for the launch",
+  );
+  await expect(reading.getByTestId("help-option-note")).toHaveCount(1);
+  await expect(reading.getByTestId("help-option-effect")).toHaveCount(0);
+  await expect(suggestion.getByTestId("help-nothing")).toHaveCount(0);
+  await app.close();
+});
+
+// protects=a reply with nothing the panel can lay out says so in plain words with Try again, in English and Chinese, instead of only the heading, and offers no Pin or Add to note for nothing (#2778); fails_when=the panel shows only the heading, or Pin and Add to note under the line; no_claim=how often a model writes such a reply (#2767).
+test("help during the call: a reply with nothing to show says so, with Try again and nothing to pin or add, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-heading-only");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  const suggestion = await pressIn(panel, "Sum up so far");
+  await shot(panel, "help-panel-nothing-en");
+  await expect(suggestion.getByTestId("help-option")).toHaveCount(0);
+  const nothing = suggestion.getByTestId("help-nothing");
+  await expect(nothing).toHaveText(
+    "No help this time: the Answer had nothing to suggest · Try again",
+  );
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
+  await expect(panel.getByTestId("help-add")).toHaveCount(0);
+  const notice = window.getByTestId("error-notice-message");
+  await fromPalette(window, "Add the latest suggestion to the note");
+  await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
+  await expect(window.getByTestId("undo-message")).toHaveCount(0);
+  await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
+  await expect(notice).toHaveCount(0);
+  await fromPalette(window, "Pin the latest suggestion");
+  await expect(notice).toHaveText("That didn’t work: the Answer had nothing to suggest");
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
+  await setLanguage(window, "zh-CN");
+  await expect(nothing).toHaveText("这次没能给出建议：回答里没有可用的内容 · 重试");
+  await expect(nothing.getByRole("button")).toHaveText("重试");
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
+  await shot(panel, "help-panel-nothing-zh");
+  await app.close();
+});
+
+// protects=a help Answer the User stopped before its first option says so in the panel with Try again, in English and Chinese, instead of only its heading; fails_when=the panel shows only the heading; no_claim=what a model writes before it is stopped (#2778).
+test("help during the call: an Answer stopped before its first option says so in the panel, with Try again, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-help-held");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+  // The window goes as the click lands, which a click Playwright waits on would call a failure.
+  const close = panel.getByTestId("panel-close");
+  await close.hover();
+  await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
+  await expect.poll(() => panelOpen(app)).toBe(false);
+
+  await pointAndClick(
+    window,
+    window
+      .getByTestId("help-strip")
+      .getByTestId("help-button")
+      .filter({ hasText: "What do they want?" }),
+  );
+  const answer = window.getByTestId("assistant-answer").last();
+  await expect(answer).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
+  await pointAndClick(window, window.getByTestId("composer-stop"));
+  await expect(answer).toHaveAttribute("data-status", "stopped");
+
+  await fromPalette(window, "Show the call help panel");
+  const shown = await panelOf(app);
+  const suggestion = shown.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "stopped");
+  await shot(shown, "help-panel-stopped-en");
+  await expect(suggestion.getByTestId("help-heading")).toContainText("What do they want?");
+  const stopped = suggestion.getByTestId("help-stopped");
+  await expect(stopped).toHaveText("No help this time: Stopped · Try again");
+  await setLanguage(window, "zh-CN");
+  await expect(stopped).toHaveText("这次没能给出建议：已停止 · 重试");
+  await shot(shown, "help-panel-stopped-zh");
+
+  await pointAndClick(shown, stopped.getByRole("button"));
+  await expect(shown.getByTestId("help-outline").first()).toBeVisible();
+  await expect(stopped).toHaveCount(0);
+  await app.close();
 });
 
 test("help during the call with the live text behind and no line yet: the panel says so in one line, not options, in English and Chinese (#1366)", async () => {

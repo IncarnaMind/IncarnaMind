@@ -6,6 +6,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  checkpointsOfNewestNote,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -415,6 +416,36 @@ test("a rewrite that would take out most of the User's own text waits, in Englis
   await setLanguage(window, "en");
 });
 
+// Value: protects=Apply on the assistant's rewrite held back saves a Checkpoint before it replaces the User's text (#2796); fails_when=their text is replaced with no new version in History; why_new=the held-rewrite test never read History; seam=none; no_claim=real-model rewrite quality (scripted model).
+test("Apply on the assistant's rewrite held back saves a version first, so the User's text can be brought back", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1100, 860);
+  await newMind(window);
+  await nameMind(window, "Harbour notes");
+  await enterContent(window);
+  await window.keyboard.type(NOTES[0] ?? "");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type(NOTES[1] ?? "");
+  const editor = window.getByTestId("mind-editor");
+  const paragraphs = editor.locator(":scope > p");
+  await expect(paragraphs).toHaveText(NOTES);
+
+  await askInAssistant(window, "Rewrite the intro to be clearer");
+  const line = editor.getByTestId("applied-line");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Waiting for you: this rewrites most of your text",
+  );
+  const held = await checkpointsOfNewestNote(window);
+  await pointAndClick(window, line.getByTestId("applied-apply"));
+  await expect(paragraphs).toHaveText([
+    "Gulls wheel over the quay at dawn.",
+    "Boats rest on the mud at low water.",
+  ]);
+  await expect.poll(() => checkpointsOfNewestNote(window)).toBe(held + 1);
+});
+
 /** The request the newest Answer's change made, once that Answer is done; null before. */
 function changeRequestOf(window: Page): Promise<string | null> {
   return window.evaluate(async () => {
@@ -512,7 +543,7 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
 
   const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await expect(tabs.filter({ hasText: "Q3 review" })).toHaveCount(1);
   await expect(tabs.filter({ hasText: "Project plan" })).toHaveCount(1);
@@ -522,7 +553,7 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "Hire a designer.",
     "a note about the meeting",
   ]);
-  await expect(editor.getByTestId("applied-count")).toHaveText("Wrote 1 paragraph");
+  await expect(editor.getByTestId("applied-count")).toHaveText("Added 1 paragraph");
   await expect(answer.getByTestId("mind-changes-review")).toHaveText("Review changes");
   await pointAndClick(window, answer.getByTestId("mind-changes-review"));
   await expect(editor.locator(".applied-new")).toHaveText("a note about the meeting");
@@ -634,7 +665,7 @@ test("a core-applied Answer can be written again without losing or duplicating t
     "Q3 review",
   );
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   const firstRequest = await changeRequestOf(window);
   await openSteps(window, answer);
@@ -655,7 +686,7 @@ test("a core-applied Answer can be written again without losing or duplicating t
   ]);
   await expect(editor.locator("ins.proposal-insert, del.proposal-delete")).toHaveCount(0);
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
@@ -681,7 +712,7 @@ test("a change in a Mind that isn't open applies in the core and survives a rest
   await writeMind(window, "Q3 review", ["The quarter was good."]);
   const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([

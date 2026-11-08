@@ -8,6 +8,7 @@ import { citedVersionHandles } from "../commands/handles";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { core } from "../core";
+import { useCitedOrigin } from "../editor/mindContext";
 import { useLanguage, useT } from "../i18n";
 import { openCurrentVersion } from "../openCited";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -15,7 +16,7 @@ import { DocumentView } from "./DocumentView";
 import { HighlightedText } from "./highlightedText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
-import { ViewerMessage } from "./ViewerMessage";
+import { OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
 type Loaded =
   | { kind: "loading" }
@@ -143,7 +144,11 @@ export function CitedVersionView({
     <>
       <ViewerHeader openable={false} showingCited />
       {loaded.kind === "loading" ? (
-        <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
+        <OpeningDocument
+          key={attempt}
+          openable={false}
+          retry={() => setAttempt((count) => count + 1)}
+        />
       ) : (
         <CitedVersionContent
           document={document}
@@ -159,6 +164,7 @@ export function CitedVersionView({
 
 /** The Document's current version at the Citation's place, from the bar or the line that says the text failed. */
 function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
+  const origin = useCitedOrigin();
   const cited = target.citation;
   return useMemo(
     () => () => {
@@ -173,6 +179,7 @@ function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
           ...(cited.location && { location: cited.location }),
         },
         {
+          origin,
           check: cited.check,
           withQuote: true,
           ...(cited.number !== undefined && { number: cited.number }),
@@ -180,7 +187,7 @@ function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
         },
       ).catch(useAppStore.getState().reportError);
     },
-    [cited, document.id, target.quote],
+    [cited, document.id, target.quote, origin],
   );
 }
 
@@ -242,6 +249,8 @@ function CitedVersionContent({
   openCurrent: () => void;
 }) {
   const t = useT();
+  // The Document itself, whose who's who is as the User left it now (#138).
+  const speakers = target.citation?.location?.kind === "time" ? document.speakers : null;
   const units = version.pages;
   const scroller = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
@@ -278,11 +287,11 @@ function CitedVersionContent({
   // One Unit: the Citation's own place names it more narrowly ("Revenue, rows 12–14", "§ History, ¶ 3").
   const place =
     units.length === 1 && target.citation?.location
-      ? formatLocation(target.citation.location, t)
+      ? formatLocation(target.citation.location, t, { speakers })
       : null;
   // A picture is of the whole place it was saved for, which the Citation's Location names.
   const picturePlace =
-    (target.citation?.location && formatLocation(target.citation.location, t)) ||
+    (target.citation?.location && formatLocation(target.citation.location, t, { speakers })) ||
     (units.length === 1 && shown[0]?.label ? shown[0].label : null);
 
   const highlighted = page !== null || shown.some((part) => part.ranges.length > 0);

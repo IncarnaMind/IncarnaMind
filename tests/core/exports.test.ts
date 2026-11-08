@@ -11,6 +11,8 @@ import {
   messageReference,
   NotFoundError,
 } from "../../src/core";
+import { picturesBeside } from "../../src/core/exports/markdown";
+import type { Block, Inline } from "../../src/core/mindText";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, footnotesOf, paragraphsOf, part, textOf, unzip } from "../helpers/docx";
@@ -336,7 +338,7 @@ describe("exporting a Mind", () => {
     // The .docx's compressed bytes depend on zlib's build, so they are checked against this
     // Node's deflate, and the rest is pinned (see `zipFingerprint`).
     expect(zipFingerprint(await exported("docx"))).toBe(
-      "37d4b4388f05af92b219559087aa58c649ba0aedaf510b6a91e8dc27040ea5ea",
+      "3b7860b70508b3f6aa62de228b1c2e34e20214470a4ccbc5dbbb778079e067ea",
     );
   });
 
@@ -345,19 +347,19 @@ describe("exporting a Mind", () => {
       "the sample, with its Question",
       "sample",
       { includeQuestions: true },
-      "7e49fd33d0aca4c4efb1098a9aac24363c8470f3ec084f64dea769ba81be5e03",
+      "4a04549c38f05f6417595155f1801a1107c0f7800853e37d389b4c88b1f5c961",
     ],
     [
       "the sample, in Chinese, on a computer in China (A4)",
       "sample",
       { language: "zh-CN", region: "CN" },
-      "6a5ddfe6b09d64eb8a168bba49091bd06fcbefb0e712d314baa2b83d24ef8d47",
+      "2d449c0dfa639a524b61eedcb2f30867031fc9aa4d07036c846c8a51e16b258f",
     ],
     [
       "quotes, rules, links, marks, breaks, tables, images and Locations",
       "rest",
       {},
-      "b79bca0bfcb3d2983a19c3b5c3b5d89ca8115571ffc23d49e08d6287edbfcd6a",
+      "160282ac3a5afa320379f86f3cab0260ffc82c7eb1bd0866f274d785e081bf06",
     ],
   ] as const)(
     "the bytes of a .docx export don't change either: %s",
@@ -438,6 +440,7 @@ describe("exporting a Mind", () => {
 
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toEqual({
       fileName: "Tides spring neap.docx",
+      pictures: [],
       citations: 3,
       citedDocuments: 1,
       numbered: true,
@@ -447,7 +450,7 @@ describe("exporting a Mind", () => {
       fromWord: false,
       theirChanges: 0,
       citationPlace: "footnotes",
-      markAiText: false,
+      markAiText: true,
       othersFile: false,
       othersComments: false,
       myComments: 0,
@@ -923,6 +926,56 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
   });
 
+  test("a Markdown preview lists the picture files it writes beside the file, each once", async () => {
+    const { core, mind, client } = await setUp("");
+    client.doc.transact(() => {
+      client.blocks.push([
+        element("image", { src: PIXEL, alt: "A chart" }, []),
+        element("image", { src: PIXEL, alt: "The same chart again" }, []),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: ["picture-6b7fa434f92a.png"],
+    });
+
+    client.doc.transact(() => {
+      client.blocks.push([
+        element(
+          "image",
+          {
+            src: "https://example.test/chart.png",
+            alt: "A chart from the web",
+          },
+          [],
+        ),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: ["picture-6b7fa434f92a.png"],
+    });
+
+    // A format that keeps its pictures inside its one file writes none beside it.
+    expect(await core.previewMindExport(mind.id, { format: "docx" })).toMatchObject({
+      pictures: [],
+    });
+  });
+
+  test("a picture whose data isn't an image is skipped, and one in a footnote is counted", () => {
+    const invalid = {
+      kind: "image",
+      image: { src: "data:image/png;base64,%%%", alt: "Not a picture" },
+    } as Inline;
+    expect(picturesBeside([{ kind: "paragraph", content: [invalid] }])).toEqual([]);
+
+    const image = { kind: "image", image: { src: PIXEL, alt: "A chart" } } as Inline;
+    const blocks: Block[] = [
+      { kind: "paragraph", content: [{ kind: "footnote", content: [image] }] },
+    ];
+    expect(picturesBeside(blocks)).toEqual(["picture-6b7fa434f92a.png"]);
+  });
+
   test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {
     const { core, mind, client } = await setUp("");
     const webp = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
@@ -1063,7 +1116,7 @@ describe("exporting a Mind", () => {
       "2": "Tides, p. 2 [unverified]",
     });
     expect(zipFingerprint(exported.data)).toBe(
-      "e2dc23dd2b96504fb3e5b08d515996adac6dc879a22e209592093f9edefe08ea",
+      "c21b14ee1d228bbc0badd5a3926c2732cf5181b6fa7c54829a456774da1aff49",
     );
   });
 

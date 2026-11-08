@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { Document, Mind } from "../../src/core/api";
-import { buildMenu, buildMixedMenu, type MenuEntry } from "../../src/renderer/src/commands/menus";
+import {
+  buildMenu,
+  buildMixedMenu,
+  isMenuItem,
+  isMoreEntry,
+  type MenuEntry,
+} from "../../src/renderer/src/commands/menus";
 import {
   type CommandContext,
   commands,
@@ -10,6 +16,7 @@ import {
 import type { ObjectRef } from "../../src/renderer/src/objects";
 import type { CommandId } from "../../src/shared/commands";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { documentOf } from "../helpers/storeDocuments";
 
 /*
  * The selection bar and the right-click menu offer the same commands for the
@@ -23,7 +30,10 @@ const selectionOf = (selection: ObjectRef[], surface: CommandContext["surface"] 
   ({ selection, focus: selection.at(-1) ?? null, surface }) satisfies CommandContext;
 
 const idsIn = (entries: MenuEntry[]) =>
-  entries.flatMap((entry) => (entry === "rule" ? [] : [entry.command.id]));
+  entries.flatMap((entry) => (isMenuItem(entry) ? [entry.command.id] : []));
+
+const moreIdsIn = (entries: MenuEntry[]) =>
+  entries.flatMap((entry) => (isMoreEntry(entry) ? entry.more.map((item) => item.command.id) : []));
 
 const english = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
 const chinese = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
@@ -39,46 +49,6 @@ const mindOf = (id: string): Mind => ({
   folderId: null,
 });
 
-/** A ready Document as the store holds one. */
-const documentOf = (id: string): Document => ({
-  id,
-  name: `Doc ${id}`,
-  kind: "pdf",
-  contentHash: "",
-  path: `/${id}.pdf`,
-  fileStatus: "available",
-  keptByApp: false,
-  linkedFolderId: null,
-  size: 0,
-  pageCount: null,
-  status: "ready",
-  progress: null,
-  scan: null,
-  failure: null,
-  unreadParts: null,
-  unreadPartsUnknown: false,
-  readHiddenSheets: false,
-  convertedFrom: null,
-  folderId: null,
-  tags: [],
-  tagging: "off",
-  taggingError: null,
-  creationDate: null,
-  modifiedAt: null,
-  fileCreatedAt: null,
-  properties: null,
-  title: null,
-  web: null,
-  reference: null,
-  ownFile: null,
-  yourNote: null,
-  notCited: false,
-  found: null,
-  importedAs: null,
-  createdAt: "",
-  updatedAt: "",
-});
-
 beforeAll(async () => {
   const bridge = new Proxy({}, { get: () => () => () => undefined });
   (globalThis as unknown as { window: unknown }).window = {
@@ -89,7 +59,7 @@ beforeAll(async () => {
   const { useAppStore } = await import("../../src/renderer/src/store");
   useAppStore.setState({
     minds: ["m", "n"].map(mindOf),
-    documents: ["a", "b", "c"].map(documentOf),
+    documents: ["a", "b", "c"].map((id) => documentOf(id)),
   });
 });
 
@@ -115,7 +85,7 @@ describe("a selection of Documents", () => {
 
   test("says how many, in English and in Chinese", () => {
     const entries = buildMenu("document", { ...ctx, here }).flatMap((entry) =>
-      entry === "rule" ? [] : [entry],
+      isMenuItem(entry) ? [entry] : [],
     );
     const ask = entries.find((entry) => entry.command.id === "document.ask");
     const start = entries.find((entry) => entry.command.id === "document.startMind");
@@ -129,7 +99,7 @@ describe("a selection of Documents", () => {
 
   test("offers Delete with the count", () => {
     const entries = buildMenu("document", { ...ctx, here }).flatMap((entry) =>
-      entry === "rule" ? [] : [entry],
+      isMenuItem(entry) ? [entry] : [],
     );
     const remove = entries.find((entry) => entry.command.id === "document.delete");
     expect(remove && menuLabelOf(remove.command, ctx, english)).toBe("Delete 3 Documents");
@@ -145,7 +115,7 @@ describe("a selection of Documents", () => {
       const many = selectionOf(documents);
       const found = new Map(
         buildMenu("document", many).flatMap((entry) =>
-          entry === "rule" ? [] : [[entry.command.id, entry.command] as const],
+          isMenuItem(entry) ? [[entry.command.id, entry.command] as const] : [],
         ),
       );
       const says = (id: CommandId, t: typeof english) => {
@@ -192,10 +162,11 @@ describe("a selection of Documents", () => {
 describe("a selection of Minds", () => {
   const ctx = selectionOf([mind("m"), mind("n")], "sidebar");
 
-  test("is offered Use as a source, Move to and New Folder with these, and not what opens, exports or deletes one", () => {
+  test("is offered Move to and New Folder with these as rows and Use as a source under More, and not what opens, exports or deletes one", () => {
     const here = { "mind.moveTo": () => undefined, "mind.rename": () => undefined };
-    const ids = idsIn(buildMenu("mind", { ...ctx, here }));
-    expect(ids).toEqual(["mind.useAsSource", "mind.moveTo", "folder.newWith"]);
+    const entries = buildMenu("mind", { ...ctx, here });
+    expect(idsIn(entries)).toEqual(["mind.moveTo", "folder.newWith"]);
+    expect(moreIdsIn(entries)).toEqual(["mind.useAsSource"]);
   });
 });
 
@@ -212,7 +183,7 @@ describe("a selection of several kinds", () => {
 
   test("of Minds and Documents is offered Move to… and Delete for all of them, with the count", () => {
     const ctx = { ...selectionOf([mind("m"), doc("a"), doc("b")], "sidebar"), here: fromMind };
-    const entries = buildMixedMenu(ctx).flatMap((entry) => (entry === "rule" ? [] : [entry]));
+    const entries = buildMixedMenu(ctx).flatMap((entry) => (isMenuItem(entry) ? [entry] : []));
     expect(entries.map((entry) => entry.command.id)).toEqual([
       "selection.moveTo",
       "selection.delete",

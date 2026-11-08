@@ -45,7 +45,7 @@ async function fixture({
   decidingSource?: { name: string; contents: string; quote: string };
   judgement?: "same" | "conflict" | "neither";
   confirmationError?: { status: number; message: string };
-  strict?: "same" | "conflict" | "neither";
+  strict?: string;
   says?: string | null;
 } = {}) {
   const calls: ModelCall[] = [];
@@ -237,6 +237,27 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(comparisons.filter((each) => each === STRICT_INSTRUCTIONS)).toHaveLength(1);
     expect(confirmationPrompts.some((each) => each.includes("Quantity to confirm:"))).toBe(true);
   });
+
+  test.each([
+    ["The salary is 61,500.", "The salary is 61,500 before tax and 48,000 after tax."],
+    ["年薪为61,500元。", "税前年薪为61,500元，税后为48,000元。"],
+  ])(
+    "a strict judgement with no label, or with two, confirms no quantity (#2816): %s",
+    async (claim, source) => {
+      for (const strict of [
+        "Same subject, but 61,500 is before tax.\nJudgement - neither",
+        "Judgement: neither\nThe quote gives it before tax.\nJudgement: same",
+      ]) {
+        expect((await fixture({ claim, source, strict })).result.verdict).toBe("not-checked");
+      }
+      const { result } = await fixture({
+        claim,
+        source,
+        strict: "Sentence: the salary, 61,500\nQuote: the salary, 61,500\nJudgement: same",
+      });
+      expect(result.verdict).toBe("supported");
+    },
+  );
 
   test.each([401, 429])(
     "a confirmation failure during a calculation's Supported re-evaluation keeps its provider reason: %s",

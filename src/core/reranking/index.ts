@@ -21,6 +21,7 @@ import { downloadModel, isModelDownloaded } from "../embedding/download";
 import { createDownloadableModel } from "../embedding/downloadable";
 import type { ModelSources } from "../embedding/modelSources";
 import type { RerankingModelDefinition } from "./model";
+import { createRerankQueue } from "./order";
 
 export { BUILT_IN_RERANKING_MODEL, type RerankingModelDefinition } from "./model";
 
@@ -42,12 +43,20 @@ export interface RerankingModel {
   /**
    * The hits in the model's order, best first, each with the model's score
    * from 0 to 1; ties keep their order. Null, with nothing read, while the
-   * model isn't downloaded or can't start. Rejects if the model fails.
+   * model isn't downloaded or can't start. Rejects if the model fails. One
+   * search is scored at a time, alone, in the order of the work that asked
+   * (./order); one whose `signal` aborts while it waits is never scored.
    */
   rerank<Hit extends Rerankable>(
     query: string,
     hits: readonly Hit[],
+    signal?: AbortSignal,
   ): Promise<(Hit & { score: number })[] | null>;
+  /**
+   * Loads the model now, if it is downloaded and not loaded yet, so the next search scores at once
+   * instead of loading it first; nothing is read. A failed load is reported as any load is.
+   */
+  warm(): void;
   /** Where it ran when it last loaded. Null before it has loaded, and once it has stopped. */
   device(): RerankingDevice["device"] | null;
   /** Stops the model, freeing its memory, e.g. when the User turns reranking off. */
@@ -134,6 +143,7 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
   let device: RerankingDevice | undefined;
   /** Why the model failed on the GPU as it reranked: it runs on the CPU until IncarnaMind restarts. */
   let gpuFailed: string | undefined;
+  const inTurn = createRerankQueue();
 
   /** Says where the model runs when that changes; a GPU adapter with no GPU file yet starts its download. */
   const onLoaded = (found: RerankingDevice) => {
@@ -148,6 +158,10 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
       reason: fallback?.reason,
       message: fallback?.message,
     });
+    if (found.copy) {
+      const { opened, writtenMs, problem } = found.copy;
+      log[problem ? "warn" : "info"]("reranking.gpuCopy", { opened, writtenMs, problem });
+    }
     if (fallback?.reason === "not-downloaded") gpuFile?.download();
     options.emitStatus(files.status());
   };
@@ -180,19 +194,22 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
     isReady: files.isReady,
     ensure: files.ensure,
     retry: files.retry,
-    async rerank(query, hits) {
-      if (!(await files.load())) return null;
-      if (hits.length === 0) return [];
+    async rerank(query, hits, signal) {
       const texts = hits.map(rerankText);
-      let logits: number[];
-      try {
-        logits = await crossEncoder.score(normaliseText(query), texts);
-      } catch (error) {
-        if (device?.device !== "gpu") throw error;
-        gpuFailed = error instanceof Error ? error.message : String(error);
-        if (!(await files.load())) throw error;
-        logits = await crossEncoder.score(normaliseText(query), texts);
-      }
+      // Loaded in its turn: the model may have stopped while the search waited.
+      const logits = await inTurn(async () => {
+        if (!(await files.load())) return null;
+        if (texts.length === 0) return [];
+        try {
+          return await crossEncoder.score(normaliseText(query), texts);
+        } catch (error) {
+          if (device?.device !== "gpu") throw error;
+          gpuFailed = error instanceof Error ? error.message : String(error);
+          if (!(await files.load())) throw error;
+          return crossEncoder.score(normaliseText(query), texts);
+        }
+      }, signal);
+      if (logits === null) return null;
       return hits
         .map((hit, index) => ({
           ...hit,
@@ -201,6 +218,9 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
         .map((hit, index) => ({ hit, index }))
         .sort((a, b) => b.hit.score - a.hit.score || a.index - b.index)
         .map(({ hit }) => hit);
+    },
+    warm() {
+      void files.load();
     },
     device: () => device?.device ?? null,
     unload() {

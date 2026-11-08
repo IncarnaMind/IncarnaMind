@@ -22,6 +22,10 @@ export const OUTPUT_LIMITS = {
   tags: { most: 512 },
   organize: { most: 512 },
   folders: { most: 1_024 },
+  // Organize's plan at any size (../library/plan): a sample sorted, a batch placed, subfolders named.
+  "folder-plan": { most: 4_000, each: 40 },
+  placements: { most: 2_048, each: 40 },
+  subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
   "claimed-changes": { most: 2_048 },
   // A record for each sentence it cites: a Meeting's notes ask for dozens at once (#2306).
@@ -42,6 +46,8 @@ export const OUTPUT_LIMITS = {
   edit: { most: 16_000 },
   "connection-test": { most: 64 },
   "quick-check": { most: 64 },
+  // One word for each part of a step's text: whether it is the Answer's or the model's working (#2371).
+  "working-text": { most: 256 },
 } as const satisfies Record<string, { most: number; each?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;

@@ -1,7 +1,15 @@
 import { useMemo } from "react";
 import type { Document } from "../../core/api";
 import { useFirstOpen } from "./firstOpen";
-import { type AppState, allExamples, exampleMindIds, isOwnDocument, useAppStore } from "./store";
+import { isListedDocument } from "./meetingTranscript";
+import {
+  type AppState,
+  allExamples,
+  exampleMindIds,
+  isExampleDocument,
+  isOwnDocument,
+  useAppStore,
+} from "./store";
 
 /** How many of the User's own loose Documents there may be before a Folder is offered (#1942). */
 export const DAY_ONE_DOCUMENTS = 8;
@@ -17,6 +25,31 @@ export function useOwnDocuments(): readonly Document[] {
   );
 }
 
+/** The Documents with rows of their own of every example, or of the first run's alone. */
+export function useExampleDocuments({ firstOnly = false } = {}): readonly Document[] {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  return useMemo(() => {
+    const made = allExamples({ examples, otherExamples: firstOnly ? [] : otherExamples });
+    return documents.filter((each) => isListedDocument(each) && isExampleDocument(each, made));
+  }, [documents, examples, otherExamples, firstOnly]);
+}
+
+/** Whether a Document, by id, belongs to an example. */
+export function useIsExampleDocument(): (documentId: string) => boolean {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  return useMemo(() => {
+    const made = allExamples({ examples, otherExamples });
+    const ids = new Set(
+      documents.filter((each) => isExampleDocument(each, made)).map((each) => each.id),
+    );
+    return (documentId) => ids.has(documentId);
+  }, [documents, examples, otherExamples]);
+}
+
 /**
  * The Documents the Library page lists: the User's own, once they have one;
  * until then the examples', so a Library opened on a first run is not empty
@@ -24,8 +57,14 @@ export function useOwnDocuments(): readonly Document[] {
  */
 export function useLibraryDocuments(): readonly Document[] {
   const own = useOwnDocuments();
-  const all = useAppStore((state) => state.documents);
+  const all = useListedDocuments();
   return own.length > 0 ? own : all;
+}
+
+/** Every Document with a row of its own: a Meeting's Transcript is its Note's (#2528). */
+export function useListedDocuments(): readonly Document[] {
+  const documents = useAppStore((state) => state.documents);
+  return useMemo(() => documents.filter(isListedDocument), [documents]);
 }
 
 /**

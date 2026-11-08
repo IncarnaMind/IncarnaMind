@@ -8,7 +8,8 @@ import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { DetailsLine } from "./DetailsLine";
 import { ProviderDataUseNotice } from "./providers/ProviderDataUseNotice";
-import { buttonStyle, rowButtonsClass, rowTextClass, ruledListClass, ruledRowClass } from "./ui";
+import { SettingsGroup, SettingsRow } from "./settings/SettingsGroup";
+import { buttonStyle } from "./ui";
 
 export const SERVICES_UNDO_PLACE = "settings:privacy:services";
 
@@ -38,11 +39,11 @@ async function allowAll(service: string, uses: readonly ServiceUse[]): Promise<v
 
 export function PrivacyServices({ flows }: { flows: readonly RegisteredDataFlow[] }) {
   return (
-    <ul className={ruledListClass}>
+    <SettingsGroup role="list">
       {groupByService(flows).map((group) => (
         <ServiceItem key={group.service.id} group={group} />
       ))}
-    </ul>
+    </SettingsGroup>
   );
 }
 
@@ -190,48 +191,50 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   }
 
   return (
-    <li
+    <SettingsRow
+      role="listitem"
       data-testid="data-service"
       data-service-id={service.id}
       data-consent={decision.kind}
-      className={ruledRowClass}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-ui break-words font-semibold text-ink">{service.name}</p>
-        <DetailsLine
-          testId="data-service-decision"
-          className={rowTextClass}
-          details={
-            <Uses
-              uses={uses}
-              partly={decision.kind === "partly"}
-              onAllow={allowUse}
-              onStop={(use) => void stopUse(use)}
-            />
-          }
-        >
-          {line}
-        </DetailsLine>
-        <ProviderDataUseNotice service={service} />
-      </div>
-      <div ref={buttons} className={rowButtonsClass}>
-        {actions.map((action) => (
-          <button
-            key={action.slot}
-            type="button"
-            data-testid={action.testId}
-            aria-busy={busy}
-            onClick={(event) => {
-              invoked.current = event.currentTarget;
-              void action.run();
-            }}
-            className={buttonStyle(action.primary ? "primary" : "secondary", "sm")}
+      label={service.name}
+      detail={
+        <>
+          <DetailsLine
+            testId="data-service-decision"
+            details={
+              <Uses
+                uses={uses}
+                partly={decision.kind === "partly"}
+                onAllow={allowUse}
+                onStop={(use) => void stopUse(use)}
+              />
+            }
           >
-            {action.label}
-          </button>
-        ))}
-      </div>
-    </li>
+            {line}
+          </DetailsLine>
+          <ProviderDataUseNotice service={service} />
+        </>
+      }
+      control={
+        <div ref={buttons} className="contents">
+          {actions.map((action) => (
+            <button
+              key={action.slot}
+              type="button"
+              data-testid={action.testId}
+              aria-busy={busy}
+              onClick={(event) => {
+                invoked.current = event.currentTarget;
+                void action.run();
+              }}
+              className={buttonStyle(action.primary ? "primary" : "secondary", "sm")}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      }
+    />
   );
 }
 

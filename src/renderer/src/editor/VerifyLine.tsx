@@ -44,6 +44,7 @@ import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
+import { shownPhase } from "./verifyPhase";
 import { wordPlaceAt } from "./WordOrigin";
 
 /** What a Mind made by "Verify a document…" verifies, as it changes. */
@@ -241,10 +242,11 @@ export function VerifyCard({
     }
   };
 
+  const phase = shownPhase(running, marks.marked);
   let body: ReactNode;
-  if (running === "finding") {
+  if (phase === "finding") {
     body = <p role="status">{t("verify.finding")}</p>;
-  } else if (running === "checking") {
+  } else if (phase === "checking") {
     body = (
       <p role="status" data-testid="verify-progress" className="tabular-nums">
         {t("verify.checking", {

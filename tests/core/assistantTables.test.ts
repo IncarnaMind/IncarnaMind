@@ -176,9 +176,16 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     expect(pipeText(readMind(client))).toBe(false);
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
     expect(changesIn(answer)).toEqual([
-      { mindId: mind.id, created: false, request: expect.any(String), proposals: 1, tables: 1 },
+      {
+        mindId: mind.id,
+        created: false,
+        request: expect.any(String),
+        proposals: 1,
+        tables: 1,
+        added: true,
+      },
     ]);
-    expect(lastResult(model)).toContain("Changed 1 place in “Tides”");
+    expect(lastResult(model)).toContain("Added a table to “Tides”");
     expect(lastResult(model)).toContain("One of them adds a table.");
     await resolveChanges(client, "accept");
     expect(tablesIn(readMind(client))).toEqual([EXPECTED_ROWS]);
@@ -217,6 +224,13 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
+        citations: [
+          expect.objectContaining({
+            documentName: "Tides",
+            quote: "Spring tides happen at new moon and at full moon",
+            check: "found",
+          }),
+        ],
         // The one cited claim was checked before it landed; the other claim, with no Citation, is left
         // to the one Check (#1111, #1909). A header cell names its column and counts as no claim (#2378).
         selfCheck: {

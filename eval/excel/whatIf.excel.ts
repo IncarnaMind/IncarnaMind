@@ -5,12 +5,12 @@
  * LibreOffice works every formula out: the engine must give each value
  * LibreOffice saved, and the unit tests' fixtures (tests/fixtures/workbooks)
  * must be the files LibreOffice makes (INCARNAMIND_WRITE_WORKBOOK_FIXTURES=1
- * writes them again). Then one input is changed in memory and the figure
- * worked out again; LibreOffice opens a copy with that input's cell changed,
+ * writes them again). Then one or more inputs are changed in memory and the
+ * figure worked out again; LibreOffice opens a copy with those cells changed,
  * works every formula out and saves it, and the figure there is compared. The
- * file IncarnaMind read stays byte for byte as it was. CI runs it in the job
- * that installs LibreOffice; without LibreOffice it only works the what-ifs
- * out, unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1 makes that a failure.
+ * file IncarnaMind read stays byte for byte as it was. Without LibreOffice it
+ * only works the what-ifs out, unless INCARNAMIND_EXCEL_REQUIRE_LIBREOFFICE=1
+ * makes that a failure.
  */
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -46,8 +46,7 @@ interface Case {
   name: string;
   book: () => WorkbookBuilder;
   figure: string;
-  input: string;
-  value: number;
+  changes: { input: string; value: number }[];
 }
 
 const CASES: Case[] = [
@@ -55,85 +54,118 @@ const CASES: Case[] = [
     name: "DCF: 2027 EBITDA, growth 3%",
     book: dcfWorkbook,
     figure: "DCF!E5",
-    input: "Assumptions!B4",
-    value: 0.03,
+    changes: [{ input: "Assumptions!B4", value: 0.03 }],
   },
   {
     name: "DCF: value per share, WACC 10%",
     book: dcfWorkbook,
     figure: "DCF!B21",
-    input: "Assumptions!B10",
-    value: 0.1,
+    changes: [{ input: "Assumptions!B10", value: 0.1 }],
+  },
+  {
+    name: "DCF: value per share, WACC 8% and margin 25% at once",
+    book: dcfWorkbook,
+    figure: "DCF!B21",
+    changes: [
+      { input: "Assumptions!B10", value: 0.08 },
+      { input: "Assumptions!B5", value: 0.25 },
+    ],
   },
   {
     name: "DCF: NPV of free cash flow, margin 25%",
     book: dcfWorkbook,
     figure: "DCF!B22",
-    input: "Assumptions!B5",
-    value: 0.25,
+    changes: [{ input: "Assumptions!B5", value: 0.25 }],
+  },
+  {
+    name: "DCF: 2027 EBITDA, growth 3% and margin 25% at once",
+    book: dcfWorkbook,
+    figure: "DCF!E5",
+    changes: [
+      { input: "Assumptions!B4", value: 0.03 },
+      { input: "Assumptions!B5", value: 0.25 },
+    ],
   },
   {
     name: "LBO: IRR, exit at 9.5x",
     book: lboWorkbook,
     figure: "LBO!B32",
-    input: "LBO!B8",
-    value: 9.5,
+    changes: [{ input: "LBO!B8", value: 9.5 }],
+  },
+  {
+    name: "LBO: IRR, exit at 9.5x and EBITDA growth 4% at once",
+    book: lboWorkbook,
+    figure: "LBO!B32",
+    changes: [
+      { input: "LBO!B8", value: 9.5 },
+      { input: "LBO!B7", value: 0.04 },
+    ],
   },
   {
     name: "LBO: XIRR, EBITDA growth 4%",
     book: lboWorkbook,
     figure: "LBO!B33",
-    input: "LBO!B7",
-    value: 0.04,
+    changes: [{ input: "LBO!B7", value: 0.04 }],
   },
   {
     name: "LBO: term loan payment, rate 7%",
     book: lboWorkbook,
     figure: "LBO!B34",
-    input: "LBO!B6",
-    value: 0.07,
+    changes: [{ input: "LBO!B6", value: 0.07 }],
   },
   {
     name: "Three statements: 2027 cash, 2026 growth 10%",
     book: threeStatementWorkbook,
     figure: "BS!E3",
-    input: "Inputs!C2",
-    value: 0.1,
+    changes: [{ input: "Inputs!C2", value: 0.1 }],
+  },
+  {
+    name: "Three statements: 2027 cash, 2026 growth 10% and tax 25% at once",
+    book: threeStatementWorkbook,
+    figure: "BS!E3",
+    changes: [
+      { input: "Inputs!C2", value: 0.1 },
+      { input: "Inputs!B8", value: 0.25 },
+    ],
   },
   {
     name: "Three statements: 2027 net income, tax 25%",
     book: threeStatementWorkbook,
     figure: "IS!E13",
-    input: "Inputs!B8",
-    value: 0.25,
+    changes: [{ input: "Inputs!B8", value: 0.25 }],
   },
   {
     name: "Three statements: balance check, capex 90",
     book: threeStatementWorkbook,
     figure: "BS!E10",
-    input: "Inputs!B10",
-    value: 90,
+    changes: [{ input: "Inputs!B10", value: 90 }],
   },
   {
     name: "12,120 formulas: last month's total, product 1 growth 0.2%",
     book: () => largeWorkbook(),
     figure: "Model!DQ102",
-    input: "Drivers!B2",
-    value: 0.002,
+    changes: [{ input: "Drivers!B2", value: 0.002 }],
+  },
+  {
+    name: "12,120 formulas: last month's total, products 1 and 2 growth changed at once",
+    book: () => largeWorkbook(),
+    figure: "Model!DQ102",
+    changes: [
+      { input: "Drivers!B2", value: 0.002 },
+      { input: "Drivers!B3", value: 0.0015 },
+    ],
   },
   {
     name: "Blanks that count: SUMPRODUCT over a mostly blank range, B1 0 to 5",
     book: blankCellsWorkbook,
     figure: "F!A1",
-    input: "S!B1",
-    value: 5,
+    changes: [{ input: "S!B1", value: 5 }],
   },
   {
     name: "0.1 + 0.2 = 0.3 compared as Excel does, A2 0.25 to 0.2",
     book: floatEqualityWorkbook,
     figure: "Check!B1",
-    input: "Check!A2",
-    value: 0.2,
+    changes: [{ input: "Check!A2", value: 0.2 }],
   },
 ];
 
@@ -144,22 +176,29 @@ function place(written: string): { sheet: string; row: number; column: number } 
 }
 
 /**
- * A copy of the workbook with one cell's value changed and every formula's saved result taken
+ * A copy of the workbook with the cells' values changed and every formula's saved result taken
  * out, so LibreOffice works each one out itself whatever its recalculation setting.
  */
-async function changedCopy(bytes: Uint8Array, book: WorkbookBuilder, input: string, value: number) {
-  const { sheet } = place(input);
-  const part = `xl/worksheets/sheet${book.sheets.findIndex((each) => each.name === sheet) + 1}.xml`;
+async function changedCopy(
+  bytes: Uint8Array,
+  book: WorkbookBuilder,
+  changes: readonly { input: string; value: number }[],
+) {
+  const partOf = (input: string) => {
+    const { sheet } = place(input);
+    return `xl/worksheets/sheet${book.sheets.findIndex((each) => each.name === sheet) + 1}.xml`;
+  };
   const zip = openPackage(bytes);
-  const ref = input.split("!")[1] as string;
-  const cell = new RegExp(`<c r="${ref}"([^>]*)><v>[^<]*</v></c>`);
   const changed = new Map<string, string>();
   for (const name of zip.names()) {
     if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue;
     let xml = (await zip.readText(name)) ?? "";
-    if (name === part) {
-      if (!cell.test(xml)) throw new Error(`No value in ${input}.`);
-      xml = xml.replace(cell, `<c r="${ref}"$1><v>${value}</v></c>`);
+    for (const change of changes) {
+      if (partOf(change.input) !== name) continue;
+      const ref = change.input.split("!")[1] as string;
+      const cell = new RegExp(`<c r="${ref}"([^>]*)><v>[^<]*</v></c>`);
+      if (!cell.test(xml)) throw new Error(`No value in ${change.input}.`);
+      xml = xml.replace(cell, `<c r="${ref}"$1><v>${change.value}</v></c>`);
     }
     changed.set(name, xml.replace(/(<f[^>]*\/>|<f[^>]*>[^<]*<\/f>)<v>[^<]*<\/v>/g, "$1"));
   }
@@ -284,7 +323,11 @@ test.each(CASES)(
       longest = Math.max(longest, now - last);
       last = now;
     }, 1);
-    const outcome = await whatIf(engine, key(each.figure), key(each.input), each.value);
+    const outcome = await whatIf(
+      engine,
+      key(each.figure),
+      each.changes.map((change) => ({ input: key(change.input), value: change.value })),
+    );
     clearInterval(lag);
     if (!outcome.ok) throw new Error(`Refused: ${JSON.stringify(outcome.why)}`);
     console.log(
@@ -299,7 +342,7 @@ test.each(CASES)(
     if (!soffice) return;
     const recalculated = await convertFile(
       soffice,
-      await changedCopy(bytes, book, each.input, each.value),
+      await changedCopy(bytes, book, each.changes),
       "xlsx",
       ".xlsx",
     );

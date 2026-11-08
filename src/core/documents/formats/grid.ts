@@ -3,8 +3,9 @@
  * are stored in: each sheet in blocks of rows (ADR-0011).
  *
  * A block's text has one line per row, listing the row's cells from the
- * sheet's first column, separated by tabs, so the cells read in order and a
- * cell's place in the text gives its reference. A block holds up to
+ * sheet's first column to its last, blank cells included, separated by tabs,
+ * so the cells read in order and a cell's place in the text gives its
+ * reference. A block holds up to
  * `BLOCK_ROWS` rows and about `BLOCK_CHARACTERS` characters (about 400
  * tokens), whichever comes first, so a Passage of about 500 tokens takes in
  * a block or two. Every block after a sheet's first repeats its header row
@@ -84,29 +85,117 @@ export interface Workbook {
   layout?: WorkbookLayout;
   /** What its formulas need beyond its cells (#2347). */
   facts?: WorkbookFacts;
+  /** Relationships parts that couldn't be read; the rest was read without what they name. */
+  unreadable: string[];
 }
 
-const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*%?\)?$/;
+/** A figure's text: digits, with the separators, currency and percent a sheet shows. */
+const NUMERIC = /^[-+(]?[£$€¥]?\d[\d,.]*(?: \d{3})*%?\)?$/;
+
+/** Whether a cell's text is a figure, such as "4.2%" or "1 234 567", rather than words. */
+export function looksLikeFigure(value: string): boolean {
+  return NUMERIC.test(value);
+}
+
+/**
+ * A title cell's amount: a number with a thousands separator, a currency, or a
+ * percent, wherever it sits in the cell. A bare year or a small count ("2026")
+ * is a label, so it can still name a table (#2373).
+ */
+const AMOUNT_IN_TEXT = /[£$€¥]\s*\d|(?<![\d.,])\d{1,3}(?:[ ,]\d{3})+(?!\d)|\d+\s*%/;
+
+/** A decimal, or five digits or more: a figure only when its cell has no words. */
+const BARE_NUMBER = /\d+\.\d+|\d{5,}/;
+const LETTER_IN_TEXT = /\p{L}/u;
+
+/**
+ * Whether a title cell holds a figure, which stops it naming a table (#2373).
+ * A number beside words is part of a label instead: a date-like decimal
+ * ("2026.10 门店销售") or an ID ("Section 12345") still names the table (#2658).
+ */
+export function holdsFigure(text: string): boolean {
+  return AMOUNT_IN_TEXT.test(text) || (!LETTER_IN_TEXT.test(text) && BARE_NUMBER.test(text));
+}
+
+/** A value a half-filled sheet leaves where a figure would be: N/A, or a dash. */
+const MISSING = /^(?:n\/a|[-–—]+)$/i;
+
+const isMissing = (cell: Pick<Cell, "value">): boolean => {
+  const value = cell.value.trim();
+  return value === "" || MISSING.test(value);
+};
+
+const isFigure = (cell: Pick<Cell, "value" | "numeric">): boolean =>
+  cell.numeric || looksLikeFigure(cell.value);
 
 /** Whether a row looks like a header: two cells or more, mostly words. */
 export function looksLikeHeader(cells: readonly Pick<Cell, "value" | "numeric">[]): boolean {
   if (cells.length < 2) return false;
-  const words = cells.filter((cell) => !cell.numeric && !NUMERIC.test(cell.value)).length;
+  const words = cells.filter((cell) => !isFigure(cell)).length;
   return words * 2 > cells.length;
 }
 
-/** The sheet's header row: among its first 10 rows, the first that looks like one. */
-export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
-  const numbers = [...rows.keys()].sort((a, b) => a - b).slice(0, 10);
-  return numbers.find((number) => looksLikeHeader(rows.get(number) ?? [])) ?? null;
+/**
+ * Whether a row heads the rows below it: for each of its columns, the first
+ * value the table's rows below give that column, where a heading has words
+ * over figures and no figure over words. A row of one cell is a section's own
+ * label ("2025") and is passed over, as is a missing value ("N/A", "—").
+ */
+function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[]): boolean {
+  const rows = below.filter((row) => row.filter((cell) => !isMissing(cell)).length >= 2);
+  const valueIn = (column: number): Cell | undefined => {
+    for (const row of rows) {
+      const value = row.find((each) => each.column === column);
+      if (value && !isMissing(value)) return value;
+    }
+    return undefined;
+  };
+  let heads = false;
+  for (const cell of cells) {
+    if (isMissing(cell)) continue;
+    const under = valueIn(cell.column);
+    if (!under) continue;
+    if (isFigure(cell)) {
+      if (!isFigure(under)) return false;
+    } else if (isFigure(under)) heads = true;
+  }
+  return heads;
 }
 
-/** A row's line: its cells from `firstColumn`, tab-separated, empty cells empty. */
-function rowLine(cells: readonly Cell[], firstColumn: number): string {
+/**
+ * The sheet's header row: among its first 10 rows, the first whose words head
+ * the figures of its columns below. A table of words alone has no kinds to
+ * tell its rows apart, and its first header-like row heads it.
+ */
+export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
+  const numbers = [...rows.keys()].sort((a, b) => a - b);
+  const first = numbers.slice(0, 10);
+  const candidates = first.filter((number) => looksLikeHeader(rows.get(number) ?? []));
+  for (const number of candidates) {
+    const below = numbers.slice(numbers.indexOf(number) + 1).map((row) => rows.get(row) ?? []);
+    if (headsBelow(rows.get(number) ?? [], below)) return number;
+  }
+  return first.some((number) => (rows.get(number) ?? []).some(isFigure))
+    ? null
+    : (candidates[0] ?? null);
+}
+
+/**
+ * The most columns a row is padded out to. A sheet that uses more keeps each
+ * line to its own cells: a single cell far to the right would otherwise make
+ * every line as wide as the sheet.
+ */
+const MAX_PADDED_COLUMNS = 1000;
+
+/** A row's line: its cells from `firstColumn` to the sheet's last, tab-separated, blank cells empty. */
+function rowLine(cells: readonly Cell[], firstColumn: number, width: number): string {
   const values: string[] = [];
   for (const cell of cells)
     values[cell.column - firstColumn] = cell.value.replace(/[\t\n\r]+/g, " ");
-  return Array.from(values, (value) => value ?? "").join("\t");
+  return Array.from(
+    { length: Math.max(width, values.length) },
+    (_, index) => values[index] ?? "",
+  ).join("\t");
 }
 
 /**
@@ -162,8 +251,9 @@ export function gridUnits(
     if (rows.size === 0) continue;
     for (const list of rows.values()) list.sort((a, b) => a.column - b.column);
     const numbers = [...rows.keys()].sort((a, b) => a - b);
+    const width = Math.min(sheet.columnCount - firstColumn, MAX_PADDED_COLUMNS);
     const header = headerRow(rows);
-    const headerLine = header === null ? null : rowLine(rows.get(header) ?? [], firstColumn);
+    const headerLine = header === null ? null : rowLine(rows.get(header) ?? [], firstColumn, width);
 
     let at = 0;
     while (at < numbers.length) {
@@ -172,7 +262,7 @@ export function gridUnits(
       let characters = 0;
       while (at < numbers.length && block.length < BLOCK_ROWS) {
         const number = numbers[at] as number;
-        const line = rowLine(rows.get(number) ?? [], firstColumn);
+        const line = rowLine(rows.get(number) ?? [], firstColumn, width);
         if (block.length > 0 && characters + line.length > BLOCK_CHARACTERS) break;
         block.push(number);
         lines.push(line);

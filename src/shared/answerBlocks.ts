@@ -13,20 +13,28 @@ import {
   type AnswerAnalysis,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
+  type CheckedVersion,
   CITATION_NODE,
+  type CitationAttributes,
+  CLAIM_CHECK_MARK,
+  type ClaimVerdict,
   type ConversationAnswer,
   type MarkedCitation,
+  type SearchScope,
 } from "../core/api";
 import { asGenerated } from "./aiText";
 import type { AnalysisValue } from "./analysis";
 import { withAnalysisPictures } from "./analysisPictures";
-import { withAnalysisTableCitations } from "./analysisTables";
-import { citationNode, type NodeJSON, withCitations } from "./blockJson";
+import { withAnalysisTables } from "./analysisTables";
+import { citationAttributesOf, citationNode, type NodeJSON, withCitations } from "./blockJson";
 import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
+import { citedSentences } from "./citedSentences";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
+import { inlineLayout, inlineRange, projectedContent } from "./inlineText";
 import { withoutFraming } from "./noteBlocks";
 import { printedValue } from "./printedFigures";
+import { comparableSentence, INLINE_NODE, sentenceSpans } from "./sentences";
 
 /**
  * While it is written, what would still change how it looks is held back, and
@@ -49,7 +57,13 @@ export function answerBlocks(
   return asGenerated(
     closeUpCitations(
       withCalculatedFigures(
-        withAnalysisTableCitations(withAnalysisPictures(blocks, answer.analyses), answer.analyses),
+        withAnalysisTables(
+          withAnalysisPictures(blocks, answer.analyses),
+          (answer.analyses ?? []).map((analysis) => ({
+            answerId: answer.id ?? "preview",
+            analysis,
+          })),
+        ),
         (marker) => figures.get(marker) ?? null,
         answer,
       ),
@@ -129,6 +143,253 @@ export function asQuoteChecked(
     };
   };
   return blocks.map(settled);
+}
+
+/**
+ * The checks an Answer's own judgement made, which a Note made from it carries (#2313): one mark
+ * per cited sentence the judgement settled, with its verdict, the Citation that decided it and the
+ * Answer's model and time. A sentence only its quote check covered, a sentence of a calculated
+ * figure, and a sentence the judgement didn't settle carry nothing, so a Note never reads Checked
+ * for what the judgement didn't do. Old Answers have no `judgedAt`: their supported verdicts are
+ * not carried, and their Note's check reads as it did.
+ */
+export function withAnswerChecks(
+  blocks: readonly NodeJSON[],
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
+    Partial<Pick<ConversationAnswer, "model" | "status" | "id">>,
+  question: string,
+  /** What the Answer's Question searched: a Folder's, or the whole Library (null). */
+  scope: SearchScope | null,
+): NodeJSON[] {
+  const checks = carriedChecks(answer, question);
+  if (![...checks.values()].some((each) => each.some((check) => check !== null))) {
+    return [...blocks];
+  }
+  const used = new Set<CarriedCheck>();
+  const markFor = (identity: string, text: string): NodeJSON | null => {
+    const candidates = checks.get(identity);
+    if (!candidates) return null;
+    // The same words, quotes and version twice, judged differently or judged only once: no one can
+    // say which sentence the verdict belongs to, so neither carries it.
+    const distinct = new Set(
+      candidates.map((each) => (each ? `${each.state}\u0000${each.verdict ?? ""}` : "")),
+    );
+    if (distinct.size > 1) return null;
+    const check = candidates.find((each) => each !== null && !used.has(each));
+    if (!check) return null;
+    used.add(check);
+    return {
+      type: CLAIM_CHECK_MARK,
+      attrs: {
+        id: crypto.randomUUID(),
+        request: "",
+        action: "check-against-documents",
+        state: check.state,
+        reason: null,
+        detail: null,
+        providerId: answer.model?.providerId ?? null,
+        modelId: answer.model?.modelId ?? null,
+        text,
+        evidence: check.evidence,
+        says: check.verdict,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        // What the Answer's Question searched, not where the Note sits: moving the Note changes
+        // nothing the judgement read.
+        scope:
+          scope === null
+            ? { folderId: null, widened: true }
+            : {
+                folderId: scope.folderIds.length === 1 ? scope.folderIds[0] : null,
+                widened: false,
+                chosen: scope,
+              },
+        versions: check.versions,
+        excluded: [],
+        checkedAt: check.checkedAt,
+        ...(answer.id !== undefined && { fromAnswer: answer.id }),
+      },
+    };
+  };
+  const markedContent = (content: readonly NodeJSON[]): NodeJSON[] => {
+    const widths = content.map((node) => (node.type === "text" ? (node.text ?? "").length : 1));
+    // Found and marked as a check of the sentence finds and marks it (claimFrame in
+    // core/answers/checks/sentences.ts): over its words, the Citations left out, and the mark on
+    // the words alone, so a check the author runs later takes the whole mark's place.
+    const { pieces, projection } = projectedContent(content);
+    const spans = sentenceSpans(projection.text);
+    const marks: { from: number; to: number; mark: NodeJSON }[] = [];
+    const beforeMarker = new RegExp(`\\s+(?=${INLINE_NODE})`, "gu");
+    spans.forEach((span, index) => {
+      const range = inlineRange(projection, span.from, span.to);
+      if (!range) return;
+      const next = projection.starts[spans[index + 1]?.from ?? projection.text.length] ?? Infinity;
+      const extent = pieces
+        .filter((piece) => piece.kind === "citation" && piece.from >= range.to && piece.to <= next)
+        .reduce((end, piece) => Math.max(end, piece.to), range.to);
+      const cited = inlineLayout(content).flatMap(({ node, start }) =>
+        node.type === CITATION_NODE && start >= range.from && start < extent
+          ? [identityOfCitation(node.attrs ?? {})]
+          : [],
+      );
+      // The Answer's own reading drops the space a marker leaves before it: so does this key.
+      const words = projection.rawText.slice(range.from, extent).replace(beforeMarker, "");
+      const text = projection.text.slice(span.from, span.to);
+      const mark = markFor(identityOf(comparableSentence(words), cited), text);
+      if (mark) marks.push({ from: range.from, to: range.to, mark });
+    });
+    if (marks.length === 0) return [...content];
+    const out: NodeJSON[] = [];
+    let offset = 0;
+    content.forEach((node, index) => {
+      const width = widths[index] ?? 0;
+      const from = offset;
+      const to = offset + width;
+      offset = to;
+      if (node.type !== "text") {
+        out.push(node);
+        return;
+      }
+      const textValue = node.text ?? "";
+      let at = 0;
+      const pieces: { text: string; mark: NodeJSON | null }[] = [];
+      for (const mark of marks) {
+        const start = Math.max(mark.from, from) - from;
+        const end = Math.min(mark.to, to) - from;
+        if (end <= start) continue;
+        if (start > at) pieces.push({ text: textValue.slice(at, start), mark: null });
+        pieces.push({ text: textValue.slice(start, end), mark: mark.mark });
+        at = end;
+      }
+      if (at < textValue.length) pieces.push({ text: textValue.slice(at), mark: null });
+      for (const piece of pieces) {
+        if (piece.text === "") continue;
+        out.push({
+          ...node,
+          text: piece.text,
+          ...(piece.mark
+            ? { marks: [...(node.marks ?? []), piece.mark] }
+            : node.marks && { marks: node.marks }),
+        });
+      }
+    });
+    return out;
+  };
+  const walk = (node: NodeJSON): NodeJSON =>
+    node.content
+      ? {
+          ...node,
+          content: node.content.some((child) => child.type === "text")
+            ? markedContent(node.content)
+            : node.content.map(walk),
+        }
+      : node;
+  return blocks.map(walk);
+}
+
+interface CarriedCheck {
+  state: ClaimVerdict;
+  verdict: string | null;
+  evidence: CitationAttributes;
+  versions: CheckedVersion[];
+  checkedAt: string;
+}
+
+interface CitationIdentity {
+  passageId: string;
+  quote: string;
+  contentHash: string;
+}
+
+const identityOfCitation = (attrs: Record<string, unknown>): CitationIdentity => ({
+  passageId: typeof attrs.passageId === "string" ? attrs.passageId : "",
+  quote: typeof attrs.quote === "string" ? attrs.quote : "",
+  contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : "",
+});
+
+/** A sentence and the Citations it quotes: the same words under different quotes are not the same claim. */
+const identityOf = (sentence: string, citations: readonly CitationIdentity[]): string =>
+  `${sentence}\u0000${citations
+    .map((each) => `${each.passageId}\u0001${each.quote}\u0001${each.contentHash}`)
+    .sort()
+    .join("\u0002")}`;
+
+/**
+ * Each cited sentence of the Answer, in the order its text gives them, under its words and quotes:
+ * the check its judgement settled, or null for one it didn't (a calculated figure's among them).
+ */
+function carriedChecks(
+  answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
+  question: string,
+): Map<string, (CarriedCheck | null)[]> {
+  const byMarker = new Map(answer.citations.map((citation) => [citation.marker, citation]));
+  const found = new Map<string, (CarriedCheck | null)[]>();
+  for (const cited of citedSentences(forPage(answer.text, question), answer.figures)) {
+    const citations = cited.markers
+      .map((marker) => byMarker.get(marker))
+      .filter((citation): citation is MarkedCitation => citation !== undefined);
+    const key = identityOf(
+      comparableSentence(cited.sentence),
+      citations.map((citation) => ({
+        passageId: citation.passageId ?? "",
+        quote: citation.quote ?? "",
+        contentHash: citation.contentHash ?? "",
+      })),
+    );
+    const check = cited.calculated ? null : judgementOf(cited.markers, citations);
+    found.set(key, [...(found.get(key) ?? []), check]);
+  }
+  return found;
+}
+
+/** What the judgement settled of a sentence citing `citations` at `markers`; null when it settled nothing. */
+function judgementOf(
+  markers: readonly number[],
+  citations: readonly MarkedCitation[],
+): CarriedCheck | null {
+  const judged = citations.filter(
+    (citation) =>
+      citation.judgedAt !== undefined ||
+      citation.check === "unsupported" ||
+      citation.check === "contradicted",
+  );
+  if (judged.length === 0) return null;
+  const contradicted = judged.find((citation) => citation.check === "contradicted");
+  const unsupported = judged.find((citation) => citation.check === "unsupported");
+  const supported =
+    markers.length === citations.length &&
+    judged.length === citations.length &&
+    citations.every((citation) => citation.check === "found" && citation.judgedAt !== undefined);
+  const deciding = contradicted ?? unsupported ?? (supported ? judged[0] : undefined);
+  if (!deciding) return null;
+  const checkedAt = judged
+    .map((citation) => citation.judgedAt)
+    .filter((at): at is string => at !== undefined)
+    .sort()
+    .at(-1);
+  if (checkedAt === undefined) return null;
+  // Every judged Document/version pair, an old version beside its current one included.
+  const versions = [
+    ...new Map(
+      judged
+        .filter((citation) => (citation.documentId ?? "") !== "")
+        .map((citation) => [
+          `${citation.documentId ?? ""}\u0000${citation.contentHash ?? ""}`,
+          { documentId: citation.documentId ?? "", contentHash: citation.contentHash ?? "" },
+        ]),
+    ).values(),
+  ];
+  return {
+    state: contradicted ? "contradicted" : unsupported ? "unsupported" : "supported",
+    verdict: deciding.verdict ?? null,
+    evidence: citationAttributesOf(deciding),
+    // Every judged Citation's version: a Document changed after the judgement asks again.
+    versions,
+    // The deciding Citation's own judgement time, not a later sentence's.
+    checkedAt: deciding.judgedAt ?? checkedAt,
+  };
 }
 
 /** The Citation markers an Answer's text shows, in order, one for each place: a marker used twice is two. */

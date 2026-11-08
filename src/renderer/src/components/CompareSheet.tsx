@@ -10,6 +10,7 @@ import {
   closeCompareSheet,
   documentIdsIn,
   makeComparisonTable,
+  type SheetQuestion,
   type SheetSource,
   sheetDocuments,
   updateCompareSheet,
@@ -27,7 +28,7 @@ import { useAppStore } from "../store";
 import { ComparisonDocumentList } from "./ComparisonDocumentList";
 import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
-import { ReadinessLine } from "./providers/ChatReadinessNotice";
+import { ReadinessLine, readinessAction } from "./providers/ChatReadinessNotice";
 import { NeedsModelCard } from "./providers/NeedsModelCard";
 import { buttonStyle, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
@@ -51,6 +52,7 @@ export function CompareSheet({
   const sheet = useComparisons((state) => state.sheets[mindId]);
   const problem = useComparisons((state) => state.problems[mindId]);
   const readiness = useAppStore((state) => state.chatReadiness);
+  const openSettings = useAppStore((state) => state.openSettings);
   const allDocuments = useAppStore((state) => state.documents);
   const library = useAppStore((state) => state.library);
   const settings = useAppStore((state) => state.settings);
@@ -79,7 +81,7 @@ export function CompareSheet({
     return documents.filter((document) => ticked.has(document.id));
   }, [documents, sheet?.checked]);
   const questions = sheet?.questions ?? [];
-  const asked = questions.filter((question) => question.trim() !== "");
+  const asked = questions.filter((question) => question.text.trim() !== "");
   const cells = checked.length * asked.length;
   const tickable = Math.min(documents.length, MAX_COMPARISON_DOCUMENTS);
   const allTicked = tickable > 0 && checked.length >= tickable;
@@ -108,7 +110,7 @@ export function CompareSheet({
   // biome-ignore lint/correctness/useExhaustiveDependencies: only as it opens, not as Questions are typed.
   useEffect(() => {
     if (!open) return;
-    if (questions.length === 0) updateCompareSheet(mindId, { questions: [""] });
+    if (questions.length === 0) updateCompareSheet(mindId, { questions: [{ text: "" }] });
     focusQuestion.current = 0;
     region.current?.scrollIntoView({ block: "nearest" });
   }, [open, mindId]);
@@ -184,10 +186,10 @@ export function CompareSheet({
     setAskedFor(null);
     selectAll.current?.focus();
   };
-  const setQuestions = (next: string[]) => updateCompareSheet(mindId, { questions: next });
+  const setQuestions = (next: SheetQuestion[]) => updateCompareSheet(mindId, { questions: next });
   const addQuestion = (at = questions.length) => {
     if (questions.length >= MAX_COMPARISON_QUESTIONS) return;
-    setQuestions([...questions.slice(0, at), "", ...questions.slice(at)]);
+    setQuestions([...questions.slice(0, at), { text: "" }, ...questions.slice(at)]);
     focusQuestion.current = at;
   };
   const toggle = (documentId: string) => {
@@ -226,7 +228,11 @@ export function CompareSheet({
       event.preventDefault();
       if (index === questions.length - 1) addQuestion();
       else questionFields.current[index + 1]?.focus();
-    } else if (event.key === "Backspace" && questions[index] === "" && questions.length > 1) {
+    } else if (
+      event.key === "Backspace" &&
+      (questions[index]?.text ?? "") === "" &&
+      questions.length > 1
+    ) {
       event.preventDefault();
       setQuestions(questions.filter((_, at) => at !== index));
       focusQuestion.current = Math.max(0, index - 1);
@@ -271,10 +277,12 @@ export function CompareSheet({
                   data-testid="compare-sheet-question"
                   aria-label={t("comparison.addQuestion.label")}
                   placeholder={t("comparison.addQuestion.placeholder")}
-                  value={question}
+                  value={question.text}
                   onChange={(event) =>
                     setQuestions(
-                      questions.map((each, at) => (at === index ? event.target.value : each)),
+                      questions.map((each, at) =>
+                        at === index ? { ...each, text: event.target.value } : each,
+                      ),
                     )
                   }
                   onKeyDown={onQuestionKey(index)}
@@ -284,10 +292,10 @@ export function CompareSheet({
                     type="button"
                     className="compare-sheet-remove"
                     aria-label={t("comparison.sheet.removeQuestion", {
-                      question: question || String(index + 1),
+                      question: question.text || String(index + 1),
                     })}
                     title={t("comparison.sheet.removeQuestion", {
-                      question: question || String(index + 1),
+                      question: question.text || String(index + 1),
                     })}
                     onClick={() => setQuestions(questions.filter((_, at) => at !== index))}
                   >
@@ -405,6 +413,16 @@ export function CompareSheet({
             {t("answer.error.consent-declined")}
           </ProblemLine>
         ))}
+      {!problem && readiness && !readiness.ready && (
+        <ProblemLine
+          role="status"
+          testId="compare-sheet-model-line"
+          className="compare-sheet-problem"
+          action={readinessAction(readiness, t, openSettings, t("comparison.sheet.setUp"))}
+        >
+          {t("comparison.sheet.needsModel")}
+        </ProblemLine>
+      )}
       {confirming ? (
         <div ref={ask} className="compare-sheet-ask">
           <AskBlock

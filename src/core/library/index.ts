@@ -29,17 +29,21 @@ import {
   TaggingNotReadyError,
 } from "../errors";
 import type { Language } from "../language";
+import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
+import type { OrganizeReviewFolder } from "../organizeReview/types";
+import { isDecisionHost, isDecisionModelId } from "../providers/catalog/decisions";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
+import { redactMessage } from "../redact";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import type { TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
-import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
+import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
-import type { FolderSample, GroupClassifier } from "./classifier";
+import type { FolderChoice, FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -68,12 +72,22 @@ import type {
 
 const AUTOMATIC: LibraryClassifier = { kind: "automatic" };
 
+/** A Document read to the end with nothing Organize can read. */
+const NO_TEXT = new Set(["no-text", "failed"]);
+
 const AUTOMATIC_OFF_NOTICE = "libraryAutomaticOffNotice";
+
+/** How many Documents an upgrade moved from their Suggested Folders into Suggestions (migration 136). */
+const REVIEW_MOVED_NOTICE = "organizeReviewMovedNotice";
 
 function taggingClassifierOf(value: unknown): TaggingClassifier | null {
   if (!isRecord(value)) return null;
   const { kind, baseUrl, modelId } = value;
   if (kind === "jev") return { kind };
+  if (kind === "decision") {
+    const { host } = value;
+    return isDecisionHost(host) && typeof modelId === "string" ? { kind, host, modelId } : null;
+  }
   if (kind === "chat")
     return isChatModelChoice(value.choice) ? { kind, choice: value.choice } : null;
   if (typeof baseUrl !== "string") return null;
@@ -88,7 +102,6 @@ interface AssignmentRow {
   created_at: string;
   filed_at: string | null;
   source: "automatic" | "user";
-  suggested: number;
   status: ClassificationStatus;
   content_hash: string | null;
   request_id: string;
@@ -167,7 +180,6 @@ const assignmentFields = (row: AssignmentRow): Omit<DocumentGroupAssignment, "do
   groupId: row.group_id,
   filedAt: row.filed_at ?? row.created_at,
   source: row.source,
-  suggested: row.suggested === 1,
   status: row.status,
   error: row.error_kind ? errorOf(row) : null,
   model: row.classification_model
@@ -234,7 +246,6 @@ const assignmentKey = (item: Omit<DocumentGroupAssignment, "documentId">): strin
   JSON.stringify([
     item.groupId,
     item.source,
-    item.suggested,
     item.status,
     item.error,
     item.model,
@@ -258,7 +269,7 @@ function parseAssignmentFields(
 ): Omit<DocumentGroupAssignment, "documentId"> | null {
   if (input === null) return null;
   if (!isRecord(input)) throw invalid;
-  const { groupId, filedAt, source, suggested, status, error, model } = input;
+  const { groupId, filedAt, source, status, error, model } = input;
   if (groupId !== null && (typeof groupId !== "string" || groupId === "")) throw invalid;
   if (
     filedAt !== undefined &&
@@ -268,7 +279,6 @@ function parseAssignmentFields(
   )
     throw invalid;
   if (source !== "automatic" && source !== "user") throw invalid;
-  if (typeof suggested !== "boolean" || (suggested && source !== "automatic")) throw invalid;
   const known = CLASSIFICATION_STATUSES.find((each) => each === status);
   if (!known) throw invalid;
   if (
@@ -281,7 +291,6 @@ function parseAssignmentFields(
     groupId,
     ...(filedAt !== undefined && { filedAt }),
     source,
-    suggested,
     status: known,
     error: error as ProviderError | null,
     model: model as ClassificationModel | null,
@@ -329,7 +338,7 @@ export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
 /**
  * One flat group per Document; user choices, including Not in a Folder, always win.
- * Organize's choices are Suggested Folders until the User accepts them.
+ * Organize files nothing: what it chooses waits in Suggestions for the User (#1569).
  */
 export function createLibrary(options: {
   db: Database;
@@ -383,6 +392,23 @@ export function createLibrary(options: {
    * (#1942). Asked at each use, since the examples are made after the Library.
    */
   isExampleDocument?(id: string): boolean;
+  /**
+   * A Document's first pages, while the rest of its scan is still being read (#2308): Organize
+   * reads them as it would read the finished Document, so it sorts it once, at once.
+   */
+  head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
+  /** Local mode: nothing goes to a cloud service, so nothing waits to be allowed there. */
+  localOnly?(): boolean;
+  /** How many Documents wait in Suggestions (`LibrarySnapshot.reviewCount`). */
+  reviewCount(): number;
+  /** Suggestions (../organizeReview): where Organize's choices go. */
+  review: {
+    propose(run: OrganizeReviewRun, proposals: readonly OrganizeReviewProposal[]): number;
+    proposeFolders(
+      folders: readonly { name: string; description: string; parentId?: string | null }[],
+    ): OrganizeReviewFolder[];
+    offeredFolders(): OrganizeReviewFolder[];
+  };
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -405,6 +431,14 @@ export function createLibrary(options: {
         ? Object.fromEntries(
             Object.entries(saved.automaticSince).filter(
               (each): each is [string, string] => typeof each[1] === "string",
+            ),
+          )
+        : null,
+      // Where each turn-on is in the database's order, which decides what came after it (#2370).
+      automaticSinceSeq: isRecord(saved.automaticSinceSeq)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSinceSeq).filter(
+              (each): each is [string, number] => typeof each[1] === "number",
             ),
           )
         : null,
@@ -439,15 +473,17 @@ export function createLibrary(options: {
     const since = sinceOf(saved);
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
-  /** When the User turned tagging on for this service; null if they haven't. */
-  const turnedOnAt = (service: ExternalService): string | null => {
-    const saved = savedSettings();
-    return saved.automaticSince
-      ? (saved.automaticSince[service.id] ?? null)
-      : options.consentedAt(service);
-  };
+  /** The place of the User's turn-on for this service in the database's order; null if none. */
+  const turnedOnSeq = (service: ExternalService): number | null =>
+    savedSettings().automaticSinceSeq?.[service.id] ?? null;
+  const sinceSeqOf = (saved: ReturnType<typeof savedSettings>): Record<string, number> =>
+    saved.automaticSinceSeq ?? {};
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
-    const { automaticSince: _automaticSince, ...shown } = saved;
+    const {
+      automaticSince: _automaticSince,
+      automaticSinceSeq: _automaticSinceSeq,
+      ...shown
+    } = saved;
     return {
       ...shown,
       automatic:
@@ -462,6 +498,10 @@ export function createLibrary(options: {
   /** What the User chose: the same as `settings`, without a model lent to a run (#2252). */
   const chosenSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
+  const reviewMoved = (): number => {
+    const count = settings.readDeviceValue(REVIEW_MOVED_NOTICE);
+    return typeof count === "number" && count > 0 ? count : 0;
+  };
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
     if (!noticeIsOpen(marker)) return false;
@@ -474,11 +514,62 @@ export function createLibrary(options: {
       "SELECT a.group_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id WHERE a.document_id = ? AND a.deleted_at IS NULL AND g.deleted_at IS NULL",
       [id],
     )?.group_id ?? null;
+  /** A Document filed inside a Folder that keeps its work inside it: nothing of it goes to a cloud service by itself (#2308). */
+  const inWall = (id: string) => {
+    const place = placeOf(id);
+    return place !== null && wallOf(place) !== null;
+  };
   const taggingStoppedFor = (id: string) => {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
   };
-  const asked = new Set<string>();
+  /** What the User asked of a Document: it lives until that request finishes (#2308). */
+  interface AskedRequest {
+    /** The service a billing continuation was authorized for; null for the User's own request. */
+    service: string | null;
+    /** The failure the continuation leaves in place if Organize's destination no longer matches. */
+    failure: { status: "failed" | "waiting"; error: ProviderError | null } | null;
+    /** Who started the run, as its proposals say. */
+    run: OrganizeReviewRun;
+  }
+  /** A new request's own object: an attempt may act only while `asked` still holds it. */
+  const ownRequest = (run: OrganizeReviewRun): AskedRequest => ({
+    service: null,
+    failure: null,
+    run,
+  });
+  const BACKGROUND: OrganizeReviewRun = { origin: "background" };
+  /**
+   * The Folders Organize may choose: the live ones, then those proposed by name that wait for the
+   * User, which a run outside a wall may choose too (#1569).
+   */
+  const choicesOf = (allowed?: ReadonlySet<string>, newFolders = true): FolderChoice[] => [
+    ...groups().filter((group) => !allowed || allowed.has(group.id)),
+    ...(newFolders
+      ? options.review
+          .offeredFolders()
+          .filter((folder) => !allowed || folder.parentId === null || allowed.has(folder.parentId))
+      : []),
+  ];
+  const nothingToChoose = () =>
+    groups().length === 0 && options.review.offeredFolders().length === 0;
+  /** A Document the User asked about that Organize can't read waits in Suggestions as left out. */
+  const leaveOut = (
+    doc: DocumentRow,
+    request: AskedRequest | undefined,
+    leftOut: Extract<OrganizeReviewProposal["placement"], { kind: "leftOut" }>["leftOut"],
+  ) => {
+    if (!request || request.run.origin === "background") return;
+    options.review.propose(request.run, [
+      {
+        documentId: doc.id,
+        contentHash: doc.content_hash,
+        placement: { kind: "leftOut", leftOut },
+        tags: [],
+      },
+    ]);
+  };
+  const asked = new Map<string, AskedRequest>();
   const checkClassifier = (selected: Record<string, unknown>) => {
     if (selected.kind === "chat") {
       if (
@@ -508,6 +599,9 @@ export function createLibrary(options: {
       selected.baseUrl = normalizeBaseUrl(selected.baseUrl);
       if (serviceForUrl(selected.baseUrl as string))
         throw new InvalidInputError({ key: "error.library.ollamaNotLocal" });
+    } else if (selected.kind === "decision") {
+      if (!isDecisionHost(selected.host) || !isDecisionModelId(selected.modelId))
+        throw new InvalidInputError({ key: "error.library.classifierModel" });
     } else if (selected.kind !== "jev")
       throw new InvalidInputError("Choose a supported classifier.");
   };
@@ -596,23 +690,41 @@ export function createLibrary(options: {
     }
     return null;
   };
+  /**
+   * The Transcripts of the Meetings whose Notes are in this Folder: a Transcript has no Folder of
+   * its own, it is where its Note is (#2528).
+   */
+  const transcriptIdsIn = (folderId: string): string[] =>
+    db
+      .all<{ id: string }>(
+        `SELECT d.id FROM documents d JOIN minds n ON n.id = d.meeting_mind_id
+         JOIN library_groups g ON g.id = n.folder_id
+         WHERE g.id = ? AND g.deleted_at IS NULL AND n.deleted_at IS NULL AND d.deleted_at IS NULL`,
+        [folderId],
+      )
+      .map((row) => row.id);
   /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
   const filedDocumentIdsOf = (folderId: string): string[] => {
     const walled = wallOf(folderId) !== null;
-    return db
-      .all<{ document_id: string }>(
-        `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
-        [folderId],
-      )
-      .map((row) => row.document_id);
+    return [
+      ...db
+        .all<{ document_id: string }>(
+          `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
+          [folderId],
+        )
+        .map((row) => row.document_id),
+      ...transcriptIdsIn(folderId),
+    ];
   };
-  const everyFiledDocumentIdsOf = (folderId: string): string[] =>
-    db
+  const everyFiledDocumentIdsOf = (folderId: string): string[] => [
+    ...db
       .all<{ document_id: string }>(
         "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
         [folderId],
       )
-      .map((row) => row.document_id);
+      .map((row) => row.document_id),
+    ...transcriptIdsIn(folderId),
+  ];
   const document = (id: unknown) => {
     if (typeof id !== "string") throw new InvalidInputError("A Document id must be text.");
     const value = db.get<DocumentRow>(
@@ -622,19 +734,33 @@ export function createLibrary(options: {
     if (!value) throw new NotFoundError({ key: "error.document.gone" });
     return value;
   };
+  const isTranscriptOfNote = (id: string): boolean =>
+    db.get("SELECT 1 FROM documents WHERE id = ? AND meeting_mind_id IS NOT NULL", [id]) !==
+    undefined;
+  /** A Document the User or Organize may file; a Meeting's Transcript is never filed alone (#2528). */
+  const fileable = (id: unknown) => {
+    const doc = document(id);
+    if (isTranscriptOfNote(doc.id)) {
+      throw new InvalidInputError({ key: "error.transcript.withNote" });
+    }
+    return doc;
+  };
+  /** What Organize leaves where it is: the examples' Documents (#1942) and Meetings' Transcripts (#2528). */
+  const leftAlone = (id: string): boolean =>
+    options.isExampleDocument?.(id) === true || isTranscriptOfNote(id);
   const assignment = (id: string) =>
     db.get<AssignmentRow>(
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [id],
     );
-  const rejected = (id: string) =>
-    new Set(
-      db
-        .all<{ group_id: string }>(
-          "SELECT group_id FROM document_group_rejections WHERE document_id = ? AND deleted_at IS NULL",
-          [id],
-        )
-        .map((row) => row.group_id),
+  /**
+   * Organize took this version up before and let it go: an Undo took its filing back, or it was
+   * held back for the User. Reading the rest of it, or reading it again, doesn't file it (#2308).
+   */
+  const filedBefore = (doc: DocumentRow) =>
+    !!db.get(
+      "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
+      [doc.id, doc.content_hash],
     );
   /**
    * Announces these Documents' assignments, as the snapshot lists them (those
@@ -657,7 +783,8 @@ export function createLibrary(options: {
       (["ready", "waiting-for-model", "embedding"].includes(doc.status) &&
         !!db.get("SELECT 1 FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1", [
           doc.id,
-        ]))
+        ])) ||
+      !!options.head?.(doc.id)
     );
   };
   const scanWaits = (doc: DocumentRow): ProviderError | undefined => {
@@ -672,8 +799,20 @@ export function createLibrary(options: {
         }
       : undefined;
   };
-  /** What Organize reads of the indexed version (see ./excerpt). */
-  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => ({
+  /** What Organize reads of the indexed version (see ./excerpt), or of its first pages. */
+  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => {
+    const head = options.head?.(doc.id);
+    if (head)
+      return {
+        name: doc.name,
+        kind: doc.kind,
+        pageCount: head.pageCount,
+        passages: withPassages ? head.passages : [],
+        units: head.units,
+      };
+    return indexedSource(doc, withPassages);
+  };
+  const indexedSource = (doc: DocumentRow, withPassages: boolean): OrganizeSource => ({
     name: doc.name,
     kind: doc.kind,
     pageCount: doc.page_count,
@@ -749,19 +888,17 @@ export function createLibrary(options: {
     source: "automatic" | "user",
     status: ClassificationStatus,
     model: ClassificationModel | null = null,
-    suggested = false,
   ) => {
     const at = now();
     const existing = assignment(doc.id);
     if (existing) {
       db.run(
-        "UPDATE document_groups SET filed_at = CASE WHEN group_id IS ? THEN filed_at ELSE ? END, group_id = ?, source = ?, suggested = ?, status = ?, content_hash = ?, request_id = ?, error_kind = NULL, error_message = NULL, error_wording = NULL, updated_at = ?, classification_model = ? WHERE document_id = ? AND deleted_at IS NULL",
+        "UPDATE document_groups SET filed_at = CASE WHEN group_id IS ? THEN filed_at ELSE ? END, group_id = ?, source = ?, status = ?, content_hash = ?, request_id = ?, error_kind = NULL, error_message = NULL, error_wording = NULL, updated_at = ?, classification_model = ? WHERE document_id = ? AND deleted_at IS NULL",
         [
           groupId,
           at,
           groupId,
           source,
-          suggested ? 1 : 0,
           status,
           doc.content_hash,
           randomUUID(),
@@ -772,13 +909,12 @@ export function createLibrary(options: {
       );
     } else {
       db.run(
-        "INSERT INTO document_groups (id, document_id, group_id, source, suggested, status, content_hash, request_id, created_at, updated_at, filed_at, classification_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO document_groups (id, document_id, group_id, source, status, content_hash, request_id, created_at, updated_at, filed_at, classification_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           randomUUID(),
           doc.id,
           groupId,
           source,
-          suggested ? 1 : 0,
           status,
           doc.content_hash,
           randomUUID(),
@@ -806,15 +942,7 @@ export function createLibrary(options: {
     }
     // The move cancelled its classification: it waits its turn again.
     const status = target.status === "classifying" ? "pending" : target.status;
-    write(doc, target.groupId, target.source, status, target.model, target.suggested);
-    // Taking back a rejection brings the Folder back among those Organize may offer again.
-    if (target.suggested && target.groupId) {
-      const at = now();
-      db.run(
-        "UPDATE document_group_rejections SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND group_id = ? AND deleted_at IS NULL",
-        [at, at, doc.id, target.groupId],
-      );
-    }
+    write(doc, target.groupId, target.source, status, target.model);
     if (target.filedAt !== undefined)
       db.run(
         "UPDATE document_groups SET filed_at = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -845,41 +973,9 @@ export function createLibrary(options: {
     );
   };
 
-  const review = (input: unknown, change: (row: AssignmentRow) => void): AssignmentChange[] => {
-    if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-      throw new InvalidInputError("Choose valid Documents.");
-    const docs = [...new Set(input as string[])].map(document);
-    const changes = db.transaction(() =>
-      docs.flatMap((doc) => {
-        const before = assignment(doc.id);
-        if (!before?.suggested) return [];
-        const taggingBefore = taggingSnapshot(doc.id);
-        change(before);
-        const after = assignment(doc.id);
-        const taggingAfter = taggingSnapshot(doc.id);
-        const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
-        return [
-          {
-            documentId: doc.id,
-            before: {
-              assignment: assignmentFields(before),
-              tagging: taggingMoved ? taggingBefore : null,
-            },
-            after: {
-              assignment: after ? assignmentFields(after) : null,
-              tagging: taggingMoved ? taggingAfter : null,
-            },
-          },
-        ];
-      }),
-    );
-    announce(changes.map((each) => each.documentId));
-    return changes;
-  };
-
   function enqueue(id: string): void {
     if (lifetime.signal.aborted || queued.has(id)) return;
-    if (groups().length === 0) {
+    if (nothingToChoose()) {
       if (assignment(id)?.status === "pending") state(id, "waiting");
       return;
     }
@@ -906,12 +1002,14 @@ export function createLibrary(options: {
       const waits = scanWaits(doc);
       const saidSo = current.error_wording?.includes("error.library.scanImagesOff") === true;
       if (current.status !== "classified" && !!waits !== saidSo) state(id, "waiting", waits);
+      if (NO_TEXT.has(doc.status)) leaveOut(doc, asked.get(id), { reason: "noText" });
       return;
     }
     queued.add(id);
     background.add({
       kind: "classification",
       async run(call) {
+        const requestAtStart = asked.get(id);
         try {
           await classifyOne(id, { signal: call.signal, runsLocally: () => call.runsLocally() });
         } finally {
@@ -922,7 +1020,7 @@ export function createLibrary(options: {
               const status = assignment(id)?.status;
               // Waiting to be allowed, it is still the User's request when it goes.
               if (status === "pending") enqueue(id);
-              else if (status !== "waiting") asked.delete(id);
+              else if (status !== "waiting" && asked.get(id) === requestAtStart) asked.delete(id);
             }
           }
         }
@@ -943,11 +1041,23 @@ export function createLibrary(options: {
       applied?(id: string, links: readonly TagLinkChange[]): void;
       /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
       allowedGroups?: ReadonlySet<string>;
+      /** Whether it may choose a Folder proposed by name, which a walled run may not. */
+      newFolders?: boolean;
       /** The one service this run's Allow covers, without storing consent (#2252). */
       permit?: CloudReadPermit;
     },
   ): Promise<void> {
     const initial = assignment(id);
+    const request = asked.get(id);
+    const abandoned = () => asked.get(id) !== request;
+    const binding = request?.service ?? null;
+    const destinationChanged = () =>
+      binding !== null && options.organizeService(getSettings())?.id !== binding;
+    const stopForDestination = () => {
+      if (binding === null || abandoned()) return;
+      asked.delete(id);
+      state(id, request?.failure?.status ?? "failed", request?.failure?.error ?? undefined);
+    };
     const version = revision;
     const stale = () =>
       lifetime.signal.aborted ||
@@ -959,11 +1069,10 @@ export function createLibrary(options: {
       const current = document(id);
       if (!hasContent(current)) {
         state(id, "waiting", scanWaits(current));
+        if (NO_TEXT.has(current.status)) leaveOut(current, request, { reason: "noText" });
         return;
       }
-      const definitions = groups().filter(
-        (group) => !call.allowedGroups || call.allowedGroups.has(group.id),
-      );
+      const definitions = choicesOf(call.allowedGroups, call.newFolders);
       const tagDefinitions = options.tags.list();
       if (definitions.length === 0) {
         state(id, "waiting");
@@ -983,34 +1092,51 @@ export function createLibrary(options: {
         state(id, "waiting", refusal);
         return;
       }
+      if (abandoned()) return;
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       state(id, "classifying");
       const settingsNow = getSettings();
       const classifier = await options.prepare(settingsNow, call.permit);
       if (classifier.local) call.runsLocally();
       if (stale()) return;
+      if (abandoned()) return;
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       const services = service ? [service] : [];
-      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+      if (
+        !asked.has(id) &&
+        (!mayBackgroundSend(db, id, services, turnedOnSeq) || (services.length > 0 && inWall(id)))
+      ) {
         holdBack(id, initial);
         return;
       }
-      const declined = rejected(id);
-      const offered = definitions.filter((item) => !declined.has(item.id));
       const read = source(current);
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
       const images = organizeReadsPages(classifier.pageImages, read)
         ? await options.pageImages(id, current.content_hash ?? "", signal)
         : [];
       if (stale()) return;
+      if (abandoned()) return;
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       const result = await classifier.organize(
-        offered,
+        definitions,
         tagDefinitions,
         organizeExcerpt(read),
         signal,
         images,
       );
       if (stale()) return;
+      if (abandoned()) return;
       options.rateLimit.succeeded();
       const latest = document(id);
       if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
@@ -1023,24 +1149,49 @@ export function createLibrary(options: {
         return;
       }
       const { groupId } = result;
-      if (groupId !== null && !offered.some((item) => item.id === groupId))
-        throw new Error("The classifier returned an unknown group.");
+      const choice = groupId === null ? null : definitions.find((item) => item.id === groupId);
+      if (choice === undefined) throw new Error("The classifier returned an unknown group.");
       if (result.fallback) console.info(fallbackLine(id));
-      const chosen = initial.source === "user";
+      const proposedFolder =
+        choice && !groups().some((group) => group.id === choice.id)
+          ? options.review.offeredFolders().find((folder) => folder.id === choice.id)
+          : undefined;
+      const placement: OrganizeReviewProposal["placement"] =
+        choice === null
+          ? { kind: "leftOut", leftOut: { reason: "doesntFit" } }
+          : proposedFolder
+            ? {
+                kind: "newFolder",
+                name: proposedFolder.name,
+                description: proposedFolder.description,
+                parentId: proposedFolder.parentId,
+              }
+            : { kind: "folder", folderId: choice.id };
       const { made, links } = db.transaction(() => {
+        // The Document stays where it is: its place waits in Suggestions for the User (#1569).
         write(
           latest,
-          chosen ? initial.group_id : groupId,
+          initial.group_id,
           initial.source,
           "classified",
           classifier.model
             ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
             : null,
-          !chosen && groupId !== null,
         );
+        options.review.propose(request?.run ?? BACKGROUND, [
+          { documentId: id, contentHash: latest.content_hash, placement, tags: [] },
+        ]);
         const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
         tagState(id, "classified");
-        if (asked.has(id)) clearForService(db, id, services, now());
+        const current = asked.get(id);
+        // A clearance goes only to the service this attempt's own request was authorized for.
+        if (
+          current !== undefined &&
+          current === request &&
+          (current.service === null || services.some((each) => each.id === current.service))
+        ) {
+          clearForService(db, id, services, now());
+        }
         return applied;
       });
       if (made > 0) options.tagsMade?.();
@@ -1062,21 +1213,56 @@ export function createLibrary(options: {
           gateStop(error) !== null ||
           error instanceof TaggingNotReadyError ||
           reachedPlanLimit(error);
-        state(
-          id,
-          waiting ? "waiting" : "failed",
+        const said =
           limitedUntil === null
             ? (refused ?? classifyProviderError(error))
-            : rateLimitError(limitedUntil, error),
+            : rateLimitError(limitedUntil, error);
+        state(id, waiting ? "waiting" : "failed", said);
+        const service = options.organizeService(getSettings());
+        if (!waiting && service && (said.kind === "network" || said.kind === "provider")) {
+          const doc = db.get<DocumentRow>(
+            "SELECT id, name, kind, page_count, content_hash, status FROM documents WHERE id = ? AND deleted_at IS NULL",
+            [id],
+          );
+          if (doc) leaveOut(doc, request, { reason: "unreachable", service: service.name });
+        }
+        // The app log's scrubber takes a UUID for a key: dotted, the id stays findable.
+        console.error(
+          `Organize failed on Document ${id.replaceAll("-", ".")}: ${said.kind}${said.status === undefined ? "" : ` (${said.status})`}. ${redactMessage(said.message)}`,
         );
         call.failed?.(error);
       }
     }
   }
 
-  const queueClassification = (ids: readonly string[]) => {
+  const queueClassification = (
+    ids: readonly string[],
+    run: OrganizeReviewRun,
+    forService?: string,
+  ) => {
+    const service = options.organizeService(getSettings());
+    // A continuation goes only where its press was authorized: nothing is queued or cleared otherwise.
+    if (forService !== undefined && service?.id !== forService) return;
     const docs = ids.map(document);
-    for (const doc of docs) asked.add(doc.id);
+    for (const doc of docs) {
+      if (forService === undefined) {
+        // A new request of the User's own replaces a continuation it supersedes for these Documents.
+        asked.set(doc.id, ownRequest(run));
+      } else {
+        const existing = assignment(doc.id);
+        asked.set(doc.id, {
+          run,
+          service: forService,
+          failure: {
+            status: existing?.status === "failed" ? "failed" : "waiting",
+            error: existing ? assignmentFields(existing).error : null,
+          },
+        });
+      }
+    }
+    // The request goes to this service, after a quit too: kept, not only in memory. A
+    // continuation's binding lives in memory only, but its clearance names its own service alone.
+    if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
         const existing = assignment(doc.id);
@@ -1085,8 +1271,6 @@ export function createLibrary(options: {
           existing?.group_id ?? null,
           existing?.source ?? "automatic",
           hasContent(doc) ? "pending" : "waiting",
-          null,
-          existing?.suggested === 1,
         );
         tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
       }
@@ -1101,8 +1285,9 @@ export function createLibrary(options: {
       .all<{ document_id: string }>(
         "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
       )
-      // An assignment an earlier version made for an example's Document isn't worked on again.
-      .filter((row) => !options.isExampleDocument?.(row.document_id));
+      // An assignment an earlier version made for an example's Document or a Meeting's Transcript
+      // isn't worked on again.
+      .filter((row) => !leftAlone(row.document_id));
     // Existing batches run text first, then PDFs needing images, avoiding model churn.
     const ordered =
       organizeModelOf(getSettings())?.kind === "auto"
@@ -1146,16 +1331,14 @@ export function createLibrary(options: {
     return group(id);
   }
 
-  function parseGroup(input: unknown, exceptId?: string) {
+  function parseGroup(input: unknown, existing?: { id: string; parentId: string | null }) {
     if (!isRecord(input) || typeof input.name !== "string" || typeof input.description !== "string")
       throw new InvalidInputError({ key: "error.folder.nameAndDescription" });
     const name = input.name.trim();
     const description = input.description.trim();
     if (!name || name.length > 100 || description.length > 500)
       throw new InvalidInputError({ key: "error.folder.lengths" });
-    if (groups().some((item) => item.id !== exceptId && sameName(item.name, name)))
-      throw new InvalidInputError({ key: "error.folder.nameTaken" });
-    if (!exceptId && groups().length >= 100)
+    if (existing === undefined && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
     const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
@@ -1164,12 +1347,20 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.keepInside" });
     if (parentId !== undefined && parentId !== null && typeof parentId !== "string")
       throw new InvalidInputError({ key: "error.folder.parentId" });
-    const inside = parentId === undefined ? undefined : parentId;
-    if (inside !== undefined && inside !== null) {
+    const inside = parentId === undefined ? (existing?.parentId ?? null) : parentId;
+    if (inside !== null) {
       group(inside);
-      if (exceptId !== undefined && (inside === exceptId || subtree(exceptId).includes(inside)))
+      if (
+        existing !== undefined &&
+        (inside === existing.id || subtree(existing.id).includes(inside))
+      )
         throw new InvalidInputError({ key: "error.folder.insideItself" });
     }
+    // A name is one a Folder in the same place has, not one any Folder has (#2425).
+    const taken = groups().some(
+      (item) => item.id !== existing?.id && item.parentId === inside && sameName(item.name, name),
+    );
+    if (taken) throw new InvalidInputError({ key: "error.folder.nameTaken" });
     return { name, description, countsOwnFiles, keepInside, parentId: inside };
   }
 
@@ -1217,6 +1408,19 @@ export function createLibrary(options: {
     announce([id]);
   }
 
+  /**
+   * The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). None
+   * when turning sorting on would turn it on for another service too (tagging's, say a Jev key's):
+   * the row's Allow names one service, and is the consent for that one only.
+   */
+  function sortWaitsFor(): ExternalService | null {
+    const now = getSettings();
+    if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
+    const service = options.organizeService(now);
+    if (!service || options.sendsTo(now).some((each) => each.id !== service.id)) return null;
+    return service;
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -1237,7 +1441,7 @@ export function createLibrary(options: {
         lent = null;
       };
     },
-    turnedOnAt,
+    turnedOnSeq,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1271,7 +1475,7 @@ export function createLibrary(options: {
         )
         .map((row) => row.id)
         .filter((id) => places.includes(placeOf(id)));
-      for (const id of ids) asked.add(id);
+      for (const id of ids) asked.set(id, ownRequest(BACKGROUND));
       db.transaction(() => {
         for (const id of ids) {
           const existing = assignment(id);
@@ -1280,8 +1484,6 @@ export function createLibrary(options: {
             existing?.group_id ?? null,
             existing?.source ?? "automatic",
             "pending",
-            null,
-            existing?.suggested === 1,
           );
           tagState(id, "pending");
         }
@@ -1303,16 +1505,19 @@ export function createLibrary(options: {
       return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
     /**
-     * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
-     * suggested Folder waiting counts as in it, a Linked folder's Documents are in none
-     * until they are filed.
+     * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked
+     * folder's Documents are in none until they are filed, and a Meeting's Transcript is where
+     * its Note is (#2528).
      */
     unfiledDocumentIds(): string[] {
       return db
         .all<{ id: string }>(
           `SELECT d.id FROM documents d WHERE d.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM document_groups a JOIN library_groups g ON g.id = a.group_id
-             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)`,
+             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)
+           AND (d.meeting_mind_id IS NULL OR NOT EXISTS (
+             SELECT 1 FROM minds n JOIN library_groups g ON g.id = n.folder_id
+             WHERE n.id = d.meeting_mind_id AND g.deleted_at IS NULL))`,
         )
         .map((row) => row.id);
     },
@@ -1328,6 +1533,7 @@ export function createLibrary(options: {
         )
         .map(toGroup);
       const saved = savedSettings();
+      const waiting = sortWaitsFor();
       return {
         groups: groups(),
         deletedGroups,
@@ -1335,13 +1541,43 @@ export function createLibrary(options: {
         settings: shownSettings(saved),
         automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
+        ...(waiting && { sortWaitsFor: waiting }),
+        reviewCount: options.reviewCount(),
+        ...(reviewMoved() > 0 && { reviewMoved: reviewMoved() }),
       };
+    },
+    /**
+     * The plan has finished with these Documents (#1569): each is done, in the Folder it is in,
+     * so none still waits to be allowed or counts as failed, and a job of the queue still running
+     * on it stops.
+     */
+    settle(ids: readonly string[]): void {
+      const done = db.transaction(() =>
+        ids.flatMap((id) => {
+          const row = assignment(id);
+          const doc = db.get<DocumentRow>(
+            "SELECT id, name, kind, page_count, content_hash, status FROM documents WHERE id = ? AND deleted_at IS NULL",
+            [id],
+          );
+          if (!doc || row?.status === "classified") return [];
+          asked.delete(id);
+          write(doc, row?.group_id ?? null, row?.source ?? "automatic", "classified");
+          return [id];
+        }),
+      );
+      if (done.length > 0) announce(done);
+    },
+    reviewMovedSeen(): void {
+      if (reviewMoved() === 0) return;
+      settings.writeDeviceValue(REVIEW_MOVED_NOTICE, 0);
+      changed();
     },
     dismissAutomaticOffNotice(): void {
       if (settings.readDeviceValue(AUTOMATIC_OFF_NOTICE) !== true) return;
       settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       changed();
     },
+    inWall,
     /** A live Folder, or NotFoundError. */
     folder: group,
     /** The live Folders, by name. */
@@ -1353,7 +1589,7 @@ export function createLibrary(options: {
      */
     move(ids: readonly string[], groupId: string | null): MovedDocument[] {
       if (groupId !== null) group(groupId);
-      const docs = ids.map(document);
+      const docs = ids.map(fileable);
       const moved = db.transaction(() =>
         docs.map((doc) => {
           const before = assignment(doc.id);
@@ -1395,7 +1631,7 @@ export function createLibrary(options: {
     create,
     update(id: unknown, input: unknown) {
       const existing = group(id);
-      const value = parseGroup(input, existing.id);
+      const value = parseGroup(input, existing);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
       const keepInside = value.keepInside ?? existing.keepInside;
       const parentId = value.parentId === undefined ? existing.parentId : value.parentId;
@@ -1452,6 +1688,14 @@ export function createLibrary(options: {
       }
       const changes = moving;
       if (changes.length === 0) return [];
+      // Two Folders with one name may not become siblings by a move (#2425).
+      const named = new Map<string, string>();
+      for (const folder of live.values()) {
+        const parent = parentAfter.get(folder.id) ?? null;
+        const key = `${parent ?? ""}\u0000${folder.name.toLowerCase()}`;
+        if (named.has(key)) throw new InvalidInputError({ key: "error.folder.nameTaken" });
+        named.set(key, folder.id);
+      }
       db.transaction(() => {
         const at = now();
         for (const change of changes)
@@ -1495,17 +1739,20 @@ export function createLibrary(options: {
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
       const folders = subtree(existing.id);
+      // The record is dated when it is written, not at `at`: Undo of a Restore deletes a Folder
+      // at its old time after an item was deleted at the Undo's own, and the item still reads the
+      // Folder it was in (#2274).
+      const written = now();
       const record = (
         folderId: string,
         kind: "document" | "mind" | "conversation",
         itemId: string,
-        suggested = 0,
       ) =>
         db.run(
           `INSERT INTO deleted_folder_items
-             (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), folderId, kind, itemId, suggested, at, at],
+             (id, folder_id, item_kind, item_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [randomUUID(), folderId, kind, itemId, written, written],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
@@ -1520,8 +1767,7 @@ export function createLibrary(options: {
           [at, at, JSON.stringify(folders)],
         );
         for (const row of rows) {
-          if (row.group_id !== null)
-            record(row.group_id, "document", row.document_id, row.suggested);
+          if (row.group_id !== null) record(row.group_id, "document", row.document_id);
         }
         for (const [folderId, ids] of Object.entries(taken.minds ?? {})) {
           for (const mindId of ids) record(folderId, "mind", mindId);
@@ -1530,7 +1776,7 @@ export function createLibrary(options: {
           for (const conversationId of ids) record(folderId, "conversation", conversationId);
         }
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          "UPDATE document_groups SET group_id = NULL, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
           [at, JSON.stringify(folders)],
         );
         return rows.filter((row) => row.live).map((row) => assignmentOf(row));
@@ -1559,16 +1805,29 @@ export function createLibrary(options: {
       if (!row) throw new NotFoundError({ key: "error.folder.notFound" });
       const folders = row.deleted_at === null ? [id] : deletedWith(id, row.deleted_at);
       const live = groups();
-      const takenNames = new Set(live.map((folder) => folder.name.toLowerCase()));
-      for (const folder of db.all<{ name: string }>(
-        "SELECT name FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
+      const liveIds = new Set(live.map((folder) => folder.id));
+      const returning = db.all<{ id: string; name: string; parent_id: string | null }>(
+        "SELECT id, name, parent_id FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
         [JSON.stringify(folders)],
-      )) {
-        if (takenNames.has(folder.name.toLowerCase()))
+      );
+      const returningIds = new Set(returning.map((folder) => folder.id));
+      // The place each comes back to: its parent's, unless that Folder stays deleted and it goes
+      // to the top level; a name is free when no Folder in that place has it (#2425).
+      const placeOf = (parentId: string | null) =>
+        parentId !== null && (liveIds.has(parentId) || returningIds.has(parentId))
+          ? parentId
+          : null;
+      const named = new Map<string, string>();
+      for (const folder of live)
+        named.set(`${folder.parentId ?? ""}\u0000${folder.name.toLowerCase()}`, folder.id);
+      for (const folder of returning) {
+        const key = `${placeOf(folder.parent_id) ?? ""}\u0000${folder.name.toLowerCase()}`;
+        if (named.has(key))
           throw new InvalidInputError({
             key: "error.restore.folderNameTaken",
             values: { name: folder.name },
           });
+        named.set(key, folder.id);
       }
       if (live.length + folders.length > 100)
         throw new InvalidInputError({ key: "error.restore.folderLimit" });
@@ -1591,14 +1850,36 @@ export function createLibrary(options: {
         list,
       ]);
       db.run(
-        `UPDATE document_groups SET group_id = item.folder_id, suggested = item.suggested,
-           updated_at = ?
+        `UPDATE document_groups SET group_id = item.folder_id, updated_at = ?
          FROM deleted_folder_items item
          WHERE item.folder_id IN (SELECT value FROM json_each(?))
-           AND item.item_kind = 'document' AND item.deleted_at IS NULL
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL AND item.suggested = 0
            AND item.item_id = document_groups.document_id
            AND document_groups.deleted_at IS NULL AND document_groups.group_id IS NULL`,
         [at, list],
+      );
+      // One that waited in it as a suggestion, from before Suggestions, waits there again (#1569).
+      const waited = db.all<{
+        document_id: string;
+        folder_id: string;
+        content_hash: string | null;
+      }>(
+        `SELECT g.document_id, item.folder_id, d.content_hash FROM deleted_folder_items item
+         JOIN document_groups g ON g.document_id = item.item_id AND g.deleted_at IS NULL
+           AND g.group_id IS NULL
+         JOIN documents d ON d.id = item.item_id
+         WHERE item.folder_id IN (SELECT value FROM json_each(?))
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL AND item.suggested = 1`,
+        [list],
+      );
+      options.review.propose(
+        { origin: "migrated" },
+        waited.map((row) => ({
+          documentId: row.document_id,
+          contentHash: row.content_hash,
+          placement: { kind: "folder", folderId: row.folder_id },
+          tags: [],
+        })),
       );
       const taken = (kind: "mind" | "conversation") => {
         const byFolder = new Map<string, string[]>();
@@ -1643,6 +1924,29 @@ export function createLibrary(options: {
         }
       });
     },
+    /**
+     * Forgets the choice, and Organize's kept model, where `reached` says they name what can't run
+     * any more: a removed key's host (#1907). They go back to Automatic and to none as saved, with
+     * no check of what they named, which may be gone too, and nothing else changes: the switch,
+     * its turn-ons and a model lent to a run stay as they are. False when neither named it.
+     */
+    forgetModel(reached: (classifier: TaggingClassifier) => boolean): boolean {
+      const stored = settings.readDeviceValue("library");
+      const saved = isRecord(stored) ? stored : {};
+      const classifier = taggingClassifierOf(saved.classifier);
+      const organizeWith = taggingClassifierOf(saved.organizeWith);
+      const dropsChoice = classifier !== null && reached(classifier);
+      const dropsKept = organizeWith !== null && reached(organizeWith);
+      if (!dropsChoice && !dropsKept) return false;
+      settings.writeDeviceValue("library", {
+        ...saved,
+        ...(dropsChoice && { classifier: AUTOMATIC }),
+        ...(dropsKept && { organizeWith: null }),
+      });
+      revision++;
+      changed();
+      return true;
+    },
     saveSettings(input: unknown) {
       if (!isRecord(input) || typeof input.automatic !== "boolean")
         throw new InvalidInputError("Choose classification settings.");
@@ -1662,9 +1966,10 @@ export function createLibrary(options: {
         classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
         organizeWith: taggingClassifierOf(organizeWith),
       };
-      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
-      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
-      // the switch as shown, which can be a window's older view (#2308).
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when and
+      // where in the database's order, for each service it sends to (ADR-0022, #2370). Any other
+      // save may only turn it off: a save sends the switch as shown, which can be a window's
+      // older view (#2308).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
       const automatic = turnOn
@@ -1672,9 +1977,9 @@ export function createLibrary(options: {
         : input.automatic === false && showing
           ? false
           : before.automatic;
-      const at = turnOnTime(db, now());
+      const at = now();
       // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
-      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // its place: what came in while it was on stays new. Where the User took the consent back,
       // turning it on is a new consent.
       const onFor = new Set(
         showing
@@ -1684,17 +1989,18 @@ export function createLibrary(options: {
               .map((service) => service.id)
           : [],
       );
+      const freshOn = turnOn
+        ? options.sendsTo(next).filter((service) => !onFor.has(service.id))
+        : [];
       const automaticSince = turnOn
-        ? {
-            ...sinceOf(before),
-            ...Object.fromEntries(
-              options
-                .sendsTo(next)
-                .filter((service) => !onFor.has(service.id))
-                .map((service) => [service.id, at]),
-            ),
-          }
+        ? { ...sinceOf(before), ...Object.fromEntries(freshOn.map((service) => [service.id, at])) }
         : sinceOf(before);
+      const automaticSinceSeq = turnOn
+        ? {
+            ...sinceSeqOf(before),
+            ...Object.fromEntries(freshOn.map((service) => [service.id, nextSequence(db, at)])),
+          }
+        : sinceSeqOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
@@ -1703,6 +2009,7 @@ export function createLibrary(options: {
         ...(automatic !== null && { automatic }),
         organizeWith,
         automaticSince,
+        automaticSinceSeq,
         taggingStopped: before.taggingStopped,
       });
       revision++;
@@ -1718,45 +2025,49 @@ export function createLibrary(options: {
       input: unknown,
       language: Language,
       permit?: CloudReadPermit,
-    ): Promise<LibraryGroup[]> {
+      forService?: string,
+    ): Promise<OrganizeReviewFolder[]> {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
+      // A continuation proposes only to the service its press was authorized for (#2308).
+      if (forService !== undefined && options.organizeService(settings)?.id !== forService)
+        return [];
       const docs = documentIdsOf(input)
-        .filter((id) => !options.isExampleDocument?.(id))
+        .filter((id) => !leftAlone(id))
         .map(document)
         .filter(hasContent);
       if (docs.length === 0) return [];
       const classifier = await options.prepare(settings, permit);
       if (!classifier.proposeFolders)
         throw new InvalidInputError({ key: "error.library.cantPropose" });
-      const existing = groups().map((each) => each.name);
+      // The top level's names, the User's and those proposed, where the new ones are made (#2425).
+      const existing = [...groups(), ...options.review.offeredFolders()]
+        .filter((each) => each.parentId === null)
+        .map((each) => each.name);
       const proposed = await classifier.proposeFolders(
         samplesOf(docs),
         existing,
         language,
         lifetime.signal,
       );
-      const made: LibraryGroup[] = [];
-      for (const folder of proposed) {
-        if (groups().some((each) => sameName(each.name, folder.name))) continue;
-        if (groups().length >= 100) break;
-        made.push(create(folder));
-      }
-      return made;
+      return options.review.proposeFolders(proposed.slice(0, Math.max(0, 100 - groups().length)));
     },
-    classify(input: unknown) {
+    classify(input: unknown, forService?: string, run: OrganizeReviewRun = { origin: "library" }) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
-      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      if (nothingToChoose()) throw new InvalidInputError({ key: "error.library.noFolders" });
+      // A continuation's authorized service, checked before anything is queued or cleared (#2308).
+      if (forService !== undefined && options.organizeService(getSettings())?.id !== forService)
+        return;
       const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
           : documentIdsOf(input)
-      ).filter((id) => !options.isExampleDocument?.(id));
-      queueClassification(ids);
+      ).filter((id) => !leftAlone(id));
+      queueClassification(ids, run, forService);
       resume();
     },
     /**
@@ -1770,11 +2081,12 @@ export function createLibrary(options: {
       signal: AbortSignal,
       allowedGroups?: ReadonlySet<string>,
       permit?: CloudReadPermit,
+      run: OrganizeReviewRun & { newFolders?: boolean } = { origin: "assistant" },
     ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
-      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      if (nothingToChoose()) throw new InvalidInputError({ key: "error.library.noFolders" });
+      const ids = documentIdsOf(input).filter((id) => !leftAlone(id));
       const before = new Map(
         ids.map((id) => {
           const row = assignment(id);
@@ -1784,7 +2096,8 @@ export function createLibrary(options: {
           ];
         }),
       );
-      queueClassification(ids);
+      const { newFolders, ...proposing } = run;
+      queueClassification(ids, proposing);
       let failure: unknown | null = null;
       const reached = new Set<string>();
       const tagChanges: TagLinkChange[] = [];
@@ -1799,6 +2112,7 @@ export function createLibrary(options: {
           },
           applied: (_id, links) => tagChanges.push(...links),
           allowedGroups,
+          newFolders,
           permit,
         });
         // Stopped during this one: it goes back as it was, like the ones after it.
@@ -1826,7 +2140,7 @@ export function createLibrary(options: {
       return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
-      const doc = document(id);
+      const doc = fileable(id);
       if (groupId !== null) group(groupId);
       const before = assignment(doc.id);
       const taggingBefore = taggingSnapshot(doc.id);
@@ -1859,7 +2173,7 @@ export function createLibrary(options: {
       const after = parseAssignmentState(afterInput);
       let doc: DocumentRow;
       try {
-        doc = document(id);
+        doc = fileable(id);
       } catch (error) {
         if (!(error instanceof NotFoundError)) throw error;
         throw new NotFoundError({ key: "error.restore.documentGone" });
@@ -1917,54 +2231,6 @@ export function createLibrary(options: {
         },
       };
     },
-    // A new request id makes a run already under way for these Documents stale.
-    accept(input: unknown, checked?: unknown): AssignmentChange[] {
-      if (checked !== undefined) {
-        if (!isRecord(checked))
-          throw new InvalidInputError({ key: "error.library.checkedFolders" });
-        // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
-        // that moved to another Folder since it was checked is never accepted unchecked.
-        const ids: readonly unknown[] = Array.isArray(input) ? input : [];
-        const moved = ids.some((id) => {
-          if (typeof id !== "string") return false;
-          const now = assignment(id);
-          return now?.suggested === 1 && now.group_id !== (checked[id] ?? null);
-        });
-        if (moved) throw new InvalidInputError({ key: "error.folder.suggestionMoved" });
-      }
-      return review(input, (row) =>
-        db.run(
-          "UPDATE document_groups SET source = 'user', suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-          [randomUUID(), now(), row.document_id],
-        ),
-      );
-    },
-    reject(input: unknown): AssignmentChange[] {
-      const settled: string[] = [];
-      const changes = review(input, (row) => {
-        // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
-        // retag the User asked for, stays the tagger's (#1955).
-        const organizing = isOrganizing(row.document_id);
-        const at = now();
-        // The User's decision settles the Document, so a run that failed before the rejection
-        // doesn't outlive it: it is finished, not one Organize couldn't sort (#1928).
-        db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, status = 'classified', error_kind = NULL, error_message = NULL, error_wording = NULL, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-          [randomUUID(), at, row.document_id],
-        );
-        if (organizing) {
-          tagState(row.document_id, "classified");
-          settled.push(row.document_id);
-        }
-        if (row.group_id && !rejected(row.document_id).has(row.group_id))
-          db.run(
-            "INSERT INTO document_group_rejections (id, document_id, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            [randomUUID(), row.document_id, row.group_id, at, at],
-          );
-      });
-      if (settled.length > 0) options.tagged(settled);
-      return changes;
-    },
     target(input: unknown): string | null {
       if (input === undefined || input === null) return null;
       if (!isRecord(input)) throw new InvalidInputError("Choose where to add the Documents.");
@@ -1973,13 +2239,13 @@ export function createLibrary(options: {
     file(id: string, groupId: string) {
       if (!groups().some((item) => item.id === groupId)) return;
       const { automatic, taggingStopped } = getSettings();
-      write(document(id), groupId, "user", automatic ? "pending" : "classified");
+      write(fileable(id), groupId, "user", automatic ? "pending" : "classified");
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
-      if (options.isExampleDocument?.(id)) return;
+      if (leftAlone(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {
@@ -2000,14 +2266,7 @@ export function createLibrary(options: {
           !taggingStoppedFor(id) &&
           (!existing || existing.content_hash !== doc.content_hash)
         ) {
-          write(
-            doc,
-            existing?.group_id ?? null,
-            existing?.source ?? "automatic",
-            "waiting",
-            null,
-            false,
-          );
+          write(doc, existing?.group_id ?? null, existing?.source ?? "automatic", "waiting");
           state(id, "waiting", waits);
         }
         return;
@@ -2015,20 +2274,13 @@ export function createLibrary(options: {
       if (
         getSettings().automatic &&
         groups().length > 0 &&
-        (!existing || existing.content_hash !== doc.content_hash)
+        (existing ? existing.content_hash !== doc.content_hash : !filedBefore(doc))
       ) {
         if (taggingStoppedFor(id)) {
           stopped(id);
           return;
         }
-        write(
-          doc,
-          existing?.group_id ?? null,
-          existing?.source ?? "automatic",
-          "pending",
-          null,
-          existing?.suggested === 1,
-        );
+        write(doc, existing?.group_id ?? null, existing?.source ?? "automatic", "pending");
         announce([id]);
       }
       const status = assignment(id)?.status;

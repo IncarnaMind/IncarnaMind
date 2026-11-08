@@ -693,15 +693,20 @@ describe("where a table cell's words may come from (#2255's review)", () => {
 });
 
 describe("where a table's headings line up (#2255's review)", () => {
-  // protects=a heading row that doesn't line up with the quote's row says nothing either way, since its cells can't say which is the number's: the DOCX reader drops a blank corner cell, and a merged heading is written once, so its words leave the check as before; a sheet's second heading row names the number's column; aligned heading rows, two of them in Markdown, a blank corner kept, and a transposed table name the number and tell another column's or row's apart (#2255); fails_when=a shifted heading is "same" or "other-cell", or an aligned one stops naming the number or telling another apart; no_claim=that every reader keeps blank and merged cells (#2426).
+  // protects=a heading row that doesn't line up with the quote's row says nothing either way, since its cells can't say which is the number's, while a row that keeps its blank corner, a merged heading that fills its columns, a sheet's second heading row, two heading rows in Markdown, and a transposed table name the number and tell another column's or row's apart (#2255, #2426); fails_when=a shifted heading is "same" or "other-cell", or an aligned one stops naming the number or telling another apart; no_claim=that a table from elsewhere, its merged heading written once, lines up.
   test.each([
     {
-      name: "the DOCX reader's row, its blank corner dropped",
+      name: "a heading row with a cell fewer than the row",
       text: "On-time rate\tSpace occupancy\nFelixstowe\t94%\t81%",
       found: { "Space occupancy": "unknown", "On-time rate": "unknown", Felixstowe: "same" },
     },
     {
-      name: "a merged heading written once",
+      name: "a Word row, its blank corner kept",
+      text: "\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t81%",
+      found: { "Space occupancy": "other-cell", "On-time rate": "same", Felixstowe: "same" },
+    },
+    {
+      name: "a merged heading written once, filling no cells",
       text: "\tRates\tOccupancy\nDepot\tOn-time\tLate\tSpace\tYard\nFelixstowe\t81%\t94%\t70%\t60%",
       found: {
         Occupancy: "unknown",
@@ -710,6 +715,11 @@ describe("where a table's headings line up (#2255's review)", () => {
         "On-time": "other-cell",
         Felixstowe: "same",
       },
+    },
+    {
+      name: "a merged heading that fills its columns",
+      text: "Depot\tRates\t\n\tOn-time\tLate\nFelixstowe\t94%\t81%",
+      found: { Rates: "same", "On-time": "same", Late: "other-cell", Felixstowe: "same" },
     },
     {
       name: "a Markdown row with its blank corner kept",

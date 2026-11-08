@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { type RecheckDocuments, recheckKept } from "../../src/core/answers/citations";
+import { parseQuotedWords } from "../../src/shared/citations";
 import {
   askAndFinish,
   citationsIn,
@@ -82,9 +83,11 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
       check: "not-found",
       checkReason: "quoted-words-not-on-pages",
     });
-    expect(citation?.quotedWords?.answer.map((piece) => piece.text).join("")).toBe(
-      "training reached every site",
-    );
+    expect(
+      parseQuotedWords(citation?.quotedWords)
+        ?.answer.map((piece) => piece.text)
+        .join(""),
+    ).toBe("training reached every site");
   });
 
   test("a comma inside the closing mark is not part of the words", async () => {
@@ -131,9 +134,11 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
 
     expect(found).toMatchObject({ check: "found" });
     expect(changed).toMatchObject({ check: "not-found" });
-    expect(changed?.quotedWords?.closest?.map((piece) => piece.text).join("")).toBe(
-      "Safety training: coverage reached 98% of site staff, up 6 points on 2024.",
-    );
+    expect(
+      parseQuotedWords(changed?.quotedWords)
+        ?.closest?.map((piece) => piece.text)
+        .join(""),
+    ).toBe("Safety training: coverage reached 98% of site staff, up 6 points on 2024.");
   });
 
   test("words in a page that can't be checked are left alone", async () => {
@@ -242,6 +247,7 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
   describe("a Citation kept through Edit with AI", () => {
     const documentsWith = (text: string): RecheckDocuments => ({
       currentVersion: () => "v2",
+      documentName: () => "Site safety report.md",
       pageTexts: () => [{ page: 1, text, kind: "page" }],
       passagesCovering: () => [{ id: "passage", text }],
     });
@@ -272,6 +278,21 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
       );
 
       expect(now).toMatchObject({ check: "found", checkReason: null });
+      expect(now).not.toHaveProperty("quotedWords");
+    });
+
+    test("once checked again in the current version, says nothing of the page its quoted words ran on to", () => {
+      const now = recheckKept(
+        documentsWith("Safety training: coverage reached 98% of site staff."),
+        {
+          ...kept,
+          check: "found",
+          checkReason: null,
+          quotedWords: { runsOnTo: { kind: "page", from: 2, to: 2 } },
+        },
+      );
+
+      expect(now).toMatchObject({ check: "found", contentHash: "v2" });
       expect(now).not.toHaveProperty("quotedWords");
     });
   });

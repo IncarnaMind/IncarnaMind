@@ -22,11 +22,12 @@ const buttonSizes: Record<ButtonSize, string> = {
 };
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-white hover:bg-ink-strong disabled:hover:bg-ink",
+  primary:
+    "bg-ink text-on-primary hover:bg-ink-strong active:scale-[0.98] disabled:hover:bg-ink disabled:active:scale-100",
   secondary:
     "border border-rule-strong bg-sheet text-ink-strong hover:bg-frame disabled:hover:bg-sheet",
   ghost: "text-ink-secondary hover:bg-chip hover:text-ink disabled:hover:bg-transparent",
-  danger: "bg-danger text-white hover:bg-[#912018] disabled:hover:bg-danger",
+  danger: "bg-danger text-on-primary hover:bg-danger-strong disabled:hover:bg-danger",
 };
 
 /** A button's classes: primary (ink), secondary (outlined), ghost or danger. */
@@ -51,6 +52,10 @@ export const fieldClass =
 
 /** A text field, under its label, as wide as its column. */
 export const inputClass = `mt-1 block w-full ${fieldClass}`;
+
+/** A text field at a Settings row's end: 28px high, like the row's buttons and pop-ups. */
+export const rowFieldClass =
+  "h-7 rounded-md border border-rule-strong bg-sheet px-2.5 text-[13px] leading-5 text-ink placeholder:text-ink-placeholder aria-invalid:border-warning focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60";
 
 /** A field's label, above it. */
 export const fieldLabelClass = "block text-[13px] leading-5 text-ink-secondary";
@@ -84,6 +89,9 @@ export const dialogFrameClass =
 
 /** A native modal <dialog>, 24px clear of the window's edges, scrolling if it must. Add a width. */
 export const dialogClass = `${dialogFrameClass} max-h-[calc(100vh-48px)] max-w-[calc(100vw-48px)] overflow-y-auto`;
+
+/** A sheet hanging from the tab strip, as Export options is drawn, rather than a dialog in the middle. */
+export const tabSheetClass = `${dialogFrameClass} mt-11 mb-auto max-h-[calc(100vh-68px)] w-[min(520px,calc(100vw-48px))] overflow-hidden rounded-t-none open:flex open:flex-col`;
 
 /** The padding inside a dialog. */
 export const dialogBodyClass = "flex flex-col gap-4 px-6 pt-6 pb-5";

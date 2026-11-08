@@ -1,7 +1,12 @@
 import { useEffect } from "react";
 import type * as Y from "yjs";
 import type { AskedQuote } from "../../../core/api";
-import { badgeMessage, type CitationState } from "../../../shared/citations";
+import {
+  badgeMessage,
+  type CitationState,
+  citedSpeakers,
+  type LiveDocument,
+} from "../../../shared/citations";
 import { citationLocation, formatLocation, type Translate } from "../../../shared/locations";
 import { useAnswers } from "../answers";
 import { TableLineIcon } from "../components/lineIcons";
@@ -13,9 +18,14 @@ import { useT } from "../i18n";
 import { useModelInUse } from "../modelInUse";
 import { useAppStore } from "../store";
 
-const whereOf = (quote: AskedQuote, t: Translate): string => {
+const whereOf = (quote: AskedQuote, t: Translate, documents: readonly LiveDocument[]): string => {
   const location = citationLocation(quote);
-  return location ? formatLocation(location, t) : "";
+  return location
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(quote, documents),
+        quote: quote.quote,
+      })
+    : "";
 };
 
 export function showQuote(quote: AskedQuote): void {
@@ -265,6 +275,7 @@ export function AskedQuoteChips({
   onRemove(quote: AskedQuote): void;
 }) {
   const t = useT();
+  const documents = useAppStore((state) => state.documents);
   return quotes.map((quote) => {
     if (quote.pick === "rows") {
       return <RowsChip key={quoteKey(quote)} quote={quote} onRemove={() => onRemove(quote)} />;
@@ -285,7 +296,7 @@ export function AskedQuoteChips({
         testId="composer-quote"
         quote={quote.quote}
         from={quote.documentName}
-        where={whereOf(quote, t)}
+        where={whereOf(quote, t, documents)}
         removeLabel={t("composer.selection.drop")}
         onShow={() => showQuote(quote)}
         onRemove={() => onRemove(quote)}
@@ -298,7 +309,7 @@ export function AskedQuoteLines({ quotes }: { quotes: readonly AskedQuote[] }) {
   const t = useT();
   const documents = useAppStore((state) => state.documents);
   return quotes.map((quote) => {
-    const where = whereOf(quote, t);
+    const where = whereOf(quote, t, documents);
     const source = [quote.documentName, where].filter((part) => part !== "").join(" ");
     const here = documents.some((each) => each.id === quote.documentId);
     const picked = pickLabel(quote, t);

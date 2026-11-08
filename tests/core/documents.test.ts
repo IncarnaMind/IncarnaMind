@@ -105,6 +105,8 @@ describe("Documents", { timeout: 30_000 }, () => {
         fileStatus: "available",
         keptByApp: false,
         linkedFolderId: null,
+        meetingMindId: null,
+        speakers: null,
         size: Buffer.byteLength(ENGLISH_NOTES),
         pageCount: null,
         status: expect.stringMatching(/^(queued|extracting)$/),

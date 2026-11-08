@@ -17,6 +17,7 @@ import {
   UncalculatedLine,
 } from "../../editor/AnswerView";
 import { AskProblem } from "../../editor/AskProblem";
+import { ConversationIdContext } from "../../editor/mindContext";
 import { PlanLimitLine } from "../../editor/PlanLimitLine";
 import { useT } from "../../i18n";
 import { useModelInUse } from "../../modelInUse";
@@ -60,8 +61,9 @@ export interface AnswerKeeping {
 
 /**
  * An Answer in the assistant (#201): no box, as an Answer in a Mind has none
- * (DESIGN.md, Answer), in the assistant's reading sizes. Its steps first
- * (#391), folded to one line; its text with its Citations and their checks
+ * (DESIGN.md, Answer), in the assistant's reading sizes. The question it asked,
+ * folded to its words, and the User's answer to it, once given (#2530); its
+ * steps (#391), folded to one line; its text with its Citations and their checks
  * in their badges; the card of the Minds it changed (#202), and what kept it from
  * changing one; what went wrong, and the approvals it waits for, under
  * it; then its actions (`AnswerActions`).
@@ -85,7 +87,7 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { id, analyses, text, citations, figures, status } = answer;
+  const { id, conversationId, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
     () => answerBlocks({ id, analyses, text, citations, figures, status }),
     [id, analyses, text, citations, figures, status],
@@ -128,7 +130,7 @@ export function AssistantAnswer({
       aria-label={t("answer.label")}
       className="assistant-answer"
     >
-      {!streaming && <WrittenFromLine answer={answer} />}
+      <AskedLines answer={answer} />
       <AnswerSteps
         answer={answer}
         question={question}
@@ -138,7 +140,6 @@ export function AssistantAnswer({
         wait={silent ? { usual } : null}
         onRegenerate={regenerate}
       />
-      <AskedLines answer={answer} />
       {answer.citationSupport === "none" && (
         <NoCitationsLine
           modelId={answer.model?.modelId ?? null}
@@ -146,17 +147,20 @@ export function AssistantAnswer({
         />
       )}
       <CoverageLine answer={answer} question={question} />
+      {!streaming && <WrittenFromLine answer={answer} />}
       {(written || streaming) && (
-        <AnswerText
-          answerId={answer.id}
-          blocks={blocks}
-          figureRuns={figureRunsOfAnswer(answer, blocks)}
-          label={t("answer.label")}
-          streaming={streaming}
-          regenerate={regenerate}
-          judged={answer}
-          onOpenTable={(table) => keeping.openTable(answer, table)}
-        />
+        <ConversationIdContext.Provider value={conversationId}>
+          <AnswerText
+            answerId={answer.id}
+            blocks={blocks}
+            figureRuns={figureRunsOfAnswer(answer, blocks)}
+            label={t("answer.label")}
+            streaming={streaming}
+            regenerate={regenerate}
+            judged={answer}
+            onOpenTable={(table) => keeping.openTable(answer, table)}
+          />
+        </ConversationIdContext.Provider>
       )}
       <MindChangesCard answer={answer} streaming={streaming} />
       <CommandsCard answer={answer} streaming={streaming} />

@@ -13,7 +13,7 @@ npm run dist         # the installers for the current system; never published
 
 1. Set the version, commit it and tag it: `npm version 1.2.3`. This updates `package.json` and `package-lock.json`, commits, and creates the tag `v1.2.3`.
 2. Push the commit and the tag: `git push && git push origin v1.2.3`.
-3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
+3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It first runs CI on the tagged commit with every smoke spec (`ci.yml`), and builds nothing if a check fails. It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
    - for macOS, a dmg and a zip for Apple silicon. Macs with an Intel processor aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
    - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
@@ -101,6 +101,12 @@ The terms the project keeps are in the [code signing policy](code-signing-policy
 ## Crash reports
 
 Users can opt in to crash reports in **Settings → Privacy**; they go to Sentry, scrubbed of file paths, Document text, Note content, Questions and Answers (`src/main/crashScrubber.ts`). Only a build made with a Sentry DSN offers them: set `MAIN_VITE_SENTRY_DSN` when building (electron-vite reads it from the environment or a `.env.local` file). The release workflow passes the `SENTRY_DSN` repository secret; without it, releases don't offer crash reports. Never commit a DSN.
+
+## Calendars
+
+Meetings read Google Calendar and Microsoft 365 with the build's own sign-in clients (#190). Only a build made with them offers those services; the Mac's own calendar needs none. Set `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID` and `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET` (Google's desktop client and its secret, which Google's token endpoint asks for and doesn't treat as confidential in an installed app) and `MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID` (Microsoft's public client, which has no secret) when building. The release workflow passes the `GOOGLE_CALENDAR_CLIENT_ID` and `MICROSOFT_CALENDAR_CLIENT_ID` repository variables and the `GOOGLE_CALENDAR_CLIENT_SECRET` repository secret. Never commit the secret.
+
+The macOS app reads the Mac's calendar through a small helper of IncarnaMind's own (`native/calendar-helper`), which the packager builds with the Swift compiler of Xcode's command line tools after laying the app out and before signing it (`scripts/afterPack.mjs`), so it is signed and notarized with the app. A Mac that packages the app needs those tools (`xcode-select --install`); GitHub's macOS runners have them.
 
 ## Usage data
 

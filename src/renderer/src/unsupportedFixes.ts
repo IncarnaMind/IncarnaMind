@@ -12,26 +12,16 @@
 import type { Editor } from "@tiptap/core";
 import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
-import {
-  CLAIM_CHECK_MARK,
-  type ClaimCalculation,
-  type ClaimCheckAttributes,
-  type ClaimCheckPart,
-} from "../../core/api";
-import { detectLanguage } from "../../core/documents/textLanguage";
+import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckPart } from "../../core/api";
 import { checkedScope, saysNotFound } from "../../shared/claimChecks";
 import { keepCheckAsView } from "../../shared/claimParts";
-import {
-  type FigureContext,
-  figureContextOf,
-  figureLanguageTag,
-  readFigures,
-} from "../../shared/figures";
+import { readFigures } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
 import { inlineRange } from "../../shared/inlineText";
 import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
-import { checkAgain, useChecks } from "./checks";
+import { checkAgain, fixesFree, restoreCheck } from "./checks";
+import { underReview } from "./correctionFixes";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import {
@@ -42,9 +32,10 @@ import {
   shownClaims,
 } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
-import { writeSentenceCheck } from "./editor/figurePlaces";
-import { requestEdit, useEdits } from "./editWithAi";
+import { sentenceFigureContext, writeSentenceCheck } from "./editor/figurePlaces";
+import { requestEdit } from "./editWithAi";
 import { translateNow } from "./i18n";
+import { flushMindUpdates } from "./mindCopies";
 import { useNotices } from "./notices";
 
 /**
@@ -52,10 +43,18 @@ import { useNotices } from "./notices";
  * Documents say something different, one only the User's own workings say,
  * or one citing a court decision no Document holds, which have cards of their own.
  */
+/**
+ * A sentence that names an Analysis's figure otherwise than its label (#2378): the fix is the User's
+ * edit of its words, so nothing cuts, searches or re-quotes it away.
+ */
+export const misnamesFigure = (claim: ShownClaim): boolean =>
+  claim.check.unsupported?.kind === "analysis-name";
+
 export function offersFixes(editor: Editor, claim: ShownClaim): boolean {
   const { check } = claim;
   return (
     claim.kind !== "chart" &&
+    !misnamesFigure(claim) &&
     claim.shown.state === "unsupported" &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&
@@ -78,6 +77,7 @@ export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
     editor.isEditable &&
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
+    !misnamesFigure(claim) &&
     !claim.check.citedCaseUnchecked &&
     citationsOf(editor.state, claim).length === 0
   );
@@ -95,6 +95,7 @@ export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
   return (
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
+    !misnamesFigure(claim) &&
     claim.check.evidence === null &&
     !claim.check.citedCaseUnchecked &&
     !offersFixes(editor, claim)
@@ -129,10 +130,6 @@ export interface FigureFix {
   shown: string;
 }
 
-/** How a sentence writes its numbers, as the check read it (the core's `documentFigureContext`). */
-export const sentenceFigureContext = (sentence: string): FigureContext =>
-  figureContextOf(sentence, figureLanguageTag(detectLanguage(sentence.slice(0, 20_000))));
-
 /**
  * The one number of a sentence that a check's calculated figure disagrees
  * with (#1247). Null when they agree, when the sentence no longer writes it,
@@ -149,13 +146,22 @@ export function figureFix(
     (figure) => figure.chars === calculation.stated,
   );
   const [only] = written;
-  return only && written.length === 1
-    ? {
-        from: only.start,
-        to: only.end,
-        shown: figureNumber(calculation.figure.shown, calculation.figure.show.language),
-      }
-    : null;
+  if (!only || written.length !== 1) return null;
+  const shown = figureNumber(calculation.figure.shown, calculation.figure.show.language);
+  const read = readFigures(shown, sentenceFigureContext(shown))[0];
+  // A figure that writes a unit word after its number, "300 litres", takes the sentence's own
+  // number word with it: "kilograms" of "400 kilograms" belonged to the number it replaces.
+  if (!read || read.chars !== shown.trim()) {
+    const unit = /^[  ]+\p{Script=Latin}+/u.exec(sentence.slice(only.end))?.[0] ?? "";
+    return { from: only.start, to: only.end + unit.length, shown };
+  }
+  // A figure that names no unit leaves the sentence's own currency sign in front of its number.
+  const names = read.unit.kind !== "plain" || read.scaleWord !== null;
+  const from =
+    !names && only.currency && sentence.startsWith(only.currency, only.start)
+      ? only.start + only.currency.length
+      : only.start;
+  return { from, to: only.end, shown };
 }
 
 /** Whether the card offers Use {figure}: a figure worked out that disagrees with the sentence (#1247). */
@@ -194,9 +200,6 @@ export const contradictedAt = (editor: Editor): ShownClaim | null =>
 
 /** The sentence whose check worked out a figure it disagrees with, for ⌘K; null for none. */
 export const figureAt = (editor: Editor): ShownClaim | null => claimAt(editor, offersUseFigure);
-
-export const fixesFree = (mindId: string): boolean =>
-  !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
 
 /** Takes the part the Citations don't support out of the sentence, keeping them on the rest. */
 export function cutUnsupported(
@@ -299,29 +302,6 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
 }
 
 /**
- * Puts back the check a Use took the sentence's mark from, once Undo has
- * brought its number back: every check over the sentence goes, as the
- * re-check's may run past where the earlier one ended.
- */
-function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttributes): void {
-  if (editor.isDestroyed) return;
-  const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
-  if (!type) return;
-  const from = Math.max(0, Math.min(claim.from, claim.sentence.from));
-  const to = Math.min(editor.state.doc.content.size, Math.max(claim.to, claim.sentence.to));
-  if (from >= to) return;
-  const tr = editor.state.tr;
-  editor.state.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isText) return true;
-    if (node.marks.some((mark) => mark.type === type))
-      tr.removeMark(Math.max(from, pos), Math.min(to, pos + node.nodeSize), type);
-    return true;
-  });
-  tr.addMark(from, to, type.create({ ...earlier })).setMeta("addToHistory", false);
-  editor.view.dispatch(tr);
-}
-
-/**
  * Changes the one number of a sentence that a check's calculated figure
  * disagrees with to the figure, keeping the sentence's Citations, and checks
  * the sentence again (#1247). One step of the note's Undo, which brings the
@@ -335,6 +315,7 @@ export function applyFigure(
   claim: ShownClaim,
   showCard?: (checkId: string) => void,
 ): void {
+  if (!editor.isEditable || !fixesFree(mindId)) return;
   if (claim.shown.state !== "supported" && claim.shown.state !== "contradicted") return;
   const calculation = claim.check.calculation;
   const fix = figureFix(calculation, claim.sentence.text);
@@ -345,13 +326,20 @@ export function applyFigure(
     useNotices.getState().showError(new Error(translateNow("claim.useFigure.moved")));
     return;
   }
+  if (underReview(editor.state, place.from, place.to)) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return;
+  }
   const earlier = claim.check;
   asOneStep(editor, () => {
     editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
   });
   const recheck = () => {
-    const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-    if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+    void (async () => {
+      await flushMindUpdates(mindId);
+      const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
+      if (again) await checkAgain(editor, mindId, doc, again, undefined, showCard);
+    })();
   };
   offerEditorUndo(
     editor,

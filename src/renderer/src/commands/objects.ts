@@ -9,8 +9,9 @@ import { countNow, translateNow } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
+import { organizeFolder } from "../organizeDocuments";
 import { useRequests } from "../requests";
-import { useAppStore } from "../store";
+import { hasRowsOfTheirOwn, useAppStore } from "../store";
 import { findTab } from "../tabs";
 import { deleteTag } from "../tagChanges";
 import { stoppedPlaces, tagWithAi } from "../taggingStop";
@@ -83,6 +84,10 @@ const fileReason = (ctx: CommandContext) => {
 };
 
 const onFiles = (ctx: CommandContext) => everyDocument(ctx, userFile);
+
+/** A Meeting's Transcript moves, is tagged and is deleted only with its Note (#2528). */
+const ownRows = (ctx: CommandContext) =>
+  hasRowsOfTheirOwn(documentsOf(ctx).map((document) => document.id));
 
 /** A PDF that couldn't be read for want of its password (#763). */
 const isLockedPdf = (document: { kind: string; failure: { reason: string } | null }) =>
@@ -182,7 +187,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: onlyOne,
     reversible: true,
-    run: (ctx) => store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" });
+    },
   },
   {
     id: "document.openTab",
@@ -191,8 +198,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: onlyOne,
     reversible: true,
-    run: (ctx) =>
-      store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" });
+    },
   },
   {
     id: "document.openBeside",
@@ -253,6 +261,7 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.moveTo"),
+    when: (ctx) => ctx.here?.["document.moveTo"] !== undefined && ownRows(ctx),
   },
   {
     id: "document.retry",
@@ -314,7 +323,9 @@ export const documentCommands: readonly Command[] = [
         (document) => isLockedPdf(document) && document.fileStatus === "available",
       ),
     reversible: true,
-    run: (ctx) => store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" });
+    },
   },
   {
     id: "document.forgetPassword",
@@ -338,6 +349,7 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.tags"),
+    when: (ctx) => ctx.here?.["document.tags"] !== undefined && ownRows(ctx),
   },
   {
     id: "document.rename",
@@ -349,7 +361,7 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.rename"),
-    when: (ctx) => onlyOne(ctx) && ctx.here?.["document.rename"] !== undefined,
+    when: (ctx) => onlyOne(ctx) && ctx.here?.["document.rename"] !== undefined && ownRows(ctx),
   },
   {
     id: "document.openExternally",
@@ -389,6 +401,7 @@ export const documentCommands: readonly Command[] = [
     group: "danger",
     destructive: true,
     appliesTo: ["document"],
+    when: ownRows,
     reversible: true,
     async run(ctx) {
       await store().deleteDocuments(documentsOf(ctx).map((document) => document.id));
@@ -474,13 +487,13 @@ export const folderCommands: readonly Command[] = [
     appliesTo: ["folder"],
     enabled: (ctx) =>
       folderDocumentIds(ctx).length > 0 ? true : { reason: "folder.organize.empty" },
-    // Suggestions are reviewed and taken back from the Library.
+    // What it proposes waits in the Review, where nothing moves before Confirm (#1569).
     reversible: true,
-    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    // The assistant's Organize is documents.organize, which replies with its Review (#2252).
     assistant: false,
     async run(ctx) {
-      if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
-      await core.classifyDocuments(folderDocumentIds(ctx));
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await organizeFolder(id);
     },
   },
   {

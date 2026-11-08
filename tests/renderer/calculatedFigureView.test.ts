@@ -24,7 +24,11 @@ import {
   formattingClusters,
 } from "../../src/renderer/src/editor/citationClusters";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
-import { figureShownIn } from "../../src/renderer/src/editor/claimChecks";
+import {
+  ClaimChecks,
+  figureShownIn,
+  setClaimContext,
+} from "../../src/renderer/src/editor/claimChecks";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { figureHandle } from "../../src/renderer/src/editor/figureHandle";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -370,7 +374,11 @@ test.each(["en", "zh-CN"] as const)(
         .find((button) => button.textContent === translate(language, "figures.inline.openInput"))
         ?.click();
     });
-    expect(state.open).toHaveBeenCalledWith(input.citation, { check: "found", withQuote: true });
+    expect(state.open).toHaveBeenCalledWith(input.citation, {
+      origin: "note",
+      check: "found",
+      withQuote: true,
+    });
   },
 );
 
@@ -406,6 +414,7 @@ test.each(["en", "zh-CN"] as const)(
       opens.at(-1)?.click();
     });
     expect(state.open).toHaveBeenCalledWith(statement.citation, {
+      origin: "note",
       check: "found",
       withQuote: true,
     });
@@ -435,7 +444,7 @@ test.each(["en", "zh-CN"] as const)(
       figure: analysis,
       shown: analysisFigureShown(
         { state: "supported" },
-        { checked: true, run: null, result: "total", versions: null },
+        { run: null, result: "total", versions: null },
       ),
       replayed: false,
       // The Note from an earlier build: it names an Analysis the record was already lost for.
@@ -495,6 +504,7 @@ const checkFinding = (
 function checkedFigureInText(
   child: Partial<FigureCheckAttributes> | null,
   checkedText: string | null = null,
+  keptInside: ((documentId: string) => string | null) | null = null,
 ) {
   const doc = new Y.Doc();
   docs.push(doc);
@@ -531,10 +541,13 @@ function checkedFigureInText(
     editorProps: { handleScrollToSelection: () => true },
     extensions: [
       ...noteExtensions(),
+      ClaimChecks,
       Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
     ],
   });
   editors.push(editor);
+  if (keptInside)
+    setClaimContext(editor.view, { versions: null, folderId: null, scope: null, keptInside });
   return figureShownIn(
     editor.state,
     "figure",
@@ -543,23 +556,49 @@ function checkedFigureInText(
   );
 }
 
-test("a claim check that left the figure unread keeps the figure in the text from showing checked", () => {
-  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual({
-    state: "not-checked",
-    reason: "unread",
-  });
+test("a figure in the text has no verdict of its own until its sentence's check reads it as named (#2378)", () => {
+  const unread = { state: "not-checked", reason: "unread" };
+  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual(unread);
+  expect(checkedFigureInText({ state: "unsupported" })).toEqual(unread);
+  expect(checkedFigureInText(null)).toEqual(unread);
+  expect(checkedFigureInText({ state: "supported", named: true })).toEqual({ state: "supported" });
+  // The check was made on other words: it waits for the next Check.
+  expect(
+    checkedFigureInText({ state: "supported", named: true }, "Total revenue 300 kg, as checked."),
+  ).toEqual({ state: "needs-recheck", why: "edited" });
 });
 
-test("a whole-sentence check with no figure child is no evidence against the core's own check", () => {
-  expect(checkedFigureInText(null)).toEqual({ state: "supported" });
-});
-
-test("a whole-sentence check that no longer holds shows on the figure in the text", () => {
-  // The check was made on other words: its result must show, not the core's own check (#2378).
-  expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
-    state: "needs-recheck",
-    why: "edited",
+test("a figure its sentence misnames reads Unsupported on its marker, and one behind a wall Not checked", () => {
+  const misnamed = {
+    kind: "analysis-name" as const,
+    reason: "The sentence doesn’t say this figure is Total revenue",
+    covered: null,
+    uncovered: null,
+    found: true as const,
+  };
+  expect(checkedFigureInText({ state: "unsupported", unsupported: misnamed })).toEqual({
+    state: "unsupported",
   });
+  expect(
+    checkedFigureInText({ state: "not-checked", reason: "unread" }, null, (documentId) =>
+      documentId === "source" ? "Matter" : null,
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
+  // Any input of its run behind the wall, not only the first its check names (#2378).
+  expect(
+    checkedFigureInText(
+      {
+        state: "supported",
+        named: true,
+        versions: [
+          { documentId: "open", contentHash: "v1" },
+          { documentId: "copy", contentHash: "v1" },
+        ],
+      },
+      null,
+      (documentId) => (documentId === "copy" ? "Matter" : null),
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
 });
 
 const rangeCitation: Citation = {
@@ -622,19 +661,25 @@ function tracedDoc(check?: NonNullable<RetainedFigureAnalysis["values"][number][
   installFigureRuns(doc, [tracedRecords(check)]);
   return doc;
 }
+/** The figure's own check once the claim judge read its sentence as naming it. */
+const named = { state: "supported", unsupported: null, named: true } as const;
+
 async function tracedCard(
   check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
   shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
   {
-    checked = false,
     versions = new Map([["source", "v2"]]),
-  }: { checked?: boolean; versions?: ReadonlyMap<string, string> | null } = {},
+    own = null,
+  }: {
+    versions?: ReadonlyMap<string, string> | null;
+    own?: Parameters<typeof analysisFigureShown>[1]["check"];
+  } = {},
 ) {
   const run = tracedRecords(check);
   const sources = calculatedSources(attrs(summed), tracedDoc(check));
   await card({
     figure: summed,
-    shown: analysisFigureShown(shown, { checked, run, result: "summed", versions }),
+    shown: analysisFigureShown(shown, { run, result: "summed", versions, check: own }),
     replayed: false,
     sources,
     problem: false,
@@ -643,14 +688,22 @@ async function tracedCard(
 }
 
 test.each(["en", "zh-CN"] as const)(
-  "%s card shows the core's own recalculation of a figure() figure as checked",
+  "%s card shows the core's own recalculation of a figure() figure, and Supported only once a check read its sentence as naming it",
   async (language) => {
     state.language = language;
     await tracedCard({ kind: "same", value: 300 });
-    const stateLine = container.querySelector(".calculated-figure-state");
+    let stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe("not-checked");
+    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).toContain(
+      translate(language, "figures.analysisRows.recalculated"),
+    );
+    await act(() => root?.unmount());
+    root = null;
+    await tracedCard({ kind: "same", value: 300 }, { state: "supported" }, { own: named });
+    stateLine = container.querySelector(".calculated-figure-state");
     expect(stateLine?.textContent).toContain(translate(language, "claim.state.supported"));
     expect(stateLine?.getAttribute("data-state")).toBe("supported");
-    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.not-checked"));
     expect(container.textContent).toContain(
       translate(language, "figures.analysisRows.recalculated"),
     );
@@ -681,26 +734,20 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
-test("a check the Note's own Check gave the figure stays what its card says", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
-    { state: "needs-recheck", why: "edited" },
-    {
-      checked: true,
-    },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
-});
-
-test("a claim check that ran and left the figure unread never shows it checked", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
-    { state: "not-checked", reason: "unread" },
-    { checked: true },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.not-checked"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
+test("a sentence's check stands for the figure only as the claim judge read its naming (#2378)", async () => {
+  for (const [claim, own, shows] of [
+    [{ state: "needs-recheck", why: "edited" }, named, "needs-recheck"],
+    [{ state: "not-checked", reason: "unread" }, null, "not-checked"],
+    [{ state: "unsupported" }, null, "not-checked"],
+    [{ state: "supported" }, { state: "supported", unsupported: null }, "not-checked"],
+  ] as const) {
+    await tracedCard({ kind: "same", value: 300 }, claim, { own });
+    const stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe(shows);
+    expect(stateLine?.textContent).not.toContain(translate("en", "claim.state.supported"));
+    await act(() => root?.unmount());
+    root = null;
+  }
 });
 
 test("a figure needs a re-check once a Document its Analysis read changed", async () => {
@@ -825,9 +872,36 @@ const whatIf: CalculatedFigure = {
     moreInputs: 0,
     saved: 254.6775,
     savedShown: "254.7",
-    change: { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+    text: null,
+    changes: [{ input: "Assumptions_B4", value: 0.03, shown: "3.0%" }],
     kept: [],
     engine: 1,
+  },
+};
+const twoChanges: CalculatedFigure = {
+  ...whatIf,
+  label: "EBITDA 2027 (what-if: Revenue growth at 3.0% and EBITDA margin at 25.0%)",
+  inputs: [
+    growth,
+    {
+      ...growth,
+      name: "Assumptions_B5",
+      label: "EBITDA margin (Margin)",
+      citation: {
+        ...growth.citation,
+        location: { kind: "rows", sheet: "Assumptions", from: 5, to: 5 },
+        quote: "EBITDA margin\t22.0%",
+      },
+      number: { ...growth.number, chars: "22.0%", at: 16, value: 0.22 },
+      cell: { sheet: "Assumptions", ref: "B5", stored: 0.22 },
+    },
+  ],
+  workbook: {
+    ...(whatIf.workbook as NonNullable<CalculatedFigure["workbook"]>),
+    changes: [
+      { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
+      { input: "Assumptions_B5", value: 0.25, shown: "25.0%" },
+    ],
   },
 };
 const keptValue: CalculatedFigure = {
@@ -837,7 +911,7 @@ const keptValue: CalculatedFigure = {
   shown: "5.2",
   workbook: {
     ...(whatIf.workbook as NonNullable<CalculatedFigure["workbook"]>),
-    change: null,
+    changes: [],
     saved: 5.2,
     savedShown: "5.2",
     kept: [{ sheet: "Cases", ref: "C2", reason: "volatile", name: "RAND" }],
@@ -845,7 +919,7 @@ const keptValue: CalculatedFigure = {
 };
 
 test.each(["en", "zh-CN"] as const)(
-  "%s: a workbook figure's card shows its formula chain, the input a what-if changed, and the cells that kept saved values",
+  "%s: a workbook figure's card shows its formula chain, the inputs a what-if changed, and the cells that kept saved values",
   async (language) => {
     state.language = language;
     await card({
@@ -873,6 +947,35 @@ test.each(["en", "zh-CN"] as const)(
     expect(text).toContain("Revenue growth\t5.0%");
     expect(text).not.toContain(translate(language, "figures.workbook.savedValue"));
     expect(text).not.toContain(translate(language, "figures.inline.recalculated"));
+
+    await card({
+      figure: twoChanges,
+      shown: { state: "not-checked", reason: "unread" },
+      replayed: false,
+      sources: calculatedSources(attrs(twoChanges), null),
+      problem: false,
+      onCopyFormula: () => {},
+    });
+    const both = container.textContent ?? "";
+    expect(both).toContain(
+      translate(language, "figures.workbook.change", {
+        input: "Revenue growth (Growth)",
+        cell: "Assumptions!B4",
+        from: "5.0%",
+        to: "3.0%",
+      }),
+    );
+    expect(both).toContain(
+      translate(language, "figures.workbook.change", {
+        input: "EBITDA margin (Margin)",
+        cell: "Assumptions!B5",
+        from: "22.0%",
+        to: "25.0%",
+      }),
+    );
+    expect(
+      both.split(translate(language, "figures.workbook.inWorkbook", { value: "254.7" })),
+    ).toHaveLength(2);
 
     await card({
       figure: keptValue,

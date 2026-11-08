@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import { noteHolding } from "../editor/noteKeymap";
 import { applyLink, requestLinkEdit } from "../editor/selectionCommands";
 import type { Command, CommandContext } from "./registry";
@@ -33,7 +34,12 @@ export const linkCommands: readonly Command[] = [
     reversible: true,
     when(ctx) {
       const editor = noteOf(ctx);
-      return editor !== null && (!editor.state.selection.empty || editor.isActive("link"));
+      if (editor === null) return false;
+      // A picture or another Block is selected, not words: ⌘K stays the window's, as it did before
+      // a Block could be selected on its own (#2377).
+      const { selection } = editor.state;
+      const words = !selection.empty && !(selection instanceof NodeSelection);
+      return words || editor.isActive("link");
     },
     run(ctx) {
       const editor = noteOf(ctx);

@@ -33,14 +33,17 @@ import {
 } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
+import { NUMBERS } from "../../../shared/rewriteWords";
 import { sentenceSpans } from "../../../shared/sentences";
 import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
   CheckedVersion,
   CheckFigure,
   Citation,
+  CitationAttributes,
   CitationLocation,
   CitationSupport,
   ClaimCalculation,
@@ -60,6 +63,7 @@ import type {
   PassageSearchResult,
   ProviderError,
   RecordAiUseInput,
+  SearchScope,
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
@@ -105,9 +109,11 @@ import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   aboutSomeoneElse,
+  analysisItemDisagrees,
   checkFigureReply,
   figureJudgment,
   givesItsOwnNumber,
+  oneVerdict,
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
@@ -115,6 +121,7 @@ import {
   withSentenceVerdict,
 } from "./figureChecks";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
+import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
@@ -161,7 +168,7 @@ export interface ClaimCheckDependencies {
   walledFolderName(documentId: string): string | null;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
-  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
+  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> & {
     searchableCount(documentIds: readonly string[] | null): number;
     passagesBetween(
       documentId: string,
@@ -179,6 +186,10 @@ export interface ClaimCheckDependencies {
   };
   /** The Run's searches may show the Documents' file properties (./fileProperties). */
   fileProperties?: FilePropertySearch;
+  /** What a scope sees of the Library, Folder walls applied, from a Note in `mindId` (./libraryFacts). */
+  libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
+  /** The Run's searches may show the Library's own facts (./libraryFacts). */
+  libraryFacts?: LibraryFactSearch;
 }
 
 /** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
@@ -198,6 +209,11 @@ export interface ClaimCheckRequest {
   context?: string;
   cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
+  /**
+   * The Search scope `scope` was resolved from, as its chip names it; null for every Document.
+   * Only a check that gives it may be shown the Library's facts (./libraryFacts).
+   */
+  searched?: SearchScope | null;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
@@ -312,6 +328,13 @@ const FIGURES_LINE =
 const REMAINDER_LINE =
   'Your Figures line gives no remainder. Give "remainder": null when the sentence asserts nothing beyond its figures, or its other assertion as the instructions say, then write your whole reply again.';
 
+const analysisNamesNote = (problems: readonly string[]) =>
+  [
+    "Your Figures line disagrees with itself for an Analysis's figure:",
+    ...problems,
+    'For each, give "names":"same" with verdict supported, relation equals, topic found, roles same and scope same only when the sentence names the figure as its label and rule say; "names":"other" with verdict unsupported when it names another figure; otherwise "names":"unclear" with verdict unsupported. Then write your whole reply again.',
+  ].join("\n");
+
 const figureSourcesNote = (problems: readonly string[], unrecorded: readonly number[]) =>
   [
     ...(unrecorded.length > 0
@@ -364,11 +387,36 @@ function figuresReplied(
       },
     },
     {
+      // The judge decides an Analysis figure: a reply whose fields disagree is asked once (#2378).
+      name: "analysis-names",
+      check(last, setAside = []) {
+        const text = replyAcrossTurns(last, setAside);
+        const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
+        if (!read) return null;
+        const problems = read.items.flatMap((item) => {
+          const target = figures.find((figure) => figure.id === item.id);
+          // One the request gave no evidence for, behind a wall, has nothing to name.
+          const disagrees =
+            target?.calculated?.figure.analysis && target.analysisRecord?.label !== undefined
+              ? analysisItemDisagrees(item)
+              : null;
+          return target && disagrees ? [`${target.reading.chars}: ${disagrees}.`] : [];
+        });
+        return problems.length > 0
+          ? ask(text, { claims: [], note: analysisNamesNote(problems) })
+          : null;
+      },
+    },
+    {
       name: "figures-sources",
       check(last, setAside = []) {
         const text = replyAcrossTurns(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
+        // A supported figure with no source must record its quote, not only write it in prose:
+        // told to give its source, Claude Haiku 5.5 wrote a marker and no cite, and the check ended
+        // no-evidence with a quote the reader could see.
+        let needsCite = false;
         const problems = read.items.flatMap((item) => {
           const target = figures.find((figure) => figure.id === item.id);
           if (!target) return [];
@@ -378,9 +426,20 @@ function figuresReplied(
               judged && item.verdict === "contradicted" && item.source
                 ? readFigureSource(calculations, target, item.source)
                 : null;
-            return source && "input" in source && givesItsOwnNumber(target, source.input)
+            if (source && "input" in source && givesItsOwnNumber(target, source.input))
+              return [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ];
+            // Claude Haiku 5.5 left a case it could read undecided: it gave neither the number the
+            // Document states nor what differs, so its verdict rests on nothing a reader can see.
+            // An Analysis's figure and a saved calculation have no source in a Document by design.
+            return !target.calculated &&
+              target.analysisRecord == null &&
+              item.source === null &&
+              item.calculation === null &&
+              item.says === null
               ? [
-                  `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+                  `${target.reading.chars}: you give neither the Document's number nor what differs; give as source the number the Document gives for its own subject, period, column and unit, with the reading its context takes where its readings offer one, or the verdict that number gives.`,
                 ]
               : [];
           }
@@ -388,12 +447,13 @@ function figuresReplied(
             return [
               `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
             ];
-          if (!item.source)
-            return item.calculation === null && !target.calculated
-              ? [
-                  `${target.reading.chars}: a supported figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
-                ]
-              : [];
+          if (!item.source) {
+            if (item.calculation !== null || target.calculated) return [];
+            needsCite = true;
+            return [
+              `${target.reading.chars}: a supported figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
+            ];
+          }
           const source = readFigureSource(calculations, target, item.source);
           return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
         });
@@ -414,7 +474,7 @@ function figuresReplied(
           ? ask(text, {
               claims: [],
               note: figureSourcesNote(problems, unrecorded),
-              ...(unrecorded.length > 0 && { requires: "cite" }),
+              ...((unrecorded.length > 0 || needsCite) && { requires: "cite" }),
             })
           : null;
       },
@@ -520,7 +580,10 @@ function withDollarClause(
   const units = deps.documents.pageTexts(source.documentId, source.contentHash, null, null);
   const location = lineLocation(units, found.line, matchingOf(units));
   const where = location
-    ? formatLocation(location, (key, params) => translate(deps.language(), key, params))
+    ? formatLocation(location, (key, params) => translate(deps.language(), key, params), {
+        speakers:
+          location.kind === "time" ? (deps.documents.speakers?.(source.documentId) ?? null) : null,
+      })
     : null;
   const place = [source.documentName, where].filter(Boolean).join(" · ");
   return {
@@ -541,13 +604,24 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
   windowTo: 0,
 });
 
-const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
-  model.support === "tools" && checkCalculates(model.capabilities);
+const calculatesIn = (
+  model: Pick<PreparedChatModel, "support" | "capabilities">,
+  request: Pick<ClaimCheckRequest, "figures">,
+): boolean =>
+  model.support === "tools" &&
+  checkCalculates(model.capabilities) &&
+  // An Analysis's figures are worked out by IncarnaMind already: a sentence of only those has
+  // nothing to calculate, and a calculation of one would only fail its check (#2378).
+  !(
+    request.figures?.length && request.figures.every((figure) => figure.calculated?.figure.analysis)
+  );
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
   /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
   findsParts?: boolean;
+  /** It may show the Library's facts (`ClaimCheckRequest.searched`), so it sorts as their checks do. */
+  library?: boolean;
 };
 
 /** A check Run's instructions, for the way its model gives Citations, and its prompt. */
@@ -561,6 +635,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         calculating,
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
+        request.library === true,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -576,7 +651,7 @@ export function checkRunStart(
   request: CheckStart & { scope: EvidenceScope },
   model: Pick<PreparedChatModel, "support" | "capabilities">,
 ): { instructions: string; prompt: string; tools: string } {
-  const calculating = calculatesIn(model);
+  const calculating = calculatesIn(model, request);
   const start = runStart(request, deps.language(), calculating);
   const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
   const { documents } = deps;
@@ -603,13 +678,20 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return withFileProperties(deps, createSentenceCheck);
+  return withLibraryFacts(deps, (withLibrary) =>
+    withFileProperties(withLibrary, createSentenceCheck),
+  );
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
   // The Passages each check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   const passagesOf = new WeakMap<ClaimCheckRequest, () => readonly string[]>();
+  // A check's judgement of the quotes it was given after its verdict, for its Supported result.
+  const judgedAfter = new WeakMap<
+    ClaimCheckRequest,
+    (result: AtomicClaimCheckResult) => Promise<AtomicClaimCheckResult>
+  >();
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -662,10 +744,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const matched = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
-        const passages =
-          options?.properties && deps.fileProperties
-            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
-            : matched;
+        const passages = [
+          ...matched,
+          ...(options?.properties && deps.fileProperties
+            ? deps.fileProperties.add(matched, within, options)
+            : []),
+          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
+        ];
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
         }
@@ -708,7 +793,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
-    const calculating = calculatesIn(model);
+    const calculating = calculatesIn(model, request);
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;
@@ -730,15 +815,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       },
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       ...(deps.fileProperties && { fileProperties: true }),
+      ...(deps.libraryFacts && { libraryFacts: true }),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
         if (!request.window) {
-          const found = session.tools.searchDocuments(query, searchSignal, options);
-          const { fileProperties } = deps;
-          return options?.properties && fileProperties
-            ? found.then((result) => fileProperties.told(result, options))
-            : found;
+          const { fileProperties, libraryFacts } = deps;
+          return session.tools.searchDocuments(query, searchSignal, options).then((found) => {
+            const told =
+              options?.properties && fileProperties ? fileProperties.told(found, options) : found;
+            return options?.library && libraryFacts ? libraryFacts.told(told) : told;
+          });
         }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
         // search returned the whole window again: its verdict request carried it two or three
@@ -788,6 +875,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
                   relation: fields.relation,
                 }),
                 costs: new Set(costs),
+                given: each,
               });
           }
           const result = figures.calculate(givenList(given), options);
@@ -826,9 +914,25 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             } else {
               stated.delete(marker);
               pending.set(marker, number);
+              // A quote on a citation the sentence has, or one already recorded, may only be a
+              // `cite` that ran in this same turn: that is no failed repair (#2719). A citation
+              // that neither names can never be recorded, so it uses the one repair.
+              const cites =
+                (number.given as { inputs?: readonly unknown[] } | undefined)?.inputs ?? [];
+              const known = cites.every((input) => {
+                const marker =
+                  typeof input === "object" && input !== null
+                    ? whole((input as Record<string, unknown>).citation)
+                    : null;
+                return (
+                  marker === null ||
+                  marker <= (request.cited?.length ?? 0) ||
+                  session.tools.hasRecord?.(marker) === true
+                );
+              });
+              if (!known) calculationFailures++;
             }
           }
-          if (pending.size > 0) calculationFailures++;
           // The model is told the figure it will be judged on: a cost it marked as printed in
           // brackets is taken at its size, as the card shows it (#1908).
           let toldAtSize = result;
@@ -846,6 +950,32 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           return toldAtSize;
         },
       }),
+    };
+
+    /**
+     * A figure calculated before the `cite` beside it recorded its quote is worked out again once
+     * the quote is there: a turn's Tool calls run at once, and Claude Haiku 5.5 calls `calculate`
+     * and `cite` in one turn, so the calculation raced the record and left the check Not checked.
+     */
+    const retryPendingQuotes = () => {
+      for (const entry of [...pending.values()]) {
+        if (entry.given === undefined) continue;
+        const fields =
+          typeof entry.given === "object" && entry.given !== null
+            ? (entry.given as Record<string, unknown>)
+            : {};
+        const inputs = Array.isArray(fields.inputs) ? fields.inputs : [];
+        const markers = inputs.flatMap((input) => {
+          const marker =
+            typeof input === "object" && input !== null
+              ? whole((input as Record<string, unknown>).citation)
+              : null;
+          return marker === null ? [] : [marker];
+        });
+        if (markers.length === 0) continue;
+        if (markers.every((marker) => session.tools.hasRecord?.(marker) === true))
+          tools.calculate?.([entry.given]);
+      }
     };
 
     const unstatedUnit = (
@@ -904,16 +1034,21 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const reason = t(key, { document, amount });
         return problem({ reason, covered: null, uncovered: null, found: true }, true);
       }
+      // A Library fact's number is the Library's, not a Document's (#2525).
+      const unitKey =
+        candidates.length > 0 && candidates.every((each) => each.documentId === LIBRARY_FACTS)
+          ? "claim.unsupported.unit.library"
+          : "claim.unsupported.unit";
       if (found.kind === "scale") {
         return problem({
           found: true,
-          reason: t("claim.unsupported.unit", { amount, figure: found.figure }),
+          reason: t(unitKey, { amount, figure: found.figure }),
           covered: t("claim.unsupported.currency.covered", { amount }),
           uncovered: t("claim.unsupported.scale.uncovered", { figure: found.figure }),
         });
       }
       if (found.kind === "unit") {
-        const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
+        const reason = t(unitKey, { amount, figure: found.figure });
         return problem({ reason, covered: null, uncovered: null, found: true });
       }
       return problem({
@@ -1011,7 +1146,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         fits: readsWhole(),
         notChecked,
         failedCheck,
-        lookAt: (evidence, absent) => lookForPresence(request, evidence, absent, session, signal),
+        lookAt: (evidence, absent, first) =>
+          lookForPresence(request, evidence, absent, session, signal, first),
       });
     };
 
@@ -1093,11 +1229,40 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // still free: a later reply that gives none is held back as one that gives other words.
     let askedForOwnWords = false;
     let askedAbout: string | null = null;
-    let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
+    // A run that read a Document a wall keeps from this check backs nothing here, and what it read
+    // never goes to the model: its label, rows and code stay out of the request (#2378).
+    const walledRun = (figure: CheckFigure) =>
+      (figure.analysisRecord?.citations ?? []).some(
+        ({ documentId }) =>
+          deps.walledDocument(documentId) !== null &&
+          (scope.documentIds === null ||
+            !scope.documentIds.includes(documentId) ||
+            scope.excluded.has(documentId)),
+      );
+    const asked: ClaimCheckRequest = {
+      ...request,
+      ...(request.figures && {
+        figures: request.figures.map((figure) =>
+          figure.analysisRecord && walledRun(figure)
+            ? {
+                ...figure,
+                analysisRecord: {
+                  recalculated: figure.analysisRecord.recalculated,
+                  citations: figure.analysisRecord.citations,
+                },
+              }
+            : figure,
+        ),
+      }),
+    };
     const start = runStart(
-      { ...request, findsParts: request.findParts !== undefined },
+      {
+        ...asked,
+        findsParts: request.findParts !== undefined,
+        library: deps.libraryFacts !== undefined,
+      },
       deps.language(),
       calculating,
     );
@@ -1145,14 +1310,16 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
+        ...(deps.libraryFacts
+          ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
+          : []),
         ...figuresReplied(
-          request,
+          asked,
           figures,
           looked,
           (marker) => session.tools.hasRecord?.(marker) ?? false,
           (text) => {
             askedAbout = text;
-            if (readFigureReply(text, request.figures ?? [], request.claim)) askedFigures = text;
           },
         ),
         {
@@ -1211,6 +1378,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (!failed) hear(heard);
     deps.fileProperties?.replied(across(reply, setAside));
+    deps.libraryFacts?.replied(across(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
@@ -1257,7 +1425,25 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
-      if (invalidInput || pending.size > 0) return notChecked("no-evidence");
+      // The run's final reply decides each figure: an earlier reply's Figures line never stands
+      // over a later reply that gives none, or another (#2591). A final turn that answers in prose
+      // instead of a reply keeps the reply asked about, for the sentence and its figures (#2184).
+      const figuresText = text;
+      if (invalidInput || pending.size > 0) {
+        retryPendingQuotes();
+        session.check();
+        if (invalidInput) return notChecked("no-evidence");
+        // A figure left pending may be a calculation the model abandoned for a readable source:
+        // only a reply that still rests on an unworked calculation can't be decided (#2719).
+        if (pending.size > 0) {
+          const read = readFigureReply(figuresText, request.figures, request.claim);
+          const reliesOnUnrecorded =
+            read?.items.some(
+              (item) => item.calculation !== null && !figures.figure(item.calculation),
+            ) ?? false;
+          if (reliesOnUnrecorded) return notChecked("no-evidence");
+        }
+      }
       const judged = async (
         said: ReadVerdict,
         words: string,
@@ -1292,12 +1478,6 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       };
       const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
       const said = readVerdict(verdictText);
-      // A reply asked about its Figures line that gives its verdict again without one keeps the
-      // last line that reads: each figure is still compared with its own quote.
-      const figuresText =
-        readFigureReply(text, request.figures, request.claim) === null
-          ? (askedFigures ?? text)
-          : text;
       const checkedFigures = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
@@ -1323,6 +1503,20 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             measure,
             claimed,
           }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
+        keptInside: (documentId) =>
+          deps.walledDocument(documentId) !== null &&
+          (scope.documentIds === null ||
+            !scope.documentIds.includes(documentId) ||
+            scope.excluded.has(documentId))
+            ? (deps.walledFolderName(documentId) ?? documentId)
+            : null,
+        misnamed: (label) => ({
+          kind: "analysis-name",
+          reason: translate(deps.language(), "claim.analysisName", { label }),
           covered: null,
           uncovered: null,
           found: true,
@@ -1376,12 +1570,14 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         return unchecked(failure.reason, failure.detail);
       };
       if (signal.aborted) return result;
-      const figureResult = said
-        ? await withSentenceVerdict(result, () => sentence(said))
-        : // Figures that all check out never make a sentence Supported without a verdict to read.
-          result.verdict === "supported"
-          ? await withSentenceVerdict(result, async () => unchecked("malformed"))
-          : result;
+      const figureResult = oneVerdict(
+        said
+          ? await withSentenceVerdict(result, () => sentence(said))
+          : // Figures that all check out never make a sentence Supported without a verdict to read.
+            result.verdict === "supported"
+            ? await withSentenceVerdict(result, async () => unchecked("malformed"))
+            : result,
+      );
       // A correction is kept only on the one result it changes, the contradicted figure or else the
       // rest of the words, and only when every other result stands or is a figure it writes over.
       const withCorrection = (checked: ClaimCheckResult): ClaimCheckResult => {
@@ -1442,8 +1638,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             changes(stated.correction.from, choice.wording),
           )
             ? stated
-            : // "（¥98,000）" after 人民币九万八千元 reads as a negative number: it never takes
-              // the place of a positive one.
+            : // A number of the other sign never takes this one's place: the sentence's "a loss
+              // of 1,250" is the Document's "(1,250)".
               deciding && Math.sign(deciding.number.value) === Math.sign(owner.reading.value)
               ? corrected(
                   {
@@ -1565,6 +1761,41 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     const missing = [
       ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
     ];
+    const givenAfter = new Set<string>();
+    // A quote the model gave only when asked for one after its verdict was found on its page, never
+    // compared with the sentence: each backs a Supported result only once the strict judgement finds,
+    // on its own, that it says what the sentence says. Judged with a quote that does, an unrelated
+    // one was carried through (#2816).
+    judgedAfter.set(request, async (result) => {
+      if (result.verdict !== "supported") return result;
+      const notGiven = <T extends CitationKeyed>(list: readonly T[]): T[] =>
+        list.filter((each) => !givenAfter.has(citationKey(each)));
+      const cited = uniqueCitations([
+        ...(result.evidence ? [result.evidence] : []),
+        ...(result.checkedEvidence ?? []),
+      ]);
+      for (const citation of cited.filter((each) => givenAfter.has(citationKey(each)))) {
+        const judged = await compare(request, citation, session, signal, STRICT_INSTRUCTIONS);
+        if (!signal.aborted && "reply" in judged && readJudgement(judged.reply) === "same")
+          continue;
+        // The Not checked result shows none of those quotes either.
+        retainedEvidence = notGiven(retainedEvidence);
+        if (retainedCoverage) {
+          retainedCoverage = {
+            ...retainedCoverage,
+            members: retainedCoverage.members.map((member) => ({
+              ...member,
+              evidence: notGiven(member.evidence),
+            })),
+            domainEvidence: notGiven(retainedCoverage.domainEvidence),
+          };
+        }
+        if (signal.aborted) return notChecked("stopped");
+        if ("failed" in judged) return failedCheck(judged.failed);
+        return notChecked("no-evidence");
+      }
+      return result;
+    });
     if (
       missing.length > 0 &&
       !namedMarkers.some((marker) => {
@@ -1574,6 +1805,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     ) {
       const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
       if (isFailed(recovered)) failed = recovered.failed;
+      for (const citation of missing.map((marker) => session.finalCitation(marker)))
+        if (citation) givenAfter.add(citationKey(citation));
     }
     const namedCitations = namedMarkers.map((marker) => session.finalCitation(marker));
     namedEvidence = uniqueCitations([
@@ -1684,17 +1917,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       };
     };
     // The fields-only second look (#2313): a judge's own reply that said it could not state the
-    // sentence, and then said the claim is stated and the same, is asked once more; a still
-    // inconsistent reply, or a Supported one without its Duty or Condition, is Not checked rather
-    // than Supported or cut (#1766, #1708).
+    // sentence, and then said the claim is stated and the same, is asked once more. Only a field
+    // of its second reply that differs counts, its Duty and Condition among them (#1766, #1708),
+    // and it lowers the sentence to Unsupported; a second reply that calls it supported is Not
+    // checked, as an inconsistent one is: on held-out sentences whose Passage gives only a goal, a
+    // draft or another contract's terms, it called them supported with every field the same (#2816).
     const rechecked = async (
       again: ReadVerdict | null,
       shown: Citation | null,
-    ): Promise<ClaimCheckResult> => {
-      if (!again) return notChecked("malformed");
-      if (again.verdict === "supported") {
-        if (ownDetailDiffers(again) || again.scope === "wider")
-          return unsupported(
+    ): Promise<ClaimCheckResult> =>
+      again && (ownDetailDiffers(again) || again.scope === "wider")
+        ? unsupported(
             {
               reason: again.says,
               covered: again.covered,
@@ -1703,59 +1936,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             },
             shown,
             null,
-          );
-        if (
-          again.absence !== "no" ||
-          again.topic !== "found" ||
-          again.roles !== "same" ||
-          ownDetailUnread(again) ||
-          !again.evidence?.length ||
-          comparesOtherWords(again, request.claim, true)
-        )
-          return notChecked("malformed");
-        if (again.coverage) {
-          const backed = again.coverage.members.filter(
-            (member) => member.verdict === "supported",
-          ).length;
-          const enough =
-            again.coverage.quantifier === "most"
-              ? backed > again.coverage.members.length / 2
-              : backed === again.coverage.members.length;
-          if (!again.coverage.complete || !enough)
-            return unsupported(
-              {
-                reason: again.says,
-                covered: again.covered,
-                uncovered: again.uncovered,
-                found: true,
-              },
-              shown,
-              null,
-            );
-        }
-        return {
-          verdict: "supported",
-          evidence: shown,
-          says: null,
-          unsupported: null,
-          calculation: worked?.calculation ?? null,
-          ...citedCase(shown),
-          ...facts(),
-        };
-      }
-      if (ownDetailDiffers(again) || again.scope === "wider")
-        return unsupported(
-          {
-            reason: again.says,
-            covered: again.covered,
-            uncovered: again.uncovered,
-            found: true,
-          },
-          shown,
-          null,
-        );
-      return notChecked("malformed");
-    };
+          )
+        : notChecked("malformed");
     session.check();
     if (verdict.reasonKind) {
       return unsupported(
@@ -1775,7 +1957,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (verdict.verdict === "unsupported" && !byCalculation) {
       // Its fields say the claim is stated and the same, while its verdict says otherwise: ask
-      // once more, and a still inconsistent reply is Not checked (#2313).
+      // once more, and only a field that differs settles it (#2313, #2816).
       const stated = namedEvidence[0] ?? null;
       if (
         stated !== null &&
@@ -1811,6 +1993,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       });
     }
     const cited = namedEvidence[0] ?? (await askForEvidence(request, verdict, session, signal));
+    if (cited && !isFailed(cited) && namedEvidence.length === 0) givenAfter.add(citationKey(cited));
     const evidence = cited ?? worked?.evidence ?? null;
     const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
@@ -1917,7 +2100,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
       // Scope agree: the reply's contradiction was about words outside the part, as a sentence's
       // figure is for a part about when it happened. Its fields disagree with its verdict, so it is
-      // asked once more; its own second reply decides (#2313).
+      // asked once more; its second reply can only lower it (#2313, #2816).
       const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
@@ -1972,7 +2155,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
   };
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
     try {
-      const result = await check(request);
+      const checked = await check(request);
+      const result = (await judgedAfter.get(request)?.(checked)) ?? checked;
       return result.verdict === "supported"
         ? withDollarClause(deps, request.claim, result)
         : result;
@@ -2095,6 +2279,8 @@ interface StatedNumber {
   relation?: LimitRelation;
   /** The names of the inputs the model marked as a cost or deduction printed in brackets. */
   costs: ReadonlySet<string>;
+  /** The calculate item as the model gave it, to work out again once its quotes are recorded. */
+  given?: unknown;
 }
 
 /**
@@ -2407,7 +2593,7 @@ async function confirmContradiction(
 
 /**
  * Whether the quote a window's judgement gives for what the sentence says is absent states it is
- * there: two looks, each asked that and nothing else (#1554).
+ * there: two looks, each asked that and nothing else (#1554); with `first`, only the first.
  */
 async function lookForPresence(
   request: ClaimCheckRequest,
@@ -2415,12 +2601,16 @@ async function lookForPresence(
   absent: string | null,
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
+  first = false,
 ): Promise<Presence> {
   const passage =
     session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
     quoted.quote;
   const { model } = request;
-  for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
+  const looks = first
+    ? [PRESENCE_INSTRUCTIONS]
+    : [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS];
+  for (const instructions of looks) {
     let reply: string;
     try {
       ({ text: reply } = await generateText({
@@ -2625,7 +2815,10 @@ function inLanguageAt(claim: string, first: number, end: number, wording: string
   return written === (scriptOf(claim.slice(first, end)) ?? scriptOf(nearest));
 }
 
-const sameNumber = (a: { value: number; unit: unknown }, b: { value: number; unit: unknown }) =>
+export const sameNumber = (
+  a: { value: number; unit: unknown },
+  b: { value: number; unit: unknown },
+) =>
   Math.abs(a.value - b.value) <= 1e-9 * Math.max(1, Math.abs(a.value), Math.abs(b.value)) &&
   JSON.stringify(a.unit) === JSON.stringify(b.unit);
 
@@ -2674,10 +2867,6 @@ function numberAround(text: string, start: number, end: number): string {
   }
   return text.slice(from, to);
 }
-
-/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
-const NUMBERS =
-  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
 
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
@@ -2890,7 +3079,7 @@ function inPlace(before: string, after: string, wording: string): string {
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
  * quote, keeping the sentence's named periods.
  */
-function correctionFor(
+export function correctionFor(
   sentence: string,
   claim: string,
   read: ReadCorrection | undefined,
@@ -2987,7 +3176,12 @@ function decidingCitation(finalCitation: (marker: number) => Citation | null): C
   return null;
 }
 
-const citationKey = (citation: Citation) =>
+type CitationKeyed = Pick<
+  CitationAttributes,
+  "documentId" | "contentHash" | "passageId" | "pageFrom" | "pageTo" | "location" | "quote"
+>;
+
+const citationKey = (citation: CitationKeyed) =>
   JSON.stringify([
     citation.documentId,
     citation.contentHash,

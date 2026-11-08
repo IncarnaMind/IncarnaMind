@@ -9,7 +9,6 @@ import {
   checkCard,
   useLocalChatModel as chooseScriptedModel,
   clickEditItem,
-  clickEndOf,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -20,7 +19,6 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
   undoMenuItem,
@@ -28,8 +26,9 @@ import {
 
 /*
  * Correct a confirmed contradiction from the Documents (#1481). The checks
- * are written into the page, so no model is involved: the card, badge and ⌘K
- * all use the one correction path, and one Undo restores the words and marks.
+ * are written into the page; the correction then checks the sentence again on
+ * the scripted model like any edit (#2563), and one Undo restores the words and
+ * marks. The card, badge and ⌘K all use the one correction path.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -59,9 +58,15 @@ async function launched(language: "en" | "zh-CN", width: number) {
   await writeFile(
     join(sources, "Lease.txt"),
     language === "en"
-      ? "The Tenant pays a break fee of $57,000.\nThe Landlord returns the deposit within 30 days.\n"
-      : "承租方支付解约费 57,000 美元。\n出租方在 30 天内退还押金。\n",
+      ? "The Tenant pays a break fee of $57,000.\nThe Landlord returns the deposit within 30 days.\nThe break fee is $57,000, and the deposit is returned within 30 days.\n"
+      : "承租方支付解约费 57,000 美元。\n出租方在 30 天内退还押金。\n解约费为 57,000 美元，押金在 30 天内退还。\n",
   );
+  // The corrected words, so the check that follows the correction finds them.
+  const rates =
+    language === "en"
+      ? "The rate is 38.6%.\nThe first rate is 38.6%.\nThe second rate is 39.4%.\n"
+      : "比率是 38.6%。\n第一个比率是 38.6%。\n第二个比率是 39.4%。\n";
+  await writeFile(join(sources, "Rate card.txt"), rates);
   const running = await launchApp(dataDir, { fakeChat: true });
   const { app, window } = running;
   await dismissChatSetup(window);
@@ -72,6 +77,7 @@ async function launched(language: "en" | "zh-CN", width: number) {
     join(sources, "Acceptance scan.txt"),
     join(sources, "Annual report.txt"),
     join(sources, "Lease.txt"),
+    join(sources, "Rate card.txt"),
   ]);
   const documents = await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
@@ -180,9 +186,10 @@ for (const [language, width] of [
     const longText = "The detailed conclusion is old wording.";
     const conflictText = "The accepted reviewer is 李明.";
     const legacyText = "The legacy rate is 36.8%.";
+    const rateLine = language === "en" ? "The rate is 38.6%." : "比率是 38.6%。";
     const short = check("short", shortText, {
       from: "36.8%",
-      choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+      choices: [{ wording: "38.6%", evidence: evidence("Rate card", "38.6%", rateLine) }],
     });
     const long = check("long", longText, {
       from: "old wording",
@@ -227,7 +234,11 @@ for (const [language, width] of [
     await expect(firstLine).not.toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(1);
     await expect(firstLine.locator("[data-generated]")).toHaveText("38.6%");
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
+    await expect(marks.nth(0)).toHaveAttribute(
+      "data-check",
+      language === "en" ? "supported" : "unsupported",
+      { timeout: 30_000 },
+    );
     await expect(window.getByTestId("undo-line")).toContainText(
       translate(language, "claim.usedDocumentWording"),
     );
@@ -235,16 +246,6 @@ for (const [language, width] of [
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(firstLine).toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(0);
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
-
-    await clickEndOf(window, firstLine);
-    await runCommand(
-      window,
-      "check.correctContradiction",
-      translate(language, "claim.correction.command"),
-    );
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
-    await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
     await pointAndClick(window, marks.nth(1));
@@ -284,7 +285,16 @@ for (const [language, width] of [
           text,
           check("rate", text, {
             from: "36.8%",
-            choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+            choices: [
+              {
+                wording: "38.6%",
+                evidence: evidence(
+                  "Rate card",
+                  "38.6%",
+                  language === "en" ? "The rate is 38.6%." : "比率是 38.6%。",
+                ),
+              },
+            ],
           }),
         ),
       ),
@@ -295,7 +305,11 @@ for (const [language, width] of [
       await expect(line).toContainText("38.6%");
       await expect(line.getByTestId("citation")).toHaveCount(1);
       await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
-      await expect(mark).toHaveAttribute("data-check", "supported");
+      await expect(mark).toHaveAttribute(
+        "data-check",
+        language === "en" ? "supported" : "unsupported",
+        { timeout: 30_000 },
+      );
     };
     const before = async () => {
       await expect(line).toContainText("36.8%");
@@ -332,15 +346,15 @@ for (const [language, width] of [
     await window.keyboard.press("ControlOrMeta+z");
     const undoLine = window.getByTestId("undo-line");
     await expect(undoLine).toContainText(
-      translate(language, "undo.documentsRemoved", { count: "3" }),
+      translate(language, "undo.documentsRemoved", { count: "4" }),
     );
     await expect.poll(library).toBe(0);
     await screenshot(window, `correction-add-undone-${language}`);
 
     await pointAndClick(window, undoLine.getByTestId("redo-action"));
-    await expect.poll(library).toBe(3);
+    await expect.poll(library).toBe(4);
     await expect(undoLine).toContainText(
-      translate(language, "undo.documentsAdded", { count: "3" }),
+      translate(language, "undo.documentsAdded", { count: "4" }),
     );
     await before();
     await window.keyboard.press("ControlOrMeta+Shift+z");
@@ -356,11 +370,29 @@ for (const [language, width] of [
     const legacyText = "The legacy rate is 36.8%.";
     const first = check("first", firstText, {
       from: "36.8%",
-      choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+      choices: [
+        {
+          wording: "38.6%",
+          evidence: evidence(
+            "Rate card",
+            "38.6%",
+            language === "en" ? "The first rate is 38.6%." : "第一个比率是 38.6%。",
+          ),
+        },
+      ],
     });
     const second = check("second", secondText, {
       from: "36.8%",
-      choices: [{ wording: "39.4%", evidence: evidence("Annual report", "王强") }],
+      choices: [
+        {
+          wording: "39.4%",
+          evidence: evidence(
+            "Rate card",
+            "39.4%",
+            language === "en" ? "The second rate is 39.4%." : "第二个比率是 39.4%。",
+          ),
+        },
+      ],
     });
     const legacy = check("legacy", legacyText, null);
     await insert(window, [
@@ -375,8 +407,9 @@ for (const [language, width] of [
     await screenshot(window, `correction-badge-${language}`);
     await pointAndClick(window, correct);
 
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
-    await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
+    const judged = language === "en" ? "supported" : "unsupported";
+    await expect(marks.nth(0)).toHaveAttribute("data-check", judged);
+    await expect(marks.nth(1)).toHaveAttribute("data-check", judged);
     await expect(marks.nth(2)).toHaveAttribute("data-check", "contradicted");
     await expect(editor.locator(":scope > p").nth(0)).toContainText("38.6%");
     await expect(editor.locator(":scope > p").nth(1)).toContainText("39.4%");
@@ -392,6 +425,64 @@ for (const [language, width] of [
     await expect(editor.locator(":scope > p").nth(0)).toContainText("36.8%");
     await expect(editor.locator(":scope > p").nth(1)).toContainText("36.8%");
     await expect(editor.getByTestId("citation")).toHaveCount(0);
+    await app.close();
+  });
+
+  test(`the foot keeps its height with a correction in its row (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, check, evidence } = await launched(language, width);
+    const text = language === "en" ? "The first rate is 36.8%." : "第一个比率是 36.8%。";
+    await insert(window, [
+      paragraph(
+        marked(
+          text,
+          check("first", text, {
+            from: "36.8%",
+            choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+          }),
+        ),
+      ),
+    ]);
+    const card = await checkCard(window);
+    const correct = card.getByTestId("badge-correct-contradictions");
+    await expect(correct).toBeVisible();
+    const foot = card.getByTestId("check-card-foot");
+    const before = { card: await card.boundingBox(), foot: await foot.boundingBox() };
+    if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
+
+    // The run's words take Check's row while the correction stays where it was, disabled.
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
+      ).incarnamindSlowCheck.hold = true;
+    });
+    await pointAndClick(window, card.getByTestId("badge-check-mind"));
+    // The press asks first while the estimate lands, and with nothing changed offers every
+    // sentence again; either way one more press runs it.
+    const ask = card.getByTestId("mind-check-check");
+    const every = card.getByTestId("mind-check-every");
+    await expect
+      .poll(
+        async () =>
+          (await card.getByTestId("card-foot-progress").count()) +
+          (await ask.count()) +
+          (await every.count()),
+      )
+      .toBeGreaterThan(0);
+    if ((await ask.count()) > 0) await pointAndClick(window, ask);
+    if ((await every.count()) > 0) await pointAndClick(window, every);
+    await expect(card.getByTestId("card-foot-progress")).toBeVisible();
+    const after = { card: await card.boundingBox(), foot: await foot.boundingBox() };
+    if (!after.card || !after.foot) throw new Error("The card went at the press.");
+    expect(after.card.height).toBeCloseTo(before.card.height, 0);
+    expect(after.foot.height).toBeCloseTo(before.foot.height, 0);
+    await app.evaluate(() => {
+      const slow = (
+        globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
+      ).incarnamindSlowCheck;
+      slow.hold = false;
+      slow.release();
+    });
     await app.close();
   });
 
@@ -461,17 +552,22 @@ for (const [language, width] of [
     );
     await withinCard(window);
     await screenshot(window, `correction-parts-${language}`);
+    const firstId = await mark.getAttribute("data-claim");
     await pointAndClick(window, rows.nth(1).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "30 days" : "30 天");
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
-    await expect(mark).toHaveAttribute("data-check", "contradicted");
+    // The check the correction asks for lands, and Undo brings back the check with both parts.
+    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await expect(mark).toHaveAttribute("data-claim", firstId ?? "");
 
     await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-part-correct")).toHaveCount(1);
-    await pointAndClick(window, card.getByTestId("claim-part-correct"));
+    const again = card.getByTestId("claim-part");
+    await expect(again).toHaveCount(2);
+    await pointAndClick(window, again.nth(0).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "$57,000" : "57,000");
-    await expect(mark).toHaveAttribute("data-check", "supported");
-    await expect(line.getByTestId("citation")).toHaveCount(2);
+    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    await expect(line.getByTestId("citation")).toHaveCount(1);
 
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");

@@ -31,10 +31,12 @@ import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
   boundedCheck,
   boundedCheckParts,
+  checkedCitation,
   checkWithParts,
   figuresByPart,
   partWithResult,
   pendingPart,
+  planOf,
   resultFromParts,
   withFigureFacts,
 } from "../../../shared/claimParts";
@@ -43,6 +45,11 @@ import {
   readFigureFinding,
   settleFigureCheck,
 } from "../../../shared/figureChecks";
+import {
+  isLibraryCitation,
+  libraryVersionIds,
+  readLibraryVersion,
+} from "../../../shared/libraryFacts";
 import { mindScopeIn } from "../../../shared/mindScope";
 import {
   budgetStopOf,
@@ -76,11 +83,14 @@ import {
   type ContradictionCheckPlan,
   type Currency,
   claimCheckActions,
+  type DataKind,
   type Document,
   type DocumentCheckPlan,
   type DocumentCheckProgress,
   type ExternalService,
+  type MindCheckEarly,
   type Money,
+  type RewriteFromDocumentsResult,
   type RunEstimate,
   type SearchScope,
   type TextPlace,
@@ -113,6 +123,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
+import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
@@ -127,6 +138,7 @@ import {
   recordJudged,
 } from "./claimCheck";
 import { createFastPaths } from "./fastPaths";
+import { libraryNow } from "./libraryFacts";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck, partRequest } from "./partCheck";
@@ -136,6 +148,7 @@ import {
   unplacedRecordCites,
   withRecordCites,
 } from "./recordCites";
+import { REWRITE_TIMEOUT_MS, rewriteFromPassage } from "./rewrite";
 import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
@@ -166,7 +179,35 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
  * the Passages found, a verified document's sentences, to find its claims
  * (#97), and a Mind's sentences when the whole Mind is checked (#737).
  */
-export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", "blocks"] as const;
+export const CHECKS_FLOW_SENDS = [
+  "selection",
+  "passages",
+  "verified-document",
+  "blocks",
+  "library-counts",
+  "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
+] as const;
+
+/**
+ * What the contradiction watch may send of the checks flow: its sentences checked as any claim is,
+ * file properties and whole Documents too, never the Library's facts. Its consent is to these
+ * alone, so it never waits on the rest (#2525).
+ */
+const WATCH_SENDS: readonly DataKind[] = [
+  "selection",
+  "passages",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
+];
+
+/** What checking the assistant's write may send: all the checks flow does but the watch's sentences. */
+const WRITTEN_SENDS: readonly DataKind[] = CHECKS_FLOW_SENDS.filter(
+  (kind) => kind !== "watched-sentences",
+);
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
@@ -194,6 +235,8 @@ export interface ChecksOptions
   > {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** What a check reads of the Library as it runs, as text that differs whenever that does. */
+  libraryState(): string;
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   /** What contradiction watch needs besides (#112). */
   watch: Pick<
@@ -212,6 +255,8 @@ export interface ChecksOptions
   walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
+  /** What a scope sees of the Library from a Note, Folder walls applied (./libraryFacts). */
+  libraryListing: NonNullable<ClaimCheckDependencies["libraryListing"]>;
   /** The Documents a pick covers on its Note's side of a Folder wall, as its searches see them. */
   pickedDocuments(within: SearchScope, mindId: string): string[];
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -222,7 +267,12 @@ export interface ChecksOptions
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
-    prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
+    prepareModel(
+      choice: ChatModelChoice | undefined,
+      flow: CheckFlow,
+      thinking?: undefined,
+      options?: { sends?: readonly DataKind[] },
+    ): Promise<PreparedChatModel>;
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
@@ -231,6 +281,7 @@ export interface ChecksOptions
   };
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
+  warmReranker?: VerifyOptions["warmReranker"];
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
@@ -255,6 +306,14 @@ export interface ChecksOptions
         leftOut: readonly string[],
       ): boolean;
     };
+  /** A Citation checked again in its Document's current version, at the Units it cites. */
+  recheckCitation(citation: {
+    documentId: string;
+    quote: string;
+    pageFrom: number | null;
+    pageTo: number | null;
+    contentHash: string;
+  }): { check: CitationAttributes["check"]; contentHash: string | null };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** What a whole read's requests have settled at, by its request id, in `currency`. */
@@ -263,6 +322,8 @@ export interface ChecksOptions
   capLeft(): Money | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
+  /** A Check this Note run's sentences checked before it marks them. */
+  checkingEarly(event: MindCheckEarly): void;
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
@@ -766,10 +827,15 @@ export function createChecks(options: ChecksOptions) {
   };
   const withCites = (check: ReturnType<typeof createClaimCheck>) =>
     withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
-  const claimCheck = withCites(createPartCheck(options));
-  const atomicCheck = createClaimCheck(options);
+  // Every check is one piece of rerank work, whichever flow asks for it (../../reranking/order).
+  const asCheck =
+    (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
+    (request: ClaimCheckRequest) =>
+      asCheckWork(() => check(request));
+  const claimCheck = asCheck(withCites(createPartCheck(options)));
+  const atomicCheck = asCheck(createClaimCheck(options));
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
-  const wholeCheck = withCites(createClaimCheck(options));
+  const wholeCheck = asCheck(withCites(createClaimCheck(options)));
 
   const services = async () => {
     const service = chat.defaultService();
@@ -825,7 +891,8 @@ export function createChecks(options: ChecksOptions) {
       const marks = markedSentences(blocks);
       const versions = marks.flatMap(({ check }): RetainVersion[] =>
         restsOn(check).flatMap((evidence) =>
-          evidence.documentId && evidence.contentHash
+          // The Library's facts are no Document's text to keep (#2525).
+          evidence.documentId && evidence.contentHash && !isLibraryCitation(evidence)
             ? [
                 {
                   documentId: evidence.documentId,
@@ -995,7 +1062,7 @@ export function createChecks(options: ChecksOptions) {
       owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
     const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
     const previous = owner?.parts ?? prior?.parts;
-    const plans = previous?.map(({ span, kind }) => ({ span, kind }));
+    const plans = previous?.map(planOf);
     const parts =
       owner?.parts.map(
         (part): ClaimCheckPart =>
@@ -1064,8 +1131,10 @@ export function createChecks(options: ChecksOptions) {
     prepared: PreparedChatModel,
     mindId: string,
     signal: AbortSignal,
+    searched?: SearchScope | null,
   ): ClaimCheckRequest {
     return {
+      ...(searched !== undefined && { searched }),
       claim: sentence.claim,
       ...(sentence.projection && { projection: sentence.projection }),
       context: sentence.context,
@@ -1374,7 +1443,7 @@ export function createChecks(options: ChecksOptions) {
     for (const sentence of queued) {
       if (signal.aborted) break;
       const result = await claimCheck(
-        checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal),
+        checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal, check.wanted),
       );
       if (signal.aborted) break;
       if (result.verdict !== "not-checked") checked++;
@@ -1415,19 +1484,32 @@ export function createChecks(options: ChecksOptions) {
     return { signal: controller.signal, done: () => running.delete(requestId) };
   };
 
-  /** The model, when it can be used now without asking the User: never in the background. */
-  async function prepareQuietly(choice: ChatModelChoice | null): Promise<PreparedChatModel | null> {
+  /**
+   * Whether work on the checks flow that sends `sends` to `service` waits for the User to allow
+   * them: they allowed checks before the flow sent more, and not the more yet (#2525).
+   */
+  const waitsFor = (service: ExternalService | null, sends: readonly DataKind[]) =>
+    service !== null &&
+    !options.localOnly() &&
+    options.consent.allows("checks", service) &&
+    !options.consent.covers("checks", service, sends);
+
+  /**
+   * The model, when it can be used now without asking the User: never in the background. `sends`:
+   * what this work sends of the checks flow, all of it when left out, the consent it needs.
+   */
+  async function prepareQuietly(
+    choice: ChatModelChoice | null,
+    sends: readonly DataKind[] = CHECKS_FLOW_SENDS,
+  ): Promise<PreparedChatModel | null> {
     const readiness = await chat.readiness(choice ?? undefined, "checks");
     if (!readiness.ready) return null;
     const { service } = readiness.provider;
-    if (
-      service &&
-      (options.localOnly() || options.consent.status("checks", service) !== "accepted")
-    ) {
+    if (service && (options.localOnly() || !options.consent.covers("checks", service, sends))) {
       return null;
     }
     try {
-      return await chat.prepareModel(choice ?? undefined, "checks");
+      return await chat.prepareModel(choice ?? undefined, "checks", undefined, { sends });
     } catch (error) {
       if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
       throw error;
@@ -1447,7 +1529,11 @@ export function createChecks(options: ChecksOptions) {
       ),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
-    prepareQuietly,
+    prepareQuietly: (choice) => prepareQuietly(choice, WATCH_SENDS),
+    waitsForConsent: async (choice) => {
+      const readiness = await chat.readiness(choice ?? undefined, "checks");
+      return readiness.ready && waitsFor(readiness.provider.service, WATCH_SENDS);
+    },
     claimCheck: wholeCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1501,7 +1587,7 @@ export function createChecks(options: ChecksOptions) {
         { catalogId, modelId: quick.modelId },
         options.checkPaths,
       );
-    return looks ? prepareQuietly(quick) : null;
+    return looks ? prepareQuietly(quick, WRITTEN_SENDS) : null;
   }
 
   const firstLook = createFastPaths({
@@ -1519,7 +1605,8 @@ export function createChecks(options: ChecksOptions) {
   const checkWritten = createWrittenCheck({
     ...options,
     prepare: (answer) =>
-      prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
+      prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
+    widened: ({ provider: { service } }) => waitsFor(service, WRITTEN_SENDS),
     quickModel: quickModelOf,
     firstLook,
     claimCheck,
@@ -1700,6 +1787,34 @@ export function createChecks(options: ChecksOptions) {
     checkMind: (input: unknown) => mindCheck.checkMind(input),
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
 
+    /** See `CoreApi.libraryFactsNow`. */
+    libraryFactsNow(mindId: unknown): Record<string, string> {
+      const id = parseMindId(mindId);
+      options.requireMind(id);
+      const versionIds = content.read(id, (blocks) =>
+        libraryVersionIds(markedSentences(blocks).map(({ check }) => check)),
+      );
+      const byScope = new Map<string, { searched: SearchScope | null; ids: string[] }>();
+      for (const versionId of versionIds) {
+        const version = readLibraryVersion(versionId);
+        if (!version) continue;
+        const key = JSON.stringify(version.searched);
+        const group = byScope.get(key) ?? { searched: version.searched, ids: [] };
+        group.ids.push(versionId);
+        byScope.set(key, group);
+      }
+      const now: Record<string, string> = {};
+      for (const { searched, ids } of byScope.values()) {
+        const keys = ids.map((each) => readLibraryVersion(each)?.key ?? "");
+        const values = libraryNow(options.libraryListing(id, searched), keys);
+        for (const [at, each] of ids.entries()) {
+          const value = values.get(keys[at] ?? "");
+          if (value !== undefined) now[each] = value;
+        }
+      }
+      return now;
+    },
+
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */
     documentChanged: (document: Document) => watch.documentChanged(document),
 
@@ -1712,7 +1827,8 @@ export function createChecks(options: ChecksOptions) {
     /** Starts watching for new versions of Documents. */
     startWatching: () => watch.start(),
 
-    async checkClaim(input: unknown): Promise<ClaimCheckResult> {
+    /** `signal` stops the check, for a caller in the core; the API's callers can't pass one. */
+    async checkClaim(input: unknown, signal?: AbortSignal): Promise<ClaimCheckResult> {
       const parsed = parseClaim(input);
       const ready = await prepare(parsed.model ?? options.defaultModel());
       if (!ready.ok) {
@@ -1755,8 +1871,55 @@ export function createChecks(options: ChecksOptions) {
         model: ready.prepared,
         // Reading the document being checked makes the Run third-party (#78).
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
-        signal: new AbortController().signal,
+        signal: signal ?? new AbortController().signal,
       });
+    },
+
+    async rewriteFromDocuments(input: unknown): Promise<RewriteFromDocumentsResult> {
+      if (!isRecord(input) || typeof input.checkId !== "string" || input.checkId === "") {
+        throw new InvalidInputError({ key: "error.check.partChanged" });
+      }
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      const { checkId } = input;
+      const stored = content.read(mindId, (blocks) =>
+        checkedSentences(blocks).find(({ check }) => check.id === checkId),
+      );
+      const evidence = checkedCitation(stored?.check.evidence ?? undefined);
+      if (
+        !stored ||
+        !evidence ||
+        stored.check.state !== "unsupported" ||
+        stored.cited.length > 0 ||
+        stored.sentence !== stored.check.text ||
+        // Filed behind a Folder wall since the check, the Passage stays on its side (#1934).
+        options.walledDocument(evidence.documentId) !== options.walledFolder(mindId)
+      )
+        return { kind: "changed" };
+      // The quote is taken again from the Document as it is now, never from the Mind's copy of it.
+      const source = options.documents.citationSource(evidence.passageId);
+      const now = options.recheckCitation(evidence);
+      // A Document gone to Recently deleted is no longer found there, so its recheck refuses it.
+      if (
+        !source ||
+        source.notCited ||
+        now.check !== "found" ||
+        now.contentHash !== evidence.contentHash
+      )
+        return { kind: "changed" };
+      const ready = await prepare(parseModel(input.model) ?? options.defaultModel());
+      if (!ready.ok) return ready.result;
+      const rewritten = await rewriteFromPassage({
+        sentence: stored.sentence,
+        evidence,
+        passage: source.text,
+        model: ready.prepared,
+        documentDate: options.documents.documentDate,
+        signal: AbortSignal.timeout(REWRITE_TIMEOUT_MS),
+      });
+      return rewritten.kind === "rewritten"
+        ? { ...rewritten, providerId: ready.prepared.provider.id, modelId: ready.prepared.modelId }
+        : rewritten;
     },
 
     async chooseRecordCiteSource(value: unknown) {

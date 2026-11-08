@@ -9,7 +9,9 @@ import { retryFigures } from "../../src/core/answers/figureRetry";
 import { retryQuotes } from "../../src/core/answers/quoteRetry";
 import { citeUnmarked } from "../../src/core/answers/unmarkedQuotes";
 import { createWindowBudget } from "../../src/core/answers/window";
+import { judgeWorkingText } from "../../src/core/answers/workingText";
 import { chatGroupClassifier } from "../../src/core/library/classifier";
+import { chatPlanModel } from "../../src/core/library/planModel";
 import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { suggestionSchema } from "../../src/core/suggestions/prompt";
 import { chatClassifier } from "../../src/core/tags/classify";
@@ -21,7 +23,9 @@ export const SCHEMA_CALLS = {
   "answers/figureRetry.ts": ["calculations"],
   "answers/quoteRetry.ts": ["quotes"],
   "answers/unmarkedQuotes.ts": ["citations"],
+  "answers/workingText.ts": ["parts"],
   "library/classifier.ts": ["document_group", "folder_proposals"],
+  "library/planModel.ts": ["folder_plan", "placements", "subfolders"],
   "suggestions/index.ts": ["suggestion"],
   "tags/classify.ts": ["document_tags"],
 } as const;
@@ -88,11 +92,6 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
         id: "g-reports",
         name: "Reports",
         description: "Reports",
-        parentId: null,
-        countsOwnFiles: false,
-        keepInside: false,
-        createdAt: "",
-        updatedAt: "",
       },
     ],
     tags,
@@ -105,12 +104,35 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     "en",
     signal,
   );
+  const plan = chatPlanModel(model);
+  const sampled = { ref: "D1", name: "QBR", type: "PDF, 2 pages", text: "Quarterly review." };
+  const reports = { id: "g-reports", name: "Reports", description: "Reports" };
+  await plan.sort(
+    {
+      documents: [sampled],
+      folders: [reports],
+      language: "en",
+      within: null,
+      aim: { least: 3, most: 7 },
+    },
+    signal,
+  );
+  await plan.place([sampled], [reports], signal);
+  await plan.nameSubfolders([{ ref: "G1", parent: "Reports", documents: [sampled] }], "en", signal);
   await generateText({
     model,
     prompt: "Continue the paragraph: Spring tides come at new moon.",
     output: Output.object({ schema: suggestionSchema, name: "suggestion" }),
     maxRetries: 0,
   });
+  await judgeWorkingText(
+    model,
+    undefined,
+    signal,
+    "When are spring tides?",
+    "Spring tides come at new and full moon.",
+    ["Citations need to be recorded now."],
+  );
 
   const window = WINDOW;
   const request = { model, documents, signal };

@@ -9,6 +9,7 @@ import {
   continueSetup,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   examplesMenu,
   expectReadyDocuments,
   frontMind,
@@ -102,10 +103,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
     "Draft: credit committee paper",
   );
-  await expect(pane.getByTestId("first-open-steps")).toContainText("Welcome to IncarnaMind");
-  await expect(window.getByTestId("mind-list-item").getByTestId("example-chip")).toHaveText(
-    "Example",
-  );
+  await expect(pane.getByTestId("first-open-steps").locator("h2")).toHaveText("Get started");
+  await expect(exampleRow(window)).toHaveCount(1);
+  await expect(exampleRow(window).getByTestId("example-chip")).toHaveCount(0);
   await expectReadyDocuments(window, 2);
   // No model needed: no setup over it, and no "set up a chat model" notice in it.
   await expect(window.getByTestId("chat-setup")).toBeHidden();
@@ -158,6 +158,17 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     .toContain("Net debt to EBITDA was 3.1 times");
   await window.keyboard.press("Escape");
   await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+
+  // The Document in front has its row, under the example's Note, while the steps card shows. Its
+  // row is the selected one once the User is in its pane, as for every open item (#1098).
+  const sidebar = window.getByTestId("sidebar");
+  const examples = sidebar.getByTestId("not-in-a-folder-section");
+  await expect(examples.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
+  await expect(examples.getByTestId("document-list-item")).toHaveCount(2);
+  await pointAndClick(window, window.getByTestId("viewer"));
+  const selected = examples.getByRole("treeitem", { selected: true });
+  await expect(selected).toHaveCount(1);
+  await expect(selected.getByTestId("row-text")).toHaveText("Northwind Retail · Q3 2026 results");
 
   // Step 2's ready Question brings the assistant with its Answer, written in advance with no
   // model, its Citations found, and ticks the step.
@@ -366,7 +377,7 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await window.keyboard.press("Escape");
   await pointAndClick(window, window.getByTestId("mind-pane").getByTestId("claim-mark"));
   const steps = window.getByTestId("first-open-steps");
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await expect(steps.locator('[data-testid="first-open-step"][data-state="done"]')).toHaveText([
     /Added your Documents/,
     /Asked a question/,
@@ -427,10 +438,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expect(window.getByTestId("start-guide")).toHaveCount(0);
   await setLanguage(window, "en");
   await expectPlainWords([window.getByTestId("sidebar")]);
-  await pointAndClick(
-    window,
-    window.getByTestId("mind-list-item").filter({ has: window.getByTestId("example-chip") }),
-  );
+  await pointAndClick(window, exampleRow(window));
   await setLanguage(window, "zh-CN");
   await interceptOpenDialog(app, notes);
   await pointAndClick(window, offered.first());
@@ -439,7 +447,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expect(steps).toContainText("选择 AI 模型，就能就你自己的文件提问。", {
     timeout: 15_000,
   });
-  await expect(steps).not.toContainText("准备好了。");
+  await expect(steps).not.toContainText("准备好了");
   await pointAndClick(window, steps.getByTestId("first-open-choose-model"));
   const setup = window.getByTestId("model-setup");
   await expect(setup).toContainText("设置你的 AI");
@@ -452,7 +460,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await expectPlainWords([setup]);
   await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
-  await expect(steps).toContainText("准备好了。");
+  await expect(steps.locator("h2")).toHaveText("准备好了");
   await continueSetup(window);
 });
 
@@ -572,6 +580,12 @@ for (const { language, name, text, asks, question } of OWN_FILES) {
     await expect(
       window.getByTestId("citation-card").getByText(name.replace(/\.md$/, ""), { exact: true }),
     ).toBeVisible();
+    // Its page opens beside the Note; clicked in the assistant, the assistant stays open with the
+    // Answer, and the steps stay in view (#2270).
+    await expect(window.getByTestId("viewer")).toBeVisible();
+    await expect(window.getByTestId("assistant")).not.toHaveAttribute("data-folded");
+    await expect(answer).toBeInViewport();
+    await expect(window.getByTestId("first-open-steps")).toBeInViewport();
     // The Answer that arrived is what ticks the step, not the click.
     await expect(step(window, "question")).toHaveAttribute("data-state", "done");
     await app.close();
@@ -698,7 +712,7 @@ test("a damaged PDF as the only file of one's own leaves step 1 open, says which
   await expect(unread).toContainText("1 file couldn’t be read");
   await expect(files).toHaveAttribute("data-state", "open");
   await expect(files.getByTestId("first-open-add-files")).toBeVisible();
-  await expect(steps).not.toContainText("You’re set up.");
+  await expect(steps).not.toContainText("You’re set up");
   await expect(steps.getByTestId("first-open-choose-model")).toHaveCount(0);
   expect((await gettingStarted(window)).indexed).toBe(false);
 
@@ -717,7 +731,7 @@ test("a damaged PDF as the only file of one's own leaves step 1 open, says which
   await interceptOpenDialog(app, notes);
   await pointAndClick(window, files.getByTestId("first-open-add-files"));
   await expect(files).toHaveAttribute("data-state", "done", { timeout: 15_000 });
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await app.close();
 });
 
@@ -866,7 +880,7 @@ test("the steps can be hidden once all are done, and stay hidden", async () => {
   await useLocalChatModel(first.window);
   await markSteps(first.window, { citationChecked: true, askedOwn: true, indexed: true });
   const steps = first.window.getByTestId("first-open-steps");
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await pointAndClick(first.window, steps.getByTestId("first-open-hide"));
   await expect(steps).toHaveCount(0);
   await first.app.close();
@@ -894,12 +908,11 @@ test("finishing the steps with no model asks for one in the card, never says You
   const steps = pane.getByTestId("first-open-steps");
   await expect(step(window, "files")).toHaveAttribute("data-state", "done");
   await expect(steps).toContainText("Choose an AI model to ask about your own files.");
-  await expect(steps).not.toContainText("You’re set up.");
+  await expect(steps).not.toContainText("You’re set up");
   await expect(steps.getByTestId("first-open-next")).toHaveCount(0);
   // Each part of the shell still waits for its own moment. The card asks for the model, and the
   // footer's one line says the files wait for it (#1128).
   const sidebar = window.getByTestId("sidebar");
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await expect(window.getByTestId("assistant")).toBeHidden();
   await expect(window.getByTestId("ask-pill")).toBeVisible();
   // Day one names no Tags: the card asks for the model, and the footer says nothing (#1942).
@@ -910,7 +923,7 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(window.getByTestId("assistant")).toBeVisible();
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
-  await expect(steps).toContainText("You’re set up.");
+  await expect(steps.locator("h2")).toHaveText("You’re set up");
   await expect(steps.getByTestId("first-open-next").first()).toBeVisible();
   await continueSetup(window);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
@@ -951,7 +964,7 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-sorting-use")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(setup).toHaveCount(0);
-  await expect(window.getByTestId("first-open-steps")).toContainText("You’re set up.");
+  await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await app.close();
 });
@@ -988,7 +1001,6 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
   });
   const question = window.getByTestId("sidebar").getByTestId("tagging-waiting");
   await expect(question).toContainText("Tags need your OK");
-  await expect(window.getByTestId("tab-list")).toHaveCount(0);
   await question.getByTestId("tagging-waiting-allow").click();
   await expect(item).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
   await app.close();
@@ -1101,7 +1113,7 @@ test("the Examples row's ⋯ offers the other examples in an order picked once p
     await expect(menu).toBeHidden();
   };
   const tabs = window.getByTestId("tab-title");
-  await expect(tabs).toHaveCount(0);
+  await expect(tabs).toHaveCount(1);
   const order = await groupsShown();
   expect([...order].sort()).toEqual(["contracts", "meetings", "papers"]);
   await window.keyboard.press("Escape");

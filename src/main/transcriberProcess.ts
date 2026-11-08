@@ -22,7 +22,7 @@ import {
   type FakeTranscriberOptions,
   failingOver,
 } from "../core/transcription/fake";
-import { createFakeCloud } from "../core/transcription/fakeCloud";
+import { createFakeCloud, createFakeCloudFetch } from "../core/transcription/fakeCloud";
 import {
   createSherpaEngine,
   createSileroDetectors,
@@ -46,9 +46,10 @@ const port: TranscriberPort = {
 const cloud: CloudServing = fake
   ? {
       connect: createFakeCloud(fakeOptions.cloud),
+      fetch: createFakeCloudFetch(fakeOptions.cloud),
       detectors: async () => createFakeSpeechEngine(fakeOptions).detector,
     }
-  : { connect: connectWebSocket, detectors: createSileroDetectors };
+  : { connect: connectWebSocket, fetch, detectors: createSileroDetectors };
 
 if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
   answerEngineCheck(parent, [SHERPA, SHERPA_ADDON]);
@@ -57,5 +58,8 @@ if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
     fake ? async () => createFakeSpeechEngine(fakeOptions) : createSherpaEngine,
     fake && fakeOptions.failover ? failingOver(port, fakeOptions.failover) : port,
     cloud,
+    // A recognizer's native model is freed with its process, not by closing it; the engine is
+    // closed before this, and the next Meeting starts the process again.
+    { unloaded: () => process.exit(0) },
   );
 }

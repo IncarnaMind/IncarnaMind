@@ -65,6 +65,49 @@ describe("A numbered list's scheme as text", () => {
     ]);
   });
 
+  // protects=the reader continues a list from the closest numbered list among its siblings, never one in an Answer, a quote or a table cell of another parent (#2334); fails_when=a contained list's items count into the list after it; no_claim=the editor's drawing, which the numbering smoke spec covers.
+  test("a list in a quote or a table cell doesn't change how another parent's list continues", async () => {
+    const { client } = await mindWith([
+      ordered({}, item("One"), item("Two")),
+      {
+        type: "blockquote",
+        content: [ordered({ numbering: "clauses" }, item("A"), item("B"), item("C"))],
+      },
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                attrs: { colspan: 1, rowspan: 1 },
+                content: [ordered({}, item("C1"), item("C2"), item("C3"), item("C4"), item("C5"))],
+              },
+            ],
+          },
+        ],
+      },
+      paragraph("Between"),
+      ordered({ continues: true }, item("Three"), item("Four")),
+    ]);
+    const lists: Y.XmlElement[] = [];
+    const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+      for (const child of parent.toArray()) {
+        if (!(child instanceof Y.XmlElement)) continue;
+        if (child.nodeName === "orderedList") lists.push(child);
+        visit(child);
+      }
+    };
+    visit(client.blocks);
+    expect(lists.map((list) => elementMarkdown(list))).toEqual([
+      "1. One\n2. Two",
+      "(a) A\n(b) B\n(c) C",
+      "1. C1\n2. C2\n3. C3\n4. C4\n5. C5",
+      "3. Three\n4. Four",
+    ]);
+  });
+
   // protects=the assistant reads a numbered list under a bullet, or under a bullet in a numbered list, by the markers the editor draws — its own scheme's first level, a level in — and the list nested in it goes a level on; fails_when=it reads the outer list's scheme or level for it, or drops its depth; no_claim=the model's reading of the shapes.
   test("the assistant reads a numbered list under a bullet as the editor draws it", async () => {
     const { client } = await mindWith([

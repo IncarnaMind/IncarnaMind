@@ -211,14 +211,14 @@ test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follo
     await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");
     await expect(add.getByTestId("models-back")).toBeFocused();
     await window.keyboard.press("Enter");
-    await expect(settings.getByTestId("your-providers")).toContainText("还没有添加服务。");
+    await expect(settings.getByTestId("your-providers")).toContainText("还没有添加服务");
     await expect(settings.getByTestId("model-default-chatModel")).toBeDisabled();
   } finally {
     await app.close();
   }
 });
 
-test("a key provider's page: where its data goes, its key with Test, and each model's estimate per Answer in yuan beside Pricing ↗, in English and Chinese", async () => {
+test("a key provider's page: where its data goes, its key with Test, and each model's estimate per 100 Answers in yuan beside Pricing ↗, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -274,7 +274,7 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
         const flash = page.getByTestId("provider-model-row").first();
         await expect(flash).toHaveAttribute("data-model", "deepseek-flash");
         const cost = flash.getByTestId("provider-model-cost");
-        await expect(cost).toHaveText(zh ? /^每个回答约 ¥0\.\d+$/ : /^About ¥0\.\d+ per Answer$/);
+        await expect(cost).toHaveText(zh ? /^约 ¥\d+\.\d+$/ : /^About ¥\d+\.\d+$/);
         await expect(cost).toHaveAttribute(
           "title",
           zh
@@ -282,7 +282,7 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
             : /^Estimate from DeepSeek’s price, checked \d{1,2} \w+ \d{4}$/,
         );
         await expect(page.getByTestId("provider-cost-head")).toHaveText(
-          zh ? "每个回答的费用 · 价格 ↗" : "Cost per Answer · Pricing ↗",
+          zh ? "每 100 个回答的费用 · 价格 ↗" : "Cost per 100 Answers · Pricing ↗",
         );
         // Where the estimate comes from is reached by the keyboard too.
         await cost.focus();

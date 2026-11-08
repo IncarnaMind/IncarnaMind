@@ -25,6 +25,7 @@ import type { ProviderOptions, RequestQuirks, ThinkingKind } from "./catalog/typ
 import { createPlanChatModel } from "./chatgpt/planEndpoint";
 import { createClaudeAccountChatModel } from "./claudeAccount/messages";
 import { createCopilotChatModel } from "./copilot/requests";
+import { withoutEmptyTurns } from "./emptyTurns";
 import { endpointUrl } from "./kinds";
 import { createOllamaChatModel } from "./ollamaChat";
 import { DEFAULT_OLLAMA_SETTINGS, type OllamaModelSettings } from "./ollamaModels";
@@ -152,7 +153,8 @@ export const createAiSdkChatModel: ChatModelFactory = (spec) => {
   }
   const thinking = thinkingOptions(spec);
   if (thinking) model = withAnswerThinking(model, spec, thinking);
-  return model;
+  // Last, so that no request of any provider carries a turn that said nothing (#2701).
+  return withoutEmptyTurns(model);
 };
 
 /** A Claude account's requests are Anthropic's Messages API, with what the catalog says of it. */
@@ -174,23 +176,24 @@ export const summarizesReasoning = (kind: ChatProviderKind): boolean =>
   summaryQuirk(kind) !== undefined;
 
 /**
- * The provider options of a call that thinks: its provider's summary of the reasoning, with the
- * effort the catalog gives the call's kind. None for a small call, a provider whose reasoning
- * isn't summarized, a model that doesn't think by default (thinking isn't turned on for one), or
- * one the catalog knows doesn't reason.
+ * The provider options of a call that thinks: its provider's summary of the reasoning, where it
+ * gives one, and the effort the catalog gives the call's kind. None for a small call, a model the
+ * summary leaves out (one that doesn't think by default: thinking isn't turned on for it), or one
+ * the catalog knows doesn't reason; on a provider without a summary, only the effort its entry
+ * names for the model.
  */
 function thinkingOptions(
   spec: Pick<ChatModelSpec, "kind" | "modelId" | "endpoint" | "catalogId" | "thinking">,
 ): ProviderOptions | null {
   if (spec.thinking === undefined || spec.thinking === "off") return null;
-  const quirks = thinkingQuirks(spec.kind);
-  const summary = quirks?.reasoningSummary;
-  if (!summary) return null;
-  if (summary.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
   const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
   if (catalogFacts(set, spec.modelId)?.reasoning === false) return null;
+  const quirks = thinkingQuirks(spec.kind);
+  const summary = quirks?.reasoningSummary;
+  if (summary?.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
   const effort =
-    spec.thinking === "summary" ? undefined : effortOf(quirks.effort, spec.modelId, spec.thinking);
+    spec.thinking === "summary" ? undefined : effortOf(quirks?.effort, spec.modelId, spec.thinking);
+  if (!summary) return effort ?? null;
   return effort
     ? withOptionsOver({ providerOptions: summary.options }, effort).providerOptions
     : summary.options;
@@ -202,7 +205,7 @@ function effortOf(
   kind: ThinkingKind,
 ): ProviderOptions | undefined {
   const own = effort?.models?.[modelId] ?? effort?.models?.[withoutDateSuffix(modelId)];
-  return own && kind in own ? own[kind] : effort?.kinds[kind];
+  return own && kind in own ? own[kind] : effort?.kinds?.[kind];
 }
 
 /** Whether thinking can be turned off on this model: not on one the provider says always thinks, nor one the catalog knows doesn't think. */

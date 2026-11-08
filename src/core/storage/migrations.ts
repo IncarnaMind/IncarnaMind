@@ -18,6 +18,11 @@ export interface Migration {
   sql: string;
 }
 
+/** A random UUID v4, made in SQL, for rows a migration adds. */
+const UUID_V4_SQL = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+  || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+  || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
+
 export const migrations: readonly Migration[] = [
   {
     version: 1,
@@ -2298,6 +2303,595 @@ export const migrations: readonly Migration[] = [
       -- Null for a Mind not copied from another. A copy's checks leave the source Mind out of
       -- their evidence, so the copy can't support itself with a snapshot of the words it copied.
       ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
+    `,
+  },
+  {
+    version: 129,
+    description:
+      "A saved DeepSeek model id the API no longer serves moves to deepseek-flash (#2567)",
+    sql: `
+      -- DeepSeek's API serves deepseek-flash and deepseek-v4-pro only. A choice saved before the
+      -- old ids went would fail at its first request.
+      UPDATE user_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key IN ('chatModel', 'quickTasksModel', 'imageModel')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+      UPDATE device_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key = 'lastChatModel'
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+    `,
+  },
+  {
+    version: 130,
+    description:
+      "A Meeting's Transcript belongs to its Note: it goes where the Note goes, with no Folder, Tags or row of its own (#2528)",
+    sql: `
+      -- The Note whose Meeting this Document is the Transcript of. Null for every other Document:
+      -- a .vtt the User added, a Transcript whose Note was deleted permanently, and one left
+      -- apart from its Note by two walls, each of which keeps a row of its own.
+      ALTER TABLE documents ADD COLUMN meeting_mind_id TEXT;
+      CREATE INDEX documents_by_meeting_mind ON documents (meeting_mind_id)
+        WHERE meeting_mind_id IS NOT NULL;
+      -- One time for everything this migration changes, so Undo can find each row it put away.
+      CREATE TEMP TABLE meeting_migration AS SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at;
+      -- Each Meeting's Note and Transcript, their Folders, and the wall each is behind (null:
+      -- none), worked out as the Library does: a Folder that keeps its work inside it, or the
+      -- nearest one around it. Only the User's own filing puts a Transcript behind a wall: an
+      -- Organize suggestion waits outside it until accepted (ADR-0012).
+      CREATE TEMP TABLE meeting_pair_walls AS
+        WITH RECURSIVE up (folder_id, at_id, wall) AS (
+          SELECT id, id, CASE WHEN keep_inside = 1 THEN id END
+          FROM library_groups WHERE deleted_at IS NULL
+          UNION
+          SELECT up.folder_id, p.id, CASE WHEN p.keep_inside = 1 THEN p.id END
+          FROM up
+          JOIN library_groups g ON g.id = up.at_id
+          JOIN library_groups p ON p.id = g.parent_id AND p.deleted_at IS NULL
+          WHERE up.wall IS NULL
+        ),
+        walls AS (SELECT folder_id, max(wall) AS wall FROM up GROUP BY folder_id)
+        SELECT m.transcript_document_id AS document_id, m.mind_id, m.created_at,
+          m.rowid AS meeting_row, n.folder_id AS note_folder,
+          (SELECT a.group_id FROM document_groups a JOIN walls w ON w.folder_id = a.group_id
+           WHERE a.document_id = m.transcript_document_id AND a.deleted_at IS NULL
+             AND a.source = 'user')
+            AS transcript_folder,
+          (SELECT w.wall FROM document_groups a JOIN walls w ON w.folder_id = a.group_id
+           WHERE a.document_id = m.transcript_document_id AND a.deleted_at IS NULL
+             AND a.source = 'user')
+            AS transcript_wall,
+          (SELECT w.wall FROM walls w WHERE w.folder_id = n.folder_id) AS note_wall
+        FROM meetings m
+        JOIN minds n ON n.id = m.mind_id AND n.purged_at IS NULL
+        JOIN documents d ON d.id = m.transcript_document_id AND d.purged_at IS NULL;
+      -- How each pair joins. Nothing ever comes out of a wall. With no wall between them, the
+      -- Transcript goes where its Note is. With one, the pair joins on its walled side: the Note
+      -- moves into its Transcript's Folder, or the Transcript into its Note's. With two different
+      -- walls, or a Note whose Transcripts are behind more than one, it stays apart.
+      CREATE TEMP TABLE meeting_pairs AS
+        SELECT p.*, CASE
+            WHEN p.transcript_wall IS p.note_wall THEN 'together'
+            WHEN p.note_wall IS NULL AND (
+              SELECT count(DISTINCT o.transcript_wall) FROM temp.meeting_pair_walls o
+              WHERE o.mind_id = p.mind_id AND o.transcript_wall IS NOT NULL
+            ) = 1 THEN 'note-in'
+            WHEN p.transcript_wall IS NULL THEN 'transcript-in'
+            ELSE 'apart'
+          END AS joins
+        FROM temp.meeting_pair_walls p;
+      UPDATE documents SET meeting_mind_id = pair.mind_id
+      FROM (
+        SELECT document_id, mind_id,
+          row_number() OVER (PARTITION BY document_id ORDER BY created_at, meeting_row) AS first
+        FROM temp.meeting_pairs WHERE joins <> 'apart'
+      ) AS pair
+      WHERE pair.document_id = documents.id AND pair.first = 1;
+      -- A Note outside every wall goes into the Folder of its first Meeting behind the one wall.
+      UPDATE minds SET folder_id = move.folder_id, updated_at = (SELECT at FROM temp.meeting_migration)
+      FROM (
+        SELECT mind_id, transcript_folder AS folder_id,
+          row_number() OVER (PARTITION BY mind_id ORDER BY created_at, meeting_row) AS first
+        FROM temp.meeting_pairs p
+        WHERE joins = 'note-in'
+          AND EXISTS (SELECT 1 FROM documents d WHERE d.id = p.document_id AND d.meeting_mind_id = p.mind_id)
+      ) AS move
+      WHERE move.mind_id = minds.id AND move.first = 1;
+      -- Each Note a join moved, or moved a Transcript to, is said once, with Undo; Undo puts back
+      -- what this migration changed for the Transcripts that crossed (meeting_join_transcripts).
+      CREATE TABLE meeting_joins (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL,
+        folder_id TEXT,
+        from_folder_id TEXT,
+        said_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE TABLE meeting_join_transcripts (
+        id TEXT PRIMARY KEY NOT NULL,
+        join_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE TEMP TABLE meeting_crossings AS
+        SELECT p.mind_id, p.document_id, p.note_folder FROM temp.meeting_pairs p
+        JOIN documents d ON d.id = p.document_id AND d.meeting_mind_id = p.mind_id
+        WHERE p.joins IN ('note-in', 'transcript-in');
+      INSERT INTO meeting_joins (id, mind_id, folder_id, from_folder_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, c.mind_id, n.folder_id, c.note_folder,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM (SELECT DISTINCT mind_id, note_folder FROM temp.meeting_crossings) AS c
+        JOIN minds n ON n.id = c.mind_id;
+      INSERT INTO meeting_join_transcripts (id, join_id, document_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, j.id, c.document_id,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM temp.meeting_crossings c JOIN meeting_joins j ON j.mind_id = c.mind_id;
+      -- The Notes with a meeting left apart, so the sidebar can say so once (said_at).
+      CREATE TABLE meetings_left_apart (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL,
+        said_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      INSERT INTO meetings_left_apart (id, mind_id, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, mind_id,
+          (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
+        FROM (SELECT DISTINCT mind_id FROM temp.meeting_pairs WHERE joins = 'apart');
+      -- A joined Transcript's own Folder, suggestions, turned-down Folders and Tags go: its Note's
+      -- Folder is its place. Tags deleted with it are moved off its delete time, so a Restore
+      -- doesn't bring them back; a Tag's own Restore skips a Transcript (tags/index.ts).
+      UPDATE document_groups SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_group_rejections SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_tags SET deleted_at = (SELECT at FROM temp.meeting_migration),
+        updated_at = (SELECT at FROM temp.meeting_migration)
+      WHERE document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL)
+        AND (deleted_at IS NULL
+          OR deleted_at = (SELECT d.deleted_at FROM documents d WHERE d.id = document_tags.document_id));
+      DROP TABLE temp.meeting_crossings;
+      DROP TABLE temp.meeting_pairs;
+      DROP TABLE temp.meeting_pair_walls;
+      DROP TABLE temp.meeting_migration;
+    `,
+  },
+  {
+    version: 131,
+    description:
+      "Recently deleted: an index on deleted_folder_items by item, so listing doesn't scan it (#2274)",
+    sql: `
+      CREATE INDEX deleted_folder_items_by_item ON deleted_folder_items (item_kind, item_id)
+        WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 132,
+    description:
+      "Arrivals, Linked folder links and turn-ons get their place in one order kept by the database, so a clock step doesn't decide what is new (#2370)",
+    sql: `
+      -- The places IncarnaMind has handed out in this database, so what arrived after a turn-on is
+      -- decided by the database's own order, not by the clock (#2370). One row, local to this
+      -- database and never synced, so its fixed id can't meet an id from another device.
+      CREATE TABLE IF NOT EXISTS tagging_sequence (
+        id TEXT PRIMARY KEY NOT NULL,
+        value INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      -- Where in that order an arrival and a Linked folder link are. The times stay, for display.
+      -- Device-local, like the switch's times beside them: a row synced from another device gets
+      -- no place here (0), so it waits for the User rather than being sent by this device's
+      -- turn-on. A later sync must leave it 0 on the receiving device.
+      ALTER TABLE document_arrivals ADD COLUMN arrived_seq INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE linked_folders ADD COLUMN created_seq INTEGER NOT NULL DEFAULT 0;
+      -- Their existing rows, in the order their times had them. A turn-on at the same
+      -- millisecond counted an arrival as new (#2308), so the turn-on comes first on a tie.
+      CREATE TEMP TABLE tagging_ranks AS
+        WITH events (kind, ref, at) AS (
+          SELECT 'turnOn', e.key, e.value
+            FROM device_settings d
+            JOIN json_each(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                 '$.automaticSince') e
+            WHERE d.key = 'library' AND d.deleted_at IS NULL
+              AND json_type(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                  '$.automaticSince') = 'object'
+              AND e.type = 'text'
+          UNION ALL
+          -- A turn-on kept before the switch kept its times: the consent it had then, per
+          -- service, tagging first as the decision read it.
+          SELECT 'turnOn', s.service_id, COALESCE(
+              (SELECT c.updated_at FROM data_flow_consents c
+                WHERE c.flow = 'tagging' AND c.service_id = s.service_id
+                  AND c.decision = 'accepted' AND c.deleted_at IS NULL),
+              (SELECT c.updated_at FROM data_flow_consents c
+                WHERE c.flow = 'classification' AND c.service_id = s.service_id
+                  AND c.decision = 'accepted' AND c.deleted_at IS NULL))
+            FROM (SELECT service_id FROM data_flow_consents
+                  WHERE decision = 'accepted' AND deleted_at IS NULL
+                    AND flow IN ('tagging', 'classification')
+                  GROUP BY service_id) s
+            WHERE NOT EXISTS (
+              SELECT 1 FROM device_settings d
+                WHERE d.key = 'library' AND d.deleted_at IS NULL
+                  AND json_type(CASE WHEN json_valid(d.value) THEN d.value ELSE '{}' END,
+                      '$.automaticSince') = 'object')
+          UNION ALL
+          SELECT 'folder', l.id, l.created_at
+            FROM linked_folders l WHERE l.deleted_at IS NULL
+          UNION ALL
+          SELECT 'arrival', a.id, a.arrived_at
+            FROM document_arrivals a WHERE a.deleted_at IS NULL
+        )
+        SELECT kind, ref, row_number() OVER (
+          ORDER BY at, CASE kind WHEN 'turnOn' THEN 0 WHEN 'folder' THEN 1 ELSE 2 END, ref
+        ) AS rank
+        FROM events;
+      UPDATE document_arrivals SET arrived_seq = (
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'arrival' AND r.ref = document_arrivals.id)
+        WHERE deleted_at IS NULL;
+      UPDATE linked_folders SET created_seq = (
+        SELECT r.rank FROM tagging_ranks r WHERE r.kind = 'folder' AND r.ref = linked_folders.id)
+        WHERE deleted_at IS NULL;
+      -- Each turn-on's place, kept next to the time it already had. Only where a turn-on exists:
+      -- a switch saved off keeps its settings exactly as they were.
+      UPDATE device_settings SET
+        value = json_set(value, '$.automaticSinceSeq',
+          (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
+              '$.automaticSince') = 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
+      UPDATE device_settings SET
+        value = json_set(value, '$.automaticSinceSeq',
+          (SELECT json_group_object(r.ref, r.rank) FROM tagging_ranks r WHERE r.kind = 'turnOn')),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND json_valid(value)
+          AND json_type(CASE WHEN json_valid(value) THEN value ELSE '{}' END,
+              '$.automaticSince') IS NOT 'object'
+          AND EXISTS (SELECT 1 FROM tagging_ranks WHERE kind = 'turnOn');
+      -- The next place handed out is after every one filled in here.
+      INSERT INTO tagging_sequence (id, value, created_at, updated_at)
+        SELECT 'tagging', COALESCE(max(rank), 0),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM tagging_ranks;
+      DROP TABLE temp.tagging_ranks;
+    `,
+  },
+  {
+    version: 133,
+    description:
+      "A Document keeps its highlights and notes, with their quote and Location, ready to sync (#327)",
+    sql: `
+      -- A highlight on a Document, with the note the User wrote under it: the quote, its
+      -- Location in the Document's own units (ADR-0011) and its check, so it can become a
+      -- Citation. source says whether the User made it or it was in a PDF's file. anchor keeps
+      -- the selection it was made from, as JSON, so a new version finds its words again; missing
+      -- is 1 when they are gone. Sync-ready: UUID id, ISO 8601 UTC times, soft delete.
+      CREATE TABLE document_annotations (
+        seq INTEGER PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        -- The version its quote was placed in, so a new version re-anchors it once.
+        content_hash TEXT,
+        -- The Passage a Citation of it points at, as a Citation keeps.
+        passage_id TEXT,
+        source TEXT NOT NULL,
+        colour TEXT NOT NULL,
+        quote TEXT NOT NULL,
+        note TEXT,
+        -- The file's own note and colour as they were read, to tell the User's from the file's (#327).
+        file_note TEXT,
+        file_colour TEXT,
+        -- The version whose read last paired this row: kept when a later read does not pair it,
+        -- so a re-read of that version carries the row again by the same file (#327).
+        paired_hash TEXT,
+        -- The copy's place on its page among its own words, from the file: higher first, then
+        -- further left, so copies the file lists in another order still pair the same (#327).
+        file_order REAL,
+        page_from INTEGER,
+        page_to INTEGER,
+        -- Its Location, as JSON (CitationLocation), so its label reads without the Document.
+        location TEXT,
+        check_state TEXT NOT NULL,
+        check_reason TEXT,
+        -- The selection it was made from, as JSON (SelectedPart[]): its words' way back.
+        anchor TEXT,
+        -- A file annotation's author, as the file says.
+        author TEXT,
+        missing INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX document_annotations_by_document ON document_annotations (document_id)
+        WHERE deleted_at IS NULL;
+
+      -- Keyword index, as for Passages (migration 10): each annotation's quote and note,
+      -- segmented by the core; rowid is the row's seq. Only the index is stored.
+      CREATE VIRTUAL TABLE annotation_text_fts USING fts5 (
+        text,
+        content = '',
+        contentless_delete = 1,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+      CREATE TRIGGER annotation_text_fts_soft_delete AFTER UPDATE OF deleted_at
+      ON document_annotations
+      WHEN old.deleted_at IS NULL AND new.deleted_at IS NOT NULL BEGIN
+        DELETE FROM annotation_text_fts WHERE rowid = old.seq;
+      END;
+      CREATE TRIGGER annotation_text_fts_delete AFTER DELETE ON document_annotations
+      WHEN old.deleted_at IS NULL BEGIN
+        DELETE FROM annotation_text_fts WHERE rowid = old.seq;
+      END;
+    `,
+  },
+  {
+    version: 134,
+    description:
+      "A Meeting's Transcript keeps who's who apart from its file, so Citations show the names (#138)",
+    sql: `
+      -- JSON of src/core/api.ts TranscriptSpeakers: the names the User gave a Transcript's
+      -- Speakers and the lines they gave to another. The file is never rewritten for them, so
+      -- naming makes no new version. It syncs with the Document's row; NULL until the User names
+      -- or moves a Speaker, and for every other Document.
+      ALTER TABLE documents ADD COLUMN speakers TEXT;
+    `,
+  },
+  {
+    version: 135,
+    description:
+      "Suggestions: what Organize and tagging propose waits here until the User confirms it (#1569, #2339)",
+    sql: `
+      -- One open row per Document. placement: 'folder' (group_id), 'newFolder' (folder_id),
+      -- 'leftOut' (left_out, a reason code, and left_out_detail) or 'unchanged' (Tags only).
+      -- state: 'open', 'confirmed' (confirmation_id) or 'discarded' (discard_id); an Undo opens
+      -- it again and keeps the id, which its Redo finds. filed: what Confirm's filing changed, as
+      -- JSON, for its Undo.
+      CREATE TABLE organize_review_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        placement TEXT NOT NULL,
+        group_id TEXT,
+        folder_id TEXT,
+        left_out TEXT,
+        left_out_detail TEXT,
+        ticked INTEGER NOT NULL DEFAULT 1,
+        origin TEXT NOT NULL,
+        run_id TEXT,
+        edited INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT,
+        state TEXT NOT NULL DEFAULT 'open',
+        confirmation_id TEXT,
+        discard_id TEXT,
+        filed TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX organize_review_items_open ON organize_review_items (document_id)
+        WHERE state = 'open' AND deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_confirmation ON organize_review_items (confirmation_id)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_discard ON organize_review_items (discard_id)
+        WHERE deleted_at IS NULL;
+
+      -- A Folder proposed by name. group_id is the Folder Confirm filed into, and made whether
+      -- Confirm made it, so its Undo sends only that one to Recently deleted.
+      CREATE TABLE organize_review_folders (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        parent_id TEXT,
+        group_id TEXT,
+        made INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+
+      -- A Tag proposed for a row: the Library's (tag_id) or a new one by name, which Confirm makes
+      -- (made). link_before: the Document's link to it before Confirm added it, as JSON.
+      CREATE TABLE organize_review_tags (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        tag_id TEXT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        added_by_user INTEGER NOT NULL DEFAULT 0,
+        made INTEGER NOT NULL DEFAULT 0,
+        link_before TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_tags_by_item ON organize_review_tags (item_id)
+        WHERE deleted_at IS NULL;
+
+      -- What the User unticked or took off isn't proposed again for that Document until "until".
+      -- kind: 'folder' or 'tag'; target_id is null for one proposed by name.
+      CREATE TABLE organize_review_declines (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_id TEXT,
+        name TEXT NOT NULL,
+        until TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_declines_by_document ON organize_review_declines (document_id)
+        WHERE deleted_at IS NULL;
+
+      CREATE TABLE organize_review_confirmations (
+        id TEXT PRIMARY KEY NOT NULL,
+        confirmed_at TEXT NOT NULL,
+        undone_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+    `,
+  },
+  {
+    version: 136,
+    description:
+      "A Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder until the User confirms it (#1569)",
+    sql: `
+      -- A deleted Document's row waits with it, and shows again if it is restored. A deleted
+      -- Folder's suggestions are kept by its deletion and join Suggestions when it is restored.
+      INSERT INTO organize_review_items
+        (id, document_id, placement, group_id, ticked, origin, edited, content_hash, state,
+         created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, g.document_id, 'folder', g.group_id, 1, 'migrated', 0,
+          d.content_hash, 'open',
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_groups g
+        JOIN library_groups f ON f.id = g.group_id AND f.deleted_at IS NULL
+        JOIN documents d ON d.id = g.document_id
+        WHERE g.deleted_at IS NULL AND g.suggested = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM organize_review_items i
+            WHERE i.document_id = g.document_id AND i.state = 'open' AND i.deleted_at IS NULL
+          );
+      -- How many moved, for the Library's one line the first time (device-local, never synced).
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, 'organizeReviewMovedNotice', json(moved.count),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM (
+          SELECT count(*) AS count FROM organize_review_items i
+          JOIN documents d ON d.id = i.document_id AND d.deleted_at IS NULL
+          WHERE i.origin = 'migrated' AND i.state = 'open' AND i.deleted_at IS NULL
+        ) moved
+        WHERE moved.count > 0;
+      UPDATE document_groups
+        SET group_id = NULL, suggested = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL AND suggested = 1;
+    `,
+  },
+  {
+    version: 137,
+    description:
+      "A Folder the User turned down for a Document is declined in Suggestions, and Suggested Folders are gone (#1569)",
+    sql: `
+      -- Turned down before Suggestions, a Folder isn't proposed for that Document for 30 days
+      -- from the upgrade, as one the User unticks.
+      INSERT INTO organize_review_declines
+        (id, document_id, kind, target_id, name, until, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, r.document_id, 'folder', r.group_id, g.name,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 days'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_group_rejections r
+        JOIN library_groups g ON g.id = r.group_id
+        WHERE r.deleted_at IS NULL;
+      DROP TABLE document_group_rejections;
+      -- deleted_folder_items.suggested stays: a Folder deleted before Suggestions still restores
+      -- its suggestions into them.
+      ALTER TABLE document_groups DROP COLUMN suggested;
+    `,
+  },
+  {
+    version: 138,
+    description:
+      "A Meeting's audio can be kept until the User deletes it, by Keep audio or the setting (#687)",
+    sql: `
+      -- When the User kept the audio (ISO 8601 UTC): by Keep audio, or the setting "Keep a
+      -- meeting's audio" as the Meeting started recording. A kept Meeting has no
+      -- audio_expires_at. NULL: its audio goes a day after its last stretch.
+      ALTER TABLE meetings ADD COLUMN audio_kept_at TEXT;
+    `,
+  },
+  {
+    version: 139,
+    description:
+      "Calendars: the accounts connected on this device, their calendars and events, and the Note made for an event (#190)",
+    sql: `
+      -- Each device signs in for itself and keeps the sign-in in its secret store, never here, so
+      -- the accounts, calendars and events stay on this device: another reads its own. They are
+      -- this device's copy of what the services hold, so a row that goes is deleted, not left as a
+      -- tombstone: a copy kept past its days would keep people's names and addresses.
+      -- service: 'google', 'microsoft' or 'mac'. name: the account's address, NULL for the Mac's.
+      -- problem: why it isn't read now (src/core/api.ts CalendarProblem), NULL when it is.
+      CREATE TABLE calendar_accounts (
+        id TEXT PRIMARY KEY NOT NULL,
+        service TEXT NOT NULL CHECK (service IN ('google', 'microsoft', 'mac')),
+        name TEXT,
+        synced_at TEXT,
+        problem TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      -- source: the account a Mac calendar is in there ("iCloud"), NULL for the others.
+      -- counted: its events show in Coming up.
+      CREATE TABLE calendars (
+        id TEXT PRIMARY KEY NOT NULL,
+        account_id TEXT NOT NULL REFERENCES calendar_accounts(id),
+        external_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        source TEXT,
+        counted INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE UNIQUE INDEX calendars_by_external ON calendars (account_id, external_id);
+      -- One occurrence of an event, as the service has it now: only timed ones the User hasn't
+      -- declined, between yesterday and the day after tomorrow, from calendars that count.
+      -- event_key: the invite's own id and occurrence, the same in every calendar that holds it.
+      -- attendees: JSON of src/core/api.ts CalendarAttendee[].
+      CREATE TABLE calendar_events (
+        id TEXT PRIMARY KEY NOT NULL,
+        calendar_id TEXT NOT NULL REFERENCES calendars(id),
+        external_id TEXT NOT NULL,
+        event_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        attendees TEXT NOT NULL DEFAULT '[]',
+        join_url TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE UNIQUE INDEX calendar_events_by_external ON calendar_events (calendar_id, external_id);
+      CREATE INDEX calendar_events_by_start ON calendar_events (starts_at);
+      -- The Note Take notes made for an event, with the event as it was then (JSON of
+      -- src/core/api.ts NoteEvent without its eventId), so the Note keeps its details once the
+      -- event leaves the calendar, and on another device. It goes with the Note.
+      CREATE TABLE calendar_event_notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL REFERENCES minds(id),
+        event_key TEXT NOT NULL,
+        event TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX calendar_event_notes_by_mind ON calendar_event_notes (mind_id)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX calendar_event_notes_by_key ON calendar_event_notes (event_key)
+        WHERE deleted_at IS NULL;
     `,
   },
 ];

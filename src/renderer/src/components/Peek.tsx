@@ -14,6 +14,7 @@ import { documentStatusText } from "../documentStatus";
 import { addedDate, documentSummary, userFile } from "../fileInfo";
 import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
+import { isListedDocument } from "../meetingTranscript";
 import { type Box, enterFrom } from "../motion";
 import {
   focusPeekedRow,
@@ -282,20 +283,27 @@ function PeekCard({ target }: { target: PeekTarget }) {
           <span className="block truncate">{documentSummary(document, units, t, language)}</span>
         </Fact>
         <Fact label={t("info.folder")} testId="peek-folder">
-          <button
-            type="button"
-            title={t("mind.moveTo")}
-            aria-haspopup="dialog"
-            onClick={(event) => setMoving(event.currentTarget)}
-            className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-sm px-1 hover:bg-hover"
-          >
-            <span className="truncate">{folder?.name ?? t("library.unsorted")}</span>
-            <ChevronDownLineIcon className="size-3 shrink-0 text-ink-meta" />
-          </button>
+          {isListedDocument(document) ? (
+            <button
+              type="button"
+              title={t("mind.moveTo")}
+              aria-haspopup="dialog"
+              onClick={(event) => setMoving(event.currentTarget)}
+              className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-sm px-1 hover:bg-hover"
+            >
+              <span className="truncate">{folder?.name ?? t("library.unsorted")}</span>
+              <ChevronDownLineIcon className="size-3 shrink-0 text-ink-meta" />
+            </button>
+          ) : (
+            // A meeting's Transcript is where its Note is, and moves with it (#2528).
+            <span className="block truncate">{folder?.name ?? t("library.unsorted")}</span>
+          )}
         </Fact>
-        <Fact label={t("info.tags")} testId="peek-tags">
-          <DocumentTagChips document={document} variant="peek" />
-        </Fact>
+        {isListedDocument(document) && (
+          <Fact label={t("info.tags")} testId="peek-tags">
+            <DocumentTagChips document={document} variant="peek" />
+          </Fact>
+        )}
         <Fact label={t("info.added")} testId="peek-added">
           <span className="flex min-w-0 items-baseline gap-1">
             <span className="shrink-0">{addedDate(document.createdAt, language)}</span>

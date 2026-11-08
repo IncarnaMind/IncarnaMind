@@ -167,13 +167,16 @@ const KIND_NAMES: Record<DocumentKind, string> = {
 
 export const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** What a no means, for a host that takes a yes-or-no question only with both criteria (OpenRouter). */
+export const TAG_DOES_NOT_FIT = "The tag does not describe the document.";
+
 /** "PDF, 12 pages", "Markdown". */
 export const documentType = (excerpt: DocumentExcerpt) =>
   excerpt.pageCount === null
     ? KIND_NAMES[excerpt.kind]
     : `${KIND_NAMES[excerpt.kind]}, ${excerpt.pageCount} ${excerpt.pageCount === 1 ? "page" : "pages"}`;
 
-const TAGGING_INSTRUCTIONS = [
+export const TAGGING_INSTRUCTIONS = [
   "You tag Documents. You get the Tags that exist, each with a name and a description,",
   "and an excerpt of one Document: its name, its type and the beginning of its text.",
   TAG_RULES,

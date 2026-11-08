@@ -2703,7 +2703,7 @@ describe("When the model can't check a sentence", () => {
 
   test("a verdict given without its Passage is asked for once more, and counts once its quote is found", async () => {
     const plans: Record<string, Plan> = {
-      [SUPPORTED]: { verdict: "supported", says: "Tides says so." },
+      [SUPPORTED]: { verdict: "supported", says: "Tides says so.", judgement: "same" },
     };
     const model = checkingModel(
       plans,
@@ -2725,6 +2725,57 @@ describe("When the model can't check a sentence", () => {
     );
     expect(asked).toHaveLength(1);
   });
+
+  test.each([
+    {
+      language: "en",
+      document: {
+        name: "Tides.md",
+        contents:
+          "# Tides\n\nSpring tides happen at new moon and at full moon. Harbours publish the times of high water every year.",
+      },
+      claim: SUPPORTED,
+      backs: "Spring tides happen at new moon and at full moon",
+      other: "Harbours publish the times of high water every year",
+    },
+    {
+      language: "zh-CN",
+      document: {
+        name: "潮汐.md",
+        contents: "# 潮汐\n\n大潮出现在新月和满月时。港口每年公布高潮时间。",
+      },
+      claim: "大潮在新月和满月时出现。",
+      backs: "大潮出现在新月和满月时",
+      other: "港口每年公布高潮时间",
+    },
+  ])(
+    "$language: a quote given only when asked for after a Supported verdict is its Citation once a judge finds it says the sentence (#2816)",
+    async (each) => {
+      const checked = async (quote: string, judgement: "same" | "neither") => {
+        const plans: Record<string, Plan> = {
+          [each.claim]: { verdict: "supported", says: "It says so.", judgement },
+        };
+        const model = checkingModel(plans, [], JSON.stringify({ passage: "P1", quote }));
+        const { core } = await setUpWithDocuments(model, [each.document]);
+        core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "synthetic-test-key",
+          modelId: "claude-haiku-5-5",
+        });
+        return core.checkClaim({ claim: each.claim });
+      };
+
+      expect(await checked(each.other, "neither")).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+      expect(await checked(each.backs, "same")).toMatchObject({
+        verdict: "supported",
+        evidence: { quote: each.backs, check: "found" },
+      });
+    },
+  );
 
   test("cost cap: nothing is sent, and the sentence says “not checked” with why", async () => {
     const calls: ModelCall[] = [];
@@ -3746,4 +3797,61 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   test("reads the heading as a heading when its Passage runs past the cited page", async () => {
     await check([...REPORT, "", "# 附注", "", "附注内容：本节说明会计政策。"].join("\n"));
   });
+});
+
+// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=the model's verdict, which the calculation's numbers decide.
+describe("The check against a statement line's bracketed column (#2576)", () => {
+  const LINES = {
+    en: "Intercompany eliminations £3.6m (£3.6m)",
+    "zh-CN": "内部往来抵销 3.6亿元 （3.6亿元）",
+  } as const;
+  const DOCUMENTS = { en: "Results.md", "zh-CN": "业绩.md" } as const;
+
+  test.each([
+    ["en", "Intercompany eliminations were £3.6m.", "£3.6m", "contradicted", -3_600_000],
+    ["en", "Intercompany eliminations were -£3.6m.", "-£3.6m", "supported", -3_600_000],
+    ["zh-CN", "内部往来抵销为3.6亿元。", "3.6亿元", "contradicted", -360_000_000],
+    ["zh-CN", "内部往来抵销为-3.6亿元。", "-3.6亿元", "supported", -360_000_000],
+  ] as const)(
+    "%s: the bracketed column is the source for “%s”",
+    async (language, claim, stated, verdict, value) => {
+      const line = LINES[language];
+      const bracket = language === "en" ? "(£3.6m)" : "（3.6亿元）";
+      // The judge calls each one Supported, so the calculation's sign alone decides: it takes
+      // support away, and never overturns a judge's Contradicted (#1766).
+      const plans = {
+        [claim]: {
+          verdict: "supported",
+          calculation: {
+            inputs: [
+              { name: "elim", label: "Intercompany eliminations", quote: line, number: bracket },
+            ],
+            formula: "elim",
+            stated,
+          },
+          strict: { text: "same" },
+        },
+      } as const;
+      const setup = await setUpWithDocuments(checkingModel(plans), [
+        { name: DOCUMENTS[language], contents: line },
+      ]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+      await setup.core.updateSettings({ user: { language } });
+      const document = setup.documents[0] as Document;
+
+      const result = await setup.core.checkClaim({ claim });
+
+      expect(result).toMatchObject({
+        verdict,
+        evidence: { documentId: document.id, check: "found" },
+      });
+      if (result.verdict === "not-checked") throw new Error("Not checked.");
+      expect(result.calculation?.figure.inputs.map((input) => input.number.value)).toEqual([value]);
+    },
+  );
 });

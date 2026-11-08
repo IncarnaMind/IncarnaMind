@@ -265,10 +265,20 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
   const send = options.fetch ?? globalThis.fetch;
   /** Requests Local mode stopped: the SDK sometimes swallows the error, so callers count them too. */
   let heldBackRequests = 0;
-  const fetch = sharingRefreshes((url, init) => {
-    if (!options.heldBack?.(String(url))) return send(url, init);
-    heldBackRequests++;
-    return Promise.reject(new HeldBackError(HELD_BACK));
+  let lastRefusedStatus: number | null = null;
+  const fetch = sharingRefreshes(async (url, init) => {
+    if (options.heldBack?.(String(url))) {
+      heldBackRequests++;
+      throw new HeldBackError(HELD_BACK);
+    }
+    const response = await send(url, init);
+    // The SDK sometimes turns a refusal of a token request into its own error without the status:
+    // it is kept here, and only for the token endpoint, so a metadata probe's or a challenge's
+    // status is never reported for a request that failed later for another reason.
+    const tokenEndpoint = discovery?.authorizationServerMetadata?.token_endpoint;
+    if (!response.ok && tokenEndpoint !== undefined && String(url) === tokenEndpoint)
+      lastRefusedStatus = response.status;
+    return response;
   });
   let tokenRecord: TokenRecord | null = null;
   let client: ClientRecord = {};
@@ -490,6 +500,29 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
         signedIn: hasTokens(tokenRecord),
         expired: tokenRecord !== null && !hasTokens(tokenRecord),
       };
+    },
+
+    /** The HTTP status of the last request the server refused, where the SDK's error doesn't carry it. */
+    lastStatus(): number | null {
+      return lastRefusedStatus;
+    },
+
+    /** The token values and OAuth client secrets a request could have sent: no log may keep them. */
+    credentials(): readonly string[] {
+      const secrets: string[] = [];
+      if (hasTokens(tokenRecord)) {
+        secrets.push(
+          ...[tokenRecord.tokens.access_token, tokenRecord.tokens.refresh_token].filter(
+            (value): value is string => typeof value === "string" && value !== "",
+          ),
+        );
+      }
+      // The client secret signs every token request, and stays after the tokens are cleared.
+      if (client.manualSecret) secrets.push(client.manualSecret);
+      const registered = client.registered as { client_secret?: unknown } | undefined;
+      if (typeof registered?.client_secret === "string" && registered.client_secret !== "")
+        secrets.push(registered.client_secret);
+      return secrets;
     },
 
     /** The authorization server the server named, once discovered; null before. */

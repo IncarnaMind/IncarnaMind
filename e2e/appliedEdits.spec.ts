@@ -3,6 +3,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   askToChange,
+  checkpointsOfNewestNote,
   createDataFolder,
   dismissChatSetup,
   focusEditor,
@@ -319,6 +320,33 @@ test("an edit that would remove most of what was selected, and can't be mapped o
   await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD, "Notes: tide tables"]);
 });
 
+// Value: protects=Apply on an edit held back, and an edit that applies at once, each save a Checkpoint before the text changes (#2796); fails_when=the change goes in with no new version in History; why_new=no spec counted versions around Apply; seam=none; no_claim=what the version holds.
+test("Apply on an edit held back saves a version first, as an edit that applies at once does", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [FIRST, SECOND, THIRD, "Notes:"]);
+  const line = lineOf(editor);
+
+  await slideSelect(window, paragraphs.first(), "Tides rise", {
+    line: paragraphs.nth(2),
+    words: "each week.",
+  });
+  await askToChange(window, "replace it all with a haiku");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Waiting for you: this edit removes most of your selection",
+  );
+  const held = await checkpointsOfNewestNote(window);
+  await pointAndClick(window, line.getByTestId("applied-apply"));
+  await expect(paragraphs.first()).toHaveText("Gulls wheel, crying");
+  await expect.poll(() => checkpointsOfNewestNote(window)).toBe(held + 1);
+
+  const applied = await checkpointsOfNewestNote(window);
+  await slideSelect(window, paragraphs.last(), "Notes:");
+  await askToChange(window, "replace Notes with Remarks");
+  await expect(paragraphs.last()).toHaveText("Remarks:");
+  await expect.poll(() => checkpointsOfNewestNote(window)).toBe(applied + 1);
+});
+
 test("under Review changes, a paragraph that arrives after an edit's new Block at the Mind's end stays when that Block is restored", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
@@ -348,7 +376,7 @@ test("under Review changes, a paragraph that arrives after an edit's new Block a
   await expect(paragraphs).toHaveText([FIRST, THIRD, "Added later."]);
 });
 
-test("“delete the second paragraph” applies at once", async () => {
+test("“delete the second paragraph” applies at once, said as the paragraph removed, and ⌘Z puts it back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { editor, paragraphs } = await mindWith(window, [FIRST, SECOND, THIRD]);
@@ -357,8 +385,15 @@ test("“delete the second paragraph” applies at once", async () => {
   await selectAll(window, editor);
   await askToChange(window, "delete the second paragraph");
   await expect(paragraphs).toHaveText([FIRST, THIRD]);
-  await expect(line.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Removed the paragraph “It is a big…” (1 sentence)",
+  );
   await expect(editor.getByTestId("applied-kept")).toHaveCount(0);
+
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD]);
+  await expect(line).toHaveCount(0);
 });
 
 test("text typed elsewhere while a slow edit streams in stays, and one ⌘Z takes back the whole edit", async () => {

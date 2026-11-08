@@ -1,4 +1,4 @@
-import { citedLocation } from "../../shared/citations";
+import { citedLocation, type LiveDocument } from "../../shared/citations";
 import { differenceText, figurePlaceText, sourceValueText } from "../../shared/figureSchedule";
 import { translate } from "../../shared/i18n";
 import { unreadRecordLines } from "../../shared/unreadFiles";
@@ -184,7 +184,9 @@ export function renderRecordHtml(record: CheckRecord): string {
           `<h2>${escapeHtml(rt("recordCites.heading", number(record.recordCites.length)))}</h2>`,
           ...record.recordCites.map((each) => renderRecordCiteItem(each, { t, number, language })),
         ]),
-    ...(record.figures.length > 0 ? [renderFigures(record.figures, language)] : []),
+    ...(record.figures.length > 0
+      ? [renderFigures(record.figures, language, record.documents)]
+      : []),
   ].join("");
 }
 
@@ -197,7 +199,11 @@ const FIGURE_SHAPES: Readonly<Record<string, RecordItem["result"]>> = {
 };
 
 /** The Figure schedule's rows, as its workbook has them (#1932). */
-function renderFigures(rows: readonly FigureScheduleRow[], language: Language): string {
+function renderFigures(
+  rows: readonly FigureScheduleRow[],
+  language: Language,
+  documents: readonly LiveDocument[],
+): string {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
   const cell = (main: string, under = "") =>
@@ -211,7 +217,10 @@ function renderFigures(rows: readonly FigureScheduleRow[], language: Language): 
         `<td>${row.number}</td>`,
         cell(`${row.calculated ? "= " : ""}${row.reading.chars}`, figurePlaceText(row, language)),
         cell(unchecked ? "" : (sourceValueText(row) ?? "")),
-        cell(citation?.documentName ?? "", citation ? (citedLocation(citation, t) ?? "") : ""),
+        cell(
+          citation?.documentName ?? "",
+          citation ? (citedLocation(citation, t, documents) ?? "") : "",
+        ),
         cell(unchecked ? "" : (differenceText(row, language) ?? "")),
         `<td><div><span class="record-shape">${shape}</span><b>${escapeHtml(t(statusWord(row)))}</b></div>${
           unchecked

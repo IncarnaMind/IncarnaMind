@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConversationAnswer } from "../../core/api";
 import { silentWaitMs } from "./answerWaitWords";
 import { core } from "./core";
@@ -8,8 +8,9 @@ const hasWords = (answer: ConversationAnswer): boolean =>
 
 /**
  * Whether an Answer being written has had no words for long enough (counted
- * from when its Question went to the model, never while it waits for the
- * User), and what its model usually takes in seconds, null when not known.
+ * from when its Question went to the model, or from when the User answered its
+ * question card, never while it waits for the User), and what its model
+ * usually takes in seconds, null when not known.
  */
 export function useAnswerWait(
   answer: ConversationAnswer,
@@ -20,14 +21,23 @@ export function useAnswerWait(
   const [usual, setUsual] = useState<number | null>(null);
   const words = hasWords(answer);
   const sentAt = Date.parse(answer.steps?.sentAt ?? "");
-  const silentNow = streaming && !words && !Number.isNaN(sentAt);
+  // The Answer's silence starts with its Question, or again when the User's answer lets it go on.
+  const since = useRef(Number.isNaN(sentAt) ? 0 : sentAt);
+  const wasWaiting = useRef(waitingForUser);
+  const silentNow = streaming && !words && !waitingForUser && !Number.isNaN(sentAt);
 
   useEffect(() => {
+    if (wasWaiting.current && !waitingForUser) since.current = Date.now();
+    wasWaiting.current = waitingForUser;
+  }, [waitingForUser]);
+
+  useEffect(() => {
+    if (!Number.isNaN(sentAt) && sentAt > since.current) since.current = sentAt;
     if (!silentNow) {
       setSilent(false);
       return;
     }
-    const left = sentAt + silentWaitMs() - Date.now();
+    const left = since.current + silentWaitMs() - Date.now();
     if (left <= 0) {
       setSilent(true);
       return;
@@ -52,5 +62,5 @@ export function useAnswerWait(
     };
   }, [streaming, answer.id, answer.model?.modelId]);
 
-  return { silent: silent && !waitingForUser, usual };
+  return { silent: silent && silentNow, usual };
 }

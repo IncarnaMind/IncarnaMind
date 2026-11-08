@@ -11,6 +11,7 @@ import type * as Y from "yjs";
 import { create } from "zustand";
 import {
   ANSWER_BLOCK,
+  type ChangeRefusalKind,
   type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
@@ -22,6 +23,7 @@ import {
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
+import { useChecks } from "./checks";
 import { core } from "./core";
 
 import { appliedLineIn } from "./editor/appliedEditLine";
@@ -68,11 +70,7 @@ export type EditProblem = (
         | "block-too-long"
         | "local-mode"
         | "cant-regenerate"
-        | "no-table"
-        | "unplaced"
-        | "misnamed"
-        | "typed-tag"
-        | "not-placed"
+        | ChangeRefusalKind
         | "cut-short"
         | "late"
         | "part-changed"
@@ -203,6 +201,16 @@ export const setMenuShows = (mindId: string, shown: boolean) =>
 export const noteBusy = (mindId: string, menu?: MenuEdit) =>
   set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
 
+/**
+ * Whether a rewrite is at work in the Note, saying the Note is busy if so: it writes its reply only
+ * into a Note nothing else started on meanwhile.
+ */
+function rewriting(mindId: string): boolean {
+  if (!useChecks.getState().rewriting[mindId]) return false;
+  noteBusy(mindId);
+  return true;
+}
+
 /** Waits until the editor shows the request's Proposals; the first, or null after a while. */
 function whenShown(editor: Editor, request: string): Promise<PendingProposal | null> {
   const first = () => pendingIn(editor.state).find((each) => each.request === request) ?? null;
@@ -233,6 +241,16 @@ const failure = (error: unknown): EditWithAiResult => ({
   error: { kind: "unknown", message: errorMessage(error, t) },
 });
 
+/** Closes the selection at the end of the text an edit is about, as an action does, unless the User has moved it. */
+function closeSelection(editor: Editor, range: { from: number; to: number }): void {
+  const { selection } = editor.state;
+  if (selection.from === range.from && selection.to === range.to) {
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, range.to)),
+    );
+  }
+}
+
 /**
  * Asks the core to change the selected text (or `range`) as `action` says.
  * While the AI works the text is marked and the composer says so, with Stop;
@@ -253,7 +271,17 @@ export async function requestEdit(
   from?: "menu",
 ): Promise<boolean> {
   const selection = selectionForEdit(editor.state, range);
-  if (!selection || editor.isDestroyed || useEdits.getState().pending[mindId]) return false;
+  if (!selection || editor.isDestroyed) return false;
+  if (useEdits.getState().pending[mindId]) {
+    // One change at a time in a Mind, said where the menu action's own line lands (#2123).
+    if (from === "menu") {
+      noteBusy(mindId, { blockId: selection.from.blockId, at: Date.now() });
+      // As an action does: the menu closes over the words, and the line shows in the page.
+      closeSelection(editor, selection.range);
+    }
+    return false;
+  }
+  if (rewriting(mindId)) return false;
   const requestId = crypto.randomUUID();
   set("problems", mindId, null);
   set("editing", mindId, null);
@@ -265,12 +293,7 @@ export async function requestEdit(
     ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
   });
   setEditTarget(editor, selection.range);
-  const { selection: now } = editor.state;
-  if (now.from === selection.range.from && now.to === selection.range.to) {
-    editor.view.dispatch(
-      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
-    );
-  }
+  closeSelection(editor, selection.range);
   const watch = watchMovedOn(editor);
   const applying = startApplying(editor, mindId, requestId);
 
@@ -402,7 +425,7 @@ export async function regenerateChange(
   doc: Y.Doc,
   proposal: PendingProposal,
 ): Promise<void> {
-  if (editor.isDestroyed || useEdits.getState().pending[mindId]) return;
+  if (editor.isDestroyed || useEdits.getState().pending[mindId] || rewriting(mindId)) return;
   const made = proposalRequestOf(doc, proposal.request);
   if (made?.source === "answer") {
     const questionId = questionOfAnswer(editor, made.answerId);
@@ -498,6 +521,7 @@ export function editFromComposer(
     noteBusy(mindId);
     return false;
   }
+  if (rewriting(mindId)) return false;
   const target = editTarget(editor.state);
   set("editing", mindId, null);
   if (!target || instruction.trim() === "") {

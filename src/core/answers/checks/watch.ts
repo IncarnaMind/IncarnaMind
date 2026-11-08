@@ -47,6 +47,7 @@ import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -112,6 +113,8 @@ export interface WatchOptions {
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
   prepareQuietly(choice: ChatModelChoice | null): Promise<PreparedChatModel | null>;
+  /** Whether the watch waits for the User to allow what checks send now, which they allowed before it sent more. */
+  waitsForConsent(choice: ChatModelChoice | null): Promise<boolean>;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -286,39 +289,49 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
-    const { stop } = await runItems(
+    const { stop, outcomeError } = await runItems(
       ready.claims,
       (claim) =>
-        currentTask.run({ id: runId }, async () => {
-          const result = await options.claimCheck({
-            claim: claim.projection?.text ?? comparableSentence(claim.text),
-            ...(claim.projection && { projection: claim.projection }),
-            recordClaim: claim.noteText,
-            context: claim.context,
-            scope: claim.scope,
-            ...(claim.figures && { figures: claim.figures }),
-            model: prepared,
-            mindId,
-            place: claim.place,
-            cacheKey: mindId,
-            signal,
-          });
-          const failure = runFailureOf(result);
-          if (failure) throw new RunItemError(failure);
-          return result;
-        }),
+        asCheckWork(() =>
+          currentTask.run({ id: runId }, async () => {
+            const result = await options.claimCheck({
+              claim: claim.projection?.text ?? comparableSentence(claim.text),
+              ...(claim.projection && { projection: claim.projection }),
+              recordClaim: claim.noteText,
+              context: claim.context,
+              scope: claim.scope,
+              ...(claim.figures && { figures: claim.figures }),
+              model: prepared,
+              mindId,
+              place: claim.place,
+              cacheKey: mindId,
+              signal,
+            });
+            const failure = runFailureOf(result);
+            if (failure) throw new RunItemError(failure);
+            return result;
+          }),
+        ),
       {
         concurrency: claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;
           const result = outcome.value;
-          if (result.verdict !== "not-checked") checked++;
-          if (result.verdict === "contradicted") contradicted++;
-          write(mindId, request, ready.folderId, claim, result, prepared);
+          if (write(mindId, request, ready.folderId, claim, result, prepared)) {
+            if (result.verdict !== "not-checked") checked++;
+            if (result.verdict === "contradicted") contradicted++;
+          }
         },
       },
     );
+    if (outcomeError !== null) {
+      options.log.error("contradictions.markFailed", {
+        mindId,
+        error: nameOf(outcomeError.error),
+      });
+      throw outcomeError.error;
+    }
     return {
       claims: ready.claims.length,
       checked,
@@ -378,12 +391,38 @@ export function createContradictionWatch(options: WatchOptions) {
     );
   }
 
+  /** Records a watch that sent nothing, waiting for the User's OK, as the Note's last one. */
+  function waited(mindId: string, documentName: string | null, claims: number): void {
+    try {
+      options.requireMind(mindId);
+      content.editSettings(mindId, (settings) =>
+        writeContradictionWatch(settings, {
+          at: options.now().toISOString(),
+          documentName,
+          claims,
+          checked: 0,
+          contradicted: 0,
+          cost: null,
+          stop: { reason: "consent-widened" },
+          smallModel: false,
+        }),
+      );
+    } catch (error) {
+      options.log.error("contradictions.recordFailed", { error: nameOf(error) });
+    }
+  }
+
   /** Queues each claim of the Mind as a background job, and records the run once all are done. */
   async function checkInBackground(mindId: string, documentName: string | null): Promise<void> {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
     const prepared = await options.prepareQuietly(modelOf(mindId));
+    if (!prepared && !closed && (await options.waitsForConsent(modelOf(mindId)))) {
+      // Background work never asks, nor stops without a word (ADR-0022): the line says it waits.
+      waited(mindId, documentName, ready.claims.length);
+      return;
+    }
     if (!prepared || closed) return;
     const runId = randomUUID();
     const request = randomUUID();
@@ -391,6 +430,19 @@ export function createContradictionWatch(options: WatchOptions) {
     let checked = 0;
     let contradicted = 0;
     let stop: RunStop | null = null;
+    /** The first mark this run couldn't write: said once, with the Note's id. */
+    let markFailed = false;
+    const mark = (claim: Claim, result: ClaimCheckResult): boolean => {
+      try {
+        return write(mindId, request, ready.folderId, claim, result, prepared);
+      } catch (error) {
+        if (!markFailed) {
+          markFailed = true;
+          options.log.error("contradictions.markFailed", { mindId, error: nameOf(error) });
+        }
+        return false;
+      }
+    };
     const record = (end: WatchStop | null) => {
       try {
         options.requireMind(mindId);
@@ -460,10 +512,12 @@ export function createContradictionWatch(options: WatchOptions) {
             else if (failure?.kind === "plan-limit")
               stop = { reason: "plan-limit", resetsAt: null };
             else {
-              if (result.verdict !== "not-checked") checked++;
-              if (result.verdict === "contradicted") contradicted++;
               options.requireMind(mindId);
-              write(mindId, request, ready.folderId, claim, result, prepared);
+              // A sentence whose mark couldn't be written isn't checked (#2543).
+              if (mark(claim, result)) {
+                if (result.verdict !== "not-checked") checked++;
+                if (result.verdict === "contradicted") contradicted++;
+              }
             }
           } finally {
             // A run that gives way or closes ends without finishing: its record says so, so a

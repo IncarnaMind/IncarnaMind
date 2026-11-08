@@ -82,9 +82,12 @@ const CONSENT_FACTS = [
   "connectors.directory.where.body",
   "connectors.form.sends",
   "connectors.import.sends",
+  "connectors.import.placeholder",
   "embeddingProviders.confirm.cloud",
   "embeddingProviders.settings.sendsTo",
   "privacy.flows.intro",
+  // What the AI use record sends while usage data is on (ADR-0014, #1993).
+  "privacy.aiUse.private",
   "privacy.skills.body",
   "privacy.usageData.tester",
   "providers.secrets.plainText.accept",
@@ -92,6 +95,8 @@ const CONSENT_FACTS = [
   "providers.secrets.unavailable",
   "providers.sends.onRequest",
   "rerank.settings.sends",
+  // A page loaded as a browser would reach every host it loads anything from (#2553).
+  "webPages.keepLook.body",
   // What first run's key field and sorting choice send, and where (ADR-0022).
   "needsModel.organize",
   "needsModel.compare",

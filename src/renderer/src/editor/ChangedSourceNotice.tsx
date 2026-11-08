@@ -6,7 +6,7 @@ import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
 import type { NumberedCitation } from "./citationNumbers";
-import { MindIdContext } from "./mindContext";
+import { ConversationIdContext, MindIdContext } from "./mindContext";
 import { CitationChip } from "./UnsupportedCited";
 
 /**
@@ -35,6 +35,7 @@ export function ChangedSourceNotice({
     state.changedAfterCited,
     live?.contentHash,
     useContext(MindIdContext),
+    useContext(ConversationIdContext),
   );
   const { note, on } = changedSourceLines(
     state.changedAfterCited,

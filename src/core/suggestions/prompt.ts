@@ -7,6 +7,7 @@ import { jsonSchema } from "ai";
 import { englishPlace } from "../../shared/locations";
 import { normaliseText } from "../../shared/text";
 import type { FoundPassage } from "../answers/citing";
+import type { TranscriptSpeakers } from "../api";
 import { asAttribute, asData, type PromptTag, tagged } from "../promptData";
 
 /** The most words a suggestion may have, and the most CJK characters: one short sentence. */
@@ -92,9 +93,16 @@ const attribute = (value: string) => asAttribute(value, SUGGESTION_TAGS);
 const passageHandle = (index: number) => `P${index + 1}`;
 
 /** The request: the paragraph, then each Passage with its id, Document and Location. */
-export function suggestionPrompt(paragraph: string, passages: readonly FoundPassage[]): string {
+export function suggestionPrompt(
+  paragraph: string,
+  passages: readonly FoundPassage[],
+  speakersOf: (documentId: string) => TranscriptSpeakers | null = () => null,
+): string {
   const shown = passages.map((passage, index) => {
-    const place = englishPlace(passage.location);
+    const place = englishPlace(
+      passage.location,
+      passage.location?.kind === "time" ? speakersOf(passage.documentId) : null,
+    );
     const where = place ? ` location="${attribute(place)}"` : "";
     return tagged(
       "passage",

@@ -366,6 +366,15 @@ export function keepRevised(
   revisions.set(request, revision);
 }
 
+/** The ids of the top-level Blocks a revision by `request` keeps for rejecting it to put back (`keepRevised`). */
+export function revisedBlockIds(blocks: Y.XmlFragment, request: string): Set<string> {
+  const kept = revisionsOf(blocks)?.get(request)?.get(REVISED_BLOCKS);
+  if (!(kept instanceof Y.Array)) return new Set();
+  return new Set(
+    kept.toArray().flatMap((each) => (each instanceof Y.XmlElement ? (idOf(each) ?? []) : [])),
+  );
+}
+
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
@@ -483,14 +492,22 @@ export function appliedWaiting(
   };
 }
 
-const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
+export const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**
  * What a paragraph or heading came to in a change: its words changed where they stand; the whole
  * Block added or removed (a heading that way is a section's title, not a paragraph written, as
  * "Wrote 3 paragraphs" counts it); or not touched.
  */
-export type ChangeKind = "edited" | "added" | "removed" | "title-added" | "title-removed" | "kept";
+export type ChangeKind =
+  | "edited"
+  | "added"
+  | "removed"
+  | "title-added"
+  | "title-removed"
+  | "table-added"
+  | "table-removed"
+  | "kept";
 
 /**
  * How many paragraphs changed, each counted once (#1335), from what happened to each paragraph in
@@ -508,6 +525,8 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
     run.added = run.removed = run["title-added"] = run["title-removed"] = 0;
   };
   for (const kind of kinds) {
+    // A table added or removed whole counts as a table, not as paragraphs.
+    if (kind === "table-added" || kind === "table-removed") continue;
     if (kind === "edited" || kind === "kept") {
       close();
       if (kind === "edited") count++;
@@ -515,6 +534,29 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
   }
   close();
   return count;
+}
+
+/**
+ * Every paragraph and table a change came to it added whole, the User's kept as they were: it
+ * added them and changed none, as everything said of it must say (#2356).
+ */
+export function addsOnly(kinds: Iterable<ChangeKind>): boolean {
+  let added = false;
+  for (const kind of kinds) {
+    if (kind === "added" || kind === "title-added" || kind === "table-added") added = true;
+    else if (kind !== "kept") return false;
+  }
+  return added;
+}
+
+/** Every paragraph the change counts it removes whole: a removal and nothing else (#2356). */
+export function onlyRemoves(kinds: Iterable<ChangeKind>): boolean {
+  let removed = false;
+  for (const kind of kinds) {
+    if (kind === "removed") removed = true;
+    else if (kind !== "kept") return false;
+  }
+  return removed;
 }
 
 /**
@@ -526,6 +568,14 @@ export function changedParagraphs(
   blocks: Y.XmlFragment,
   belongs: (ref: ProposalRef) => boolean,
 ): number {
+  return countChanged(changeKinds(blocks, belongs));
+}
+
+/** What each paragraph and heading came to in the Proposals that `belongs` takes, in order. */
+export function changeKinds(
+  blocks: Y.XmlFragment,
+  belongs: (ref: ProposalRef) => boolean,
+): ChangeKind[] {
   const ours = (ref: ProposalRef | null) => ref !== null && belongs(ref);
   const wordsChanged = (element: Y.XmlElement) =>
     element
@@ -548,7 +598,10 @@ export function changedParagraphs(
       const own =
         whole ?? (ours(proposal) ? (proposal?.kind === "insert" ? "added" : "removed") : null);
       // A table added or removed whole counts as a table, not by its cells.
-      if (child.nodeName === "table" && own) continue;
+      if (child.nodeName === "table" && own) {
+        kinds.push(own === "added" ? "table-added" : "table-removed");
+        continue;
+      }
       if (TEXT_BLOCKS.has(child.nodeName)) {
         if (own) kinds.push(child.nodeName === "heading" ? `title-${own}` : own);
         else kinds.push(wordsChanged(child) ? "edited" : "kept");
@@ -556,7 +609,7 @@ export function changedParagraphs(
     }
   };
   visit(blocks, null);
-  return countChanged(kinds);
+  return kinds;
 }
 
 const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FIELD);
@@ -609,6 +662,15 @@ export function decisionsOn(doc: Y.Doc, request: string): { accepted: number; re
   return { accepted: count(DECISION_KEYS.accept), rejected: count(DECISION_KEYS.reject) };
 }
 
+/** Whether the assistant said a request's change was asked only to take text out, or revises one that was (#2356). */
+export function removesOnlyAsked(doc: Y.Doc, request: string): boolean {
+  const made = proposalRequestOf(doc, request);
+  return (
+    (made?.source === "edit-with-ai" || made?.source === "answer-added") &&
+    made.removesOnly === true
+  );
+}
+
 /** Records what made a request's Proposals, in the Mind's document beside its Blocks. */
 export function recordProposalRequest(doc: Y.Doc, request: string, made: ProposalRequest): void {
   requestsOf(doc).set(request, { ...made });
@@ -647,6 +709,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
       ...(requested && { requested }),
       ...(action && { action }),
       ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+      ...(record.removesOnly === true && { removesOnly: true }),
     };
   }
   if (source === "comparison-table") {
@@ -664,6 +727,8 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
     ...(typeof record.instruction === "string" && { instruction: record.instruction }),
     ...(isText(record.reason) && { reason: record.reason }),
     ...(requested && { requested }),
+    ...(record.removesOnly === true && { removesOnly: true }),
+    ...(record.keepsLeftOut === true && { keepsLeftOut: true }),
   };
 }
 

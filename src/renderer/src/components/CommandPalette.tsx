@@ -25,14 +25,18 @@ import { exit } from "../motion";
 import {
   actionGroup,
   activeOf,
+  annotationTextGroup,
   askGroup,
   conversationTextGroup,
   documentTextGroup,
   findings,
+  meetingTextGroup,
+  meetingTextItems,
   nameGroups,
   noteGroup,
   type PaletteGroup,
   type PaletteItem,
+  rankedNamesAndActions,
   readQuery,
   recentGroup,
   runItem,
@@ -45,6 +49,7 @@ import {
   ConversationLineIcon,
   DocumentLineIcon,
   MindLineIcon,
+  NoteLineIcon,
   SearchLineIcon,
   SparkLineIcon,
 } from "./lineIcons";
@@ -61,6 +66,8 @@ const OWN_TITLES: Record<string, MessageKey> = {
   recent: "palette.group.recent",
   actions: "palette.group.actions",
   notes: "palette.group.notes",
+  annotations: "annotations.search.title",
+  meetingText: "palette.group.meetingText",
   documentText: "palette.group.documentText",
   conversationText: "palette.group.conversationText",
   ask: "palette.group.ask",
@@ -163,6 +170,9 @@ function Palette() {
   const searching = !actionsOnly && searchesWords(text);
   const notes = useFound(searching, text, core.searchMinds);
   const passages = useFound(searching, text, core.searchDocumentText);
+  const annotations = useFound(searching, text, (words) =>
+    core.searchAnnotations(words, { limit: 20 }),
+  );
   const said = useFound(searching, text, core.searchConversations);
 
   const groups: PaletteGroup[] = useMemo(() => {
@@ -174,21 +184,42 @@ function Palette() {
       ];
     }
     return [
-      ...nameGroups(words, found),
-      ...actionGroup(words, context, language, found.names),
+      ...rankedNamesAndActions(
+        nameGroups(words, found),
+        actionGroup(words, context, language, found.names),
+        words,
+      ),
       ...(notes ? noteGroup(notes.items, minds, t) : []),
+      ...(passages ? meetingTextGroup(meetingTextItems(passages.items, documents, minds, t)) : []),
       ...(passages ? documentTextGroup(passages.items, documents, t) : []),
+      ...(annotations ? annotationTextGroup(annotations.items, documents, t) : []),
       ...(said ? conversationTextGroup(said.items) : []),
     ];
-  }, [actionsOnly, words, found, context, language, t, notes, passages, said, minds, documents]);
+  }, [
+    actionsOnly,
+    words,
+    found,
+    context,
+    language,
+    t,
+    notes,
+    passages,
+    annotations,
+    said,
+    minds,
+    documents,
+  ]);
 
   const waiting =
-    searching && [notes, passages, said].some((each) => each === null || each.query !== text);
+    searching &&
+    [notes, passages, annotations, said].some((each) => each === null || each.query !== text);
   const asking =
     text !== "" && !actionsOnly && assistantHandle.current !== null
       ? askGroup(text, conversationLabel(openConversation), t)
       : [];
-  const failed = searching ? (notes?.failed ?? passages?.failed ?? said?.failed) : undefined;
+  const failed = searching
+    ? (notes?.failed ?? passages?.failed ?? annotations?.failed ?? said?.failed)
+    : undefined;
   const problem = failed ? errorMessage(failed.error, t) : undefined;
 
   const items = [...groups, ...asking].flatMap((group) => group.items);
@@ -385,7 +416,13 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     case "note":
       return <MindLineIcon className={className} />;
     case "passage":
-      return <DocumentLineIcon kind={item.documentKind} className={className} />;
+      return item.mindId === null ? (
+        <DocumentLineIcon kind={item.documentKind} className={className} />
+      ) : (
+        <MindLineIcon className={className} />
+      );
+    case "annotation":
+      return <NoteLineIcon className={className} />;
     case "said":
       return <ConversationLineIcon className={className} />;
     case "ask":
@@ -414,7 +451,11 @@ function Option({
   onPoint(): void;
   onChoose(inTab: boolean): void;
 }) {
-  const words = item.kind === "note" || item.kind === "passage" || item.kind === "said";
+  const words =
+    item.kind === "note" ||
+    item.kind === "passage" ||
+    item.kind === "annotation" ||
+    item.kind === "said";
   const ranges = item.kind === "object" || item.kind === "command" ? item.ranges : [];
   const purpose = item.kind === "command" ? item.purpose : "";
   const twoLines = words || purpose !== "";

@@ -1,9 +1,12 @@
 import { useLayoutEffect, useRef } from "react";
 import { useExports } from "../../exports";
-import { useHomeView, useMindNoteStates, useMinuteClock, useOwnMinds } from "../../home";
+import { useHomeView, useMindNoteStates, useOwnMinds } from "../../home";
+import { useMinuteClock } from "../../minuteClock";
 import { rowsIn, useSelectionOrder } from "../../selection";
 import { useAppStore } from "../../store";
 import { useHomeNextStep } from "../../useHomeNextStep";
+import { CallOfferLine } from "./CallOfferLine";
+import { CallOffersTip } from "./CallOffersTip";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
 import { HomeHeader } from "./HomeHeader";
@@ -51,6 +54,8 @@ export function HomePane() {
               <HomeNextStep step={next} />
             </div>
           )}
+          <CallOfferLine />
+          <CallOffersTip />
           <ComingUp now={now} />
           <RecentMinds now={now} states={notes} />
           <FolderCards now={now} />

@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { createContext, useContext, useEffect } from "react";
 import type * as Y from "yjs";
 import type { WindowLayout } from "../../../core/api";
+import type { MessageKey } from "../../../shared/i18n";
 import type { CommandContext } from "./registry";
 
 /** Something a command acts on that lives in a component, there while the component is. */
@@ -26,6 +27,12 @@ export const citationHandle: Handle<{
 
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */
 export const findHandle: Handle<{ next(): void; previous(): void }> = { current: null };
+
+/**
+ * The command palette is open, or opening: its dialog takes the page's selection a frame after
+ * ⌘K, so a viewer keeps the words selected until it has.
+ */
+export const paletteOpen = { current: false };
 
 /** One version a Citation was made from, open in a viewer: what "Open the current version" opens (#2159). */
 export interface CitedVersionAction {
@@ -99,10 +106,16 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
 
 /** The words or cells selected in a Document's viewer (#101, #118): what its menu does with them. */
 export interface ViewerAskActions {
+  /** Use as Citation, while a sentence waits for its Citation in this Document (#1554). */
+  cite?: () => void;
   /** Not offered while a Question waits for a model (#1789). */
   ask?: () => void;
   addToNote(): void;
   copy(): void;
+  /** Highlights the words in the colour last chosen (#327); absent for a range of cells. */
+  highlight?(): void;
+  /** Highlights the words, then opens their note ready to type (#327). */
+  note?(): void;
 }
 
 /** What a viewer offers the commands: by tab, so two viewers never take each other's (#118). */
@@ -110,7 +123,11 @@ interface ViewerActions {
   selection: ViewerAskActions;
   range: ViewerAskActions;
   slide: { ask?: () => void };
-  area: { select?: () => void };
+  area: {
+    select?: () => void;
+    /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
+    highlight?: () => void;
+  };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {
@@ -169,7 +186,24 @@ export function viewerHandleInUse<K extends keyof ViewerActions>(
   return handleInUse(viewerActions[kind] as Map<string, ViewerActions[K]>, layout);
 }
 
-/** The Transcript in view (#139): the line the User is on, which "Add transcript line to note" adds. */
-export const transcriptHandle: Handle<{ hasLine(): boolean; addLine(): Promise<void> }> = {
+/**
+ * The Transcript in view (#139): the line the User is on, which "Add transcript line to note"
+ * adds, and whose Speaker "Change who speaks…" opens (#138). Its audio plays from the word the
+ * caret is at, else the line's start, and the line splits at the caret (#138). A `can…` says
+ * true, or why not.
+ */
+export const transcriptHandle: Handle<{
+  hasLine(): boolean;
+  addLine(): Promise<void>;
+  canChangeSpeaker(): boolean;
+  changeSpeaker(): void;
+  canPlay(): true | MessageKey;
+  play(): void;
+  /** Whether its player plays now; null while it has none open. */
+  playing(): boolean | null;
+  togglePlayback(): Promise<void>;
+  canSplit(): true | MessageKey;
+  split(): Promise<void>;
+}> = {
   current: null,
 };

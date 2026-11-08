@@ -50,6 +50,16 @@ export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
 };
 
 /**
+ * The marks a help Answer's lines start with, as the panel reads them: the recommended option or
+ * reading, what an option leads to, and a short line. Bold marks a model adds are not part of a
+ * line (`plainLine`).
+ */
+export const RECOMMENDED_MARK = /^(?:★|⭐)\s*/;
+export const EFFECT_MARK = /^(?:→|->)\s*/;
+export const LINE_MARK = /^(?:[-*•]|\d+[.)])\s+/;
+export const plainLine = (line: string) => line.replace(/\*\*|__/g, "").trim();
+
+/**
  * Whose newest line a button answers, for the heading over its suggestion: the other side's,
  * the User's own ("Am I leading them?"), or anyone's. Absent: it is about the whole call.
  */

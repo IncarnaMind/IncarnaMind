@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ChatProvider } from "../../../../core/api";
 import { ComputerLineIcon } from "../lineIcons";
 import { PROVIDER_LOGOS } from "./providerLogos";
@@ -12,7 +13,16 @@ export const logoIdOf = (provider: ChatProvider): string | null =>
         ? "copilot"
         : (provider.catalogId ?? provider.kind);
 
-export function ProviderLogo({ id, large = false }: { id: string | null; large?: boolean }) {
+export function ProviderLogo({
+  id,
+  large = false,
+  fallback,
+}: {
+  id: string | null;
+  large?: boolean;
+  /** Drawn when the app has no logo for `id`; this computer's icon otherwise. */
+  fallback?: ReactNode;
+}) {
   const paths = id ? PROVIDER_LOGOS[id] : undefined;
   return (
     <span
@@ -38,7 +48,7 @@ export function ProviderLogo({ id, large = false }: { id: string | null; large?:
           )}
         </svg>
       ) : (
-        <ComputerLineIcon className={large ? "size-6" : "size-[18px]"} />
+        (fallback ?? <ComputerLineIcon className={large ? "size-6" : "size-[18px]"} />)
       )}
     </span>
   );

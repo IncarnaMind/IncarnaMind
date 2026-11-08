@@ -137,7 +137,8 @@ function checkRequests(model: MockLanguageModelV4) {
   const generated = model.doGenerateCalls.map((call) => systemOf(call.prompt));
   const streamed = model.doStreamCalls.map((call) => systemOf(call.prompt));
   return {
-    sorting: generated.filter((each) => each.startsWith(SORTS)).length,
+    // A Note's sort streams (#2532), Verify's is generated: either is one sorting request.
+    sorting: [...generated, ...streamed].filter((each) => each.startsWith(SORTS)).length,
     steps: streamed.filter((each) => each.startsWith("You check one sentence")).length,
     asked: generated.filter((each) => CHECK_ASKS.some((ask) => each.startsWith(ask))).length,
   };
@@ -738,14 +739,14 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       model: inner,
       middleware: {
         specificationVersion: "v4",
-        wrapGenerate: async ({ doGenerate, params }) => {
-          if (!systemOf(params.prompt).startsWith(SORTS)) return doGenerate();
+        wrapStream: async ({ doStream, params }) => {
+          if (!systemOf(params.prompt).startsWith(SORTS)) return doStream();
           sorting++;
           most = Math.max(most, sorting);
           batches.arrive();
           await batches.all;
           try {
-            return await doGenerate();
+            return await doStream();
           } finally {
             sorting--;
           }

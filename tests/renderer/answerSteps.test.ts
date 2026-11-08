@@ -7,12 +7,15 @@ import {
   liveStep,
   type StepsInput,
   stepRows,
+  stepWordsChanged,
 } from "../../src/renderer/src/answerSteps";
 import {
   checkedWords,
   checkingWords,
   documentReadText,
+  documentsReadText,
   foldedWords,
+  mindCallText,
 } from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 
@@ -130,7 +133,11 @@ describe("an Answer's steps", () => {
       "irrigated parks",
       "park edge",
     ]);
-    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1, 2, 4]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.passageId)).toEqual([
+      "a",
+      "c",
+      "e",
+    ]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 3, extraScopes: 0 });
   });
 
@@ -152,7 +159,7 @@ describe("an Answer's steps", () => {
     const [, row] = stepRows(steps);
     expect(row).toMatchObject({ kind: "search", found: 2, used: 1 });
     expect(row?.kind === "search" && row.calls.map((call) => call.id)).toEqual(["r1"]);
-    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.passageId)).toEqual(["a"]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 1, extraScopes: 0 });
     expect(documentReadText(en, read)).toBe("Read pages 12–13 of “Filing”");
     expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
@@ -441,6 +448,62 @@ describe("an Answer's steps", () => {
       steps: { ...STEPS, citedAfterChecking: 1 },
     });
     expect(foldedLine(both)).toEqual({ kind: "searched", sources: 2, extraScopes: 0 });
+  });
+
+  // protects=#2768: the Citations of what an Answer wrote into a Note are sources it used, on the line, on its search's row with their sources, and on the row of Documents read whole, but not those of the last Answer written in as it was; the reply's check row stays the reply's; fails_when=the last Answer's Citations count, a cited write reads "no sentence matched them" or "no sources", its search "0 used", or the write's Citations go to the reply's check; no_claim=which Citations a write keeps, which is the core's (tests/core/writtenSourcesLine.test.ts).
+  test("a write's Citations are sources it used, beside the reply's", () => {
+    const searches = [search("s1", "tide gauges", { passages: ["p1", "p2", "p3"] })];
+    const { marker: _one, ...field } = citation(1, "p1", "d1", 3);
+    const { marker: _two, ...update } = citation(2, "p2", "d2", 1);
+    const wrote: AnswerToolCall = {
+      id: "w1",
+      tool: "add_to_mind",
+      source: "minds",
+      input: {},
+      status: "done",
+      resultCount: null,
+      mindChange: {
+        mindId: "m1",
+        created: false,
+        request: "r1",
+        proposals: 4,
+        cited: 3,
+        citations: [field, update],
+      },
+    };
+    const written = input({ toolCalls: [...searches, wrote] });
+    expect(foldedLine(written)).toEqual({ kind: "searched", sources: 2, extraScopes: 0 });
+    expect(stepRows(written).find((row) => row.kind === "search")).toMatchObject({
+      found: 4,
+      used: 2,
+      sources: [field, update],
+    });
+    expect(stepRows(written).some((row) => row.kind === "check")).toBe(false);
+    expect(foldedLine(input({ toolCalls: [...searches, wrote] }, { meeting: true }))).toEqual({
+      kind: "listened",
+      sources: 2,
+    });
+
+    // The last Answer written in as it was cites what that Answer used, not this one.
+    const lastAnswer: AnswerToolCall = { ...wrote, id: "w2", input: { answer: true } };
+    expect(foldedLine(input({ toolCalls: [...searches, lastAnswer] }))).toEqual({
+      kind: "read-passages",
+      passages: 3,
+      citedAfterChecking: 0,
+    });
+
+    // Documents sent whole with the Question: the row lists the write's Citations into them.
+    const whole = input({
+      toolCalls: [wrote],
+      steps: { ...STEPS, sent: { documents: ["d1", "d2"] } },
+    });
+    expect(stepRows(whole).find((row) => row.kind === "read-documents")).toMatchObject({
+      documents: [
+        { documentId: "d1", name: "Doc d1" },
+        { documentId: "d2", name: "Doc d2" },
+      ],
+      sources: [field, update],
+    });
   });
 
   // protects=the rows' order: reasoning, the Mind read, the calls as they started, the check last; fails_when=any row is out of order or a call waiting for approval shows; no_claim=none beyond protects.
@@ -740,24 +803,34 @@ describe("where an Answer found what it says", () => {
   const NDA = { documentId: "nda", name: null };
   const LEASE_READ = { documentId: "lease", name: "租赁合同-2026" };
   const sentWhole = (...documents: string[]) => ({ ...STEPS, sent: { documents } });
-  const words = (line: ReturnType<typeof foldedLine>, names: Record<string, string> = {}) =>
+  const words = (
+    line: ReturnType<typeof foldedLine>,
+    names: Record<string, string> = {},
+    examples: readonly string[] = [],
+  ) =>
     line &&
     foldedWords(en, line, {
       scope: () => "All Documents",
       modelOf: (id) => id,
       documentOf: (document) => names[document.documentId] ?? document.name,
+      isExample: (document) => examples.includes(document.documentId),
     });
   const unsearched = (extra: Partial<StepsInput["answer"]> = {}, more: Partial<StepsInput> = {}) =>
     input(
       { text: "月租金 4,800 元 [^1]。押金 9,600 元 [^2]。", citations: [LEASE, RENT], ...extra },
       more,
     );
-  const wordsZh = (line: ReturnType<typeof foldedLine>, names: Record<string, string> = {}) =>
+  const wordsZh = (
+    line: ReturnType<typeof foldedLine>,
+    names: Record<string, string> = {},
+    examples: readonly string[] = [],
+  ) =>
     line &&
     foldedWords(zh, line, {
       scope: () => "全部文档",
       modelOf: (id) => id,
       documentOf: (document) => names[document.documentId] ?? document.name,
+      isExample: (document) => examples.includes(document.documentId),
     });
 
   // protects=three short Documents sent whole, of which the model cites only the lease, a Mind open beside them: the line names the Mind and all three Documents, and the timeline has a row for the three with the lease's places under it; fails_when=the other two are left out, or the line names only the lease; no_claim=that they were sent, which tests/core/answerSources.test.ts holds.
@@ -842,6 +915,118 @@ describe("where an Answer found what it says", () => {
       input({ read: { ...READ, deleted: true }, steps: sentWhole("lease") }, { askedFrom: MIND }),
     );
     expect(words(gone, library)).toBe("Read a deleted note and “租赁合同-2026”");
+  });
+
+  // protects=asked from an example's own Note, the line is one list that counts the User's own Documents as the Library does and the example's apart, and the total is all that was read; with none of the example's read it is today's line; fails_when=the four are counted as 4 Documents, the example's are filtered out of the total, a branch (both, example's only, the singular, no Mind) says other words, or a line with none of the example's changes; no_claim=which Documents a Question reads, which tests/core/exampleDocumentsRead.test.ts holds.
+  describe("beside an example's Note, the User's Documents and the example's are told apart", () => {
+    const EXAMPLE_MIND: AskedFrom = {
+      mindId: "m-example",
+      name: "Draft: credit committee paper",
+      deleted: false,
+    };
+    const EXAMPLE_ZH: AskedFrom = {
+      mindId: "m-example",
+      name: "授信委员会报告（草稿）",
+      deleted: false,
+    };
+    const read = (mind: AskedFrom) => ({ ...mind, version: "v1", partial: false });
+    const beside = (mind: AskedFrom, ...documents: string[]) =>
+      foldedLine(input({ read: read(mind), steps: sentWhole(...documents) }, { askedFrom: mind }));
+    const alone = (...documents: string[]) => foldedLine(input({ steps: sentWhole(...documents) }));
+    const NAMES = {
+      lease: "Harbour lease",
+      insurance: "Contents insurance",
+      facility: "Senior facilities agreement",
+      results: "Q3 results",
+    };
+    const EXAMPLES = ["facility", "results"];
+    const both = (line: ReturnType<typeof foldedLine>) => [
+      words(line, NAMES, EXAMPLES),
+      wordsZh(line, NAMES, EXAMPLES),
+    ];
+
+    test("two of the User's own and two of the example's", () => {
+      const [en, zh] = both(beside(EXAMPLE_MIND, "lease", "insurance", "facility", "results"));
+      expect(en).toBe(
+        "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
+      );
+      expect(zh).toBe("读了“Draft: credit committee paper”、你的 2 个文档和 2 个示例文档");
+      const [, named] = both(beside(EXAMPLE_ZH, "lease", "insurance", "facility", "results"));
+      expect(named).toBe("读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档");
+    });
+
+    test("one of the User's own and one of the example's", () => {
+      const [en, zh] = both(beside(EXAMPLE_MIND, "lease", "facility"));
+      expect(en).toBe(
+        "Read “Draft: credit committee paper”, 1 of your Documents and 1 example Document",
+      );
+      expect(zh).toBe("读了“Draft: credit committee paper”、你的 1 个文档和 1 个示例文档");
+    });
+
+    test("only the example's are read: they are named as examples, singular and plural", () => {
+      const [en, zh] = both(beside(EXAMPLE_MIND, "facility", "results"));
+      expect(en).toBe("Read “Draft: credit committee paper” and 2 example Documents");
+      expect(zh).toBe("读了“Draft: credit committee paper”和 2 个示例文档");
+      const [enOne, zhOne] = both(beside(EXAMPLE_MIND, "facility"));
+      expect(enOne).toBe("Read “Draft: credit committee paper” and 1 example Document");
+      expect(zhOne).toBe("读了“Draft: credit committee paper”和 1 个示例文档");
+      const [enBare, zhBare] = both(alone("facility", "results"));
+      expect(enBare).toBe("Read 2 example Documents");
+      expect(zhBare).toBe("读了 2 个示例文档");
+      const [enBareOne, zhBareOne] = both(alone("facility"));
+      expect(enBareOne).toBe("Read 1 example Document");
+      expect(zhBareOne).toBe("读了 1 个示例文档");
+    });
+
+    test("with no Mind read, the User's own and the example's are one list too", () => {
+      const [en, zh] = both(alone("lease", "insurance", "facility", "results"));
+      expect(en).toBe("Read 2 of your Documents and 2 example Documents");
+      expect(zh).toBe("读了你的 2 个文档和 2 个示例文档");
+    });
+
+    test("none of the example's read: the line is the one it always was", () => {
+      const four = beside(EXAMPLE_MIND, "lease", "insurance", "facility", "results");
+      expect(words(four, NAMES)).toBe("Read “Draft: credit committee paper” and 4 Documents");
+      expect(wordsZh(four, NAMES)).toBe("读了“Draft: credit committee paper”，还读了 4 个文档");
+      const one = beside(EXAMPLE_MIND, "lease");
+      expect(words(one, NAMES, EXAMPLES)).toBe(
+        "Read “Draft: credit committee paper” and “Harbour lease”",
+      );
+      expect(wordsZh(one, NAMES, EXAMPLES)).toBe(
+        "读了“Draft: credit committee paper”，还读了“Harbour lease”",
+      );
+      expect(words(alone("lease", "insurance"), NAMES, EXAMPLES)).toBe("Read 2 Documents");
+      expect(wordsZh(alone("lease", "insurance"), NAMES, EXAMPLES)).toBe("读了 2 个文档");
+    });
+
+    test("the timeline's row says the same", () => {
+      const rowOf = (...documents: string[]) => {
+        const row = stepRows(input({ steps: sentWhole(...documents) })).find(
+          (each) => each.kind === "read-documents",
+        );
+        if (row?.kind !== "read-documents")
+          throw new Error("The timeline has no row of Documents.");
+        return row.documents;
+      };
+      const nameOf = (document: { documentId: string }) =>
+        NAMES[document.documentId as keyof typeof NAMES] ?? null;
+      const isExample = (document: { documentId: string }) =>
+        EXAMPLES.includes(document.documentId);
+      const text = (language: typeof en, ...documents: string[]) =>
+        documentsReadText(language, rowOf(...documents), nameOf, null, isExample);
+      expect(text(en, "lease", "insurance", "facility", "results")).toBe(
+        "Read 2 of your Documents and 2 example Documents",
+      );
+      expect(text(zh, "lease", "insurance", "facility", "results")).toBe(
+        "读了你的 2 个文档和 2 个示例文档",
+      );
+      expect(text(en, "lease", "facility")).toBe("Read 1 of your Documents and 1 example Document");
+      expect(text(zh, "lease", "facility")).toBe("读了你的 1 个文档和 1 个示例文档");
+      expect(text(en, "facility", "results")).toBe("Read 2 example Documents");
+      expect(text(zh, "facility", "results")).toBe("读了 2 个示例文档");
+      expect(text(en, "lease", "insurance")).toBe("Read 2 Documents");
+      expect(text(zh, "lease", "insurance")).toBe("读了 2 个文档");
+    });
   });
 
   // protects=a long scope sends nothing whole, so an Answer that searches says it searched and counts its sources, with no Document read with the Question; fails_when=a Document is called read that was only searched; no_claim=none beyond protects.
@@ -1031,6 +1216,46 @@ describe("the live step", () => {
     });
   });
 
+  // protects=a write whose Citations came after it is checked once the reply has streamed (#1635), and the live line says so in the write's own words, not Writing or Checking Citations, while the write's row keeps what it did; fails_when=a finished write's check leaves the line on the reply's words, a write whose check is over still says checking, or the row says checking; no_claim=when the core reports the count, which tests/core/assistantPageCitations.test.ts covers.
+  test("a write checked after its reply streamed is the step, in its call's words", () => {
+    const write = (checking?: number): AnswerToolCall => ({
+      id: "w1",
+      tool: "add_to_mind",
+      source: "minds",
+      input: {},
+      status: "done",
+      resultCount: 0,
+      mindChange: {
+        mindId: "m1",
+        created: false,
+        request: "Add a revenue table",
+        proposals: 1,
+        ...(checking !== undefined && { checking }),
+      },
+    });
+    const reply = {
+      text: "Added the table [^1] [^2].",
+      citations: [citation(1, "a", "d1", 4), citation(2, "a", "d1", 5)],
+    };
+    const step = live({ ...reply, toolCalls: [write(2)] }, { phase: "writing" });
+    expect(step).toEqual({ kind: "call", call: { ...write(2), status: "running" } });
+    const call = step.kind === "call" ? step.call : write(2);
+    expect(mindCallText(en, call, "Harbour notes")).toBe(
+      "Checking 2 sentences in “Harbour notes”…",
+    );
+    expect(mindCallText(zh, call, "Harbour notes")).toBe("正在核对“Harbour notes”中的 2 句话…");
+    // A check that outlives the call keeps the row saying so, as one after the Run does (#2710).
+    expect(mindCallText(en, write(2), "Harbour notes")).toBe(
+      "Checking 2 sentences in “Harbour notes”…",
+    );
+    const checked = write();
+    expect(live({ ...reply, toolCalls: [checked] }, { phase: "writing" })).toEqual({
+      kind: "checking",
+      count: 2,
+    });
+    expect(mindCallText(en, checked, "Harbour notes")).toBe("Edited “Harbour notes” · 1 change");
+  });
+
   test("figures being recorded are no running call; their retry is checking figures", () => {
     const calculating: AnswerToolCall = {
       id: "calculated-figures",
@@ -1213,4 +1438,20 @@ describe("the steps while the Answer is written", () => {
     expect(rowsFor("stopped", refused)).toContain("failed-search");
     expect(rowsFor("done", ended)).toContain("failed-search");
   });
+});
+
+// protects=only the step, or the step's own words, let the wait take more of the line (#2531); fails_when=a thinking step's summary-presence label flip counts as a step change; no_claim=none beyond protects.
+test("a summary-only label flip is not a step change, and a step's own words or the step are", () => {
+  const thinking = { label: "Thinking", stepKey: "thinking", kind: "thinking" as const };
+  expect(stepWordsChanged({ label: "Thinking…", stepKey: "thinking" }, thinking)).toBe(false);
+  expect(stepWordsChanged(thinking, { ...thinking })).toBe(false);
+  expect(
+    stepWordsChanged(thinking, { label: "Thinking", stepKey: "searching", kind: "searching" }),
+  ).toBe(true);
+  expect(
+    stepWordsChanged(
+      { label: "Searching “A”…", stepKey: "searching" },
+      { label: "Searching “B”…", stepKey: "searching", kind: "searching" },
+    ),
+  ).toBe(true);
 });

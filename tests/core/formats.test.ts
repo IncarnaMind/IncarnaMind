@@ -19,7 +19,7 @@ import { extractUnits } from "../../src/core/documents/formats";
 import { extractCsv, parseCsv } from "../../src/core/documents/formats/csv";
 import { extractDocx, MAX_SECTION_CHARS } from "../../src/core/documents/formats/docx";
 import { ExtractionError } from "../../src/core/documents/formats/errors";
-import { BLOCK_CHARACTERS, MAX_ROWS } from "../../src/core/documents/formats/grid";
+import { BLOCK_CHARACTERS, holdsFigure, MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { formatNumber } from "../../src/core/documents/formats/numbers";
 import { extractPptx, imageDataUrl } from "../../src/core/documents/formats/pptx";
 import { lineUnits, markdownUnits } from "../../src/core/documents/formats/text";
@@ -34,6 +34,7 @@ import { anchorsOf, type TextUnit } from "../../src/shared/units";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { docxOf, encryptedOfficeFile, legacyOfficeFile, xlsxOf } from "../helpers/office";
+import { paragraph, table, wordFile } from "../helpers/word";
 import { buildZip } from "../helpers/zip";
 
 const fixture = (name: string) =>
@@ -257,6 +258,74 @@ describe("Word", () => {
     // Its other sections have none.
     expect(units.slice(1).some((unit) => unit.label?.comments)).toBe(false);
   });
+
+  test("a table's row keeps every cell, a blank corner included, so it lines up with its headings (#2426)", async () => {
+    const read = async (heading: string, rows: string[][]) => {
+      const { units } = await extractDocx(
+        wordFile({ body: `${paragraph(heading, { style: "Heading1" })}${table(rows)}` }),
+      );
+      return units[0];
+    };
+
+    const english = await read("Depot performance", [
+      ["", "On-time rate", "Space occupancy"],
+      ["Felixstowe", "94%", "81%"],
+      ["Southampton", "88%", "79%"],
+    ]);
+    expect(english?.text).toBe(
+      "Depot performance\n\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t81%\nSouthampton\t88%\t79%",
+    );
+    expect(english?.label?.tables).toEqual([
+      {
+        headings: ["", "On-time rate", "Space occupancy"],
+        rows: [
+          ["Felixstowe", "94%", "81%"],
+          ["Southampton", "88%", "79%"],
+        ],
+      },
+    ]);
+
+    const chinese = await read("仓库表现", [
+      ["", "准点率", "空间占用率"],
+      ["费利克斯托", "94%", "81%"],
+      ["南安普顿", "88%", "79%"],
+    ]);
+    expect(chinese?.text).toBe(
+      "仓库表现\n\t准点率\t空间占用率\n费利克斯托\t94%\t81%\n南安普顿\t88%\t79%",
+    );
+  });
+
+  test("a merged cell fills every column it spans, so the rows under it line up with their headings (#2426)", async () => {
+    const span = (text: string) => `<w:tcPr><w:gridSpan w:val="2"/></w:tcPr>${paragraph(text)}`;
+    const read = async (heading: string, rows: string[][]) => {
+      const { units } = await extractDocx(
+        wordFile({ body: `${paragraph(heading, { style: "Heading1" })}${table(rows)}` }),
+      );
+      return units[0];
+    };
+
+    const english = await read("Rates", [
+      ["Depot", span("Rates")],
+      ["", "On-time", "Late"],
+      ["Felixstowe", "94%", "81%"],
+      ["Southampton", "88%", "79%"],
+    ]);
+    expect(english?.text).toBe(
+      "Rates\nDepot\tRates\t\n\tOn-time\tLate\nFelixstowe\t94%\t81%\nSouthampton\t88%\t79%",
+    );
+    expect(english?.label?.tables?.[0]?.headings).toEqual(["Depot", "Rates On-time", "Rates Late"]);
+
+    const chinese = await read("费率", [
+      ["仓库", span("费率")],
+      ["", "准点", "迟到"],
+      ["费利克斯托", "94%", "81%"],
+      ["南安普顿", "88%", "79%"],
+    ]);
+    expect(chinese?.text).toBe(
+      "费率\n仓库\t费率\t\n\t准点\t迟到\n费利克斯托\t94%\t81%\n南安普顿\t88%\t79%",
+    );
+    expect(chinese?.label?.tables?.[0]?.headings).toEqual(["仓库", "费率准点", "费率迟到"]);
+  });
 });
 
 describe("PowerPoint", () => {
@@ -320,7 +389,7 @@ describe("Excel", () => {
     ]);
     const lines = units[0]?.text.split("\n") ?? [];
     expect(lines[6]).toBe("West\t£350,200\t£389,600\t£421,800\t£466,100\t£1,627,700");
-    expect(lines[8]).toBe("Change on 2025\t-4.2%\t1.8%\t6.1%\t-1.3%");
+    expect(lines[8]).toBe("Change on 2025\t-4.2%\t1.8%\t6.1%\t-1.3%\t");
     expect(units[1]?.text.split("\n")[2]).toBe(
       "2026-07-03\tJ. Moreau\tNorthern figures exclude the Leeds office, which reported late.",
     );
@@ -333,14 +402,51 @@ describe("Excel", () => {
     expect(workbook.sheets.map((sheet) => sheet.name)).toEqual(["Revenue", "Notes", "Empty"]);
     expect(revenue?.merges).toEqual(["A1:F1", "B2:E2"]);
     const lines = units[0]?.text.split("\n") ?? [];
-    expect(lines[0]).toBe("Revenue by region, 2026 (GBP)");
-    expect(lines[1]).toBe("\tQuarters");
+    expect(lines[0]).toBe("Revenue by region, 2026 (GBP)\t\t\t\t\t");
+    expect(lines[1]).toBe("\tQuarters\t\t\t\t");
     expect(notes?.cells.length).toBe(12);
     expect(empty?.cells).toEqual([]);
     expect(units.some((unit) => unit.label?.sheet === "Empty")).toBe(false);
     // Each cell's text is anchored by its reference.
     const cells = anchorsOf(units[0] as never).filter((anchor) => anchor.target.endsWith("7"));
     expect(cells.map((anchor) => anchor.target)).toEqual(["A7", "B7", "C7", "D7", "E7", "F7"]);
+  });
+
+  test("a row keeps its blank cells at the end, up to the last column its table uses (#2426)", async () => {
+    const read = async (rows: (string | number)[][]) =>
+      (await extractXlsx(xlsxOf([{ name: "Depots", rows }]))).units[0]?.text;
+
+    expect(
+      await read([
+        ["Depot", "On-time rate", "Space occupancy"],
+        ["Felixstowe", "94%"],
+        ["Southampton", "88%", "79%"],
+      ]),
+    ).toBe("Depot\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t\nSouthampton\t88%\t79%");
+
+    expect(
+      await read([
+        ["仓库", "准点率", "空间占用率"],
+        ["费利克斯托", "94%"],
+        ["南安普顿", "88%", "79%"],
+      ]),
+    ).toBe("仓库\t准点率\t空间占用率\n费利克斯托\t94%\t\n南安普顿\t88%\t79%");
+  });
+
+  test("a sheet too wide to be a table keeps each row to its own cells, not the far right's", async () => {
+    const farRight = Array.from({ length: 1500 }, (_, column) => (column === 1499 ? "1" : ""));
+    const { units } = await extractXlsx(
+      xlsxOf([
+        {
+          name: "Wide",
+          rows: [["Depot", "On-time rate", "Space occupancy"], ["Felixstowe", "94%"], farRight],
+        },
+      ]),
+    );
+
+    const lines = units.flatMap((unit) => unit.text.split("\n"));
+    expect(lines.find((line) => line.startsWith("Felixstowe"))?.split("\t")).toHaveLength(1000);
+    expect(lines.find((line) => line.split("\t").length === 1500)).toBeDefined();
   });
 
   test("blocks hold about 400 tokens of rows, and each block after a sheet's first repeats its header", async () => {
@@ -438,12 +544,186 @@ describe("CSV", () => {
     ]);
   });
 
+  test("a row keeps its blank cells at the end, as a sheet's does (#2426)", () => {
+    const { units } = extractCsv(
+      new TextEncoder().encode(
+        "Depot,On-time rate,Space occupancy\nFelixstowe,94%\nSouthampton,88%,79%\n",
+      ),
+    );
+
+    expect(units[0]?.text).toBe(
+      "Depot\tOn-time rate\tSpace occupancy\nFelixstowe\t94%\t\nSouthampton\t88%\t79%",
+    );
+  });
+
   test("a huge file stays bounded too", () => {
     const text = `id,value\n${Array.from({ length: MAX_ROWS + 10 }, (_, index) => `${index},${index * 3}`).join("\n")}\n`;
     const { workbook } = extractCsv(new TextEncoder().encode(text));
 
     expect(workbook.truncated).toBe(true);
     expect(workbook.sheets[0]?.rowCount).toBe(MAX_ROWS);
+  });
+});
+
+/**
+ * The header is the row whose words stand over the figures below it (#2373),
+ * not the first row: a table of data without a header keeps its first row as
+ * data, and a title row of two cells above the header is not the header. The
+ * sheet is long enough for a later block, which shows the row it repeats.
+ */
+describe("a sheet's header row is found from its shape (#2373)", () => {
+  type Row = (string | number)[];
+
+  async function unitsOf(format: "csv" | "xlsx", rows: Row[]): Promise<TextUnit[]> {
+    if (format === "csv")
+      return extractCsv(new TextEncoder().encode(rows.map((row) => row.join(",")).join("\n")))
+        .units;
+    return (await extractXlsx(xlsxOf([{ name: "Data", rows }]))).units;
+  }
+
+  const stores = (language: "en" | "zh") =>
+    Array.from({ length: 120 }, (_, index) =>
+      language === "en"
+        ? [`Store ${index + 1}`, "Hangzhou", 1000 + index]
+        : [`门店${index + 1}`, "杭州", 1000 + index],
+    );
+
+  test.each([
+    ["csv", "en"],
+    ["csv", "zh"],
+    ["xlsx", "en"],
+    ["xlsx", "zh"],
+  ] as const)(
+    "%s, %s: a table with no header row keeps its first data row as data",
+    async (format, language) => {
+      const first = language === "en" ? ["Alice", 30, "Paris"] : ["张三", 30, "北京"];
+      const second = language === "en" ? ["Bob", 25, "London"] : ["李四", 25, "上海"];
+      const units = await unitsOf(format, [first, second, ...stores(language)]);
+
+      expect(units.length).toBeGreaterThan(1);
+      for (const unit of units) {
+        // No block opens with a header line of its own: each holds exactly the rows it names.
+        expect(unit.label?.header).toBeUndefined();
+        expect(unit.text.split("\n")).toHaveLength(unit.label?.rows?.length ?? 0);
+      }
+      expect(units[0]?.text.split("\n")[0]).toBe([...first].join("\t"));
+    },
+  );
+
+  test.each([
+    ["csv", "en"],
+    ["csv", "zh"],
+    ["xlsx", "en"],
+    ["xlsx", "zh"],
+  ] as const)(
+    "%s, %s: a title row of two cells above the header is not the header",
+    async (format, language) => {
+      const title =
+        language === "en" ? ["Store sales report", "Q3 2026"] : ["门店销售报告", "2026年第三季度"];
+      const header = language === "en" ? ["Store", "City", "Sales"] : ["门店", "城市", "销售额"];
+      const units = await unitsOf(format, [title, header, ...stores(language)]);
+
+      // The title stays data in the first block, and every block after repeats row 2.
+      expect(units.length).toBeGreaterThan(1);
+      expect(units[0]?.label?.rows?.[0]).toBe(1);
+      expect(units[0]?.label?.header).toBeUndefined();
+      const later = units[1];
+      expect(later?.label?.header).toBe(true);
+      expect(later?.label?.rows?.[0]).toBe(2);
+      expect(later?.text.split("\n")[0]).toBe(header.join("\t"));
+    },
+  );
+
+  test("a one-cell section label under the header leaves it the header", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Year", "Q1", "Q2"],
+      ["2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        100 + index,
+        200 + index,
+      ]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Year\tQ1\tQ2");
+  });
+
+  test("a table of words alone keeps its first header-like row", async () => {
+    const units = await unitsOf("csv", [
+      ["Name", "City"],
+      ...Array.from({ length: 120 }, (_, index) => [`Person ${index + 1}`, "Hangzhou"]),
+    ]);
+
+    expect(units[1]?.label?.header).toBe(true);
+    expect(units[1]?.label?.rows?.[0]).toBe(1);
+    expect(units[1]?.text.split("\n")[0]).toBe("Name\tCity");
+  });
+
+  test.each([
+    { format: "csv", missing: "", label: "a blank" },
+    { format: "xlsx", missing: "", label: "a blank" },
+    { format: "csv", missing: "N/A", label: "N/A" },
+    { format: "xlsx", missing: "—", label: "a dash" },
+  ] as const)(
+    "$format: a first data row with $label under the figure column leaves the header heading it",
+    async ({ format, missing }) => {
+      const first = missing === "" ? ["Alice", "Paris"] : ["Alice", "Paris", missing];
+      const units = await unitsOf(format, [
+        ["Store", "City", "Sales"],
+        first,
+        ...Array.from({ length: 120 }, (_, index) => [
+          `Store ${index + 1}`,
+          "Hangzhou",
+          100 + index,
+        ]),
+      ]);
+
+      // Half-filled sheets are normal: the first data row lacks the figure, and the rows below
+      // give the column its kind.
+      expect(units[1]?.label?.header).toBe(true);
+      expect(units[1]?.label?.rows?.[0]).toBe(1);
+      expect(units[1]?.text.split("\n")[0]).toBe("Store\tCity\tSales");
+    },
+  );
+
+  test("a header whose only figure cell already sits over figures is not told from a table without one", async () => {
+    const units = await unitsOf("xlsx", [
+      ["Region", "Owner", "2025"],
+      ...Array.from({ length: 120 }, (_, index) => [
+        `Region ${index + 1}`,
+        `Owner ${index + 1}`,
+        100 + index,
+      ]),
+    ]);
+
+    // "2025" is a figure in its own cell, and the data rows have the same kinds, so by shape this
+    // is the same table as one without a header: its first row stays data (#2373).
+    for (const unit of units) expect(unit.label?.header).toBeUndefined();
+    expect(units[0]?.text.split("\n")[0]).toBe("Region\tOwner\t2025");
+  });
+});
+
+/**
+ * A title cell with a figure in it doesn't name the table (#2373), but a label
+ * that merely looks numeric does: a decimal beside words is a date-like label,
+ * and an ID is not an amount (#2658).
+ */
+describe("a title cell holds a figure, or is a label that looks numeric (#2658)", () => {
+  test.each([
+    ["2026.10 门店销售", false],
+    ["2026.10 Store sales", false],
+    ["Section 12345", false],
+    ["第 12345 节", false],
+    ["2026", false],
+    ["1 234 567", true],
+    ["£45", true],
+    ["45%", true],
+    ["4.2", true],
+    ["12345", true],
+  ])("%s holds a figure: %s", (text, held) => {
+    expect(holdsFigure(text)).toBe(held);
   });
 });
 

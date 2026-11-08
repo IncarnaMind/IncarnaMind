@@ -3,7 +3,12 @@ import { create } from "zustand";
 import { chooseNudge } from "./nudges";
 import { useAppStore } from "./store";
 
-export type TipId = "citation-style" | "connect-app";
+export type TipId =
+  | "call-offers"
+  | "citation-style"
+  | "connect-app"
+  | "meeting-recorded"
+  | "transcript-word";
 
 /** Interaction rule 14: a tip never shows a third time on a device. */
 export const TIP_SHOWS = 2;
@@ -28,6 +33,13 @@ export function offerTip(id: TipId, key: string): boolean {
   if (useShowing.getState().showing || countOf(id) >= TIP_SHOWS) return false;
   useShowing.setState({ showing: { id, key } });
   remember(id, countOf(id) + 1);
+  return true;
+}
+
+/** Whether something shown once ever on this device, as a stopped call's popover after its first fill (#2527), may show now: true once, never again. */
+export function takeFirstShow(id: TipId): boolean {
+  if (countOf(id) > 0 || !useAppStore.getState().settings) return false;
+  remember(id, TIP_SHOWS);
   return true;
 }
 

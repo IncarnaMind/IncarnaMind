@@ -213,6 +213,7 @@ export function textSearch(
       pageTo: row.page_to,
       excerpt,
       highlights,
+      atMs: null,
     });
     if (matches.length === limit) break;
   }

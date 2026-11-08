@@ -22,7 +22,7 @@ interface Row {
   has_text: number;
   group_id: string | null;
   sorting: string | null;
-  suggested: number | null;
+  waits_in: string | null;
 }
 
 /**
@@ -46,7 +46,10 @@ export function createBatches(options: {
     const rows = db.all<Row>(
       `SELECT d.id, d.status,
          EXISTS (SELECT 1 FROM passages p WHERE p.document_id = d.id AND p.deleted_at IS NULL) AS has_text,
-         g.group_id, g.status AS sorting, g.suggested
+         g.group_id, g.status AS sorting,
+         (SELECT coalesce(i.group_id, i.folder_id) FROM organize_review_items i
+          WHERE i.document_id = d.id AND i.state = 'open' AND i.deleted_at IS NULL
+            AND i.placement IN ('folder', 'newFolder')) AS waits_in
        FROM json_each(?) j
        JOIN documents d ON d.id = j.value AND d.deleted_at IS NULL
        LEFT JOIN document_groups g ON g.document_id = d.id AND g.deleted_at IS NULL
@@ -55,12 +58,12 @@ export function createBatches(options: {
     );
     const counts = new Map<string, number>();
     for (const row of rows) {
-      if (row.suggested === 1 && row.group_id)
-        counts.set(row.group_id, (counts.get(row.group_id) ?? 0) + 1);
+      if (row.waits_in) counts.set(row.waits_in, (counts.get(row.waits_in) ?? 0) + 1);
     }
     const value: DocumentBatch = {
       id: batch.id,
       groupId: batch.groupId,
+      linkedFolderId: batch.linkedFolderId,
       documentIds: rows.map((row) => row.id),
       adding: batch.adding,
       read: rows.filter((row) => READ.has(row.status) || row.has_text === 1).length,
@@ -99,8 +102,12 @@ export function createBatches(options: {
   const touch = (batch: Batch) => {
     if (closed || !batches.has(batch.id)) return;
     dirty.add(batch);
-    if (timer) return;
+    // A batch's first word and its landing are said at once, even while another batch's timer
+    // runs: a window starts holding its lists the moment a batch begins, and lists it the moment
+    // it has landed (#1329).
+    if (timer && batch.said !== null && batch.adding) return;
     flush();
+    if (timer) return;
     const later = () => {
       timer = undefined;
       if (closed || dirty.size === 0) return;

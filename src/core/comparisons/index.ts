@@ -36,7 +36,6 @@ import {
   MAX_COMPARISON_TEXT,
   MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../shared/comparisons";
-import { recordProposalRequest, targetHash } from "../../shared/proposals";
 import {
   comparisonCellChecked,
   comparisonCellContent,
@@ -91,12 +90,13 @@ import {
   type ComparisonTableRef,
   type CoreEvents,
   PROPOSAL_ATTRIBUTE,
-  type ProposalAttribute,
   type RunStop,
 } from "../api";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
+import type { Changes } from "../proposals/apply";
+import { blockProposal } from "../proposals/write";
 import { classifyProviderError } from "../providers/providerErrors";
 import { type ItemOutcome, RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
 import type { TaskEnd, TaskKind, TaskRun } from "../runs/tasks";
@@ -294,8 +294,7 @@ export interface ComparisonsOptions {
   };
   /** The Documents among `ids` that this Mind's checks may use as evidence (#80). */
   evidence(ids: readonly string[], mindId: string): string[];
-  /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
-  checkpoint(mindId: string): void;
+  changes: Changes;
   tasks: ComparisonTasks;
   emit<E extends "comparison.filling" | "comparison.structure">(
     event: E,
@@ -535,6 +534,16 @@ function parseRowMove(input: unknown): ComparisonRowMoveRequest {
 /** A column's label, as one short line; empty is no label, which the heading derives. */
 function labelLine(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, MAX_COMPARISON_LABEL);
+}
+
+/** A new table's column, asked for as its Question's words or as those and its own label. */
+function columnDraft(value: unknown): { text: string; label?: string } {
+  if (!isRecord(value)) {
+    return { text: oneLine(value, "A Question", "error.comparison.questionTooLong") };
+  }
+  const text = oneLine(value.text, "A Question", "error.comparison.questionTooLong");
+  const label = typeof value.label === "string" ? labelLine(value.label) : "";
+  return label ? { text, label } : { text };
 }
 
 function withLabel<T extends { label?: string }>(question: T, label: string): T {
@@ -1194,11 +1203,13 @@ export function createComparisons(options: ComparisonsOptions) {
         return null;
       }
       reportProgress(fill, tableId);
-      const { stop } = await runItems(next, (cell) => write(fill, tableId, cell), {
+      const { stop, outcomeError } = await runItems(next, (cell) => write(fill, tableId, cell), {
         concurrency: fill.local ? 1 : CLOUD_CELLS_AT_ONCE,
         signal,
         onOutcome: (cell, outcome) => record(fill, tableId, cell, outcome),
       });
+      // A cell whose result couldn't be written to the table fails the fill, not its own check.
+      if (outcomeError !== null) throw outcomeError.error;
       if (stop) {
         // A column added meanwhile isn't checked either: the same limit stands.
         const left = content.read(fill.mindId, (all) => {
@@ -2223,9 +2234,7 @@ export function createComparisons(options: ComparisonsOptions) {
       if (!isRecord(input)) throw new InvalidInputError("compareDocuments expects an object.");
       const mindId = options.requireMind(input.mindId);
       if (!Array.isArray(input.questions)) throw new InvalidInputError("questions must be a list.");
-      const questions = input.questions
-        .map((each) => oneLine(each, "A Question", "error.comparison.questionTooLong"))
-        .filter((each) => each !== "");
+      const questions = input.questions.map(columnDraft).filter((each) => each.text !== "");
       if (questions.length === 0)
         throw new InvalidInputError({ key: "error.comparison.noQuestion" });
       if (questions.length > MAX_COMPARISON_QUESTIONS) {
@@ -2270,14 +2279,13 @@ export function createComparisons(options: ComparisonsOptions) {
 
       const tableId = randomUUID();
       const request = randomUUID();
-      const columns = questions.map((text) => ({ id: randomUUID(), text }));
-      const proposal: ProposalAttribute = {
+      const columns = questions.map((question) => ({
         id: randomUUID(),
-        request,
-        target: targetHash(""),
-        kind: "insert",
-      };
-      const table = createElement({
+        text: question.text,
+        ...(question.label && { label: question.label }),
+      }));
+      const proposal = blockProposal({ id: randomUUID(), request }, "insert", "");
+      const table = {
         type: COMPARISON_TABLE_NODE,
         attrs: {
           [BLOCK_ID_ATTRIBUTE]: tableId,
@@ -2292,19 +2300,21 @@ export function createComparisons(options: ComparisonsOptions) {
           attrs: { documentId: document.id, documentName: document.name },
           content: columns.map((column) => cellJSON(column.id)),
         })),
+      };
+      // It waits for the User, as one change: Accept saves the Checkpoint.
+      const change = options.changes.start({
+        mindId,
+        request,
+        made: {
+          source: "comparison-table",
+          tableId,
+          providerId: model.providerId,
+          modelId: model.modelId,
+        },
       });
-      options.checkpoint(mindId);
-      content.edit(mindId, (blocks) => {
-        blocks.insert(placeOf(blocks, afterBlockId), [table]);
-        if (blocks.doc) {
-          recordProposalRequest(blocks.doc, request, {
-            source: "comparison-table",
-            tableId,
-            providerId: model.providerId,
-            modelId: model.modelId,
-            createdAt: new Date().toISOString(),
-          });
-        }
+      change.write((blocks) => {
+        blocks.insert(placeOf(blocks, afterBlockId), [createElement(table)]);
+        return { changed: true, value: null };
       });
       startFill(mindId, tableId, model);
       return { started: true, tableId };

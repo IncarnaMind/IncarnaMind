@@ -195,6 +195,7 @@ describe("search", () => {
       pageTo: 2,
       excerpt: "…the Rotterdam lease was signed…",
       highlights: [{ start: 5, end: 14 }],
+      atMs: null,
     };
     const other = doc({ name: "Invoice 4471" });
     const named = doc({ name: "Rotterdam lease" });
@@ -269,7 +270,6 @@ describe("what Organize did, as Get info says it", () => {
     documentId: "d",
     groupId: "finance",
     source: "automatic",
-    suggested: false,
     status: "classified",
     error: null,
     model: null,
@@ -284,7 +284,6 @@ describe("what Organize did, as Get info says it", () => {
     expect(en(organizeState(item, assignment({ source: "user", status: "failed" })))).toBe(
       "Your choice",
     );
-    expect(en(organizeState(item, assignment({ suggested: true })))).toBe("Suggested");
     expect(en(organizeState(item, assignment({})))).toBe("Organized");
     expect(en(organizeState(doc({ tagging: "stopped" }), assignment({})))).toBe("Organized");
   });

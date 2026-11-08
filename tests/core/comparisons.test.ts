@@ -207,6 +207,27 @@ describe("Compare Documents", () => {
     }
   });
 
+  test("a column made from another table's keeps its own heading, and nothing else of it", async () => {
+    const { core, client, mind, documents } = await setUpWithDocuments(cellModel(), SUPPLIERS);
+    await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: [{ text: "Termination notice", label: "Notice" }, "Liability cap"],
+    });
+    const questions = tableElementIn(client).getAttribute("questions") as unknown as {
+      text: string;
+      label?: string;
+    }[];
+    expect(questions.map((question) => question.text)).toEqual(QUESTIONS);
+    // The headings and the Questions alone: no width, no hidden column, nothing else of the first table.
+    expect(questions[0]).toEqual({
+      id: expect.any(String),
+      text: "Termination notice",
+      label: "Notice",
+    });
+    expect(questions[1]).toEqual({ id: expect.any(String), text: "Liability cap" });
+  });
+
   // protects=a cell is an Answer of the Task kind, at the effort the catalog gives Tasks, never an Answer's or the provider's default (#1631); fails_when=a cell's model is made for an Answer, a careful Answer or with no kind; no_claim=what effort that kind sends, which tests/core/reasoningRequests.test.ts holds.
   test("each cell is asked for as a Task's Answer", async () => {
     const { core, client, mind, documents, models } = await setUpWithDocuments(
@@ -344,8 +365,8 @@ describe("Compare Documents", () => {
 
     expect(outline(client)).toEqual(["paragraph", "comparisonTable", "paragraph"]);
     expect(tableIn(client).proposal).toMatchObject({ kind: "insert" });
-    const [before] = (await core.listCheckpoints(mind.id)).checkpoints;
-    expect(before?.reason).toBe("compare");
+    // It only waits: no Checkpoint until the User accepts it (#2796).
+    expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([]);
     // Waiting, it isn't the Mind's yet: an export or Question context leaves it out.
     const read = () =>
       readBlocks(client.blocks, {

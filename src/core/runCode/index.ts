@@ -107,10 +107,26 @@ export interface PythonRuntimeManifest {
   packages: Readonly<Record<string, string>>;
 }
 
+/** IncarnaMind's own Python where it is installed on this computer. */
+export interface InstalledPython {
+  /** The interpreter: …/python/bin/python3. */
+  command: string;
+  /**
+   * Where it is installed, …/python, which each of its runs names in its request: the one folder
+   * in the data folder the sandbox lets a program read for being where its interpreter is.
+   */
+  prefix: string;
+}
+
 /** IncarnaMind's own Python, as the core shows and stops it. */
 export interface PythonRuntimeHandle {
   manifest: PythonRuntimeManifest;
   status(): EmbeddingModelStatus;
+  /**
+   * The interpreter once it is downloaded, checked and imported here; null until then. Asking never
+   * starts a download (ADR-0022): Skill scripts use it only when `run_code` has got it already.
+   */
+  installed(): InstalledPython | null;
   close(): void;
 }
 

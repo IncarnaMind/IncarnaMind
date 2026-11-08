@@ -61,6 +61,7 @@ import type { MindContent } from "../../mindContent";
 import { parseFolderChoice, parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { createElement } from "../blocks";
+import { markdownToBlocks } from "../markdown";
 import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
@@ -128,6 +129,8 @@ export interface VerifyOptions {
   discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
+  /** Loads the reranker the checks' searches will use, while the model names the claims (#2532). */
+  warmReranker?(): void;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
@@ -274,6 +277,7 @@ export function createVerify(options: VerifyOptions) {
     const ready = await options.prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
+    options.warmReranker?.();
 
     const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
@@ -347,6 +351,7 @@ export function createVerify(options: VerifyOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
       return { kind: "cancelled" };
+    options.warmReranker?.();
 
     const startedAt = options.now().toISOString();
     const claims = verification.claims;
@@ -511,19 +516,29 @@ export function createVerify(options: VerifyOptions) {
         return { ok: false, reason: now.status === "no-text" ? "no-text" : "unreadable" };
       }
       const text = options.readText(document.id);
-      const found = documentBlocks(
-        text.pages,
-        await options.readTables(document.id),
-        options.readScanned(document.id).pages,
-      );
-      if (found.length === 0) return { ok: false, reason: "no-text" };
+      const { name, kind } = options.document(document.id);
+      // A Markdown file keeps its own shape: its headings are headings, not "#" in a paragraph (#2771).
+      const markdown = kind === "markdown";
+      const found = markdown
+        ? []
+        : documentBlocks(
+            text.pages,
+            await options.readTables(document.id),
+            options.readScanned(document.id).pages,
+          );
+      if (markdown) {
+        if (!text.pages.some((each) => each.text.trim() !== ""))
+          return { ok: false, reason: "no-text" };
+      } else if (found.length === 0) return { ok: false, reason: "no-text" };
 
-      const { name } = options.document(document.id);
       const mind = options.createMind(name, folderId);
       content.edit(mind.id, (blocks) => {
         const doc = blocks.doc;
         if (!doc) return;
-        const elements = found.map(({ node }) => createElement(node));
+        const nodes = markdown
+          ? markdownToBlocks(text.pages.map((each) => each.text).join("\n\n"))
+          : found.map(({ node }) => node);
+        const elements = nodes.map((node) => createElement(node));
         blocks.insert(0, elements);
         const pages: Record<string, number> = {};
         const record = (element: Y.XmlElement, page: number | undefined) => {
@@ -534,6 +549,10 @@ export function createVerify(options: VerifyOptions) {
           }
         };
         elements.forEach((element, index) => {
+          if (markdown) {
+            record(element, text.pages[0]?.page ?? 1);
+            return;
+          }
           const shown = found[index]?.pages ?? [];
           record(element, shown[0]);
           // A table over two pages: each row's cells have the page the row is on.

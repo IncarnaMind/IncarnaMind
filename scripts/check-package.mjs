@@ -1,6 +1,6 @@
 // Checks what electron-builder packed, after `npm run dist:dir` or `npm run dist`:
 //   1. Every app.asar under dist/ holds only out/, node_modules/ and package.json at its
-//      top level. Anything else (sources, tests, data, untracked files in the checkout)
+//      top level. Anything else (sources, tests, eval/data, untracked files in the checkout)
 //      means the `files` patterns in electron-builder.yml let the whole folder in.
 //   2. Each app.asar and each installer is within its size budget.
 //   3. Each app has the speech-to-text addon (#136) of its own platform and architecture, and no
@@ -15,6 +15,8 @@
 //   6. Each macOS and Linux x64 app has python-native/runtime.json beside app.asar, with the size
 //      and SHA-256 of the Python run_code downloads on first use (ADR-0025), for its own platform;
 //      and no app holds that archive, which is never shipped (npm run python:native).
+//   7. Each macOS app has the calendar helper (#190) and the call watcher (#208) beside app.asar,
+//      executable and for Apple silicon (lipo reads them on macOS), and no other app has them.
 // Usage: node scripts/check-package.mjs [dist-folder]   (default: dist)
 // Exit code 1 when a check fails.
 import { spawnSync } from "node:child_process";
@@ -192,6 +194,31 @@ for (const asar of asars) {
 	}
 	if (!String(runtime?.url).startsWith("https://")) {
 		failures.push(`${asar}: python-native/runtime.json downloads run_code's Python from ${runtime?.url}, not over https`);
+	}
+}
+
+/** The Mac's own programs beside app.asar, each with what it is called in a failure. */
+const MAC_HELPERS = [
+	{ file: "calendar-helper", what: "the Mac calendar helper", issue: "#190" },
+	{ file: "call-watcher", what: "the Mac call watcher", issue: "#208" },
+];
+
+for (const asar of asars) {
+	const mac = /^mac(-|$)/.test(relative(distDir, asar).split(sep)[0] ?? "");
+	for (const { file, what, issue } of MAC_HELPERS) {
+		const helper = join(dirname(asar), file);
+		if (!mac) {
+			if (existsSync(helper)) failures.push(`${helper} is ${what}, in an app for another system`);
+			continue;
+		}
+		if (!existsSync(helper) || (statSync(helper).mode & 0o111) === 0) {
+			failures.push(`${asar} has no executable ${file} beside it (${issue})`);
+			continue;
+		}
+		const lipo = spawnSync("lipo", ["-archs", helper], { encoding: "utf8" });
+		if (lipo.status === 0 && lipo.stdout.trim() !== "arm64") {
+			failures.push(`${helper} is built for ${lipo.stdout.trim()}, not Apple silicon alone`);
+		}
 	}
 }
 

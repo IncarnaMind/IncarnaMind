@@ -1,12 +1,16 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { readWebPage, type WebPage } from "../../../core/documents/formats/web";
 import type { XmlNode } from "../../../core/documents/formats/xml";
 import { documentImageUrl } from "../../../shared/documentViewer";
 import type { MessageKey } from "../../../shared/i18n";
-import { useLanguage, useT } from "../i18n";
+import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
+import { translateNow, useLanguage, useT } from "../i18n";
+import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { pageDate } from "../webPages";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea } from "./citedArea";
 import { loadDocumentPicture } from "./documentPicture";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
@@ -108,24 +112,38 @@ function savedPicture(
   picture.className = "document-image document-web-picture";
   picture.dataset.quoteSkip = "";
   picture.dataset.testid = "web-picture";
+  picture.dataset.pictureViewer = "";
   context.pictures += 1;
   picture.dataset.figure = String(context.pictures);
   if (size.width && size.height) {
     picture.style.aspectRatio = `${size.width} / ${size.height}`;
     picture.style.width = `min(100%, ${size.width}px)`;
   }
+  // A button, so the keyboard reaches the picture too; its own click opens the viewer.
+  const button = owner.createElement("button");
+  button.type = "button";
+  button.dataset.pictureButton = "";
+  Object.assign(button.style, {
+    display: "block",
+    maxWidth: "100%",
+    border: "0",
+    padding: "0",
+    background: "none",
+    cursor: "zoom-in",
+  });
+  button.append(picture);
   loadDocumentPicture(context.documentId, src, context.signal).then(
     (url) => {
       if (!context.signal.aborted) picture.src = url;
     },
     () => {
       if (context.signal.aborted) return;
-      picture.replaceWith(
+      button.replaceWith(
         placeholder(owner, alt, context.t("viewer.markdown.imageMissing"), context.t),
       );
     },
   );
-  return picture;
+  return button;
 }
 
 /**
@@ -258,6 +276,7 @@ function WebPageContent({
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
+  const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const blocks = useMemo(
     () => new Map<XmlNode, number>(page.blocks.map((block, index) => [block.element, index])),
     [page],
@@ -347,6 +366,23 @@ function WebPageContent({
     container.scrollTop = Math.max(0, top - (marks ? container.clientHeight / 3 : 24));
   }, [page, t, target.request, target.quote, target.pageFrom, target.pageTo, target.figure]);
 
+  // The Document's highlights (#327), drawn in the page.
+  const stored = useDocumentAnnotations(document.id);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(document.id);
+  }, [loadAnnotations, document.id]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a page drawn again in another language is marked again
+  useLayoutEffect(() => {
+    const body = host.current;
+    if (!body) return;
+    unmarkAnnotationsInDom(body);
+    markAnnotationsInDom(body, highlightsOf(stored), (annotation) =>
+      translateNow(annotation.note === null ? "annotations.addNote" : "annotations.menu.editNote"),
+    );
+    return () => unmarkAnnotationsInDom(body);
+  }, [page, stored]);
+
   useLayoutEffect(() => {
     const element = column.current;
     if (!element || !mark || highlighted === 0) {
@@ -433,6 +469,7 @@ function WebPageContent({
                 data-testid="viewer-web-article"
                 data-area-unit=""
                 className="document-markdown"
+                {...pictureClick}
               />
               {mark && markTop !== null && (
                 <CitationMark
@@ -443,6 +480,11 @@ function WebPageContent({
               )}
             </div>
           </article>
+          <AnnotationNoteLayer
+            container={scroller}
+            documentId={document.id}
+            annotations={stored ?? []}
+          />
         </div>
       </div>
     </>

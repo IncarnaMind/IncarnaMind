@@ -125,7 +125,13 @@ export function createPartCheck(
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
         inCheck({ sentence, part: null }, () =>
-          claimsAmong(request.model, [{ text: request.claim }], "own", request.signal),
+          claimsAmong(
+            request.model,
+            [{ text: request.claim }],
+            "own",
+            request.signal,
+            request.searched !== undefined && request.window === undefined,
+          ),
         ),
       );
       if (sorted.kind === "cancelled") return { failed: failed("stopped") };
@@ -151,6 +157,10 @@ export function createPartCheck(
       if (only.kind === "opinion" && !opinionsChecked) return null;
       return isSentence(only.span) ? only : null;
     };
+    // A sentence with a figure the User cites is a fact, whatever a sort calls it: Claude Haiku 5.5
+    // named a bare table cell an opinion or no claim, and the write then landed no check on it (#2719).
+    const checkWhole = request.opinionsLeftOut === true && (request.figures?.length ?? 0) > 0;
+    const noFact = (found: readonly ClaimPartPlan[]) => !found.some((part) => part.kind === "fact");
     if (
       plans === undefined &&
       request.figureIds === undefined &&
@@ -173,7 +183,12 @@ export function createPartCheck(
               const named = readPartsLine(text, request.claim);
               if (named?.length === 0) return;
               heard.plans = named && withFigures(named);
-              if (heard.plans && whole(heard.plans) === null) run.abort();
+              if (
+                heard.plans &&
+                whole(heard.plans) === null &&
+                !(checkWhole && noFact(heard.plans))
+              )
+                run.abort();
             },
           }),
         ),
@@ -186,7 +201,7 @@ export function createPartCheck(
         if (!("plans" in sorted)) return sorted.failed;
         found = sorted.plans;
       }
-      const plan = whole(found);
+      const plan = whole(found) ?? (checkWhole && noFact(found) ? full : null);
       if (plan && !run.signal.aborted)
         return resultFromParts([
           partWithResult(plan, result, result.checkedEvidence, result.coverage),

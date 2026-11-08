@@ -38,8 +38,19 @@ const organizeInput = (options: GenerateOptions): string => {
 
 const organizes = (options: GenerateOptions): boolean => {
   const format = options.responseFormat;
-  return format?.type === "json" && !!format.schema?.properties?.groupId;
+  return format?.type === "json" && (!!format.schema?.properties?.groupId || plans(options));
 };
+
+/** Organize's whole-Library plan: its sort, its placings past the sample and its subfolders' names. */
+function plans(options: GenerateOptions): boolean {
+  const format = options.responseFormat;
+  const properties = format?.type === "json" ? format.schema?.properties : undefined;
+  return !!(
+    (properties?.folders && properties.documents) ||
+    properties?.placements ||
+    properties?.groups
+  );
+}
 
 /** Tagging, or Organize, takes a moment for a Document whose text says "slowly". */
 export const tagsSlowly = (options: GenerateOptions): boolean =>
@@ -70,6 +81,19 @@ export function tagsRateLimited(options: GenerateOptions): boolean {
   const excerpt = taggingExcerpt(options);
   if (!excerpt || !/\brate-limited\b/i.test(excerpt) || limitedOnce.has(excerpt)) return false;
   limitedOnce.add(excerpt);
+  return true;
+}
+
+const creditOnce = new Set<string>();
+
+/**
+ * A Document whose text says "out of credit" meets an account with none the first time it is
+ * tagged or organized: the second run sorts it, as if the credit was added.
+ */
+export function tagsOutOfCredit(options: GenerateOptions): boolean {
+  const excerpt = taggingExcerpt(options) ?? (organizes(options) ? organizeInput(options) : null);
+  if (!excerpt || !/\bout of credit\b/i.test(excerpt) || creditOnce.has(excerpt)) return false;
+  creditOnce.add(excerpt);
   return true;
 }
 
@@ -124,6 +148,84 @@ function fakeFolders(options: GenerateOptions): string {
   });
 }
 
+interface PlanDocument {
+  ref: string;
+  name: string;
+  text?: string;
+}
+
+/** The Folder a Document is about: one there is whose name it says, else its "Project: …" or first word. */
+function fakeArea(
+  document: Pick<PlanDocument, "name" | "text">,
+  folders: readonly { id: string; name: string }[],
+): { id: string; name: string } {
+  const said = `${document.name} ${document.text ?? ""}`.toLowerCase();
+  const known = folders.find((folder) => folder.name && said.includes(folder.name.toLowerCase()));
+  if (known) return known;
+  const project = /(?:Project:|项目：)\s*([^\n]+)/u.exec(document.text ?? "")?.[1]?.trim();
+  const word = document.name.split(/[\s._-]+/u)[0] ?? "";
+  return { id: "", name: project ?? `${word.charAt(0).toUpperCase()}${word.slice(1)}` };
+}
+
+/**
+ * The scripted plan: each Document into the Folder its name or text names, or a new one for its
+ * "Project: …" line or first word; placings the same way, or none; a subfolder named after the
+ * first word its first Document's name has.
+ */
+function fakePlanOutput(options: GenerateOptions): string {
+  const input = JSON.parse(organizeInput(options) || "{}") as {
+    folders?: { id: string; name: string; description?: string }[];
+    documents?: PlanDocument[];
+    groups?: { ref: string; documents?: { name: string }[] }[];
+  };
+  const format = options.responseFormat;
+  const properties = format?.type === "json" ? format.schema?.properties : undefined;
+  const folders = input.folders ?? [];
+  if (properties?.placements) {
+    return JSON.stringify({
+      placements: (input.documents ?? []).map((document) => {
+        const area = fakeArea(document, folders);
+        return { ref: document.ref, folder: area.id || "none" };
+      }),
+    });
+  }
+  if (properties?.groups) {
+    const taken = new Set<string>();
+    return JSON.stringify({
+      groups: (input.groups ?? []).map((group, at) => {
+        const word = group.documents?.[0]?.name.split(/[\s._-]+/u)[0] ?? "";
+        let name = word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : `Part ${at + 1}`;
+        if (taken.has(name.toLowerCase())) name = `${name} ${at + 1}`;
+        taken.add(name.toLowerCase());
+        return { ref: group.ref, name, description: `Documents about ${name}.` };
+      }),
+    });
+  }
+  const listed = new Map<string, { key: string; name: string; description: string }>();
+  const placed: { ref: string; folder: string }[] = [];
+  for (const document of input.documents ?? []) {
+    const area = fakeArea(document, folders);
+    if (!area.name) {
+      placed.push({ ref: document.ref, folder: "none" });
+      continue;
+    }
+    const known = area.id || area.name.toLowerCase();
+    let folder = listed.get(known);
+    if (!folder) {
+      folder = {
+        key:
+          area.id ||
+          `N${[...listed.values()].filter((each) => /^N\d+$/.test(each.key)).length + 1}`,
+        name: area.name,
+        description: `Documents about ${area.name}.`,
+      };
+      listed.set(known, folder);
+    }
+    placed.push({ ref: document.ref, folder: folder.key });
+  }
+  return JSON.stringify({ folders: [...listed.values()], documents: placed });
+}
+
 const proposesFolders = (options: GenerateOptions): boolean => {
   const format = options.responseFormat;
   return format?.type === "json" && !!format.schema?.properties?.folders;
@@ -131,6 +233,7 @@ const proposesFolders = (options: GenerateOptions): boolean => {
 
 /** Test-only classifier: chooses a group whose name appears in the excerpt. */
 export function fakeStructuredOutput(options: GenerateOptions): string {
+  if (plans(options)) return fakePlanOutput(options);
   if (proposesFolders(options)) return fakeFolders(options);
   if (checksChangeClaims(options))
     return fakeChangeClaims(options) ?? JSON.stringify({ claims: [] });

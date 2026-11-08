@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { showAppearance } from "./appearance";
 import { GAP, isSide, RAIL, SIDE_MIN, shownDock } from "./assistantPlace";
+import { useCalendars } from "./calendars";
+import { useComingUp } from "./comingUp";
 import { useEditMenu } from "./commands/edit";
 import { sidebarHandle, useHandle } from "./commands/handles";
 import { useKeymap } from "./commands/keymap";
@@ -21,6 +24,7 @@ import { MeetingNoticeDialog } from "./components/MeetingNoticeDialog";
 import { MindStyleHost } from "./components/MindStyle";
 import { PanelBoundary } from "./components/PanelBoundary";
 import { Peek } from "./components/Peek";
+import { PictureViewer } from "./components/PictureViewer";
 import { ProblemMark } from "./components/ProblemLine";
 import { ChatGptWelcomeDialog } from "./components/providers/ChatGptSignIn";
 import { RequestedDialogs } from "./components/RequestedDialogs";
@@ -38,6 +42,7 @@ import { useExamplesMenu, useExportMenu } from "./exportMenu";
 import { useLanguage, useT } from "./i18n";
 import type { Words } from "./lineNames";
 import { useMeetingHelpInWindow } from "./meetingHelp";
+import { useMeetingOffers } from "./meetingOffers";
 import { useMeetings } from "./meetings";
 import { setMotionPreference } from "./motion";
 import { importReferenceFile, isReferenceFile } from "./referenceImport";
@@ -61,6 +66,9 @@ export function App() {
   useEffect(() => {
     void load();
     void useMeetings.getState().load();
+    void useMeetingOffers.getState().load();
+    void useCalendars.getState().load();
+    void useComingUp.getState().load();
   }, [load]);
 
   useEffect(() => {
@@ -70,6 +78,8 @@ export function App() {
   // How the window moves: the User's choice, kept on this device, once the settings have loaded.
   const motion = useAppStore((state) => state.settings?.device.motion ?? "system");
   useEffect(() => setMotionPreference(motion), [motion]);
+  const appearance = useAppStore((state) => state.settings?.device.appearance ?? "system");
+  useEffect(() => showAppearance(appearance), [appearance]);
 
   // The frame shows at once; the data fills it in as it arrives.
   if (status.kind === "loading") return <AppShell />;
@@ -334,6 +344,7 @@ function Workspace() {
           <DocumentMoveTo />
           <InfoPanel />
           <Peek />
+          <PictureViewer />
           <AddWebPageDialog />
           <FeedbackDialog />
           <WordImportDialog />

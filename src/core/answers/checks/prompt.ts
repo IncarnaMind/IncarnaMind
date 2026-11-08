@@ -5,11 +5,17 @@
  * one sentence on what the Document says, carrying the marker.
  */
 import type { Reading } from "../../../shared/figures";
-import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
+import type {
+  CheckFigure,
+  CitationSupport,
+  ClaimVerdict,
+  FigureLocator,
+  UnsupportedReason,
+} from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, fromData, type PromptTag, tagged } from "../../promptData";
 import { setAsideRowsMeaning } from "../prompt";
-import { PART_RULES, PARTS_LINE } from "./claims";
+import { LIBRARY_PART_RULES, PART_RULES, PARTS_LINE } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
 export const CHECK_TAGS: readonly PromptTag[] = [
@@ -148,21 +154,28 @@ const calculationInstructions = (figures: boolean) =>
 
 const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
-  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":{"sentence":"revenue","quote":"Revenue","match":"same"},"says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
-  "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
+  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":{"sentence":"revenue","quote":"Revenue","match":"same"},"says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}. The item of an occurrence with analysis is {"id":"its exact requested id","names":"same","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":null,"says":null,"reading":null,"relation":"equals","source":null,"calculation":null}, with names and verdict as below.',
+  'Give every requested id exactly once, and no other id. The item of an occurrence with analysis always has "names": "same", "other" or "unclear", as below; without it the figure stays unchecked. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.',
   'measure says what the number measures: a short name of a few words copied exactly, never the number itself, a clause or a whole sentence. sentence: the fewest words of the sentence, its paragraph or the occurrence\'s label that name what that occurrence measures ("operating margin", "月工资"). quote: the fewest words of its source quote that name what the quote\'s number measures; for a table\'s cell or row that leaves them out, its row label or column heading copied from the Passage; null only when the Passage names nothing. match: same when the two name the same measure, in any wording or language ("revenue" and "营业收入"); differs when they name different ones ("revenue" and "operating margin"). Leave the period, unit and parties to the other fields. An equal number that measures something else neither supports nor contradicts the occurrence: its verdict is unsupported. measure is null only for an occurrence with no source.',
   "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider, roles differs or roles other when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
+  "A requested occurrence in a table is its cell, whose own words are its row label, its column heading and the section row above it (收入：, Cost:): judge the cell with them as the table's reader does. A row labelled 合计 or Total states that section's figure, whether or not the Document writes a total row of its own, and a cell's bare number is not left undecided because its label names what it measures rather than its own words.",
   'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
   'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
   "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
+  'An occurrence with analysis is a number the User\'s own Analysis worked out, and IncarnaMind has worked its value out again: never look for it in the Passages, and never work it out yourself. Its evidence is its analysis: label, what the Analysis called it; unit, its unit (null for a plain number); heading, the heading above the sentence, when there is one; rule, the input, columns, rows and how it was worked out (sum, mean, min, max or count; null when the code alone says); and code. Judge whether the sentence states exactly that figure, as a reader takes it from the sentence, its paragraph, the heading and, for a table cell, its row and column headings. names is same only when they state it as it is: the label\'s measure, group and period, over all of the rule\'s rows and worked out the rule\'s way, as its own value in its own unit and scale, with nothing more. It is other when they make it anything else: another group, measure, period or way of working it out ("average" for a sum); a part of its rows, one item\'s share or a rate per item; a target, a limit or a bound rather than its value; a sign, a percent or a comparison symbol (-, +, %, <, ≥, ≠) it does not have; or a unit, currency or scale its unit does not have, wherever they state it. It is unclear when they name it only in part, or deny or compare it ("not", "below", "more than"). For same, give verdict supported, relation equals, topic found, roles same and scope same; for other or unclear, verdict unsupported: IncarnaMind reads names, and leaves an unclear one unchecked. source and calculation are null. The words that name it are the figure\'s, not a remainder; everything else the sentence asserts is the remainder.',
   "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
   'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
 ].join("\n");
 
-/** A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs no sorting request (#1635). */
-const PARTS_FIRST = [
-  'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
-  ...PART_RULES,
+/**
+ * A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs
+ * no sorting request (#1635); with `library`, as a check against the Library's facts sorts it.
+ */
+const partsFirst = (library: boolean) => [
+  library
+    ? 'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact, opinion or about-this-text only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself.'
+    : 'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
+  ...(library ? LIBRARY_PART_RULES : PART_RULES),
   "",
 ];
 
@@ -170,7 +183,7 @@ const PARTS_FIRST = [
  * The instructions of a check Run, for a way of citing; `passages`: what the
  * one search found, for a model without Tools; `calculate`: the model is
  * offered `calculate`, for a figure no Passage states; `findsParts`: the
- * Run's first turn names the sentence's parts.
+ * Run's first turn names the sentence's parts; `library`: the Run may show the Library's facts.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -179,6 +192,7 @@ export function checkInstructions(
   calculate = false,
   figures = false,
   findsParts = false,
+  library = false,
 ): string {
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
@@ -189,7 +203,7 @@ export function checkInstructions(
       return [
         ...rules(calculate),
         "",
-        ...(findsParts ? PARTS_FIRST : []),
+        ...(findsParts ? partsFirst(library) : []),
         "Search the Documents with search_documents for what the sentence claims, in the Documents' language. Search again with other words if the Passages don't decide it; three searches at most.",
         figures
           ? `Before replying, use cite to record every quote used by a requested figure or remainder, each under its own marker: ${RECORD}.`
@@ -226,6 +240,36 @@ export function checkInstructions(
   }
 }
 
+/**
+ * A requested figure's id in a check's request, by its place among them: a Note's own ids hold
+ * its Blocks' ids, which never go to a model (#2525). `readFigureReply` reads it back.
+ */
+export const figureHandle = (index: number) => `F${index + 1}`;
+
+/** Where a figure is, its Block named by a handle for this request alone, as its id is. */
+function locatorSent(locator: FigureLocator, blocks: Map<string, string>) {
+  const handle = (blockId: string) => {
+    const known = blocks.get(blockId) ?? `B${blocks.size + 1}`;
+    blocks.set(blockId, known);
+    return known;
+  };
+  return locator.kind === "chart"
+    ? { ...locator, blockId: handle(locator.blockId) }
+    : {
+        ...locator,
+        from: { ...locator.from, blockId: handle(locator.from.blockId) },
+        to: { ...locator.to, blockId: handle(locator.to.blockId) },
+      };
+}
+
+const ID_KEYS: ReadonlySet<string> = new Set(["passageId", "documentId", "contentHash"]);
+
+/** A saved figure's Citations without the ids and versions the request has no use for. */
+const withoutIds = (key: string, value: unknown) => (ID_KEYS.has(key) ? undefined : value);
+
+/** How many of an Analysis figure's runs of rows the judge reads: the count says how many there are. */
+const JUDGED_ROW_RUNS = 20;
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -239,6 +283,7 @@ export function claimPrompt(input: {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
   const setAside = meaningOf(input.citedShown ?? "");
+  const blocks = new Map<string, string>();
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -262,28 +307,45 @@ export function claimPrompt(input: {
     ...((input.figures?.length ?? 0) > 0
       ? [
           "",
-          "Exact requested occurrences; their ids and locations distinguish repeated equal values:",
+          "Exact requested occurrences; their ids and locations distinguish repeated equal values. For each one with analysis, judge only whether the sentence names it, and give its names:",
           tagged(
             "figures",
             JSON.stringify(
-              input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
-                id,
-                locator,
-                shown: reading.chars,
-                unit: reading.unit,
-                ...(reading.ambiguous.length > 0 && {
-                  ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
-                    kind,
-                    readings: readings.map((each, index) => ({
-                      reading: index + 1,
-                      means: readingWords(each),
+              input.figures?.map(
+                ({ locator, reading, calculated, context, label, analysisRecord }, index) => ({
+                  id: figureHandle(index),
+                  locator: locatorSent(locator, blocks),
+                  shown: reading.chars,
+                  unit: reading.unit,
+                  ...(reading.ambiguous.length > 0 && {
+                    ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+                      kind,
+                      readings: readings.map((each, index) => ({
+                        reading: index + 1,
+                        means: readingWords(each),
+                      })),
                     })),
-                  })),
+                  }),
+                  ...(context && { context }),
+                  ...(label && { label }),
+                  ...(calculated && { saved: calculated.figure }),
+                  ...(analysisRecord?.label !== undefined && {
+                    analysis: {
+                      label: analysisRecord.label,
+                      unit: analysisRecord.unit ?? null,
+                      ...(analysisRecord.heading && { heading: analysisRecord.heading }),
+                      rule: analysisRecord.of
+                        ? {
+                            ...analysisRecord.of,
+                            rows: analysisRecord.of.rows.slice(0, JUDGED_ROW_RUNS),
+                          }
+                        : null,
+                      code: analysisRecord.code ?? null,
+                    },
+                  }),
                 }),
-                ...(context && { context }),
-                ...(label && { label }),
-                ...(calculated && { saved: calculated.figure }),
-              })),
+              ),
+              withoutIds,
             ),
             "",
             CHECK_TAGS,
@@ -360,9 +422,8 @@ export const CONFIRM_INSTRUCTIONS = [
 ].join("\n");
 
 /**
- * The fields-only reply of a check that disagreed with itself, asked once more (#2313). Its form
- * has every line its reply is read by: a Supported reply without its Absence, Duty or Condition
- * line is Not checked (#1766, #1708).
+ * The fields-only reply of a check that disagreed with itself, asked once more (#2313): only a
+ * field that differs, its Duty and Condition among them, is read from it (#1766, #2816).
  */
 export const RECHECK_INSTRUCTIONS = [
   "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
@@ -371,7 +432,6 @@ export const RECHECK_INSTRUCTIONS = [
   "- contradicted or unsupported: name the field that differs (Roles, Time, Duty, Condition or Scope), or the value the quote gives instead.",
   "Reply in exactly this form, the verdict word in English:",
   "Verdict: supported, unsupported or contradicted",
-  ABSENCE_LINE,
   "Scope: the sentence's own word for the Passage's party or term, then same or wider",
   "Topic: found or not found",
   'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
@@ -495,21 +555,9 @@ export function confirmPrompt(input: {
   ].join("\n");
 }
 
-const JUDGED = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：][\s*_"'“”`]*(conflict|same|neither)\b/i;
-
-/** The judgement in a reply to any of those requests: its last "Judgement: …" line, else its first word; null when it can't be read. */
+/** The judgement in a reply to any of those requests, read as `judgedWord` reads it. */
 export function readJudgement(reply: string): "conflict" | "same" | "neither" | null {
-  const text = reply.replace(THINKING, "");
-  const labelled = text
-    .split("\n")
-    .map((line) => line.trim())
-    .findLast((line) => JUDGED.test(line));
-  const word = (
-    labelled === undefined
-      ? /^[\s*_"'“”`-]*(conflict|same|neither)\b/i.exec(text)
-      : JUDGED.exec(labelled)
-  )?.[1];
-  return word ? (word.toLowerCase() as "conflict" | "same" | "neither") : null;
+  return judgedWord(reply, ["conflict", "same", "neither"]);
 }
 
 const PRESENCE_TASK =
@@ -561,21 +609,35 @@ export function presencePrompt(input: {
 }
 
 const JUDGEMENT = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：](.*)$/i;
-const PRESENCE_WORD = /^[\s*_"'“”`]*(there|elsewhere|not)[\s*_"'“”`.。]*$/i;
+const WORD_EDGES = /^[\s*_"'“”`]+|[\s*_"'“”`.。]+$/g;
 
 /**
- * The word a look at such a quote gives, read from the reply's form alone: its last "Judgement:"
- * line, else the whole reply, each nothing but that one word. A sentence that only starts with it,
- * "There is no rent review in this quote.", can't be read: null.
+ * A one-word judgement read from the reply's form alone: its one "Judgement:" line, which ends the
+ * reply, else the whole reply, each nothing but one of `words`. A reply without the label that says
+ * more ("Same subject, but 61,500 is before tax."), two labels, or a label with lines after it can't
+ * be read: null, so a judge that hedges or changes its mind is read as neither word (#2816).
+ */
+function judgedWord<T extends string>(reply: string, words: readonly T[]): T | null {
+  const lines = reply
+    .replace(THINKING, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const labelled = lines.filter((line) => JUDGEMENT_LABEL.test(line));
+  const [label] = labelled;
+  if (labelled.length > 1 || (label !== undefined && label !== lines.at(-1))) return null;
+  const said =
+    label === undefined ? (lines.length === 1 ? lines[0] : undefined) : JUDGEMENT.exec(label)?.[1];
+  const word = said?.replace(WORD_EDGES, "").toLowerCase();
+  return words.find((each) => each === word) ?? null;
+}
+
+/**
+ * The word a look at such a quote gives, read as `judgedWord` reads it: a sentence that only
+ * starts with it, "There is no rent review in this quote.", can't be read.
  */
 export function readPresence(reply: string): "there" | "elsewhere" | "not" | null {
-  const text = reply.replace(THINKING, "").trim();
-  const judged = text
-    .split("\n")
-    .map((line) => JUDGEMENT.exec(line.trim())?.[1])
-    .findLast((line) => line !== undefined);
-  const word = PRESENCE_WORD.exec(judged ?? text)?.[1];
-  return word ? (word.toLowerCase() as "there" | "elsewhere" | "not") : null;
+  return judgedWord(reply, ["there", "elsewhere", "not"]);
 }
 
 /** A record from the model's reply to that request, or null when it gives none. */
@@ -680,6 +742,8 @@ const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
 /** "Property: modified", the file properties a sentence states (./fileProperties), on a line of its own. */
 export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
+/** "Library: documents", the Library's facts a sentence states (./libraryFacts), on a line of its own. */
+export const LIBRARY_LINE_FIELD = /^[\s>*_#`'"“”-]*(?:library|资料库)[\s*_]*[:：][\s*_]*(.*)$/i;
 const FIELDS = [
   PARTS_LINE,
   COVERED,
@@ -698,6 +762,7 @@ const FIELDS = [
   COVERAGE,
   REASON_KIND,
   PROPERTY,
+  LIBRARY_LINE_FIELD,
   FIGURES,
 ];
 const MAX_PHRASE = 120;
@@ -1204,6 +1269,21 @@ function readCorrection(
     wording: text,
   }));
   return choices.some((choice) => choice.wording === "") ? null : { from, choices };
+}
+
+/**
+ * The Change and To lines of a reply that gives nothing else, read as a contradiction's are; null
+ * when it gives none, or not as one plain answer.
+ */
+export function readChangeLines(reply: string): ReadCorrection | null {
+  const lines = reply
+    .replace(THINKING, "")
+    .replace(DISPLAY_MARKERS, "")
+    .split("\n")
+    .flatMap(fieldLines)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  return readCorrection("contradicted", lines, reply) ?? null;
 }
 
 /** null: the reply gives no one plain answer, so whether the sentence asserts an absence is unknown. */

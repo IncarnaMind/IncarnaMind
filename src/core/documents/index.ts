@@ -25,12 +25,20 @@ import { existsSync, renameSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
-import { joinUnits, quoteInUnits } from "../../shared/locations";
+import { joinUnits, locationOf, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
+import {
+  type FileLine,
+  looksLikeLabel,
+  parseTranscriptSpeakers,
+  readStoredSpeakers,
+  splitsHold,
+} from "../../shared/speakers";
 import {
   type Anchor,
   anchorsOf,
   cellNumber,
+  parseCueTarget,
   type TextUnit,
   type UnitKind,
   type UnitLabel,
@@ -62,16 +70,18 @@ import type {
   SearchMode,
   SkippedFile,
   TaggingState,
+  TranscriptSpeakers,
 } from "../api";
 import { ownFileKinds } from "../api";
 import { EmbeddingUnavailableError, type SearchEmbedder } from "../embedding/active";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { Folders } from "../folders";
+import { ORGANIZE_PASSAGES, ROUTING_PAGES } from "../library/excerpt";
 import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
-import { markArrived } from "../tags/held";
+import { markArrived, nextSequence } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
@@ -94,8 +104,10 @@ import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
 import { joinCjkLineWraps, onlyCjkLineWrapChange } from "./lineWrap";
 import { laidOut, type PageText } from "./passages";
+import type { FileAnnotation } from "./pdfAnnotations";
 import {
   CURRENT_SINCE,
+  type DocumentHead,
   HAN_CURRENT_SINCE,
   type KeywordsJob,
   METADATA_VERSION,
@@ -152,7 +164,7 @@ const MAX_SEARCH_LIMIT = 200;
 /** A Document's language is told from the start of its first few Passages: a few thousand characters. */
 const LANGUAGE_SAMPLE_PASSAGES = 4;
 const LANGUAGE_SAMPLE_CHARACTERS = 1000;
-const MAX_NAME_LENGTH = 500;
+export const MAX_NAME_LENGTH = 500;
 const SEARCH_MODES: readonly SearchMode[] = ["hybrid", "keyword", "vector"];
 
 /**
@@ -190,6 +202,7 @@ interface DocumentRow {
   converted_from: string | null;
   your_note_mind_id: string | null;
   your_note_at: string | null;
+  meeting_mind_id: string | null;
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
@@ -197,9 +210,48 @@ interface DocumentRow {
   file_mtime_ms: number | null;
   file_created_ns: string | null;
   file_properties: string | null;
+  speakers: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * A Document as its own row tells it, for the readers that run again on every change to a Note or
+ * to the Library: a whole `Document` also reads its Tags, reference, source and imported Note, a
+ * query each, which on a Library of thousands held the main process for seconds (#2772).
+ */
+type DocumentFromRow = Pick<
+  Document,
+  | "id"
+  | "name"
+  | "title"
+  | "contentHash"
+  | "status"
+  | "fileStatus"
+  | "notCited"
+  | "ownFile"
+  | "readHiddenSheets"
+  | "meetingMindId"
+>;
+
+const ROW_COLUMNS = `id, name, title, content_hash, status, failure_reason, file_status,
+  not_cited, own_file, counted_as_evidence, read_hidden_sheets, meeting_mind_id`;
+
+type ReadRow = Pick<
+  DocumentRow,
+  | "id"
+  | "name"
+  | "title"
+  | "content_hash"
+  | "status"
+  | "failure_reason"
+  | "file_status"
+  | "not_cited"
+  | "own_file"
+  | "counted_as_evidence"
+  | "read_hidden_sheets"
+  | "meeting_mind_id"
+>;
 
 /** A stored Unit (a `document_pages` row), as read for the check and the viewer. */
 interface UnitRow {
@@ -252,8 +304,8 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
-  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
-  file_created_ns, file_properties, created_at,
+  meeting_mind_id, counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
+  file_created_ns, file_properties, speakers, created_at,
   updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
@@ -334,10 +386,19 @@ export function parseListOptions(options: unknown): {
   return { folderId, includeSubfolders, tagId, linkedFolderId };
 }
 
-/** Where automatic tagging is, from what is stored and the Document's processing status. */
-function taggingOf(status: string, stored: string): TaggingState {
+/**
+ * Where automatic tagging is, from what is stored and the Document's processing status.
+ * `classifiable`: its first pages are read while the rest is (`DocumentHead`).
+ */
+function taggingOf(status: string, stored: string, classifiable: boolean): TaggingState {
   if (stored === "tagged") return "tagged"; // kept while the Document is processed again
-  if (status === "ready") return stored as StoredTaggingState;
+  if (
+    status === "ready" ||
+    status === "embedding" ||
+    status === "waiting-for-model" ||
+    classifiable
+  )
+    return stored as StoredTaggingState;
   if (status === "failed" || status === "no-text") return "skipped";
   return "pending";
 }
@@ -479,6 +540,11 @@ export interface DocumentsOptions {
   linkedFoldersChanged: LibraryHooks["linkedFoldersChanged"];
   /** A Document just became ready, i.e. searchable: called before its status is pushed. */
   onReady?: (documentId: string) => void;
+  /**
+   * A Document's text can be classified: it is read, or its first pages are while the rest is
+   * (`head`). Called after its status is pushed.
+   */
+  onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
@@ -504,6 +570,11 @@ export interface DocumentsOptions {
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
   pdfPassword?(documentId: string): Promise<string | undefined>;
+  /**
+   * A PDF's own highlights and notes, read with its text (#327): stored for the
+   * version they were read in, in place of an earlier one's.
+   */
+  fileAnnotations?(documentId: string, contentHash: string, found: readonly FileAnnotation[]): void;
   readingSpeed: Pick<ReadingMeterOptions, "read" | "write">;
   linkedFolders: {
     watch: WatchFolder;
@@ -527,6 +598,8 @@ export interface DocumentFilter {
   linkedFolderId?: string | null;
   /** Leave out missing Documents: new searches don't look at them. */
   searchable?: boolean;
+  /** Only those with a row of their own: a Meeting's Transcript is its Note's (#2528). */
+  listed?: boolean;
 }
 
 // A file named "2306.10683v1" says nothing of what is in it: the model gets its title too. A
@@ -547,6 +620,16 @@ export function createDocuments(options: DocumentsOptions) {
   const { textRecognition } = options;
   /** Where reading each Document's scanned pages is, while its job reads them (#397). */
   const scanProgress = new Map<string, DocumentScanProgress>();
+  /**
+   * The first pages of the version a job reads, said before its later scanned pages are read,
+   * until its text is stored (#2308). Kept in memory: after a restart the job says them again
+   * from the pages it kept.
+   */
+  const heads = new Map<string, DocumentHead>();
+  const headOf = (row: Pick<DocumentRow, "id" | "content_hash">): DocumentHead | null => {
+    const head = heads.get(row.id);
+    return head && head.contentHash === row.content_hash ? head : null;
+  };
 
   /** The scanned pages of a Document's current version that couldn't be read (see "pages-unread"). */
   const unreadPages = (row: Pick<DocumentRow, "id" | "content_hash">): number[] =>
@@ -579,7 +662,7 @@ export function createDocuments(options: DocumentsOptions) {
    * one waiting its turn, which is queued (see `EmbeddingQueue.isEmbedding`);
    * a failure kept with a good version is "failed" (see `failedNow`).
    */
-  const statusOf = (row: DocumentRow): DocumentStatus => {
+  const statusOf = (row: Pick<DocumentRow, "id" | "status" | "failure_reason">): DocumentStatus => {
     if (failedNow(row)) return "failed";
     if (row.status === "embedding" && !embedding.isEmbedding(row.id)) return "queued";
     return row.status as DocumentStatus;
@@ -597,6 +680,7 @@ export function createDocuments(options: DocumentsOptions) {
   // A damaged `unread_parts` is said once for each Document: a list reads every Document again
   // and again, and the log would fill with the same line.
   const loggedUnreadParts = new Set<string>();
+  const loggedSpeakers = new Set<string>();
   const toDocument = (row: DocumentRow): Document => {
     const unreadParts = parseUnreadParts(row.unread_parts);
     const unreadPartsUnknown = row.unread_parts !== null && unreadParts === null;
@@ -604,7 +688,12 @@ export function createDocuments(options: DocumentsOptions) {
       loggedUnreadParts.add(row.id);
       log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
     }
-    const tagging = taggingOf(row.status, row.tagging_status);
+    const speakers = readStoredSpeakers(row.speakers);
+    if (speakers.dropped > 0 && !loggedSpeakers.has(row.id)) {
+      loggedSpeakers.add(row.id);
+      log.warn("documents.speakersUnreadable", { documentId: row.id, dropped: speakers.dropped });
+    }
+    const tagging = taggingOf(row.status, row.tagging_status, headOf(row) !== null);
     const status = statusOf(row);
     const failed = status === "failed";
     return {
@@ -660,6 +749,8 @@ export function createDocuments(options: DocumentsOptions) {
         row.your_note_mind_id === null
           ? null
           : { mindId: row.your_note_mind_id, snapshotAt: row.your_note_at ?? row.created_at },
+      meetingMindId: row.meeting_mind_id,
+      speakers: speakers.speakers,
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -708,7 +799,7 @@ export function createDocuments(options: DocumentsOptions) {
           deletedAt,
         ],
       );
-      markArrived(db, id, at);
+      markArrived(db, id, at, nextSequence(db, at));
       record();
     });
   }
@@ -869,7 +960,11 @@ export function createDocuments(options: DocumentsOptions) {
     ...(row.read_hidden_sheets === 1 && { readHiddenSheets: true as const }),
     scan:
       textRecognition && row.kind === "pdf"
-        ? { reader: textRecognition.reader, keep: keptScans(row) }
+        ? {
+            reader: textRecognition.reader,
+            keep: keptScans(row),
+            head: { pages: ROUTING_PAGES, passages: ORGANIZE_PASSAGES },
+          }
         : textRecognition && (row.kind === "web" || row.kind === "image")
           ? { reader: textRecognition.reader, keep: null }
           : null,
@@ -1142,7 +1237,7 @@ export function createDocuments(options: DocumentsOptions) {
    */
   function record(job: ProcessingJob, result: ProcessingResult): Recorded | undefined {
     if (result.outcome === "stopped") return undefined;
-    return db.transaction(() => {
+    const recorded = db.transaction((): Recorded | undefined => {
       const row = find(job.documentId);
       if (row?.status !== "extracting") return undefined;
       indexName(row.id, row.name);
@@ -1324,6 +1419,11 @@ export function createDocuments(options: DocumentsOptions) {
       writeFileReference(db, job.documentId, result.reference, at);
       return { status, replaced: !unchanged };
     });
+    // After the row names this version, so each quote is cited against the pages it came with.
+    if (recorded && result.outcome === "ready" && result.fileAnnotations) {
+      options.fileAnnotations?.(job.documentId, result.contentHash, result.fileAnnotations);
+    }
+    return recorded;
   }
 
   // Set below, once the library exists: works out whether an unreadable file is gone.
@@ -1430,6 +1530,13 @@ export function createDocuments(options: DocumentsOptions) {
       // A job queued again while one before it ran keeps the pages that one read meanwhile.
       return job.scan ? { ...job, scan: { ...job.scan, keep: keptScans(row) } } : undefined;
     },
+    onHead(job, head) {
+      const row = find(job.documentId);
+      if (!row || row.content_hash !== head.contentHash || head.passages.length === 0) return;
+      heads.set(job.documentId, head);
+      announce(job.documentId);
+      options.onText?.(job.documentId);
+    },
     onWaiting(job) {
       // Queued, a quit doesn't count it as what stopped the app; its scan progress, kept, says
       // it is a scan waiting its turn.
@@ -1487,6 +1594,7 @@ export function createDocuments(options: DocumentsOptions) {
     },
     onResult(job, result) {
       const scanned = scanProgress.delete(job.documentId);
+      heads.delete(job.documentId);
       const recorded = record(job, result);
       if (recorded === undefined) return; // deleted, or queued again, while processing
       const { status, replaced } = recorded;
@@ -1517,6 +1625,13 @@ export function createDocuments(options: DocumentsOptions) {
         announce(job.documentId);
       }
       if (status === "waiting-for-model") model.ensure();
+      if (status === "embedding" || status === "waiting-for-model") {
+        try {
+          options.onText?.(job.documentId);
+        } catch (error) {
+          reportError(error);
+        }
+      }
     },
     onMetadata(job, result) {
       metadataQueued = false;
@@ -1687,6 +1802,37 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toUnitText);
   }
 
+  /** A Transcript's lines as its current version's Units hold them: each cue with its label. */
+  function transcriptLines(documentId: string, contentHash: string): FileLine[] {
+    return pageTexts(documentId, contentHash, null, null).flatMap((unit) =>
+      unit.kind !== "cues"
+        ? []
+        : (unit.anchors ?? []).flatMap((anchor, at) => {
+            const cue = parseCueTarget(anchor.target);
+            const label = unit.label?.speakers?.[at];
+            return cue && label
+              ? [{ ...cue, text: unit.text.slice(anchor.start, anchor.end), label }]
+              : [];
+          }),
+    );
+  }
+
+  /**
+   * When the words a text search found in a Transcript were said (#2528): the start of the line
+   * the words from the first one found are in, else of the first line holding that word.
+   */
+  function saidAt(match: DocumentTextMatch): DocumentTextMatch {
+    const row = find(match.documentId);
+    const first = match.highlights[0];
+    if (row?.kind !== "transcript" || !first) return match;
+    const units = pageTexts(row.id, row.content_hash, match.pageFrom, match.pageTo);
+    const following = match.excerpt.slice(first.start).replace(/…$/, "");
+    const word = match.excerpt.slice(first.start, first.end);
+    const ranges = quoteInUnits(units, following) ?? quoteInUnits(units, word);
+    const location = ranges ? locationOf(units, ranges) : null;
+    return location?.kind === "time" ? { ...match, atMs: location.from } : match;
+  }
+
   /**
    * How many Units each of these Documents' current versions has, from the stored rows: no text
    * is read. A Document with none is left out.
@@ -1808,6 +1954,7 @@ export function createDocuments(options: DocumentsOptions) {
       vectors.removeDocument(id);
       processor.cancel(id);
       reading.forget(id);
+      heads.delete(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());
@@ -1937,6 +2084,15 @@ export function createDocuments(options: DocumentsOptions) {
        WHERE deleted_at IS NULL AND kind = 'xlsx' AND status = 'no-text'
          AND processing_version < ?`,
       [now(), BigInt(CURRENT_SINCE.xlsx)],
+    );
+    // A Word file, deck or workbook that failed as unreadable may keep its parts under other
+    // names than the usual ones, which an older pipeline didn't look for (#2620): read once more.
+    db.run(
+      `UPDATE documents SET status = 'queued', updated_at = ?
+       WHERE deleted_at IS NULL AND kind IN ('docx', 'pptx', 'xlsx') AND status = 'failed'
+         AND failure_reason = 'unreadable'
+         AND processing_version < coalesce(json_extract(?, '$.' || kind), ?)`,
+      [now(), JSON.stringify(CURRENT_SINCE), BigInt(PROCESSING_VERSION)],
     );
     // PDFs with a page of little or no text, or one read from its picture by an older
     // reader, are processed again, so their scanned pages are read (#397): only when there is
@@ -2138,7 +2294,14 @@ export function createDocuments(options: DocumentsOptions) {
   });
 
   /** The live Documents a filter keeps, as SQL conditions on `documents`, with their parameters. */
-  const filterWhere = ({ folderIds, tagId, ids, linkedFolderId, searchable }: DocumentFilter) => {
+  const filterWhere = ({
+    folderIds,
+    tagId,
+    ids,
+    linkedFolderId,
+    searchable,
+    listed,
+  }: DocumentFilter) => {
     const conditions = ["deleted_at IS NULL"];
     const params: string[] = [];
     if (folderIds !== undefined) {
@@ -2162,6 +2325,7 @@ export function createDocuments(options: DocumentsOptions) {
       params.push(linkedFolderId);
     }
     if (searchable) conditions.push("file_status <> 'missing'");
+    if (listed) conditions.push("meeting_mind_id IS NULL");
     return { where: conditions.join(" AND "), params };
   };
 
@@ -2176,11 +2340,48 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toDocument);
   };
 
-  /** Every live Document's id, version and names, in `list`'s order: what a Citation needs to show its Document's current name. */
+  /** As `list`, each Document as its own row tells it (`DocumentFromRow`). */
+  const rows = (filter: DocumentFilter = {}): DocumentFromRow[] => {
+    const { where, params } = filterWhere(filter);
+    return db
+      .all<ReadRow>(
+        `SELECT ${ROW_COLUMNS} FROM documents WHERE ${where} ORDER BY created_at DESC, rowid DESC`,
+        params,
+      )
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        title: row.title,
+        contentHash: row.content_hash,
+        status: statusOf(row),
+        fileStatus: row.file_status as DocumentFileStatus,
+        notCited: row.not_cited === 1,
+        ownFile: ownFileOf(row),
+        readHiddenSheets: row.read_hidden_sheets === 1,
+        meetingMindId: row.meeting_mind_id,
+      }));
+  };
+
+  /** Who's who in a live Transcript (#138); null for none, and for any other Document. */
+  const speakersOf = (documentId: string): TranscriptSpeakers | null =>
+    readStoredSpeakers(
+      db.get<{ speakers: string | null }>(
+        "SELECT speakers FROM documents WHERE id = ? AND deleted_at IS NULL",
+        [documentId],
+      )?.speakers ?? null,
+    ).speakers;
+
+  /** Every live Document's id, version and names, in `list`'s order: what a Citation needs to show its Document's current name and Speakers. */
   const names = (): LiveDocument[] =>
     db
-      .all<{ id: string; content_hash: string; name: string; title: string | null }>(
-        `SELECT id, content_hash, name, title FROM documents
+      .all<{
+        id: string;
+        content_hash: string;
+        name: string;
+        title: string | null;
+        speakers: string | null;
+      }>(
+        `SELECT id, content_hash, name, title, speakers FROM documents
          WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC`,
       )
       .map((row) => ({
@@ -2188,17 +2389,18 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         name: row.name,
         title: row.title,
+        speakers: readStoredSpeakers(row.speakers).speakers,
       }));
 
   /**
-   * Whether any live Document is outside these: whether the Library holds more
-   * than the example's own copies (#1942). A search asks this on every call, so
-   * it reads no more than the first Document it finds.
+   * Whether any live Document with a row of its own is outside these: whether the Library holds
+   * more than the example's own copies (#1942), a Meeting's Transcript being its Note's (#2528).
+   * A search asks this on every call, so it reads no more than the first Document it finds.
    */
   const hasDocumentOutside = (outside: readonly string[]): boolean =>
     Boolean(
       db.get(
-        `SELECT 1 FROM documents WHERE deleted_at IS NULL
+        `SELECT 1 FROM documents WHERE deleted_at IS NULL AND meeting_mind_id IS NULL
          AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`,
         [JSON.stringify(outside)],
       ),
@@ -2233,7 +2435,11 @@ export function createDocuments(options: DocumentsOptions) {
    * embeddings are off (nothing is loaded), or the model isn't ready, or
    * fails. A vector search throws instead.
    */
-  async function queryVector(query: string, mode: SearchMode): Promise<Float32Array | null> {
+  async function queryVector(
+    query: string,
+    mode: SearchMode,
+    background = false,
+  ): Promise<Float32Array | null> {
     const unavailable = () => {
       if (mode === "vector") throw model.notReadyError();
       return null;
@@ -2246,7 +2452,7 @@ export function createDocuments(options: DocumentsOptions) {
     }
     if (!(await model.load())) return unavailable();
     try {
-      return await model.embedQuery(query);
+      return await model.embedQuery(query, background);
     } catch (error) {
       if (error instanceof EmbeddingUnavailableError) return unavailable();
       if (mode === "vector") throw error;
@@ -2306,9 +2512,10 @@ export function createDocuments(options: DocumentsOptions) {
     listed: number,
     documentIds: readonly string[] | undefined,
     keywordListed = listed,
+    background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
     const scope = searchScope(documentIds);
-    const vector = await queryVector(query, "hybrid");
+    const vector = await queryVector(query, "hybrid", background);
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
     const lists = distinctPassages(db, [keyword, similar]);
@@ -2331,12 +2538,15 @@ export function createDocuments(options: DocumentsOptions) {
     query: string,
     limit: number,
     documentIds: readonly string[] | undefined,
+    background = false,
   ): Promise<SearchCandidate[]> {
     if (query.trim() === "") return [];
     const { lists, keywordOnly } = await rankings(
       query,
       Math.max(limit, HYBRID_CANDIDATES),
       documentIds,
+      undefined,
+      background,
     );
     return scored(fuseRankingScores(lists, limit, keywordOnly));
   }
@@ -2352,6 +2562,7 @@ export function createDocuments(options: DocumentsOptions) {
     query: string,
     counts: { perList: number; keywordAlone: number },
     documentIds: readonly string[] | undefined,
+    background = false,
   ): Promise<SearchCandidate[]> {
     if (query.trim() === "") return [];
     const listed = Math.max(2 * counts.perList, HYBRID_CANDIDATES);
@@ -2360,6 +2571,7 @@ export function createDocuments(options: DocumentsOptions) {
       listed,
       documentIds,
       Math.max(listed, counts.keywordAlone),
+      background,
     );
     const [keyword = [], similar = []] = lists;
     if (similar.length === 0) {
@@ -2408,10 +2620,13 @@ export function createDocuments(options: DocumentsOptions) {
      * Document and clustered by sliding window.
      */
     searchTool(query: string, toolOptions?: SearchToolOptions): Promise<WindowedPassage[]> {
+      const background = toolOptions?.background === true;
       return searchDocumentsTool(
         {
-          candidates,
-          rerankCandidates,
+          candidates: (query, limit, documentIds) =>
+            candidates(query, limit, documentIds, background),
+          rerankCandidates: (query, counts, documentIds) =>
+            rerankCandidates(query, counts, documentIds, background),
           window: (documentId, window) => passagesInWindow(db, documentId, window),
         },
         query,
@@ -2635,6 +2850,11 @@ export function createDocuments(options: DocumentsOptions) {
     /** The current version of a live Document, or null if it was deleted. */
     currentVersion(documentId: string): string | null {
       return find(documentId)?.content_hash ?? null;
+    },
+
+    /** A live Document's name, or null if it was deleted. */
+    documentName(documentId: string): string | null {
+      return find(documentId)?.name ?? null;
     },
 
     /**
@@ -3036,7 +3256,9 @@ export function createDocuments(options: DocumentsOptions) {
     announce,
 
     list,
+    rows,
     names,
+    speakersOf,
     ids,
     hasDocumentOutside,
     upgradeKeywordIndex,
@@ -3055,6 +3277,15 @@ export function createDocuments(options: DocumentsOptions) {
         .map(toDocument);
     },
 
+    /** The first pages of a live Document whose version's rest is still being read, if they are read. */
+    head(id: string): DocumentHead | null {
+      const row = find(id);
+      return row ? headOf(row) : null;
+    },
+    /** The ids of the Documents whose first pages are read while the rest is. */
+    headIds(): string[] {
+      return [...heads.keys()];
+    },
     /** The live Documents (of these, or all of them) whose text is still being read: queued or extracting, newest first. */
     reading(documentIds?: readonly string[]): Document[] {
       const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
@@ -3099,6 +3330,45 @@ export function createDocuments(options: DocumentsOptions) {
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Sets who's who in a Transcript (#138), whole, as `TranscriptSpeakers` says. Its file and
+     * versions aren't touched, so nothing is indexed or checked again.
+     */
+    setSpeakers(idInput: unknown, speakersInput: unknown): Document {
+      const id = parseId(idInput);
+      const given =
+        isRecord(speakersInput) && isRecord(speakersInput.labels)
+          ? Object.values(speakersInput.labels)
+          : [];
+      const label = given.find((name) => typeof name === "string" && looksLikeLabel(name));
+      if (typeof label === "string") {
+        throw new InvalidInputError({
+          key: "error.transcript.speakerNameIsLabel",
+          values: { name: label },
+        });
+      }
+      const { speakers, dropped } = parseTranscriptSpeakers(speakersInput);
+      if (dropped > 0) {
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      }
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      if (row.kind !== "transcript") {
+        throw new InvalidInputError({ key: "error.transcript.speakersOfTranscript" });
+      }
+      if (speakers?.splits && !splitsHold(speakers, transcriptLines(row.id, row.content_hash))) {
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      }
+      db.run("UPDATE documents SET speakers = ?, updated_at = ? WHERE id = ?", [
+        speakers === null ? null : JSON.stringify(speakers),
+        now(),
+        id,
+      ]);
+      const updated = find(id);
+      if (!updated) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(updated);
     },
 
     /**
@@ -3479,7 +3749,7 @@ export function createDocuments(options: DocumentsOptions) {
         query,
         searchLimit(options?.limit),
         excludedIds(options?.excludeDocumentIds),
-      );
+      ).map(saidAt);
     },
 
     /** Linked folders (see ./library). */

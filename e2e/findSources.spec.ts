@@ -7,12 +7,14 @@
  * when its site turned IncarnaMind away; in Chinese at the narrowest window; and from an Answer that
  * found papers, "Show results". Local mode blocks every provider.
  */
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { type SourceServices, startSourceServices } from "../tests/helpers/sourceServices";
 import {
   acceptPlainTextKeys,
+  addDocuments,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -29,15 +31,25 @@ import {
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
 let dataDir: string;
+let seeds: string;
 let services: SourceServices;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
+  seeds = await createDataFolder();
   services = await startSourceServices();
 });
 test.afterEach(async () => {
   await services.close();
   await removeDataFolder(dataDir);
+  await removeDataFolder(seeds);
 });
+
+/** A Document, so the Library isn't empty and its header offers Add Documents. */
+async function listADocument(window: Page): Promise<void> {
+  const path = join(seeds, "Seed.txt");
+  await writeFile(path, "A Document, so the Library has something listed.\n");
+  await addDocuments(window, [path]);
+}
 
 const bridge = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
@@ -69,11 +81,16 @@ async function allowProviders(
 }
 
 test("Add Documents ▾ → Find sources… asks each provider once, then adds an open-access paper as a Document in the Folder, a paywalled one as a reference and one open as a web page as a web page", async () => {
-  const { app, window } = await launchApp(dataDir, { sources: services.url });
+  // The source stand-in serves the open copy as the site's page too, so it is the web stand-in.
+  const { app, window } = await launchApp(dataDir, {
+    sources: services.url,
+    web: Number(new URL(services.url).port),
+  });
   try {
     await dismissChatSetup(window);
     await interceptOpenExternal(app);
     await newFolder(window, "Thesis");
+    await listADocument(window);
     await window.getByTestId("open-library").click();
 
     // The Library's Add Documents is a menu of the ways in, Find sources among them.
@@ -131,7 +148,7 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "What you search for: the words and filters, such as years",
+      "What you or an Answer search for: the words and filters, such as years",
     );
     await expect(panel.getByTestId("find-sources-count")).toHaveText("9 results");
     const openalex = services.requests.find((request) => request.path.startsWith("/openalex/"));
@@ -225,7 +242,7 @@ test("in Chinese at the narrowest window, Find sources from + fits and speaks Ch
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "你搜索的内容：关键词和筛选条件，例如年份",
+      "你或回答要搜索的内容：关键词和筛选条件，例如年份",
     );
     await expect(panel.getByTestId("find-sources-count")).toHaveText("9 个结果");
     const nature = result(panel, "Improving the sensitivity of in vivo CRISPR");
@@ -281,7 +298,7 @@ test("an Answer asked to find papers searches the providers, and Show results op
     await allowProviders(
       window,
       ["OpenAlex", "arXiv", "PubMed"],
-      "What you search for: the words and filters, such as years",
+      "What you or an Answer search for: the words and filters, such as years",
     );
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
@@ -314,6 +331,7 @@ test("choosing openFDA finds a drug label and shows its disclaimer; an openFDA k
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1280, 800);
+    await listADocument(window);
     await window.getByTestId("open-library").click();
     const add = window.getByTestId("library-add-documents");
     await add.hover();
@@ -373,6 +391,7 @@ test("choosing the eCFR finds a regulation marked as an unofficial compilation; 
     await setWindowSize(app, window, 1280, 800);
     // Linux runners have no keyring: the key is kept in plain text, as the User would accept.
     await acceptPlainTextKeys(window);
+    await listADocument(window);
     await window.getByTestId("open-library").click();
     const add = window.getByTestId("library-add-documents");
     await add.hover();
@@ -392,7 +411,11 @@ test("choosing the eCFR finds a regulation marked as an unofficial compilation; 
     // A citation is looked up at the eCFR; GovInfo, with no key, is off and says why.
     await panel.getByTestId("find-sources-query").fill("17 CFR 240.10b-5");
     await panel.getByTestId("find-sources-query").press("Enter");
-    await allowProviders(window, ["eCFR"], "What you search for: the words and filters");
+    await allowProviders(
+      window,
+      ["eCFR"],
+      "What you or an Answer search for: the words and filters",
+    );
     const rule = result(panel, "17 CFR 240.10b-5 Employment of manipulative and deceptive devices");
     await expect(rule.getByTestId("find-sources-result-facts")).toHaveText(
       "Open access · full text · Public domain · Unofficial compilation, not the official edition · Found on eCFR",

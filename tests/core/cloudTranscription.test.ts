@@ -80,6 +80,44 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
   });
 
+  test("the service's unfinished words show for both sides before any line is finished, and the finished line takes their place", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+
+    record(1.5 * SECOND);
+    const speaking = await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.partials.length === 2,
+    );
+    expect(speaking.lines).toBe(0);
+    expect(speaking.documentId).toBeNull();
+    expect(speaking.partials.map((partial) => partial.speaker).sort()).toEqual(["Me", "Them"]);
+    for (const { text } of speaking.partials) {
+      expect(FAKE_CLOUD_LINES.some((line) => line.startsWith(text) && line !== text)).toBe(true);
+    }
+
+    record(3 * SECOND);
+    const finished = await until(core, meeting.id, (transcript) =>
+      speaking.partials.every(
+        (partial) => !transcript.partials.some((each) => each.startMs === partial.startMs),
+      ),
+    );
+    expect(finished.lines).toBeGreaterThanOrEqual(2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    for (const partial of speaking.partials) {
+      const line = cues.find((cue) => cue.startMs === partial.startMs);
+      expect(line?.text.startsWith(partial.text)).toBe(true);
+      expect(FAKE_CLOUD_LINES).toContain(line?.text);
+    }
+  });
+
   // protects=on the cloud path too, a line the User said before the others made a sound becomes Me once the computer's sound is heard, not the room's "Speaker 1" the service's voice gave it (#2305); fails_when=the first line keeps a number; no_claim=the local engine, which tests/core/transcripts.test.ts covers.
   test("the User speaks before the others make a sound: the service's first lines read Me once the call is heard", async () => {
     const dataDir = await createTempDataFolder();
@@ -398,6 +436,23 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       expect.objectContaining({ route: "openai", key: "provider", hasKey: false }),
       expect.objectContaining({ route: "soniox", key: "own", hasKey: false, liveSpeakers: true }),
       expect.objectContaining({ route: "qwen", key: "provider", hasKey: false }),
+      expect.objectContaining({ route: "deepgram", key: "own", hasKey: false, liveSpeakers: true }),
+      expect.objectContaining({
+        route: "assemblyai",
+        key: "own",
+        hasKey: false,
+        liveSpeakers: true,
+      }),
+      expect.objectContaining({ route: "gemini", key: "provider", hasKey: false }),
+      expect.objectContaining({ route: "elevenlabs", key: "own", hasKey: false }),
+      expect.objectContaining({
+        route: "speechmatics",
+        key: "own",
+        hasKey: false,
+        liveSpeakers: true,
+      }),
+      expect.objectContaining({ route: "gladia", key: "own", hasKey: false, keyChecked: false }),
+      expect.objectContaining({ route: "xai", key: "provider", hasKey: false, liveSpeakers: true }),
     ]);
 
     await chooseSoniox(core);
@@ -483,16 +538,27 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     });
   });
 
-  test("OpenAI uses the key of the OpenAI provider in Models", async () => {
+  // protects=Your providers says which provider row's key also transcribes; fails_when=the list names no provider, another one, or one for a service with its own key; no_claim=the row's words, which e2e/liveRoutes.spec.ts covers.
+  test("OpenAI uses the key of the OpenAI provider in Models, and the list names that provider", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);
-    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-5.4-mini" });
-    expect((await core.listTranscriptionServices()).services[0]).toMatchObject({
+    const before = (await core.listTranscriptionServices()).services[0];
+    expect(before).toMatchObject({ route: "openai", hasKey: false, providerId: null });
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-5.4-mini",
+    });
+    await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+    const listed = (await core.listTranscriptionServices()).services;
+    expect(listed[0]).toMatchObject({
       route: "openai",
       model: "gpt-live-transcribe",
       hasKey: true,
+      providerId: provider.id,
       perHour: { currency: "USD", amount: 1.02 },
     });
+    expect(listed[1]).toMatchObject({ route: "soniox", hasKey: true, providerId: null });
     await core.updateSettings({ device: { transcriptionRoute: "openai" } });
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id });
@@ -666,7 +732,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       const meeting = await core.createMeeting();
       await core.startMeeting({ meetingId: meeting.id });
       record(4 * SECOND);
-      await until(core, meeting.id, (transcript) => transcript.partial !== null);
+      await until(core, meeting.id, (transcript) => transcript.partials.length > 0);
 
       await core.stopMeeting(meeting.id);
       const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");

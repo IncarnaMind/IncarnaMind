@@ -21,6 +21,7 @@ import { startingChecks } from "./compareScope";
 import { useComparisonColumns } from "./comparisonColumnState";
 import { core } from "./core";
 import { currentMindIdOf } from "./layoutSlice";
+import { isListedDocument } from "./meetingTranscript";
 import { flushMindUpdates } from "./mindCopies";
 import type { ObjectRef } from "./objects";
 import { selectedOn } from "./selection";
@@ -29,6 +30,12 @@ import { useAppStore } from "./store";
 // "all" and "selected" never clash with a Folder's id, which is a UUID.
 export type SheetSource = string | "all" | "selected";
 
+/** A column the sheet makes: its Question, and the heading a table's column came with (#1839). */
+export interface SheetQuestion {
+  text: string;
+  label?: string;
+}
+
 export interface CompareSheet {
   /** The Block the table goes after (where the cursor was); null: the Mind's end. */
   afterBlockId: string | null;
@@ -36,7 +43,7 @@ export interface CompareSheet {
   selected: readonly string[];
   /** The Documents ticked, by id. */
   checked: readonly string[];
-  questions: readonly string[];
+  questions: readonly SheetQuestion[];
   instruction: string;
   /** Asking the core: the button waits, and a second press does nothing. */
   making: boolean;
@@ -82,23 +89,30 @@ export function openCompareSheet(
     source,
     selected,
     documentIds,
+    questions,
   }: {
     afterBlockId: string | null;
     source: SheetSource;
     selected: readonly string[];
     documentIds: readonly string[];
+    /** Columns another table's came with (#1839): the sheet starts with these instead of none. */
+    questions?: readonly SheetQuestion[];
   },
 ): void {
   useComparisons.setState((state) => {
     const open = state.sheets[mindId];
     const sheet: CompareSheet = open
-      ? { ...open, afterBlockId: afterBlockId ?? open.afterBlockId }
+      ? {
+          ...open,
+          afterBlockId: afterBlockId ?? open.afterBlockId,
+          ...(questions && { questions }),
+        }
       : {
           afterBlockId,
           source,
           selected,
           checked: documentIds,
-          questions: [],
+          questions: questions ?? [],
           instruction: "",
           making: false,
         };
@@ -117,7 +131,10 @@ export function sheetDocuments(source: SheetSource, selected: readonly string[] 
     (source === "selected" ? chosen.has(document.id) : folderOf.get(document.id) === source);
   return documents.filter(
     (document) =>
-      inSource(document) && !document.notCited && !leftOutOfEvidence(document, settings, library),
+      isListedDocument(document) &&
+      inSource(document) &&
+      !document.notCited &&
+      !leftOutOfEvidence(document, settings, library),
   );
 }
 
@@ -140,6 +157,8 @@ function startingIds(source: SheetSource, offered: Document[]): string[] {
 export async function startCompareDocuments(
   mindId: string | null,
   afterBlockId: string | null,
+  /** The columns another table's came with (#1839): the sheet starts with these. */
+  questions?: readonly SheetQuestion[],
 ): Promise<void> {
   const store = useAppStore.getState();
   let target = mindId ?? currentMindIdOf(store.layout);
@@ -157,6 +176,7 @@ export async function startCompareDocuments(
     source,
     selected,
     documentIds: startingIds(source, sheetDocuments(source, selected)),
+    ...(questions && { questions }),
   });
 }
 
@@ -205,7 +225,10 @@ export async function makeComparisonTable(
     const result = await core.compareDocuments({
       mindId,
       documentIds: [...documentIds],
-      questions: sheet.questions.map((question) => question.trim()).filter(Boolean),
+      questions: sheet.questions.flatMap((question) => {
+        const text = question.text.trim();
+        return text ? [{ text, ...(question.label && { label: question.label }) }] : [];
+      }),
       instruction: sheet.instruction.trim() || null,
       model,
       afterBlockId: sheet.afterBlockId,

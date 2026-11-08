@@ -2,22 +2,20 @@
  * Soniox's real-time transcription (#141): all of the stream's audio goes over the socket as it
  * comes, and text comes back token by token, each with who said it. Tokens that aren't final
  * yet can still change; final ones never do. The service ends an utterance with an `<end>`
- * token when the speaker pauses; a line ends there, or where the speaker changes.
+ * token when the speaker pauses; a line ends there, where the speaker changes, or at a sentence's
+ * end (./lineEnds).
  */
+import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import {
-  type CloudStreamHandle,
-  type CloudStreamOptions,
-  CONNECT_TIMEOUT_MS,
-  FINISH_TIMEOUT_MS,
-} from "./stream";
+import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
+import { createLiveStream, pcmBytes } from "./live";
+import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
-/** A line this long ends even without a pause, so its final text never waits long. */
-const LONGEST_LINE_MS = 20_000;
-/** The key is wrong, or may not use the service. */
-const REFUSALS = new Set([401, 403]);
+/** The key is wrong, or may not use the service; or the account has no credit left. */
+const lossOf = (errorCode: number): CloudLoss =>
+  errorCode === 401 || errorCode === 403 ? "refused" : errorCode === 402 ? "credit" : "dropped";
 
 interface Token {
   text: string;
@@ -54,54 +52,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
   const { stream, report } = options;
   let line: Line | null = null;
   let nextId = 1;
-  let started = false;
-  const waiting: (Uint8Array | string)[] = [];
-  let ended = false;
-  let refused = false;
-  let finishing: { resolve(): void } | null = null;
-  let finishTimer: ReturnType<typeof setTimeout> | null = null;
   let finalMs = 0;
-
-  const socket = options.connect(SONIOX_URL, options.apiKey, {
-    open() {
-      if (ended) return;
-      socket.send(
-        JSON.stringify({
-          model: options.model,
-          audio_format: "pcm_s16le",
-          sample_rate: 16_000,
-          num_channels: 1,
-          language_hints: ["en", "zh"],
-          enable_speaker_diarization: true,
-          enable_endpoint_detection: true,
-        }),
-      );
-      started = true;
-      clearTimeout(connectTimer);
-      for (const audio of waiting.splice(0)) socket.send(audio);
-      report.opened();
-    },
-    message: heard,
-    closed() {
-      if (ended) return;
-      const finished = finishing !== null;
-      end();
-      if (!finished) report.lost(refused ? "refused" : "dropped");
-    },
-  });
-  const connectTimer = setTimeout(() => {
-    if (!started && !ended) socket.close();
-  }, CONNECT_TIMEOUT_MS);
-
-  function end(): void {
-    ended = true;
-    // What waited for the connection is never sent once the stream has ended.
-    waiting.length = 0;
-    clearTimeout(connectTimer);
-    if (finishTimer) clearTimeout(finishTimer);
-    finishing?.resolve();
-    finishing = null;
-  }
 
   function close(): void {
     const done = line;
@@ -118,6 +69,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       final: true,
       decodeMs: 0,
       ...(done.speaker !== null && { speaker: done.speaker }),
+      words: done.tokens.map((token) => ({ text: token.text, ms: token.start })),
     });
   }
 
@@ -132,99 +84,96 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     ) {
       close();
     }
-    if (
-      line &&
-      line.tokens.length > 0 &&
-      token.end - (line.tokens[0] as Token).start > LONGEST_LINE_MS
-    ) {
-      close();
+    const first = line?.tokens[0];
+    if (line && first) {
+      const text = wordsOf(line.tokens);
+      const ms = (line.tokens.at(-1) as Token).end - first.start;
+      const wordStart = startsWord(text, token.text);
+      // A sentence ends at the piece after it, unless that piece closes it ("?" then "”") or goes
+      // on with its word ("3." then "5").
+      if (
+        (!CLOSES.test(token.text) && endsAfter(text, ms, wordStart)) ||
+        endsBefore(token.end - first.start, wordStart)
+      ) {
+        close();
+      }
     }
     line ??= { id: nextId++, tokens: [], speaker: null };
     line.tokens.push(token);
     if (words && line.speaker === null) line.speaker = token.speaker;
   }
 
-  function heard(text: string): void {
-    if (ended) return;
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      return;
-    }
-    if (typeof message.error_code === "number") {
-      refused = REFUSALS.has(message.error_code);
-      end();
-      socket.close();
-      report.lost(refused ? "refused" : "dropped");
-      return;
-    }
-    const tokens = (Array.isArray(message.tokens) ? message.tokens : [])
-      .map(tokenOf)
-      .filter((token) => token !== null);
-    for (const token of tokens) {
-      if (!token.final) continue;
-      if (isMarker(token.text)) close();
-      else add(token);
-    }
-    if (typeof message.final_audio_proc_ms === "number") finalMs = message.final_audio_proc_ms;
-    const pending = tokens.filter((token) => !token.final && !isMarker(token.text));
-    const said = [...(line?.tokens ?? []), ...pending];
-    const words = wordsOf(said);
-    if (words && said.length > 0) {
-      line ??= { id: nextId++, tokens: [], speaker: null };
-      const first = said[0] as Token;
-      report.segment({
-        stream,
-        id: line.id,
-        startMs: first.start,
-        endMs: Math.max(first.start, (said.at(-1) as Token).end),
-        text: words,
-        final: false,
-        decodeMs: 0,
-        ...((line.speaker ?? pending[0]?.speaker ?? null) !== null && {
-          speaker: (line.speaker ?? pending[0]?.speaker) as string,
+  return createLiveStream(options, {
+    url: SONIOX_URL,
+    opened(link) {
+      link.setup(
+        JSON.stringify({
+          model: options.model,
+          audio_format: "pcm_s16le",
+          sample_rate: 16_000,
+          num_channels: 1,
+          language_hints: ["en", "zh"],
+          enable_speaker_diarization: true,
+          enable_endpoint_detection: true,
         }),
-      });
-    }
-    const open = line?.tokens[0];
-    report.progress(open ? Math.min(open.start, finalMs) : finalMs);
-    if (message.finished === true) {
-      close();
-      end();
-      socket.close();
-    }
-  }
-
-  return {
-    push(samples) {
-      if (ended || finishing || samples.length === 0) return;
-      const bytes = new Uint8Array(
-        samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength),
       );
-      if (started) socket.send(bytes);
-      else waiting.push(bytes);
+      link.ready();
     },
-
-    finish() {
-      if (ended) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        finishing = { resolve };
-        // An empty text frame ends the audio; the service sends what is left, then `finished`.
-        if (started) socket.send("");
-        else waiting.push("");
-        finishTimer = setTimeout(() => {
-          close();
-          end();
-          socket.close();
-        }, FINISH_TIMEOUT_MS);
-      });
+    heard(message, link) {
+      if (typeof message.error_code === "number") {
+        link.lose(lossOf(message.error_code));
+        return;
+      }
+      const tokens = (Array.isArray(message.tokens) ? message.tokens : [])
+        .map(tokenOf)
+        .filter((token) => token !== null);
+      for (const token of tokens) {
+        if (!token.final) continue;
+        if (isMarker(token.text)) close();
+        else add(token);
+      }
+      if (typeof message.final_audio_proc_ms === "number") finalMs = message.final_audio_proc_ms;
+      const pending = tokens.filter((token) => !token.final && !isMarker(token.text));
+      const said = [...(line?.tokens ?? []), ...pending];
+      const words = wordsOf(said);
+      if (words && said.length > 0) {
+        line ??= { id: nextId++, tokens: [], speaker: null };
+        const first = said[0] as Token;
+        report.segment({
+          stream,
+          id: line.id,
+          startMs: first.start,
+          endMs: Math.max(first.start, (said.at(-1) as Token).end),
+          text: words,
+          final: false,
+          decodeMs: 0,
+          ...((line.speaker ?? pending[0]?.speaker ?? null) !== null && {
+            speaker: (line.speaker ?? pending[0]?.speaker) as string,
+          }),
+        });
+      }
+      const open = line?.tokens[0];
+      report.progress(open ? Math.min(open.start, finalMs) : finalMs);
+      if (message.finished === true) {
+        close();
+        link.complete();
+      }
     },
-
-    drop() {
-      if (ended) return;
-      end();
-      socket.close();
+    audio(samples, link) {
+      link.send(pcmBytes(samples));
     },
-  };
+    finish(link) {
+      // An empty text frame ends the audio; the service sends what is left, then `finished`.
+      link.send("");
+    },
+    late(link) {
+      close();
+      link.complete();
+    },
+    // Closed while finishing, what came is all there is; any other close is a dropped connection.
+    closed(_code, _reason, link) {
+      if (link.finishing) link.complete();
+      else link.lose("dropped");
+    },
+  });
 }

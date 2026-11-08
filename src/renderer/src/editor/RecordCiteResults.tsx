@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { RecordCiteResult } from "../../../core/api";
+import { citedSpeakers } from "../../../shared/citations";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { SearchPicker } from "../components/SearchPicker";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
+import { useCitedOrigin } from "./mindContext";
 import {
   chooseRecordCite,
   recordCiteCandidateOptions,
@@ -27,6 +29,7 @@ export function RecordCiteResults({
   onOpen(): void;
   onPickerChange(open: boolean): void;
 }) {
+  const origin = useCitedOrigin();
   const t = useT();
   const documents = useAppStore((store) => store.documents);
   const [picker, setPicker] = useState<{
@@ -94,9 +97,14 @@ export function RecordCiteResults({
         ...(place.location && { location: place.location }),
       },
       {
+        origin,
         check: nearby || cite.outcome === "supported" ? "found" : "unsupported",
         withQuote: true,
-        label: location ? formatLocation(location, t) : null,
+        label: location
+          ? formatLocation(location, t, {
+              speakers: citedSpeakers({ ...cite, location }, documents),
+            })
+          : null,
       },
     );
     onOpen();
@@ -109,7 +117,9 @@ export function RecordCiteResults({
         {cites.map((base) => {
           const cite = replacements.get(base) ?? base;
           const location = citationLocation(cite);
-          const where = location ? formatLocation(location, t) : null;
+          const where = location
+            ? formatLocation(location, t, { speakers: citedSpeakers(cite, documents) })
+            : null;
           const name = recordCiteDocumentName(cite, documents);
           const outcome =
             cite.outcome === "supported"
@@ -190,7 +200,12 @@ export function RecordCiteResults({
                 <div data-testid="record-cite-nearby" className="record-cite-nearby">
                   <p data-testid="record-cite-nearby-location" className="record-cite-detail">
                     {t("claim.recordCites.nearby", {
-                      location: formatLocation(cite.nearby.location, t),
+                      location: formatLocation(cite.nearby.location, t, {
+                        speakers: citedSpeakers(
+                          { ...cite, location: cite.nearby.location },
+                          documents,
+                        ),
+                      }),
                     })}
                   </p>
                   <figure className="citation-card-quote record-cite-quote">
