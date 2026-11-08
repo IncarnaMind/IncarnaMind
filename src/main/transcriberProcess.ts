@@ -58,5 +58,8 @@ if (process.argv.includes(ENGINE_CHECK_ARGUMENT)) {
     fake ? async () => createFakeSpeechEngine(fakeOptions) : createSherpaEngine,
     fake && fakeOptions.failover ? failingOver(port, fakeOptions.failover) : port,
     cloud,
+    // A recognizer's native model is freed with its process, not by closing it; the engine is
+    // closed before this, and the next Meeting starts the process again.
+    { unloaded: () => process.exit(0) },
   );
 }

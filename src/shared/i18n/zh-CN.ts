@@ -6724,6 +6724,7 @@ export const zhCN = {
   "meetings.help.textBehind": "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
   "meetings.help.textBehind.some": "实时转写跟不上，以下只依据已转写的内容。",
   "meetings.help.failed": "这次没能给出建议：{message}",
+  "meetings.help.nothing": "回答里没有可用的内容",
   "meetings.help.retry": "重试",
   "meetings.help.theySaid": "对方说：“{text}”",
   "meetings.help.youSaid": "你说：“{text}”",
