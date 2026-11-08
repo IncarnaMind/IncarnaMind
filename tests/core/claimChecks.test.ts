@@ -2,9 +2,11 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
+import { sameNumber } from "../../src/core/answers/checks/claimCheck";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { type FigureContext, readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
 import { folderScope } from "../../src/shared/searchScope";
 import {
@@ -3674,4 +3676,28 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
   test("reads the heading as a heading when its Passage runs past the cited page", async () => {
     await check([...REPORT, "", "# 附注", "", "附注内容：本节说明会计政策。"].join("\n"));
   });
+});
+
+// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=the model's verdict, which the check's request only takes when the numbers agree.
+describe("The check's figures against a statement line's bracketed column (#2576)", () => {
+  const LINE = "Intercompany eliminations £3.6m (£3.6m)";
+
+  test.each([
+    ["en", "Intercompany eliminations were £3.6m.", false],
+    ["en", "Intercompany eliminations were -£3.6m.", true],
+    ["zh-CN", "内部往来抵销为3.6亿元。", false],
+    ["zh-CN", "内部往来抵销为-3.6亿元。", true],
+  ] as [language: "en" | "zh-CN", claim: string, agrees: boolean][])(
+    "%s: the bracketed column is its minus, so “%s” %s its number",
+    (language, claim, agrees) => {
+      const context: FigureContext = { language };
+      const column = language === "en" ? LINE : "内部往来抵销 3.6亿元 （3.6亿元）";
+      const bracketed = readFigures(column, context)[1];
+      if (!bracketed) throw new Error("The bracketed column isn't read.");
+      const stated = readFigures(claim, context)[0];
+      if (!stated) throw new Error("The sentence's figure isn't read.");
+      expect(bracketed.value).toBeLessThan(0);
+      expect(sameNumber(stated, bracketed)).toBe(agrees);
+    },
+  );
 });
