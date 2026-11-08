@@ -3,7 +3,11 @@ import type { MessageKey } from "../../../shared/i18n";
 import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWords";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
+import {
+  ROUTE_LABELS,
+  useAudioKeptKey,
+  useTranscriptionServicesRead,
+} from "../transcriptionServices";
 import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
@@ -88,7 +92,14 @@ export function MeetingsSettings() {
           />
           <SettingsRow
             label={t("meetings.settings.route")}
-            detail={<TranscriptionRouteLine read={services} />}
+            detail={
+              <>
+                <p data-testid="meetings-route-name" className="text-ink-secondary">
+                  {t(ROUTE_LABELS[device.transcriptionRoute ?? "local"])}
+                </p>
+                <TranscriptionRouteLine read={services} />
+              </>
+            }
             control={
               <button
                 type="button"
