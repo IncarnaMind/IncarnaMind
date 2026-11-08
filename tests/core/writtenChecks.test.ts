@@ -1077,8 +1077,8 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(seen).not.toContain(1);
   });
 
-  // protects=Stop while a write's sentences are checked keeps the marks that landed and lands none for a sentence whose check Stop cut short, as Check this note leaves them (#2532); fails_when=a sentence stopped mid-check lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
-  test("Stop while a write is checked keeps the marks that landed and lands no more", async () => {
+  // protects=Stop while a write's sentences are checked keeps the marks that landed, and the sentence whose check Stop cut short lands Not checked saying it was stopped, never unmarked over a found Citation (#2532, #2710); fails_when=that sentence stays unmarked or lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
+  test("Stop while a write is checked keeps the marks that landed and says the rest were stopped", async () => {
     const calls: ModelCall[] = [];
     let started: Core | null = null;
     let page: MindClient | null = null;
@@ -1128,15 +1128,16 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     );
 
     const marks = await marksIn(core, client);
-    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-      ["Spring tides come at new and full moon .", "supported"],
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
     expect(change?.checking).toBe(2);
     expect(change?.selfCheck).toBeUndefined();
   });
 
-  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands no more (#1635); fails_when=a mark lands after Stop, or the Citations go; no_claim=what the Answer says once stopped.
+  // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands Not checked for the sentence Stop cut short (#1635, #2710); fails_when=a mark lands after Stop, the stopped sentence stays unmarked, or the Citations go; no_claim=what the Answer says once stopped.
   test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
     const calls: ModelCall[] = [];
     let started: Core | null = null;
@@ -1191,8 +1192,9 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       "+ Spring tides come at new and full moon ⟨found⟩. Neap tides are twice as strong ⟨found⟩.",
     );
     const marks = await marksIn(core, client);
-    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-      ["Spring tides come at new and full moon .", "supported"],
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon .", "supported", null],
+      ["Neap tides are twice as strong .", "not-checked", "stopped"],
     ]);
     const [change] = changesIn(stopped);
     expect(change).toMatchObject({ proposals: 1, cited: 2, checking: 2 });
