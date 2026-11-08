@@ -172,6 +172,7 @@ import type {
   Turn,
 } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
+import { detectLanguage } from "../documents/textLanguage";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
 import type { ExecAccess } from "../execution";
@@ -2814,6 +2815,7 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              requestLanguage: detectLanguage(context.question),
               filing,
               notFiled: () => {
                 wallRefusals.add("folder.wall.notFiled");

@@ -353,10 +353,16 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     },
   );
 
-  // protects=create_mind asks for the new Note's name in the request's language, named outright, English for an English request and Simplified Chinese for a Chinese one (#2770); fails_when=it asks for "their language" alone, which gave an English request a Chinese name; no_claim=the name a real model gives (the pull request's runs).
+  // protects=create_mind asks for the new Note's name in the request's language, named outright: English for an English request, Simplified Chinese for a Chinese one, and Japanese, French or German as the request is written (#2770); fails_when=it asks for "their language" alone, which gave an English request a Chinese name, or tells any other language English; no_claim=the name a real model gives (the pull request's runs).
   test.each([
     ["Write notes on these documents.", "English"],
     ["为这些文档写笔记。", "Simplified Chinese"],
+    ["これらの資料についてメモを書いてください。", "Japanese"],
+    ["Écris des notes sur les documents pour la réunion de mardi.", "French"],
+    [
+      "Schreib bitte eine Notiz zu den Dokumenten, die für die Sitzung am Dienstag wichtig sind.",
+      "German",
+    ],
   ])("a new Note's name is asked for in the request's language: %s", async (text, language) => {
     const model = toolModel(null, "Done.");
     const { core, mind } = await setUp(model);

@@ -144,38 +144,54 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");
 
-/**
- * Told only beside a record that names a part no change reached: sent with every record, it
- * moved the check's verdicts on the others (#2769).
- */
-export const UNCHANGED_PART_RULE = [
-  "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。",
-  "A sentence saying the request is done or complete is not backed beside a call with nothingChangedIn. / 有带 nothingChangedIn 的调用时，说要求已经完成的句子没有依据。",
-].join("\n");
+/** Told only beside a record that names a part no change reached: sent with every record, it moved the check's verdicts on the others (#2769). */
+export const UNCHANGED_PART_RULE =
+  "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。";
 
 const DONE_BY_COMMAND =
   "is backed when the record shows a command done and names nothing that call didn’t do.";
 
-/** What backs a request said to be done, beside a record with a change to a Note applied. */
+/** What backs a request said to be done when every call that changes something did it. */
 export const DONE_BY_NOTE_CHANGE =
   "is backed when the record shows a change to a Note applied or a command done, and names nothing those calls didn’t do.";
 
+const NOTE_WRITES: ReadonlySet<string> = new Set(["add_to_mind", "edit_mind", "create_mind"]);
+
+/** The Tool, Note and place a write aimed at: a later call with the same aim retries it. */
+function aimOf(call: AnswerToolCall): string {
+  const problem = call.mindProblem;
+  const mindId = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : "");
+  const place = [call.input.part, call.input.after].find(
+    (value): value is string => typeof value === "string",
+  );
+  // A new Note made after a failed try is the retry, whatever Note it is.
+  const note = call.tool === "create_mind" ? "" : mindId;
+  return `${call.tool}\n${note}\n${sameWords((place ?? "").trim()).toLocaleLowerCase()}`;
+}
+
 /**
- * The instructions for `record`. Beside a change to a Note applied, a request said to be done is
- * backed by it as by a command; a part no change reached has its rule. With neither, the rules
- * are the same as before #2769.
+ * Whether a request said to be done may be backed by a change to a Note: one applied, and every
+ * call that changes something did what it set out to. A failed, stopped or denied call, or a
+ * change still waiting for the User, keeps it from counting unless a later call of the same Tool
+ * applied a change to the same Note and place (#2769).
  */
-function instructionsFor(record: readonly Record<string, unknown>[]): string {
-  const changed = record.some((each) => {
-    const change = each.change;
-    return isRecord(change) && isRecord(change.state) && change.state.applied === true;
-  });
-  return [
-    changed
-      ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
-      : CLAIM_CHECK_INSTRUCTIONS,
-    ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
-  ].join("\n");
+function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeStates): boolean {
+  const applied = (call: AnswerToolCall) => {
+    const change = call.mindChange;
+    return (
+      change !== undefined &&
+      (change.proposals > 0 || change.revised === true) &&
+      states?.(change)?.applied === true
+    );
+  };
+  return (
+    calls.some(applied) &&
+    calls.every((call, at) => {
+      if (call.source === "commands") return ["done", "started"].includes(outcomeOf(call));
+      if (call.source !== "minds" || !NOTE_WRITES.has(call.tool) || applied(call)) return true;
+      return calls.slice(at + 1).some((later) => applied(later) && aimOf(later) === aimOf(call));
+    })
+  );
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -224,7 +240,6 @@ function outcomeOf(call: AnswerToolCall): string {
   return "done";
 }
 
-/** Where in a Note a call was told to change; null for the whole Note or the User's selection. */
 function partOf(call: AnswerToolCall): string | null {
   const part = call.source === "minds" ? call.input.part : undefined;
   return typeof part === "string" && part.trim() !== "" ? part.trim() : null;
@@ -312,6 +327,7 @@ function commandRecordOf(done: CommandDone) {
 function recordOf(
   calls: readonly AnswerToolCall[],
   names: MindNames,
+  focused: string | null,
   states?: ChangeStates,
   spans?: PartSpans,
 ) {
@@ -351,7 +367,7 @@ function recordOf(
           charts: change.charts ?? 0,
           ...(change.chartNotDrawn && { chartNotDrawn: change.chartNotDrawn }),
           revised: change.revised === true,
-          ...(change.created && { opens: "beside the Note the User is in" }),
+          ...(change.created && focused !== null && { opens: "beside the Note the User is in" }),
           ...(sentences && { sentences }),
           state,
         },
@@ -455,7 +471,7 @@ export async function unbackedClaims(
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
-  const record = recordOf(calls, named, states, parts);
+  const record = recordOf(calls, named, focused, states, parts);
   const prompt = [
     tagged("tool-record", JSON.stringify(record, null, 2), "", JUDGED_TAGS),
     tagged(
@@ -471,7 +487,12 @@ export async function unbackedClaims(
   try {
     const result = await generateText({
       model,
-      instructions: instructionsFor(record),
+      instructions: [
+        doneByNoteChange(calls, states)
+          ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
+          : CLAIM_CHECK_INSTRUCTIONS,
+        ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
+      ].join("\n"),
       prompt,
       output: Output.object({ schema: verdictSchema, name: "change-claims" }),
       maxOutputTokens: outputTokens("claimed-changes"),

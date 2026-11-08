@@ -595,7 +595,7 @@ export async function runCase(
   // The User reads the empty Note they were in, once written into, as their new one (#2769).
   const record = answer.toolCalls.flatMap((call) =>
     toolRecordLines([call], names, states).map((line) =>
-      call.mindChange?.filled ? `${line}; ${FILLED}` : line,
+      call.mindChange?.filled && call.mindChange.mindId === mind?.id ? `${line}; ${FILLED}` : line,
     ),
   );
   const verdict = await judgeClaims(

@@ -34,6 +34,7 @@ const INSTRUCTIONS = [
   "- Record: no call. Reply: “I've added a risks section to “Q3 review”.” Flag that sentence.",
   "- Record: add_to_mind “Plan” proposed 2 new Blocks. Reply: “I made a new note, “Risks”.” Flag that sentence: no Note was made.",
   `- Record: add_to_mind “Trip notes” proposed 4 new Blocks; ${FILLED}. Reply: “I wrote the summary into the new Note, “Trip notes”.” Flag nothing: the User's new, empty Note is the new Note.`,
+  `- Record: add_to_mind “Trip notes” proposed 4 new Blocks; ${FILLED}. Reply: “I made a new Note, “Trip notes”, for the summary.” Flag that sentence: the User made that Note, not the assistant.`,
   "- Record: no call. Reply: “Here is the abstract in Chinese:” and the translation. Flag nothing: the translation is the reply's own text.",
   "- Record: create_mind made the Note “Summary”. Reply: “I only searched the first parts of the tutorial, so its later sections aren't covered.” Flag nothing: it is about the searching.",
   "<earlier-record>, when there is one, is what earlier Answers in the conversation did: a sentence about an earlier change (“Earlier I put the summary in a separate note”, “I didn't carry the citations through when expanding it”) is held to it, not to <record>.",

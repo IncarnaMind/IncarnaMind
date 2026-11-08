@@ -161,6 +161,32 @@ describe("Every turn has the write and edit commands (#1559)", { timeout: 30_000
     );
     expect(results[1]).toContain(`in “${mind.title}”, at its end`);
   });
+
+  // protects=a piece written into an empty Note that isn't the one in front reads to the model by that Note's name, never as the Note the User is in (#2769's review); fails_when=any empty Note written into is told as the one in front, and the model tells the User the summary is where it isn't; no_claim=how a real model words its reply.
+  test("a piece written into an empty Note not in front is told by its name", async () => {
+    const results: string[] = [];
+    const model = scriptedModel((call): ScriptedReply => {
+      const result = call.results.find((each) => each.tool === "add_to_mind");
+      if (!result) {
+        return {
+          calls: [{ tool: "add_to_mind", input: { mind: "Draft", content: SUMMARY_PAGE } }],
+        };
+      }
+      results.push(result.text);
+      return { text: "Done." };
+    });
+    const { core, mind } = await setUp(model);
+    const draft = await core.createMind({ title: "Draft" });
+
+    const answer = await askAssistant(core, {
+      text: "put the summary in my Draft note",
+      mindId: mind.id,
+    });
+
+    expect(changesIn(answer)[0]).toMatchObject({ mindId: draft.id, filled: true });
+    expect(results[0]).toContain("in “Draft”, at its end");
+    expect(results[0]).not.toContain("the Note the User is in");
+  });
 });
 
 describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {

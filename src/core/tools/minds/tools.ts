@@ -272,6 +272,8 @@ export interface MindToolsOptions {
   } | null;
   /** The language the Answer is written in, which the model is told to ask the User in. */
   language: Language;
+  /** The language the request is written in, as `detectLanguage` tells it; null when it tells none. */
+  requestLanguage?: string | null;
   /**
    * Whether the Answer's own searches, of the Documents or the web, have given it Passages yet: new
    * text it writes then cites them (#1415). Documents given whole with the Question don't count, so
@@ -626,7 +628,6 @@ function paragraphHint(
     : `The request may mean paragraph ${index}.`;
 }
 
-/** The section under `heading`, as indexes into `all`: to the next heading as high or higher. */
 function sectionSpan(all: readonly Y.XmlElement[], heading: Y.XmlElement): BlockSpan {
   const from = all.indexOf(heading);
   const level = levelOf(heading);
@@ -2863,7 +2864,7 @@ export function mindTools(options: MindToolsOptions): {
         written,
         // An empty Note takes its first line as its name: told only the new name, the model said
         // its write went to another Note than the one the User was in (#2769).
-        written.change.filled
+        written.change.filled && focused?.mindId === mind.id
           ? `in the Note the User is in, which held nothing before and which its first line now names “${minds.list().find((each) => each.id === mind.id)?.name ?? mind.name}”`
           : `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
         checked,
@@ -2945,6 +2946,12 @@ export function mindTools(options: MindToolsOptions): {
     ].join(" ");
   };
 
+  // Answers are written in English or Chinese, but a request in another language names its Note in it.
+  const titleLanguage =
+    options.language === "zh-CN"
+      ? LANGUAGE_NAMES["zh-CN"]
+      : (options.requestLanguage ?? LANGUAGE_NAMES.en);
+
   const create: Tool = {
     name: MIND_TOOLS.create,
     description:
@@ -2955,7 +2962,7 @@ export function mindTools(options: MindToolsOptions): {
         title: {
           type: "string",
           // Named outright: told "their language", a model may take the Documents' (#2770).
-          description: `A short title, from the User's words, in ${LANGUAGE_NAMES[options.language]}, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it.`,
+          description: `A short title, from the User's words, in ${titleLanguage}, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it.`,
         },
         ...chartProperty,
         content: contentProperty,
