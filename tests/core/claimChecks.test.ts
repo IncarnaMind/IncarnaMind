@@ -3675,3 +3675,59 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
     await check([...REPORT, "", "# 附注", "", "附注内容：本节说明会计政策。"].join("\n"));
   });
 });
+
+// protects=#2576; fails_when=the check's sign comparison matches a positive sentence to the bracketed column that is its minus, or fails to match one that gives the minus; no_claim=the model's verdict, which the calculation's numbers decide.
+describe("The check against a statement line's bracketed column (#2576)", () => {
+  const LINES = {
+    en: "Intercompany eliminations £3.6m (£3.6m)",
+    "zh-CN": "内部往来抵销 3.6亿元 （3.6亿元）",
+  } as const;
+  const DOCUMENTS = { en: "Results.md", "zh-CN": "业绩.md" } as const;
+
+  test.each([
+    ["en", "Intercompany eliminations were £3.6m.", "£3.6m", "contradicted", -3_600_000],
+    ["en", "Intercompany eliminations were -£3.6m.", "-£3.6m", "supported", -3_600_000],
+    ["zh-CN", "内部往来抵销为3.6亿元。", "3.6亿元", "contradicted", -360_000_000],
+    ["zh-CN", "内部往来抵销为-3.6亿元。", "-3.6亿元", "supported", -360_000_000],
+  ] as const)(
+    "%s: the bracketed column is the source for “%s”",
+    async (language, claim, stated, verdict, value) => {
+      const line = LINES[language];
+      const bracket = language === "en" ? "(£3.6m)" : "（3.6亿元）";
+      // The model's own verdict is the other one: the calculation decides, not the model.
+      const plans = {
+        [claim]: {
+          verdict: verdict === "supported" ? "contradicted" : "supported",
+          calculation: {
+            inputs: [
+              { name: "elim", label: "Intercompany eliminations", quote: line, number: bracket },
+            ],
+            formula: "elim",
+            stated,
+          },
+          strict: { text: "same" },
+        },
+      } as const;
+      const setup = await setUpWithDocuments(checkingModel(plans), [
+        { name: DOCUMENTS[language], contents: line },
+      ]);
+      const saved = await setup.core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+      await setup.core.updateSettings({ user: { language } });
+      const document = setup.documents[0] as Document;
+
+      const result = await setup.core.checkClaim({ claim });
+
+      expect(result).toMatchObject({
+        verdict,
+        evidence: { documentId: document.id, check: "found" },
+      });
+      if (result.verdict === "not-checked") throw new Error("Not checked.");
+      expect(result.calculation?.figure.inputs.map((input) => input.number.value)).toEqual([value]);
+    },
+  );
+});

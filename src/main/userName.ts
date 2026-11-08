@@ -9,10 +9,16 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /**
  * The User's full name as macOS keeps it for their account ("Priya Raman"),
  * else the account's name: what Word itself would put on their tracked
- * changes (#107). Read once, the first time it is asked for.
+ * changes (#107). Read once, the first time it is asked for. A test launch
+ * names a fixed one, so no capture made for a pull request shows the account's
+ * real name (#2762).
  */
 export function systemUserName(log: Logger): string {
   if (known !== null) return known;
+  if (process.env.INCARNAMIND_TEST_HOOKS === "1") {
+    known = "Test Author";
+    return known;
+  }
   let name = "";
   if (process.platform === "darwin") {
     try {
