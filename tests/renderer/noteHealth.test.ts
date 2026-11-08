@@ -9,6 +9,8 @@ import {
 } from "../../src/core/api";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import {
+  type CheckRow,
+  checkRows,
   HEALTH_PARTS,
   type HealthPart,
   healthSummary,
@@ -17,7 +19,17 @@ import {
 } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import type { KeptMark } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { sentenceKey } from "../../src/shared/mindCheck";
+
+/** The words each row of the check card goes by (src/renderer/src/editor/NoteHealth.tsx). */
+const ROW_KEY = {
+  look: "look",
+  supported: "supported",
+  ownNotes: "ownNotes",
+  checking: "checking",
+  toCheck: "notChecked",
+} as const;
 
 const schema = getSchema(noteExtensions());
 
@@ -532,5 +544,67 @@ describe("A Mind's health", () => {
 
     expect(health.toCheck).toHaveLength(2);
     expect(health.tableCells).toEqual(health.toCheck);
+  });
+});
+
+describe("The check card's rows (#2831)", () => {
+  const say = (language: "en" | "zh-CN", row: CheckRow, count: number) =>
+    translate(
+      language,
+      count === 1 ? `checks.row.${ROW_KEY[row]}.one` : `checks.row.${ROW_KEY[row]}`,
+      { count: String(count) },
+    );
+
+  // protects=the card counts sentences, each once by its one state, in one row a state, and the rows add up to the sentences a check reads, in English and Chinese, with no row of Citations and no claim noun (#2831's acceptance); fails_when=a sentence counts in two rows, a Citation found is a row, a row says "claim", or the rows don't add up; no_claim=how the rows look.
+  test("a Note with a sentence in each state shows one row a state, adding up to the sentences checked", () => {
+    const doc = docOf(
+      paragraph(checked("Neap tides are twice as strong.", "unsupported")),
+      paragraph(checked("Revenue fell 5% in the quarter.", "contradicted")),
+      paragraph(checked("Spring tides come at full moon.", "supported"), citation("not-found")),
+      paragraph(checked("Spring tides come at new moon too.", "supported"), citation("found")),
+      paragraph(checked("Sea levels rose by a metre in a century.", "supported")),
+      paragraph(checked("The harbour floods every winter here.", "checking")),
+      paragraph(checked("The ferry runs twice a day.", "not-checked", "failed")),
+      paragraph(text("The harbour office posts the times each week.")),
+    );
+    const health = healthOf(doc);
+    const rows = checkRows(health);
+
+    expect(rows.map(({ row, places }) => [row, places.length])).toEqual([
+      ["look", 3],
+      ["supported", 2],
+      ["checking", 1],
+      ["toCheck", 2],
+    ]);
+    const counted = rows.filter(({ row }) => row !== "ownNotes");
+    expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
+    expect(new Set(counted.flatMap(({ places }) => places)).size).toBe(health.checkable);
+
+    expect(rows.map(({ row, places }) => say("en", row, places.length))).toEqual([
+      "3 need a look",
+      "2 supported",
+      "1 being checked",
+      "2 not checked",
+    ]);
+    expect(rows.map(({ row, places }) => say("zh-CN", row, places.length))).toEqual([
+      "3 句需要留意",
+      "2 句有依据",
+      "1 句正在核对",
+      "2 句未核对",
+    ]);
+    for (const language of ["en", "zh-CN"] as const) {
+      const words = rows.map(({ row, places }) => say(language, row, places.length)).join(" ");
+      expect(words).not.toMatch(/claim|Citation|说法|引用/);
+    }
+    expect(say("en", "look", 1)).toBe("1 needs a look");
+    expect(say("zh-CN", "ownNotes", 1)).toBe("1 句仅以你的笔记为依据");
+  });
+
+  // protects=rows with nothing don't show: a Note checked whole, all supported, has the supported row alone (#2831); fails_when=an empty row shows, or Citations found make a row; no_claim=none beyond protects.
+  test("rows with nothing don't show", () => {
+    const doc = docOf(
+      paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+    );
+    expect(checkRows(healthOf(doc)).map(({ row }) => row)).toEqual(["supported"]);
   });
 });

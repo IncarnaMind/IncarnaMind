@@ -1358,11 +1358,16 @@
     padding: 1px;
     border-radius: 3px;
   }
-  :is(.check-row, .check-badge-mark)[data-part="found"] .mind-health-icon {
+  :is(.check-row, .check-badge-mark):is([data-part="found"], [data-part="supported"])
+    .mind-health-icon {
     padding: 0;
     color: var(--color-success);
   }
-  :is(.check-row, .check-badge-mark):is([data-part="unsupported"], [data-part="notFound"])
+  :is(.check-row, .check-badge-mark):is(
+      [data-part="unsupported"],
+      [data-part="notFound"],
+      [data-part="look"]
+    )
     .mind-health-icon {
     background: var(--color-warning);
     color: var(--color-sheet);
@@ -1932,6 +1937,12 @@
       outline: 2px solid var(--color-accent);
       outline-offset: -2px;
     }
+  }
+  /* The supported sentences only the User's own notes back, named under the supported row: its
+     mark sits under that row's words. */
+  .check-row--under {
+    padding-inline-start: 32px;
+    grid-template-columns: 16px 1fr auto;
   }
   .check-row-next {
     display: inline-flex;

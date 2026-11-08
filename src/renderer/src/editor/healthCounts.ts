@@ -108,6 +108,8 @@ export interface NoteHealth {
   noCitation: number[];
   /** The supported claims whose only evidence is one of the User's own notes (#335). */
   ownNotes: number[];
+  /** The covered claims a check found supported with none of their Citations not found: no look needed (#2831). */
+  supportedAt: number[];
   checkable: number;
   supported: number;
   checkedAt: string | null;
@@ -327,6 +329,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     tableCells: [],
     noCitation: [],
     ownNotes: [],
+    supportedAt: [],
     checkable: 0,
     supported: 0,
     checkedAt: null,
@@ -395,6 +398,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       else if (contradicted) health.contradicted.push(from);
       else {
         health.supported++;
+        if (missing.length === 0) health.supportedAt.push(from);
         if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
         if (kind !== "chart" && isClaim(text) && citations.length === 0)
           health.noCitation.push(from);
@@ -415,7 +419,10 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         return;
       }
       const unearned = shown.columns.filter((column) => !columnEarns(column)).length;
-      if (shown.columns.length > unearned) health.supported++;
+      if (shown.columns.length > unearned) {
+        health.supported++;
+        health.supportedAt.push(pos);
+      }
       for (let at = 0; at < unearned; at++) {
         health.toCheck.push(pos);
         health.failed.push(pos);
@@ -425,6 +432,31 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
   );
   health.lookClaims.sort((a, b) => a - b);
   return health;
+}
+
+/**
+ * The check card's rows (#2831): its sentences, each in one row by its one state, so the rows add
+ * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
+ * not found: its own card says which), what is supported, with the ones only the User's own notes
+ * back named under it (`ownNotes`, of the supported), what is being checked and what isn't
+ * checked. A sentence the last whole check couldn't sort is named on that check's line, never in
+ * a row (#2313). Rows with none are left out.
+ */
+export const CHECK_ROWS = ["look", "supported", "ownNotes", "checking", "toCheck"] as const;
+export type CheckRow = (typeof CHECK_ROWS)[number];
+
+export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
+  const unexamined = new Set(health.unexamined);
+  const places: Record<CheckRow, readonly number[]> = {
+    look: health.lookClaims,
+    supported: health.supportedAt,
+    ownNotes: health.ownNotes,
+    checking: health.checking,
+    toCheck: health.toCheck.filter((pos) => !unexamined.has(pos)),
+  };
+  return CHECK_ROWS.flatMap((row) =>
+    places[row].length > 0 ? [{ row, places: places[row] }] : [],
+  );
 }
 
 /** What a check found and what is left of a Mind, for the card's one summary line (#1941). */
