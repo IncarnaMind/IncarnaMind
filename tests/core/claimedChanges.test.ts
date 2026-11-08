@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { CLAIM_CHECK_INSTRUCTIONS, unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
@@ -240,6 +240,76 @@ describe("The quick model's verdict", () => {
 
   test("an unreadable verdict finds nothing", async () => {
     expect((await check(judge("not JSON"), "An honest Answer.")).claims).toEqual([]);
+  });
+});
+
+/** An edit_mind of one part of “Q3 review”: done with `change`, or failed with `problem`. */
+const partCall = (
+  id: string,
+  part: string | null,
+  change: Partial<MindChange> | null,
+  problem: "length" | "uncited" = "length",
+): AnswerToolCall => ({
+  ...mindCall("edit_mind", change),
+  id,
+  input: part === null ? {} : { part },
+  ...(change === null && { mindProblem: { kind: problem, mindId: "q3" } }),
+});
+
+const recordRead = async (calls: AnswerToolCall[]) => {
+  const model = judge({ claims: [] });
+  await check(model, "The section is longer now.", calls);
+  return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+};
+
+describe("What the record tells the check of a part and a rewrite (#2769)", () => {
+  // protects=a part of a Note whose every call failed, while another part of it changed, is named in the record as unchanged, in English and Chinese, and a part that failed then changed, or a Note changed as a whole, names none; fails_when=the check reads only that the Note changed, and backs the failed part's claim, or names a part that did change; no_claim=the judge's verdicts (the probes and runs).
+  test.each([
+    ["Risks", "Outlook"],
+    ["风险", "下周计划"],
+  ])("a part every call failed on is named unchanged: %s", async (failed, other) => {
+    const prompt = await recordRead([
+      partCall("a", failed, null),
+      partCall("b", other, { revised: true }),
+      partCall("c", other, null, "uncited"),
+      partCall("d", failed, null, "uncited"),
+    ]);
+    expect(prompt.split('nothingChangedIn\\": ')).toHaveLength(3);
+    expect(prompt).toContain(`\\"nothingChangedIn\\": \\"${failed}\\"`);
+    expect(prompt).not.toContain(`\\"nothingChangedIn\\": \\"${other}\\"`);
+    expect(prompt).not.toContain('\\"part\\"');
+
+    const later = await recordRead([
+      partCall("a", failed, null),
+      partCall("b", other, { revised: true }),
+      partCall("c", failed, { revised: true }),
+    ]);
+    expect(later).not.toContain('nothingChangedIn\\": ');
+    const whole = await recordRead([partCall("a", failed, null), partCall("b", null, {})]);
+    expect(whole).not.toContain('nothingChangedIn\\": ');
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("A call with nothingChangedIn failed");
+  });
+
+  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
+  test("a rewrite read as sentences taken out and written new is told in words", async () => {
+    const prompt = await recordRead([
+      partCall("a", "下周要跟客户开会", {
+        proposals: 1,
+        changed: 1,
+        sentences: {
+          kept: 0,
+          takenOut: 1,
+          shortened: 0,
+          rewritten: 0,
+          written: 2,
+          named: { takenOut: ["下周要跟客户开会，聊聊合同的事。"], rewritten: [] },
+        },
+      }),
+    ]);
+    expect(prompt).toContain(
+      "What it does to the User's sentences there: 1 taken out whole (“下周要跟客户开会，聊聊合同的事。”); 2 sentences written new.",
+    );
+    expect(prompt).not.toContain('rewritten\\": 0');
   });
 });
 

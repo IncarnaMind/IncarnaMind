@@ -192,7 +192,6 @@ describe("What an edit did to the User's sentences is said from the change, not 
       reply:
         'Deleted "Spaces are allocated by the landlord." from the Parking paragraph in "Lease terms", leaving the other two sentences in place.',
       said: "What it does to the User's sentences there: 1 taken out whole (“Spaces are allocated by the landlord.”); 2 joined and rewritten as 1 (“Parking: the tenant may use six underground spaces.”, “Each costs 800 a month.”).",
-      counts: { takenOut: 1, rewritten: 2, written: 1, kept: 0 },
       card: "Changed 1 paragraph in “Lease terms”",
       line: "Changed 1 paragraph",
     },
@@ -203,7 +202,6 @@ describe("What an edit did to the User's sentences is said from the change, not 
       reply:
         "已在「租赁条款」的停车位一段删去关于车位数量的一句话；其余两句（车位费用、车位由出租方分配）保留。",
       said: "What it does to the User's sentences there: none taken out whole; 3 joined and rewritten as 1 (“停车位：承租方可使用地下停车位 6 个。”, “每个车位每月 800 元。”, “车位由出租方分配。”). None of them went.",
-      counts: { takenOut: 0, rewritten: 3, written: 1, kept: 0 },
       card: "已修改“租赁条款”中的 1 段",
       line: "修改了 1 个段落",
     },
@@ -238,9 +236,7 @@ describe("What an edit did to the User's sentences is said from the change, not 
       mind.id,
       { model: judge, names, signal: new AbortController().signal },
     );
-    for (const [key, count] of Object.entries(each.counts)) {
-      expect(judged.join("")).toContain(`\\"${key}\\": ${count}`);
-    }
+    expect(judged.join("")).toContain(each.said);
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate(each.language === "zh" ? "zh-CN" : "en", key, params);
     const [row] = changedMinds(answer);
