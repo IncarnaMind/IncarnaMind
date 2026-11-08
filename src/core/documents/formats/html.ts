@@ -395,8 +395,12 @@ export function htmlTextToMarkdown(source: string): string {
     startTag(name, tag, selfClosing);
     // A script, style, textarea or title is raw text until its own end tag: a "<" in it
     // is not markup, and "a<b&&c>d" must not open or close elements (#762). Inside svg or
-    // math a title is not raw text, and an unclosed one must not swallow the page (#2439).
-    if (!selfClosing && RAW_TEXT.has(name) && !isOpen("svg") && !isOpen("math")) {
+    // math only a title is not raw text, and an unclosed one must not swallow the page (#2439).
+    if (
+      !selfClosing &&
+      RAW_TEXT.has(name) &&
+      !(name === "title" && (isOpen("svg") || isOpen("math")))
+    ) {
       const end = rawEnd(source, at, name);
       const raw = source.slice(at, end < 0 ? source.length : end);
       if (name === "textarea" || name === "title") textAfter(raw);
