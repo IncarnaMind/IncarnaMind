@@ -673,8 +673,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         rows.push({ ...finding(target), result: unavailable(again) });
         continue;
       }
-      if (savedFigure.workbook.text || savedFigure.workbook.changes.length > 0)
-        calculation = again.figure;
+      if (savedFigure.workbook.changes.length > 0) calculation = again.figure;
       else sourceInput = again.cell;
     } else if (replayed) {
       calculation = replay(target, calculations);

@@ -2994,7 +2994,7 @@ export interface WorkbookFigureStep {
 export interface FigureFromWorkbook {
   /**
    * The figure's cell, with its formula and the number it shows read as an input is, cited to
-   * the cell: a Check reads it again there.
+   * the cell: a Check reads it again there. Null for a text figure, which no arithmetic holds.
    */
   cell: WorkbookFigureStep & { input: FigureInput | null };
   /** The formulas it is worked out through, nearest first, its own excluded. */
