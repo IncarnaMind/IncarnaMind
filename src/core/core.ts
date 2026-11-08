@@ -1710,6 +1710,17 @@ export function createCore(adapters: CoreAdapters): Core {
     return walledFolderId(folderId);
   };
   /**
+   * Whether a Note may read again the Document a Citation names (#1934): never a Document kept
+   * inside a walled Folder the Note is outside. Recheck, Add to Note, the edit's kept Citations
+   * and a figure's inputs all ask this one question, so no path forgets the wall as Edit with AI
+   * did (#2746). A caller with no Note (an Answer in the assistant, a Document's viewer) is
+   * reading as browsing is, and may.
+   */
+  const mayRecheckIn = (mindId: string | null, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    return wall === null || mindId === null || wall === walledFolder(mindId);
+  };
+  /**
    * The one place deciding where the assistant files what it makes (#1934): work behind the wall
    * `wallId` files it in that Folder, or in a Folder inside it when that is the one `asked`; it
    * never leaves the wall. Work outside every wall never files in a walled Folder. Null: it
@@ -2810,7 +2821,11 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
-    recheck: (attributes) => recheckKept(documents, attributes),
+    // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
+    recheck: (attributes, mindId) =>
+      typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)
+        ? recheckKept(documents, attributes)
+        : null,
     writing: (mindId, place, part) =>
       events.emit("mind.writing", { mindId, place, ...(part && { part }) }),
     estimate: (choice, parts) => {
@@ -2922,12 +2937,8 @@ export function createCore(adapters: CoreAdapters): Core {
         scope,
         personId: settings.get().user.personId,
         language: settings.get().language,
-        keptInside: (documentId) => {
-          const wall = walledDocument(documentId);
-          return wall === null || wall === walledFolder(mind.id)
-            ? null
-            : (walledFolderName(documentId) ?? documentId);
-        },
+        keptInside: (documentId) =>
+          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
       });
     });
   }
@@ -3097,10 +3108,7 @@ export function createCore(adapters: CoreAdapters): Core {
    * for a Citation made before the wall (#1934).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    const wall = walledDocument(input.documentId);
-    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
-      return recheckCitation(documents, input);
-    }
+    if (mayRecheckIn(input.mindId, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
