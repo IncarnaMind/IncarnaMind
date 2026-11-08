@@ -4,12 +4,17 @@
  * that copy changed is merged into the Mind as Yjs merges two devices' edits:
  * the User's edits stay theirs, and a Proposal whose text they changed
  * arrives out of date (`outOfDateProposals` in src/shared/proposals.ts).
- * Merged, the changes may add Proposals and nothing else: the Mind's text
- * without them must read as it does now, or nothing is merged.
+ * Merged, the changes may add Proposals and nothing else: the User's text
+ * (`usersText`) must read as it does now, or nothing is merged.
  */
 import * as Y from "yjs";
 import { INLINE_NODES, NODE_CHARACTER, readProposalAttribute } from "../../shared/proposals";
-import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE, PROPOSAL_INSERT_MARK } from "../api";
+import {
+  GENERATED_MARK,
+  MIND_CONTENT_FIELD,
+  PROPOSAL_ATTRIBUTE,
+  PROPOSAL_INSERT_MARK,
+} from "../api";
 
 interface Run {
   insert: unknown;
@@ -24,23 +29,32 @@ export function docOf(state: Uint8Array): Y.Doc {
 }
 
 /**
- * The Blocks' text without what Proposals add, with what they remove, Block
- * by Block and an inline node as one character: the text as the User has it.
+ * The User's text: the Blocks' text without what Proposals add, with what they remove, and
+ * without AI text they haven't made theirs (#95), Block by Block and an inline node as one
+ * character. A Block with none of it reads as nothing: an empty line, or a heading the assistant
+ * wrote, holds none of the User's words for a change to take.
  */
-export function textWithoutProposals(parent: Y.XmlFragment | Y.XmlElement): string {
+export function usersText(parent: Y.XmlFragment | Y.XmlElement): string {
   let text = "";
   for (const child of parent.toArray()) {
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as Run[]) {
-        if (run.attributes && PROPOSAL_INSERT_MARK in run.attributes) continue;
+        if (
+          run.attributes &&
+          (PROPOSAL_INSERT_MARK in run.attributes || GENERATED_MARK in run.attributes)
+        )
+          continue;
         text += typeof run.insert === "string" ? run.insert : NODE_CHARACTER;
       }
     } else if (child instanceof Y.XmlElement) {
       if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert")
         continue;
-      text += INLINE_NODES.has(child.nodeName)
-        ? NODE_CHARACTER
-        : `<${child.nodeName}>${textWithoutProposals(child)}</${child.nodeName}>`;
+      if (INLINE_NODES.has(child.nodeName)) {
+        text += NODE_CHARACTER;
+        continue;
+      }
+      const inside = usersText(child);
+      if (inside !== "") text += `<${child.nodeName}>${inside}</${child.nodeName}>`;
     }
   }
   return text;
@@ -57,9 +71,9 @@ export function forkChanges(base: Uint8Array, fork: Y.Doc, now: Uint8Array): Uin
   const merged = docOf(now);
   try {
     const blocks = merged.getXmlFragment(MIND_CONTENT_FIELD);
-    const before = textWithoutProposals(blocks);
+    const before = usersText(blocks);
     Y.applyUpdate(merged, update);
-    return textWithoutProposals(blocks) === before ? update : null;
+    return usersText(blocks) === before ? update : null;
   } finally {
     merged.destroy();
   }

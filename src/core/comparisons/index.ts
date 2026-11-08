@@ -36,7 +36,6 @@ import {
   MAX_COMPARISON_TEXT,
   MIN_COMPARISON_COLUMN_WIDTH,
 } from "../../shared/comparisons";
-import { recordProposalRequest, targetHash } from "../../shared/proposals";
 import {
   comparisonCellChecked,
   comparisonCellContent,
@@ -91,12 +90,13 @@ import {
   type ComparisonTableRef,
   type CoreEvents,
   PROPOSAL_ATTRIBUTE,
-  type ProposalAttribute,
   type RunStop,
 } from "../api";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
+import type { Changes } from "../proposals/apply";
+import { blockProposal } from "../proposals/write";
 import { classifyProviderError } from "../providers/providerErrors";
 import { type ItemOutcome, RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
 import type { TaskEnd, TaskKind, TaskRun } from "../runs/tasks";
@@ -294,8 +294,7 @@ export interface ComparisonsOptions {
   };
   /** The Documents among `ids` that this Mind's checks may use as evidence (#80). */
   evidence(ids: readonly string[], mindId: string): string[];
-  /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
-  checkpoint(mindId: string): void;
+  changes: Changes;
   tasks: ComparisonTasks;
   emit<E extends "comparison.filling" | "comparison.structure">(
     event: E,
@@ -2285,13 +2284,8 @@ export function createComparisons(options: ComparisonsOptions) {
         text: question.text,
         ...(question.label && { label: question.label }),
       }));
-      const proposal: ProposalAttribute = {
-        id: randomUUID(),
-        request,
-        target: targetHash(""),
-        kind: "insert",
-      };
-      const table = createElement({
+      const proposal = blockProposal({ id: randomUUID(), request }, "insert", "");
+      const table = {
         type: COMPARISON_TABLE_NODE,
         attrs: {
           [BLOCK_ID_ATTRIBUTE]: tableId,
@@ -2306,19 +2300,21 @@ export function createComparisons(options: ComparisonsOptions) {
           attrs: { documentId: document.id, documentName: document.name },
           content: columns.map((column) => cellJSON(column.id)),
         })),
+      };
+      // It waits for the User, as one change: Accept saves the Checkpoint.
+      const change = options.changes.start({
+        mindId,
+        request,
+        made: {
+          source: "comparison-table",
+          tableId,
+          providerId: model.providerId,
+          modelId: model.modelId,
+        },
       });
-      options.checkpoint(mindId);
-      content.edit(mindId, (blocks) => {
-        blocks.insert(placeOf(blocks, afterBlockId), [table]);
-        if (blocks.doc) {
-          recordProposalRequest(blocks.doc, request, {
-            source: "comparison-table",
-            tableId,
-            providerId: model.providerId,
-            modelId: model.modelId,
-            createdAt: new Date().toISOString(),
-          });
-        }
+      change.write((blocks) => {
+        blocks.insert(placeOf(blocks, afterBlockId), [createElement(table)]);
+        return { changed: true, value: null };
       });
       startFill(mindId, tableId, model);
       return { started: true, tableId };

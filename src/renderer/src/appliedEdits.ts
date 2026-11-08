@@ -971,6 +971,9 @@ function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
   }
   const edit = latest.get(editor);
   if (outcome === "accept" && edit?.request === line.request) {
+    // Held back, it waited: applied now, it is accepted, which saves a Checkpoint first (#113).
+    // Not awaited: the core takes it before the change this sends next.
+    core.saveCheckpoint(edit.mindId, "accept").catch(useAppStore.getState().reportError);
     const changed = apply(edit, line.request);
     if (changed.paragraphs + changed.tables > 0) speak(edit.mindId, appliedMessage(changed));
     return;

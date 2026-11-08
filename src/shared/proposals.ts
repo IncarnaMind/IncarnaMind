@@ -719,6 +719,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
     ...(isText(record.reason) && { reason: record.reason }),
     ...(requested && { requested }),
     ...(record.removesOnly === true && { removesOnly: true }),
+    ...(record.keepsLeftOut === true && { keepsLeftOut: true }),
   };
 }
 
