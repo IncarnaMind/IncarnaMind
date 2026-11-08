@@ -36,6 +36,16 @@ describe("the Citations a quote is checked with", () => {
       [2],
     ],
     [
+      "Revenue rose (in 2026.[^1]) “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
+    [
+      "Revenue rose [as stated.[^1]] “the fee is 5% per week” said the board[^2].",
+      "the fee is 5% per week",
+      [2],
+    ],
+    [
       "Costs cover rent, salaries, etc.[^1] “the fee is 5% per week” said the board[^2].",
       "the fee is 5% per week",
       [2],

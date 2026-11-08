@@ -108,8 +108,13 @@ const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»￼]*\s["'”’)\]）」』
 /** Opening quotation marks the splitter leaves at the end of a sentence ("增长了。“"). */
 const OPENING_AT_END = /[“‘「『«„‹]+$/u;
 
-/** Whether the shared splitter reads on past the full stop that ends `text`, and its closing marks and Citations: an abbreviation or a page reference it lists. */
-const readsOnPast = (text: string) => (sentenceSpans(`${text} 1`).at(-1)?.from ?? 0) < text.length;
+/**
+ * Whether the shared splitter reads on past the full stop at `stop` in `text`, which ends with the
+ * stop's closing marks and Citations: an abbreviation or a page reference it lists. A sentence it
+ * starts after the stop, at a bracket that closes ("(in 2026.[^1])"), is a cut.
+ */
+const readsOnPast = (text: string, stop: number) =>
+  (sentenceSpans(`${text} 1`).at(-1)?.from ?? 0) <= stop;
 
 /**
  * The shared splitter's sentences cut again before each opening quotation mark: after a full
@@ -124,7 +129,7 @@ function cutBeforeQuotes(read: string): Span[] {
     let start = from;
     for (const stop of read.slice(from, to).matchAll(STOP_BEFORE_QUOTE)) {
       const at = from + stop.index;
-      if (readsOnPast(read.slice(start, at + stop[0].trimEnd().length))) continue;
+      if (readsOnPast(read.slice(start, at + stop[0].trimEnd().length), at - start)) continue;
       pieces.push({ start, end: at + stop[0].length });
       start = at + stop[0].length;
     }

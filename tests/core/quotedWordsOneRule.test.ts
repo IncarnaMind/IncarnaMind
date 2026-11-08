@@ -1148,3 +1148,21 @@ describe.each([
     expect(await costsBoardCheck(sentence("the board met on 4 May"))).toBe("found");
   });
 });
+
+// protects=a stop inside brackets, its Citation and the bracket that closes after it end the sentence for quoted words as the shared splitter reads them, so a lowercase quote after them is checked with its own sentence's Citation (#2712); fails_when=the bracket after the Citation reads as the splitter reading on, and the Board's Citation reads found for words only the Schedule holds; no_claim=the claim checks, whose sentences are the splitter's.
+describe.each([
+  (words: string) => `Revenue rose (in 2026.[^1]) “${words}” said the board[^2].`,
+  (words: string) => `Revenue rose [as stated.[^1]] “${words}” said the board[^2].`,
+])(
+  "a quote after a bracket that closes after a stop's Citation: %s",
+  { timeout: 30_000 },
+  (sentence) => {
+    test("words only the previous sentence's Document holds: not found", async () => {
+      expect(await boardCheck("en", sentence(REVENUE.en.notFound))).toBe("not-found");
+    });
+
+    test("words its own Citation's Document holds: found", async () => {
+      expect(await boardCheck("en", sentence(REVENUE.en.found))).toBe("found");
+    });
+  },
+);
