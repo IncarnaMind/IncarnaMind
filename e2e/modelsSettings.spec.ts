@@ -211,7 +211,7 @@ test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follo
     await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");
     await expect(add.getByTestId("models-back")).toBeFocused();
     await window.keyboard.press("Enter");
-    await expect(settings.getByTestId("your-providers")).toContainText("还没有添加服务。");
+    await expect(settings.getByTestId("your-providers")).toContainText("还没有添加服务");
     await expect(settings.getByTestId("model-default-chatModel")).toBeDisabled();
   } finally {
     await app.close();

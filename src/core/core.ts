@@ -3085,6 +3085,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return { currency: cap.currency, amount: cap.amount - used };
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
+    checkingEarly: (event) => events.emit("mindCheck.early", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 

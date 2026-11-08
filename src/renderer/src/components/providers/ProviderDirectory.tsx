@@ -9,11 +9,10 @@ import { kindOfCatalogId } from "../../../../core/providers/catalog/providers";
 import { useLanguage, useT } from "../../i18n";
 import { SearchLineIcon } from "../lineIcons";
 import { SettingsBackLink } from "../SettingsBackLink";
+import { SettingsGroup, SettingsRowAction, SettingsSection } from "../settings/SettingsGroup";
 import { type DirectoryGroup, directoryGroups } from "./directoryGroups";
 import { ProviderLogo } from "./ProviderLogo";
 import { keyProviderName, savedProviderFor } from "./shared";
-
-const headClass = "text-[13px] leading-5 font-semibold text-ink";
 
 const regionOf = (entry: CatalogProvider, group: DirectoryGroup): string | null => {
   const region = group === "international" ? "intl" : group === "china" ? "cn" : null;
@@ -37,7 +36,7 @@ export function ProviderDirectory({
   useEffect(() => search.current?.focus(), []);
   const groups = directoryGroups(language, query);
   return (
-    <section data-testid="provider-directory" className="@container flex flex-col gap-4">
+    <section data-testid="provider-directory" className="flex flex-col gap-4">
       <SettingsBackLink
         label={t("settings.pages.models")}
         testId="models-back"
@@ -72,34 +71,36 @@ export function ProviderDirectory({
           {t("models.directory.noMatch", { query: query.trim() })}
         </p>
       )}
-      {groups.map(({ group, providers: entries }) => (
-        <div
-          key={group}
-          data-testid="provider-directory-group"
-          data-group={group}
-          className="flex flex-col gap-2"
-        >
-          <h5 className={headClass}>{t(`models.directory.group.${group}`)}</h5>
-          <div className="grid grid-cols-1 gap-2 @[30rem]:grid-cols-2">
-            {entries.map((entry) => {
-              const region = regionOf(entry, group);
-              return (
-                <Tile
-                  key={entry.id}
-                  entry={entry}
-                  added={savedProviderFor(providers, entry.id, region, language) !== undefined}
-                  onOpen={() => onOpen(entry.id, region)}
-                />
-              );
-            })}
-          </div>
+      {groups.length > 0 && (
+        <div className="flex flex-col gap-6">
+          {groups.map(({ group, providers: entries }) => (
+            <div key={group} data-testid="provider-directory-group" data-group={group}>
+              <SettingsSection title={t(`models.directory.group.${group}`)} titleAs="h5">
+                <SettingsGroup>
+                  {entries.map((entry) => {
+                    const region = regionOf(entry, group);
+                    return (
+                      <Entry
+                        key={entry.id}
+                        entry={entry}
+                        added={
+                          savedProviderFor(providers, entry.id, region, language) !== undefined
+                        }
+                        onOpen={() => onOpen(entry.id, region)}
+                      />
+                    );
+                  })}
+                </SettingsGroup>
+              </SettingsSection>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </section>
   );
 }
 
-function Tile({
+function Entry({
   entry,
   added,
   onOpen,
@@ -119,25 +120,24 @@ function Tile({
           ?.name ?? answers)
       : null;
   return (
-    <button
-      type="button"
-      data-testid="provider-directory-entry"
+    <SettingsRowAction
+      testId="provider-directory-entry"
       data-catalog-id={entry.id}
       data-opens={`entry:${entry.id}`}
-      onClick={onOpen}
-      className="flex min-w-0 items-center gap-2.5 rounded-lg p-2.5 text-left shadow-[inset_0_0_0_1px_var(--color-rule)] hover:bg-frame hover:shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
-    >
-      <ProviderLogo id={entry.id} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[13px] leading-[18px] font-semibold text-ink" title={name}>
+      leading={<ProviderLogo id={entry.id} />}
+      label={
+        <span className="block truncate" title={name}>
           {name}
         </span>
-        {line && (
-          <span className="truncate text-[12px] leading-[17px] text-ink-meta" title={line}>
+      }
+      detail={
+        line ? (
+          <span className="block truncate" title={line}>
             {line}
           </span>
-        )}
-      </span>
-    </button>
+        ) : undefined
+      }
+      onClick={onOpen}
+    />
   );
 }

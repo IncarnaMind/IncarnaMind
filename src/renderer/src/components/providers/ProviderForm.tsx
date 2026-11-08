@@ -1,4 +1,14 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import type {
   ChatProvider,
@@ -35,14 +45,24 @@ import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { MetaLine } from "../MetaLine";
 import { LineAction, type ProblemAction, ProblemMark } from "../ProblemLine";
+import { PopUpSelect } from "../settings/PopUpButton";
+import {
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import {
   buttonClass,
   errorTextClass,
+  fieldClass,
   fieldLabelClass,
   hintClass,
   inputClass,
   noticeClass,
   primaryButtonClass,
+  segmentClass,
+  segmentedClass,
   successTextClass,
 } from "../ui";
 import { KeyHelp } from "./KeyHelp";
@@ -152,6 +172,49 @@ function ChoiceChip({
   );
 }
 
+/** A hosted provider's regions as a segmented choice at a Settings row's end: still radio buttons. */
+function RegionChoice({
+  name,
+  labelId,
+  groupRef,
+  regions,
+  value,
+  label,
+  onChange,
+}: {
+  name: string;
+  labelId: string;
+  groupRef: RefObject<HTMLDivElement | null>;
+  regions: readonly Endpoint[];
+  value: string | undefined;
+  label(region: Endpoint): string;
+  onChange(region: string): void;
+}) {
+  return (
+    <div
+      ref={groupRef}
+      role="radiogroup"
+      aria-labelledby={labelId}
+      data-testid="provider-region"
+      className={segmentedClass}
+    >
+      {regions.map((region) => (
+        <label key={region.id} className={segmentClass}>
+          <input
+            type="radio"
+            name={name}
+            value={region.id}
+            checked={region.id === value}
+            onChange={() => onChange(region.id)}
+            className="sr-only"
+          />
+          {label(region)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Pick a provider, paste a key (and a URL for an OpenAI-compatible server),
  * keep the model its line names or Change it, test the connection,
@@ -167,6 +230,7 @@ export function ProviderForm({
   keepDefault = false,
   initialEndpoint = null,
   initialKey = "",
+  grouped = false,
 }: {
   /** Saved providers, to tell the User when a key is already stored. */
   providers: readonly ChatProvider[];
@@ -185,6 +249,8 @@ export function ProviderForm({
   initialEndpoint?: string | null;
   /** The key the User typed where the service wasn't named, kept as the service is picked. */
   initialKey?: string;
+  /** Settings' page: groups of rows, as every Settings page is. First run's card is not. */
+  grouped?: boolean;
 }) {
   const t = useT();
   const id = useId();
@@ -514,7 +580,7 @@ export function ProviderForm({
       {t("providers.untested")}
     </span>
   );
-  const modelIdField = (
+  const modelIdInput = (className: string) => (
     <input
       id={`${id}-model-id`}
       ref={modelText}
@@ -524,15 +590,349 @@ export function ProviderForm({
       spellCheck={false}
       placeholder={example && t("providers.form.modelExample", { model: example })}
       data-testid="provider-model-text"
-      className={inputClass}
+      className={className}
     />
   );
+  const modelIdField = modelIdInput(inputClass);
+  const modelLineParts = [
+    t("providers.form.modelLine", { model: shownName(modelId) }),
+    <LineAction
+      key="change"
+      ref={changeModel}
+      action={{
+        label: t("providers.form.change"),
+        ariaLabel: t("providers.form.changeModel"),
+        testId: "provider-model-change",
+        onClick: showModelPicker,
+      }}
+    />,
+  ];
+  const onModelKeyDown = (event: KeyboardEvent<HTMLSelectElement>) => {
+    if (event.key !== "Escape" || otherModel || !choices.includes(modelId)) return;
+    // Esc closes the innermost thing open: the list, back to its line, not the card or Settings.
+    event.preventDefault();
+    event.stopPropagation();
+    flushSync(() => setModelOpen(false));
+    changeModel.current?.focus();
+  };
+  const onModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const chosen = event.target.value;
+    setOtherModel(chosen === OTHER_MODEL);
+    setModelId(chosen === OTHER_MODEL ? "" : chosen);
+    setTest(null);
+    setError(null);
+  };
   const rowKinds = ROW[language].filter((each) => offered.includes(each));
   // A key that fits no service's prefix may be one the services under More… issue.
   const showMore =
     moreOpen ||
     (!keyCheck.check.ok && keyCheck.check.service === null && key.text.startsWith("sk-"));
   const underMore = offered.filter((each) => !rowKinds.includes(each));
+
+  const submitButton = (
+    <button
+      type="submit"
+      data-testid="provider-use-key"
+      disabled={!complete || keyBlocked || keyCheck.blocked || busy !== null}
+      className={primaryButtonClass}
+    >
+      {busy
+        ? t(keyRequired ? "providers.form.checking" : "providers.form.connecting")
+        : t(
+            keyRequired
+              ? "providers.form.useKey"
+              : local
+                ? "providers.form.save"
+                : "providers.form.connect",
+          )}
+    </button>
+  );
+  const outcomeLines = (test?.ok === false || error) && (
+    <div ref={outcome} className="flex flex-col gap-3">
+      {test && !test.ok && (
+        <TestResult
+          result={test}
+          model={shownName(modelId)}
+          {...(test.error.kind === "auth" && site ? { line: badKeyLine } : {})}
+          {...(test.error.kind === "auth" &&
+            otherRegion && {
+              action: {
+                label: t("providers.form.sendTo", {
+                  region: regionName(otherRegion, t, language),
+                }),
+                ariaLabel: sendToWhere,
+                title: sendToWhere,
+                testId: "provider-send-other-region",
+                onClick: () => sendTo(otherRegion),
+              },
+            })}
+          {...(test.error.kind === "data-retention" && {
+            action: {
+              label: t("answer.error.chooseModel"),
+              testId: "connection-test-choose-model",
+              onClick: openModelPicker,
+            },
+          })}
+        />
+      )}
+      {error && (
+        <p role="alert" className={errorTextClass}>
+          <ProblemMark />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+
+  if (grouped && kind) {
+    const regionChoices =
+      catalog && catalog.endpoints.length > 1 ? regionsListed(catalog.endpoints) : [];
+    const wide = `${fieldClass} block w-full`;
+    const fieldHintId = `${id}-field-hint`;
+    const reason = untestedForCitations(catalog) && modelId === recommended && (
+      <span data-testid="provider-model-reason">{t("providers.untested")}</span>
+    );
+    const modelRow =
+      keepDefault && hasDefault && choices.length > 0 ? null : choices.length === 0 ? (
+        <SettingsRow label={t("providers.form.model")} htmlFor={`${id}-model-id`}>
+          {modelIdInput(wide)}
+        </SettingsRow>
+      ) : modelLine ? (
+        <SettingsRow
+          label={<MetaLine as="div" data-testid="provider-model-line" parts={modelLineParts} />}
+          detail={reason}
+          control={docsLink || undefined}
+        />
+      ) : (
+        <SettingsRow
+          label={t("providers.form.model")}
+          htmlFor={`${id}-model`}
+          detail={otherModel ? undefined : reason}
+          control={
+            <>
+              {docsLink}
+              <PopUpSelect
+                id={`${id}-model`}
+                ref={modelPicker}
+                data-testid="provider-model"
+                value={!otherModel && choices.includes(modelId) ? modelId : OTHER_MODEL}
+                onKeyDown={onModelKeyDown}
+                onChange={onModelChange}
+                className="max-w-64"
+              >
+                {choices.map((choice) => (
+                  <option key={choice} value={choice} title={choice}>
+                    {optionName(choice)}
+                  </option>
+                ))}
+                <option value={OTHER_MODEL}>{t("providers.form.anotherModel")}</option>
+              </PopUpSelect>
+            </>
+          }
+        >
+          {otherModel && (
+            <>
+              <label htmlFor={`${id}-model-id`} className="sr-only">
+                {t("providers.form.modelId")}
+              </label>
+              {modelIdInput(wide)}
+              <span className={hintClass}>{t("providers.form.modelIdHint")}</span>
+            </>
+          )}
+        </SettingsRow>
+      );
+    const sends = (!local || away) && (
+      <ProviderSendsLine
+        provider={
+          kind === "openai-compatible"
+            ? (hostOf(baseUrl) ?? t("providers.kind.openai-compatible"))
+            : providerName
+        }
+        dataUse={catalog && dataUseOf(catalog, away)}
+      />
+    );
+    return (
+      <form data-testid="provider-form" onSubmit={submit} className="flex flex-col gap-6">
+        <SettingsSection>
+          <SettingsGroup>
+            {regionChoices.length > 0 && (
+              <SettingsRow
+                label={t("providers.form.region")}
+                labelId={`${id}-region`}
+                control={
+                  <RegionChoice
+                    name={`${id}-region`}
+                    labelId={`${id}-region`}
+                    groupRef={regionGroup}
+                    regions={regionChoices}
+                    value={endpoint?.id}
+                    label={(region) => regionName(region, t, language)}
+                    onChange={chooseRegion}
+                  />
+                }
+              />
+            )}
+            {field && (
+              <SettingsRow
+                label={field.label[words]}
+                htmlFor={`${id}-field`}
+                detailId={fieldHintId}
+                detail={
+                  field.hint && <span data-testid="provider-field-hint">{field.hint[words]}</span>
+                }
+                control={
+                  field.choices ? (
+                    <PopUpSelect
+                      id={`${id}-field`}
+                      data-testid="provider-field"
+                      aria-describedby={field.hint ? fieldHintId : undefined}
+                      value={fieldUsed}
+                      onChange={(event) => changeField(event.target.value)}
+                      className="max-w-64"
+                    >
+                      {field.choices.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {`${option.label[words]} · ${option.value}`}
+                        </option>
+                      ))}
+                    </PopUpSelect>
+                  ) : undefined
+                }
+              >
+                {!field.choices && (
+                  <input
+                    id={`${id}-field`}
+                    data-testid="provider-field"
+                    aria-describedby={field.hint ? fieldHintId : undefined}
+                    value={fieldValue}
+                    onChange={(event) => changeField(event.target.value)}
+                    onBlur={() => local && void server.detect(apiKey, fieldUsed)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={wide}
+                  />
+                )}
+              </SettingsRow>
+            )}
+            {local && (
+              <LocalServerLine
+                grouped
+                provider={keyProviderName(kind, t, language)}
+                status={server.status}
+                away={away}
+                onCheckAgain={() => void server.detect(apiKey, fieldUsed)}
+              />
+            )}
+            {kind === "openai-compatible" && (
+              <SettingsRow
+                label={t("providers.form.baseUrl")}
+                htmlFor={`${id}-base-url`}
+                detailId={`${id}-base-url-hint`}
+                detail={t("providers.form.baseUrlHint")}
+              >
+                <input
+                  id={`${id}-base-url`}
+                  type="url"
+                  required
+                  aria-describedby={`${id}-base-url-hint`}
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  onBlur={() => key.leftAddress(baseUrl)}
+                  placeholder="https://"
+                  spellCheck={false}
+                  className={wide}
+                />
+              </SettingsRow>
+            )}
+            <SettingsRow
+              label={keyRequired ? t("providers.form.apiKey") : t("providers.form.apiKeyOptional")}
+              htmlFor={`${id}-key`}
+            >
+              <input
+                id={`${id}-key`}
+                type="password"
+                value={apiKey}
+                onChange={(event) => typeKey(event.target.value)}
+                onBlur={() => local && key.text !== "" && void server.detect(apiKey, fieldUsed)}
+                autoComplete="off"
+                spellCheck={false}
+                ref={keyField}
+                aria-invalid={key.stray ? true : undefined}
+                aria-describedby={
+                  key.stray ? `${id}-stray` : refusedHere ? `${id}-refused` : undefined
+                }
+                className={wide}
+              />
+              {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
+              {refusedHere && <KeyRefusedLine id={`${id}-refused`} refused={refused} />}
+              {saved?.hasApiKey && (
+                <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>
+              )}
+              <div ref={keyLine} className="mt-1 empty:mt-0">
+                <KeyCheckLine
+                  check={keyCheck.check}
+                  provider={shortName(kind)}
+                  nameOf={shortName}
+                  {...(switchedFrom !== null && {
+                    from: {
+                      name: shortName(switchedFrom.kind),
+                      back: () => {
+                        choose(switchedFrom.kind, { keepKey: true, region: switchedFrom.region });
+                        keyCheck.agree(switchedFrom.kind);
+                      },
+                    },
+                  })}
+                  onAnyway={() => keyCheck.agree()}
+                />
+              </div>
+            </SettingsRow>
+          </SettingsGroup>
+          <SettingsHelp className="empty:hidden">
+            {catalog && (
+              <KeyHelp
+                key={`${kind}:${endpoint?.id}`}
+                catalog={catalog}
+                keyUrl={endpoint?.keyUrl ?? catalog.keyUrl}
+                provider={shortName(kind)}
+                firstRun={false}
+              />
+            )}
+            {modelRow === null && sends}
+          </SettingsHelp>
+        </SettingsSection>
+
+        {secretStorage && !secretStorage.canSave && (
+          <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
+        )}
+
+        {modelRow && (
+          <SettingsSection help={sends}>
+            <SettingsGroup>{modelRow}</SettingsGroup>
+          </SettingsSection>
+        )}
+
+        <div className="flex flex-col gap-3">
+          <div data-setup-foot className="flex flex-wrap items-center gap-3">
+            {submitButton}
+            {missing && (
+              <span
+                data-testid="provider-use-key-why"
+                className="text-[12px] leading-[18px] text-ink-meta"
+              >
+                {missing === "providers.form.needsField" && field
+                  ? t(missing, { field: field.label[words] })
+                  : t(missing, { provider: providerName })}
+              </span>
+            )}
+          </div>
+
+          {notChecked && <KeyNotCheckedLine provider={providerName} />}
+
+          {outcomeLines}
+        </div>
+      </form>
+    );
+  }
 
   return (
     <form data-testid="provider-form" onSubmit={submit} className="flex flex-col gap-3">
@@ -725,19 +1125,7 @@ export function ProviderForm({
                 <MetaLine
                   data-testid="provider-model-line"
                   className="text-[13px] leading-5 text-ink-secondary"
-                  parts={[
-                    t("providers.form.modelLine", { model: shownName(modelId) }),
-                    <LineAction
-                      key="change"
-                      ref={changeModel}
-                      action={{
-                        label: t("providers.form.change"),
-                        ariaLabel: t("providers.form.changeModel"),
-                        testId: "provider-model-change",
-                        onClick: showModelPicker,
-                      }}
-                    />,
-                  ]}
+                  parts={modelLineParts}
                 />
                 {docsLink}
               </div>
@@ -756,21 +1144,8 @@ export function ProviderForm({
                 ref={modelPicker}
                 data-testid="provider-model"
                 value={!otherModel && choices.includes(modelId) ? modelId : OTHER_MODEL}
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape" || otherModel || !choices.includes(modelId)) return;
-                  // Esc closes the innermost thing open: the list, back to its line, not the card or Settings.
-                  event.preventDefault();
-                  event.stopPropagation();
-                  flushSync(() => setModelOpen(false));
-                  changeModel.current?.focus();
-                }}
-                onChange={(event) => {
-                  const chosen = event.target.value;
-                  setOtherModel(chosen === OTHER_MODEL);
-                  setModelId(chosen === OTHER_MODEL ? "" : chosen);
-                  setTest(null);
-                  setError(null);
-                }}
+                onKeyDown={onModelKeyDown}
+                onChange={onModelChange}
                 className={inputClass}
               >
                 {choices.map((id) => (
@@ -805,22 +1180,7 @@ export function ProviderForm({
             />
           )}
           <div data-setup-foot className="flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              data-testid="provider-use-key"
-              disabled={!complete || keyBlocked || keyCheck.blocked || busy !== null}
-              className={primaryButtonClass}
-            >
-              {busy
-                ? t(keyRequired ? "providers.form.checking" : "providers.form.connecting")
-                : t(
-                    keyRequired
-                      ? "providers.form.useKey"
-                      : local
-                        ? "providers.form.save"
-                        : "providers.form.connect",
-                  )}
-            </button>
+            {submitButton}
             {missing && (
               <span data-testid="provider-use-key-why" className={hintClass}>
                 {missing === "providers.form.needsField" && field
@@ -832,42 +1192,7 @@ export function ProviderForm({
 
           {notChecked && <KeyNotCheckedLine provider={providerName} />}
 
-          {(test?.ok === false || error) && (
-            <div ref={outcome} className="flex flex-col gap-3">
-              {test && !test.ok && (
-                <TestResult
-                  result={test}
-                  model={shownName(modelId)}
-                  {...(test.error.kind === "auth" && site ? { line: badKeyLine } : {})}
-                  {...(test.error.kind === "auth" &&
-                    otherRegion && {
-                      action: {
-                        label: t("providers.form.sendTo", {
-                          region: regionName(otherRegion, t, language),
-                        }),
-                        ariaLabel: sendToWhere,
-                        title: sendToWhere,
-                        testId: "provider-send-other-region",
-                        onClick: () => sendTo(otherRegion),
-                      },
-                    })}
-                  {...(test.error.kind === "data-retention" && {
-                    action: {
-                      label: t("answer.error.chooseModel"),
-                      testId: "connection-test-choose-model",
-                      onClick: openModelPicker,
-                    },
-                  })}
-                />
-              )}
-              {error && (
-                <p role="alert" className={errorTextClass}>
-                  <ProblemMark />
-                  {error}
-                </p>
-              )}
-            </div>
-          )}
+          {outcomeLines}
         </>
       )}
     </form>

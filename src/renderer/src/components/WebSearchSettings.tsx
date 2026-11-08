@@ -1,18 +1,14 @@
-import { useId } from "react";
 import { modelName } from "../../../shared/modelName";
 import { searchesTheWeb } from "../../../shared/webSearch";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
-import { InfoTip } from "./InfoTip";
 import { providerLabel } from "./providers/shared";
 import {
-  hintClass,
-  rowStatusClass,
-  rowTitleClass,
-  ruledListClass,
-  ruledRowClass,
-  sectionTitleClass,
-} from "./ui";
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "./settings/SettingsGroup";
 
 /**
  * Settings → Search → Search the web (#128): the switch, off by default, and
@@ -27,7 +23,6 @@ export function WebSearchSettings() {
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const readiness = useAppStore((state) => state.chatReadiness);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const id = useId();
   if (on === undefined) return null;
 
   const provider = readiness && "provider" in readiness ? readiness.provider : null;
@@ -42,47 +37,33 @@ export function WebSearchSettings() {
       : null;
 
   return (
-    <section data-testid="web-search-settings">
-      <h4 className={`mb-2 ${sectionTitleClass}`}>{t("web.settings.title")}</h4>
-      <div className={ruledListClass}>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="flex items-center">
-              <label htmlFor={id} className={rowTitleClass}>
-                {t("web.settings.switch")}
-              </label>
-              <InfoTip id={`${id}-description`} text={t("web.settings.tip")} />
-            </div>
-            {on && status && (
-              <p data-testid="web-search-status" role="status" className={hintClass}>
+    <SettingsSection title={t("web.settings.title")} testId="web-search-settings">
+      <SettingsGroup>
+        <SettingsSwitchRow
+          label={t("web.settings.switch")}
+          tip={t("web.settings.tip")}
+          detail={
+            on &&
+            status && (
+              <p data-testid="web-search-status" role="status">
                 {status}
               </p>
-            )}
-          </div>
-          <input
-            id={id}
-            type="checkbox"
-            role="switch"
-            aria-checked={on}
-            aria-describedby={`${id}-description`}
-            data-testid="web-search-switch"
-            checked={on}
-            onChange={(event) => void updateSettings({ user: { webSearch: event.target.checked } })}
-            className="switch"
-          />
-        </div>
-        <div className={ruledRowClass}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="flex items-center">
-              <p className={rowTitleClass}>{t("web.settings.route")}</p>
-              <InfoTip text={t("web.settings.route.tip")} />
-            </div>
-          </div>
-          <p data-testid="web-search-route" className={`shrink-0 ${rowStatusClass}`}>
-            {t("web.settings.route.model")}
-          </p>
-        </div>
-      </div>
-    </section>
+            )
+          }
+          checked={on}
+          onChange={(next) => void updateSettings({ user: { webSearch: next } })}
+          switchTestId="web-search-switch"
+        />
+        <SettingsRow
+          label={t("web.settings.route")}
+          tip={t("web.settings.route.tip")}
+          control={
+            <span data-testid="web-search-route" className="text-[13px] leading-5 text-ink-meta">
+              {t("web.settings.route.model")}
+            </span>
+          }
+        />
+      </SettingsGroup>
+    </SettingsSection>
   );
 }

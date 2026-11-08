@@ -3,6 +3,7 @@ import { TRANSCRIPTION_ROUTES, type TranscriptionRoute } from "../../../../core/
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
+import { PopUpSelect } from "../settings/PopUpButton";
 
 /**
  * Where meeting audio is transcribed, one setting wherever it is shown (Settings › Models,
@@ -14,6 +15,7 @@ import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
 export function TranscriptionRouteSelect({
   id,
   className,
+  popUp = false,
   labelledBy,
   focusOnShow,
   localOnly = false,
@@ -25,7 +27,9 @@ export function TranscriptionRouteSelect({
   onEscape,
 }: {
   id: string;
-  className: string;
+  className?: string;
+  /** Drawn as a pop-up button, as Settings' rows draw a choice; its look is then its own. */
+  popUp?: boolean;
   /** The element that names it, where its label isn't one that points at it. */
   labelledBy?: string;
   /** It takes the focus when it shows (Change was just pressed). */
@@ -61,8 +65,9 @@ export function TranscriptionRouteSelect({
       (!localOnly &&
         (each === value || services.some((service) => service.route === each && service.hasKey))),
   );
+  const Field = popUp ? PopUpSelect : "select";
   return (
-    <select
+    <Field
       ref={field}
       id={id}
       aria-describedby={`${id}-tip`}
@@ -91,6 +96,6 @@ export function TranscriptionRouteSelect({
           {t(ROUTE_LABELS[each])}
         </option>
       ))}
-    </select>
+    </Field>
   );
 }

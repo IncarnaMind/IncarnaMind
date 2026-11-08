@@ -12,18 +12,15 @@ import { useUndo } from "../../undo";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
 import { CloseLineIcon } from "../lineIcons";
+import {
+  SettingsGroup,
+  SettingsHelp,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/SettingsGroup";
 import { rowActionButtonClass } from "../sidebarRows";
 import { UndoLineAt } from "../UndoLine";
-import {
-  buttonClass,
-  fieldClass,
-  hintClass,
-  rowTextClass,
-  ruledListClass,
-  ruledRow,
-  sectionNoteClass,
-  sectionTitleClass,
-} from "../ui";
+import { buttonStyle, hintClass, rowFieldClass } from "../ui";
 
 const TARGET = ["meeting-words"] as const;
 const UNDO_PLACE = "settings:meetings:words";
@@ -53,38 +50,45 @@ function WordRow({
     }
   };
   return (
-    <li data-testid="meeting-word" className={ruledRow("center", true)}>
-      {naming.renaming ? (
-        <InlineName
-          value={word}
-          label={t("meetings.words.rename", { word })}
-          maxLength={MAX_MEETING_WORD_LENGTH}
-          testId="meeting-word-field"
-          {...naming.field((name) => rename(word, cleanWord(name)))}
-        />
-      ) : (
+    <SettingsRow
+      role="listitem"
+      data-testid="meeting-word"
+      label={
+        naming.renaming ? (
+          <InlineName
+            value={word}
+            label={t("meetings.words.rename", { word })}
+            maxLength={MAX_MEETING_WORD_LENGTH}
+            testId="meeting-word-field"
+            className={`${rowFieldClass} w-64 max-w-full`}
+            {...naming.field((name) => rename(word, cleanWord(name)))}
+          />
+        ) : (
+          <button
+            type="button"
+            {...naming.nameProps}
+            onKeyDown={onKeyDown}
+            title={word}
+            data-testid="meeting-word-name"
+            className="block max-w-full truncate rounded-sm text-left"
+          >
+            {word}
+          </button>
+        )
+      }
+      control={
         <button
           type="button"
-          {...naming.nameProps}
-          onKeyDown={onKeyDown}
-          title={word}
-          data-testid="meeting-word-name"
-          className={`min-w-0 flex-1 truncate rounded-sm text-left ${rowTextClass} text-ink`}
+          aria-label={t("meetings.words.remove", { word })}
+          title={t("meetings.words.remove", { word })}
+          data-testid="meeting-word-remove"
+          onClick={() => void remove(word)}
+          className={rowActionButtonClass}
         >
-          {word}
+          <CloseLineIcon className="size-4" />
         </button>
-      )}
-      <button
-        type="button"
-        aria-label={t("meetings.words.remove", { word })}
-        title={t("meetings.words.remove", { word })}
-        data-testid="meeting-word-remove"
-        onClick={() => void remove(word)}
-        className={rowActionButtonClass}
-      >
-        <CloseLineIcon className="size-4" />
-      </button>
-    </li>
+      }
+    />
   );
 }
 
@@ -100,8 +104,8 @@ export function WordsToKnow() {
   const [draft, setDraft] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);
   const fieldId = useId();
+  const formId = useId();
   const field = useRef<HTMLInputElement>(null);
-  const list = useRef<HTMLUListElement>(null);
   const section = useSettingsTarget<HTMLElement>(TARGET, words !== undefined, () =>
     queueMicrotask(() => field.current?.focus({ preventScroll: true })),
   );
@@ -151,7 +155,9 @@ export function WordsToKnow() {
     await saveWords(words.filter((each) => each !== word));
     // The focus stays in the list, on the word that took its place, rather than going to the page.
     requestAnimationFrame(() => {
-      const rows = list.current?.querySelectorAll<HTMLElement>('[data-testid="meeting-word-name"]');
+      const rows = section.current?.querySelectorAll<HTMLElement>(
+        '[data-testid="meeting-word-name"]',
+      );
       (rows?.[Math.min(at, rows.length - 1)] ?? field.current)?.focus();
     });
     useUndo.getState().push({
@@ -167,61 +173,72 @@ export function WordsToKnow() {
   };
 
   return (
-    <section ref={section} data-testid="meeting-words" className="mt-6 flex flex-col">
-      <h4 className={sectionTitleClass}>{t("meetings.words.title")}</h4>
-      <p className={sectionNoteClass}>{t("meetings.words.body")}</p>
+    <SettingsSection ref={section} title={t("meetings.words.title")} testId="meeting-words">
+      {/* The row lays the field and its button out; they belong to this form by `form`. */}
       <form
-        className="flex items-center gap-2"
+        id={formId}
         onSubmit={(event) => {
           event.preventDefault();
           void add();
         }}
-      >
-        <input
-          ref={field}
-          id={fieldId}
-          type="text"
-          value={draft}
-          maxLength={MAX_MEETING_WORD_LENGTH}
-          aria-label={t("meetings.words.field")}
-          aria-describedby={problem ? `${fieldId}-problem` : undefined}
-          placeholder={t("meetings.words.placeholder")}
-          data-testid="meeting-words-field"
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setProblem(null);
-          }}
-          className={`h-8 min-w-0 flex-1 ${fieldClass}`}
-        />
-        <button
-          type="submit"
-          data-testid="meeting-words-add"
-          disabled={cleanWord(draft) === ""}
-          className={buttonClass}
+      />
+      <SettingsGroup>
+        <SettingsRow
+          label={t("meetings.words.field")}
+          htmlFor={fieldId}
+          control={
+            <>
+              <input
+                ref={field}
+                id={fieldId}
+                form={formId}
+                type="text"
+                value={draft}
+                maxLength={MAX_MEETING_WORD_LENGTH}
+                aria-describedby={problem ? `${fieldId}-problem` : undefined}
+                placeholder={t("meetings.words.placeholder")}
+                data-testid="meeting-words-field"
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setProblem(null);
+                }}
+                className={`${rowFieldClass} w-56 min-w-0`}
+              />
+              <button
+                type="submit"
+                form={formId}
+                data-testid="meeting-words-add"
+                disabled={cleanWord(draft) === ""}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("meetings.words.add")}
+              </button>
+            </>
+          }
         >
-          {t("meetings.words.add")}
-        </button>
-      </form>
-      {problem && (
-        <p
-          id={`${fieldId}-problem`}
-          role="alert"
-          data-testid="meeting-words-problem"
-          className={hintClass}
-        >
-          {problem.key === "meetings.words.full"
-            ? t(problem.key, { count: MAX_MEETING_WORDS })
-            : t(problem.key, { word: problem.word })}
-        </p>
-      )}
+          {problem && (
+            <p
+              id={`${fieldId}-problem`}
+              role="alert"
+              data-testid="meeting-words-problem"
+              className={hintClass}
+            >
+              {problem.key === "meetings.words.full"
+                ? t(problem.key, { count: MAX_MEETING_WORDS })
+                : t(problem.key, { word: problem.word })}
+            </p>
+          )}
+        </SettingsRow>
+      </SettingsGroup>
       {words.length > 0 && (
-        <ul ref={list} data-testid="meeting-words-list" className={`mt-2 ${ruledListClass}`}>
+        <SettingsGroup role="list" data-testid="meeting-words-list" className="mt-2">
           {words.map((word) => (
             <WordRow key={word} word={word} rename={rename} remove={remove} />
           ))}
-        </ul>
+        </SettingsGroup>
       )}
+      <SettingsHelp>{t("meetings.words.body")}</SettingsHelp>
       <UndoLineAt place={UNDO_PLACE} />
-    </section>
+    </SettingsSection>
   );
 }

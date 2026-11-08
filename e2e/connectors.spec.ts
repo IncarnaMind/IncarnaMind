@@ -34,6 +34,13 @@ async function approveInBrowser(fake: FakeRemote, authorizeUrl: string | undefin
   expect(await page.text()).toContain(`Signed in to ${name}`);
 }
 
+/** A Tool's choice is a pop-up button at its row's end: the option it shows, and picking another from its menu. */
+const approval = (tool: Locator) => tool.getByTestId("connector-tool-approval");
+async function pickApproval(tool: Locator, option: string) {
+  await approval(tool).click();
+  await tool.getByRole("menuitemradio", { name: option, exact: true }).click();
+}
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -73,10 +80,10 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   const book = tools.locator('[data-tool="book_boat"]');
   await expect(lookup).toHaveAttribute("data-read-only", "true");
   await expect(lookup.getByTestId("connector-tool-claim")).toHaveText("Reads");
-  await expect(lookup.getByRole("radio", { name: "Always allow" })).toBeChecked();
+  await expect(approval(lookup)).toHaveText("Always allow");
   await expect(book).toHaveAttribute("data-read-only", "false");
   await expect(book.getByTestId("connector-tool-claim")).toHaveText("May change things");
-  await expect(book.getByRole("radio", { name: "Ask every time" })).toBeChecked();
+  await expect(approval(book)).toHaveText("Ask every time");
 
   // The claim is only a hint: the read-only Tool can be switched to ask every time, which the
   // Privacy page lists, and revoking it there goes back to the default.
@@ -84,7 +91,7 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   await showSettingsPage(window, "privacy");
   await expect(approvals).toContainText("Nothing changed from the default.");
   await showSettingsPage(window, "connectors");
-  await lookup.getByText("Ask every time").click();
+  await pickApproval(lookup, "Ask every time");
   await expect(lookup).toHaveAttribute("data-asks", "true");
   await showSettingsPage(window, "privacy");
   const policy = approvals.getByTestId("approval-policy");
@@ -103,10 +110,10 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   await expect(policy).toHaveCount(0);
   await showSettingsPage(window, "connectors");
   await expect(lookup).toHaveAttribute("data-asks", "false");
-  await expect(lookup.getByRole("radio", { name: "Always allow" })).toBeChecked();
+  await expect(approval(lookup)).toHaveText("Always allow");
 
   // A Tool turned off isn't offered to Answers; the Privacy page lists it too.
-  await book.getByText("Off", { exact: true }).click();
+  await pickApproval(book, "Off");
   await expect(book).toHaveAttribute("data-off", "true");
   await showSettingsPage(window, "privacy");
   await expect(policy).toContainText("Tides · book_boat");

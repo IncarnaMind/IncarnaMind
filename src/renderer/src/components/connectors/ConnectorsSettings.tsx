@@ -12,7 +12,13 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { PlusLineIcon, SearchLineIcon } from "../lineIcons";
-import { buttonClass, pageIntroClass, ruledListClass } from "../ui";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowAction,
+  SettingsSection,
+} from "../settings/SettingsGroup";
+import { buttonStyle, pageIntroClass } from "../ui";
 import { AddCustomConnector } from "./AddCustomConnector";
 import { ConnectorDetail, stateKey } from "./ConnectorDetail";
 import { ConnectorTile } from "./ConnectorTile";
@@ -29,8 +35,6 @@ type View =
 
 /** How long typing pauses before the MCP Registry is asked. */
 const REGISTRY_PAUSE_MS = 400;
-
-const headClass = "text-[13px] leading-5 font-semibold text-ink";
 
 /** The directory entry a Connector is: the one at its server's URL. */
 const entryOf = (directory: readonly ConnectorDirectoryEntry[], connector: Connector) =>
@@ -212,36 +216,33 @@ export function ConnectorsSettings() {
   const searching = query.trim() !== "";
 
   return (
-    <section
-      ref={section}
-      data-testid="connectors-settings"
-      className="@container flex flex-col gap-4"
-    >
-      <p className={pageIntroClass}>{t("connectors.directory.intro")}</p>
-      <label className="flex h-[34px] items-center gap-2 rounded-lg px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
-        <SearchLineIcon className="size-3.5 shrink-0" />
-        <input
-          type="search"
-          data-testid="connectors-search"
-          value={query}
-          placeholder={t("connectors.directory.search")}
-          aria-label={t("connectors.directory.search")}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            // Esc empties the field first; with it empty, Esc closes Settings.
-            if (event.key === "Escape" && query !== "") {
-              event.preventDefault();
-              setQuery("");
-            }
-          }}
-          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-placeholder"
-        />
-      </label>
+    <section ref={section} data-testid="connectors-settings" className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
+        <p className={pageIntroClass}>{t("connectors.directory.intro")}</p>
+        <label className="flex h-[34px] items-center gap-2 rounded-lg bg-sheet px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
+          <SearchLineIcon className="size-3.5 shrink-0" />
+          <input
+            type="search"
+            data-testid="connectors-search"
+            value={query}
+            placeholder={t("connectors.directory.search")}
+            aria-label={t("connectors.directory.search")}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              // Esc empties the field first; with it empty, Esc closes Settings.
+              if (event.key === "Escape" && query !== "") {
+                event.preventDefault();
+                setQuery("");
+              }
+            }}
+            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-placeholder"
+          />
+        </label>
+      </div>
 
       {connected.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h4 className={headClass}>{t("connectors.directory.connected")}</h4>
-          <ul data-testid="connectors-connected" className={ruledListClass}>
+        <SettingsSection title={t("connectors.directory.connected")}>
+          <SettingsGroup data-testid="connectors-connected">
             {connected.map((connector) => (
               <ConnectedRow
                 key={connector.id}
@@ -249,47 +250,43 @@ export function ConnectorsSettings() {
                 onOpen={(signIn) => open(pageOf(connector, signIn), `connector:${connector.id}`)}
               />
             ))}
-          </ul>
-        </div>
+          </SettingsGroup>
+        </SettingsSection>
       )}
 
-      <div className="flex flex-col gap-3">
-        <h4 className={headClass}>{t("connectors.directory.browse")}</h4>
-        {browsed.length === 0 && searching && (
-          <p className="text-[13px] leading-5 text-ink-meta">
-            {t("connectors.directory.noMatch", { query: query.trim() })}
-          </p>
-        )}
-        {searching ? (
-          <EntryGrid
-            entries={browsed}
-            language={language}
-            onOpen={(entry) => open({ page: "entry", entryId: entry.id }, `entry:${entry.id}`)}
-          />
-        ) : (
-          connectorDirectoryGroups.map((group) => {
-            const entries = browsed.filter((entry) => entry.group === group);
-            if (entries.length === 0) return null;
-            return (
-              <div
-                key={group}
-                data-testid="connectors-group"
-                data-group={group}
-                className="flex flex-col gap-2"
-              >
-                <h5 className={headClass}>{t(`connectors.directory.group.${group}`)}</h5>
-                <EntryGrid
+      {searching ? (
+        <SettingsSection title={t("connectors.directory.browse")}>
+          {browsed.length === 0 ? (
+            <p className="px-4 text-[13px] leading-5 text-ink-meta">
+              {t("connectors.directory.noMatch", { query: query.trim() })}
+            </p>
+          ) : (
+            <EntryGroup
+              entries={browsed}
+              language={language}
+              onOpen={(entry) => open({ page: "entry", entryId: entry.id }, `entry:${entry.id}`)}
+            />
+          )}
+        </SettingsSection>
+      ) : (
+        connectorDirectoryGroups.map((group) => {
+          const entries = browsed.filter((entry) => entry.group === group);
+          if (entries.length === 0) return null;
+          return (
+            <div key={group} data-testid="connectors-group" data-group={group}>
+              <SettingsSection title={t(`connectors.directory.group.${group}`)}>
+                <EntryGroup
                   entries={entries}
                   language={language}
                   onOpen={(entry) =>
                     open({ page: "entry", entryId: entry.id }, `entry:${entry.id}`)
                   }
                 />
-              </div>
-            );
-          })
-        )}
-      </div>
+              </SettingsSection>
+            </div>
+          );
+        })
+      )}
 
       {registry && (
         <RegistryResults
@@ -306,7 +303,7 @@ export function ConnectorsSettings() {
           data-testid="connector-add-custom"
           data-opens="custom"
           onClick={() => open({ page: "custom" }, "custom")}
-          className={`${buttonClass} gap-1.5`}
+          className={buttonStyle("secondary", "sm")}
         >
           <PlusLineIcon className="size-3.5" />
           {t("connectors.directory.addCustom")}
@@ -344,42 +341,34 @@ function ConnectedRow({
   const warning =
     !heldBack && (expired || connector.state === "error" || connector.state === "needs-sign-in");
   return (
-    <li
+    <SettingsRow
       data-testid="connected-connector"
       data-connector-id={connector.id}
       data-state={connector.state}
-      className="flex items-center gap-2.5 py-2.5"
-    >
-      <ConnectorTile name={connector.name} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span
-          className="truncate text-[13px] leading-[18px] font-semibold text-ink"
-          title={connector.name}
-        >
-          {connector.name}
-        </span>
-        <span
-          data-testid="connected-connector-state"
-          className={`text-[12px] leading-[17px] ${warning ? "text-warning" : "text-ink-meta"}`}
-        >
+      leading={<ConnectorTile name={connector.name} />}
+      label={connector.name}
+      detail={
+        <span data-testid="connected-connector-state" className={warning ? "text-warning" : ""}>
           {status}
         </span>
-      </span>
-      <button
-        type="button"
-        data-testid={expired ? "connector-sign-in-again" : "connector-manage"}
-        data-opens={`connector:${connector.id}`}
-        onClick={() => onOpen(expired)}
-        className={`${buttonClass} shrink-0`}
-      >
-        {expired ? t("remoteConnectors.signInAgain") : t("connectors.directory.manage")}
-      </button>
-    </li>
+      }
+      control={
+        <button
+          type="button"
+          data-testid={expired ? "connector-sign-in-again" : "connector-manage"}
+          data-opens={`connector:${connector.id}`}
+          onClick={() => onOpen(expired)}
+          className={buttonStyle("secondary", "sm")}
+        >
+          {expired ? t("remoteConnectors.signInAgain") : t("connectors.directory.manage")}
+        </button>
+      }
+    />
   );
 }
 
-/** Directory entries as cards, two to a row where there's room. */
-function EntryGrid({
+/** Directory entries as rows of a group: the tile, the name, what it does, and what it needs. */
+function EntryGroup({
   entries,
   language,
   onOpen,
@@ -390,38 +379,33 @@ function EntryGrid({
 }) {
   const t = useT();
   return (
-    <div className="grid grid-cols-1 gap-2 @[30rem]:grid-cols-2">
+    <SettingsGroup>
       {entries.map((entry) => {
         const { subscription } = entry;
         return (
-          <button
+          <SettingsRowAction
             key={entry.id}
-            type="button"
-            data-testid="connector-entry"
+            testId="connector-entry"
             data-entry-id={entry.id}
             data-opens={`entry:${entry.id}`}
             onClick={() => onOpen(entry)}
-            className="flex min-w-0 items-start gap-2.5 rounded-lg p-2.5 text-left shadow-[inset_0_0_0_1px_var(--color-rule)] hover:bg-frame hover:shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
-          >
-            <ConnectorTile name={entry.name} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[13px] leading-[18px] font-semibold text-ink">
-                {entry.name}
-              </span>
-              <span className="text-[12px] leading-[17px] text-ink-meta">
+            leading={<ConnectorTile name={entry.name} />}
+            label={entry.name}
+            detail={
+              <>
                 {entry.summary[language]}
-              </span>
-              {subscription && (
-                <span className="mt-1 self-start rounded-sm bg-frame px-1.5 text-[11px] leading-[18px] text-ink-secondary">
-                  {subscription === "free"
-                    ? t("connectors.directory.free")
-                    : t("connectors.directory.subscription", { product: subscription.product })}
-                </span>
-              )}
-            </span>
-          </button>
+                {subscription && (
+                  <span className="block">
+                    {subscription === "free"
+                      ? t("connectors.directory.free")
+                      : t("connectors.directory.subscription", { product: subscription.product })}
+                  </span>
+                )}
+              </>
+            }
+          />
         );
       })}
-    </div>
+    </SettingsGroup>
   );
 }
