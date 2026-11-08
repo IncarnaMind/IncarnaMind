@@ -32,6 +32,7 @@ interface Utterance {
   startMs: number;
   endMs: number;
   text: string;
+  words: { text: string; ms: number }[];
 }
 
 const seconds = (value: unknown) => (typeof value === "number" ? Math.round(value * 1000) : null);
@@ -75,7 +76,15 @@ function utteranceOf(data: Record<string, unknown>): Utterance | null {
     typeof utterance.text === "string"
       ? utterance.text
       : joinWords(words.map((word) => (typeof word.word === "string" ? word.word : "")));
-  return { startMs, endMs: Math.max(startMs, endMs ?? startMs), text: cleanSpeech(text) };
+  return {
+    startMs,
+    endMs: Math.max(startMs, endMs ?? startMs),
+    text: cleanSpeech(text),
+    words: words.flatMap((word) => {
+      const ms = seconds(word.start);
+      return typeof word.word === "string" && ms !== null ? [{ text: word.word, ms }] : [];
+    }),
+  };
 }
 
 export function createGladiaStream(options: GladiaStreamOptions): CloudStreamHandle {
@@ -119,6 +128,7 @@ export function createGladiaStream(options: GladiaStreamOptions): CloudStreamHan
       text: utterance.text,
       final,
       decodeMs: 0,
+      ...(final && utterance.words.length > 0 && { words: utterance.words }),
     });
   }
 

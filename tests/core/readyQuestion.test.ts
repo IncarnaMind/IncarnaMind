@@ -22,7 +22,7 @@ async function start(): Promise<{ core: Core; sources: string }> {
   const core = startCore(dataDir, { paths: { dataDir, examples: EXAMPLES } });
   await core.createExamples();
   // Its Documents are listed, read, and the core knows it: the example's Question waits for nothing.
-  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+  await vi.waitFor(async () => expect((await core.readyQuestion()).ready?.waitingFor).toBeNull(), {
     timeout: 30_000,
   });
   return { core, sources };
@@ -33,19 +33,19 @@ const BRIEF = "# Project brief\n\nThe project brief sets out the harbour plan.\n
 test("no Document of the User's own: the example's Question", async () => {
   const { core } = await start();
   expect(await core.readyQuestion()).toEqual({
-    question: exampleQuestion("en"),
-    scope: null,
-    waitingFor: null,
+    ready: { question: exampleQuestion("en"), scope: null, waitingFor: null },
+    reading: null,
   });
 });
 
-test("a file of their own still being read: no Question, and not the example's", async () => {
+test("a file of their own still being read: no Question, and its reading named with it", async () => {
   const { core, sources } = await start();
   const { documents } = await core.addDocuments([
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
   expect(["queued", "extracting"]).toContain(documents[0]?.status);
-  expect(await core.readyQuestion()).toBeNull();
+  // The row says what is being read from this one answer, without reading the Documents again (#2127).
+  expect(await core.readyQuestion()).toEqual({ ready: null, reading: "Project brief" });
 });
 
 test("one Document of their own read: the Question is about it, named, and asks about it alone", async () => {
@@ -53,7 +53,7 @@ test("one Document of their own read: the Question is about it, named, and asks 
   const [brief] = await addAndProcess(core, [
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "What does ‘Project brief’ say?",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
     waitingFor: null,
@@ -68,7 +68,7 @@ test("two Documents of their own: both are asked about alike, so neither reads a
   const [latest] = await addAndProcess(core, [
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "What do your 2 Documents say?",
     scope: { folderIds: [], tagIds: [], documentIds: [latest?.id, notes?.id] },
     waitingFor: null,
@@ -83,7 +83,7 @@ test("an English Document and then a Chinese one, in English: one Question over 
   const [dongmen] = await addAndProcess(core, [
     await writeSourceFile(sources, "东门办公室租约.md", "# 东门办公室租约\n\n租约写明了租期。\n"),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "What do your 2 Documents say?",
     scope: { folderIds: [], tagIds: [], documentIds: [dongmen?.id, lease?.id] },
     waitingFor: null,
@@ -99,7 +99,7 @@ test("an English Document and then a Chinese one, in Chinese: the Question over 
   const [dongmen] = await addAndProcess(core, [
     await writeSourceFile(sources, "东门办公室租约.md", "# 东门办公室租约\n\n租约写明了租期。\n"),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "这 2 个文档讲了什么？",
     scope: { folderIds: [], tagIds: [], documentIds: [dongmen?.id, lease?.id] },
     waitingFor: null,
@@ -112,7 +112,7 @@ test("a file of their own that couldn't be read: no Question, and not the exampl
     await writeSourceFile(sources, "damaged.pdf", "%PDF-1.4 this is not a PDF"),
   ]);
   expect(broken?.status).toBe("failed");
-  expect(await core.readyQuestion()).toBeNull();
+  expect((await core.readyQuestion()).ready).toBeNull();
 });
 
 test("a Document they keep as their own workings: no Question about it, as no Answer may cite it", async () => {
@@ -121,7 +121,7 @@ test("a Document they keep as their own workings: no Question about it, as no An
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
   await core.setNotCited(brief?.id as string, true);
-  expect(await core.readyQuestion()).toBeNull();
+  expect((await core.readyQuestion()).ready).toBeNull();
 });
 
 test("with a Document of theirs ready, the example's Answer is still asked: it needs none of theirs", async () => {
@@ -129,7 +129,7 @@ test("with a Document of theirs ready, the example's Answer is still asked: it n
   // harness asks the example's Answer there first, then the User's Questions).
   const { core, sources } = await start();
   await addAndProcess(core, [await writeSourceFile(sources, "Project brief.md", BRIEF)]);
-  expect((await core.readyQuestion())?.scope).not.toBeNull();
+  expect((await core.readyQuestion()).ready?.scope).not.toBeNull();
   const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
     timeout: 20_000,
     interval: 100,
@@ -147,7 +147,7 @@ test("a Chinese Document with the English interface: the Question in English, na
   const [brief] = await addAndProcess(core, [
     await writeSourceFile(sources, "项目简报.md", "# 项目简报\n\n项目简报写明了港口计划。\n"),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "What does ‘项目简报’ say?",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
     waitingFor: null,
@@ -160,7 +160,7 @@ test("an English Document with the Chinese interface: the Question in Chinese, n
   const [brief] = await addAndProcess(core, [
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
-  expect(await core.readyQuestion()).toEqual({
+  expect((await core.readyQuestion()).ready).toEqual({
     question: "“Project brief”讲了什么？",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
     waitingFor: null,

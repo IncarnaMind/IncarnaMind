@@ -183,3 +183,42 @@ function intendedSamples(path: string): number | null {
 export function removeAudio(folder: string): void {
   rmSync(folder, { recursive: true, force: true });
 }
+
+/**
+ * A stretch of a Meeting's audio, `fromMs` to `toMs` of its time, with every source mixed into
+ * one: what plays when the User clicks a word of its Transcript (#138). A stretch no part covers
+ * is silence. Null when no part of the folder is there to read.
+ */
+export function readStretch(
+  folder: string,
+  fromMs: number,
+  toMs: number,
+): Float32Array<ArrayBuffer> | null {
+  const parts = listParts(folder);
+  if (parts.length === 0) return null;
+  const first = Math.round((fromMs * MEETING_SAMPLE_RATE) / 1000);
+  const length = Math.max(0, Math.round((toMs * MEETING_SAMPLE_RATE) / 1000) - first);
+  const mixed = new Float32Array(length);
+  for (const part of parts) {
+    const start = Math.round((part.offsetMs * MEETING_SAMPLE_RATE) / 1000);
+    const samples = Math.round((part.durationMs * MEETING_SAMPLE_RATE) / 1000);
+    const from = Math.max(first, start);
+    const to = Math.min(first + length, start + samples);
+    if (to <= from) continue;
+    const bytes = Buffer.alloc((to - from) * BYTES_PER_SAMPLE);
+    const file = openSync(part.path, "r");
+    try {
+      readSync(file, bytes, 0, bytes.length, WAV_HEADER_BYTES + (from - start) * BYTES_PER_SAMPLE);
+    } finally {
+      closeSync(file);
+    }
+    for (let at = 0; at < to - from; at++) {
+      const index = from - first + at;
+      mixed[index] = Math.max(
+        -1,
+        Math.min(1, (mixed[index] ?? 0) + bytes.readInt16LE(at * 2) / 32768),
+      );
+    }
+  }
+  return mixed;
+}

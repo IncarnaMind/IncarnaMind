@@ -380,7 +380,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expectFillPlace(notes, addedBlockIds);
     await expectActionsFit(line, 1);
     const added = notes.locator(".generated-text");
-    await expect(notes.locator("h2")).toHaveText([words.actions, words.summary, words.decisions]);
+    // The typed heading stays as typed; the sections take the call's language, here English (#2770).
+    await expect(notes.locator("h2")).toHaveText([
+      words.actions,
+      LINES.en.summary,
+      LINES.en.decisions,
+    ]);
     await expect(heading).toHaveText(words.actions);
     const actions = notes.locator("h2:not(:has(.generated-text)) + p");
     await expect(actions).toHaveCount(1);

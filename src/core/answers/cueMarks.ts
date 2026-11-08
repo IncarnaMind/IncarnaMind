@@ -1,5 +1,5 @@
 import { clockTime } from "../../shared/clock";
-import { markWords, speakerMark } from "../../shared/speakers";
+import { markWords, partsOf, speakerMark } from "../../shared/speakers";
 import { parseCueTarget } from "../../shared/units";
 import type { TranscriptSpeakers } from "../api";
 import type { PageText } from "../documents/passages";
@@ -38,9 +38,21 @@ export function withCueMarks(
       }
       if (at < 0) continue;
       const label = unit.label?.speakers?.[index];
-      const speaker = label ? markWords(speakerMark(speakers, cue.startMs, label)) : undefined;
-      marked += `${text.slice(from, at)}[${clockTime(cue.startMs)}${speaker ? ` ${speaker}` : ""}] `;
+      const mark = (ms: number) => {
+        const speaker = label ? markWords(speakerMark(speakers, ms, label)) : undefined;
+        return `[${clockTime(ms)}${speaker ? ` ${speaker}` : ""}] `;
+      };
+      marked += `${text.slice(from, at)}${mark(cue.startMs)}`;
       from = at;
+      // A line the User split (#138) reads as its parts, each marked with its own time and Speaker.
+      const said = unit.text.slice(anchor.start, anchor.end);
+      const parts = label ? partsOf(speakers, { ...cue, text: said, label }).slice(1) : [];
+      for (const part of parts) {
+        const place = at + part.at;
+        if (text.slice(place, place + part.text.length) !== part.text) break;
+        marked += `${text.slice(from, place)}${mark(part.startMs)}`;
+        from = place;
+      }
       const next = text.indexOf("\n", at);
       searchFrom = next < 0 ? text.length : next + 1;
     }

@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { createContext, useContext, useEffect } from "react";
 import type * as Y from "yjs";
 import type { WindowLayout } from "../../../core/api";
+import type { MessageKey } from "../../../shared/i18n";
 import type { CommandContext } from "./registry";
 
 /** Something a command acts on that lives in a component, there while the component is. */
@@ -187,13 +188,22 @@ export function viewerHandleInUse<K extends keyof ViewerActions>(
 
 /**
  * The Transcript in view (#139): the line the User is on, which "Add transcript line to note"
- * adds, and whose Speaker "Change who speaks…" opens (#138).
+ * adds, and whose Speaker "Change who speaks…" opens (#138). Its audio plays from the word the
+ * caret is at, else the line's start, and the line splits at the caret (#138). A `can…` says
+ * true, or why not.
  */
 export const transcriptHandle: Handle<{
   hasLine(): boolean;
   addLine(): Promise<void>;
   canChangeSpeaker(): boolean;
   changeSpeaker(): void;
+  canPlay(): true | MessageKey;
+  play(): void;
+  /** Whether its player plays now; null while it has none open. */
+  playing(): boolean | null;
+  togglePlayback(): Promise<void>;
+  canSplit(): true | MessageKey;
+  split(): Promise<void>;
 }> = {
   current: null,
 };
