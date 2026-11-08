@@ -29,8 +29,11 @@ function counting() {
             ? user.content.map((part) => ("text" in part ? part.text : "")).join("")
             : "";
         const planned = planReply(text, { name: "Harbour", description: "Port work." });
+        // One Document at a time: the first Folder it is offered.
+        const offered = /"groups":\[\{"id":"([^"]+)"/.exec(text)?.[1];
+        const one = offered && JSON.stringify({ groupId: offered, tags: [], newTags: [] });
         return {
-          content: [{ type: "text", text: planned?.text ?? JSON.stringify({ tags: [] }) }],
+          content: [{ type: "text", text: planned?.text ?? one ?? JSON.stringify({ tags: [] }) }],
           finishReason: { unified: "stop", raw: undefined },
           warnings: [],
           usage: {
@@ -174,5 +177,18 @@ describe("What Organize needs before it runs (#1569)", () => {
     expect(await consentOf(core)).toBe("declined");
     expect((await core.getLibrary()).settings.organizeWith).toBeNull();
     expect(await core.startOrganize()).toMatchObject({ needs: "consent", declined: true });
+
+    // One Document at a time, with none named: every Document, once, and still nothing kept.
+    const harbour = await core.createLibraryGroup({ name: "Harbour", description: "Port work." });
+    const before = models.sent("anthropic");
+    await core.classifyDocuments(undefined, { forService: ANTHROPIC.id, once: true });
+    expect(models.sent("anthropic")).toBe(before + 3);
+    expect(await Promise.all(ids.map((id) => proposedFor(core, id)))).toEqual([
+      harbour.id,
+      harbour.id,
+      harbour.id,
+    ]);
+    expect(await consentOf(core)).toBe("declined");
+    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
   });
 });

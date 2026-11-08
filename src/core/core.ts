@@ -6564,7 +6564,7 @@ export function createCore(adapters: CoreAdapters): Core {
         // Sorted before it returns: the model it is lent is given back then.
         try {
           const { failed } = await library.organizeAtOnce(
-            ids,
+            ids ?? documents.list().map((each) => each.id),
             lifetime.signal,
             undefined,
             once.permit,
