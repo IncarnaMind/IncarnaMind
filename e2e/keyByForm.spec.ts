@@ -22,8 +22,8 @@ import {
 /*
  * A key is recognised by its form only (#2865). In Chinese, a key in the form DeepSeek and Qwen
  * share is used after one press of Use this key, DeepSeek asked first, so the first Answer comes
- * as soon as with a key whose form names its service, plus that press; nothing is saved, and
- * nothing of the key reaches the core, before it. The fake chat model answers: no network.
+ * as soon as with a key whose form names its service, plus that press, and nothing is saved before
+ * it (keyEntryAsks.test.ts shows no call carries the key). The fake chat model answers: no network.
  */
 
 /** Made up in the form DeepSeek's and Qwen's keys share: never a real key. */
@@ -142,6 +142,9 @@ test("in English the same key asks in English, Another service opens the service
     const form = card.getByTestId("provider-form");
     await expect(form).toBeVisible();
     await expect(form.getByRole("radio", { name: "Qwen", exact: true })).toBeChecked();
+    await expect(form.locator('input[type="password"]')).toHaveValue(SHARED_KEY);
+    // The key was typed for no service: it stays while the User picks one.
+    await form.getByRole("radio", { name: "Kimi", exact: true }).check({ force: true });
     await expect(form.locator('input[type="password"]')).toHaveValue(SHARED_KEY);
     expect(await savedProviders(window)).toEqual([]);
   } finally {
