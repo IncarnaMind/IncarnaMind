@@ -6374,6 +6374,8 @@ export const zhCN = {
   "meetings.fill.filling": "正在补全笔记…",
   "meetings.fill.checking.one": "正在核对 {count} 条说法…",
   "meetings.fill.checking": "正在核对 {count} 条说法…",
+  "meetings.fill.checkingLocal.one": "正在这台电脑上核对 {count} 条说法…",
+  "meetings.fill.checkingLocal": "正在这台电脑上核对 {count} 条说法…",
   "meetings.fill.fillingLocal": "正在这台电脑上补全笔记…",
   "meetings.fill.filled": "已补全笔记",
   "meetings.fill.partial": "笔记未能全部补全",

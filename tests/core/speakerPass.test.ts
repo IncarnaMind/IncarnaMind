@@ -132,6 +132,57 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  // protects=a call's Note deleted while its speakers are told apart gets who spoke each line when it is back, and a who's who the User set before then is kept, never written over by the pass (#2839, #1253); fails_when=the pass's result is lost while the Note is in Recently deleted, or replaces the User's names; no_claim=a pass that fails, which the tests below cover.
+  test("a Note deleted during the pass gets its speakers back with it, and the User's own who's who stays", async () => {
+    for (const named of [false, true]) {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { separator: told } = fakeSeparator({ holds });
+      let answered = false;
+      const separator: SpeakerSeparator = {
+        async separate(request) {
+          const turns = await told.separate(request);
+          answered = true;
+          return turns;
+        },
+      };
+      const { core, meeting } = await recordedCall(await createTempDataFolder(), {
+        speakerSeparator: separator,
+      });
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      const theirs = { labels: { Them: "Dana" }, lines: {} };
+      if (named) {
+        await core.setTranscriptSpeakers({
+          documentId: saved.documentId as string,
+          speakers: theirs,
+        });
+      }
+      await core.deleteMind(meeting.mindId);
+      release();
+      await vi.waitFor(() => expect(answered).toBe(true));
+      // The pass ends in the promise turns after its answer: the next task sees it ended.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      const cues = await toldCues(core, meeting.id);
+      const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+      if (named) {
+        expect(document?.speakers).toEqual(theirs);
+        expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+      } else {
+        expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
+          new Set(["Me", "Speaker 1", "Speaker 2"]),
+        );
+      }
+      core.close();
+    }
+  });
+
   // protects=one voice on the other side keeps "Them", in a call; fails_when=it becomes "Speaker 1"; no_claim=a real recording's one voice, which the eval covers.
   test('with one voice on the other side, its lines stay "Them"', async () => {
     const dataDir = await createTempDataFolder();

@@ -122,9 +122,16 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
           : fill.state === "waiting" && !waiting
             ? t(words.waiting)
             : checking > 0
-              ? t(checking === 1 ? "meetings.fill.checking.one" : "meetings.fill.checking", {
-                  count: checking,
-                })
+              ? t(
+                  fill.local
+                    ? checking === 1
+                      ? "meetings.fill.checkingLocal.one"
+                      : "meetings.fill.checkingLocal"
+                    : checking === 1
+                      ? "meetings.fill.checking.one"
+                      : "meetings.fill.checking",
+                  { count: checking },
+                )
               : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine

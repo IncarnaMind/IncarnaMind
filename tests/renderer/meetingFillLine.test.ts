@@ -533,6 +533,16 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     [
       "filling",
       "saved",
+      false,
+      true,
+      3,
+      "Checking 3 claims on this computer…",
+      "正在这台电脑上核对 3 条说法…",
+      null,
+    ],
+    [
+      "filling",
+      "saved",
       true,
       false,
       17,

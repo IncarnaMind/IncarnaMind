@@ -3372,6 +3372,25 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
+     * Who the speaker pass found spoke each line (#138, #2839), kept as `setSpeakers` keeps the
+     * User's choices, on a Transcript in Recently deleted too, so they come back with it. Only
+     * where no who's who is set yet: the User's own is never written over. The Document, while it
+     * isn't deleted; null otherwise.
+     */
+    setToldApart(id: string, speakersInput: TranscriptSpeakers): Document | null {
+      const { speakers, dropped } = parseTranscriptSpeakers(speakersInput);
+      if (dropped > 0 || speakers === null) {
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      }
+      db.run(
+        "UPDATE documents SET speakers = ?, updated_at = ? WHERE id = ? AND kind = 'transcript' AND speakers IS NULL",
+        [JSON.stringify(speakers), now(), id],
+      );
+      const live = find(id);
+      return live ? toDocument(live) : null;
+    },
+
+    /**
      * Counts a Document IncarnaMind wrote as evidence, or leaves it out again
      * (#80, see `OwnFile`), and says so. InvalidInputError for any other.
      */

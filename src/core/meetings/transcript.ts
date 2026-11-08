@@ -257,7 +257,10 @@ export interface TranscriptDocuments {
   checkNow(documentId: string | null, path: string): Promise<void>;
   /** The live Document, or null once deleted. */
   find(id: string): Document | null;
-  /** Sets who's who in the Transcript, as the User's choices are kept: its file and versions stay. */
+  /**
+   * Sets who's who in the Transcript, as the User's choices are kept, in Recently deleted too,
+   * unless one is set already: its file and versions stay.
+   */
   setSpeakers(id: string, speakers: TranscriptSpeakers): void;
 }
 
@@ -1413,8 +1416,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     return Object.keys(state.voices ?? {}).some((key) => key.includes(side));
   };
 
-  // A Transcript the User has said who's who in keeps its labels: their names and lines hang on
-  // them (#138), and a pass run again after a failure would move them under other people.
+  // A Transcript whose who's who is set, by the User or by an earlier pass, keeps it: the User's
+  // names and lines hang on its labels (#138), and a pass run again would move them.
   const named = (state: State) =>
     state.documentId !== null && documents.find(state.documentId)?.speakers != null;
 
@@ -1503,7 +1506,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     for (const [at, cue] of cues.entries()) {
       const before = state.cues[at];
       if (before?.speaker && cue.speaker && cue.speaker !== before.speaker) {
-        lines[lineKey(before.startMs, before.speaker)] = cue.speaker;
+        // The file keeps whole ms (`timestamp` in ../documents/formats/vtt), and its lines are the keys.
+        lines[lineKey(Math.round(before.startMs), before.speaker)] = cue.speaker;
       }
     }
     if (Object.keys(lines).length === 0) return;

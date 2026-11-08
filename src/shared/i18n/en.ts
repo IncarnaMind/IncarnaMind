@@ -6737,6 +6737,8 @@ export const en = {
   "meetings.fill.filling": "Filling in the note…",
   "meetings.fill.checking.one": "Checking {count} claim…",
   "meetings.fill.checking": "Checking {count} claims…",
+  "meetings.fill.checkingLocal.one": "Checking {count} claim on this computer…",
+  "meetings.fill.checkingLocal": "Checking {count} claims on this computer…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",

@@ -4854,7 +4854,8 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         },
         setSpeakers: (id, speakers) => {
-          events.emit("documents.speakersChanged", [documents.setSpeakers(id, speakers)]);
+          const updated = documents.setToldApart(id, speakers);
+          if (updated) events.emit("documents.speakersChanged", [updated]);
         },
       },
       partsOf: (meetingId) => listParts(meetingFolder(dataDir, meetingId)),
