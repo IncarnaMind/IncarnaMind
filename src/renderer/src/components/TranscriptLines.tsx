@@ -9,6 +9,19 @@ import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
+/** How far the speech model's download is, while it isn't on this computer yet. */
+export function speechModelDownload(
+  model: NonNullable<Meeting["transcript"]>["model"],
+  t: ReturnType<typeof useT>,
+): { percent: number; size: string } | null {
+  return model?.state === "downloading" || model?.state === "not-downloaded"
+    ? {
+        percent: Math.floor((model.downloadedBytes / Math.max(1, model.totalBytes)) * 100),
+        size: formatBytes(model.totalBytes, t),
+      }
+    : null;
+}
+
 /**
  * What the User should know about a Meeting's Transcript (#136), one line:
  * it is getting ready, live text fell behind ("Recording…"), it is being
@@ -42,13 +55,7 @@ export function TranscriptLines({
     testId: "meeting-transcript-retry",
     onClick: () => void useMeetings.getState().retryTranscript(meeting.id),
   });
-  const downloading =
-    model?.state === "downloading" || model?.state === "not-downloaded"
-      ? {
-          percent: Math.floor((model.downloadedBytes / Math.max(1, model.totalBytes)) * 100),
-          size: formatBytes(model.totalBytes, t),
-        }
-      : null;
+  const downloading = speechModelDownload(model, t);
 
   const documentId = transcript.documentId;
   const open: ProblemAction | undefined = documentId

@@ -32,6 +32,8 @@ import { createFactLedger } from "./factLedger";
 import { placeFacts } from "./factPlacement";
 import { type MeetingFact, parseFactReply } from "./factProtocol";
 import {
+  CALL_LANGUAGES,
+  callLanguage,
   claimsIn,
   FILL_SECTIONS,
   type FillLine,
@@ -494,7 +496,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
     });
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
-    const question = words(
+    // The notes, their section titles and the question that steers an Answer's language are in
+    // the call's language, whatever the interface's (#2770).
+    const spoken = callLanguage(passages);
+    const language = spoken ? CALL_LANGUAGES[spoken] : options.language();
+    const question = translate(
+      language,
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
     );
     const ledger = createFactLedger();
@@ -514,8 +521,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       };
       const context =
         mode === "notes"
-          ? notesContext(lines, question, history)
-          : sectionsContext(question, history);
+          ? notesContext(lines, question, history, spoken)
+          : sectionsContext(question, history, spoken);
       let answer: CellAnswer;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
@@ -628,7 +635,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
           headings: routes,
           claims,
           reference: (topic, direction) =>
-            translate(options.language(), `meetings.fill.reference.${direction}`, { topic }),
+            translate(language, `meetings.fill.reference.${direction}`, { topic }),
         });
         if (planned.unplaced > 0) {
           log.warn("meeting.fillLineMoved", { meetingId: meeting.id, facts: planned.unplaced });
@@ -640,7 +647,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         }
         return [
           ...placeUnderLines(blocks, present, planned.lines),
-          ...placeSections(blocks, planned.sections, headings, options.language()),
+          ...placeSections(blocks, planned.sections, headings, language),
         ];
       },
     };

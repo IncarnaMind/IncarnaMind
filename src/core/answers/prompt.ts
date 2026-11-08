@@ -27,6 +27,13 @@ export function questionLanguage(question: string): string | null {
     : detectLanguage(question.replace(CJK_CHARACTERS, " "), QUESTION_COMMON_WORDS);
 }
 
+/** A transcript line's time and speaker ("[12:07 Them] "): who spoke and when, not what was said. */
+const SPEECH_MARK = /\[[^\]]*\]/g;
+
+/** The language a transcript's `passages` are said in, their marks left out. */
+export const languageSpoken = (passages: readonly { text: string }[]): string | null =>
+  questionLanguage(passages.map((passage) => passage.text.replace(SPEECH_MARK, " ")).join("\n"));
+
 function isWritten(question: string, documentNames: readonly string[]): boolean {
   const keys = [question.trim(), question.trim().replace(EXTENSION, "")].map(nameKey);
   if (documentNames.some((name) => keys.includes(nameKey(name)))) return false;

@@ -46,12 +46,21 @@ const MY_LINES = [
   "The rollout starts in the second quarter",
 ];
 const THEIR_LINES = ["The budget is approved for this year", "We still need the security review"];
+/** A call held in Chinese: what the microphone and the computer's sound say in turn. */
+const CHINESE_LINES = {
+  mine: ["我们同意企业版每个席位 45 美元", "周五之前我把合同寄过去", "第二季度开始上线"],
+  theirs: ["今年的预算已经批了", "安全审查还没做"],
+} as const;
 
 const block = (text: string, tag: string) =>
   new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? null;
 
 const isFill = (call: ModelCall) =>
   call.prompt.includes("Fill them in from the transcript") || call.prompt.includes("took no notes");
+
+/** A fill's first request, before its records: one per time the notes are made. */
+const fillRun = (call: ModelCall) =>
+  isFill(call) && !call.results.some((result) => result.tool === "cite");
 
 function fact(
   id: string,
@@ -116,15 +125,22 @@ function fillingModel(
   plans: Record<string, Plan> = {},
   {
     failing = () => false,
+    error = { status: 500, message: "The model is overloaded." },
     held,
     seen,
-  }: { failing?: () => boolean; held?: Promise<void>; seen?: (call: ModelCall) => void } = {},
+  }: {
+    failing?: () => boolean;
+    /** What a failing fill request gets back. */
+    error?: { status: number; message: string };
+    held?: Promise<void>;
+    seen?: (call: ModelCall) => void;
+  } = {},
 ) {
   return scriptedModel((call) => {
     seen?.(call);
     if (isCheckRun(call)) return checkReply(call, plans);
     if (!isFill(call)) return { text: "OK" };
-    if (failing()) return { error: { status: 500, message: "The model is overloaded." } };
+    if (failing()) return { error };
     const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
     const citations = transcriptCitations(call, shown, quotes);
     if (citations) return citations;
@@ -146,8 +162,11 @@ async function recorded(
     speakerSeparator,
     lines = { mine: MY_LINES, theirs: THEIR_LINES },
     createChatModel,
+    stop = (core, meetingId) => core.stopMeeting(meetingId),
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** How Stop is pressed. */
+    stop?: (core: Core, meetingId: string) => Promise<unknown>;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
     /** Models made from each spec, around `model`. */
     createChatModel?: ChatModelFactory;
@@ -173,7 +192,7 @@ async function recorded(
     const live = (await core.listMeetings()).find((each) => each.id === meeting.id);
     expect(live?.transcript?.lines ?? 0).toBeGreaterThanOrEqual(5);
   });
-  await core.stopMeeting(meeting.id);
+  await stop(core, meeting.id);
   return { core, meeting, client, dataDir };
 }
 
@@ -222,6 +241,12 @@ const citationsShownAs = (client: MindClient, text: string) => {
   });
   return found;
 };
+
+/** A reply that fills the first of `NOTES`' lines in, with its overview. */
+const PRICING_REPLY = [
+  lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+  overview("The call covered pricing [^1]."),
+].join("\n\n");
 
 const NOTES = [
   heading(2, "Pricing"),
@@ -504,7 +529,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         overview("通话谈了价格和合同 [^1]。"),
         fact("P1_delivery", "合同交付", "周五之前寄出合同 — 我 [^2]。", { sections: ["actions"] }),
       ].join("\n"),
-      { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string },
+      { 1: CHINESE_LINES.mine[0], 2: CHINESE_LINES.mine[1] },
       {},
       {
         seen: (call) => {
@@ -512,9 +537,15 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         },
       },
     );
-    const { core, meeting, client } = await recorded(model, [note(""), note("")], async (core) => {
-      await core.updateSettings({ user: { language: "zh-CN" } });
-    });
+    const { core, meeting, client } = await recorded(
+      model,
+      [note(""), note("")],
+      async (core) => {
+        await core.updateSettings({ user: { language: "zh-CN" } });
+      },
+      undefined,
+      { lines: CHINESE_LINES },
+    );
     const before = exactly(client);
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
     await vi.waitFor(() => expect(shown(client).length).toBeGreaterThan(2));
@@ -532,6 +563,79 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     await vi.waitFor(() => expect(exactly(client)).toEqual(before));
     core.close();
   });
+
+  // protects=a call's notes, their section titles and the pointers between them are in the language the call was held in, whatever the interface's, and the model is asked in it and told it (#2770); fails_when=the titles or pointers follow the interface, or the request asks in the interface's language; no_claim=a real model's wording, which the PR's real-model runs cover.
+  test.each([
+    {
+      call: "Chinese",
+      interfaceLanguage: "en",
+      lines: CHINESE_LINES,
+      reply: [
+        overview("通话谈了价格和合同 [^1]。"),
+        fact("P1_price", "价格", "企业版每个席位 45 美元 [^1]。", {
+          sections: ["decisions", "questions"],
+        }),
+      ].join("\n"),
+      asked: "写出这次通话的笔记。",
+      notes: [
+        "«摘要»",
+        "«通话谈了价格和合同 »\uFFFC«。»",
+        "«决定»",
+        "«企业版每个席位 45 美元 »\uFFFC«。»",
+        "«待定问题»",
+        "«价格，详见上文 »\uFFFC",
+      ],
+    },
+    {
+      call: "English",
+      interfaceLanguage: "zh-CN",
+      lines: { mine: MY_LINES, theirs: THEIR_LINES },
+      reply: [
+        overview("The call covered pricing and the contract [^1]."),
+        fact("P1_price", "pricing", "The enterprise price is 45 dollars a seat [^1].", {
+          sections: ["decisions", "questions"],
+        }),
+      ].join("\n"),
+      asked: "Write the notes of this call.",
+      notes: [
+        "«Summary»",
+        "«The call covered pricing and the contract »\uFFFC«.»",
+        "«Decisions»",
+        "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+        "«Open questions»",
+        "«pricing — see above »\uFFFC",
+      ],
+    },
+  ] as const)(
+    "the notes of a call held in $call are in $call, section titles too, with the interface in $interfaceLanguage",
+    async ({ call, interfaceLanguage, lines, reply, asked, notes }) => {
+      const prompts: string[] = [];
+      const model = fillingModel(
+        reply,
+        { 1: lines.mine[0] },
+        {},
+        {
+          seen: (each) => {
+            if (isFill(each)) prompts.push(each.prompt);
+          },
+        },
+      );
+      const { core, meeting, client } = await recorded(
+        model,
+        null,
+        async (core) => {
+          await core.updateSettings({ user: { language: interfaceLanguage } });
+        },
+        undefined,
+        { lines },
+      );
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
+      await vi.waitFor(() => expect(shown(client)).toEqual(notes));
+      expect(prompts.at(-1)).toContain(`- Write in ${call}, the language of the call.`);
+      expect(prompts.at(-1)).toContain(asked);
+      core.close();
+    },
+  );
 
   test("uncited facts are omitted once while cited siblings remain undoable", async () => {
     const model = fillingModel(
@@ -783,6 +887,93 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" }),
     );
     await vi.waitFor(() => expect(shown(client)).toHaveLength(before.length + 1));
+    core.close();
+  });
+
+  // protects=a key refused while the notes are made writes nothing and says why in the fill's line, and Try again once it works fills them in once (#2773); fails_when=a refused key leaves the fill waiting, writes part of the notes, or Try again writes them twice; no_claim=the provider's own wording of the refusal.
+  test("a key refused while the notes are made writes nothing and says so; Try again fills them in once", async () => {
+    let refused = true;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { failing: () => refused, error: { status: 401, message: "invalid x-api-key" } },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    const before = shown(client);
+    const failed = await settledFill(core, meeting);
+    expect(failed).toMatchObject({
+      state: "failed",
+      problem: { kind: "model" },
+      addedBlockIds: [],
+    });
+    expect(failed.problem?.message).not.toBe("");
+    expect(shown(client)).toEqual(before);
+
+    refused = false;
+    await core.fillMeetingNotes(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled", omitted: 0 }),
+    );
+    expect(
+      shown(client).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    core.close();
+  });
+
+  // protects=Stop pressed again on a stopped call is refused and leaves one set of notes (#2773); fails_when=the second Stop starts a second fill or writes the notes twice; no_claim=the bar's own button, which goes at Stop.
+  test("Stop pressed twice leaves one set of notes", async () => {
+    let fills = 0;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && fills++ },
+    );
+    let stops: PromiseSettledResult<unknown>[] = [];
+    const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
+      stop: async (core, meetingId) => {
+        stops = await Promise.allSettled([
+          core.stopMeeting(meetingId),
+          core.stopMeeting(meetingId),
+        ]);
+      },
+    });
+    expect(stops.map((each) => each.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(
+      stops.flatMap((each) => (each.status === "rejected" ? [String(each.reason)] : [])),
+    ).toEqual([expect.stringContaining("That Meeting isn’t being recorded.")]);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(fills).toBe(1);
+    expect(
+      shown(client).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    core.close();
+  });
+
+  // protects=a call in which nothing was said gets no notes and no request, and says why (#2773); fails_when=a fill request goes out, or the line waits for ever; no_claim=the Transcript's own line, which the transcript tests cover.
+  test("a call in which nothing was said sends nothing and says there is nothing to fill in from", async () => {
+    let fills = 0;
+    const model = fillingModel(PRICING_REPLY, {}, {}, { seen: (call) => isFill(call) && fills++ });
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, {
+      model,
+      engine: { lines: [], theirLines: [] },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(12 * SECOND);
+    await core.stopMeeting(meeting.id);
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "off",
+      problem: { kind: "no-transcript" },
+    });
+    expect(fills).toBe(0);
     core.close();
   });
 
