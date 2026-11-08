@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
+import { claimPrompt } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { checkingModel, type Plan, requestedFigures } from "../helpers/checks";
@@ -385,4 +386,18 @@ describe("no code path gives a Supported the judge didn't", () => {
       expect(result.figures?.map((figure) => figure.state)).not.toContain("supported");
     },
   );
+});
+
+describe("a Note's own unit line", () => {
+  // protects=the judge is told how a unit line is supported only beside a sentence that names a unit, in English and Chinese, so no other check's request grows; fails_when=a unit line goes without the rule, or every sentence carries it; no_claim=a real model's verdict on the line, which tests/live/statedUnits.live.test.ts measures.
+  test.each([
+    ["Figures are in GBP million, as the Harbourline documents state them.", true],
+    ["数字单位为人民币百万元，与华岭食品的文件一致。", true],
+    ["Revenue for the six months: 668.3", false],
+    ["The lease ends in 2030.", false],
+  ])("%s: %s", (claim, told) => {
+    const prompt = claimPrompt({ claim, language: "en" });
+    expect(prompt.includes("whether or not the sentence gives the figures")).toBe(told);
+    expect(prompt).toContain(claim);
+  });
 });
