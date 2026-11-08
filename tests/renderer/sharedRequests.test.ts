@@ -27,17 +27,36 @@ test("callers asking the same thing while it is in flight share one request", as
   expect(await Promise.all(answers)).toEqual(["Contract.doc", "Contract.doc", "Contract.doc"]);
 });
 
-test("another key, or the same one once it has settled, sends again", async () => {
+test("another key in flight at the same time gets a request and a reply of its own", async () => {
+  const ask = sharedRequests<string>();
+  const all = held();
+  const folder = held();
+  const sent: string[] = [];
+  const first = ask("all|1", () => {
+    sent.push("all");
+    return all.promise;
+  });
+  const second = ask("folder|1", () => {
+    sent.push("folder");
+    return folder.promise;
+  });
+  expect(sent).toEqual(["all", "folder"]);
+  folder.resolve("Contract.doc");
+  all.resolve("Contract.doc, Locked.pdf");
+  expect(await first).toBe("Contract.doc, Locked.pdf");
+  expect(await second).toBe("Contract.doc");
+});
+
+test("the same key, once it has settled, sends again", async () => {
   const ask = sharedRequests<string>();
   let sent = 0;
   const asking = () => {
     sent += 1;
     return Promise.resolve(`reply ${sent}`);
   };
-  await ask("all|1", asking);
-  expect(await ask("folder|1", asking)).toBe("reply 2");
-  expect(await ask("all|1", asking)).toBe("reply 3");
-  expect(sent).toBe(3);
+  expect(await ask("all|1", asking)).toBe("reply 1");
+  expect(await ask("all|1", asking)).toBe("reply 2");
+  expect(sent).toBe(2);
 });
 
 test("a request that fails fails for every caller sharing it, and the next ask sends again", async () => {

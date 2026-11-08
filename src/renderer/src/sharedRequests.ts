@@ -7,9 +7,7 @@ export function sharedRequests<T>(): (key: string, ask: () => Promise<T>) => Pro
   return (key, ask) => {
     const known = asking.get(key);
     if (known) return known;
-    const request = ask().finally(() => {
-      if (asking.get(key) === request) asking.delete(key);
-    });
+    const request = ask().finally(() => asking.delete(key));
     asking.set(key, request);
     return request;
   };

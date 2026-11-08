@@ -10,8 +10,8 @@ import { shownClaims } from "./editor/claimChecks";
 import { sharedRequests } from "./sharedRequests";
 import { useAppStore } from "./store";
 
-// Every Answer shown over one scope asks at the same moment when the Library changes: one request
-// serves them all (#2772).
+// Every Answer, Library pane and getting-started card shown over one scope asks at the same moment
+// when the Library changes: one request serves them all (#2772).
 const askUnread = sharedRequests<UnreadFile[]>();
 
 /**

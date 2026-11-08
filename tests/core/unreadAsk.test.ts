@@ -11,8 +11,9 @@ import {
 
 /*
  * The window asks again for a scope's unread files when `unreadAskKey` of its Documents and Linked
- * folders changes: whenever the core's answer for a Folder of the Library could change, the key
- * must change too (#2772).
+ * folders changes (#2772). A Document added to or taken from a Linked folder holding a file not read
+ * can change a Folder's answer, so it changes the key; one in any other Linked folder can't, so it
+ * doesn't. Filing a Document into a Folder changes neither key, here or before (#2789).
  */
 
 const keyOf = async (core: Core) =>
@@ -43,12 +44,8 @@ describe("When a Folder's unread files can change, so does what the window watch
     expect(await keyOf(core)).not.toBe(before);
   });
 
-  test("a Document added beside a file not read and filed into the Folder changes both", async () => {
-    const { core, groupId, scope, folder } = await harbour();
-    const tides = (await core.listDocuments()).find((document) => document.name === "Tides");
-    if (!tides) throw new Error("Tides wasn't added.");
-    await core.deleteDocuments([tides.id]);
-    expect(await names(core, scope)).toEqual([]);
+  test("a Document added beside a file not read changes the key", async () => {
+    const { core, folder } = await harbour();
     const before = await keyOf(core);
     await writeSourceFile(
       folder,
@@ -56,12 +53,10 @@ describe("When a Folder's unread files can change, so does what the window watch
       "# Lamps\n\nThe harbour lamps were lit at dusk.\n",
     );
     await core.reconcileDocuments();
-    const [lamps] = await waitForDocuments(core, (documents) => {
+    await waitForDocuments(core, (documents) => {
       const found = documents.filter((document) => document.name === "Lamps");
       expect(found.map((document) => document.status)).toEqual(["ready"]);
-    }).then((documents) => documents.filter((document) => document.name === "Lamps"));
-    await core.assignDocumentGroup(lamps?.id ?? "", groupId);
-    expect(await names(core, scope)).toEqual(["Contract.doc"]);
+    });
     expect(await keyOf(core)).not.toBe(before);
   });
 
