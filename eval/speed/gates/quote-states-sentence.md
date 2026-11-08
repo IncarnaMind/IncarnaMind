@@ -10,6 +10,8 @@ Written and committed on 2026-11-08, before any run it gates. Citing first, the 
 - **Two whole runs a model** (`INCARNAMIND_EVAL_SPEED_RUNS=2`), false Supported counted over the set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`), `INCARNAMIND_EVAL_SPEED_MARGIN=1`. Each run starts only at a 15-minute load of 24 or less.
 - **Reading by hand:** every flagged sentence of both arms, against its quotes, as #2727 read them. A flag is right when the sentence states something its quotes don't; a right flag is also marked when its quote is about another claim than its sentence's.
 
+*Added on 2026-11-08, before the runs below: the first Claude Haiku 5.5 run was stopped at its sixth Question, en-05, where the first arm's Answer failed on the organisation's rate limit for that key. It spent under $0.10 and is not counted. Both models' runs start again, whole, on the second direct Anthropic key, one route for every run.*
+
 ## The bar, per model, over the items both arms finished
 
 1. **Quotes that don't state their sentence** (flags read right, over found Citations): on Claude Haiku 5.5, both of the branch's runs below 20%, clearly under main's 25–31%. On both models, the branch's two runs sit below main's two, and the mean gap is more than either arm's own difference between its runs.
