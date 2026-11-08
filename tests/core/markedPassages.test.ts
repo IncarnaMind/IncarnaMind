@@ -44,8 +44,8 @@ describe("Records for a reply that names its Passages in its markers", () => {
     });
   });
 
-  // protects=a quote the Citation check wouldn't find is passed over for the next line holding the claim that it finds; a marker naming no Passage given, or one already recorded, gets no record; fails_when=an unfound quote is recorded, or a record is made for a Passage not given or a marker already backed; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
-  test("takes the line holding the claim that the check finds, and nothing for a marker naming no Passage or already recorded", () => {
+  // protects=a quote the Citation check wouldn't find is passed over for the next line holding the claim that it finds; a marker naming no Passage given gets no record, and one an earlier reply recorded is read as naming its Passage anew, under a marker of its own, so it never shows the record its number already holds; fails_when=an unfound quote is recorded, a record is made for a Passage not given, or a recorded marker keeps the earlier record; no_claim=what becomes of the unbacked marker (the core's test) (#2526).
+  test("takes the line holding the claim that the check finds, nothing for a marker naming no Passage, and a marker of its own for a recorded one", () => {
     const sheet = {
       id: "P2",
       text: "- Enterprise plan: $52 per driver a month.\n- On Enterprise, each driver costs $52 a month.",
@@ -58,9 +58,11 @@ describe("Records for a reply that names its Passages in its markers", () => {
         { marker: 2, passage: "P2", quote: "On Enterprise, each driver costs $52 a month." },
       ],
     });
-    expect(markedPassages(text, [sheet], everywhere, (marker) => marker === 2)).toEqual({
-      text,
-      records: [],
+    expect(markedPassages(text, [sheet], found, (marker) => marker === 2)).toEqual({
+      text: text.replace("[^2]", "[^8]"),
+      records: [
+        { marker: 8, passage: "P2", quote: "On Enterprise, each driver costs $52 a month." },
+      ],
     });
   });
 
@@ -340,5 +342,333 @@ describe("Records for a reply that names its Passages in its markers", () => {
       text: text.replace("March [^4]", "March"),
       records: [{ marker: 4, passage: "P4", quote: "Invoices are due within 30 days." }],
     });
+  });
+  // protects=a heading is never quoted and its words are no evidence: a "#" line inside a block, a line wholly in bold, and a short line with no closing punctuation that starts a block and runs straight into its text; fails_when=the "#" filter, the bold rule or the start-of-block rule is taken out and the heading is quoted (#2526).
+  test("a heading inside a block, in bold or running straight into its text is never quoted", () => {
+    const inBlock = {
+      id: "P4",
+      text: "Standard support answers by email within a day.\n# Connectors and webhooks\nWebhooks retry for 24 hours.",
+    };
+    expect(
+      markedPassages("Connectors and webhooks come with it [^4]", [inBlock], everywhere, none),
+    ).toEqual({ text: "Connectors and webhooks come with it", records: [] });
+    for (const text of [
+      "Premium support\nPremium answers critical alerts within 30 minutes.\nStandard support answers by email within a day.",
+      "Standard support answers by email within a day.\n**Premium support**\nPremium answers critical alerts within 30 minutes.",
+    ]) {
+      const heading = text;
+      const support = { id: "P4", text };
+      expect(
+        markedPassages("Premium support includes phone support [^4]", [support], everywhere, none)
+          .records,
+        heading,
+      ).toEqual([]);
+      expect(
+        markedPassages(
+          "Premium answers critical alerts within 30 minutes [^4]",
+          [support],
+          everywhere,
+          none,
+        ).records,
+        heading,
+      ).toEqual([
+        { marker: 4, passage: "P4", quote: "Premium answers critical alerts within 30 minutes." },
+      ]);
+    }
+  });
+
+  // protects=words are matched with their endings folded, plural, -ies, -ed and -ly ("connectors" and "connector", "batteries" and "battery", "billing" and "billing", "yearly" and "year"); fails_when=a rule is taken out and the line holding the claim loses its quote (#2526).
+  test("a word matches the line's word with another ending", () => {
+    const sheet = {
+      id: "P2",
+      text: "- The shop connector is included.\n- Each battery is swappable.\n- Billing happens once a year.\n- Gateways cost $180 each.",
+    };
+    for (const [claim, quote] of [
+      ["Both connectors are included [^2]", "The shop connector is included."],
+      ["Batteries are swappable [^2]", "Each battery is swappable."],
+      ["Billing is yearly [^2]", "Billing happens once a year."],
+    ] as const) {
+      expect(markedPassages(claim, [sheet], everywhere, none).records, claim).toEqual([
+        { marker: 2, passage: "P2", quote },
+      ]);
+    }
+  });
+
+  // protects=a figure is held only by one of its kind: "9 years" not by "$9", "50 drivers" not by "50%", "30 seats" not by a call line's time "0:30", while "$1,200", "1200 dollars" and a time named in the claim are; fails_when=figures are matched as bare digits and the line is quoted for another quantity (#2526).
+  test("a figure is held only by one of its kind: an amount, a percentage, a time", () => {
+    const sensors = {
+      id: "P3",
+      text: "| Plan | Price per sensor a month | Readings kept |\n|---|---|---|\n| Standard | $9 | 1 year |",
+    };
+    expect(
+      markedPassages("Standard keeps readings for 9 years [^3]", [sensors], everywhere, none)
+        .records,
+    ).toEqual([]);
+    const volume = { id: "P2", text: "Volume: 50% off Enterprise for drivers on the yearly plan." };
+    expect(
+      markedPassages(
+        "Enterprise needs 50 drivers on the yearly plan [^2]",
+        [volume],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+    const call = {
+      id: "P1",
+      text: "[0:30 Them] We need about 20 seats.\n[5:56 Them] We need single sign-on for every seat.",
+    };
+    expect(markedPassages("They need 30 seats [^1]", [call], everywhere, none).records).toEqual([]);
+    expect(
+      markedPassages("At 5:56 they said they need single sign-on [^1]", [call], everywhere, none)
+        .records,
+    ).toEqual([{ marker: 1, passage: "P1", quote: "We need single sign-on for every seat." }]);
+    const setup = { id: "P2", text: "Setup costs 1200 dollars, once." };
+    expect(markedPassages("Setup is $1,200 once [^2]", [setup], everywhere, none).records).toEqual([
+      { marker: 2, passage: "P2", quote: "Setup costs 1200 dollars, once." },
+    ]);
+  });
+
+  // protects=a number in words or Chinese numerals is a figure on both sides: "twelve months" is not held by "24 months", 八折 not by 九折, while "2 weeks" is held by "two weeks" and "2 周" by 两周; a reply's "the one" or 每一 is no figure; fails_when=number words stay words, so a wrong number shows found or a right one loses its quote (#2526).
+  test("a number in words or Chinese numerals is a figure", () => {
+    const term = { id: "P4", text: "Minimum term: 24 months.\nOnboarding takes about two weeks." };
+    expect(
+      markedPassages("The minimum term is twelve months [^4]", [term], everywhere, none).records,
+    ).toEqual([]);
+    expect(
+      markedPassages("Onboarding takes about 2 weeks [^4]", [term], everywhere, none).records,
+    ).toEqual([{ marker: 4, passage: "P4", quote: "Onboarding takes about two weeks." }]);
+    const zh = { id: "P3", text: "- 批量优惠：企业版 50 名司机起打九折。\n- 上线约两周完成。" };
+    expect(markedPassages("企业版 50 名司机起打八折 [^3]", [zh], everywhere, none).records).toEqual(
+      [],
+    );
+    expect(markedPassages("上线约 2 周完成 [^3]", [zh], everywhere, none).records).toEqual([
+      { marker: 3, passage: "P3", quote: "上线约两周完成。" },
+    ]);
+    const plans = { id: "P2", text: "Enterprise is the plan with route optimisation." };
+    expect(
+      markedPassages(
+        "Enterprise is the one with route optimisation [^2]",
+        [plans],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      { marker: 2, passage: "P2", quote: "Enterprise is the plan with route optimisation." },
+    ]);
+  });
+
+  // protects=a name the Passage gives a row or a thing (a table row's first cell, a line's lead before its colon, a word in capitals past a sentence's start) that the claim says is in a quote taken for it, so a figure moved to another row's name ("Team is $52" against "Enterprise plan: $52", 团队版 against 企业版, "on Basic" against "on Standard and Premium") is never shown found; a word that is no name, said beside the quoted fact, costs no Citation; fails_when=the line holding the figure is quoted though the claim names another row, or a promise beside a quoted fact loses its Citation (#2526).
+  test("a name the claim gives that no quote holds leaves no record", () => {
+    expect(markedPassages("Team is $52 a driver a month [^2]", [PRICES], everywhere, none)).toEqual(
+      {
+        text: "Team is $52 a driver a month",
+        records: [],
+      },
+    );
+    expect(
+      markedPassages("团队版每名司机每月 340 元 [^3]", [ZH], everywhere, none).records,
+    ).toEqual([]);
+    const plans = {
+      id: "P2",
+      text: "| Plan | Price per sensor a month |\n|---|---|\n| Basic | $6 |\n| Standard | $9 |\n\nText-message alerts are included on Standard and Premium. On Basic, each text message costs $0.05.",
+    };
+    expect(
+      markedPassages("Text-message alerts are included on Basic [^2]", [plans], everywhere, none)
+        .records,
+    ).toEqual([]);
+    expect(
+      markedPassages(
+        "Yes, Team is $29 a driver, a fair start for you [^2]",
+        [PRICES],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: "Team plan: $29 per driver a month." }]);
+    const terms = {
+      id: "P4",
+      text: "Minimum term: 12 months.\nAfter the contract ends, we provide a CSV export of your data within 30 days.",
+    };
+    expect(
+      markedPassages(
+        "Our minimum term is 12 months; I can confirm the data export details in writing after the call [^4]",
+        [terms],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([{ marker: 4, passage: "P4", quote: "Minimum term: 12 months." }]);
+  });
+
+  // protects=a figure of the Document's name or a heading may stand in the claim without a quote holding it ("our 2026 service levels"), while every other figure must; fails_when=the claim naming its Document's year loses its Citation (#2526).
+  test("a figure of the Document's name or heading needs no quote", () => {
+    const levels = {
+      id: "P2",
+      name: "Service levels 2026",
+      text: "# Service levels 2026\n\nUrgent tickets: answered within 1 hour on Enterprise, 4 hours on Team.",
+    };
+    expect(
+      markedPassages(
+        "Under our 2026 service levels it's 1 hour on Enterprise [^2]",
+        [levels],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 2,
+        passage: "P2",
+        quote: "Urgent tickets: answered within 1 hour on Enterprise, 4 hours on Team.",
+      },
+    ]);
+  });
+
+  // protects=a Chinese claim whose words other lines hold too (版每 in 标准版每个, 一次 in 上报一次), and which names its row, keeps the row's quote; fails_when=a word that is no name blocks the Citation (#2526).
+  test("a Chinese claim keeps its quote when other lines hold some of its words", () => {
+    const plans = {
+      id: "P2",
+      name: "监控方案",
+      text: "# 监控方案\n\n各方案的区别在于传感器多久上报一次。\n\n| 方案 | 每个传感器每月 | 上报间隔 | 读数保存 |\n|---|---|---|---|\n| 标准版 | 60 元 | 每 5 分钟 | 1 年 |\n\n基础版每条短信 0.3 元。",
+    };
+    expect(
+      markedPassages(
+        "标准版每 5 分钟上报一次，每个每月 60 元，读数存 1 年 [^2]",
+        [plans],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: "| 标准版 | 60 元 | 每 5 分钟 | 1 年 |" }]);
+  });
+
+  // protects=a Passage with a line saying the claim's opposite gives it nothing: "doesn't include", "without", 不含, 没有, a line that negates what the claim says, and "Not quite, … is in" against "… is not included in"; while a negation of something the line doesn't say ("aren't included on Basic", "your Android 10 phones won't run it"), of another thing than the line names ("Team can't include live traffic" against "…on Enterprise only"), or a claim saying a word both ways keeps its quote; fails_when=the line is quoted for its opposite, or a claim with its own negation loses a quote that states it (#2526).
+  test("a Passage with a line saying the claim's opposite gives it nothing", () => {
+    const included = {
+      id: "P2",
+      text: "Team plan: $39 per seat a month.\nSingle sign-on is included in the Team plan.",
+    };
+    const notIncluded = {
+      id: "P2",
+      text: "Team plan: $39 per seat a month.\nSingle sign-on is not included in the Team plan.",
+    };
+    for (const [claim, passage] of [
+      ["The Team plan doesn't include single sign-on [^2]", included],
+      ["The Team plan comes without single sign-on [^2]", included],
+      ["Sadly, single sign-on is not included in the Team plan for your drivers [^2]", included],
+      ["The Team plan includes single sign-on [^2]", notIncluded],
+      ["Not quite, single sign-on is in the Team plan [^2]", notIncluded],
+      [
+        "团队版不含单点登录 [^2]",
+        { id: "P2", text: "团队版含单点登录。\n企业版每席位每月 45 元。" },
+      ],
+      ["团队版没有单点登录 [^2]", { id: "P2", text: "单点登录包含在团队版中。" }],
+      ["团队版包含单点登录 [^2]", { id: "P2", text: "团队版不包含单点登录。" }],
+    ] as const) {
+      expect(markedPassages(claim, [passage], everywhere, none).records, claim).toEqual([]);
+    }
+    const texts = {
+      id: "P2",
+      text: "Text-message alerts are included on Standard and Premium. On Basic, each text message costs $0.05.\nEvery plan includes email alerts.",
+    };
+    expect(
+      markedPassages(
+        "Text alerts aren't included on Basic; each text message costs $0.05 [^2]",
+        [texts],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual([
+      "On Basic, each text message costs $0.05.",
+      "Text-message alerts are included on Standard and Premium.",
+    ]);
+    expect(
+      markedPassages(
+        "Text-message alerts are not included on Standard and Premium [^2]",
+        [texts],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([]);
+    const traffic = {
+      id: "P2",
+      text: "- A route holds up to 200 stops.\n- Live traffic data is included on Enterprise only.",
+    };
+    expect(
+      markedPassages(
+        "Team can't include live traffic, but Enterprise has it [^2]",
+        [traffic],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      { marker: 2, passage: "P2", quote: "Live traffic data is included on Enterprise only." },
+    ]);
+    const connectors = {
+      id: "P2",
+      text: "- SAP connector: Enterprise only, at $300 a month.\n- Shopify connector: free on every plan.",
+    };
+    expect(
+      markedPassages(
+        "Our SAP connector is Enterprise only, at $300 a month, so it isn't free on every plan; Shopify is free on every plan [^2]",
+        [connectors],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual([
+      "SAP connector: Enterprise only, at $300 a month.",
+      "Shopify connector: free on every plan.",
+    ]);
+    const lock = {
+      id: "P2",
+      text: "Prices are fixed for the first 24 months of a contract; after that, a yearly increase is capped at 4%.",
+    };
+    expect(
+      markedPassages(
+        "We can't fix prices for longer, but prices are fixed for 24 months and capped at 4% a year after that [^2]",
+        [lock],
+        everywhere,
+        none,
+      ).records.map((record) => record.quote),
+    ).toEqual([lock.text]);
+  });
+
+  // protects=a figure the call said, standing in the claim, draws no further quote from a line that happens to hold it ("minus forty" against "40 probes"); fails_when=the line about gateways is quoted beside the line about temperatures (#2526).
+  test("a figure the call said draws no further quote from a line that happens to hold it", () => {
+    const call = { id: "P1", text: "[0:05 Them] Do the probes work down to minus forty?" };
+    const hardware = {
+      id: "P2",
+      text: "Each probe works from -30 °C to +60 °C and is accurate to ±0.3 °C.\nOne gateway covers up to 40 probes within 100 metres.",
+    };
+    expect(
+      markedPassages(
+        "Down to minus forty: contradicted, the probes work from -30 °C to +60 °C [^2]",
+        [call, hardware],
+        everywhere,
+        none,
+      ).records,
+    ).toEqual([
+      {
+        marker: 2,
+        passage: "P2",
+        quote: "Each probe works from -30 °C to +60 °C and is accurate to ±0.3 °C.",
+      },
+    ]);
+  });
+  // protects=a claim saying "they" and not "we" quotes no line the transcript marks "Me", and one saying "I" or "we" and not "they" none marked "Them", in English and Chinese, while a claim naming neither side quotes either; fails_when=the User's own line is quoted for what the other side said, or the reverse (#2526).
+  test("a claim naming one side of the call quotes no line of the other's", () => {
+    const call = {
+      id: "P1",
+      text: "[0:00 Me] Most teams start with 100 sensors.\n[0:30 Them] We need about 20 seats.\n[0:41 Them] 我们先上 100 个传感器。",
+    };
+    expect(
+      markedPassages("They will start with 100 sensors [^1]", [call], everywhere, none).records,
+    ).toEqual([]);
+    expect(
+      markedPassages("They need about 20 seats [^1]", [call], everywhere, none).records,
+    ).toEqual([{ marker: 1, passage: "P1", quote: "We need about 20 seats." }]);
+    expect(
+      markedPassages("We usually start teams on 100 sensors [^1]", [call], everywhere, none)
+        .records,
+    ).toEqual([{ marker: 1, passage: "P1", quote: "Most teams start with 100 sensors." }]);
+    expect(markedPassages("对方先上 100 个传感器 [^1]", [call], everywhere, none).records).toEqual([
+      { marker: 1, passage: "P1", quote: "我们先上 100 个传感器。" },
+    ]);
   });
 });

@@ -12,7 +12,8 @@
  * 2. else the Passage sentence it is a near-duplicate of: they share at
  *    least five words and 60% of their words (Dice), give the same numbers
  *    (as a multiset, "739,800" read as one) and as many negations ("not",
- *    "no", "never", "n't", 不, 没, 未, 无, 非), and the check finds it there.
+ *    "no", "never", "without", "n't", 不, 没, 未, 无, 非), and the check finds
+ *    it there.
  *
  * Each match becomes a Citation record, taken as structured output's are,
  * and its marker goes after the sentence (see ./markerPlacement). A marker
@@ -130,10 +131,19 @@ type Found = Omit<Match, "marker"> & { marker?: number; start?: number; end?: nu
 /** A number as written, without the separators between its groups of three: "£739,800" is "739800". */
 const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
 const CHINESE_NUMBER = /[零〇一二两三四五六七八九十百千万亿]+/gu;
-const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
+const NEGATING_WORDS = "not|no|never|without";
+const NEGATING_CHARACTERS = "不没未无非";
+const NEGATION = new RegExp(
+  `\\b(?:${NEGATING_WORDS})\\b|n['’]t\\b|[${NEGATING_CHARACTERS}]`,
+  "giu",
+);
+const NEGATING = new RegExp(`^(?:${NEGATING_WORDS})$|n['’]t$|^[${NEGATING_CHARACTERS}]$`, "iu");
 
-/** How many negations a text has: "not", "no", "never", "n't", 不, 没, 未, 无, 非. */
-export const negationsOf = (text: string): number => text.match(NEGATION)?.length ?? 0;
+/** How many negations a text has: "not", "no", "never", "without", "n't", 不, 没, 未, 无, 非. */
+const negationsOf = (text: string): number => text.match(NEGATION)?.length ?? 0;
+
+/** Whether a word, or a CJK character, is one of the negations `negationsOf` counts. */
+export const negates = (word: string): boolean => NEGATING.test(word);
 
 /** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
 function numbersOf(text: string): string[] {
