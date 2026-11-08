@@ -109,10 +109,13 @@ export function answerFailure(
   return null;
 }
 
-/** The failure of an Edit with AI that the provider failed or the User stopped, else null. */
+/** The failure of an Edit with AI the provider failed, the User stopped, or nothing was sent for. */
 export function editFailure(result: EditWithAiResult): RunFailure | null {
   if (result.kind === "failed") return { kind: result.error.kind, message: result.error.message };
   if (result.kind === "cancelled") return { kind: "stopped", message: "the edit was cancelled" };
+  if (result.kind === "not-ready" || result.kind === "local-mode") {
+    return { kind: result.kind, message: "nothing was sent to the model" };
+  }
   return null;
 }
 

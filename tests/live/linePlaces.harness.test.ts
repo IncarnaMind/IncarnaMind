@@ -65,6 +65,20 @@ describe("a failed Answer is counted apart from the lines kept and lost", () => 
     expect(editFailure({ kind: "unchanged" })).toBeNull();
   });
 
+  test("an edit nothing was sent for is a failure", () => {
+    expect(editFailure({ kind: "local-mode" })).toEqual({
+      kind: "local-mode",
+      message: "nothing was sent to the model",
+    });
+    expect(
+      editFailure({ kind: "not-ready", readiness: { ready: false, reason: "no-provider" } }),
+    ).toEqual({ kind: "not-ready", message: "nothing was sent to the model" });
+  });
+
+  test("an edit the model made but the code refused is no failure", () => {
+    expect(editFailure({ kind: "unplaced", quotes: ["gone"] })).toBeNull();
+  });
+
   test("a failed run leaves its row with the failure and no made or lost lines", () => {
     const row: Record<string, unknown> = {};
     recordRun(row, caseOf("en-15"), { kind: "network", message: "socket closed" }, () => {
