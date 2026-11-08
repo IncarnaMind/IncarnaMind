@@ -20,13 +20,17 @@ const HAN_START = /^\p{Script=Han}/u;
 const between = (left: string, right: string) =>
   HAN_END.test(left) || HAN_START.test(right) ? gap("zh-CN", left, right) : "";
 
+/** `text` with the User's `name` in place of every token the model wrote. */
+export const textWithUserName = (text: string, name: string): string =>
+  text.replace(
+    WRITTEN_TOKEN,
+    (token: string, at: number, whole: string) =>
+      `${between(whole.slice(0, at), name)}${name}${between(name, whole.slice(at + token.length))}`,
+  );
+
 function named(node: NodeJSON, name: string): NodeJSON {
   if (typeof node.text === "string") {
-    const text = node.text.replace(
-      WRITTEN_TOKEN,
-      (token: string, at: number, whole: string) =>
-        `${between(whole.slice(0, at), name)}${name}${between(name, whole.slice(at + token.length))}`,
-    );
+    const text = textWithUserName(node.text, name);
     return text === node.text ? node : { ...node, text };
   }
   return node.content

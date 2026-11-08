@@ -22,6 +22,7 @@ import type { Core, Meeting, MeetingFill } from "../../src/core";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
+import { textWithUserName } from "../../src/core/meetings/userName";
 import { catalogModel } from "../../src/core/providers/catalog";
 import * as chatModels from "../../src/core/providers/models";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -3381,9 +3382,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           call.sectionHeadings?.[section] ??
           translate(call.language, `meetings.fill.section.${section}`);
         const summary = units.filter((each) => each.ai && each.section === title("summary"));
+        // The note has the name where the reply has the token.
         const overview = hasGeneratedOverview(
           summary,
-          usage.replies.map((reply) => reply.text),
+          usage.replies.map((reply) =>
+            USER_NAME ? textWithUserName(reply.text, USER_NAME) : reply.text,
+          ),
         );
         const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
         const questions = units.filter((each) => each.ai && each.section === title("questions"));
