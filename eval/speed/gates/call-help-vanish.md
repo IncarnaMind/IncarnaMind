@@ -72,3 +72,21 @@ A line that fails keeps the change from shipping, and the numbers go on the issu
 ### Reported, not held
 
 The done time's median per cell, beside main's over the 240: a reply with nothing to judge no longer waits for the judgement's request.
+
+### The runs (2026-11-08)
+
+- **The replay,** with no model asked: main's panel (552266d07) and the branch's (701c53148) read the 240 kept replies with the same counts in every cell, the new one included: "a → line shown, then gone at the end" is 1 in Claude Haiku 5.5's English and 1 in its Chinese, both lines the core took back in main's replies, and none on DeepSeek V4.1 Flash.
+- **The fresh run,** at 701c53148: 120 presses, every one finished, on Claude Haiku 5.5 (a direct Anthropic key) and DeepSeek V4.1 Flash 1017 (`deepseek-flash`); both were meant and both ran. Spent $0.05 by the core's count, of the $2 cap. One-minute load 10.9 at the start and 5.2 at the end.
+
+Main's 240 (60 presses a cell) → the fresh run (30 a cell), both buttons together:
+
+| Model · language | a → line shown, then gone at the end | words, then none at the end | no item at the end | an item shown, then taken back by the core | an item shown, then hidden though the reply has it |
+|---|---|---|---|---|---|
+| Claude Haiku 5.5 · English | 1 → **0** | 0 → 0 | 0 → 0 | 2 → 0 | 1 → 0 |
+| Claude Haiku 5.5 · Chinese | 1 → **0** | 0 → 0 | 0 → 0 | 1 → 1 | 0 → 0 |
+| DeepSeek V4.1 Flash · English | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash · Chinese | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+
+**The bar holds on every line.** The one item taken back by the core (Haiku, `zh-want`) is a remark the model wrote after its one reading's "→" line, "Wait — the format requires cite records before the answer. Recording the…", judged the model's working as on main; the reading and its "→" line stayed.
+
+The done time's median, main's 240 → the fresh run, per button (reported, not held; two runs at different times): Haiku English 3.27 → 3.68 s and 2.95 → 2.88 s, Haiku Chinese 3.16 → 2.01 s and 2.67 → 2.61 s; DeepSeek English 2.05 → 1.66 s and 2.76 → 2.64 s, DeepSeek Chinese 2.10 → 1.86 s and 2.92 → 2.55 s ("What do they want?", then "What to ask next").
