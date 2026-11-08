@@ -295,6 +295,36 @@ describe("The computer's sound", () => {
     expect((await meetingOf(core, id)).sources.system).toBe("ended");
   });
 
+  test("fifteen seconds of nothing but silence from the microphone is reported, and sound coming back clears it", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, capture, clock, record } = await meetingCore(dataDir, manualClock(), {
+      systemAudio: false,
+    });
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id, systemAudio: false });
+    record(10 * SECOND);
+    expect((await meetingOf(core, id)).sources.microphone).toBe("recording");
+
+    // A muted microphone: every sample zero, second after second.
+    const quiet = (ms: number) => {
+      for (let at = 0; at < ms; at += 500) {
+        const step = Math.min(500, ms - at);
+        clock.advance(step);
+        capture.push("microphone", step, true);
+      }
+    };
+    quiet(14 * SECOND);
+    expect((await meetingOf(core, id)).sources.microphone).toBe("recording");
+    const silent = nextEvent(core, "meetings.changed");
+    quiet(SECOND);
+    expect((await silent).find((each) => each.id === id)?.sources.microphone).toBe("silent");
+
+    const back = nextEvent(core, "meetings.changed");
+    record(SECOND);
+    expect((await back).find((each) => each.id === id)?.sources.microphone).toBe("recording");
+    await core.stopMeeting(id);
+  });
+
   test("a computer that can't record its own sound records the microphone", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await meetingCore(dataDir, manualClock(), { systemAudio: false });

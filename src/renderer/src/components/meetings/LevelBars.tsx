@@ -13,6 +13,7 @@ const LOWEST_PX = 2;
 const HIGHEST_PX = 12;
 
 const MICROPHONE_PROBLEMS: Partial<Record<MeetingSourceState, MessageKey>> = {
+  silent: "meetings.line.microphoneSilent",
   denied: "meetings.line.microphoneDenied",
   unavailable: "meetings.line.microphoneUnavailable",
   ended: "meetings.line.microphoneEnded",

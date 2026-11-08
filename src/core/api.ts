@@ -11147,7 +11147,8 @@ export type MeetingKind = "meeting" | "memo";
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
- *   which is what macOS gives when IncarnaMind isn't allowed to record it.
+ *   which is what macOS gives when IncarnaMind isn't allowed to record it; or
+ *   the microphone for fifteen seconds, which a muted or wrong one gives.
  * - "denied": this computer doesn't allow IncarnaMind to record it.
  * - "unavailable": there is none (no microphone), or this computer can't
  *   record it (the computer's sound on Linux, for now).
