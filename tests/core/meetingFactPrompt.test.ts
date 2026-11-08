@@ -98,3 +98,45 @@ test("with a typed line, lines lists its L address", () => {
   expect(prompt).toContain("lines lists related ordinary L addresses");
   expect(prompt).not.toContain("lines is always []");
 });
+
+// protects=with the User's name set, the model is told to write a token for them in every language and is never told the name, and the first-person rule and Me's own word are gone, so nothing contradicts it (#2306); fails_when=the token is missing, the first person is still asked, or Me is still given a word of its own; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
+test.each([
+  [
+    "notes",
+    (named: boolean) =>
+      notesContext(
+        [{ marker: "L1", text: "price", heading: false }],
+        "Fill the note",
+        undefined,
+        "English",
+        named,
+      ),
+  ],
+  ["sections", (named: boolean) => sectionsContext("Write the notes", undefined, "Chinese", named)],
+] as const)(
+  "with the User's name set, the %s prompt asks for the token, not the first person",
+  (_, context) => {
+    const named = JSON.stringify(context(true).messages);
+    expect(named).toContain(
+      "Write the User, who reads these notes, as {{me}}, exactly so in every language, even when the call gave their name",
+    );
+    expect(named).toContain("Their possessive (my) is {{me}}'s, and {{me}}的 in Chinese.");
+    expect(named).toContain(
+      "Never write I, me, my, 我 or a name for them, but keep we or our (我们) where they spoke for their side.",
+    );
+    expect(named).toContain("Me is always {{me}}.");
+    expect(named).toContain("in Simplified Chinese Them is 对方");
+    expect(named).not.toContain("in the first person");
+    expect(named).not.toContain("Me is I");
+    expect(named).not.toContain("Me is 我");
+    expect(named).toContain("a named person is never the other side, 对方 or they");
+
+    const unnamed = JSON.stringify(context(false).messages);
+    expect(unnamed).toContain(
+      "in the first person (I, my; 我 in Chinese), even when the call gave their name",
+    );
+    expect(unnamed).toContain("in English Me is I, Them is the other side");
+    expect(unnamed).toContain("in Simplified Chinese Me is 我");
+    expect(unnamed).not.toContain("{{me}}");
+  },
+);

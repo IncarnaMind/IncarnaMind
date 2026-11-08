@@ -54,6 +54,7 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
+import { withUserName } from "./userName";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -91,6 +92,8 @@ export interface MeetingFillOptions {
   transcript(documentId: string): Promise<WindowedPassage[]>;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
+  /** The name the User set in Settings › General, never the computer's login name: null for none. */
+  userName(): string | null;
   answers: {
     answerMeetingFill(input: {
       context: QuestionContext;
@@ -529,6 +532,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
   ): Promise<Written> {
     const lines = content.read(meeting.mindId, (blocks) => userLines(blocks));
     const mode = lines.length > 0 ? "notes" : "sections";
+    const name = options.userName();
     const filling: Partial<StoredFill> = {
       state: "filling",
       mode,
@@ -582,8 +586,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       };
       const context =
         mode === "notes"
-          ? notesContext(lines, question, history, spoken)
-          : sectionsContext(question, history, spoken);
+          ? notesContext(lines, question, history, spoken, name !== null)
+          : sectionsContext(question, history, spoken, name !== null);
       let answer: CellAnswer;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
@@ -706,9 +710,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
           const line = present.find((line) => line.heading && line.marker === marker);
           if (line) headings.set(section, line);
         }
+        const named = <K>(placed: ReadonlyMap<K, NodeJSON[]>) =>
+          new Map(
+            [...placed].map(([key, nodes]): [K, NodeJSON[]] => [key, withUserName(nodes, name)]),
+          );
         return [
-          ...placeUnderLines(blocks, present, planned.lines),
-          ...placeSections(blocks, planned.sections, headings, language),
+          ...placeUnderLines(blocks, present, named(planned.lines)),
+          ...placeSections(blocks, named(planned.sections), headings, language),
         ];
       },
     };
