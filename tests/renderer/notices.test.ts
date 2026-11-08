@@ -64,6 +64,15 @@ describe("an error", () => {
     expect(everything).not.toContain("Error invoking remote method");
   });
 
+  test("a programming failure of this window's keeps its technical text for the log, not the screen", () => {
+    notices.getState().showError(new TypeError("core.startOrganize is not a function"));
+    const [notice] = notices.getState().errors;
+    expect(notice?.programError).toBe(true);
+    expect(notice?.stale).toBe(true);
+    expect(notice?.call).toBeNull();
+    expect(notice?.log).toContain("core.startOrganize is not a function");
+  });
+
   test("keeps the core's wording, for the interface language, and its English for the log", () => {
     const error = new InvalidInputError({ key: "error.document.nameEmpty" });
     notices

@@ -28,6 +28,7 @@ export type SettingsTarget =
   | "tagging"
   | "turn-on-tagging"
   | "meeting-words"
+  | "call-help-model"
   | "calendars"
   | "background"
   | "call-offers"
