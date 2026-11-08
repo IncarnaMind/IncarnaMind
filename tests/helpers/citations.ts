@@ -67,6 +67,10 @@ export function shownPassages(result: string): ShownPassage[] {
   return passages;
 }
 
+/** What a request's `<tag>` block holds, as a prompt shows it; null when it has none. */
+export const taggedBlock = (text: string, tag: string): string | null =>
+  new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? null;
+
 export function transcriptCitations(
   call: ModelCall,
   shown: readonly ShownPassage[],

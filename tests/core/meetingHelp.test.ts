@@ -11,7 +11,7 @@ import { helpOwnLines } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { setMindModel } from "../../src/shared/mindModel";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { answerEnded, shownPassages, taggedBlock } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -21,14 +21,11 @@ import { transcribingCore, until } from "../helpers/transcription";
 const SECOND = 1000;
 const PRICE = "Enterprise plan: $45 per seat a month, single sign-on included.";
 
-const block = (text: string, tag: string) =>
-  new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? null;
-
 /** A model that answers in the help shape, citing the first Passage found ahead if it has one. */
 function helpingModel(calls: ModelCall[]) {
   return scriptedModel((call) => {
     calls.push(call);
-    const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+    const [found] = shownPassages(taggedBlock(call.prompt, "found-in-documents") ?? "");
     if (found && !call.results.some((result) => result.tool === "cite")) {
       return {
         calls: [
@@ -54,8 +51,8 @@ const writesBesideCite = (reply: string, judged: string[][]) => (calls: ModelCal
   scriptedModel(
     (call) => {
       calls.push(call);
-      const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
-      const heard = shownPassages(block(call.prompt, "live-transcript") ?? "").at(-1);
+      const [found] = shownPassages(taggedBlock(call.prompt, "found-in-documents") ?? "");
+      const heard = shownPassages(taggedBlock(call.prompt, "live-transcript") ?? "").at(-1);
       const record = found
         ? { marker: 1, passage: found.id, quote: PRICE }
         : heard && {
@@ -209,7 +206,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
 
     const { answer } = await press(core, meeting, "answer");
 
-    const found = block(calls[0]?.prompt ?? "", "found-in-documents");
+    const found = taggedBlock(calls[0]?.prompt ?? "", "found-in-documents");
     expect(found).toContain("Price sheet");
     expect(found).not.toContain("Transcript");
     expect(calls[0]?.tools).toContain("search_documents");

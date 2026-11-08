@@ -5,40 +5,50 @@
  */
 import { describe, expect, test } from "vitest";
 import type { CoreAdapters, MeetingHelpKind } from "../../src/core";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { answerEnded, shownPassages, taggedBlock } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
 
-const block = (text: string, tag: string) =>
-  new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? null;
+/** The records of `quotes` from the call's lines, markers 1, 2, … in turn. */
+function records(call: ModelCall, quotes: readonly string[]) {
+  const heard = shownPassages(taggedBlock(call.prompt, "live-transcript") ?? "");
+  return quotes.map((quote, index) => {
+    const passage = heard.find((each) => each.text.includes(quote));
+    if (!passage) throw new Error(`No line of the call says “${quote}”.`);
+    return { marker: index + 1, passage: passage.id, quote };
+  });
+}
 
-/** A model that records `quotes` from the call's lines, markers 1, 2, …, then writes `reply`. */
-const writing = (reply: string, quotes: readonly string[], calls: ModelCall[]) =>
+/** A model that records `quotes` with `cite`, then writes `reply`. */
+const citing = (reply: string, quotes: readonly string[]) => (calls: ModelCall[]) =>
   scriptedModel((call) => {
     calls.push(call);
     if (quotes.length > 0 && !call.results.some((result) => result.tool === "cite")) {
-      const heard = shownPassages(block(call.prompt, "live-transcript") ?? "");
-      const citations = quotes.map((quote, index) => {
-        const passage = heard.find((each) => each.text.includes(quote));
-        if (!passage) throw new Error(`No line of the call says “${quote}”.`);
-        return { marker: index + 1, passage: passage.id, quote };
-      });
-      return { calls: [{ tool: "cite", input: { citations } }] };
+      return { calls: [{ tool: "cite", input: { citations: records(call, quotes) } }] };
     }
     return { text: reply };
+  });
+
+/** A model that calls no Tools: it gives `reply` and the records of `quotes` as one JSON object. */
+const structured = (reply: string, quotes: readonly string[]) => (calls: ModelCall[]) =>
+  scriptedModel((call) => {
+    calls.push(call);
+    if (call.tools.length > 0) {
+      return { error: { status: 400, message: "local-model does not support tools" } };
+    }
+    return { text: JSON.stringify({ answer: reply, citations: records(call, quotes) }) };
   });
 
 /** A call with these lines on each side, the button pressed once it has four, and its Answer. */
 async function pressed(
   call: { lines: readonly string[]; theirLines: readonly string[] },
-  reply: string,
-  quotes: readonly string[],
+  model: (calls: ModelCall[]) => ReturnType<typeof scriptedModel>,
   kind: MeetingHelpKind,
   helpMarksPlaced?: CoreAdapters["helpMarksPlaced"],
 ) {
   const calls: ModelCall[] = [];
-  const models = scriptedModels(writing(reply, quotes, calls));
+  const models = scriptedModels(model(calls));
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     createChatModel: models.createChatModel,
     engine: call,
@@ -133,7 +143,7 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
   test.each(QUOTATIONS)(
     "a quotation the model left uncited gets no Citation, its own marker keeps its found one: $language",
     async ({ call, said, reply }) => {
-      const { answer } = await pressed(call, reply, [said], "check");
+      const { answer } = await pressed(call, citing(reply, [said]), "check");
 
       expect(cited(answer)).toEqual([{ marker: 1, quote: said, check: "found" }]);
       expect(answer.text).toBe(reply);
@@ -144,58 +154,86 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
   test.each(UNMARKED)(
     "a record the model left unmarked is dropped, never placed on a line of the reply: $language",
     async ({ call, reply, quotes }) => {
-      const { answer } = await pressed(call, reply, quotes, "want");
+      const { answer } = await pressed(call, citing(reply, quotes), "want");
 
       expect(cited(answer)).toEqual([{ marker: 1, quote: quotes[0], check: "found" }]);
       expect(answer.text).toBe(reply);
     },
   );
 
-  // protects=the evaluation's switch places and adds call help's Citations as before #2847, so a paired run compares the two and nothing else; fails_when=the switch leaves them unplaced; no_claim=which is right (#2847).
-  test("with the marks placed as before, the unmarked record and the quotation are cited as before", async () => {
+  // protects=with structured output too, the records a model gives are cited only where its answer writes their markers; fails_when=the core places the unmarked record; no_claim=a model that can call Tools (#2847).
+  test("with structured output, a record its answer doesn't mark is dropped and the marked one stays", async () => {
     const [unmarked] = UNMARKED;
-    const [quotation] = QUOTATIONS;
-    if (!unmarked || !quotation) throw new Error("No cases.");
+    if (!unmarked) throw new Error("No cases.");
 
-    const placed = await pressed(
+    const { answer } = await pressed(
       unmarked.call,
-      unmarked.reply,
-      unmarked.quotes,
+      structured(unmarked.reply, unmarked.quotes),
       "want",
-      () => true,
-    );
-    const quoted = await pressed(
-      quotation.call,
-      quotation.reply,
-      [quotation.said],
-      "check",
-      () => true,
     );
 
-    expect(cited(placed.answer)).toEqual([
-      { marker: 1, quote: unmarked.quotes[0], check: "found" },
-      { marker: 2, quote: unmarked.quotes[1], check: "found" },
-    ]);
-    expect(placed.answer.text).toBe(`${unmarked.reply}[^2]`);
-    expect(quoted.answer.citations).toContainEqual(
-      expect.objectContaining({ quote: quotation.quotation, check: "found" }),
-    );
+    expect(cited(answer)).toEqual([{ marker: 1, quote: unmarked.quotes[0], check: "found" }]);
+    expect(answer.text).toBe(unmarked.reply);
   });
 
-  // protects=call help asks for each marker right after the words its quote supports, a fact from another line under its own marker, and none on the User's own promise or a stall; fails_when=the form asks for the markers at the end of each option or line; no_claim=how a real model follows it (#2847).
+  // protects=a marker the model wrote with no record behind it is taken out rather than given a Citation the core matched for it; fails_when=the core matches the sentence's quotation and the marker shows a ✓; no_claim=asking the model again for the record (#2847).
+  test("a marker the model wrote with no record is taken out, not matched to a line", async () => {
+    const [unmarked] = UNMARKED;
+    if (!unmarked) throw new Error("No cases.");
+
+    const { answer } = await pressed(unmarked.call, citing(unmarked.reply, []), "want");
+
+    expect(answer.citations).toEqual([]);
+    expect(answer.text).not.toContain("[^1]");
+    expect(answer.text).toContain("“我们必须在六月审计之前上线”");
+  });
+
+  // protects=the evaluation's switch places and adds call help's Citations as before #2847, so a paired run compares the two and nothing else; fails_when=the switch leaves them unplaced; no_claim=which is right (#2847).
+  test.each([0, 1])(
+    "with the marks placed as before, the unmarked record and the quotation are cited as before: case %i",
+    async (index) => {
+      const unmarked = UNMARKED[index];
+      const quotation = QUOTATIONS[index];
+      if (!unmarked || !quotation) throw new Error("No cases.");
+
+      const placed = await pressed(
+        unmarked.call,
+        citing(unmarked.reply, unmarked.quotes),
+        "want",
+        () => true,
+      );
+      const quoted = await pressed(
+        quotation.call,
+        citing(quotation.reply, [quotation.said]),
+        "check",
+        () => true,
+      );
+
+      expect(cited(placed.answer)).toEqual([
+        { marker: 1, quote: unmarked.quotes[0], check: "found" },
+        { marker: 2, quote: unmarked.quotes[1], check: "found" },
+      ]);
+      expect(placed.answer.text).toBe(`${unmarked.reply}[^2]`);
+      expect(quoted.answer.citations).toContainEqual(
+        expect.objectContaining({ quote: quotation.quotation, check: "found" }),
+      );
+    },
+  );
+
+  // protects=call help asks for each marker right after the words its quote supports, a fact from another line under its own marker, and none on the User's own promise, offer or question or a stall; fails_when=the form asks for the markers at the end of each option or line; no_claim=how a real model follows it (#2847).
   test.each([{ kind: "answer" as const }, { kind: "sum" as const }])(
     "the form asks for each marker right after the words it supports: $kind",
     async ({ kind }) => {
       const [unmarked] = UNMARKED;
       if (!unmarked) throw new Error("No cases.");
 
-      const { calls } = await pressed(unmarked.call, "- 好的", [], kind);
+      const { calls } = await pressed(unmarked.call, citing("- 好的", []), kind);
 
       const asked = calls[0]?.prompt ?? "";
       expect(asked).toContain(
         "Put each Citation marker right after the words its quote supports, even mid-sentence",
       );
-      expect(asked).toContain("what the User would promise, offer or ask gets none");
+      expect(asked).toContain("A promise, offer or question the User would make now gets none");
       expect(asked).not.toContain("its Citation markers at its end");
     },
   );

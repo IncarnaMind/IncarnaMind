@@ -81,7 +81,7 @@ const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
  * line's fact, before it (#2847).
  */
 const MARKERS =
-  "- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it; what the User would promise, offer or ask gets none, and an option that only buys time has no marker.";
+  "- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it. A promise, offer or question the User would make now gets none, though a fact inside it, or what was said earlier in the call, gets its line's marker; an option that only buys time has no marker.";
 
 /** A reply in each shape, in the call's language where it is Chinese: a model copies an example's language. */
 const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly string[]>>>> = {
