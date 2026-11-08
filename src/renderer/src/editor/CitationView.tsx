@@ -97,6 +97,7 @@ import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
   AssistantFoldedContext,
+  ConversationIdContext,
   InFootnoteContext,
   JudgedAnswerContext,
   MindIdContext,
@@ -207,11 +208,13 @@ export function CitationView({
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
+  const conversationId = useContext(ConversationIdContext);
   const looked = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
     mindId,
+    conversationId,
   );
   // Kept inside a wall, nothing of the new version was read: the card says Kept inside and its last result.
   const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
@@ -234,6 +237,7 @@ export function CitationView({
       ? [{ words: asked, cited: { ...update, documentId: attributes.documentId } }]
       : [],
     mindId,
+    conversationId,
   );
   const newVersion = asked ? newVersionCitation(attributes, recheck, onPage) : update;
   const badge = badgeMessage(state, shown, t);

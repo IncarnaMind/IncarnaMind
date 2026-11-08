@@ -156,7 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Organize says what it does, and with no model what it needs and the way on (${language})`, async () => {
+  test(`Organize says what it does, with no model what it needs, and on a model on this computer runs without asking (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, home: library });
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
@@ -191,63 +191,24 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await expect(needs).toContainText(
       language === "en"
-        ? "It sends Documents’ names and excerpts, and Folder and Tag names and descriptions, to the model you set up."
-        : "它会把文档名称和摘录，以及文件夹和标签的名称与描述，发送给你设置的模型。",
+        ? "It sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to the model you set up, once you allow it."
+        : "经你允许后，它会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给你设置的模型。",
     );
+    await pointAndClick(window, needs.getByTestId("library-organize-dismiss"));
+    await expect(needs).toHaveCount(0);
 
-    // With an AI model connected, Organize can use its company.
+    // A model on this computer sends nothing, so Organize runs on it without asking, keeps it,
+    // and what it proposes waits in the Review until Confirm.
     await connectLocalChatModel(window);
-    await bridge(window, async (core) => {
-      await core.getLibrary();
-    });
     await pointAndClick(window, lib.getByTestId("library-organize"));
-    await expect(needs.getByTestId("library-organize-use")).toHaveText(
-      language === "en" ? "Use Ollama" : "使用 Ollama",
-    );
-    // A local model sends nothing, so says nothing about sending.
-    await expect(needs.getByTestId("library-organize-sends")).toHaveCount(0);
-
-    // A model on another service: the line says what would be sent there.
-    await bridge(window, async (core) => {
-      await core.saveChatProvider({
-        kind: "openai-compatible",
-        baseUrl: "https://llm.example.com/v1",
-        modelId: "example-model",
-      });
-    });
-    await expect(needs.getByTestId("library-organize-use")).toHaveText(
-      language === "en" ? "Use llm.example.com" : "使用 llm.example.com",
-    );
-    const sends = needs.getByTestId("library-organize-sends");
-    await expect(sends).toHaveText(
-      language === "en"
-        ? "Sends document names and excerpts to llm.example.com. · Details"
-        : "会把文档名称和摘录发送给 llm.example.com。 · 详情",
-    );
-    const details = sends.getByTestId("library-organize-sends-details");
-    await details.focus();
-    await window.keyboard.press("Enter");
-    await expect(details).toHaveAttribute("aria-expanded", "true");
-    await expect(sends.getByTestId("library-organize-sends-list")).toHaveText(
-      language === "en"
-        ? "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to llm.example.com."
-        : "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 llm.example.com。",
-    );
-
-    await window.keyboard.press("Space");
-    await expect(details).toHaveAttribute("aria-expanded", "false");
-    await expect(sends.getByTestId("library-organize-sends-list")).toHaveCount(0);
-
-    // The answer is kept: Organize runs with that model, and asks no more. What it proposes
-    // waits in the Review until Confirm.
-    await pointAndClick(window, needs.getByTestId("library-organize-use"));
+    await expect(lib.getByTestId("library-organize-consent")).toHaveCount(0);
     await expect(needs).toHaveCount(0);
     const organizeModel = () =>
       bridge(window, async (core) => {
         const chosen = (await core.getLibrary()).settings.organizeWith;
         return chosen?.kind === "chat" ? chosen.choice.modelId : null;
       });
-    await expect.poll(organizeModel).toBe("example-model");
+    await expect.poll(organizeModel).toBe("fake-model");
     const review = window.getByTestId("organize-review");
     await expect(review).toBeVisible({ timeout: 30_000 });
     await expect(review.getByTestId("organize-review-name")).toHaveText(["Harbour"]);

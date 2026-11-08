@@ -8,6 +8,7 @@ import type {
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
+import { useMounted } from "../../useMounted";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, fieldLabelClass, hintClass, inputClass } from "../ui";
@@ -52,13 +53,7 @@ export function DecisionKeyForm({
   const [problem, setProblem] = useState<string | null>(null);
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const first = useRef<HTMLInputElement>(null);
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const mounted = useMounted();
   useEffect(() => {
     core.getSecretStorage().then(setStorage, (failure: unknown) => {
       console.error("The keychain's state couldn't be read.", failure);
@@ -89,13 +84,13 @@ export function DecisionKeyForm({
     try {
       const hosts = await core.setDecisionKey(input);
       // The User left the form while the key was checked: it is kept, nothing is chosen.
-      if (!mounted.current) return;
+      if (!mounted()) return;
       key.clear();
       onSaved(hosts, sorting ? await sorting.choose() : false);
     } catch (failure) {
-      if (mounted.current) setProblem(errorMessage(failure, t));
+      if (mounted()) setProblem(errorMessage(failure, t));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted()) setBusy(false);
     }
   };
 

@@ -1,6 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   type DateOptions,
+  daysAfter,
   formatDate,
   formatDateTime,
   formatDay,
@@ -155,5 +156,47 @@ describe("midnight and New Year", () => {
     expect(
       formatDay("2026-10-12T03:00:00Z", "en", { ...UTC, timeZone: "America/Los_Angeles" }),
     ).toBe("11 October");
+  });
+});
+
+describe("Days on the User's calendar (#687)", () => {
+  const zone = process.env.TZ;
+  afterEach(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  // protects="today" and "tomorrow" are the User's calendar days: a minute before midnight is today, a minute after is tomorrow, and 24 hours on from late evening is tomorrow; fails_when=a day is counted in 24-hour steps from now, so 00:01 reads as today; no_claim=other calendars than the Gregorian one.
+  test("midnight starts the next day", () => {
+    process.env.TZ = "Europe/London";
+    const evening = new Date(2026, 9, 14, 23, 30);
+    expect(daysAfter(new Date(2026, 9, 14, 23, 59), evening)).toBe(0);
+    expect(daysAfter(new Date(2026, 9, 15, 0, 1), evening)).toBe(1);
+    expect(daysAfter(new Date(evening.getTime() + 24 * 3_600_000), evening)).toBe(1);
+    expect(daysAfter(new Date(2026, 9, 13, 23, 59), evening)).toBe(-1);
+  });
+
+  // protects=a day of 23 or 25 hours, when the clocks change, is one day; fails_when=the count divides by 24 hours and rounds the short or long day to another number; no_claim=zones that skip a whole day.
+  test("a day the clocks change on is one day", () => {
+    process.env.TZ = "America/New_York";
+    expect(daysAfter("2026-03-08T23:30:00-04:00", "2026-03-07T00:30:00-05:00")).toBe(1);
+    expect(daysAfter("2026-03-08T23:30:00-04:00", "2026-03-08T00:30:00-05:00")).toBe(0);
+    expect(daysAfter("2026-11-01T23:30:00-05:00", "2026-11-01T00:30:00-04:00")).toBe(0);
+    expect(daysAfter("2026-11-02T00:10:00-05:00", "2026-11-01T00:30:00-04:00")).toBe(1);
+  });
+
+  // protects=a change of time zone while the app runs moves "today" and "tomorrow" and the time shown with it; fails_when=the day or a time is read in the zone the app started in; no_claim=a zone change the system doesn't tell the app of.
+  test("a change of time zone while the app runs counts", () => {
+    const now = "2026-10-14T23:30:00Z";
+    const expiry = "2026-10-15T09:00:00Z";
+    process.env.TZ = "Europe/London";
+    expect(daysAfter(expiry, now)).toBe(0);
+    expect(formatTime(expiry, "en", { twelveHour: false })).toBe("10:00");
+    process.env.TZ = "America/Los_Angeles";
+    expect(daysAfter(expiry, now)).toBe(1);
+    expect(formatTime(expiry, "en", { twelveHour: false })).toBe("02:00");
+    process.env.TZ = "Asia/Shanghai";
+    expect(daysAfter(expiry, now)).toBe(0);
+    expect(formatTime(expiry, "zh-CN", { twelveHour: false })).toBe("17:00");
   });
 });
