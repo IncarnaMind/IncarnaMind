@@ -533,7 +533,10 @@ test("Open beside opens the live Transcript next to the meeting, closing its tab
   });
   const washed = window.getByTestId("viewer-transcript").locator("[data-quote-highlight]");
   await expect(washed.first()).toBeVisible();
-  await expect(washed.first()).toHaveText("The launch moves to the eighteenth of November.");
+  // Each word is an element of its own (#138), so the wash comes in pieces that read as the line.
+  await expect
+    .poll(async () => (await washed.allTextContents()).join(""))
+    .toBe("The launch moves to the eighteenth of November.");
   await shot(window, "meeting-transcript-citation-en");
 });
 

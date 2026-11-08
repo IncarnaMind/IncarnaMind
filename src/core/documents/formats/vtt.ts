@@ -11,6 +11,14 @@
 import { cueTarget, type TextUnit, UnitBuilder } from "../../../shared/units";
 import { ExtractionError } from "./errors";
 
+/** When the word at a character of a cue's text was said: what a WebVTT cue timestamp says. */
+export interface WordTime {
+  /** Where the word starts in the cue's text, in UTF-16 code units. */
+  at: number;
+  /** When it was said, in ms from the Transcript's start. */
+  ms: number;
+}
+
 /** One line of a Transcript: what was said between two times, in ms from its start. */
 export interface Cue {
   startMs: number;
@@ -21,6 +29,11 @@ export interface Cue {
    * are told apart (#140); null for a line from a file that names no one.
    */
   speaker: string | null;
+  /**
+   * When its words were said, where the transcriber said so (#138): kept in the file as the
+   * cue's inline timestamps, which nothing reads as text. In order of `at`; absent for none.
+   */
+  words?: WordTime[];
 }
 
 /**
@@ -108,16 +121,42 @@ export function timestamp(ms: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(total % 1000, 3)}`;
 }
 
-/** A cue's payload as plain text, and its speaker if it opens with a voice span. */
-function payloadOf(lines: readonly string[]): { text: string; speaker: string | null } {
+const decode = (value: string) =>
+  value.replace(/&(amp|lt|gt|nbsp|lrm|rlm);/g, (_, name: string) => ENTITIES[name] ?? "");
+
+const CUE_TIMESTAMP = /^<((?:\d+:)?\d{2}:\d{2}\.\d{3})>$/;
+
+/**
+ * A cue's payload as plain text, its speaker if it opens with a voice span, and where its inline
+ * timestamps fall in that text. Tags are left out and runs of space are one space, as before
+ * timestamps were read, so a cue reads the same with them or without.
+ */
+function payloadOf(lines: readonly string[]): {
+  text: string;
+  speaker: string | null;
+  words: WordTime[];
+} {
   const raw = lines.join("\n");
   const voice = /^<v(?:\.[^ \t>]*)?[ \t]+([^>]+)>/.exec(raw);
-  const decode = (value: string) =>
-    value.replace(/&(amp|lt|gt|nbsp|lrm|rlm);/g, (_, name: string) => ENTITIES[name] ?? "");
-  const text = decode(raw.replace(/<[^>]*>/g, ""))
-    .replace(/\s+/g, " ")
-    .trim();
-  return { text, speaker: voice?.[1] ? decode(voice[1]).trim() || null : null };
+  let text = "";
+  const words: WordTime[] = [];
+  for (const part of raw.split(/(<[^>]*>)/)) {
+    if (part.startsWith("<") && part.endsWith(">")) {
+      const time = CUE_TIMESTAMP.exec(part);
+      if (time) words.push({ at: text.length, ms: timestampMs(time[1] as string) });
+      continue;
+    }
+    for (const char of decode(part)) {
+      if (!/\s/.test(char)) text += char;
+      else if (text !== "" && !text.endsWith(" ")) text += " ";
+    }
+  }
+  text = text.trimEnd();
+  return {
+    text,
+    speaker: voice?.[1] ? decode(voice[1]).trim() || null : null,
+    words: words.map((word) => ({ ...word, at: Math.min(word.at, text.length) })),
+  };
 }
 
 /** Reads a WebVTT file. Throws `ExtractionError` when it isn't one. */
@@ -151,7 +190,7 @@ export function readVtt(source: string): Transcript {
     const timingAt = TIMING.test(first) ? 0 : 1;
     const match = TIMING.exec(all[timingAt] ?? "");
     if (!match) return;
-    const { text, speaker } = payloadOf(all.slice(timingAt + 1));
+    const { text, speaker, words } = payloadOf(all.slice(timingAt + 1));
     if (!text) return;
     const startMs = timestampMs(match[1] as string);
     cues.push({
@@ -159,6 +198,7 @@ export function readVtt(source: string): Transcript {
       endMs: Math.max(startMs, timestampMs(match[2] as string)),
       text,
       speaker,
+      ...(words.length > 0 && { words }),
     });
   };
   for (const line of lines.slice(1)) {
@@ -173,6 +213,18 @@ export function readVtt(source: string): Transcript {
 
 const escapeText = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/-->/g, "--&gt;");
+
+/** A cue's text with its word times as WebVTT cue timestamps, each before its word. */
+function timedText(cue: Cue): string {
+  let written = "";
+  let from = 0;
+  for (const word of cue.words ?? []) {
+    if (word.at < from || word.at > cue.text.length) continue;
+    written += `${escapeText(cue.text.slice(from, word.at))}<${timestamp(word.ms)}>`;
+    from = word.at;
+  }
+  return written + escapeText(cue.text.slice(from));
+}
 
 /** Writes a Transcript as WebVTT: its cues and gaps in time order. */
 export function writeVtt(transcript: Transcript): string {
@@ -189,7 +241,7 @@ export function writeVtt(transcript: Transcript): string {
       : "";
     blocks.push({
       at: cue.startMs,
-      text: `${timestamp(cue.startMs)} --> ${timestamp(cue.endMs)}\n${speaker}${escapeText(cue.text)}`,
+      text: `${timestamp(cue.startMs)} --> ${timestamp(cue.endMs)}\n${speaker}${timedText(cue)}`,
     });
   });
   blocks.sort((a, b) => a.at - b.at);

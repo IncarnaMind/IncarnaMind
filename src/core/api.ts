@@ -4257,6 +4257,20 @@ export interface Document {
 export interface TranscriptSpeakers {
   labels: Record<string, string>;
   lines: Record<string, string>;
+  /**
+   * Lines the User split in two or more (#138), by `lineKey` of the line as its file has it: its
+   * text, which the split holds to (a file whose line reads otherwise leaves it unsplit), and
+   * where each later part starts in that text and in time. Each later part is a line of its own
+   * in `lines`, by its start and the file's label.
+   */
+  splits?: Record<string, TranscriptSplit>;
+}
+
+/** Where the User split a Transcript's line (#138). */
+export interface TranscriptSplit {
+  text: string;
+  /** In order: where each part after the first starts, in UTF-16 code units, and in ms. */
+  parts: { at: number; ms: number }[];
 }
 
 /**
@@ -11467,6 +11481,19 @@ export interface MeetingAudio {
   deletedAt: string | null;
 }
 
+/**
+ * A stretch of a stopped Meeting's audio, for playing it from a word of its Transcript (#138):
+ * the microphone and the computer's sound mixed into one, mono, `fromMs` to `toMs` of the
+ * Meeting's time.
+ */
+export interface MeetingAudioStretch {
+  fromMs: number;
+  toMs: number;
+  sampleRate: number;
+  /** -1 to 1. */
+  samples: Float32Array<ArrayBuffer>;
+}
+
 /** How long a Meeting's audio is kept after its last recording, at most. */
 export const MEETING_AUDIO_KEPT_MS = 24 * 60 * 60 * 1000;
 
@@ -13821,6 +13848,15 @@ export interface CoreApi {
   stopMeeting(meetingId: string): Promise<Meeting>;
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
+  /**
+   * Up to 30 seconds of a stopped Meeting's audio, from `fromMs` (#138). NotFoundError once its
+   * audio is deleted or its files are gone, and while it records.
+   */
+  readMeetingAudio(input: {
+    meetingId: string;
+    fromMs: number;
+    toMs: number;
+  }): Promise<MeetingAudioStretch>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
@@ -14571,6 +14607,7 @@ const methods: Record<CoreApiMethod, true> = {
   resumeMeeting: true,
   stopMeeting: true,
   deleteMeetingAudio: true,
+  readMeetingAudio: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,
   removeTranscriptionKey: true,

@@ -436,13 +436,15 @@ export interface AppState extends LayoutSlice {
   renameDocument(id: string, name: string): Promise<void>;
   /**
    * Who's who in a Meeting's Transcript (#138), whole: shown at once, then kept, with one Undo
-   * whose line `said` words. Its file isn't touched, so no Citation is checked again.
+   * whose line `said` words, named `name` in the Edit menu ("Change who speaks" when not given).
+   * Its file isn't touched, so no Citation is checked again. Null when it couldn't be kept.
    */
   setTranscriptSpeakers(
     documentId: string,
     speakers: TranscriptSpeakers,
     said: WordsInLine,
-  ): Promise<void>;
+    name?: Undoable["name"],
+  ): Promise<SpeakersStep | null>;
   /** To Recently deleted, at once, with one undo line for all of them. */
   deleteDocuments(ids: readonly string[]): Promise<void>;
   /** Processes a Document that failed again, from its file. */
@@ -505,6 +507,14 @@ export interface AppState extends LayoutSlice {
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
+
+/**
+ * A change to who's who just made, which a choice that completes it (who speaks the rest of a
+ * line just split) amends instead of adding a step: one Undo takes both back (#138).
+ */
+export interface SpeakersStep {
+  amend(speakers: TranscriptSpeakers): Promise<void>;
+}
 
 /** Puts a Document in the list: in place if it's there, otherwise first. */
 const upsert = (documents: Document[], item: Document) =>
@@ -1838,8 +1848,14 @@ export const useAppStore = create<AppState>()((set, get) => {
         push(renamed(displayName(document), rename, { before, after: document.name }));
       }),
 
-    setTranscriptSpeakers: (documentId, speakers, said) =>
-      attempt(async () => {
+    setTranscriptSpeakers: async (
+      documentId,
+      speakers,
+      said,
+      name = (t) => t("transcript.speaker.change"),
+    ) => {
+      let step: SpeakersStep | null = null;
+      await attempt(async () => {
         const before = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
         const put = async (to: TranscriptSpeakers | null) => {
           const shown = (value: TranscriptSpeakers | null) =>
@@ -1862,14 +1878,30 @@ export const useAppStore = create<AppState>()((set, get) => {
             throw error;
           }
         };
+        let after = speakers;
         await put(speakers);
-        push({
+        const change: Undoable = {
           said,
-          name: (t) => t("transcript.speaker.change"),
+          name,
           undo: () => put(before),
-          redo: () => put(speakers),
-        });
-      }),
+          redo: () => put(after),
+        };
+        push(change);
+        step = {
+          amend: (next) =>
+            attempt(async () => {
+              // Only while it is still the last step: otherwise the choice is a step of its own.
+              if (useUndo.getState().done.at(-1) !== change) {
+                await get().setTranscriptSpeakers(documentId, next, said, name);
+                return;
+              }
+              after = next;
+              await put(next);
+            }),
+        };
+      });
+      return step;
+    },
 
     deleteDocuments: (ids) =>
       attempt(() =>
