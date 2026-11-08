@@ -71,3 +71,13 @@ Branch `f3f5737e1`: all seven at their floor, 20 of 21 runs passed, none asked a
 
 - `owner-lib-empty-en` and `owner-lib-empty-zh` run three times more on each model on the new head, guard 1 read for `owner-lib-empty-en` over those three;
 - the 41 run on the new head, as they were going to, after DeepSeek's seven, which finish on `f3f5737e1` and count for the other six.
+
+## The 41 on DeepSeek, and what runs after (2026-11-08, before those runs)
+
+Branch `8976c18e0`. Claude Haiku 5.5: 40 of 41 at their floor; the one under is `owner-2`, which asked the User which summary to lengthen (it was under on main's run too). DeepSeek V4.1 Flash: 38 of 41; under are `follow-longer-zh`, `sounds-like` and `add-to-notes-en`, all at their floor on main's run, so **guard 3 fails on DeepSeek**. Read from their records:
+
+- `sounds-like` ("what would a shorter version of my notes look like?"): its first reply showed a shorter version in the panel and changed nothing, as it should; the app's check flagged "Here's a shorter version of “Q3 review”:" as a change, the model was asked again, and then shortened the Note. Replayed with DeepSeek as the check, that first reply is flagged in 6 of 6 on main's check and 5 of 6 on the branch's.
+- `follow-longer-zh` (长一点): its honest first reply was flagged and asked again, and the second flagged as well. Replayed, the first is flagged in 0 of 6 on either arm, the second in 0 of 6 on main and 1 of 6 on the branch.
+- `add-to-notes-en`: asked to add the last Answer, it wrote a new section of its own; no check was involved.
+
+To tell a change from chance, these three run three times more on DeepSeek V4.1 Flash on each arm, after main's seven. This is a diagnosis: guard 3's verdict stays as above, and the numbers are reported beside it.
