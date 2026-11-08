@@ -554,7 +554,6 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
           yield { type: "tool-result", id: part.toolCallId, ok: true };
           break;
         case "tool-error":
-          inputs.get(part.toolCallId)?.tool.inputEnded?.(part.toolCallId);
           yield { type: "tool-result", id: part.toolCallId, ok: false };
           break;
         case "finish-step": {

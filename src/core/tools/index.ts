@@ -108,9 +108,9 @@ export interface Tool {
    */
   streamInput?(toolCallId: string, text: string): void;
   /**
-   * The input it heard (`streamInput`) is over: its call failed, or the model's step that wrote
-   * it ended. A call that never ran (its input refused, its gate said no, the step cut off before
-   * the input was whole) gets no other word, so what the Tool did with its input is undone here.
+   * The model's step that wrote the input it heard (`streamInput`) is over, its calls' results
+   * in. A call that never ran (its input refused, its gate said no, the step cut off before the
+   * input was whole) gets no other word, so what the Tool did with its input is undone here.
    */
   inputEnded?(toolCallId: string): void;
 }
