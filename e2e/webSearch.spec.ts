@@ -20,7 +20,7 @@ import {
 /*
  * Web search through the model's provider (#128), on recorded pages: a local
  * server stands in for the web, for every host, and the scripted model's
- * provider search finds two of its pages. Turned on in Settings → Search, the
+ * provider search finds two of its pages. Turned on in Settings › AI, the
  * provider allowed when asked, an Answer saves the page it reads as a
  * Document and cites it by section and paragraph, found. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.

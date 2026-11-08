@@ -116,9 +116,9 @@ async function openLocalWay(window: Page): Promise<Locator> {
   return setup;
 }
 
-async function expectPrivacySwitch(window: Page): Promise<void> {
+async function expectLocalModeSwitch(window: Page): Promise<void> {
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "privacy");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const toggle = settings.getByTestId("local-only");
   await expect(toggle).toBeFocused();
   await expect(toggle).toBeChecked();
@@ -188,7 +188,7 @@ for (const [name, locale] of [
     await app.close();
   });
 
-  test(`at setup, the local way says before the click that it keeps everything on this computer; the line at the sidebar's foot names the model and Local mode, Undo and Redo reach Local mode alone, and Change opens Privacy at its switch (${name})`, async () => {
+  test(`at setup, the local way says before the click that it keeps everything on this computer; the line at the sidebar's foot names the model and Local mode, Undo and Redo reach Local mode alone, and Change opens Settings › AI at its switch (${name})`, async () => {
     const { app, window } = await launchApp(dataDir, { ollama: ollamaUrl });
     await setWindowSize(app, window, 1100, 760);
     if (zh) await language(window, "zh-CN");
@@ -233,7 +233,7 @@ for (const [name, locale] of [
     await expect(undo.getByTestId("undo-message")).toHaveText(said);
 
     await pointAndClick(window, undo.getByTestId("undo-change-local-mode"));
-    await expectPrivacySwitch(window);
+    await expectLocalModeSwitch(window);
     // Esc gives the focus back to Change, and the line is still there to take or to see.
     await window.keyboard.press("Escape");
     await expect(undo.getByTestId("undo-change-local-mode")).toBeFocused();
@@ -286,7 +286,7 @@ for (const [name, locale] of [
     const change = pill.getByTestId("undo-change-local-mode");
     await tabTo(window, change);
     await window.keyboard.press("Enter");
-    await expectPrivacySwitch(window);
+    await expectLocalModeSwitch(window);
 
     // Esc puts the focus back on Change, and Undo there still takes the change back.
     await window.keyboard.press("Escape");

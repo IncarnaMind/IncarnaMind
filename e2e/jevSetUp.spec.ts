@@ -73,7 +73,8 @@ const library = (window: Page) =>
   });
 
 /** The rows that set a decision model up, as the setup card and Settings list them with no key. */
-const setUpRows = (language: "en" | "zh-CN") => [
+/** The rows that set a sorting model up; Settings › AI's picker ends with "Other model…" too. */
+const setUpRows = (language: "en" | "zh-CN", other = true) => [
   translate(language, "jev.settings.setUp"),
   translate(language, "decisions.setUp.row", { model: "Decider v1.2", provider: "Perplexity" }),
   translate(language, "decisions.setUp.row", { model: "d1-ultra", provider: "Liquid AI" }),
@@ -81,7 +82,7 @@ const setUpRows = (language: "en" | "zh-CN") => [
     model: "Clef",
     provider: "Cloudflare Workers AI",
   }),
-  translate(language, "tagging.other"),
+  ...(other ? [translate(language, "tagging.other")] : []),
 ];
 
 /** The picker's rows, in order. */
@@ -146,7 +147,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const setUp = translate(language, "jev.settings.setUp");
 
         // After the choice that can run, folded under one group: Jev, then each host.
-        await expect(picker.locator("option")).toHaveText([chat, ...setUpRows(language)]);
+        await expect(picker.locator("option")).toHaveText([chat, ...setUpRows(language, false)]);
         await expect(picker.locator("optgroup")).toHaveAttribute(
           "label",
           translate(language, "decisions.setUp.group"),

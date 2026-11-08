@@ -224,7 +224,7 @@ function openYours(what: Yours): void {
       app.openSettings("ai");
       return;
     case "privacy":
-      app.openSettings("privacy", "local-mode");
+      app.openSettings("ai", "local-mode");
       return;
     case "approvals":
       app.openSettings("privacy");

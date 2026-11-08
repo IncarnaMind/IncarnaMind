@@ -109,7 +109,7 @@ describe("a failed Answer's problem line", () => {
   test("the monthly cap says so, and Change cap opens General, where the cap is", () => {
     expect(ANSWER_PROBLEMS["cost-cap"]).toEqual({
       line: "answer.error.cost-cap",
-      fix: { kind: "settings", page: "general", label: "answer.error.changeCap" },
+      fix: { kind: "settings", page: "ai", at: "spending-cap", label: "answer.error.changeCap" },
     });
     expect(translate("en", "answer.error.cost-cap")).toBe("Could pass your monthly cap");
     expect(translate("en", "answer.error.changeCap")).toBe("Change cap");

@@ -84,11 +84,12 @@ test("Organize and Tags shows what sorts now; another model is chosen from the p
     await expect(settings.getByTestId("tagging-automatic-sends")).toHaveText(
       "Runs on this computer.",
     );
+    // The AI model runs on this computer, so it is offered under that heading.
     const local = picker.locator('optgroup[label="On this computer · free"] option');
-    await expect(local.filter({ hasText: "fake-model" })).toHaveCount(1);
+    await expect(local.filter({ hasText: "Use your AI model" })).toHaveCount(1);
 
     // Choosing the chat model saves it at once; a chat model gives no meeting hints.
-    const chat = await local.filter({ hasText: "fake-model" }).getAttribute("value");
+    const chat = await local.filter({ hasText: "Use your AI model" }).getAttribute("value");
     if (!chat) throw new Error("No chat model to choose.");
     await picker.selectOption(chat);
     await expect
@@ -111,8 +112,9 @@ test("in Chinese: 整理和标签, with what sorts now and the picker's groups",
   try {
     await dismissChatSetup(window);
     await addOllama(window, ollamaUrl);
-    await setLanguage(window, "zh-CN");
+    // Settings' button is named in English until the language is changed inside it.
     const settings = await openSettings(window, "ai");
+    await setLanguage(window, "zh-CN");
     const { picker, automatic } = organizeRow(settings);
     await expect(
       settings.getByTestId("ai-jobs").getByText("整理和标签", { exact: true }),
@@ -145,8 +147,8 @@ for (const language of ["en", "zh-CN"] as const) {
           modelId: "claude-haiku-5-5",
         });
       });
-      await setLanguage(window, language);
       const settings = await openSettings(window, "ai");
+      await setLanguage(window, language);
       const { picker, automatic } = organizeRow(settings);
       await picker.selectOption(
         JSON.stringify({

@@ -12,7 +12,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-// ADR-0019: Add a provider in Settings → Models lists every provider, the language's popular ones
+// ADR-0019: Add a provider in Settings › AI lists every provider, the language's popular ones
 // first; a provider the User already set up is among theirs, whatever its tier.
 
 let dataDir: string;
@@ -26,12 +26,12 @@ test.afterEach(async () => {
 const LANGUAGES = [
   {
     language: "en",
-    popular: ["Anthropic", "OpenAI", "Google", "Ollama", "OpenRouter"],
+    popular: ["Anthropic", "OpenAI", "Google", "OpenRouter", "DeepSeek", "Qwen"],
     added: "Added",
   },
   {
     language: "zh-CN",
-    popular: ["DeepSeek 深度求索", "通义千问", "Kimi", "智谱 GLM", "硅基流动", "Ollama"],
+    popular: ["DeepSeek 深度求索", "通义千问", "Kimi", "智谱 GLM", "硅基流动", "OpenRouter"],
     added: "已添加",
   },
 ] as const;

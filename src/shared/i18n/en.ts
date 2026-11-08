@@ -7848,7 +7848,7 @@ export const en = {
   "agents.settings.switch.off": "Off: no agent can reach your Documents.",
   "agents.settings.switch.on": "On: each agent reads its Folders while IncarnaMind is open.",
   "agents.settings.paused": "Agents paused: “Keep everything on this computer” is on.",
-  "agents.settings.paused.open": "Privacy settings",
+  "agents.settings.paused.open": "Settings › AI",
   "agents.settings.connected": "Connected agents",
   "agents.settings.connect": "Connect an agent",
   "agents.settings.connect.note": "Agents found on this computer come first.",

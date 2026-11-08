@@ -18,6 +18,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
+  openDirectoryEntry,
   openPlanPage,
   pointAndClick,
   removeDataFolder,
@@ -219,14 +220,15 @@ test("Settings › AI: the Copilot plan opens its notice before signing in, then
   await acceptPlainTextKeys(window);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("> Settings Models");
+  await window.keyboard.type("> Settings AI");
   await expect(window.getByTestId("palette").getByTestId("palette-item").first()).toContainText(
-    "Models",
+    "Settings: AI",
   );
   await window.keyboard.press("Enter");
   const settings = window.getByTestId("settings");
   await expect(settings).toHaveAttribute("data-page", "ai");
-  const row = settings.getByTestId("plans-copilot");
+  await openDirectoryEntry(settings, "plan:copilot");
+  const row = settings.getByTestId("ai-entry-page").getByTestId("plans-copilot");
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
 

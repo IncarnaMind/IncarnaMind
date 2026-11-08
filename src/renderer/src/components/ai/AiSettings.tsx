@@ -74,15 +74,21 @@ export function AiSettings() {
   // one a link scrolled to out of view.
   const [hosts, setHosts] = useDecisionHosts();
   const [jev, setJev] = useJevSettings();
-  const [rerank, setRerank] = useRerank();
+  const { rerank, setRerank, answered: rerankAnswered } = useRerank();
   const sorting = useSorting();
   // One read for the page: the Meeting transcription row and the transcription keys. The page
   // waits for its first answer only: a Try again after a failure keeps the page on screen.
   const services = useTranscriptionServicesRead();
   const [servicesAnswered, setServicesAnswered] = useState(false);
   if (!servicesAnswered && services.state !== "loading") setServicesAnswered(true);
+  const [sortingAnswered, setSortingAnswered] = useState(false);
+  if (!sortingAnswered && sorting.read.state !== "loading") setSortingAnswered(true);
   const laidOut =
-    providers !== null && hosts !== null && (servicesAnswered || services.state !== "loading");
+    providers !== null &&
+    hosts !== null &&
+    rerankAnswered &&
+    sortingAnswered &&
+    (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
     core.listChatProviders().then(setProviders, (failure: unknown) => {
@@ -265,6 +271,8 @@ export function AiSettings() {
             providers={providers}
             services={services}
             sorting={sorting}
+            rerank={rerank}
+            onRerank={setRerank}
           />
           <AccountsSection
             providers={providers}

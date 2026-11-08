@@ -24,16 +24,27 @@ const FAILURE_KEYS = {
   storage: "embedding.model.failure.storage",
 } as const;
 
-/** How document search orders its best matches on this device, read once and kept as it changes. */
-export function useRerank(): [RerankSettings | null, (next: RerankSettings) => void] {
+/**
+ * How document search orders its best matches on this device, read once and kept as it changes;
+ * `answered`: the first read has ended, whether or not it could be read.
+ */
+export function useRerank(): {
+  rerank: RerankSettings | null;
+  setRerank(next: RerankSettings): void;
+  answered: boolean;
+} {
   const [rerank, setRerank] = useState<RerankSettings | null>(null);
+  const [answered, setAnswered] = useState(false);
   useEffect(() => {
-    core.getRerankSettings().then(setRerank, (failure: unknown) => {
-      console.error("Couldn't read how search orders its results:", failure);
-    });
+    core
+      .getRerankSettings()
+      .then(setRerank, (failure: unknown) => {
+        console.error("Couldn't read how search orders its results:", failure);
+      })
+      .finally(() => setAnswered(true));
     return core.on("rerank.changed", setRerank);
   }, []);
-  return [rerank, setRerank];
+  return { rerank, setRerank, answered };
 }
 
 /** The built-in model's download, while it isn't ready: when it will, its progress, or why it failed. */

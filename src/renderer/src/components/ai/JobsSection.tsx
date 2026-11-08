@@ -1,5 +1,10 @@
 import { useCallback, useId } from "react";
-import type { ChatModelGroup, ChatProvider, ModelRoles } from "../../../../core/api";
+import type {
+  ChatModelGroup,
+  ChatProvider,
+  ModelRoles,
+  RerankSettings,
+} from "../../../../core/api";
 import { modelName } from "../../../../shared/modelName";
 import { searchesTheWeb } from "../../../../shared/webSearch";
 import { useLanguage, useT } from "../../i18n";
@@ -26,18 +31,22 @@ import { popUpWidth, type Role, RoleSelect, useModelRoles } from "./RoleSelect";
 
 /**
  * Settings › AI › What each job uses: one row and one picker per job, and no other place chooses
- * it. `services`: the page's one read of the transcription services.
+ * it. `services`, `sorting` and `rerank`: the page's one read of each.
  */
 export function JobsSection({
   groups,
   providers,
   services,
   sorting,
+  rerank,
+  onRerank,
 }: {
   groups: readonly ChatModelGroup[];
   providers: readonly ChatProvider[];
   services: ServicesView;
   sorting: ReturnType<typeof useSorting>;
+  rerank: RerankSettings | null;
+  onRerank(rerank: RerankSettings): void;
 }) {
   const t = useT();
   const id = useId();
@@ -78,7 +87,12 @@ export function JobsSection({
         />
         <OrganizeRows id={`${id}-organize`} sorting={sorting} />
         <TranscriptionRow id={`${id}-meetings`} services={services} />
-        <DocumentSearchRows id={`${id}-search`} providers={providers} />
+        <DocumentSearchRows
+          id={`${id}-search`}
+          providers={providers}
+          rerank={rerank}
+          setRerank={onRerank}
+        />
         <WebSearchRow id={`${id}-web`} />
       </SettingsGroup>
       <SettingsHelp className="flex flex-col gap-1">

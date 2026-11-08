@@ -8,7 +8,7 @@ import {
 } from "../../core/providers/signInRoutes";
 import type { MessageKey } from "../../shared/i18n";
 import { CHATGPT_USAGE_URL } from "./chatGptUsage";
-import type { SettingsPage } from "./settingsPages";
+import type { SettingsPage, SettingsTarget } from "./settingsPages";
 
 /**
  * What a failed Answer says, and the one thing it offers (DESIGN.md,
@@ -17,7 +17,7 @@ import type { SettingsPage } from "./settingsPages";
  * on this computer, or nothing when none would help.
  */
 export type AnswerFix =
-  | { kind: "settings"; page: SettingsPage; label: MessageKey }
+  | { kind: "settings"; page: SettingsPage; at?: SettingsTarget; label: MessageKey }
   | { kind: "retry"; label: MessageKey }
   | { kind: "local-model"; label: MessageKey }
   /** `label` only where Ollama's app is here: `OllamaNotRunningLine` offers Get Ollama or Try again otherwise. */
@@ -102,7 +102,7 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   // The User's own monthly cap: raising it (or waiting for next month) is the way on.
   "cost-cap": {
     line: "answer.error.cost-cap",
-    fix: { kind: "settings", page: "general", label: "answer.error.changeCap" },
+    fix: { kind: "settings", page: "ai", at: "spending-cap", label: "answer.error.changeCap" },
   },
   // Only another model helps: a plan that can't be used in other apps stays so.
   blocked: {

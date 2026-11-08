@@ -41,7 +41,7 @@ test.afterEach(async () => {
   await removeDataFolder(home);
 });
 
-test("the chip, its menu, Settings → Models and the steps show a model's name with its id on hover, and the menu's search finds it by either, in English and Chinese", async () => {
+test("the chip, its menu, Settings › AI and the steps show a model's name with its id on hover, and the menu's search finds it by either, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home });
   try {
     await dismissChatSetup(window);
@@ -103,7 +103,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(options).toHaveCount(3);
     await window.keyboard.press("Escape");
 
-    // Settings → Models: the Answers default by name, its id in its tooltip; on OpenAI's page its
+    // Settings › AI: the Answers default by name, its id in its tooltip; on OpenAI's page its
     // models and Other models by name.
     const settings = await openSettings(window, "ai");
     const model = settings.getByRole("combobox", { name: "Answers and writing" });
@@ -168,7 +168,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(answer.getByTestId("answer-timeline")).toContainText("GPT-6 Luna");
     await window.getByRole("button", { name: "设置" }).click();
     const settingsZh = await showSettingsPage(window, "ai");
-    const modelZh = settingsZh.getByRole("combobox", { name: "你的 AI" });
+    const modelZh = settingsZh.getByRole("combobox", { name: "回答和写作" });
     await expect(modelZh).toHaveValue(/\ngpt-6-luna$/);
     await expect(modelZh.locator("option:checked")).toHaveText("GPT-6 Luna · OpenAI");
     await screenshot(window, "model-names-settings-zh");

@@ -772,6 +772,11 @@ test("a key refused on the chosen region says which host refused it, in English 
     // A region's own label may carry brackets: the line does not wrap it in more.
     await settings.getByTestId("models-back").click();
     const qwen = await addProviderForm(settings, "qwen");
+    await qwen
+      .getByTestId("provider-region")
+      .locator("label", { hasText: /^China/ })
+      .click();
+    await expect(regionOf(qwen)).toHaveValue("cn");
     await qwen.getByLabel(/^API key/).fill(KEYS.bare);
     await qwen.getByTestId("provider-use-key").click();
     await expect(qwen.getByTestId("connection-test")).toContainText(
@@ -1181,51 +1186,38 @@ test("in Settings, a key that is not the page's service goes nowhere on Add a pr
   }
 });
 
-test("Kimi is listed under International and under China, and each opens its form on that region (#1348)", async () => {
+test("Kimi is one entry in Add an account or key…, and opens its form on the language's region, which the form's region choice changes (#1348)", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 900);
     const settings = await openSettings(window, "ai");
-    const region = (form: Locator) => regionOf(form);
-    const open = async (group: string) => {
+    const form = settings.getByTestId("provider-add").getByTestId("provider-form");
+    const open = async () => {
       await settings.getByTestId("models-add-provider").click();
       await settings.getByTestId("provider-directory-search").fill("kimi");
-      const tiles = settings.locator(
-        `[data-testid="provider-directory-group"][data-group="${group}"]`,
-      );
-      await tiles.locator('[data-catalog-id="kimi"]').click();
-      return region(settings.getByTestId("provider-add").getByTestId("provider-form"));
+      const entries = settings.getByTestId("provider-directory-entry");
+      await expect(entries).toHaveCount(1);
+      await entries.click();
+      return regionOf(form);
     };
 
-    await settings.getByTestId("models-add-provider").click();
-    await settings.getByTestId("provider-directory-search").fill("kimi");
-    await expect(settings.getByTestId("provider-directory-group")).toHaveCount(2);
-    await expect(settings.getByTestId("provider-directory-group").first()).toHaveAttribute(
-      "data-group",
-      "international",
-    );
+    await expect(await open()).toHaveValue("intl");
+    await form
+      .getByTestId("provider-region")
+      .locator("label", { hasText: /^China/ })
+      .click();
+    await expect(regionOf(form)).toHaveValue("cn");
     await settings.getByTestId("models-back").click();
 
-    await expect(await open("international")).toHaveValue("intl");
-    await settings.getByTestId("models-back").click();
-    await expect(await open("china")).toHaveValue("cn");
-    await settings.getByTestId("models-back").click();
-
+    // In Chinese, Kimi opens on its own region.
     await language(window, "zh-CN");
-    await settings.getByTestId("models-add-provider").click();
-    await settings.getByTestId("provider-directory-search").fill("kimi");
-    await expect(settings.getByTestId("provider-directory-group")).toHaveCount(2);
-    await settings.getByTestId("models-back").click();
-    await expect(await open("international")).toHaveValue("intl");
-    await settings.getByTestId("models-back").click();
-    // Popular, in Chinese, is Kimi's own region.
-    await expect(await open("popular")).toHaveValue("cn");
+    await expect(await open()).toHaveValue("cn");
   } finally {
     await app.close();
   }
 });
 
-test("with Kimi saved on China, only the China tile says Added and opens it, and International opens an empty form (#1348)", async () => {
+test("with Kimi saved on China, its entry says Added and opens the saved Kimi (#1348)", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 900);
@@ -1239,27 +1231,15 @@ test("with Kimi saved on China, only the China tile says Added and opens it, and
         modelId: "kimi-k2.6",
       });
     });
+    // Settings' button is named in English until the language is changed inside it.
     const settings = await openSettings(window, "ai");
-    const tile = (group: string) =>
-      settings.locator(
-        `[data-testid="provider-directory-group"][data-group="${group}"] [data-catalog-id="kimi"]`,
-      );
-    const directory = async () => {
-      await settings.getByTestId("models-add-provider").click();
-      await settings.getByTestId("provider-directory-search").fill("kimi");
-    };
-
-    await directory();
-    await expect(tile("china")).toContainText("Added");
-    await expect(tile("international")).not.toContainText("Added");
-    await tile("international").click();
-    const form = settings.getByTestId("provider-add").getByTestId("provider-form");
-    await expect(regionOf(form)).toHaveValue("intl");
-    await expect(form.getByLabel(/^API key/)).toHaveValue("");
-    await settings.getByTestId("models-back").click();
-
-    await directory();
-    await tile("china").click();
+    await language(window, "zh-CN");
+    await settings.getByTestId("models-add-provider").click();
+    await settings.getByTestId("provider-directory-search").fill("kimi");
+    const entry = settings.getByTestId("provider-directory-entry");
+    await expect(entry).toHaveCount(1);
+    await expect(entry).toContainText("已添加");
+    await entry.click();
     await expect(settings.getByTestId("provider-page")).toHaveAttribute(
       "data-provider-id",
       saved.id,

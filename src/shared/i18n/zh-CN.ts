@@ -7419,7 +7419,7 @@ export const zhCN = {
   "agents.settings.switch.off": "已关闭：任何智能体都无法读取你的文档。",
   "agents.settings.switch.on": "已开启：IncarnaMind 打开时，各智能体可读取各自的文件夹。",
   "agents.settings.paused": "智能体已暂停：已开启“所有内容都留在这台电脑上”。",
-  "agents.settings.paused.open": "隐私设置",
+  "agents.settings.paused.open": "设置 › AI",
   "agents.settings.connected": "已连接的智能体",
   "agents.settings.connect": "连接智能体",
   "agents.settings.connect.note": "在这台电脑上找到的智能体排在前面。",

@@ -17,7 +17,7 @@ import {
   EmbeddingServerForm,
   SwitchConfirmation,
 } from "../providers/EmbeddingSettings";
-import { BuiltInModelState, RerankKeyForm, useRerank } from "../providers/RerankSettings";
+import { BuiltInModelState, RerankKeyForm } from "../providers/RerankSettings";
 import { testErrorKey } from "../providers/shared";
 import { PopUpSelect } from "../settings/PopUpButton";
 import { SettingsRow } from "../settings/SettingsGroup";
@@ -53,9 +53,14 @@ const hasAccount = (providers: readonly ChatProvider[], catalogId: string) =>
 export function DocumentSearchRows({
   id,
   providers,
+  rerank,
+  setRerank,
 }: {
   id: string;
   providers: readonly ChatProvider[];
+  /** The page's one read of how search orders its best matches, which Accounts and keys reads too. */
+  rerank: RerankSettings | null;
+  setRerank(next: RerankSettings): void;
 }) {
   const t = useT();
   const embedding = useAppStore((state) => state.embedding);
@@ -227,7 +232,7 @@ export function DocumentSearchRows({
           />
         )}
       </SettingsRow>
-      <RerankRow providers={providers} />
+      <RerankRow providers={providers} rerank={rerank} setRerank={setRerank} />
       <SwitchConfirmation
         open={asking !== null}
         provider={asked ? asked.label : t("embeddingProviders.settings.off")}
@@ -256,10 +261,17 @@ const SET_UP = "set-up:";
  * Cohere or Voyage AI key instead, set up in place from the picker's foot, its key one row in
  * Accounts and keys; or off.
  */
-function RerankRow({ providers }: { providers: readonly ChatProvider[] }) {
+function RerankRow({
+  providers,
+  rerank,
+  setRerank,
+}: {
+  providers: readonly ChatProvider[];
+  rerank: RerankSettings | null;
+  setRerank(next: RerankSettings): void;
+}) {
   const t = useT();
   const id = useId();
-  const [rerank, setRerank] = useRerank();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [settingUp, setSettingUp] = useState<RerankServiceKind | null>(null);
   if (!rerank) return null;

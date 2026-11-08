@@ -1083,6 +1083,13 @@ function sortingWords(scope: Locator): Promise<string> {
     .evaluate((line) => (line as HTMLElement).innerText);
 }
 
+/** What Settings › AI's Organize and Tags switch says each new Document sends, and to whom. */
+function organizeWords(settings: Locator): Promise<string> {
+  return settings
+    .getByTestId("tagging-automatic-sends")
+    .evaluate((line) => (line as HTMLElement).innerText);
+}
+
 // A role model, one that is no role, and one the User added: each saved for sorting.
 const SORTING_MODELS = [
   { modelId: "claude-haiku-5-5", model: "Claude Haiku 5.5" },
@@ -1187,8 +1194,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(settings.getByTestId("models-sorting").locator("option:checked")).toHaveText(
           model,
         );
-        const words = await sortingWords(settings);
-        expect(words).toContain(translate(language, "setup.sorting.chat", { model }));
+        const words = await organizeWords(settings);
         expect(words).toContain(
           translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
         );
@@ -1198,9 +1204,12 @@ for (const language of ["en", "zh-CN"] as const) {
         // line names Automatic's pick, never the model that is gone.
         await removeAnthropic(window);
         await expect
-          .poll(() => sortingWords(settings))
+          .poll(() => organizeWords(settings))
           .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "OpenAI" }));
-        const after = await sortingWords(settings);
+        await expect(
+          settings.getByTestId("models-sorting").locator("option:checked"),
+        ).not.toHaveText(model);
+        const after = await organizeWords(settings);
         expect(after).not.toContain(model);
         expect(after).not.toContain("Anthropic");
         const classifier = await window.evaluate(async () => {
@@ -2190,7 +2199,7 @@ test("with no key and no AI model, the Example still opens and Set up later retu
   }
 });
 
-test("Settings › AI shows the jobs, editable in place, with Quick tasks and Reading images following Answers", async () => {
+test("Settings › AI shows the jobs, editable in place, with Quick tasks following Answers", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -2208,11 +2217,13 @@ test("Settings › AI shows the jobs, editable in place, with Quick tasks and Re
     const settings = await openSettings(window, "ai");
 
     await expect(settings.getByTestId("model-default-chatModel")).toBeVisible();
-    for (const job of ["model-default-quickTasksModel", "model-default-imageModel"]) {
-      await expect(settings.getByTestId(job).locator("option:checked")).toHaveText(
-        /^Follows Answers/,
-      );
-    }
+    await expect(
+      settings.getByTestId("model-default-quickTasksModel").locator("option:checked"),
+    ).toHaveText(/^Follows Answers/);
+    // The model on this computer doesn't read images: the row says so rather than following it.
+    await expect(
+      settings.getByTestId("model-default-imageModel").locator("option:checked"),
+    ).toHaveText("No model reads images yet");
 
     // Meeting transcription, changed where it is shown: one line tall, as a field in its row.
     const meetings = settings.getByTestId("meetings-route");
@@ -2517,10 +2528,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const select = settings.getByTestId("models-sorting");
       await expect(select.locator("option:checked")).toHaveText("Claude Haiku 5.5");
-      expect(await sortingWords(settings)).toContain(
+      expect(await organizeWords(settings)).toContain(
         translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
       );
-      expect(await sortingWords(settings)).not.toContain(
+      expect(await organizeWords(settings)).not.toContain(
         translate(language, "setup.sorting.sends", { service: "Anthropic" }),
       );
       expect((await bridge(window).library()).automatic).toBe(false);

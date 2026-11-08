@@ -17,13 +17,12 @@ import {
   openSettings,
   removeDataFolder,
   setWindowSize,
-  showSettingsPage,
   urlsOpened,
 } from "./app";
 
 /*
  * Cloud cost (#83): Settings → General shows what the User's keys spent this
- * month and holds one optional cap, off by default; Settings → Models shows
+ * month and holds one optional cap, off by default; Settings › AI shows
  * each key's month and the ChatGPT plan's own line; an Answer the cap stops
  * says so in place, and "Change cap" opens the cap. Set INCARNAMIND_SCREENSHOTS
  * to a folder to also save screenshots, narrow and wide, in English and Chinese.
@@ -81,7 +80,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await dismissChatSetup(window);
       await setWindowSize(app, window, 1440, 660);
-      const settings = await openSettings(window, "general");
+      const settings = await openSettings(window, "ai");
       await bridge(window).language(language);
       const cap = settings.getByTestId("spending-cap-settings");
       const toggle = cap.getByTestId("spending-cap-switch");
@@ -112,6 +111,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await bridge(window).cap()).toEqual(initial);
       await shot(window, `cap-invalid-wide-${language}`);
       await setWindowSize(app, window, 900, 560);
+      // The cap is at the foot of a long page: brought into view, its problem stays inside its row.
+      await problem.scrollIntoViewIfNeeded();
       await expect(problem).toBeInViewport();
       const within = await problem.evaluate((element) => {
         const row = element.parentElement?.getBoundingClientRect();
@@ -173,6 +174,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .getByRole("button", { name: language === "en" ? "Settings" : "设置", exact: true })
         .click();
       await expect(settings).toBeVisible();
+      await settings.getByTestId("settings-nav-ai").click();
       await expect(amount).toHaveValue("25");
 
       await amount.fill("-4");
@@ -199,7 +201,7 @@ test("an Answer stopped by the monthly cap says so in place, and Change cap open
     await bridge(window).keyProvider();
 
     // Off by default; turned on, it starts at a first cap that can be changed in place.
-    const settings = await openSettings(window, "general");
+    const settings = await openSettings(window, "ai");
     const cap = settings.getByTestId("spending-cap-settings");
     await expect(cap).toBeVisible();
     await expect(cap.getByTestId("spending-cap-spent")).toHaveText(
@@ -249,7 +251,7 @@ test("an Answer stopped by the monthly cap says so in place, and Change cap open
 
     // Change cap opens the cap, where it can be raised.
     await error.getByTestId("answer-error-action").click();
-    await expect(settings).toHaveAttribute("data-page", "general");
+    await expect(settings).toHaveAttribute("data-page", "ai");
     await expect(cap).toBeInViewport();
     await shot(window, "cap-control-narrow-en");
     await closeSettings(window);
@@ -273,7 +275,7 @@ test("an Answer stopped by the monthly cap says so in place, and Change cap open
   }
 });
 
-test("Settings → Models shows what a key spent this month, and the ChatGPT plan keeps its own line", async () => {
+test("Settings › AI shows what a key spent this month, and the ChatGPT plan keeps its own line", async () => {
   const openai = await createFakeOpenAI();
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -318,10 +320,10 @@ test("Settings → Models shows what a key spent this month, and the ChatGPT pla
     await expect(plan.getByTestId("chatgpt-in-use")).toHaveText(
       "Using ChatGPT plan · Manage usage ↗",
     );
+    await settings.getByTestId("models-back").click();
     await settings.getByTestId("provider-row").filter({ hasText: "ChatGPT plan" }).click();
     await expect(settings.getByTestId("provider-page-title")).toHaveText("ChatGPT plan");
     await expect(settings.getByTestId("chat-provider-cost")).toHaveCount(0);
-    await settings.getByTestId("models-back").click();
     await plan.scrollIntoViewIfNeeded();
     await shot(window, "models-plan-narrow-en");
     await setWindowSize(app, window, WIDE.width, WIDE.height);
@@ -363,7 +365,7 @@ test("a request a force-quit cut short counts for nothing, and the cost line say
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await setWindowSize(app, window, WIDE.width, WIDE.height);
-    const settings = await openSettings(window, "general");
+    const settings = await openSettings(window, "ai");
     const cap = settings.getByTestId("spending-cap-settings");
     await expect(cap.getByTestId("spending-cap-spent")).toHaveText(
       "Spent this month: $0 on your keys.",
@@ -408,7 +410,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
       "Kept aside so running work can’t go over your monthly limit",
     );
     await shot(window, "set-aside-models-wide-en");
-    await showSettingsPage(window, "general");
+    await settings.getByTestId("models-back").click();
     const cap = settings.getByTestId("spending-cap-settings");
     await expect(cap.getByTestId("spending-cap-spent")).toHaveText(
       "Spent this month: $0.01 on your keys.",
@@ -426,7 +428,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
       "预留出来，避免进行中的任务超出你的月度上限",
     );
     await shot(window, "set-aside-cap-wide-zh");
-    await showSettingsPage(window, "ai");
+    await settings.getByTestId("provider-row").first().click();
     await expect(cost).toHaveText("本月已花 $0.01 · 进行中的任务预留 $1.28");
     await setWindowSize(app, window, NARROW.width, NARROW.height);
     await shot(window, "set-aside-models-narrow-zh");
@@ -440,7 +442,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
     await settings.getByTestId("provider-row").first().click();
     await expect(cost).toHaveText("This month: $0.02 spent");
     await expect(settings.getByTestId("chat-provider-set-aside")).toHaveCount(0);
-    await showSettingsPage(window, "general");
+    await settings.getByTestId("models-back").click();
     await expect(cap.getByTestId("spending-cap-spent")).toHaveText(
       "Spent this month: $0.02 on your keys.",
     );

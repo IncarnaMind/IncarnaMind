@@ -37,11 +37,11 @@ test("each preset is a tile in Add a provider; Groq's page has its key page and 
     await acceptPlainTextKeys(window);
     const settings = await openSettings(window, "ai");
     await settings.getByTestId("models-add-provider").click();
-    const international = settings.locator('[data-group="international"]');
+    const more = settings.locator('[data-group="more"]');
     for (const id of ["groq", "together", "fireworks", "cerebras", "cohere", "venice"]) {
-      await expect(international.locator(`[data-catalog-id="${id}"]`)).toHaveCount(1);
+      await expect(more.locator(`[data-catalog-id="${id}"]`)).toHaveCount(1);
     }
-    await settings.getByTestId("models-back").click();
+    await settings.getByTestId("ai-add-sheet-cancel").click();
     const form = await addProviderForm(settings, "groq");
     await expect(settings.getByTestId("provider-page-title")).toHaveText("Groq");
     // Under the model's line, and under its list once Change opens it.
@@ -170,7 +170,7 @@ test("Amazon Bedrock asks for its region from a list, and Cloudflare for its acc
   }
 });
 
-test("LM Studio and Unsloth Studio are On this computer in Add a provider, beside Ollama under Popular, each at its own address; in English and Chinese", async () => {
+test("LM Studio and Unsloth Studio are On this computer in Add a provider, beside Ollama, each at its own address; in English and Chinese", async () => {
   // The app is told what runs: no LM Studio or Unsloth Studio on this computer is asked.
   const { app, window } = await launchApp(dataDir, {
     ollama: "http://127.0.0.1:9",
@@ -184,16 +184,14 @@ test("LM Studio and Unsloth Studio are On this computer in Add a provider, besid
     await settings.getByTestId("models-add-provider").click();
     const local = settings.locator('[data-group="local"]');
     await expect(local.getByTestId("provider-directory-entry")).toHaveText([
+      /^Ollama/,
       /^LM Studio/,
       /^Unsloth Studio/,
     ]);
-    await expect(settings.locator('[data-group="popular"] [data-catalog-id="ollama"]')).toHaveCount(
-      1,
-    );
     await setLanguage(window, "zh-CN");
-    await expect(local.locator("h5")).toHaveText("本机");
+    await expect(local.locator("h3")).toHaveText("在这台电脑上 · 免费，数据不会离开");
     await setLanguage(window, "en");
-    await settings.getByTestId("models-back").click();
+    await settings.getByTestId("ai-add-sheet-cancel").click();
 
     let form = await addProviderForm(settings, "unsloth");
     const saveButton = () => form.getByTestId("provider-use-key");

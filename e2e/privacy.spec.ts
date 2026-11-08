@@ -64,7 +64,7 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   const order = [
     await top(service),
     await top(statement),
-    await top(privacy.getByTestId("local-only-setting")),
+    await top(privacy.getByTestId("local-mode-moved")),
     await top(privacy.getByTestId("network-traffic")),
   ];
   expect(order).toEqual(order.toSorted((a, b) => a - b));

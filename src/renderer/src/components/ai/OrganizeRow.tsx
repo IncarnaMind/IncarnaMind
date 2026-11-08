@@ -49,7 +49,10 @@ export function organizeGroups(
   const listed = new Map(
     (models?.options ?? []).map((each) => [sortingKey(each.classifier), each]),
   );
-  const all = [...shown];
+  // The local decision models under Automatic read as in the full list, whichever lists them.
+  const all = shown.map((each) =>
+    each.classifier.kind === "auto" ? { ...each, label: t("tagging.decision.auto") } : each,
+  );
   const seen = new Set(shown.map((each) => sortingKey(each.classifier)));
   for (const each of models?.options ?? []) {
     const key = sortingKey(each.classifier);
@@ -117,11 +120,14 @@ export function OrganizeRows({
   } = sorting;
   const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
 
+  const failed = read.state === "failed";
+  const optionsShown = library !== null && !failed && current !== null && !current.unresolved;
   const switchId = `${id}-automatic`;
   const reached = useSettingsTarget<HTMLDivElement>(TAGGING, true, () =>
     document.getElementById(id)?.focus(),
   );
-  useSettingsTarget<HTMLDivElement>(TURN_ON, true, () =>
+  // Its switch shows once what sorts now is known: until then, the target waits for it.
+  useSettingsTarget<HTMLDivElement>(TURN_ON, optionsShown, () =>
     document.getElementById(switchId)?.focus(),
   );
   const close = () => {
@@ -130,7 +136,6 @@ export function OrganizeRows({
   };
   const host = decisionHosts?.find((each) => each.host === settingUp);
   const keyProvider = keyProviderOf(current, decisionHosts);
-  const failed = read.state === "failed";
   const models = read.state === "ready" ? read.data : null;
   const groups = organizeGroups(settingsOptions, models, language, t);
   const hints = current && !current.unresolved ? current.decisionModel : null;
@@ -217,7 +222,7 @@ export function OrganizeRows({
           keyProvider && !current?.unresolved && <UsesKeyLine catalogId={keyProvider} />
         )}
       </SettingsRow>
-      {library && !failed && current && !current.unresolved && (
+      {optionsShown && library && current && (
         <OrganizeOptions
           switchId={switchId}
           settings={library.settings}
