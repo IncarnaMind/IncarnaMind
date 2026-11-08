@@ -106,7 +106,7 @@ A number in an Answer or in your text that IncarnaMind worked out from numbers q
 _Avoid_: computed figure, calculated citation, derived number, formula
 
 **What-if**:
-A Calculated figure worked out again from an Excel workbook's own formulas with one Input changed ("2027 EBITDA if growth is 3%"), in memory, never in the User's file. It names the Input it changed, the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
+A Calculated figure worked out again from an Excel workbook's own formulas with one or more Inputs changed ("2027 EBITDA if growth is 3%", or "if growth is 3% and the margin 25%"), in memory, never in the User's file. It names each Input it changed and the value it was given, and the figure the workbook has as it is. It is refused when the figure depends on a formula IncarnaMind can't work out, rather than mixing worked-out and saved values.
 _Avoid_: scenario, sensitivity (a table of several), simulation
 
 **Formula chain**:

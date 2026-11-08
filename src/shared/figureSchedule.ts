@@ -19,6 +19,7 @@ import { formatDateTime } from "./dates";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { formulaText } from "./formula";
 import { type MessageKey, translate } from "./i18n";
+import { listOf } from "./i18n/join";
 import { checkedByMe } from "./signOffs";
 
 export type FigureFilter = "all" | "look" | "supported" | "not-checked" | "not-mine";
@@ -473,7 +474,7 @@ export function workbookFormulaText(figure: CalculatedFigure, language: Language
   return translate(language, "figures.workbook.whatIfFormula", {
     cell,
     formula: book.cell.formula,
-    changes: new Intl.ListFormat(language, { type: "conjunction" }).format(changes),
+    changes: listOf(changes, language),
   });
 }
 

@@ -1,5 +1,6 @@
 import { formatDate } from "../../shared/dates";
 import { translate } from "../../shared/i18n";
+import { listOf } from "../../shared/i18n/join";
 import { recordCiteResultLabel } from "../checkRecord/labels";
 import type { Language } from "../language";
 import type { FailedSentence, Footnote, RecordCiteComment } from "../mindText";
@@ -56,20 +57,6 @@ export interface FigureNoteSource {
 }
 
 const FULL_WIDTH_END = /[\u3000-\u303f\uff00-\uffef]$/;
-
-/** "A and B", "A、B 和 C": a space where 和 meets a Latin letter or a digit (docs/agents/zh-CN.md). */
-function listOf(items: readonly string[], language: Language): string {
-  const latin = /[A-Za-z0-9%]/;
-  return new Intl.ListFormat(language, { type: "conjunction" })
-    .formatToParts(items)
-    .map((part, at, parts) => {
-      if (part.type !== "literal" || !/^\p{Script=Han}+$/u.test(part.value)) return part.value;
-      const before = latin.test(parts[at - 1]?.value.at(-1) ?? "") ? " " : "";
-      const after = latin.test(parts[at + 1]?.value.charAt(0) ?? "") ? " " : "";
-      return before + part.value + after;
-    })
-    .join("");
-}
 
 export function exportLabels(language: Language): ExportLabels {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>

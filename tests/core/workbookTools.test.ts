@@ -241,8 +241,9 @@ describe("a workbook's formulas in an Answer", () => {
         text !== null && ["8.0%", "25.0%"].every((value) => text.includes(value));
       expect(mentions(figure?.label ?? null)).toBe(true);
       expect(mentions(figure ? workbookFormulaText(figure, language) : null)).toBe(true);
-      // The label names it as a what-if, in the Answer's language.
+      // The label names it as a what-if, in the Answer's language, with a space before 和 after a percent.
       expect(figure?.label).toContain(language === "en" ? "what-if:" : "假设情形");
+      expect(figure?.label).toContain(language === "en" ? "8.0% and " : "8.0% 和");
       expect(told(model, "what_if")).toContain("the User's file is unchanged");
       expect(told(model, "what_if")).toContain("Assumptions!B10");
       expect(told(model, "what_if")).toContain("Assumptions!B5");
@@ -295,9 +296,20 @@ describe("a workbook's formulas in an Answer", () => {
       expect(told(model, "trace_formulas")).toContain("Recorded [=1] = Breach");
       expect(told(model, "trace_formulas")).toContain("its cell holds text");
       const node = calculatedFigureNode(figure as NonNullable<typeof figure>, "figure-1");
-      expect(readCalculatedFigure(JSON.parse(JSON.stringify(node.attrs?.figure)))).toEqual(
+      const stored = JSON.parse(JSON.stringify(node.attrs?.figure));
+      expect(readCalculatedFigure(stored)).toEqual(
         expect.objectContaining({ value: "Breach", workbook: figure?.workbook }),
       );
+      // A text figure is a string value with its workbook's text, and only that pairing reads (#2403).
+      const withoutText = JSON.parse(JSON.stringify(stored));
+      withoutText.workbook.text = null;
+      expect(readCalculatedFigure(withoutText)).toBeNull();
+      const numbered = JSON.parse(JSON.stringify(stored));
+      numbered.value = 0;
+      expect(readCalculatedFigure(numbered)).toBeNull();
+      const otherText = JSON.parse(JSON.stringify(stored));
+      otherText.workbook.text.value = "OK";
+      expect(readCalculatedFigure(otherText)).toBeNull();
     },
   );
 

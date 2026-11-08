@@ -6,10 +6,11 @@
  * to their cells; a what-if's names the inputs it changed. Neither ever writes
  * the User's file: the model is built from the Units the workbook was stored as.
  */
-import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
+import { MAX_INPUTS_PER_FIGURE, readCalculatedFigure } from "../../shared/calculatedFigures";
 import { readFigures } from "../../shared/figures";
 import { FORMULA_VERSION, type ResultUnit, showResult } from "../../shared/formula";
 import { translate } from "../../shared/i18n";
+import { listOf } from "../../shared/i18n/join";
 import { cellNumber, type UnitText } from "../../shared/units";
 import { documentFigureContext } from "../answers/calculations";
 import { setAsideRowsOf } from "../answers/sheetRows";
@@ -421,6 +422,8 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
   ): { marker: number; figure: CalculatedFigure } | string => {
     const target = chain.target;
     const text = typeof value === "string" ? value : null;
+    if (text !== null && text.trim() === "")
+      return `${where(target.sheet, target.ref)} shows no text to quote, so the figure can't be cited.`;
     let saved: number | string;
     if (text === null) {
       if (typeof target.saved !== "number")
@@ -464,6 +467,8 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         engine: WORKBOOK_ENGINE_VERSION,
       },
     };
+    if (!readCalculatedFigure(figure))
+      return `${where(target.sheet, target.ref)} shows ${target.shown || "nothing"}, which can't be recorded as a figure.`;
     return { marker: options.figure(figure), figure };
   };
 
@@ -771,13 +776,14 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         .filter((each) => !changedCells.has(each.cell))
         .flatMap((each) => inputOf(book, each, taken) ?? [])
         .slice(0, Math.max(0, MAX_INPUTS_PER_FIGURE - changedInputs.length));
-      const changesText = new Intl.ListFormat(options.language, { type: "conjunction" }).format(
+      const changesText = listOf(
         changedInputs.map((each) =>
           translate(options.language, "figures.workbook.whatIfAt", {
             input: each.input.label,
             value: each.after,
           }),
         ),
+        options.language,
       );
       const given = text(input.label) || chain.target.label;
       // A what-if must never read as the workbook's own figure, whatever label the model gave.

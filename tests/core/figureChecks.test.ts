@@ -1813,6 +1813,20 @@ async function twoDriverUnits(growth: number, margin: number): Promise<UnitText[
   return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
 }
 
+/** A plan whose flag cell holds a blank text: Excel writes an empty string as its result. */
+async function blankTextUnits(): Promise<UnitText[]> {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Line")
+    .text("B1", "Flag")
+    .text("A2", "Flag")
+    .formula("B2", 'IF(B3>2,"OK","")', "")
+    .text("A3", "Count")
+    .number("B3", 1);
+  return (await extractXlsx(new Uint8Array(book.xlsx()))).units;
+}
+
 /** A workbook's Tools over `units`, read as one Passage, and the figures they record. */
 function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
   const source: CitationSource = {
@@ -1857,6 +1871,13 @@ async function planFigures(units: UnitText[], language: "en" | "zh-CN") {
   if (!traced || !changed) throw new Error("The workbook's figures weren't recorded.");
   return { traced, changed };
 }
+
+test("a cell whose text is blank records no figure: there is no text to cite", async () => {
+  const { trace, context, recorded } = workbookPassage(await blankTextUnits(), "en");
+  const result = await trace.call({ passage: "P1", cell: "Plan!B2", label: "Flag" }, context);
+  expect(result).toContain("shows no text to quote, so the figure can't be cited");
+  expect(recorded).toEqual([]);
+});
 
 describe.each([
   { language: "en" as const, claim: "Sales in 2027 were 420, or 440 at 10% growth." },

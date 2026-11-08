@@ -2,7 +2,7 @@
  * A figure of a workbook as the model it comes from (#2347): the formulas
  * between it and the inputs that drive it (the cells that hold numbers, not
  * formulas), each named by its row and column headings; and what-if, the
- * figure worked out again with one input changed, in memory.
+ * figure worked out again with one or more inputs changed, in memory.
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import { parseCellRef, type UnitText } from "../../shared/units";

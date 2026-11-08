@@ -381,6 +381,7 @@ function workbookOf(
     return undefined;
   if ((text === null) !== (own !== null)) return undefined;
   if (text !== null && (typeof saved !== "string" || changes.length > 0)) return undefined;
+  if (text !== null && text.value !== saved) return undefined;
   if (text === null && !finite(saved)) return undefined;
   if (
     !cell ||
@@ -469,6 +470,8 @@ export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   }
   const workbook = workbookOf(value.workbook, inputs);
   if (workbook === undefined || (workbook && analysis)) return null;
+  // A text figure holds a string in its workbook's text, and a number figure doesn't (#2389).
+  if ((typeof value.value === "string") !== (workbook?.text != null)) return null;
   return {
     label: value.label,
     formula: value.formula,
