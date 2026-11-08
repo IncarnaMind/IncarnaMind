@@ -69,23 +69,18 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     expect(retrievesFirst(haiku, "question", { retrievesFirst: () => true })).toBe(true);
   });
 
-  // protects=call help on Claude Sonnet 5.5, as the catalog names it, names its Passages in its markers, and nothing else does: another flow, Haiku, DeepSeek, Sonnet through OpenRouter or a model outside the catalog; fails_when=a model or flow the gate didn't admit takes the path; no_claim=the path itself (meetingHelp.test.ts) (#2526).
-  test("only call help on Claude Sonnet 5.5 names its Passages in its markers, by the list", () => {
+  // protects=no model names its Passages in its markers until a gate lists it, and an override turns the path on for one flow only; fails_when=a model takes the path no gate admitted, or the override is ignored; no_claim=the path itself (meetingHelp.test.ts) (#2526).
+  test("no model names its Passages in its markers by the list, and an override turns the path on", () => {
     const sonnet = { catalogId: "anthropic", modelId: "claude-sonnet-5-5" };
-    expect(marksPassages(sonnet, "call-help")).toBe(true);
-    expect(marksPassages({ ...sonnet, modelId: "claude-sonnet-5-5-20261001" }, "call-help")).toBe(
-      true,
-    );
-    expect(marksPassages(sonnet, "question")).toBe(false);
-    for (const other of [
+    for (const model of [
+      sonnet,
       { catalogId: "anthropic", modelId: "claude-haiku-5-5" },
       { catalogId: "deepseek", modelId: "deepseek-flash" },
-      { catalogId: "openrouter", modelId: "anthropic/claude-sonnet-5-5" },
       { catalogId: null, modelId: "claude-sonnet-5-5" },
     ]) {
-      expect(marksPassages(other, "call-help")).toBe(false);
+      expect(marksPassages(model, "call-help")).toBe(false);
     }
-    expect(marksPassages(sonnet, "call-help", { marksPassages: () => false })).toBe(false);
+    expect(marksPassages(sonnet, "call-help", { marksPassages: () => true })).toBe(true);
   });
 
   test("an override decides over the list, and one that says nothing leaves it to the list", () => {

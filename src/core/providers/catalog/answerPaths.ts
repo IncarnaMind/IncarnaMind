@@ -50,21 +50,15 @@ const RETRIEVES_FIRST: readonly Admitted[] = [];
 
 /**
  * Call help offered no `cite`: each marker carries the number of the Passage it rests on ("[^3]"
- * for P3), and IncarnaMind records its quote, so a model that thinks after each Tool's result
- * (Claude Sonnet 5.5 on a direct key) writes the reply in one call (#2526), on paired runs against
- * eval/speed/gates/call-help-marks-passages.md. Left out (2026-11-07), each holding every quality
- * line on the fresh slice: Claude Haiku 5.5, whose first English option came 0.10 s later (0.79 →
- * 0.89 s), and DeepSeek V4.1 Flash 1017, whose first Chinese option came 0.09 s later (1.12 →
- * 1.21 s); each already writes its reply in its first request, and both were done sooner.
+ * for P3), and IncarnaMind picks its quote (src/core/answers/markedPassages.ts), so a model that
+ * thinks after each Tool's result (Claude Sonnet 5.5 on a direct key) writes the reply in one call
+ * (#2526). A model joins only on paired runs against eval/speed/gates/call-help-marks-passages.md.
+ * Left out (2026-11-07), each holding every quality line on the fresh slice: Claude Haiku 5.5,
+ * whose first English option came 0.10 s later (0.79 → 0.89 s), and DeepSeek V4.1 Flash 1017,
+ * whose first Chinese option came 0.09 s later (1.12 → 1.21 s). Sonnet 5.5 is off until the
+ * gate's third look holds, its picker having changed since it was listed.
  */
-const MARKS_PASSAGES: readonly Admitted[] = [
-  {
-    model: "anthropic/claude-sonnet-5-5",
-    since: "2026-11-07",
-    flows: ["call-help"],
-    gate: "On the fresh slice (8 presses a language, three runs, judge Claude Opus 5.5), first whole option 4.12 → 1.48 s (en) and 4.38 → 1.65 s (zh), done 4.12 → 2.25 s and 4.38 → 2.54 s, one call in 48 of 48; cited 8–8 → 7–8 and 8–8 → 8–8, judged right 8–8 → 7–8 and 7–8 → 7–7, every Citation found 8–8 → 7–8 and 8–8 → 8–8, false Supported 2–2 → 2–4 and 3–4 → 3–4. On the 24 cases its first runs had seen, every line held but English cited, 12–12 → 10–11.",
-  },
-];
+const MARKS_PASSAGES: readonly Admitted[] = [];
 
 /** A model as an Answer runs it. */
 export interface ListedModel {
