@@ -84,3 +84,24 @@ From the independent pre-review, made before the slice's first run:
 - **A gate run was started and stopped.** At 21:38 a run with two runs on Sonnet 5.5 started, English first. After seven English presses its spend showed a Sonnet pair costs about $0.10, not the $0.04 estimated above. Two runs on Sonnet would have left nothing for Haiku, and the ledger could have stopped it before the Chinese slice. It was stopped by hand at $0.65 before any Chinese press, and it isn't read.
 - **Samples, within the cap ($1.86 spent so far):** one run on each model, Chinese first (`INCARNAMIND_EVAL_SPEED_SETS=call-help-chinese,call-help`). Sonnet 5.5 runs first, with the ledger stopping it at $4.90, so that Haiku 5.5 has room. A range is that one run's count, and the bar's lines are otherwise unchanged: on Sonnet 5.5, Chinese on `today` is no higher than English on `today`; on each model and language, `today`'s false Supported is no higher than `help-marks-as-before`'s, and its cited, judged right and every Citation found are no lower.
 
+## Result, 2026-11-08: judged right falls on Sonnet and Citations fall on Haiku, so it doesn't ship
+
+One run on each model, at e26776f41, direct Anthropic key, judge Claude Opus 5.5, all 60 pairs finished, none failed. Each run started at a 15-minute load of 24 or less (20.2 and 23.9); during the Sonnet run the one-minute load was 15.6 to 90.6 from other work, and during the Haiku run 6.4 to 14.3. Counts are presses of 15, `help-marks-as-before` (main's path) → `today` (this change):
+
+| Model · language | False Supported | Expected Passages cited | Judged right | Every Citation found | Done, median |
+|---|---|---|---|---|---|
+| Claude Sonnet 5.5 · English | 4 → 4 | 15 → 15 | **15 → 14** | 15 → 15 | 4.77 → 4.94 s |
+| Claude Sonnet 5.5 · Chinese | **7 → 3** | 14 → 14 | **15 → 13** | 14 → 15 | 4.90 → 5.72 s |
+| Claude Haiku 5.5 · English | 7 → 3 | **14 → 8** | 13 → 12 | **14 → 9** | 2.68 → 1.90 s |
+| Claude Haiku 5.5 · Chinese | 5 → 4 | **14 → 8** | 8 → 9 | **15 → 10** | 2.64 → 1.92 s |
+
+- **Holds:** on Sonnet 5.5, Chinese false Supported on `today` (3) is no higher than English's (4), and falls from 7. False Supported is no higher than main's in every cell. Cited and every Citation found hold on Sonnet.
+- **Fails:** judged right on Sonnet in both languages. In Chinese, zh7-say-delay and zh7-ask-warehouses each gave one fact fewer than the expected answer (partly). In English, en-sum added what its lines don't say (partly).
+- **Fails:** cited and every Citation found on Haiku. On `today`, Haiku left its markers out of the reply in 11 of 30 presses (6 English, 5 Chinese), and the core no longer places its records, so those replies show no Citation at all. On main's path every Haiku press showed one. Haiku's false Supported falls mostly because it shows fewer Citations.
+- **Spend:** $4.05 of the $6 cap. The two pilots cost $0.94 and $0.27, the stopped run $0.65, the Sonnet run $1.78 (the judge $0.34) and the Haiku run $0.41 (the judge $0.35).
+
+**What the next try needs**, on a slice no run has seen:
+
+- **Keep a model's own records placed, only where they can be right.** Place a record only after a sentence of an option or line whose words hold its quote. Never place one at a paragraph's end, on a → line or on a reading's own sentence, and never by function pairs such as 我们. Keep dropping the Citations the core matched for a sentence the model left uncited: a quotation, or a near-duplicate.
+- **Measure the reply's rule on its own.** "A sentence with a Citation says only what its quotes state" took Sonnet's Chinese false Supported from 7 to 3, but it may cost a fact an option needs. It needs its own arm.
+
