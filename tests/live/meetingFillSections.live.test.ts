@@ -1821,7 +1821,9 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
   const ai = (part: NotePart | undefined) => part?.items.filter((each) => each.ai) ?? [];
   const part = (section: (typeof SECTIONS)[number]) =>
     parts.find((each) => each.heading === titles[section]);
-  const firstAdded = parts.find((each) => each.heading !== "" && ai(each).length > 0);
+  // What the User typed comes first, filled in; of what the fill adds under its own headings,
+  // Summary leads, unless the User's own heading hosts it.
+  const firstAdded = parts.find((each) => each.generated && ai(each).length > 0);
   const summary = ai(part("summary"));
   const topics = parts.filter(
     (each) =>
@@ -1845,7 +1847,8 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
     (section) => ai(part(section)),
   );
   return {
-    summaryFirst: firstAdded !== undefined && firstAdded.heading === titles.summary,
+    summaryFirst:
+      call.sectionHeadings?.summary !== undefined || firstAdded?.heading === titles.summary,
     summaryParts: summary.length,
     summarySentences: (summary[0]?.text.match(SENTENCES) ?? []).length,
     summaryCited: summary.length > 0 && summary.every((item) => item.cited && !item.bullet),
@@ -3667,7 +3670,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             }
           : null;
         const structure = structureOf(doc, call);
-        const checkRequests = ledger.prompts.filter((prompt) => !FILL_REQUEST.test(prompt)).length;
+        const checks = ledger.prompts.filter((prompt) => !FILL_REQUEST.test(prompt));
+        const checkRequests = checks.length;
+        // A check's first request is the only one without a reply of the model's in it.
+        const claimChecks = checks.filter(
+          (prompt) => !prompt.includes('"role":"assistant"'),
+        ).length;
         const once = scored.filter((each) => each.count === 1 && each.cited).length;
         const title = (section: "summary" | "decisions" | "actions" | "questions") =>
           call.sectionHeadings?.[section] ??
@@ -3727,7 +3735,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
                 `Request settlement: ${ledger.snapshot().unsettled_requests} unsettled; amounts above are known subtotals, not free unknown usage.`,
                 `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-                `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
+                `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, claimChecks, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
                 `Structure (#2306): ${JSON.stringify(structure)}`,
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",

@@ -163,7 +163,7 @@ export function notesContext(
     "<One complete fact, including its actual owner and deadline if said.> [^1]",
     `### END ${prefix}1`,
     "- Keep metadata inside its closed json fence; Citation markers appear only in the ordinary paragraph outside it. citations lists every marker required by that paragraph. No extra keys, nested headings, code or extra paragraphs in a fact. Close every frame with its matching END heading.",
-    "Always include one separately cited overview: two or three short sentences on what the call was about and what came out of it, naming outcomes without their figures, dates or owners, and not commentary about these notes. A filled-out agenda line is not a substitute. Use this closed frame:",
+    "Always include one separately cited overview: two or three short sentences on what the call was about and what came out of it, naming outcomes in general words (a venue was chosen, not which one), never the figures, dates or owners the notes below give, and not commentary about these notes. A filled-out agenda line is not a substitute. Use this closed frame:",
     "### OVERVIEW",
     "```json",
     '{"citations":[2,3]}',

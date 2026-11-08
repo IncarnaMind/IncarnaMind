@@ -63,9 +63,11 @@ test.each([
     expect(prompt).toContain("at most 6 headings in all, in the order the call took them up");
     expect(prompt).toContain("Where the User typed a heading for that part, use its words.");
     expect(prompt).toContain(
-      "two or three sentences on what the call was about and what came out of it",
+      "two or three short sentences on what the call was about and what came out of it",
     );
     expect(prompt).toContain("claim is true only for a figure, date, price or term");
+    expect(prompt).toContain("A fact is one short point, a single sentence");
+    expect(prompt).toContain("never the figures, dates or owners the notes below give");
     expect(prompt).not.toContain('\\"summary\\" for other figures');
   },
 );
