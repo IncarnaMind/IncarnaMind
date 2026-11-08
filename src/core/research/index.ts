@@ -752,7 +752,9 @@ export function createResearch(options: ResearchOptions) {
       const filed = options.filedWithin(wall, null);
       if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const mindId =
-        asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), filed.folderId);
+        asked ??
+        chosenMind ??
+        options.createMind(cutTitle(plan.title), filed.folderId, ready.model);
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
       const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
       if (wall !== options.walledFolder(targetMind)) {
