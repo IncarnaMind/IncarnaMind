@@ -4,7 +4,11 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
-import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
+import {
+  createFakeSpeechEngine,
+  FAKE_LINES,
+  FAKE_THEIR_LINES,
+} from "../../src/core/transcription/fake";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
@@ -322,6 +326,99 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
     record(5 * SECOND);
     const live = await until(core, meeting.id, (transcript) => transcript.lines >= 22);
     expect(live.state).toBe("live");
+  });
+
+  test("a Meeting saved and left alone frees the engine's models; the next Meeting records while they load again (#2673)", async () => {
+    const dataDir = await createTempDataFolder();
+    let built = 0;
+    let unloading = 0;
+    let loading: PromiseWithResolvers<void> | null = null;
+    const { core, record } = await transcribingCore(dataDir, {
+      serving: {
+        idleMs: 100,
+        unloaded: () => {
+          unloading++;
+        },
+      },
+      engineFactory: async () => {
+        built++;
+        await loading?.promise;
+        return createFakeSpeechEngine();
+      },
+    });
+    const first = await core.createMeeting();
+    await core.startMeeting({ meetingId: first.id });
+    record(9 * SECOND);
+    await until(core, first.id, (transcript) => transcript.lines >= 4);
+    await core.stopMeeting(first.id);
+    const savedFirst = await until(core, first.id, (transcript) => transcript.state === "saved");
+    const firstCues = readVtt(readFileSync(savedFirst.savedPath as string, "utf8")).cues;
+
+    // The idle wait passes with no Meeting: the engine's process ends.
+    const before = unloading;
+    await vi.waitFor(() => expect(unloading).toBeGreaterThan(before), { timeout: 20_000 });
+    expect(built).toBe(1);
+
+    loading = Promise.withResolvers<void>();
+    const second = await core.createMeeting();
+    await core.startMeeting({ meetingId: second.id });
+    record(9 * SECOND);
+    expect((await transcriptOf(core, second.id)).state).toBe("preparing");
+
+    loading.resolve();
+    await until(
+      core,
+      second.id,
+      (transcript) => transcript.state === "live" && transcript.lines >= 4,
+    );
+    await core.stopMeeting(second.id);
+    const savedSecond = await until(core, second.id, (transcript) => transcript.state === "saved");
+    expect(readVtt(readFileSync(savedSecond.savedPath as string, "utf8")).cues).toEqual(firstCues);
+  });
+
+  test("a paused Meeting's engine leaves memory while it waits, and its next audio loads it again without a restart (#2673)", async () => {
+    const dataDir = await createTempDataFolder();
+    let built = 0;
+    let unloading = 0;
+    let loading: PromiseWithResolvers<void> | null = null;
+    const { core, record } = await transcribingCore(dataDir, {
+      serving: {
+        idleMs: 100,
+        unloaded: () => {
+          unloading++;
+        },
+      },
+      engineFactory: async () => {
+        built++;
+        await loading?.promise;
+        return createFakeSpeechEngine();
+      },
+    });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(6 * SECOND, ["microphone"]);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    const before = unloading;
+    await vi.waitFor(() => expect(unloading).toBeGreaterThan(before), { timeout: 20_000 });
+    expect(built).toBe(1);
+
+    loading = Promise.withResolvers<void>();
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: false });
+    record(9 * SECOND, ["microphone"]);
+    // The audio waits while the engine comes back.
+    expect((await transcriptOf(core, meeting.id)).state).toBe("preparing");
+    loading.resolve();
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "live" && transcript.lines >= 4,
+    );
+    expect(built).toBe(2);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    expect(readVtt(readFileSync(saved.savedPath as string, "utf8")).gaps).toEqual([]);
   });
 
   test("a Meeting in a Mind with no title yet names its Transcript plainly", async () => {

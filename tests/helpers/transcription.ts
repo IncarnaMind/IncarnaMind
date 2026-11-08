@@ -19,6 +19,7 @@ import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
   createChannelTranscriber,
+  type ServingOptions,
   serveTranscriber,
   type TranscriberPort,
   type TranscriberRequest,
@@ -93,6 +94,8 @@ export function inProcessTranscriber(
     createFakeSpeechEngine(options),
   /** The cloud's connections, to watch them: the pretend service as `options.cloud` says by default. */
   connect: CloudConnect = createFakeCloud(options.cloud),
+  /** The idle unload (#2673): an engine that went idle ends this process, as the app's does. */
+  serving: ServingOptions = {},
 ) {
   let kill: (() => void) | null = null;
   let started = 0;
@@ -111,11 +114,23 @@ export function inProcessTranscriber(
           if (open) for (const listener of responses) listener(response);
         }),
     };
-    serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
-      connect,
-      fetch: createFakeCloudFetch(options.cloud),
-      detectors: async () => createFakeSpeechEngine(options).detector,
-    });
+    serveTranscriber(
+      engine,
+      options.failover ? failingOver(port, options.failover) : port,
+      {
+        connect,
+        fetch: createFakeCloudFetch(options.cloud),
+        detectors: async () => createFakeSpeechEngine(options).detector,
+      },
+      {
+        idleMs: serving.idleMs,
+        unloaded: () => {
+          serving.unloaded?.();
+          open = false;
+          for (const listener of exits) listener(0);
+        },
+      },
+    );
     kill = () => {
       open = false;
       for (const listener of exits) listener(null);
@@ -167,10 +182,16 @@ export async function transcribingCore(
     systemLanguages,
     answerPaths,
     examples,
+    serving,
+    engineFactory,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
     cloud?: CloudConnect;
+    /** The idle unload (#2673): a short wait, and what an idle engine's process ending looks like. */
+    serving?: ServingOptions;
+    /** Another engine than the fake one, e.g. one whose loading the test holds. */
+    engineFactory?: (model: TranscriptionModelFiles) => Promise<SpeechEngine>;
     /** The computer's languages, "en-US" by default. */
     systemLanguages?: readonly string[];
     /** What the fake capture does, e.g. the computer's sound denied. */
@@ -201,11 +222,13 @@ export async function transcribingCore(
   const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
   const engineHost = inProcessTranscriber(
     engine,
-    async () => {
-      await loads;
-      return createFakeSpeechEngine(engine);
-    },
+    engineFactory ??
+      (async () => {
+        await loads;
+        return createFakeSpeechEngine(engine);
+      }),
     cloud ?? createFakeCloud(engine.cloud),
+    serving,
   );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {

@@ -845,6 +845,11 @@ export interface TranscriberListener {
   failed(stream: string, message: string): void;
   /** The engine stopped by itself (it crashed, or ran out of memory): its streams are gone. */
   stopped(reason: string): void;
+  /**
+   * The engine let its models go after a long idle (#2673): its streams are gone, and the next
+   * audio loads it again. Nothing failed.
+   */
+  unloaded(): void;
   /** The transcriber moved a stream to another engine, for the stream's audio from now on. */
   switched(change: EngineSwitch): void;
   /** A cloud stream ended before it was finished (see `CloudLoss`): its audio not yet transcribed is lost. */
