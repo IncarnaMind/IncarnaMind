@@ -8,13 +8,15 @@ import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { CheckMindInput, Core, Reranker } from "../../src/core";
+import { type CheckMindInput, type Core, MindReadOnlyError, type Reranker } from "../../src/core";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { claimPartsReader } from "../../src/core/answers/checks/claims";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
 import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
@@ -1816,6 +1818,99 @@ describe("Check this note starts each sentence's check once its claims are named
     ]);
   });
 
+  /** Each "mindCheck.early" the run sends: its sentences' words, read from the Note as they are then. */
+  function earlyShown(core: Core, client: MindClient) {
+    const sent: string[][] = [];
+    core.on("mindCheck.early", (event) => {
+      sent.push(
+        event.sentences.map(({ from, to }) => {
+          let words = "";
+          readMind(client).descendants((node) => {
+            if (node.isTextblock && node.attrs.id === from.blockId) {
+              words = node.textContent.slice(from.offset, to.offset);
+            }
+            return words === "";
+          });
+          return words;
+        }),
+      );
+    });
+    return sent;
+  }
+
+  // protects=a sentence whose check starts while the rest are still being named is shown to the window as checking at once, never written into the Note, and the list empties as soon as the run marks its claims, while its checks still run (#1624); fails_when=nothing is sent before the reply ends, the Note is marked early, or the list stays until the run ends; no_claim=how the window draws it.
+  test("the first sentence is shown as checking while the rest are still being named, and the Note isn't marked until then", async () => {
+    const firstRun = Promise.withResolvers<void>();
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", [firstRun.promise]);
+    const shown = earlyShown(core, client);
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    await client.settled();
+    expect(shown).toEqual([[MOON]]);
+    expect(claimSpans(readMind(client))).toEqual([]);
+    sort.release();
+    // Once the run has marked its claims, the list is empty while its checks still run: a
+    // sentence edited away meanwhile, which the run doesn't mark, shows as checking no longer.
+    await vi.waitFor(() => expect(shown.at(-1)).toEqual([]));
+    expect(sort.ended).toBe(true);
+    firstRun.resolve();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    expect(shown).toEqual([[MOON], [MOON, SECOND], []]);
+    expect(runsOf(MOON)).toHaveLength(1);
+    const marks = await shownChecks(core, client, mindId, null);
+    expect(marks.map((each) => [each.sentence, each.shown.state])).toEqual([
+      [MOON, "supported"],
+      [SECOND, "unsupported"],
+    ]);
+  });
+
+  // protects=a sentence that has a mark (an earlier check of its older words) isn't shown as checking early, so the window never draws a second mark beside its own (#1624); fails_when=it is listed while the claims are named; no_claim=what the earlier check's parts change in the new one.
+  test("a sentence with a mark isn't shown as checking early", async () => {
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held");
+    const check: ClaimCheckAttributes = {
+      id: "earlier",
+      request: "old",
+      action: "check-against-documents",
+      state: "unsupported",
+      reason: null,
+      detail: null,
+      providerId: null,
+      modelId: null,
+      text: "Spring tides come at new moon only.",
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-02T13:00:00.000Z",
+    };
+    editMind(client, ([, ...rest]) => [
+      {
+        type: "paragraph",
+        attrs: { id: "first" },
+        content: [{ ...text(MOON), marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] }],
+      },
+      ...rest,
+    ]);
+    await client.settled();
+    const shown = earlyShown(core, client);
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    expect(sort.ended).toBe(false);
+    expect(shown).toEqual([]);
+    sort.release();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    expect(shown).toEqual([[SECOND], []]);
+  });
+
   // protects=a check started early whose sentence the User changed around it while the claims were named is stopped as soon as the run's queue is made, its result dropped, and the sentence checked again as the Note has it then (#2532); fails_when=the early check goes on, its verdict lands, or it isn't sent again with the paragraph's new words; no_claim=what the model says of the new words.
   test("a check started early is stopped and sent again when the paragraph changed before the claims were named", async () => {
     const firstRun = Promise.withResolvers<void>();
@@ -1937,12 +2032,14 @@ describe("Check this note starts each sentence's check once its claims are named
       const { core, client, mindId, runsOf } = await noteOfTwo(end === "fails" ? "fails" : "held", [
         firstRun.promise,
       ]);
+      const shown = earlyShown(core, client);
 
       const checking = core.checkMind(request(mindId, "all"));
       await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
       if (end === "stopped") await core.cancelCheck(request(mindId, "all").requestId);
 
       expect(await checking).toMatchObject({ kind: end === "fails" ? "failed" : "cancelled" });
+      expect(shown).toEqual([[MOON], []]);
       firstRun.resolve();
       expect(runsOf(MOON)[0]?.options.abortSignal?.aborted).toBe(true);
       expect(runsOf(SECOND)).toHaveLength(0);
@@ -1988,4 +2085,69 @@ test("a check's search, from any flow, waits behind a Cite… search asked after
 
   expect(scored.slice(0, 3)).toEqual(["spring tides", "full moon", asked[1]]);
   core.close();
+});
+
+// protects=a Note a newer version writes while Check this note runs hears each sentence once: every sentence is still checked, the first mark that can't be written is logged once with the Note's id, and the Check ends with a problem the User can read instead of the sentence being filed as failed and the rest left unchecked (#2543); fails_when=the mark's throw is filed as its sentence's failure and throws again, so the sentence after it is never sent, or the error is never logged; no_claim=how the card words a check that failed.
+test("Check this note checks every sentence and says once when a mark can't be written", async () => {
+  const calls: ModelCall[] = [];
+  let page: MindClient | null = null;
+  let newer: Promise<void> | null = null;
+  const plans: Record<string, Plan> = {
+    [MOON]: { verdict: "supported", quote: MOON },
+    [YEARLY]: { verdict: "supported", quote: YEARLY },
+  };
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!isCheckRun(call) || call.results.length > 0 || !page) return checkReply(call, plans);
+        // A newer version writes the Note while the first sentence's check is under way.
+        if (!newer) {
+          page.doc
+            .getMap(MIND_SETTINGS_FIELD)
+            .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+          newer = page.settled();
+          return { ...checkReply(call, plans), pause: { after: 0, until: newer } };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    const [tides] = await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+    ]);
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    if (tides) await core.moveToFolder({ documentIds: [tides.id], folderId: folder.id });
+    const mind = await core.createMind({ title: "Tide notes", folderId: folder.id });
+    const client = await connectToMind(core, mind.id);
+    page = client;
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "one" }, content: [text(MOON)] },
+      { type: "paragraph", attrs: { id: "two" }, content: [text(YEARLY)] },
+    ]);
+    await client.settled();
+
+    const failure = await core.checkMind(request(mind.id, "all")).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    // Every sentence was checked, the one queued when the first mark was refused among them.
+    expect(runsIn(calls).map(sentenceOf)).toEqual([MOON, YEARLY]);
+    // The User reads why the Check couldn't finish.
+    expect(failure).toBeInstanceOf(MindReadOnlyError);
+    expect((failure as MindReadOnlyError).wording).toEqual({ key: "error.mind.newerVersionEdit" });
+    // Logged once, with the Note it happened in.
+    const logged = errors.mock.calls.filter(([line]) => String(line).includes(mind.id));
+    expect(logged).toHaveLength(1);
+    expect(logged[0]?.[1]).toBe(failure);
+  } finally {
+    errors.mockRestore();
+  }
 });

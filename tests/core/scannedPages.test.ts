@@ -27,14 +27,7 @@ import {
   shownPassages,
 } from "../helpers/citations";
 import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
-import {
-  addAndProcess,
-  createSourceFolder,
-  sha256,
-  waitForDocuments,
-  waitForProcessing,
-  writeSourceFile,
-} from "../helpers/documents";
+import { createSourceFolder, sha256, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { promptOf, scriptedModel } from "../helpers/models";
 import { buildPdf, pdfAppearance } from "../helpers/pdf";
@@ -85,9 +78,64 @@ function unitsOf(dataDir: string, document: Document) {
   );
 }
 
+/**
+ * Resolves once `check` passes for the Documents, heard as the core reports each change: it has
+ * no clock of its own, so a busy machine only makes it later, and the test's own limit bounds it
+ * (#1711).
+ */
+function waitForState(core: Core, check: (documents: Document[]) => void): Promise<Document[]> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const stop = core.on("document.status", attempt);
+    function attempt() {
+      if (settled) return;
+      void core.listDocuments().then(
+        (documents) => {
+          if (settled) return;
+          try {
+            check(documents);
+          } catch {
+            return;
+          }
+          settled = true;
+          stop();
+          resolve(documents);
+        },
+        (error: unknown) => {
+          settled = true;
+          stop();
+          reject(error);
+        },
+      );
+    }
+    attempt();
+  });
+}
+
+const FINISHED_STATUS: ReadonlySet<string> = new Set(["ready", "failed", "no-text"]);
+
+/** The Documents in the order given, once each has finished being read. */
+function waitForReady(core: Core, ids: readonly string[]): Promise<Document[]> {
+  if (ids.length === 0) return Promise.resolve([]);
+  return waitForState(core, (documents) => {
+    for (const id of ids) {
+      const found = documents.find((each) => each.id === id);
+      expect(FINISHED_STATUS.has(found?.status ?? "")).toBe(true);
+    }
+  }).then((documents) => ids.map((id) => documents.find((each) => each.id === id) as Document));
+}
+
+async function addAndRead(core: Core, paths: string[]): Promise<Document[]> {
+  const { documents } = await core.addDocuments(paths);
+  return waitForReady(
+    core,
+    documents.map((document) => document.id),
+  );
+}
+
 async function addPdf(core: Core, name: string, pdf: Uint8Array): Promise<Document> {
   const sources = await createSourceFolder();
-  const [document] = await addAndProcess(core, [await writeSourceFile(sources, name, pdf)]);
+  const [document] = await addAndRead(core, [await writeSourceFile(sources, name, pdf)]);
   if (!document) throw new Error("The PDF wasn't added.");
   return document;
 }
@@ -320,7 +368,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       pages: { 1: { lines: linesOf("zh-clean") } },
     });
     const after = startCore(dataDir, scanning(recognizer));
-    const [reread] = await waitForProcessing(after, [document.id]);
+    const [reread] = await waitForReady(after, [document.id]);
     expect(reread?.status).toBe("ready");
     expect(read).toEqual([1]);
     const [found] = await after.searchPassages("押金", { mode: "keyword" });
@@ -346,7 +394,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
       db.close();
     }
     const again = startCore(dataDir, scanning(recognizer));
-    await waitForProcessing(again, [document.id]);
+    await waitForReady(again, [document.id]);
     expect(unitsOf(dataDir, document)[0]?.text ?? "").toContain(
       "华东 1,286 1,452\n月起配送费率调整",
     );
@@ -574,7 +622,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     });
     if (saved.service) await core.allowDataFlow("chat", saved.service.id);
     const sources = await createTempDataFolder();
-    await addAndProcess(core, [
+    await addAndRead(core, [
       await writeSourceFile(
         sources,
         "Harbour report.pdf",
@@ -725,6 +773,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     };
     const documents = {
       currentVersion: () => "hash",
+      documentName: () => "Annual report.pdf",
       pageTexts: () => [unit],
       passagesCovering: () => [{ id: "passage-1", text }],
     };
@@ -878,7 +927,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     });
     if (saved.service) await core.allowDataFlow("chat", saved.service.id);
     const sources = await createTempDataFolder();
-    await addAndProcess(core, [
+    await addAndRead(core, [
       await writeSourceFile(
         sources,
         "Harbour report.pdf",
@@ -978,7 +1027,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     });
     if (saved.service) await core.allowDataFlow("chat", saved.service.id);
     const sources = await createTempDataFolder();
-    await addAndProcess(core, [
+    await addAndRead(core, [
       await writeSourceFile(sources, "Gauge report.pdf", buildPdf([{ scan: picture("en-noisy") }])),
     ]);
     const mind = await core.createMind({ title: "Gauge" });
@@ -1015,7 +1064,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     failing.clear();
     read.length = 0;
     await core.retryDocument(document.id);
-    const [retried] = await waitForProcessing(core, [document.id]);
+    const [retried] = await waitForReady(core, [document.id]);
     expect(retried?.status).toBe("ready");
     expect(retried?.failure).toBeNull();
     expect(read).toEqual([2]);
@@ -1105,7 +1154,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
 
       online = true;
       await core.downloadTextRecognitionModel();
-      const [ready] = await waitForDocuments(core, (documents) => {
+      const [ready] = await waitForState(core, (documents) => {
         expect(read).toEqual([1]);
         expect(documents[0]).toMatchObject(
           forms
@@ -1173,7 +1222,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
         throw new Error("No Answers here.");
       },
     });
-    const [reread] = await waitForProcessing(restarted, [document.id]);
+    const [reread] = await waitForReady(restarted, [document.id]);
     expect(reread?.status).toBe("ready");
     // Page 1, which the Citation quotes, is kept as the older reader read it; page 2 is read again.
     expect(upgraded.read).toEqual([2]);
@@ -1229,7 +1278,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     const readWhenPaused = read.length;
     // The processor takes one job at a time, in the order queued: once a Document added now is
     // ready, the scan has stopped, or would have read all its pages.
-    await addAndProcess(core, [
+    await addAndRead(core, [
       await writeSourceFile(await createSourceFolder(), "Control.md", "Nothing to do with it."),
     ]);
     // At most the page under way when it was paused is read after.
@@ -1237,7 +1286,7 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
 
     await core.setLinkedFolderPaused(linked.id, false);
     const document = (await core.listDocuments()).find((each) => each.name === "Minutes");
-    const [done] = await waitForProcessing(core, [document?.id as string]);
+    const [done] = await waitForReady(core, [document?.id as string]);
     expect(done?.status).toBe("ready");
     // The pages read before the pause weren't read again; only the one under way could be.
     expect(new Set(read)).toEqual(new Set([1, 2, 3, 4]));
@@ -1287,7 +1336,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
       documents: [document],
     } = await core.addDocuments([file]);
     if (!document) throw new Error("The scan wasn't added.");
-    await waitForDocuments(core, (documents) => {
+    await waitForState(core, (documents) => {
       const scan = documents.find((each) => each.id === document.id)?.scan;
       expect(scan?.read).toBe(pages);
     });
@@ -1310,7 +1359,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
     const second = countingRecognizer(script);
     const core = startCore(dataDir, scanning(second.recognizer));
     try {
-      const [ready] = await waitForProcessing(core, [document.id]);
+      const [ready] = await waitForReady(core, [document.id]);
       expect(ready?.status).toBe("ready");
       expect(second.read).toEqual([3, 4]);
       expect(liveUnits(dataDir, document.id).map((unit) => unit.page)).toEqual(PAGES);
@@ -1342,7 +1391,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
       const stopped = (await core.listDocuments()).find((each) => each.id === document.id);
       expect(stopped).toMatchObject({ status: "failed", failure: { reason: "app-stopped" } });
       await core.retryDocument(document.id);
-      const [ready] = await waitForProcessing(core, [document.id]);
+      const [ready] = await waitForReady(core, [document.id]);
       expect(ready?.status).toBe("ready");
       expect(second.read).toEqual([4]);
       expect(liveUnits(dataDir, document.id).map((unit) => unit.page)).toEqual(PAGES);
@@ -1360,7 +1409,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
     const second = countingRecognizer(script);
     const core = startCore(dataDir, scanning(second.recognizer));
     try {
-      const [ready] = await waitForProcessing(core, [document.id]);
+      const [ready] = await waitForReady(core, [document.id]);
       expect(ready?.status).toBe("ready");
       // Each page of the new version is read: none is kept from the old one. The start reads
       // the file as found, and its check for changed files may read the first page again.
@@ -1397,7 +1446,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
       );
       const { documents: added } = await core.addDocuments(files);
       const ids = added.map((document) => document.id);
-      await waitForDocuments(core, (documents) => {
+      await waitForState(core, (documents) => {
         const reading = documents.filter((each) => ids.includes(each.id));
         expect(reading.map((each) => each.status)).toEqual(["extracting", "extracting"]);
         expect(reading.reduce((sum, each) => sum + (each.scan?.read ?? 0), 0)).toBe(4);
@@ -1426,7 +1475,7 @@ describe("Pages read before a quit or a crash are kept (#1504)", { timeout: 60_0
             }
           }
         }
-        const ready = await waitForProcessing(again, ids);
+        const ready = await waitForReady(again, ids);
         expect(ready.map((each) => each.status)).toEqual(["ready", "ready"]);
         // Only what neither had read: each scan's own pages were kept for it.
         expect(second.read).toHaveLength(8 - 4);

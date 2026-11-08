@@ -4,13 +4,17 @@
  * Transcript (#142) on the User's Answers model. From Stop: the first sign the meeting bar shows
  * (the notes waiting or being filled in), when the notes go into the page, and the end; whether
  * they cite each line the case rests on; whether they give what the case expects; and every
- * sentence a found Citation backs whose quote doesn't say it.
+ * sentence a found Citation backs whose quote doesn't say it. Notes only partly filled in fail.
  */
+
+import { statSync } from "node:fs";
 import { generateText, type LanguageModel } from "ai";
-import type { Core, MeetingFill } from "../../src/core";
+import type { Core, MeetingFill, SpeakerSeparator } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
+import { isPartialMeetingFill } from "../../src/shared/meetingFill";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
+import { NO_SPEAKER_FILES } from "../../tests/helpers/transcription";
 import { type Judged, openCall, quotes, readJudged } from "./callHelp";
 import { MEETING_NOTES_CASES, type MeetingNotesCase } from "./meetingNotesCases";
 import type { Measured, PairedGroup, PairedItem } from "./paired";
@@ -166,6 +170,7 @@ function item(each: MeetingNotesCase): PairedItem {
         failures: [
           ...(toolTextIn(notes.text).length > 0 ? ["tool-text"] : []),
           ...(filled && fill.problem ? [`fill-${fill.problem.kind}`] : []),
+          ...(filled && !fill.problem && isPartialMeetingFill(fill) ? ["fill-partial"] : []),
           ...(filled && notes.text === "" ? ["nothing-written"] : []),
         ],
         firstSignMs,
@@ -183,13 +188,47 @@ function item(each: MeetingNotesCase): PairedItem {
   };
 }
 
+/** The app's speaker pass took 5.9–6.8 s for calls of 53–62 s on this Mac (#2773). */
+const PASS_PER_AUDIO_SECOND = 0.11;
+
+/** A recorded part's seconds of 16 kHz, 16-bit mono audio, after its 44-byte header. */
+const partSeconds = (path: string) => Math.max(0, statSync(path).size - 44) / 2 / 16_000;
+
+/**
+ * A stand-in for the speaker pass after Stop: it takes as long as the app's on the call's audio
+ * and hears one voice on the other side, as in a call with one other person, so it renames no
+ * line. The notes wait for it unless they start before it ends (#2773).
+ */
+function standInSpeakerPass(perAudioSecond: number): SpeakerSeparator {
+  return {
+    async separate({ parts }) {
+      const seconds = parts.reduce((sum, part) => sum + partSeconds(part.path), 0);
+      await new Promise((resolve) => setTimeout(resolve, seconds * perAudioSecond * 1000));
+      const endMs = Math.max(
+        0,
+        ...parts.map((part) => part.offsetMs + partSeconds(part.path) * 1000),
+      );
+      return [{ startMs: 0, endMs, voice: 0 }];
+    },
+  };
+}
+
 /** One group a case: its own Library and Meeting, the call heard before Stop. */
-export function meetingNotesSet(): PairedGroup[] {
+export function meetingNotesSet({
+  passPerAudioSecond = PASS_PER_AUDIO_SECOND,
+}: {
+  /** The stand-in speaker pass's seconds for each second of the call's audio. */
+  passPerAudioSecond?: number;
+} = {}): PairedGroup[] {
   return MEETING_NOTES_CASES.map(
     (each): PairedGroup => ({
       name: `meeting-notes-${each.call.id}`,
       items: [item(each)],
-      open: (base) => openCall(base, each.call, `paired-meeting-notes-${each.call.id}`),
+      open: (base) =>
+        openCall(base, each.call, `paired-meeting-notes-${each.call.id}`, {
+          speakerSeparator: standInSpeakerPass(passPerAudioSecond),
+          speakerModelSource: NO_SPEAKER_FILES,
+        }),
     }),
   );
 }

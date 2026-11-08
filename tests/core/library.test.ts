@@ -549,3 +549,103 @@ describe("Library groups", () => {
     ).rejects.toThrow(/this computer/);
   });
 });
+
+describe("A Folder's name is unique among the Folders in its place (#2425)", () => {
+  test("two Folders in different Folders share a name, and two in one place do not", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    const chapterA = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisA.id,
+    });
+    const chapterB = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisB.id,
+    });
+    expect(
+      (await core.getLibrary()).groups
+        .filter((each) => each.name === "Chapter 1")
+        .map((each) => each.parentId)
+        .sort(),
+    ).toEqual([thesisA.id, thesisB.id].sort());
+    await expect(
+      core.createLibraryGroup({ name: " chapter 1 ", description: "", parentId: thesisA.id }),
+    ).rejects.toThrow(/already exists/);
+    // A Folder's own name is no clash with itself, and a name another branch has is free.
+    await expect(
+      core.updateLibraryGroup(chapterB.id, { name: "Chapter 1", description: "" }),
+    ).resolves.toMatchObject({ name: "Chapter 1" });
+    await expect(
+      core.updateLibraryGroup(chapterB.id, { name: "Chapter 2", description: "" }),
+    ).resolves.toMatchObject({ name: "Chapter 2" });
+    expect(chapterA.id).not.toBe(chapterB.id);
+  });
+
+  test("a move that would make two Folders in one place share a name is refused before anything moves", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    await core.createLibraryGroup({ name: "Chapter 1", description: "", parentId: thesisA.id });
+    const chapterB = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisB.id,
+    });
+    const notes = await core.createLibraryGroup({
+      name: "Notes",
+      description: "",
+      parentId: thesisB.id,
+    });
+    // The fine move and the clashing one go together: neither happens.
+    await expect(
+      core.moveLibraryGroups([
+        { id: notes.id, parentId: thesisA.id },
+        { id: chapterB.id, parentId: thesisA.id },
+      ]),
+    ).rejects.toThrow(/already exists/);
+    const groups = new Map((await core.getLibrary()).groups.map((each) => [each.id, each]));
+    expect(groups.get(notes.id)?.parentId).toBe(thesisB.id);
+    expect(groups.get(chapterB.id)?.parentId).toBe(thesisB.id);
+    // A place without the name takes it.
+    await expect(core.moveLibraryGroups([{ id: notes.id, parentId: thesisA.id }])).resolves.toEqual(
+      [notes.id],
+    );
+    const other = await core.createLibraryGroup({ name: "Other", description: "" });
+    await expect(
+      core.moveLibraryGroups([{ id: chapterB.id, parentId: other.id }]),
+    ).resolves.toEqual([chapterB.id]);
+  });
+
+  test("restoring keeps the rule: refused beside a Folder with its name, allowed where only another branch has it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const thesisA = await core.createLibraryGroup({ name: "Thesis A", description: "" });
+    const thesisB = await core.createLibraryGroup({ name: "Thesis B", description: "" });
+    const gone = await core.createLibraryGroup({
+      name: "Chapter 1",
+      description: "",
+      parentId: thesisA.id,
+    });
+    await core.deleteLibraryGroup(gone.id);
+    // Free in its place again, so a new Folder takes it; the deleted one may not come back over it.
+    await core.createLibraryGroup({ name: "Chapter 1", description: "", parentId: thesisA.id });
+    await expect(core.restore([{ kind: "folder", id: gone.id }])).rejects.toThrow(
+      /Rename it, then restore/,
+    );
+    expect((await core.getLibrary()).groups.find((each) => each.id === gone.id)).toBeUndefined();
+
+    const comeBack = await core.createLibraryGroup({
+      name: "Chapter 2",
+      description: "",
+      parentId: thesisA.id,
+    });
+    await core.deleteLibraryGroup(comeBack.id);
+    await core.createLibraryGroup({ name: "Chapter 2", description: "", parentId: thesisB.id });
+    await core.restore([{ kind: "folder", id: comeBack.id }]);
+    expect((await core.getLibrary()).groups.find((each) => each.id === comeBack.id)?.parentId).toBe(
+      thesisA.id,
+    );
+  });
+});

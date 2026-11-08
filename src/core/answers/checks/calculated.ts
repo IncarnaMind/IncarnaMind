@@ -345,7 +345,7 @@ function comparisonValue(
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
   { relation }: { relation?: LimitRelation } = {},
 ): number | null {
-  if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit, figure.inputs))
+  if (typeof figure.value !== "number" || !comparable(stated.unit, figure.unit, figure.inputs))
     return null;
   const { value } = figure;
   // A figure of the other sign isn't inside a limit the sentence writes as positive: a loss-making

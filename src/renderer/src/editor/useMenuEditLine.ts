@@ -48,6 +48,16 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
       });
       return;
     }
+    // A second action asked while this change runs says one at a time, in the same line (#2123).
+    if (pending && problem?.kind === "busy" && problem.menu) {
+      setAppliedLine(editor, {
+        kind: "running",
+        blockId: pending.menu?.blockId ?? problem.menu.blockId,
+        busy: true,
+        stop: () => stopEdit(mindId),
+      });
+      return;
+    }
     if (pending?.menu) {
       if (pending.stopped) {
         clear();

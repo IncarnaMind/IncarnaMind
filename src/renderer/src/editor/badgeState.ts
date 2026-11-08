@@ -69,7 +69,7 @@ export function badgeOf(input: BadgeInput): Badge | null {
     running: input.running,
     asking: input.asking,
     problem: input.problem,
-    checked: input.checked !== null,
+    checked: input.checked !== null && input.checked > 0,
     ...(input.quiet && { quiet: true }),
   });
   if (!shown) return null;

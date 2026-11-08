@@ -865,7 +865,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       unsupported: 0,
       contradicted: 0,
     };
-    let landingFailed: unknown = null;
     // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
     let refused = false;
     const landAll = (landings: readonly Landing[]) => {
@@ -999,7 +998,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       done[result.verdict]++;
       landNow({ sentence, nodes: null, mark });
     };
-    const { stop } = await runItems(
+    const { stop, outcomeError } = await runItems(
       holding ? [] : sending,
       (sentence): Promise<Checked> =>
         asCheckWork(async () => {
@@ -1050,16 +1049,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       {
         concurrency: claimsAtOnce(prepared),
         signal,
-        // runItems hears an outcome inside its own try: a throw here would be filed as the
-        // sentence's failure and heard again. The check fails once the rest have landed, so it
-        // never counts a sentence whose mark isn't on the page.
+        // The run hears a throw once and returns it, so a mark that can't land is never its
+        // sentence's failure; the check fails after the marks that can land have, so none counts
+        // as checked. Refusing stays here: once one edit is refused the rest aren't tried.
         onOutcome(sentence, outcome) {
           try {
             landed(sentence, outcome);
           } catch (error) {
             couldNotLand(error);
-            landingFailed ??= error;
             if (error instanceof MindReadOnlyError) refused = true;
+            throw error;
           }
         },
       },
@@ -1078,7 +1077,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       ),
     ]);
-    if (landingFailed !== null) throw landingFailed;
+    if (outcomeError !== null) throw outcomeError.error;
     done.stop = stop;
     done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     return done;

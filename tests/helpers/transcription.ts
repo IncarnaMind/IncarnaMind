@@ -19,6 +19,7 @@ import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
   createChannelTranscriber,
+  type ServingOptions,
   serveTranscriber,
   type TranscriberPort,
   type TranscriberRequest,
@@ -93,8 +94,11 @@ export function inProcessTranscriber(
     createFakeSpeechEngine(options),
   /** The cloud's connections, to watch them: the pretend service as `options.cloud` says by default. */
   connect: CloudConnect = createFakeCloud(options.cloud),
+  /** The idle unload (#2673): an engine that went idle ends this process, as the app's does. */
+  serving: ServingOptions = {},
 ) {
   let kill: (() => void) | null = null;
+  let endIdle: (() => void) | null = null;
   let started = 0;
   const transcriber: Transcriber = createChannelTranscriber(() => {
     started++;
@@ -111,11 +115,27 @@ export function inProcessTranscriber(
           if (open) for (const listener of responses) listener(response);
         }),
     };
-    serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
-      connect,
-      fetch: createFakeCloudFetch(options.cloud),
-      detectors: async () => createFakeSpeechEngine(options).detector,
-    });
+    const idleExit = () => {
+      open = false;
+      for (const listener of exits) listener(0);
+    };
+    serveTranscriber(
+      engine,
+      options.failover ? failingOver(port, options.failover) : port,
+      {
+        connect,
+        fetch: createFakeCloudFetch(options.cloud),
+        detectors: async () => createFakeSpeechEngine(options).detector,
+      },
+      {
+        idleMs: serving.idleMs,
+        unloaded: () => {
+          serving.unloaded?.();
+          idleExit();
+        },
+      },
+    );
+    endIdle = idleExit;
     kill = () => {
       open = false;
       for (const listener of exits) listener(null);
@@ -135,6 +155,8 @@ export function inProcessTranscriber(
   return {
     transcriber,
     crash: () => kill?.(),
+    /** Ends the running process idle, as its own five quiet minutes do, with the requests still in flight dropped (#2673). */
+    unload: () => endIdle?.(),
     get started() {
       return started;
     },
@@ -166,11 +188,18 @@ export async function transcribingCore(
     cloud,
     systemLanguages,
     answerPaths,
+    notesBeforeSpeakers,
     examples,
+    serving,
+    engineFactory,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
     cloud?: CloudConnect;
+    /** The idle unload (#2673): a short wait, and what an idle engine's process ending looks like. */
+    serving?: ServingOptions;
+    /** Another engine than the fake one, e.g. one whose loading the test holds. */
+    engineFactory?: (model: TranscriptionModelFiles) => Promise<SpeechEngine>;
     /** The computer's languages, "en-US" by default. */
     systemLanguages?: readonly string[];
     /** What the fake capture does, e.g. the computer's sound denied. */
@@ -193,6 +222,8 @@ export async function transcribingCore(
     transcriptionModelSource?: CoreAdapters["transcriptionModelSource"];
     /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
     answerPaths?: CoreAdapters["answerPaths"];
+    /** Whether a call's notes start before its speakers are told apart, instead of the default. */
+    notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
   } = {},
@@ -201,11 +232,13 @@ export async function transcribingCore(
   const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
   const engineHost = inProcessTranscriber(
     engine,
-    async () => {
-      await loads;
-      return createFakeSpeechEngine(engine);
-    },
+    engineFactory ??
+      (async () => {
+        await loads;
+        return createFakeSpeechEngine(engine);
+      }),
     cloud ?? createFakeCloud(engine.cloud),
+    serving,
   );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
@@ -222,6 +255,7 @@ export async function transcribingCore(
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
     ...(systemLanguages && { systemLanguages: () => systemLanguages }),
     ...(answerPaths && { answerPaths }),
+    ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
     ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });

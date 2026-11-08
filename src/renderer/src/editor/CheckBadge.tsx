@@ -66,7 +66,9 @@ function useJustChecked<Run>(
   const [checked, setChecked] = useState<number | null>(null);
   if (run !== last) {
     setLast(run);
-    setChecked(run === null && last !== null ? count(last) || null : null);
+    // A check that marked nothing still finished: its badge keeps the width it had while running
+    // until the User types, as a check that marked some does (#2519).
+    setChecked(run === null && last !== null ? count(last) : null);
   }
   useEffect(() => {
     if (checked === null) return;
@@ -134,6 +136,9 @@ function MindBadge({
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
   const running = useChecks((state) => state.running[mindId]);
+  // A check that finished keeps the badge's one width until the User types, as a running one
+  // does; what it marked is the Note's resting state's to say (#2519).
+  const justChecked = useJustChecked(editor, running ?? null, () => 0);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
@@ -154,7 +159,7 @@ function MindBadge({
     running: running !== undefined,
     asking: askingMind || askingContradictions,
     problem,
-    checked: null,
+    checked: justChecked,
     quiet,
   };
   return (
@@ -622,7 +627,9 @@ function BadgePill({
           }),
         ]
       : []),
-    ...(badge.checked !== null ? [t("badge.checked", { count: format(badge.checked) })] : []),
+    ...(badge.checked !== null && badge.checked > 0
+      ? [t("badge.checked", { count: format(badge.checked) })]
+      : []),
   ];
   const label =
     said.length > 0
@@ -685,7 +692,7 @@ function BadgePill({
         </span>,
       );
     }
-    if (parts.length === 0 && badge.checked !== null) {
+    if (parts.length === 0 && badge.checked !== null && badge.checked > 0) {
       parts.push(
         <span key="checked" className="check-badge-mark" data-part="checked">
           <CheckMarkIcon check="found" className="mind-health-icon" />

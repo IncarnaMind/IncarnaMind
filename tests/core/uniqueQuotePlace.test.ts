@@ -58,6 +58,7 @@ function cueSession(cues: Cue[]) {
     search: async () => [passage],
     citationSource: () => source,
     documentDate: () => null,
+    documentName: () => source.documentName,
     pageTexts: (_documentId: string, version: string, from: number | null, to: number | null) =>
       (versions.get(version) ?? []).filter(
         (unit) => from === null || to === null || (unit.page >= from && unit.page <= to),

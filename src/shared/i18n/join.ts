@@ -16,3 +16,17 @@ export function gap(language: Language, before: string, after: string): string {
   if (FULL_WIDTH_PUNCTUATION.test(before) || FULL_WIDTH_PUNCTUATION_START.test(after)) return "";
   return HAN_END.test(before) && HAN_START.test(after) ? "" : " ";
 }
+
+/** "A and B", "A、B 和 C": a space where 和 meets a Latin letter or a digit (docs/agents/zh-CN.md). */
+export function listOf(items: readonly string[], language: Language): string {
+  const latin = /[A-Za-z0-9%]/;
+  return new Intl.ListFormat(language, { type: "conjunction" })
+    .formatToParts(items)
+    .map((part, at, parts) => {
+      if (part.type !== "literal" || !/^\p{Script=Han}+$/u.test(part.value)) return part.value;
+      const before = latin.test(parts[at - 1]?.value.at(-1) ?? "") ? " " : "";
+      const after = latin.test(parts[at + 1]?.value.charAt(0) ?? "") ? " " : "";
+      return before + part.value + after;
+    })
+    .join("");
+}

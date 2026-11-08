@@ -3065,6 +3065,13 @@ function isResidentId(run: string): boolean {
 /** An 11-digit mainland mobile number: 1, then 3–9, then nine digits. */
 const MOBILE_NUMBER = /^1[3-9]\d{9}$/;
 
+/**
+ * A label just before a number that names a phone or an ID: it beats a unit stated elsewhere in
+ * the text, so "联系电话：13800138000" under a stated "单位：元" is nobody's amount (#2736).
+ */
+const PHONE_OR_ID_BEFORE =
+  /(?:联系电话|联系方式|电话号码|固定电话|移动电话|手机号码|手机号|手机|电话|身份证号码|身份证号|居民身份证号|身份证)\s*[:：]?\s*$/u;
+
 /** Reads the words around a number into a figure; null when it isn't one (a year, a reference, a word). */
 function readAround(
   prepared: Prepared,
@@ -3304,7 +3311,6 @@ function readAround(
   // word comes before (#2215).
   const idTail = draft.unit.kind === "times" && /^[Xx]$/.test(s.slice(found.to, found.to + 1));
   if (
-    !settled.statedAmount &&
     !found.formatted &&
     found.number.point === found.number.digits.length &&
     draft.currencies.length === 0 &&
@@ -3312,7 +3318,12 @@ function readAround(
     (draft.unit.kind === "plain" || idTail)
   ) {
     const run = s.slice(found.from, found.to + (idTail ? 1 : 0));
-    if (MOBILE_NUMBER.test(run) || isResidentId(run)) return null;
+    if (
+      (MOBILE_NUMBER.test(run) || isResidentId(run)) &&
+      (!settled.statedAmount || PHONE_OR_ID_BEFORE.test(s.slice(0, found.from)))
+    ) {
+      return null;
+    }
   }
   if (take(APPROXIMATE_AFTER)) draft.approximate = true;
   let ledger = takeLedger();

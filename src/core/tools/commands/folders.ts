@@ -75,7 +75,8 @@ export const FOLDER_CHECKERS = {
   "folder.new": async (input, { core }) => {
     const name = needs(input.name, "error.commands.noFolderName");
     const { groups } = await core.getLibrary();
-    if (groups.some((each) => same(each.name, name))) {
+    // It makes a Folder at the top level, where a name is free unless a top-level Folder has it (#2425).
+    if (groups.some((each) => each.parentId === null && same(each.name, name))) {
       throw new InvalidInputError({ key: "error.folder.nameTaken" });
     }
     return inApp("folder.new", [], name, async () => {

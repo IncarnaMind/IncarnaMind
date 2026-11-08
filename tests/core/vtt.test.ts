@@ -19,6 +19,8 @@ import {
   quoteInUnits,
   resolveRequested,
 } from "../../src/shared/locations";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 
 const FILE = `WEBVTT - Steering committee
 
@@ -325,5 +327,22 @@ describe("Citations of a Transcript", () => {
     expect(parseClockTime("1:02:05")).toBe(3_725_000);
     expect(parseClockTime("1:72:05")).toBeNull();
     expect(parseClockTime("14:6")).toBeNull();
+  });
+});
+
+describe("A .vtt the User adds", () => {
+  test("is read as a Transcript, its cues the Document's text and ready to cite", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Meeting transcript.vtt", FILE),
+    ]);
+    expect(document).toMatchObject({ kind: "transcript", status: "ready", keptByApp: false });
+    const { pages } = await core.readDocumentText(document?.id ?? "");
+    const text = pages.map((page) => page.text).join("\n");
+    expect(text).toContain(
+      "So the launch moves to the eighteenth of November & the review <slips>.",
+    );
+    expect(text).toContain("发布日期推迟到十一月十八日。");
   });
 });

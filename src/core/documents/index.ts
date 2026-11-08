@@ -208,6 +208,44 @@ interface DocumentRow {
   updated_at: string;
 }
 
+/**
+ * A Document as its own row tells it, for the readers that run again on every change to a Note or
+ * to the Library: a whole `Document` also reads its Tags, reference, source and imported Note, a
+ * query each, which on a Library of thousands held the main process for seconds (#2772).
+ */
+type DocumentFromRow = Pick<
+  Document,
+  | "id"
+  | "name"
+  | "title"
+  | "contentHash"
+  | "status"
+  | "fileStatus"
+  | "notCited"
+  | "ownFile"
+  | "readHiddenSheets"
+  | "meetingMindId"
+>;
+
+const ROW_COLUMNS = `id, name, title, content_hash, status, failure_reason, file_status,
+  not_cited, own_file, counted_as_evidence, read_hidden_sheets, meeting_mind_id`;
+
+type ReadRow = Pick<
+  DocumentRow,
+  | "id"
+  | "name"
+  | "title"
+  | "content_hash"
+  | "status"
+  | "failure_reason"
+  | "file_status"
+  | "not_cited"
+  | "own_file"
+  | "counted_as_evidence"
+  | "read_hidden_sheets"
+  | "meeting_mind_id"
+>;
+
 /** A stored Unit (a `document_pages` row), as read for the check and the viewer. */
 interface UnitRow {
   page: number | null;
@@ -617,7 +655,7 @@ export function createDocuments(options: DocumentsOptions) {
    * one waiting its turn, which is queued (see `EmbeddingQueue.isEmbedding`);
    * a failure kept with a good version is "failed" (see `failedNow`).
    */
-  const statusOf = (row: DocumentRow): DocumentStatus => {
+  const statusOf = (row: Pick<DocumentRow, "id" | "status" | "failure_reason">): DocumentStatus => {
     if (failedNow(row)) return "failed";
     if (row.status === "embedding" && !embedding.isEmbedding(row.id)) return "queued";
     return row.status as DocumentStatus;
@@ -2280,6 +2318,28 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toDocument);
   };
 
+  /** As `list`, each Document as its own row tells it (`DocumentFromRow`). */
+  const rows = (filter: DocumentFilter = {}): DocumentFromRow[] => {
+    const { where, params } = filterWhere(filter);
+    return db
+      .all<ReadRow>(
+        `SELECT ${ROW_COLUMNS} FROM documents WHERE ${where} ORDER BY created_at DESC, rowid DESC`,
+        params,
+      )
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        title: row.title,
+        contentHash: row.content_hash,
+        status: statusOf(row),
+        fileStatus: row.file_status as DocumentFileStatus,
+        notCited: row.not_cited === 1,
+        ownFile: ownFileOf(row),
+        readHiddenSheets: row.read_hidden_sheets === 1,
+        meetingMindId: row.meeting_mind_id,
+      }));
+  };
+
   /** Who's who in a live Transcript (#138); null for none, and for any other Document. */
   const speakersOf = (documentId: string): TranscriptSpeakers | null =>
     readStoredSpeakers(
@@ -2770,6 +2830,11 @@ export function createDocuments(options: DocumentsOptions) {
       return find(documentId)?.content_hash ?? null;
     },
 
+    /** A live Document's name, or null if it was deleted. */
+    documentName(documentId: string): string | null {
+      return find(documentId)?.name ?? null;
+    },
+
     /**
      * A live Document's date, as Answers see it beside its Passages (#548):
      * the date it states (its reference record's, else its creation date),
@@ -3169,6 +3234,7 @@ export function createDocuments(options: DocumentsOptions) {
     announce,
 
     list,
+    rows,
     names,
     speakersOf,
     ids,

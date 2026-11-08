@@ -4975,6 +4975,13 @@
   .mind-editor .applied-line--problem {
     color: var(--color-ink-meta);
   }
+  /* Kept in sight at the top of the view, a line lies over its Block's words: the page's colour
+     under it keeps it readable, above them (#2123). */
+  .mind-editor .applied-line--floating {
+    position: relative;
+    z-index: 1;
+    background: var(--color-sheet);
+  }
   .applied-problem-dot {
     flex: none;
     width: 6px;
@@ -5045,9 +5052,13 @@
   }
   .change-bar-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
     min-width: 0;
+  }
+  /* A part joined to the one before it by a dot, as a `.meta-line` joins its parts (#684). */
+  .change-bar-dotted {
+    flex-shrink: 0;
   }
   /* Why the assistant made the change (#202), under the bar while the cursor is in it. */
   .change-bar-why {
@@ -5055,18 +5066,10 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
-  .change-bar-position {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .change-bar-drops {
     color: var(--color-warning);
   }
   .change-bar-author {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
   /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */
@@ -6374,7 +6377,8 @@
     box-shadow: none;
     color: var(--color-on-primary);
 
-    &:hover {
+    /* As specific as the plain action's hover, so the primary fill keeps its own text colour (#2288). */
+    &:hover:not(:disabled) {
       background: var(--color-ink-strong);
     }
   }

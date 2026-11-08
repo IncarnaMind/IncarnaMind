@@ -88,6 +88,7 @@ import {
   type DocumentCheckPlan,
   type DocumentCheckProgress,
   type ExternalService,
+  type MindCheckEarly,
   type Money,
   type RewriteFromDocumentsResult,
   type RunEstimate,
@@ -321,6 +322,8 @@ export interface ChecksOptions
   capLeft(): Money | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
+  /** A Check this Note run's sentences checked before it marks them. */
+  checkingEarly(event: MindCheckEarly): void;
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
@@ -1824,7 +1827,8 @@ export function createChecks(options: ChecksOptions) {
     /** Starts watching for new versions of Documents. */
     startWatching: () => watch.start(),
 
-    async checkClaim(input: unknown): Promise<ClaimCheckResult> {
+    /** `signal` stops the check, for a caller in the core; the API's callers can't pass one. */
+    async checkClaim(input: unknown, signal?: AbortSignal): Promise<ClaimCheckResult> {
       const parsed = parseClaim(input);
       const ready = await prepare(parsed.model ?? options.defaultModel());
       if (!ready.ok) {
@@ -1867,7 +1871,7 @@ export function createChecks(options: ChecksOptions) {
         model: ready.prepared,
         // Reading the document being checked makes the Run third-party (#78).
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
-        signal: new AbortController().signal,
+        signal: signal ?? new AbortController().signal,
       });
     },
 

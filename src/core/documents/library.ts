@@ -1484,6 +1484,8 @@ export function createLibrary(options: LibraryOptions) {
 
   return {
     list,
+    /** Whether a Linked folder is still there: `list` would also count every folder's files. */
+    has: (id: string): boolean => folderRow(id) !== undefined,
     unsupportedFiles,
 
     /** Starts watching every Linked folder, and reconciles everything with the disk. */

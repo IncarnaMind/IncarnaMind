@@ -80,7 +80,14 @@ import {
   USAGE,
   userText,
 } from "./prompt";
-import { WORKBOOK_WHAT_IF, workbookWhatIf } from "./workbookFormulas";
+import {
+  WORKBOOK_TEXT_FLAG,
+  WORKBOOK_TWO_INPUTS,
+  WORKBOOK_WHAT_IF,
+  workbookTextFlag,
+  workbookTwoInputs,
+  workbookWhatIf,
+} from "./workbookFormulas";
 
 /** What the scripted model reasons before it searches: a line that quotes the Question. */
 const reasoningFor = (question: string) => `Search the Documents for “${question}”.`;
@@ -772,6 +779,10 @@ function answerFrom(
 ): Reply {
   if (tools.includes("trace_formulas") && WORKBOOK_WHAT_IF.test(question))
     return workbookWhatIf(prompt, question, searches.at(-1) ?? "");
+  if (tools.includes("trace_formulas") && WORKBOOK_TWO_INPUTS.test(question))
+    return workbookTwoInputs(prompt, question, searches.at(-1) ?? "");
+  if (tools.includes("trace_formulas") && WORKBOOK_TEXT_FLAG.test(question))
+    return workbookTextFlag(prompt, question, searches.at(-1) ?? "");
   if (tools.includes("run_code") && EVERY_ROW.test(question)) {
     const reply = everyRowReply(prompt, question, searches.at(-1) ?? "");
     if (reply) return reply;
