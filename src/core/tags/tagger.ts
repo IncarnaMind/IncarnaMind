@@ -92,8 +92,8 @@ export interface TaggerOptions {
   now: () => string;
   /**
    * Whether this Document may go to the service a prepared tagger sends to: by itself
-   * (`mayBackgroundSend` in ./held), or, `pressed`, as part of an Organize the User ran while
-   * tagging by itself is Off. One that may not waits for the User, "off".
+   * (`mayBackgroundSend` in ./held), or, `pressed`, as part of an Organize the User ran. One that
+   * may not waits for the User, "off".
    */
   maySend(id: string, service: ExternalService, pressed: boolean): boolean;
   tags: TagsStore;
@@ -165,8 +165,8 @@ export function createTagger(options: TaggerOptions) {
   const asked = new Set<string>();
   /**
    * The Documents an Organize run finished with (#1569): its plan proposes only Folders, so their
-   * Tags come from here, as background tagging's do (walls, holds, a stop, no clearance kept),
-   * but with tagging Off too, as Organize's press tagged them before: then only walls hold.
+   * Tags come from here, as Organize's press tagged them before, with tagging by itself Off too.
+   * Walls and a stop hold as they do for background tagging, and no clearance is kept.
    */
   const afterOrganizing = new Set<string>();
   // Handed here, or asked for by the User, a Document is the tagger's even where Organize holds it.
@@ -295,7 +295,7 @@ export function createTagger(options: TaggerOptions) {
       if (modelAsked && service) {
         if (asked.has(id)) {
           askedOf = service;
-        } else if (!options.maySend(id, service, afterOrganizing.has(id) && !automatic())) {
+        } else if (!options.maySend(id, service, afterOrganizing.has(id))) {
           if (setState(id, "off")) announce([id]);
           return;
         }

@@ -132,6 +132,32 @@ describe("Tags after Organize's plan, on a cloud service (#1569)", () => {
     expect(taggedFor("Second lease")).toBe(1);
   });
 
+  test("with tagging by itself On, Documents from before it was turned on are tagged after the User's Organize, as its press tagged them", async () => {
+    const { core, add, taggedFor } = await start();
+    const first = await add("Lease 1.txt", "First lease, of unit one.");
+    const second = await add("Lease 2.txt", "Second lease, of unit two.");
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
+    expect((await core.getLibrary()).settings.automatic).toBe(true);
+    // Here before tagging by itself was turned on, they don't go by themselves.
+    await vi.waitFor(async () => {
+      const documents = await core.listDocuments();
+      for (const id of [first.id, second.id])
+        expect(documents.find((each) => each.id === id)?.tagging).toBe("off");
+    });
+    expect(taggedFor("First lease")).toBe(0);
+
+    expect(await core.organizeLibrary()).toMatchObject({ status: "done", documents: 2 });
+
+    await waitForTagging(core, [first.id, second.id]);
+    expect(await tagNamesOf(core, first.id)).toEqual(["Report"]);
+    expect(await tagNamesOf(core, second.id)).toEqual(["Report"]);
+    expect(taggedFor("First lease")).toBe(1);
+  });
+
   test("tagging a Document after the plan keeps no clearance for that service", async () => {
     const { core, dataDir, add } = await start();
     const lease = await add("Lease 1.txt", "First lease, of unit one.");
