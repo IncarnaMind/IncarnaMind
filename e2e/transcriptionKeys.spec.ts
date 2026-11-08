@@ -69,9 +69,10 @@ const choose = (window: Page, route: CloudTranscriptionRoute) =>
     await core.updateSettings({ device: { transcriptionRoute } });
   }, route);
 
-/** The picker's own routes, then the services its foot sets up. */
-const routesOf = (picker: Locator) => picker.locator(":scope > option:not([hidden])");
-const setUpRowsOf = (picker: Locator) => picker.locator("optgroup > option");
+/** The picker's own routes, then the services its foot sets up, whether it groups them or not. */
+const routesOf = (picker: Locator) =>
+  picker.locator("option:not([hidden]):not([value^='set-up:'])");
+const setUpRowsOf = (picker: Locator) => picker.locator("option[value^='set-up:']");
 
 const keyRow = (settings: Locator, route: CloudTranscriptionRoute) =>
   settings
@@ -115,13 +116,13 @@ async function launch(options: Parameters<typeof launchApp>[1] = {}): Promise<Pa
 test("a Soniox key set up from Defaults' Meeting transcription is checked, chosen with where the audio goes, kept in Your providers, and used by the next meeting", async () => {
   const window = await launch();
   await useOutputLocation(window, sources);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const row = settings.getByTestId("model-default-row-transcription");
   const picker = row.getByTestId("meetings-route");
 
   // Nothing set up: this computer, and the services with a key of their own at the picker's foot.
   await expect(routesOf(picker)).toHaveText(["On this computer"]);
-  await expect(picker.locator("optgroup")).toHaveAttribute(
+  await expect(picker.locator("optgroup").last()).toHaveAttribute(
     "label",
     "Set up another transcription service",
   );
@@ -189,8 +190,9 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   await expect(setUpRowsOf(picker)).not.toContainText(["Use Soniox…"]);
   const soniox = keyRow(settings, "soniox");
   await expect(soniox.getByTestId("transcription-key-status")).toHaveText(
-    "For meeting transcription",
+    "Your key · Used for meeting transcription",
   );
+  await expect(soniox.getByTestId("account-state")).toHaveText("Key works");
   await expect(soniox.getByTestId("transcription-key-change")).toHaveText("Change key");
   await expect(soniox.getByTestId("transcription-key-remove")).toHaveText("Remove key");
 
@@ -252,9 +254,9 @@ test("Deepgram set up from Settings › Meetings' fold takes Cloudflare's addres
   });
 
   // Its key is in Your providers, with the server it sends to.
-  const models = await showSettingsPage(window, "models");
+  const models = await showSettingsPage(window, "ai");
   await expect(keyRow(models, "deepgram").getByTestId("transcription-key-status")).toHaveText(
-    "For meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
+    "Your key · Used for meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
   );
   await closeSettings(window);
 
@@ -267,7 +269,7 @@ test("Remove key on the chosen service's row sends meetings back to this compute
   await setKey(window, "soniox", SONIOX_KEY);
   await choose(window, "soniox");
 
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const picker = settings
     .getByTestId("model-default-row-transcription")
     .getByTestId("meetings-route");
@@ -289,7 +291,7 @@ test("Remove key on the chosen service's row sends meetings back to this compute
 test("Change key edits the key in place; in Local mode it keeps the key without checking it, says nothing was sent, and the picker sets nothing up", async () => {
   const window = await launch();
   await setKey(window, "soniox", SONIOX_KEY);
-  let settings = await openSettings(window, "models");
+  let settings = await openSettings(window, "ai");
   let soniox = keyRow(settings, "soniox");
 
   // Change key: the form in place, its key focused; Esc puts it away and keeps the key.
@@ -312,15 +314,14 @@ test("Change key edits the key in place; in Local mode it keeps the key without 
   await window.keyboard.press("Escape");
   await expect(form).toHaveCount(0);
 
-  settings = await showSettingsPage(window, "privacy");
+  settings = await showSettingsPage(window, "ai");
   await settings.getByTestId("local-only").check();
-  settings = await showSettingsPage(window, "models");
   soniox = keyRow(settings, "soniox");
   const picker = settings
     .getByTestId("model-default-row-transcription")
     .getByTestId("meetings-route");
   await expect(routesOf(picker)).toHaveText(["On this computer"]);
-  await expect(picker.locator("optgroup")).toHaveCount(0);
+  await expect(setUpRowsOf(picker)).toHaveCount(0);
 
   // In Local mode nothing is sent: the same refused key is kept, unchecked, and the row says so.
   await pointAndClick(window, soniox.getByTestId("transcription-key-change"));
@@ -335,7 +336,9 @@ test("Change key edits the key in place; in Local mode it keeps the key without 
   await shot(window, "after-models-key-local-mode-en-1440");
   await setLanguage(window, "zh-CN");
   await expect(unchecked).toHaveText("已保存，未验证：没有向 Soniox 发送任何内容。");
-  await expect(soniox.getByTestId("transcription-key-status")).toHaveText("用于会议转写");
+  await expect(soniox.getByTestId("transcription-key-status")).toHaveText(
+    "你的密钥 · 尚未使用 · 可用于转写",
+  );
 });
 
 test("a provider row whose key also transcribes says both uses, and ⌘K and a refused key's Check the key reach the new place", async () => {
@@ -360,21 +363,25 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
   // ⌘K: the Meeting transcription picker in Settings › Models, focused.
   await runCommand(window, "settings.transcription", "Set up meeting transcription…");
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const picker = settings
     .getByTestId("model-default-row-transcription")
     .getByTestId("meetings-route");
   await expect(picker).toBeFocused();
-  await expect(routesOf(picker)).toHaveText(["On this computer", "OpenAI", "Soniox"]);
+  await expect(routesOf(picker)).toHaveText(["OpenAI", "Soniox", "On this computer"]);
 
   const rows = settings.getByTestId("provider-row");
   const status = (name: string) =>
     rows.filter({ hasText: name }).getByTestId("provider-row-status");
-  await expect(status("OpenAI")).toContainText("For Answers and meeting transcription");
-  await expect(status("Anthropic")).toContainText("Key saved");
-  await expect(status("Anthropic")).not.toContainText("transcription");
+  // One row per company, saying what it does today: OpenAI answers, Soniox transcribes.
+  await expect(status("OpenAI")).toContainText("Your key · Used for Answers");
+  await expect(status("OpenAI")).not.toContainText("transcription");
+  await expect(status("Anthropic")).toHaveText("Your key · Not used yet · can answer");
+  await expect(keyRow(settings, "soniox").getByTestId("transcription-key-status")).toHaveText(
+    "Your key · Used for meeting transcription",
+  );
   await setLanguage(window, "zh-CN");
-  await expect(status("OpenAI")).toContainText("用于回答和会议转写");
+  await expect(status("OpenAI")).toContainText("你的密钥 · 用于回答");
   await setLanguage(window, "en");
   await closeSettings(window);
 
@@ -383,7 +390,7 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
   const refused = window.getByTestId("meeting-bar").getByTestId("meeting-line-cloud");
   await expect(refused).toContainText("Soniox didn’t accept the key.", { timeout: 20_000 });
   await refused.getByTestId("meeting-line-change-key").click();
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const form = keyRow(settings, "soniox").getByTestId("transcription-key-form-soniox");
   await expect(form.getByTestId("transcription-key-input")).toBeFocused();
 });
@@ -403,12 +410,12 @@ for (const width of [900, 1440] as const) {
       });
     }, CLOUDFLARE);
     await setWindowSize(app as ElectronApplication, window, width, 760);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
 
     for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
-      const models = await showSettingsPage(window, "models");
-      const page = models.locator('[data-testid="settings-page-models"]');
+      const models = await showSettingsPage(window, "ai");
+      const page = models.locator('[data-testid="settings-page-ai"]');
       for (const route of ["soniox", "deepgram"] as const) {
         const row = keyRow(models, route);
         await row.scrollIntoViewIfNeeded();

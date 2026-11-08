@@ -18,7 +18,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openSettings,
+  openPlanPage,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -225,7 +225,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   );
   await window.keyboard.press("Enter");
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
@@ -280,8 +280,7 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "models");
-  const row = settings.getByTestId("plans-copilot");
+  const row = await openPlanPage(window, "copilot");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -319,8 +318,8 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "models");
-  const row = settings.getByTestId("plans-copilot");
+  const row = await openPlanPage(window, "copilot");
+  const settings = window.getByTestId("settings");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -357,7 +356,7 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await setLanguage(window, "en");
   await line.getByTestId("answer-error-action").focus();
   await window.keyboard.press("Enter");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   await expect(row.getByTestId("plans-copilot-account")).toHaveText(
     `Signed in to GitHub as ${LOGIN}`,
   );

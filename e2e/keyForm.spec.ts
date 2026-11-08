@@ -330,7 +330,7 @@ test("in Settings the notes and the key line are under the key field, the steps 
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
     await language(window, "en");
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "anthropic");
     const help = form.getByTestId("provider-key-help");
     // The form opens on Anthropic, which has all of it, whichever language is chosen after.
@@ -391,7 +391,7 @@ test("a key line says what to do in IncarnaMind and links to the company's own p
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     for (const [name, en, zh] of [
       [
         "anthropic",
@@ -463,7 +463,7 @@ test("the provider's own line on what it does with the data sits under the sente
     }
 
     await language(window, "en");
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const line = (await addProviderForm(settings, "anthropic")).getByTestId("provider-data-use");
     await expect(line.getByRole("link")).toHaveText("Data use ↗");
     await language(window, "zh-CN");
@@ -519,7 +519,7 @@ test("every provider's line on what it does with the data is whole beside its li
       await card.getByTestId("setup-back").click();
 
       await language(window, "en");
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await language(window, value);
       for (const provider of hosted) {
         const line = (await addProviderForm(settings, provider.id)).getByTestId(
@@ -696,7 +696,7 @@ test("Kimi's form opens on the region of the interface's language: International
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     for (const [value, region] of [
       ["en", "intl"],
       ["zh-CN", "cn"],
@@ -734,7 +734,7 @@ test("a key refused on the chosen region says which host refused it, in English 
     const askedMoonshot = () =>
       app.evaluate(() => (globalThis as unknown as { askedMoonshot: string[] }).askedMoonshot);
 
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "kimi");
     const refused = form.getByTestId("connection-test");
     await form.getByLabel(/^API key/).fill(KEYS.bare);
@@ -1126,7 +1126,7 @@ test("in Settings, a key that is not the page's service goes nowhere on Add a pr
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "anthropic");
     const key = form.locator('input[type="password"]');
     const line = form.getByTestId("provider-key-wrong");
@@ -1185,7 +1185,7 @@ test("Kimi is listed under International and under China, and each opens its for
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1100, 900);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const region = (form: Locator) => regionOf(form);
     const open = async (group: string) => {
       await settings.getByTestId("models-add-provider").click();
@@ -1239,7 +1239,7 @@ test("with Kimi saved on China, only the China tile says Added and opens it, and
         modelId: "kimi-k2.6",
       });
     });
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const tile = (group: string) =>
       settings.locator(
         `[data-testid="provider-directory-group"][data-group="${group}"] [data-catalog-id="kimi"]`,
@@ -1358,7 +1358,7 @@ for (const { value, connect, connecting, unreachable } of [
     const { app, window } = await launchApp(dataDir);
     try {
       await setWindowSize(app, window, 1100, 900);
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await language(window, value);
       const form = await addProviderForm(settings, "openai-compatible");
       const address = form.locator('input[type="url"]');
@@ -1406,7 +1406,7 @@ test("Connect server shows a key the server refuses in place, and with a good on
     const card = await openKeyForm(window);
     // A server the User gives is offered in Settings, not at first run (ADR-0019); saved there,
     // it answers the Question waiting in the setup card all the same.
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "openai-compatible");
     // A compatible server keeps a free-text Model.
     await expect(form.getByTestId("provider-model-text")).toBeVisible();
@@ -1441,7 +1441,7 @@ test("a model that needs 30-day data retention says so with the model's name, an
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
     await language(window, "en");
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "openai-compatible");
     await form.locator('input[type="url"]').fill(fake.url);
     await form.getByTestId("provider-model-text").fill("claude-fable-5-1");

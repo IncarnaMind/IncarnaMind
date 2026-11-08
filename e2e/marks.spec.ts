@@ -32,7 +32,7 @@ const INK_SECONDARY = "rgb(74, 79, 87)";
 const CHECK_GREEN = "rgb(22, 101, 52)";
 
 const PAGES: SettingsPage[] = (
-  ["general", "models", "search", "meetings", "connectors", "skills", "agents", "privacy"] as const
+  ["general", "ai", "meetings", "connectors", "skills", "agents", "privacy"] as const
 ).filter((page) => page !== "agents" || SHOW_AGENT_CONNECTION);
 
 /** The text in a part of the page that is drawn in the check green. */
@@ -71,13 +71,13 @@ test("“Stays on this computer” is ink-secondary with a computer icon in Sett
   });
 
   // Settings stays open as the language changes under it.
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   await settings.getByTestId("provider-row").first().click();
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
 
     // Settings › Models: a provider on this computer, marked.
-    await showSettingsPage(window, "models");
+    await showSettingsPage(window, "ai");
     await expectOnThisComputer(
       settings.getByTestId("provider-page").getByTestId("on-this-computer"),
     );

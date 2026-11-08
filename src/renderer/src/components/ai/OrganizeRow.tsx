@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
+import { type CSSProperties, useId, useState } from "react";
 import type { LibrarySettings, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
@@ -23,11 +23,13 @@ import {
 import { ReadProblem } from "../ReadProblem";
 import { SettingsRow, SettingsSwitch } from "../settings/SettingsGroup";
 import { useTaggingService } from "../useTaggingService";
+import { OtherModelForm } from "./OtherSortingModel";
 import { popUpWidth } from "./RoleSelect";
 
 type Translate = ReturnType<typeof useT>;
 
-const REACHED_BY = ["tagging", "turn-on-tagging"] as const;
+const TAGGING = ["tagging"] as const;
+const TURN_ON = ["turn-on-tagging"] as const;
 
 /** Who pays for a sorting model, as the core groups its list; a plan by its own name. */
 type SortingPayer = { kind: "plan"; name: string } | { kind: "keys" } | { kind: "local" };
@@ -115,7 +117,13 @@ export function OrganizeRows({
   } = sorting;
   const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
 
-  const reached = useSettingsTarget<HTMLDivElement>(REACHED_BY, true);
+  const switchId = `${id}-automatic`;
+  const reached = useSettingsTarget<HTMLDivElement>(TAGGING, true, () =>
+    document.getElementById(id)?.focus(),
+  );
+  useSettingsTarget<HTMLDivElement>(TURN_ON, true, () =>
+    document.getElementById(switchId)?.focus(),
+  );
   const close = () => {
     setSettingUp(null);
     document.getElementById(id)?.focus();
@@ -126,6 +134,7 @@ export function OrganizeRows({
   const models = read.state === "ready" ? read.data : null;
   const groups = organizeGroups(settingsOptions, models, language, t);
   const hints = current && !current.unresolved ? current.decisionModel : null;
+  const saved = library?.settings.classifier ?? null;
   return (
     <>
       <SettingsRow
@@ -150,7 +159,11 @@ export function OrganizeRows({
               options={settingsOptions}
               groups={groups}
               current={current}
-              setUp={{ offers: setUpOffers, open: settingUp, onChoose: setSettingUp }}
+              setUp={{
+                offers: [...setUpOffers, { id: "other", label: t("tagging.other") }],
+                open: settingUp,
+                onChoose: setSettingUp,
+              }}
               onChange={(option) => {
                 setSettingUp(null);
                 void choose(option);
@@ -178,6 +191,15 @@ export function OrganizeRows({
             onChosen={close}
             onCancel={close}
           />
+        ) : settingUp === "other" ? (
+          <OtherModelForm
+            current={saved && saved.kind !== "automatic" ? saved : null}
+            onSave={(classifier) => {
+              void choose({ classifier }).then((chosen) => {
+                if (chosen) close();
+              });
+            }}
+          />
         ) : host ? (
           <DecisionSortingSetUp
             key={host.host}
@@ -196,7 +218,12 @@ export function OrganizeRows({
         )}
       </SettingsRow>
       {library && !failed && current && !current.unresolved && (
-        <OrganizeOptions settings={library.settings} option={current} models={models} />
+        <OrganizeOptions
+          switchId={switchId}
+          settings={library.settings}
+          option={current}
+          models={models}
+        />
       )}
     </>
   );
@@ -230,10 +257,12 @@ const optionRow = {
  * reading scans as page images, for the service that reads them.
  */
 function OrganizeOptions({
+  switchId,
   settings,
   option,
   models,
 }: {
+  switchId: string;
   settings: LibrarySettings;
   option: SortingOption | null;
   models: TaggingModels | null;
@@ -242,11 +271,6 @@ function OrganizeOptions({
   const language = useLanguage();
   const library = useAppStore((state) => state.library);
   const [problem, setProblem] = useState<string | null>(null);
-  const toggle = useRef<HTMLInputElement>(null);
-  const turnOnAsked = useAppStore((state) => state.settingsAt === "turn-on-tagging");
-  useEffect(() => {
-    if (turnOnAsked) toggle.current?.focus();
-  }, [turnOnAsked]);
   const save = async (next: Partial<LibrarySettings> & { turnOn?: boolean }) => {
     setProblem(null);
     try {
@@ -263,7 +287,6 @@ function OrganizeOptions({
       ? t("setup.sorting.sendsWhenOn", { service: resolved.provider })
       : t("tagging.automatic.local");
   const stopped = stoppedPlaces(library);
-  const switchId = useId();
   return (
     <>
       <SettingsRow
@@ -302,7 +325,6 @@ function OrganizeOptions({
         }
         control={
           <input
-            ref={toggle}
             id={switchId}
             type="checkbox"
             role="switch"

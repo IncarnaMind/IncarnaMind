@@ -10,9 +10,9 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
-  openAdvancedModels,
   openDocumentTags,
   openSettings,
+  organizeRow,
   removeDataFolder,
   useLocalChatModel,
 } from "./app";
@@ -77,32 +77,30 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
-  // Settings → Models → Advanced → Tagging: a key and a Jev-compatible server, tested, then used.
-  const tagging = await openAdvancedModels(await openSettings(window, "models"));
-  const section = tagging.getByTestId("jev-settings");
-  await section.getByTestId("jev-set-up").click();
-  const form = section.getByTestId("jev-form");
+  // Settings › AI › Organize and Tags: Jev set up in place from the picker's foot, with a key
+  // and a Jev-compatible server, then chosen with Use this.
+  const settings = await openSettings(window, "ai");
+  const { picker } = organizeRow(settings);
+  await picker.selectOption("set-up:jev");
+  const form = settings.getByTestId("jev-sorting-set-up").getByTestId("jev-form");
   await form.getByLabel("Jev API key").fill(JEV_KEY);
   await form.getByText("Server, model and review").click();
   await form.getByLabel("Server URL (optional)").fill(jev.url);
   await expect(form.getByLabel("Needs review from (%)")).toHaveValue("35");
   await expect(form.getByLabel("to (%)")).toHaveValue("65");
-  await form.getByRole("button", { name: "Test connection" }).click();
-  await expect(form.getByTestId("connection-test")).toHaveText("Connected: the provider answered.");
   await acceptPlainTextKeys(window, form);
-  await form.getByRole("button", { name: "Use Jev for tagging" }).click();
-  await expect(section).toContainText("Your Jev key is saved.");
-  // Automatic tags with Jev now, before the chat model.
-  await expect(window.getByTestId("tagging-automatic-line")).toHaveText(
-    "Using TypeSafe Jev, with your Jev key",
-  );
-  await expect(section).toContainText(`Server: ${jev.url}`);
+  await form.getByTestId("jev-save").click();
+  await expect(form).toHaveCount(0);
+  await expect(picker.locator("option:checked")).toHaveText(/TypeSafe Jev/);
   await closeSettings(window);
 
-  // A saved Jev setup is a choice of the User's under Advanced: it opens by itself.
-  const reopened = await openSettings(window, "models");
-  await expect(reopened.getByTestId("models-advanced")).toHaveAttribute("open", "");
-  await expect(reopened.getByTestId("jev-settings")).toContainText("Your Jev key is saved.");
+  // Its key is one row of Accounts and keys, used for Organize and Tags.
+  const reopened = await openSettings(window, "ai");
+  await expect(
+    reopened
+      .locator('[data-testid="sorting-key-row"][data-host="jev"]')
+      .getByTestId("sorting-key-status"),
+  ).toContainText("Used for Organize and Tags");
   await closeSettings(window);
 
   await addDocuments(window, [summary]);

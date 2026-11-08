@@ -77,6 +77,7 @@ export function RoleSelect({
   const nameOf = useModelNames();
   const payerName = usePayerName(providers);
   const user = useAppStore((state) => state.settings?.user);
+  const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const saved = keyOf(user?.[job]);
   // Shown at once; the setting follows when the core has it.
@@ -90,11 +91,15 @@ export function RoleSelect({
       ? `${modelOf(choice)} · ${providerName(group.provider, t, language)}`
       : modelOf(choice);
   };
-  const options = groups.flatMap((group) =>
-    group.models
-      .filter((modelId) => job !== "imageModel" || group.about[modelId]?.readsImages)
-      .map((modelId) => ({ providerId: group.provider.id, modelId })),
-  );
+  // In Local mode only what runs here is offered; a cloud model chosen before stays shown.
+  const options = groups
+    .filter((group) => !localOnly || group.provider.service === null)
+    .flatMap((group) =>
+      group.models
+        .filter((modelId) => !(localOnly && group.cloud.includes(modelId)))
+        .filter((modelId) => job !== "imageModel" || group.about[modelId]?.readsImages)
+        .map((modelId) => ({ providerId: group.provider.id, modelId })),
+    );
   const current = choiceOf(value);
   // A provider's menu may not list the model in use, or not have loaded yet.
   if (

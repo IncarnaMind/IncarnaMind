@@ -305,6 +305,11 @@ function RerankRow({ providers }: { providers: readonly ChatProvider[] }) {
           {rerank.enabled && rerank.kind === "built-in" && (
             <BuiltInModelState model={rerank.model} />
           )}
+          {rerank.enabled && rerank.kind === "built-in" && rerank.runsOn && (
+            <span data-testid="rerank-runs-on" className="block">
+              {t("rerank.settings.runsOn", { device: rerank.runsOn === "gpu" ? "GPU" : "CPU" })}
+            </span>
+          )}
         </>
       }
       control={

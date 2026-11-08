@@ -35,7 +35,7 @@ test("each preset is a tile in Add a provider; Groq's page has its key page and 
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("models-add-provider").click();
     const international = settings.locator('[data-group="international"]');
     for (const id of ["groq", "together", "fireworks", "cerebras", "cohere", "venice"]) {
@@ -129,7 +129,7 @@ test("Amazon Bedrock asks for its region from a list, and Cloudflare for its acc
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     let form = await addProviderForm(settings, "bedrock");
     const region = form.getByRole("combobox", { name: /^Region/ });
     await expect(region).toHaveValue("us-east-1");
@@ -180,7 +180,7 @@ test("LM Studio and Unsloth Studio are On this computer in Add a provider, besid
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("models-add-provider").click();
     const local = settings.locator('[data-group="local"]');
     await expect(local.getByTestId("provider-directory-entry")).toHaveText([
@@ -270,7 +270,7 @@ test("Ollama at a server on another computer shows a server's data line, not its
         modelId: "home-model",
       });
     });
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     const line = settings.getByTestId("provider-page").getByTestId("provider-data-use");
     await expect(line).toContainText("Depends on the server: check its terms.");

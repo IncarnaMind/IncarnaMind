@@ -133,19 +133,16 @@ test("without a model, Documents are ready to search, and one notice, not one pe
   await expect(window.getByTestId("sidebar-footer").getByTestId("tagging-waiting")).toBeVisible();
   await expect(notice).toContainText("Tags come once you choose an AI model.");
 
-  // Its button opens Settings on its Models page, at Tagging under Advanced, where a chat model or
+  // Its button opens Settings › AI at Organize and Tags, its picker focused, where a chat model or
   // a Jev key can be set up.
   await notice.getByTestId("tagging-waiting-setup").click();
   const settings = window.getByTestId("settings");
   await expect(settings).toBeVisible();
-  await expect(settings).toHaveAttribute("data-page", "models");
-  await expect(settings.getByTestId("model-defaults")).toBeVisible();
-  await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
-  await expect(settings.getByTestId("tagging-automatic-line")).toHaveText(
-    "No model to tag with yet. Set one up.",
-  );
-  await expect(settings.getByTestId("tagging-automatic").getByRole("radio")).toBeFocused();
-  await expect(settings.getByTestId("jev-settings")).toBeVisible();
+  await expect(settings).toHaveAttribute("data-page", "ai");
+  const picker = settings.getByTestId("ai-jobs").getByTestId("models-sorting");
+  await expect(picker).toBeFocused();
+  await expect(picker.locator("option:checked")).toHaveText("No model yet");
+  await expect(picker.locator('option[value="set-up:jev"]')).toHaveCount(1);
   await closeSettings(window);
 
   // Once a model is set up, the Documents are tagged and the notice goes.

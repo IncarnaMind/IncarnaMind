@@ -68,7 +68,7 @@ for (const { language, popular, added } of LANGUAGES) {
     ] as const) {
       await setWindowSize(app, window, width, height);
       await window.getByRole("button", { name: /^(Settings|设置)$/ }).click();
-      const settings = await showSettingsPage(window, "models");
+      const settings = await showSettingsPage(window, "ai");
       // The provider set up before is a row, and its model answers.
       await expect(settings.getByTestId("provider-row")).toHaveText([/^Mistral/]);
       await expect(settings.getByTestId("model-default-chatModel")).toHaveValue(

@@ -21,7 +21,7 @@ import {
 
 /*
  * Decision models offered before their key is saved (#2615, #1907): the sorting picker, on the
- * setup card and in Settings › Models, ends with "Set up another decision model", which holds
+ * setup card and in Settings › AI, ends with "Set up another decision model", which holds
  * "Use TypeSafe Jev…" and each host with a key of its own. Choosing one opens its key entry in
  * place, with what choosing it sends. Nothing goes to the host before its Use this; a refused key
  * says so there and chooses nothing; a valid one makes it what sorts. One stand-in plays TypeSafe
@@ -81,6 +81,7 @@ const setUpRows = (language: "en" | "zh-CN") => [
     model: "Clef",
     provider: "Cloudflare Workers AI",
   }),
+  translate(language, "tagging.other"),
 ];
 
 /** The picker's rows, in order. */
@@ -234,17 +235,17 @@ for (const [language, width, height] of [
   ["en", 1440, 900],
   ["zh-CN", 900, 800],
 ] as const) {
-  test(`Settings › Models offers Jev until its key is saved, then lists it first (${language}, ${width} × ${height}) (#2615)`, async () => {
+  test(`Settings › AI offers Jev until its key is saved, then lists it first (${language}, ${width} × ${height}) (#2615)`, async () => {
     const { app, window } = await launch("en", width, height);
     try {
       await setLocalChatModel(window);
       // The button that opens Settings is named in English until the language is changed inside it.
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       const row = settings.getByTestId("model-default-row-sorting");
       const picker = row.getByTestId("models-sorting");
       const setUp = translate(language, "jev.settings.setUp");
-      await expect(picker.locator("optgroup option")).toHaveText(setUpRows(language));
+      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
       const before = await rowsOf(picker);
       expect(before.length).toBeGreaterThan(1);
       const chosen = await picker.locator("option:checked").textContent();
@@ -274,7 +275,7 @@ for (const [language, width, height] of [
       await expect(picker.locator("option:checked")).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option").first()).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option", { hasText: setUp })).toHaveCount(0);
-      await expect(row.getByTestId("models-tagging-off")).toBeVisible();
+      await expect(settings.getByTestId("tagging-automatic-organize")).not.toBeChecked();
       expect((await library(window)).classifier).toEqual({ kind: "jev" });
       expect(typeSafe.requests).toEqual([`Bearer ${JEV_KEY}`]);
     } finally {
@@ -284,13 +285,13 @@ for (const [language, width, height] of [
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models sets a host up in place: a refused key, then a valid one makes its best model what sorts and joins Your providers, and Remove key gives sorting back to Automatic (${language}) (#1907)`, async () => {
+  test(`Settings › AI sets a host up in place: a refused key, then a valid one makes its best model what sorts and joins Accounts and keys, and Remove key gives sorting back to Automatic (${language}) (#1907)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       await setLocalChatModel(window);
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
-      // No list of hosts: the sorting row chooses, and Your providers holds the keys.
+      // No list of hosts: the sorting row chooses, and Accounts and keys holds the keys.
       const providers = settings.getByTestId("your-providers");
       await expect(providers.getByTestId("provider-row")).toHaveCount(1);
       await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
@@ -302,7 +303,7 @@ for (const language of ["en", "zh-CN"] as const) {
         provider: "Liquid AI",
       });
       // The list is read: its set-up rows show.
-      await expect(picker.locator("optgroup option")).toHaveText(setUpRows(language));
+      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
       const chosen = await picker.locator("option:checked").textContent();
 
       await picker.selectOption({ label: liquid });
@@ -337,10 +338,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(picker.locator("option:checked")).toHaveText("d1-ultra · Liquid AI");
       await expect(picker.locator("option", { hasText: liquid })).toHaveCount(0);
       // As for Jev, choosing here never turns tagging on: Turn on… does, with its line.
-      await expect(row.getByTestId("models-tagging-off")).toBeVisible();
+      await expect(settings.getByTestId("tagging-automatic-organize")).not.toBeChecked();
       const liquidKey = providers.locator('[data-testid="sorting-key-row"][data-host="liquid"]');
       await expect(liquidKey).toContainText("Liquid AI");
-      await expect(liquidKey).toContainText(translate(language, "models.providers.forSorting"));
+      await expect(liquidKey).toContainText(translate(language, "ai.uses.organize"));
       expect((await library(window)).classifier).toEqual({
         kind: "decision",
         host: "liquid",
@@ -369,7 +370,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models: Decider through OpenRouter names the OpenRouter key it uses, and Your providers adds no row for it (${language}) (#1907)`, async () => {
+  test(`Settings › AI: Decider through OpenRouter names the OpenRouter key it uses, and Accounts and keys adds no row for it (${language}) (#1907)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       await window.evaluate(async () => {
@@ -380,7 +381,7 @@ for (const language of ["en", "zh-CN"] as const) {
           modelId: "anthropic/claude-sonnet-5.5",
         });
       });
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       const row = settings.getByTestId("model-default-row-sorting");
       await expect(row.getByTestId("models-sorting-key")).toHaveCount(0);
@@ -404,7 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models: Alibaba's workspace sits on its own Qwen row; Change workspace… edits it in place, and Remove gives sorting back to Automatic (${language}) (#1907)`, async () => {
+  test(`Settings › AI: Alibaba's workspace sits on its own Qwen row; Change workspace… edits it in place, and Remove gives sorting back to Automatic (${language}) (#1907)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       const modelId = await window.evaluate(async (key) => {
@@ -424,21 +425,24 @@ for (const language of ["en", "zh-CN"] as const) {
         });
         return chosen;
       }, JEV_KEY);
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       const providers = settings.getByTestId("your-providers");
       const qwen = providers.locator('[data-testid="sorting-key-row"][data-host="alibaba"]');
       await expect(qwen).toContainText(
         language === "zh-CN" ? "通义千问（阿里云百炼）" : "Qwen (Alibaba Cloud Model Studio)",
       );
-      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
-        translate(language, "models.providers.forSorting.workspace", { id: "llm-test" }),
+      await expect(qwen.getByTestId("sorting-key-status")).toContainText(
+        translate(language, "ai.uses.organize"),
+      );
+      await expect(qwen.getByTestId("sorting-key-status")).toContainText(
+        translate(language, "ai.uses.workspace", { id: "llm-test" }),
       );
       // Set up, it isn't offered again in the picker's fold.
       const picker = settings
         .getByTestId("model-default-row-sorting")
         .getByTestId("models-sorting");
-      await expect(picker.locator("optgroup option")).toHaveText(setUpRows(language));
+      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
 
       await pointAndClick(window, qwen.getByTestId("sorting-key-change"));
       const field = qwen.getByTestId("decision-account-input");
@@ -446,8 +450,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(field).toHaveValue("llm-test");
       await field.fill("llm-two");
       await pointAndClick(window, qwen.getByTestId("decision-key-save"));
-      await expect(qwen.getByTestId("sorting-key-status")).toHaveText(
-        translate(language, "models.providers.forSorting.workspace", { id: "llm-two" }),
+      await expect(qwen.getByTestId("sorting-key-status")).toContainText(
+        translate(language, "ai.uses.workspace", { id: "llm-two" }),
       );
       expect((await library(window)).classifier).toEqual({
         kind: "decision",
@@ -460,7 +464,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect((await library(window)).classifier).toEqual({ kind: "automatic" });
       // The Qwen key stays for chat, and the fold offers Alibaba's workspace again.
       await expect(providers.getByTestId("provider-row")).toHaveCount(1);
-      await expect(picker.locator("optgroup option")).toHaveCount(setUpRows(language).length + 1);
+      await expect(picker.locator("option[value^='set-up:']")).toHaveCount(setUpRows(language).length + 1);
     } finally {
       await app.close();
     }

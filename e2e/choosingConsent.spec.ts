@@ -21,7 +21,7 @@ import {
   launchApp,
   makeTagOnDocument,
   newMind,
-  openAdvancedModels,
+  openPlanPage,
   openServiceList,
   openSettings,
   removeDataFolder,
@@ -135,11 +135,10 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
   ).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
-  const models = await openSettings(window, "models");
-  const tagging = await openAdvancedModels(models);
-  await tagging.scrollIntoViewIfNeeded();
+  const models = await openSettings(window, "ai");
+  const tagging = models.getByTestId("ai-jobs");
   const automatic = tagging.getByRole("switch", {
-    name: /^Tag and sort new Documents automatically/,
+    name: /^Sort and tag new Documents as they arrive/,
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
@@ -241,9 +240,7 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
 test("Settings › Models says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const settings = await openSettings(window, "models");
-
-  const plan = settings.getByTestId("chatgpt-settings");
+  const plan = await openPlanPage(window, "chatgpt");
   await expect(plan).toContainText("No key needed. Counts toward your plan’s limits.");
   const sends = plan.getByTestId("provider-sends");
   await expect(sends.locator("p")).toHaveText(
@@ -260,7 +257,7 @@ test("Settings › Models says in one line what the ChatGPT plan sends, with the
 test("in Chinese, adding a provider in Settings › Models says what goes to it above its button", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   await setLanguage(window, "zh-CN");
 
   const form = await addProviderForm(settings, "openai");

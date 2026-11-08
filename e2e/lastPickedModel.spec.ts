@@ -192,7 +192,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
   await newMind(window);
   await expect(chipOf(window)).toHaveText("Haiku 5.5");
 
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const answers = settings.getByTestId("model-default-chatModel");
   await expect(answers).toHaveAccessibleDescription(
     "A note or conversation with no model of its own uses the one you last chose; until then, this one.",
@@ -207,7 +207,7 @@ test("the Answers default applies on a fresh install, and changing it in Setting
 
   await setLanguage(window, "zh-CN");
   await window.getByRole("button", { name: "设置" }).click();
-  const settingsZh = await showSettingsPage(window, "models");
+  const settingsZh = await showSettingsPage(window, "ai");
   await expect(settingsZh.getByTestId("model-default-chatModel")).toHaveAccessibleDescription(
     "没有自选模型的笔记和对话，用你上次选的模型；还没选过，就用这个。",
   );

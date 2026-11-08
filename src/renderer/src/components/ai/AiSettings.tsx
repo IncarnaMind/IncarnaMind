@@ -26,6 +26,7 @@ import { ClaudePlanRow } from "../providers/ClaudePlan";
 import { CopilotPlanRow, useOfferedWay } from "../providers/CopilotPlan";
 import { DecisionSortingSetUp, firstModelOf } from "../providers/DecisionKeyForm";
 import { JevSortingSetUp } from "../providers/JevSortingSetUp";
+import { LocalModeUnavailable } from "../providers/LocalModeUnavailable";
 import { ProviderLogo } from "../providers/ProviderLogo";
 import { ProviderPage, providerName, type RemovedProvider } from "../providers/ProviderPage";
 import { RerankKeyForm, useRerank } from "../providers/RerankSettings";
@@ -67,6 +68,7 @@ export function AiSettings() {
   const [removed, setRemoved] = useState<RemovedProvider | null>(null);
   const section = useRef<HTMLDivElement>(null);
   const opener = useRef<string | null>(null);
+  const chosen = useRef<ServiceEntry | null>(null);
   const refused = useKeyRefusals((state) => state.showing);
   // Read with the providers, so the page lays out once: a section landing later would move the
   // one a link scrolled to out of view.
@@ -115,6 +117,13 @@ export function AiSettings() {
     setView({ page: "list" });
     setAdding(true);
   });
+  // A plan's sign-in asked for elsewhere: its page, whose card then takes the target as its own.
+  const at = useAppStore((state) => state.settingsAt);
+  useEffect(() => {
+    if (laidOut && (at === "claude-account" || at === "copilot")) {
+      setView({ page: "entry", entry: { kind: "plan", plan: at } });
+    }
+  }, [at, laidOut]);
 
   // Each page starts at its top; back on the list, the focus is where it was.
   useLayoutEffect(() => {
@@ -176,8 +185,17 @@ export function AiSettings() {
     }
   };
 
+  // The entry's page opens once the sheet has closed: until then the sheet keeps everything else
+  // out of reach, the page's first control too, which the page focuses.
   const openEntry = (entry: ServiceEntry) => {
+    chosen.current = entry;
     setAdding(false);
+  };
+  const sheetClosed = () => {
+    setAdding(false);
+    const entry = chosen.current;
+    chosen.current = null;
+    if (!entry) return;
     opener.current = "add-provider";
     setRemoved(null);
     setView(
@@ -240,11 +258,7 @@ export function AiSettings() {
           <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
             {t("ai.lede")}
           </p>
-          {readiness && !readiness.ready && readiness.reason !== "no-provider" && (
-            <p role="note" className={noticeClass}>
-              <ReadinessExplanation readiness={readiness} />
-            </p>
-          )}
+          <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <JobsSection
             groups={groups ?? []}
@@ -281,7 +295,7 @@ export function AiSettings() {
         offered={offered}
         added={isAdded}
         onOpen={openEntry}
-        onClose={() => setAdding(false)}
+        onClose={sheetClosed}
       />
     </div>
   );
@@ -409,8 +423,21 @@ function EntryPage({
           {entry.kind === "transcription" ? t(ROUTE_LABELS[entry.route]) : name}
         </h4>
       </header>
+      <LocalModeUnavailable />
+      {entry.kind === "plan" && <ReadinessNote />}
       {content}
     </section>
+  );
+}
+
+/** Why Questions can't be asked yet, where that isn't only that nothing is set up. */
+function ReadinessNote() {
+  const readiness = useAppStore((state) => state.chatReadiness);
+  if (!readiness || readiness.ready || readiness.reason === "no-provider") return null;
+  return (
+    <p role="note" className={noticeClass}>
+      <ReadinessExplanation readiness={readiness} />
+    </p>
   );
 }
 

@@ -15,7 +15,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openSettings,
+  openPlanPage,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -194,8 +194,7 @@ test("Settings: Cancel keeps nothing; signed in, the row names the account and S
     await setWindowSize(app, window, 1100, 660);
     await interceptOpenExternal(app);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
-    const row = settings.getByTestId("plans-claude-account");
+    const row = await openPlanPage(window, "claude-account");
     await expect(row.getByTestId("claude-plan-account")).toHaveText(USAGE);
 
     await row.getByTestId("plans-claude-sign-in").click();
@@ -231,8 +230,7 @@ test("Settings: Cancel keeps nothing; signed in, the row names the account and S
     await window.keyboard.press("Enter");
     await expect.poll(async () => (await account(window)).account.state).toBe("expired");
 
-    const again = await openSettings(window, "models");
-    const expired = again.getByTestId("plans-claude-account");
+    const expired = await openPlanPage(window, "claude-account");
     await expect(expired.getByTestId("claude-plan-account")).toHaveText(
       "Your Claude sign-in has expired",
     );
@@ -268,8 +266,7 @@ test("a sign-in not finished in time says so in the row, in English and Chinese"
   try {
     await interceptOpenExternal(app);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
-    const row = settings.getByTestId("plans-claude-account");
+    const row = await openPlanPage(window, "claude-account");
     await row.getByTestId("plans-claude-sign-in").click();
     await row.getByTestId("claude-plan-sign-in").click();
     await expect(row.getByTestId("claude-plan-waiting")).toBeVisible();
@@ -300,7 +297,7 @@ test("⌘K: Sign in with Claude opens the words in Settings › Models, before a
     await window.keyboard.press("Enter");
 
     const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "models");
+    await expect(settings).toHaveAttribute("data-page", "ai");
     const row = settings.getByTestId("plans-claude-account");
     await expect(row.getByTestId("claude-plan-usage")).toHaveText(USAGE);
     await expect(row.getByTestId("claude-plan-cancel")).toBeFocused();
@@ -424,7 +421,7 @@ test("an Answer the Claude plan stopped says why in Claude's words, in English a
     fake.expiresIn = 3600;
     await pointAndClick(window, expired.getByTestId("answer-error-action"));
     const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "models");
+    await expect(settings).toHaveAttribute("data-page", "ai");
     const row = settings.getByTestId("plans-claude-account");
     await expect(row.getByTestId("claude-plan-waiting")).toBeInViewport();
     const field = row.getByLabel("Claude 页面上的代码");

@@ -7,7 +7,12 @@ import type {
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
-import { catalogProvider, endpointOf } from "../../../../core/providers/catalog/providers";
+import { catalogModel, modelsProviderOfKind } from "../../../../core/providers/catalog";
+import {
+  catalogProvider,
+  endpointOf,
+  kindOfCatalogId,
+} from "../../../../core/providers/catalog/providers";
 import type { MessageKey } from "../../../../shared/i18n";
 import { listOf } from "../../../../shared/i18n/join";
 import { useClaudeAccount } from "../../claudeSignIn";
@@ -99,6 +104,13 @@ function useUsesLine() {
   };
 }
 
+/** A cloud account's state while "Keep everything on this computer" is on: nothing goes to it. */
+function usePaused(): RowState | null {
+  const t = useT();
+  const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  return localOnly ? { label: t("ai.state.paused"), tone: "quiet" } : null;
+}
+
 /** Whether each Ollama server on the list answers now: asked once per page, for its row's state. */
 function useOllamaRunning(providers: readonly ChatProvider[]): Record<string, boolean> {
   const [running, setRunning] = useState<Record<string, boolean>>({});
@@ -181,6 +193,7 @@ export function AccountsSection({
   );
   const usesOf = (row: AccountRowKey) => uses.get(row) ?? [];
   const line = useUsesLine();
+  const paused = usePaused();
   const ollamaRunning = useOllamaRunning(providers);
   const plans = providers.filter(isPlan);
   const keys = providers.filter((each) => !isPlan(each) && each.service !== null);
@@ -228,7 +241,16 @@ export function AccountsSection({
           <SortingKeyRow
             key={host.host}
             host={host}
-            status={line("key", usesOf(`sorting:${host.host}`), ["organize"])}
+            status={line(
+              "key",
+              // A workspace beside a company's key: what it does is the host's, chosen or not.
+              host.key === "provider"
+                ? sorting?.kind === "decision" && sorting.host === host.host
+                  ? ["organize", "hints"]
+                  : []
+                : usesOf(`sorting:${host.host}`),
+              ["organize"],
+            )}
             onHosts={onHosts}
           />
         ))}
@@ -239,7 +261,9 @@ export function AccountsSection({
             name={t("jev.settings.title")}
             logo={null}
             status={line(jev.service === null ? "local" : "key", usesOf("jev"), ["organize"])}
-            state={{ label: t("ai.state.keyWorks"), tone: "good" }}
+            state={
+              (jev.service !== null && paused) || { label: t("ai.state.keyWorks"), tone: "good" }
+            }
             change={t("models.providers.changeKey")}
             remove={t("models.providers.removeKey")}
             onRemove={async () => onJev(await core.removeJevSettings())}
@@ -262,7 +286,7 @@ export function AccountsSection({
             name={t(`rerank.kind.${rerankKey}`)}
             logo={rerankKey}
             status={line("key", usesOf(`rerank:${rerankKey}`), ["search"])}
-            state={{ label: t("ai.state.keyWorks"), tone: "good" }}
+            state={paused ?? { label: t("ai.state.keyWorks"), tone: "good" }}
             change={t("models.providers.changeKey")}
             remove={t("models.providers.removeKey")}
             onRemove={async () => onRerank(await core.removeRerankSettings())}
@@ -349,10 +373,16 @@ function ProviderRow({
     !jobs.includes("answers") && chatModel && chatModel.providerId !== provider.id
       ? providers.find((each) => each.id === chatModel.providerId)
       : undefined;
+  // Its menu, or the catalog for a company whose list isn't read yet.
   const sameModel =
     via &&
     chatModel &&
-    groups.find((each) => each.provider.id === provider.id)?.models.includes(chatModel.modelId);
+    (groups.find((each) => each.provider.id === provider.id)?.models.includes(chatModel.modelId) ||
+      (catalog &&
+        catalogModel(
+          modelsProviderOfKind(kindOfCatalogId(catalog.id), provider.endpoint, catalog.id),
+          chatModel.modelId,
+        ) !== undefined));
   const around = (text: string) =>
     language === "zh-CN" ? `${spaced("汉", text)}${text}${spaced(text, "汉")}` : text;
   const which =
@@ -398,6 +428,7 @@ function ProviderRow({
  */
 function useProviderState(provider: ChatProvider, running: boolean | undefined): RowState | null {
   const t = useT();
+  const paused = usePaused();
   const failure = useModelHealth((state) => state.failures[provider.id]);
   const [chatGpt] = useChatGptPlan();
   const claude = useClaudeAccount();
@@ -408,6 +439,7 @@ function useProviderState(provider: ChatProvider, running: boolean | undefined):
       (state.embedding.provider.kind === provider.catalogId ||
         state.embedding.provider.kind === provider.kind),
   );
+  if (paused && provider.service !== null) return paused;
   if (isPlan(provider)) {
     const account =
       provider.kind === "chatgpt"
@@ -456,6 +488,7 @@ function TranscriptionKeyRow({
 }) {
   const t = useT();
   const [notChecked, setNotChecked] = useState(false);
+  const paused = usePaused();
   const name = t(ROUTE_LABELS[service.route]);
   const reachedBy = useMemo<SettingsTarget[]>(
     () => [`transcription-key:${service.route}`],
@@ -470,9 +503,10 @@ function TranscriptionKeyRow({
       fallback={<MicLineIcon className="size-[18px]" />}
       status={status}
       state={
-        service.refused
+        paused ??
+        (service.refused
           ? { label: t("ai.state.refused"), tone: "problem" }
-          : { label: t("ai.state.keyWorks"), tone: "good" }
+          : { label: t("ai.state.keyWorks"), tone: "good" })
       }
       change={t("models.providers.changeKey")}
       remove={t("models.providers.removeKey")}
@@ -511,6 +545,7 @@ function SortingKeyRow({
   const lang = language === "zh-CN" ? "zh" : "en";
   const account = host.account?.value;
   const workspace = host.key === "provider";
+  const paused = usePaused();
   return (
     <KeyRow
       testId="sorting-key"
@@ -526,7 +561,7 @@ function SortingKeyRow({
           ? `${status} · ${t(workspace ? "ai.uses.workspace" : "ai.uses.account", { id: account })}`
           : status
       }
-      state={{ label: t("ai.state.keyWorks"), tone: "good" }}
+      state={paused ?? { label: t("ai.state.keyWorks"), tone: "good" }}
       change={t(workspace ? "decisions.account.change" : "models.providers.changeKey")}
       remove={t(workspace ? "providers.settings.remove" : "models.providers.removeKey")}
       onRemove={async () => onHosts(await core.removeDecisionKey(host.host))}
@@ -560,6 +595,7 @@ function SearchKeyRow({
   refused: boolean;
 }) {
   const t = useT();
+  const paused = usePaused();
   return (
     <KeyRow
       testId="search-key"
@@ -568,9 +604,10 @@ function SearchKeyRow({
       logo={kind}
       status={status}
       state={
-        refused
+        paused ??
+        (refused
           ? { label: t("ai.state.refused"), tone: "problem" }
-          : { label: t("ai.state.keyWorks"), tone: "good" }
+          : { label: t("ai.state.keyWorks"), tone: "good" })
       }
       change={t("models.providers.changeKey")}
       form={(done) => <SearchKeyForm kind={kind} modelId={modelId} onDone={done} />}

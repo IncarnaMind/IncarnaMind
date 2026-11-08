@@ -13,6 +13,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
+  openDirectoryEntry,
   openSettings,
   removeDataFolder,
   setWindowSize,
@@ -291,7 +292,7 @@ test("Settings → Models shows what a key spent this month, and the ChatGPT pla
     await window.keyboard.type("What is in my Documents?");
     await window.keyboard.press("Enter");
     await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done");
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     const cost = settings.getByTestId("chat-provider-cost");
     await expect(cost).toHaveText("This month: $0 spent");
@@ -306,6 +307,7 @@ test("Settings → Models shows what a key spent this month, and the ChatGPT pla
 
     // Signed in with ChatGPT and using the plan: its line names the plan, never a price.
     await interceptOpenExternal(app);
+    await openDirectoryEntry(settings, "plan:chatgpt");
     const plan = settings.getByTestId("chatgpt-settings");
     await plan.getByTestId("chatgpt-continue").click();
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
@@ -397,7 +399,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
     db.run(insert, ["settled-1", providerId, "settled", 0.3, 0.01, at, at]);
     db.run(insert, ["open-1", providerId, "reserved", 1.28, null, at, at]);
 
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     const cost = settings.getByTestId("chat-provider-cost");
     await expect(cost).toHaveText("This month: $0.01 spent · $1.28 set aside for work in progress");
@@ -424,7 +426,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
       "预留出来，避免进行中的任务超出你的月度上限",
     );
     await shot(window, "set-aside-cap-wide-zh");
-    await showSettingsPage(window, "models");
+    await showSettingsPage(window, "ai");
     await expect(cost).toHaveText("本月已花 $0.01 · 进行中的任务预留 $1.28");
     await setWindowSize(app, window, NARROW.width, NARROW.height);
     await shot(window, "set-aside-models-narrow-zh");
@@ -434,7 +436,7 @@ test("work still running is set aside apart from what was spent, and the set-asi
 
     db.run("UPDATE model_requests SET status = 'settled', cost = 0.01 WHERE id = 'open-1'");
     db.close();
-    await openSettings(window, "models");
+    await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     await expect(cost).toHaveText("This month: $0.02 spent");
     await expect(settings.getByTestId("chat-provider-set-aside")).toHaveCount(0);

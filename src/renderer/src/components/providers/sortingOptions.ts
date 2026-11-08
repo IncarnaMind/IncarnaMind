@@ -165,7 +165,7 @@ export function automaticRow(
 
 /** A row at the foot of the picker that sets a decision model up in place: Jev, or a host's. */
 export interface SetUpOffer {
-  id: "jev" | DecisionHost;
+  id: "jev" | "other" | DecisionHost;
   label: string;
 }
 

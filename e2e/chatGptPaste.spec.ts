@@ -8,7 +8,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openSettings,
+  openPlanPage,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -64,8 +64,8 @@ test("Settings: a pasted address that isn't the sign-in's is said under the fiel
     await setWindowSize(app, window, 900, 660);
     await dismissChatSetup(window);
     await interceptOpenExternal(app);
-    const settings = await openSettings(window, "models");
-    const plan = settings.getByTestId("chatgpt-settings");
+    const plan = await openPlanPage(window, "chatgpt");
+    const settings = window.getByTestId("settings");
     await acceptPlainTextKeys(window, plan);
     await plan.getByTestId("chatgpt-continue").click();
     const address = await addressAfterApproving(app);

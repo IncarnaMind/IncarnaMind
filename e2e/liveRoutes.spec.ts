@@ -90,7 +90,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   );
   await shot(window, "settings-meetings-deepgram-cloudflare-en-1600");
 
-  settings = await showSettingsPage(window, "models");
+  settings = await showSettingsPage(window, "ai");
   const row = settings.locator('[data-testid="transcription-key-row"][data-host="deepgram"]');
   const status = row.getByTestId("transcription-key-status");
   await expect(status).toHaveText(
@@ -113,7 +113,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   await setLanguage(window, "en");
 
   // Change key opens with the server saved; Esc closes the form and keeps what was saved.
-  await showSettingsPage(window, "models");
+  await showSettingsPage(window, "ai");
   await row.getByTestId("transcription-key-change").click();
   await expect(row.getByTestId("transcription-key-input")).toBeFocused();
   await expect(row.getByRole("textbox", { name: "Server" })).toHaveValue(
@@ -174,7 +174,7 @@ test("each service set up from the picker says whether Save checks its key; Glad
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
 
-  let settings = await openSettings(window, "models");
+  let settings = await openSettings(window, "ai");
   const row = settings.getByTestId("model-default-row-transcription");
   const picker = row.getByTestId("meetings-route");
   for (const name of ["ElevenLabs", "Speechmatics", "AssemblyAI"]) {

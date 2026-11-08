@@ -14,9 +14,9 @@ import {
 } from "./app";
 
 /*
- * Settings › Models (#179): three defaults, the User's providers as rows, Add a provider's
- * directory in the language's groups, and a provider's page with Test and its models. Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * Settings › AI (#179, #2835): what each job uses, the User's accounts and keys as rows, Add an
+ * account or key's directory in the language's groups, and a provider's page with Test and its
+ * models. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -83,32 +83,32 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     }, first.url);
 
     // The provider already there is a row, and its model is the Answers default.
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const rows = settings.getByTestId("provider-row");
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText(first.host);
-    await expect(rows.first().getByTestId("provider-row-status")).toHaveText(
-      "On this computer · 1 model in the menu",
+    await expect(rows.first().getByTestId("provider-row-status")).toContainText(
+      "On this computer · Used for Answers",
     );
     const answers = settings.getByTestId("model-default-chatModel");
     await expect(answers).toHaveValue(`${existing.id}\nfirst-model`);
-    await expect(settings.getByTestId("models-follow-answers")).toHaveText(
-      "Quick tasks and reading images are automatic.",
-    );
+    const quick = settings.getByTestId("model-default-quickTasksModel");
+    await expect(quick).toHaveValue("");
+    await expect(quick.locator("option:checked")).toHaveText("Follows Answers · first-model");
     await expect(settings.getByTestId("model-default-row-transcription")).toBeVisible();
     await expect(settings.getByTestId("model-default-row-sorting")).toBeVisible();
     await screenshot(window, "models-1100-en");
 
-    // Add a provider…: the directory, its search focused, in English's groups.
+    // Add an account or key…: the directory, its search focused, in English's groups.
     await settings.getByTestId("models-add-provider").click();
     const directory = settings.getByTestId("provider-directory");
     await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
     await expect
       .poll(() => groupsShown(directory))
-      .toEqual(["popular", "international", "china", "local", "other"]);
+      .toEqual(["plans", "popular", "local", "meetings", "organize", "more"]);
     await expect(
       directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
-    ).toHaveText([/^Anthropic/, /^OpenAI/, /^Google/, /^Ollama/, /^OpenRouter/]);
+    ).toHaveText([/^Anthropic/, /^OpenAI/, /^Google/, /^OpenRouter/, /^DeepSeek/, /^Qwen/]);
     await window.keyboard.type("compatible");
     const entries = directory.getByTestId("provider-directory-entry");
     await expect(entries).toHaveCount(1);
@@ -152,14 +152,14 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     await expect(strong).toBeChecked();
     await screenshot(window, "provider-1100-en");
 
-    // Back on Models, its model becomes the Answers default.
+    // Back on Settings › AI, its model becomes the Answers default.
     await page.getByTestId("models-back").click();
     await expect(settings.getByTestId("provider-row")).toHaveCount(2);
     await expect(settings.getByTestId("models-add-provider")).toBeFocused();
     await answers.selectOption(`${added}\nb-strong`);
     await expect.poll(() => chatModel(window)).toEqual({ providerId: added, modelId: "b-strong" });
-    // Quick tasks and reading images have no row of their own: they are automatic.
-    await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveCount(0);
+    // Quick tasks follow it, in their own row.
+    await expect(quick.locator("option:checked")).toHaveText(/^Follows Answers · b-/);
 
     // Removed, it leaves no default pointing at it, and one line says where Answers went.
     await settings.getByTestId("provider-row").filter({ hasText: second.host }).click();
@@ -174,7 +174,7 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
   }
 });
 
-test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follow the language, and a provider's page opens and goes back", async () => {
+test("by keyboard alone, in Chinese: ⌘K opens Add an account or key, its groups follow the language, and a provider's page opens and goes back", async () => {
   const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
   try {
     await dismissChatSetup(window);
@@ -182,28 +182,34 @@ test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follo
     await setLanguage(window, "zh-CN");
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("> 添加 AI 模型服务");
+    await window.keyboard.type("> 添加账户或密钥");
     await expect(window.getByTestId("palette").getByTestId("palette-item").first()).toHaveText(
-      /添加 AI 模型服务…/,
+      /添加账户或密钥…/,
     );
     await window.keyboard.press("Enter");
 
     const settings = window.getByTestId("settings");
     const directory = settings.getByTestId("provider-directory");
     await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
-    // China's providers are all popular in Chinese, so its own group is left out.
     await expect
       .poll(() => groupsShown(directory))
-      .toEqual(["popular", "international", "local", "other"]);
-    await expect(directory.locator("h5")).toHaveText(["常用", "国际", "本机", "其他"]);
+      .toEqual(["plans", "popular", "local", "meetings", "organize", "more"]);
+    await expect(directory.locator("h3")).toHaveText([
+      "登录你已付费的订阅",
+      "常用密钥",
+      "在这台电脑上 · 免费，数据不会离开",
+      "仅用于会议",
+      "仅用于整理",
+      "更多服务和你自己的服务器",
+    ]);
     await expect(
       directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
-    ).toHaveText([/^DeepSeek/, /^通义千问/, /^Kimi/, /^智谱/, /^硅基流动/, /^Ollama/]);
+    ).toHaveText([/^DeepSeek/, /^通义千问/, /^Kimi/, /^智谱/, /^硅基流动/, /^OpenRouter/]);
     await screenshot(window, "directory-900-zh");
 
     // Typing narrows it; Tab reaches the tile and Enter opens the page that adds it.
     await window.keyboard.type("kimi");
-    await expect(directory.getByTestId("provider-directory-entry")).toHaveCount(2);
+    await expect(directory.getByTestId("provider-directory-entry")).toHaveCount(1);
     await window.keyboard.press("Tab");
     await expect(directory.getByTestId("provider-directory-entry").first()).toBeFocused();
     await window.keyboard.press("Enter");
@@ -211,7 +217,8 @@ test("by keyboard alone, in Chinese: ⌘K opens Add a provider, its groups follo
     await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");
     await expect(add.getByTestId("models-back")).toBeFocused();
     await window.keyboard.press("Enter");
-    await expect(settings.getByTestId("your-providers")).toContainText("还没有添加服务");
+    await expect(settings.getByTestId("provider-row")).toHaveCount(0);
+    await expect(settings.getByTestId("built-in-row")).toContainText("IncarnaMind 内置");
     await expect(settings.getByTestId("model-default-chatModel")).toBeDisabled();
   } finally {
     await app.close();
@@ -252,7 +259,7 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
       [1440, 900],
     ] as const) {
       await setWindowSize(app, window, width, height);
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await settings.getByTestId("provider-row").first().click();
       const page = settings.getByTestId("provider-page");
       await expect(page).toHaveAttribute("data-provider-id", provider.id);

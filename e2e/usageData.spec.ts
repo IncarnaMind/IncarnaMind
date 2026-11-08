@@ -161,13 +161,13 @@ test("a release build asks after the first Answer to the User's own Question, se
   const switchAgain = reopened.getByTestId("usage-data-switch");
   await switchAgain.check();
   await expect(switchAgain).toBeChecked();
-  await showSettingsPage(second.window, "search");
+  await showSettingsPage(second.window, "ai");
   await expect
     .poll(() => posthog.events().map((each) => each.event), { timeout: 10_000 })
     .toContain("settings_page_viewed");
   expect(posthog.requests.every((each) => each.path === "/batch/")).toBe(true);
   const viewed = posthog.events().find((each) => each.event === "settings_page_viewed");
-  expect(viewed?.properties).toMatchObject({ page: "search", build: "release" });
+  expect(viewed?.properties).toMatchObject({ page: "ai", build: "release" });
   expectOnlyDeclared(posthog.events());
 
   // Resetting the install ID: later events carry a new one.
@@ -184,7 +184,7 @@ test("a release build asks after the first Answer to the User's own Question, se
   await expect.poll(() => posthog.events().at(-1)?.properties).toMatchObject({ page: "privacy" });
   const sent = posthog.events().length;
   await second.window.getByTestId("usage-data-switch").uncheck();
-  await showSettingsPage(second.window, "models");
+  await showSettingsPage(second.window, "ai");
   await closeSettings(second.window);
   await newMind(second.window);
   await flushUsageData(second.app);

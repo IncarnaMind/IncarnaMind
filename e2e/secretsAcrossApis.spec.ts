@@ -69,7 +69,7 @@ test("a secret the synchronous safeStorage API wrote opens with the asynchronous
 test("a saved key that can't be opened says so where it is entered", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const form = await addProviderForm(settings, "openai");
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-test-0123456789-unreadable");
@@ -91,7 +91,7 @@ test("a saved key that can't be opened says so where it is entered", async () =>
 
   await window.reload();
   await window.getByTestId("plus-menu").waitFor();
-  const reopened = await openSettings(window, "models");
+  const reopened = await openSettings(window, "ai");
   await expect(
     reopened.getByText(
       "The saved API key for OpenAI on this device can’t be read. Enter it again.",

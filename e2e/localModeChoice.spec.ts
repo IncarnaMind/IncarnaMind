@@ -56,7 +56,7 @@ const language = (window: Page, value: "en" | "zh-CN") =>
 test("first run's local path starts ticked, because nothing in the cloud is set up; choosing the model turns Local mode on, and Undo turns it off; English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { ollama: ollamaUrl });
   await setWindowSize(app, window, 900, 700);
-  const setup = await openSettings(window, "models");
+  const setup = await openSettings(window, "ai");
   await addProviderPage(setup, "ollama");
 
   const box = setup.getByTestId("keep-local-box");
@@ -145,7 +145,7 @@ for (const [name, locale] of [
       await bridge.setAgentsEnabled(true);
       await bridge.connectAgent({ name: "Test agent" });
     });
-    const page = await openSettings(window, "models");
+    const page = await openSettings(window, "ai");
     if (zh) await language(window, "zh-CN");
     await addProviderPage(page, "ollama");
     const box = page.getByTestId("keep-local-box");

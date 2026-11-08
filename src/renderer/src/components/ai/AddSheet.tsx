@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useRef, useState } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useLanguage, useT } from "../../i18n";
 import { ROUTE_LABELS } from "../../transcriptionServices";
@@ -72,18 +72,19 @@ export function ServiceDirectory({
   offered,
   added,
   onOpen,
+  searchRef,
 }: {
   offered(plan: PlanId): boolean;
   /** Whether an entry is set up already: it says so. */
   added(entry: ServiceEntry): boolean;
   onOpen(entry: ServiceEntry): void;
+  /** Its search field, for whatever shows the directory to focus as it opens. */
+  searchRef?: Ref<HTMLInputElement>;
 }) {
   const t = useT();
   const language = useLanguage();
   const name = useEntryName();
   const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  useEffect(() => search.current?.focus(), []);
   const all = serviceDirectory(language, { offered, name });
   const count = all.reduce((sum, group) => sum + group.entries.length, 0);
   const groups = serviceDirectory(language, { offered, name, query });
@@ -92,7 +93,7 @@ export function ServiceDirectory({
       <label className="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
         <SearchLineIcon className="size-3.5 shrink-0" />
         <input
-          ref={search}
+          ref={searchRef}
           type="search"
           data-testid="provider-directory-search"
           value={query}
@@ -230,7 +231,9 @@ export function AddSheet({
   onClose(): void;
 }) {
   const t = useT();
-  const dialog = useModal(open);
+  const search = useRef<HTMLInputElement>(null);
+  // Opened to find a service: typing starts the search.
+  const dialog = useModal(open, { initialFocus: search });
   return (
     <dialog
       ref={dialog}
@@ -249,7 +252,7 @@ export function AddSheet({
             <h2 id="ai-add-sheet-title" className="text-[17px] leading-6 font-semibold text-ink">
               {t("ai.add.title")}
             </h2>
-            <ServiceDirectory offered={offered} added={added} onOpen={onOpen} />
+            <ServiceDirectory offered={offered} added={added} onOpen={onOpen} searchRef={search} />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-rule px-6 py-3">
             <p className="text-[12px] leading-[18px] text-ink-meta">{t("ai.add.foot")}</p>

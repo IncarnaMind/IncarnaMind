@@ -81,8 +81,8 @@ test("asked to search the web, an Answer saves the page it reads as a Document a
   await acceptPlainTextKeys(window);
   await useAnthropic(window);
 
-  // Off by default; turned on in Settings → Search, it names the provider that will search.
-  const settings = await openSettings(window, "search");
+  // Off by default; turned on in Settings › AI, it names the provider that will search.
+  const settings = await openSettings(window, "ai");
   const section = settings.getByTestId("web-search-settings");
   const toggle = section.getByTestId("web-search-switch");
   await expect(toggle).not.toBeChecked();
@@ -91,7 +91,6 @@ test("asked to search the web, an Answer saves the page it reads as a Document a
   await expect(section.getByTestId("web-search-status")).toHaveText(
     `${MODEL_NAME} searches the web through Anthropic.`,
   );
-  await expect(section.getByTestId("web-search-route")).toHaveText("The model’s own search");
   await section.scrollIntoViewIfNeeded();
   await screenshot(window, "web-search-settings");
   await closeSettings(window);

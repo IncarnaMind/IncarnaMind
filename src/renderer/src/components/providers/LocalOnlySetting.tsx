@@ -7,9 +7,12 @@ import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { noticeClass } from "../ui";
-import { MODELS_UNDO_PLACE } from "./shared";
+import { UndoLineAt } from "../UndoLine";
+
 
 const TARGET = ["local-mode"] as const;
+/** Its Undo shows under its own words, where the switch was pressed. */
+const LOCAL_MODE_UNDO_PLACE = "settings:local-mode";
 
 /** Settings › AI › Limits: "Keep everything on this computer", with Undo. */
 export function LocalOnlyRow() {
@@ -34,7 +37,7 @@ export function LocalOnlyRow() {
     setBusy(true);
     try {
       await core.setLocalOnly(enabled);
-      await localModeChosen(!enabled, MODELS_UNDO_PLACE);
+      await localModeChosen(!enabled, LOCAL_MODE_UNDO_PLACE);
     } catch (failure) {
       useAppStore.getState().reportError(failure);
     } finally {
@@ -49,13 +52,16 @@ export function LocalOnlyRow() {
       label={t("embeddingProviders.localOnly.label")}
       htmlFor={id}
       detail={
-        <DetailsLine
-          id={`${id}-description`}
-          testId="embedding-local-only-description"
-          details={t("embeddingProviders.localOnly.body.details")}
-        >
-          {t("embeddingProviders.localOnly.body")}
-        </DetailsLine>
+        <>
+          <DetailsLine
+            id={`${id}-description`}
+            testId="embedding-local-only-description"
+            details={t("embeddingProviders.localOnly.body.details")}
+          >
+            {t("embeddingProviders.localOnly.body")}
+          </DetailsLine>
+          <UndoLineAt place={LOCAL_MODE_UNDO_PLACE} className="empty:hidden" />
+        </>
       }
       control={
         <input
