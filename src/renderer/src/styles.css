@@ -6279,7 +6279,8 @@
     box-shadow: none;
     color: #fff;
 
-    &:hover {
+    /* As specific as the plain action's hover, so the primary fill keeps its white text (#2288). */
+    &:hover:not(:disabled) {
       background: #2e3238;
     }
   }
