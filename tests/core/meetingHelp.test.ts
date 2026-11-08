@@ -8,6 +8,7 @@
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { setMindModel } from "../../src/shared/mindModel";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
@@ -43,16 +44,64 @@ function helpingModel(calls: ModelCall[]) {
 }
 
 /**
+ * A model that writes its whole reply and records its Citation to the first Passage found ahead
+ * in the same turn, as Claude Haiku 5.5 does. Every part the core asks whether it is the model's
+ * working (#2371) is judged so, and kept in `judged`.
+ */
+const writesBesideCite = (reply: string, judged: string[][]) => (calls: ModelCall[]) =>
+  scriptedModel(
+    (call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+      if (!found || call.results.some((result) => result.tool === "cite")) return { text: "" };
+      return {
+        text: reply,
+        calls: [
+          { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] } },
+        ],
+      };
+    },
+    {
+      judgesItsAnswers: true,
+      generate: (call) => {
+        if (call.system !== WORKING_TEXT_INSTRUCTIONS) return { text: "" };
+        const parts = [...call.prompt.matchAll(/<reply id="\d+">\n([\s\S]*?)\n<\/reply>/g)].map(
+          (match) => match[1] ?? "",
+        );
+        judged.push(parts);
+        return { text: JSON.stringify({ parts: parts.map(() => "working") }) };
+      },
+    },
+  );
+
+/** Adds the price sheet before the meeting records, for the buttons that read the Documents. */
+async function addPriceSheet(core: Core) {
+  const sources = await createSourceFolder();
+  const added = await core.addDocuments([
+    await writeSourceFile(
+      sources,
+      "Price sheet.txt",
+      `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
+    ),
+  ]);
+  await waitForProcessing(
+    core,
+    added.documents.map((document) => document.id),
+  );
+}
+
+/**
  * A meeting recording with lines from both sides; `before`, what to do first (Documents wait while
- * it records); `lines` and `theirLines`, what each side says.
+ * it records); `lines` and `theirLines`, what each side says; `answering`, the model.
  */
 async function setUp(
   before?: (core: Core) => Promise<void>,
   said: { lines?: readonly string[]; theirLines?: readonly string[] } = {},
+  answering: (calls: ModelCall[]) => ReturnType<typeof scriptedModel> = helpingModel,
 ) {
   const calls: ModelCall[] = [];
   const dataDir = await createTempDataFolder();
-  const models = scriptedModels(helpingModel(calls));
+  const models = scriptedModels(answering(calls));
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     engine: said,
@@ -149,20 +198,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
   });
 
   test("Answer their question finds the User's Documents ahead for the newest lines, not the transcript, and cites them", async () => {
-    const { core, meeting, calls } = await setUp(async (before) => {
-      const sources = await createSourceFolder();
-      const added = await before.addDocuments([
-        await writeSourceFile(
-          sources,
-          "Price sheet.txt",
-          `Price sheet 2026\n\nTeam plan: $25 per seat a month.\n${PRICE}\nThe launch moves to the eighteenth of November for every plan.`,
-        ),
-      ]);
-      await waitForProcessing(
-        before,
-        added.documents.map((document) => document.id),
-      );
-    });
+    const { core, meeting, calls } = await setUp(addPriceSheet);
 
     const { answer } = await press(core, meeting, "answer");
 
@@ -174,6 +210,54 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
     ]);
   });
+
+  // protects=a help reply's own lines, from its first option to its last "→" line or its short lines, are never judged as the model's working and taken back, so the "→" line the User saw stays; notes before them and a remark after them are still judged and taken back; fails_when=a "→" line, a short line or an option is taken back, or the notes or the remark stay; no_claim=how a real model's judgement decides (#2778).
+  test.each([
+    {
+      name: "two options in English, with notes before them and a remark after",
+      kind: "answer" as const,
+      reply:
+        "The newest lines ask about the Enterprise price, and the price sheet has it.\n\n★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send you the price sheet today [^1]\n→ buys time\nCitations need to be recorded now.",
+      kept: "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send you the price sheet today [^1]\n→ buys time",
+      judged: [
+        [
+          "The newest lines ask about the Enterprise price, and the price sheet has it.",
+          "Citations need to be recorded now.",
+        ],
+      ],
+    },
+    {
+      name: "one option in Chinese",
+      kind: "answer" as const,
+      reply: "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话",
+      kept: "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话",
+      judged: [],
+    },
+    {
+      name: "short lines",
+      kind: "facts" as const,
+      reply:
+        "- Enterprise is $45 a seat a month [^1]\n- Single sign-on comes with it\n- The Team plan is $25 a seat",
+      kept: "- Enterprise is $45 a seat a month [^1]\n- Single sign-on comes with it\n- The Team plan is $25 a seat",
+      judged: [],
+    },
+  ])(
+    "a reply's own lines are never taken back as the model's working: $name",
+    async ({ kind, reply, kept, judged }) => {
+      const asked: string[][] = [];
+      const { core, meeting } = await setUp(addPriceSheet, {}, writesBesideCite(reply, asked));
+      if (kind === "facts")
+        await core.setMeetingTemplate({ meetingId: meeting.id, template: "sales" });
+
+      const { answer } = await press(core, meeting, kind);
+
+      expect(answer.text).toBe(kept);
+      expect(asked).toEqual(judged);
+      expect(answer.citations).toEqual([
+        expect.objectContaining({ documentName: "Price sheet", quote: PRICE, check: "found" }),
+      ]);
+    },
+  );
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).
   test("with the live text behind and no line yet, a button's reply says so in the User's language, and the model isn't asked", async () => {

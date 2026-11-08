@@ -611,8 +611,8 @@ test("help during the call: a reading whose → line was taken back stays once t
   await app.close();
 });
 
-// protects=a reply with nothing the panel can lay out says so in plain words with Try again, in English and Chinese, instead of only the heading; fails_when=the panel shows only the heading; no_claim=how often a model writes such a reply (#2767).
-test("help during the call: a reply with nothing to show says so, with Try again, in English and Chinese", async () => {
+// protects=a reply with nothing the panel can lay out says so in plain words with Try again, in English and Chinese, instead of only the heading, and offers no Pin or Add to note for nothing (#2778); fails_when=the panel shows only the heading, or Pin and Add to note under the line; no_claim=how often a model writes such a reply (#2767).
+test("help during the call: a reply with nothing to show says so, with Try again and nothing to pin or add, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     transcriber: { theirLines: BUYER },
@@ -630,10 +630,62 @@ test("help during the call: a reply with nothing to show says so, with Try again
   await expect(nothing).toHaveText(
     "No help this time: the Answer had nothing to suggest · Try again",
   );
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
+  await expect(panel.getByTestId("help-add")).toHaveCount(0);
   await setLanguage(window, "zh-CN");
   await expect(nothing).toHaveText("这次没能给出建议：回答里没有可用的内容 · 重试");
   await expect(nothing.getByRole("button")).toHaveText("重试");
+  await expect(panel.getByTestId("help-pin")).toHaveCount(0);
   await shot(panel, "help-panel-nothing-zh");
+  await app.close();
+});
+
+// protects=a help Answer the User stopped before its first option says so in the panel with Try again, in English and Chinese, instead of only its heading; fails_when=the panel shows only the heading; no_claim=what a model writes before it is stopped (#2778).
+test("help during the call: an Answer stopped before its first option says so in the panel, with Try again, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-help-held");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+  // The window goes as the click lands, which a click Playwright waits on would call a failure.
+  const close = panel.getByTestId("panel-close");
+  await close.hover();
+  await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
+  await expect.poll(() => panelOpen(app)).toBe(false);
+
+  // Asked at the top of the assistant, and stopped there before its first word.
+  await pointAndClick(
+    window,
+    window
+      .getByTestId("help-strip")
+      .getByTestId("help-button")
+      .filter({ hasText: "What do they want?" }),
+  );
+  const answer = window.getByTestId("assistant-answer").last();
+  await expect(answer).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
+  await pointAndClick(window, window.getByTestId("composer-stop"));
+  await expect(answer).toHaveAttribute("data-status", "stopped");
+
+  await fromPalette(window, "Show the call help panel");
+  const shown = await panelOf(app);
+  const suggestion = shown.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "stopped");
+  await shot(shown, "help-panel-stopped-en");
+  await expect(suggestion.getByTestId("help-heading")).toContainText("What do they want?");
+  const stopped = suggestion.getByTestId("help-stopped");
+  await expect(stopped).toHaveText("No help this time: Stopped · Try again");
+  await setLanguage(window, "zh-CN");
+  await expect(stopped).toHaveText("这次没能给出建议：已停止 · 重试");
+  await shot(shown, "help-panel-stopped-zh");
+
+  // Try again asks once more, its outline holding while it is written.
+  await pointAndClick(shown, stopped.getByRole("button"));
+  await expect(shown.getByTestId("help-outline").first()).toBeVisible();
+  await expect(stopped).toHaveCount(0);
   await app.close();
 });
 
