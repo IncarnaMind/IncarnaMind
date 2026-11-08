@@ -1750,6 +1750,14 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
 }
 
 const SECTIONS = ["summary", "decisions", "actions", "questions", "claims"] as const;
+
+/** Whether `text` is a pointer to where its item is written: "{topic} — see above" or "— see below". */
+const pointsElsewhere = (text: string, language: Language) =>
+  (["above", "below"] as const).some((direction) =>
+    text
+      .trim()
+      .endsWith(translate(language, `meetings.fill.reference.${direction}`, { topic: "" }).trim()),
+  );
 /** A request that fills the notes in; every other one a fill sends checks a claim. */
 const FILL_REQUEST = /Fill them in from the transcript|The User took no notes/;
 /** A sentence's end: a Chinese one, or a Latin one before a space or the text's end, never a decimal point. */
@@ -1842,10 +1850,7 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
         (typedHeadings.includes(each.heading) && ai(each).some((item) => item.bullet))),
   );
   const topicItems = topics.flatMap((each) => ai(each));
-  const pointers = (["above", "below"] as const).map((direction) =>
-    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
-  );
-  const isPointer = (text: string) => pointers.some((pointer) => text.trim().endsWith(pointer));
+  const isPointer = (text: string) => pointsElsewhere(text, call.language);
   const listed = ai(part("claims"));
   const named = (names: readonly string[] | undefined) =>
     (names ?? []).filter((name) => {
@@ -2278,10 +2283,7 @@ function placements(
 ): { count: number; inPlace: boolean; cited: boolean } {
   // A decision or an action is written whole in its section; the typed line it answers then has
   // a short pointer citing the same turn (#2306).
-  const pointers = (["above", "below"] as const).map((direction) =>
-    translate(call.language, `meetings.fill.reference.${direction}`, { topic: "" }).trim(),
-  );
-  const isPointer = (unit: Unit) => pointers.some((pointer) => unit.text.trim().endsWith(pointer));
+  const isPointer = (unit: Unit) => pointsElsewhere(unit.text, call.language);
   const found = units
     .filter((unit) => unit.ai && says(fact, unit.text))
     .map((unit) => ({ units: [unit], count: occurrences(fact, unit.text) }));
