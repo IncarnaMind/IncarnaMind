@@ -290,7 +290,6 @@ const deviceScope: Scope<DeviceSettings> = {
     callOffersOff: [],
     motion: "system",
     appearance: "system",
-    lastChatModel: null,
   },
   validators: {
     sidebarWidth: isPaneWidth,
@@ -324,7 +323,6 @@ const deviceScope: Scope<DeviceSettings> = {
     motion: (value): value is MotionPreference =>
       MOTION_PREFERENCES.some((preference) => preference === value),
     appearance: (value): value is Appearance => APPEARANCES.some((each) => each === value),
-    lastChatModel: isModelSetting,
   },
 };
 

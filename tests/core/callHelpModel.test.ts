@@ -329,14 +329,14 @@ describe("Call help's quick model, as Settings offers it", () => {
 
     // The model a new Note answers on decides it, as it decides which model call help asks.
     await core.updateSettings({
-      device: { lastChatModel: { providerId: anthropic.id, modelId: SONNET } },
+      user: { chatModel: { providerId: anthropic.id, modelId: SONNET } },
     });
     expect((await core.getModelRoles()).callHelp).toEqual({
       providerId: anthropic.id,
       modelId: HAIKU,
     });
     await core.updateSettings({
-      device: { lastChatModel: { providerId: openai.id, modelId: "gpt-6.1-sol" } },
+      user: { chatModel: { providerId: openai.id, modelId: "gpt-6.1-sol" } },
     });
 
     // Claude on OpenRouter is another service's route to it, not offered even with Haiku set there.
@@ -359,7 +359,7 @@ describe("Call help's quick model, as Settings offers it", () => {
       modelId: "house-model",
     });
     await core.updateSettings({
-      device: { lastChatModel: { providerId: server.id, modelId: "house-model" } },
+      user: { chatModel: { providerId: server.id, modelId: "house-model" } },
     });
     expect((await core.getModelRoles()).callHelp).toBeNull();
   });
