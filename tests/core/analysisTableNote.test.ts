@@ -1324,7 +1324,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
-  test("a figure has no verdict before a check reads its sentence, nor once the User rewords it, until the next Check judges the new words", async () => {
+  test("a figure takes its verdict from the check that reads its sentence, the write's own, and loses it once the User rewords it, until the next Check judges the new words", async () => {
     const { core, madeId, client } = await walked(
       language,
       lines(words.right),
@@ -1334,7 +1334,9 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       null,
       judgedOther([words.rewordedTo]),
     );
-    expect(await scheduleStates(core, madeId)).not.toContain("supported");
+    // What the assistant wrote is checked after its reply, its uncited claims too (#2830).
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     expect(stateOf(client, words.right)?.state).toBe("supported");
@@ -1839,6 +1841,9 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
           : undefined,
     );
     expect(await scheduleStates(core, madeId)).toHaveLength(1);
+    // The write's own check read the heading as it was then (#2830): only the Check after the
+    // change counts here.
+    prompts.length = 0;
     const heading = client.blocks
       .toArray()
       .find(
