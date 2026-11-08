@@ -72,6 +72,7 @@ function ChooseAnAi() {
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [view, setView] = useState<"key" | null>(null);
   const [initialKey, setInitialKey] = useState("");
+  const [initialKind, setInitialKind] = useState<string | undefined>(undefined);
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
@@ -96,6 +97,14 @@ function ChooseAnAi() {
     setView(null);
     keyField.current?.focus();
   };
+  // Neither plan is sold in mainland China, the region the Chinese interface stands for, so
+  // there they wait under Other ways (#2865).
+  const plans = (
+    <>
+      <ChatGptPlanWay sign={sign} leads={!chinese} />
+      <ClaudePlanWay onUseKey={useKeyInstead} />
+    </>
+  );
 
   return (
     <section
@@ -136,19 +145,15 @@ function ChooseAnAi() {
                 onSaved={() => undefined}
                 unrecognised={{
                   label: "setup.key.chooseService",
-                  run: (key) => {
+                  run: (key, service) => {
                     setInitialKey(key);
+                    setInitialKind(service);
                     setView("key");
                   },
                 }}
               />
             )}
-            {!localOnly && (
-              <>
-                <ChatGptPlanWay sign={sign} chinese={chinese} />
-                <ClaudePlanWay onUseKey={useKeyInstead} />
-              </>
-            )}
+            {!localOnly && !chinese && plans}
             <LocalWay ollama={ollama} />
             {!localOnly && (
               <details
@@ -163,6 +168,7 @@ function ChooseAnAi() {
                   {t("setup.other")}
                 </summary>
                 <div className="mt-2 flex flex-col gap-2">
+                  {chinese && plans}
                   <CopilotSetupWay onKey={useKeyInstead} />
                   {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
                 </div>
@@ -183,6 +189,7 @@ function ChooseAnAi() {
           <ProviderForm
             providers={providers}
             initialKey={initialKey}
+            {...(initialKind !== undefined && { initialKind })}
             onSaved={() => undefined}
             standalone
           />
@@ -203,13 +210,13 @@ function ChooseAnAi() {
   );
 }
 
-/** The ChatGPT plan: the first way in for a User with no key. */
+/** The ChatGPT plan: the first way in for a User with no key, where it can be bought. */
 function ChatGptPlanWay({
   sign,
-  chinese,
+  leads,
 }: {
   sign: ReturnType<typeof useContinueWithChatGpt>;
-  chinese: boolean;
+  leads: boolean;
 }) {
   const t = useT();
   const storage = useChatGptStorage();
@@ -227,13 +234,13 @@ function ChatGptPlanWay({
             sign.failure?.kind === "record-unreadable" ? { replaceUnreadable: true } : {},
           )
         }
-        className={`w-full ${buttonStyle(chinese ? "secondary" : "primary", "lg")}`}
+        className={`w-full ${buttonStyle(leads ? "primary" : "secondary", "lg")}`}
       >
         <ChatGptMark className="size-4" />
         {t("setup.chatgpt.use")}
       </button>
       <p data-testid="setup-chatgpt-line" className={lineClass}>
-        {t(chinese ? "setup.chatgpt.line.china" : "setup.chatgpt.line")}
+        {t("setup.chatgpt.line")}
       </p>
       {/* It signs in at once, so it says here what goes to OpenAI (ADR-0022). */}
       <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />

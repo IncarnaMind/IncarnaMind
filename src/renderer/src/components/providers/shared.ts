@@ -79,6 +79,13 @@ export function keyProviderName(id: string, t: Translate, language: Language): s
   return t(`providers.kind.${kindOfCatalogId(id)}`);
 }
 
+/** A provider's name where room is short: a chip, a form's title, the key field's question. */
+export function shortProviderName(id: string, t: Translate, language: Language): string {
+  return id === "qwen" || id === "deepseek" || id === "kimi"
+    ? t(`providers.kind.short.${id}`)
+    : keyProviderName(id, t, language);
+}
+
 /** "OpenAI","OpenAI-compatible server · api.deepseek.com", "Ollama · on this computer". */
 export function providerLabel(provider: ChatProvider, t: Translate, language: Language): string {
   if (provider.kind === "chatgpt") return t("chatgpt.title");

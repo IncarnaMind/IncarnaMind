@@ -75,6 +75,7 @@ import {
   keyProviderName,
   regionName,
   regionsListed,
+  shortProviderName,
   testErrorKey,
   useProviderKey,
 } from "./shared";
@@ -267,6 +268,9 @@ export function ProviderForm({
     refused?.endpoint ?? initialEndpoint ?? defaultRegion(first, language),
   );
   const key = useProviderKey(initialKey);
+  // First run's field hands over a key typed for no service: it stays while the User picks one
+  // (#2865), until they change it.
+  const [keyForAny, setKeyForAny] = useState(initialKey !== "");
   const { apiKey } = key;
   const [fieldValue, setFieldValue] = useState(() => fieldDefault(first));
   const [baseUrl, setBaseUrl] = useState("");
@@ -370,14 +374,7 @@ export function ProviderForm({
   useEffect(() => {
     if (keyLineShown) keyLine.current?.scrollIntoView({ block: "nearest" });
   }, [keyLineShown]);
-  const shortName = (option: CatalogId) =>
-    option === "qwen"
-      ? t("providers.kind.short.qwen")
-      : option === "deepseek"
-        ? t("providers.kind.short.deepseek")
-        : option === "kimi"
-          ? t("providers.kind.short.kimi")
-          : keyProviderName(option, t, language);
+  const shortName = (option: CatalogId) => shortProviderName(option, t, language);
 
   const chip = (option: CatalogId) => (
     <ChoiceChip
@@ -385,7 +382,7 @@ export function ProviderForm({
       name={`${id}-kind`}
       value={option}
       checked={kind === option}
-      onChange={() => choose(option, { keepKey: keyCheck.blocked })}
+      onChange={() => choose(option, { keepKey: keyCheck.blocked || keyForAny })}
     >
       {shortName(option)}
     </ChoiceChip>
@@ -424,6 +421,7 @@ export function ProviderForm({
     const { key: given, stray } = checkApiKey(value);
     // Spaces around the same key change nothing, and leave an agreement to use it where it was.
     if (given === key.text) return;
+    setKeyForAny(false);
     // A refusal is about the key that was sent: a changed key is not refused yet.
     setTest(null);
     setError(null);
