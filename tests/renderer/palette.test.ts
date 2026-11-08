@@ -246,7 +246,7 @@ describe("⌘K's actions", () => {
 
   test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
     expect(actions("ew note")).toEqual([]);
-    expect(actions("theme")).toEqual([]);
+    expect(actions("thermal")).toEqual([]);
     expect(actions("new note")).toEqual([
       [
         "actions",

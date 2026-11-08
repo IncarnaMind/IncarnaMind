@@ -9,6 +9,8 @@ import {
 } from "../shared/meetingWords";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
+  APPEARANCES,
+  type Appearance,
   type ChatModelChoice,
   CITATION_PLACES,
   type DeviceSettings,
@@ -276,6 +278,7 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingPanelHidden: true,
     meetingHelpKeys: {},
     motion: "system",
+    appearance: "system",
     lastChatModel: null,
   },
   validators: {
@@ -300,6 +303,7 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingHelpKeys: isHelpKeys,
     motion: (value): value is MotionPreference =>
       MOTION_PREFERENCES.some((preference) => preference === value),
+    appearance: (value): value is Appearance => APPEARANCES.some((each) => each === value),
     lastChatModel: isModelSetting,
   },
 };

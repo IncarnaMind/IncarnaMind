@@ -226,7 +226,7 @@
 
   /* Pages lie on a grey backdrop: sheets with a hairline edge, no heavy shadow. */
   .viewer-backdrop {
-    background: var(--color-chip);
+    background: var(--color-page-backdrop);
   }
   [data-quote-tone="not-found"] {
     --quote-wash: var(--color-warning-wash);
@@ -250,11 +250,13 @@
       outline-offset: -1.5px;
     }
   }
+  /* A Document's page is paper in both themes, with its own ink (#1262). */
   .viewer-page {
     @apply bg-sheet;
+    color-scheme: light;
     box-shadow:
       0 0 0 1px var(--color-rule),
-      0 1px 2px rgb(23 25 28 / 0.06);
+      0 1px 2px var(--color-shadow-soft);
   }
 
   /* A TXT or Markdown Document: one page, the Mind's serif at a readable measure. */
@@ -689,6 +691,7 @@
    */
   .viewer-sheet {
     @apply bg-sheet;
+    color-scheme: light;
     --grid-line: var(--color-rule);
     --grid-freeze: var(--color-ink-placeholder);
     /* The quote's wash over a cell's own fill. */
@@ -923,9 +926,10 @@
 }
 .docx-view .docx-wrapper > section.docx {
   margin-bottom: 0;
+  color-scheme: light;
   box-shadow:
     0 0 0 1px var(--color-rule),
-    0 1px 2px rgb(23 25 28 / 0.06);
+    0 1px 2px var(--color-shadow-soft);
   /* Word's own defaults for what a document leaves unset: Times New Roman, 10pt, single spacing. */
   font-family: "Times New Roman", var(--font-serif);
   font-size: 10pt;
@@ -1106,7 +1110,7 @@
   /* A note, beside its mark: its quote, the User's note in place, its colour and what it can do. */
   .annotation-popover {
     @apply flex w-80 flex-col gap-2 rounded-[10px] border border-rule bg-sheet p-3 font-sans text-ui text-ink;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+    box-shadow: 0 8px 24px var(--color-shadow);
   }
   .annotation-popover-head {
     @apply flex items-center gap-2 text-[12px] text-ink-meta;
