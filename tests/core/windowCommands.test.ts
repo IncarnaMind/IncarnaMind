@@ -19,7 +19,6 @@ const request = (clientId: string): Omit<WindowCommandRequest, "requestId"> => (
   run: "run",
   command: "mind.check",
   targets: [],
-  wall: null,
   mindId: null,
   clientId,
 });

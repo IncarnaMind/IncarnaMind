@@ -75,6 +75,7 @@ import {
 } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
+import { escapeMarkdownText } from "../../shared/markdownText";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   linkKnownSources,
@@ -228,6 +229,7 @@ import {
 import { askTool } from "../tools/asks";
 import type { Findable } from "../tools/commands/find";
 import type { CommandWindow } from "../tools/commands/offered";
+import { proposedText } from "../tools/commands/organize";
 import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
@@ -2044,6 +2046,11 @@ export function createAnswers(options: AnswersOptions) {
     const analysisCalls = new Map<string, AnalysisCall>();
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
+    /** What else the User asked for beside an Organize that ran, as its call named it. */
+    const organizedAndAsked = () =>
+      [...commandsDone.values()].find(
+        (done) => done.command === "documents.organize" && done.alsoAsked,
+      )?.alsoAsked ?? null;
     const commandProblems = new Map<string, CommandProblem>();
     /** A command's approval as it first asked, for asking again when its files changed (#2514). */
     const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
@@ -3364,6 +3371,18 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
         {
+          // The Organize call said the User asked for more: an empty reply is asked once for it.
+          name: "organize-rest",
+          check: (text) => {
+            const asked = organizedAndAsked();
+            if (text.trim() !== "" || asked === null) return null;
+            return {
+              claims: [],
+              note: `Your reply is empty. The User also asked, as the Organize call put it: “${asked}”. Answer that now, in the User's language, leaving organizing out.`,
+            };
+          },
+        },
+        {
           name: "claimed-fixes",
           check: (text) => {
             const unmade = minds
@@ -3629,41 +3648,14 @@ export function createAnswers(options: AnswersOptions) {
           };
           const says = (line: string) => holds(line, false);
           const saysName = (name: string) => holds(name, true);
-          // What a command changed, in the app's own words, so the reply and the card agree
-          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          // What a command did, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize proposed for the Documents, which the app alone says
+          // (#1569), and the Tags merged.
           const resultLines: ((each: Language) => string)[] = [];
           for (const done of commandsDone.values()) {
             const folders = done.folders;
-            // The model's own sentence may already name every Folder: the app adds its line only
-            // when the reply doesn't (#2252), so the reply never says the same thing twice.
-            if (
-              done.command === "documents.organize" &&
-              folders &&
-              folders.length > 0 &&
-              !folders.every((folder) => saysName(folder.name))
-            ) {
-              const count = folders.reduce((sum, folder) => sum + folder.count, 0);
-              resultLines.push((each) => {
-                const line = translate(
-                  each,
-                  count === 1 ? "library.review.summary.one" : "library.review.summary",
-                  {
-                    count,
-                    parts: folders
-                      .map((folder) =>
-                        translate(each, "library.review.part", {
-                          count: folder.count,
-                          folder: folder.name,
-                        }),
-                      )
-                      .join(translate(each, "library.review.separator")),
-                  },
-                );
-                // The summary is a card line: in a reply it ends as a sentence, and the line
-                // after it may follow with no space in Chinese.
-                return each === "zh-CN" ? `${line}。` : `${line}.`;
-              });
-            }
+            if (done.command === "documents.organize" && folders && folders.length > 0)
+              resultLines.push((each) => proposedText(each, folders));
             if (done.command === "documents.organize" && done.untouched) {
               const count = done.untouched;
               resultLines.push((each) =>
@@ -3682,6 +3674,13 @@ export function createAnswers(options: AnswersOptions) {
                   count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
                   { count },
                 ),
+              );
+            }
+            // Asked again and still nothing: the reply says what wasn't done, never nothing.
+            if (done.command === "documents.organize" && done.alsoAsked && reply.trim() === "") {
+              const asked = done.alsoAsked;
+              resultLines.push((each) =>
+                translate(each, "answer.commands.notDone", { asked: escapeMarkdownText(asked) }),
               );
             }
             const merges = done.merges;

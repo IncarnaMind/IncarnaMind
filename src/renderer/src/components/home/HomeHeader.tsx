@@ -15,7 +15,7 @@ export function HomeHeader({ now }: { now: Date }) {
   const t = useT();
   const language = useLanguage();
   const own = useOwnMinds().length;
-  const { reading, suggestions } = useHomeNeeds();
+  const { reading } = useHomeNeeds();
   const command = commands.get("mind.new");
   const keys = command ? menuKeysLabel(command) : null;
   const newMind = t("menu.newMind");
@@ -25,17 +25,6 @@ export function HomeHeader({ now }: { now: Date }) {
           {
             id: "reading",
             label: reading === 1 ? t("home.reading.one") : t("home.reading", { count: reading }),
-          },
-        ]
-      : []),
-    ...(suggestions > 0
-      ? [
-          {
-            id: "suggestions",
-            label:
-              suggestions === 1
-                ? t("home.suggestions.one")
-                : t("home.suggestions", { count: suggestions }),
           },
         ]
       : []),
@@ -67,11 +56,7 @@ export function HomeHeader({ now }: { now: Date }) {
                   <button
                     type="button"
                     data-testid={`home-need-${need.id}`}
-                    onClick={() =>
-                      useAppStore
-                        .getState()
-                        .openLibrary(need.id === "suggestions" ? "review" : "all")
-                    }
+                    onClick={() => useAppStore.getState().openLibrary("all")}
                     className={linkClass}
                   >
                     {need.label}

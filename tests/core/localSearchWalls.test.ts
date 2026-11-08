@@ -4,7 +4,7 @@ import type { Core } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 import { scriptedModel } from "../helpers/models";
 
 /** The example Documents the app ships. */
@@ -130,23 +130,19 @@ describe("a search on this computer keeps to the Folder walls (#1934)", () => {
       automatic: false,
     });
     await core.classifyDocuments([suggested.id]);
-    await vi.waitFor(async () => {
-      const item = (await core.getLibrary()).assignments.find(
-        (each) => each.documentId === suggested.id,
-      );
-      expect(item).toMatchObject({ groupId: wall.id, source: "automatic" });
-    });
+    await vi.waitFor(async () => expect(await proposedFor(core, suggested.id)).toBe(wall.id));
     const inside = await core.createMind({ title: "Inside", folderId: wall.id });
     const outside = await core.createMind({ title: "Outside" });
     const from = (mindId: string) => ({ kind: "turn" as const, mindId, conversationId: null });
 
-    // Its suggestion isn't filed by the User, so neither side of the wall reads it.
+    // Proposed for the wall, it is in no Folder until the User confirms it (#1569): the wall
+    // doesn't read it, and work outside every wall does.
     expect(
       await core.searchPassages("suggested", { mode: "keyword", place: from(inside.id) }),
     ).toEqual([]);
     expect(
-      await core.searchPassages("suggested", { mode: "keyword", place: from(outside.id) }),
-    ).toEqual([]);
+      names(await core.searchPassages("suggested", { mode: "keyword", place: from(outside.id) })),
+    ).toEqual(["Suggested"]);
     expect(
       names(await core.searchPassages("lease", { mode: "keyword", place: from(inside.id) })),
     ).toEqual(["Lease"]);

@@ -341,6 +341,12 @@ test("the @ picker's arrows walk the order it draws: a meeting under Notes first
 function asBefore(filings: readonly { documentId: string; folderId: string }[]) {
   const ours = migrations.find((each) => each.description.includes("(#2528)"));
   if (!ours) throw new Error("The migration isn't listed.");
+  // The version before still had Suggested Folders, which ours reads and a later one takes away
+  // (#1569): they come back, and that one runs again after ours.
+  const later = migrations.find((each) =>
+    each.sql.includes("DROP TABLE document_group_rejections"),
+  );
+  if (!later) throw new Error("The migration that ends Suggested Folders isn't listed.");
   const db = openDatabase(join(dataDir, "incarnamind.db"));
   db.exec(`
     DROP TABLE meeting_joins;
@@ -349,6 +355,18 @@ function asBefore(filings: readonly { documentId: string; folderId: string }[]) 
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
     DELETE FROM schema_migrations WHERE version = ${ours.version};
+    ALTER TABLE document_groups ADD COLUMN suggested INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE document_group_rejections (
+      id TEXT PRIMARY KEY NOT NULL,
+      document_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    ) STRICT;
+    CREATE UNIQUE INDEX document_group_rejections_live
+      ON document_group_rejections (document_id, group_id) WHERE deleted_at IS NULL;
+    DELETE FROM schema_migrations WHERE version = ${later.version};
   `);
   for (const { documentId, folderId } of filings) {
     db.run(

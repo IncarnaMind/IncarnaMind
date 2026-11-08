@@ -79,11 +79,10 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
       changed: context.changed,
     };
   }
-  // Organize files at once; it asks only where the rules already ask: the first cloud read for
-  // it (its card's cloud line), or more Documents than one Answer may change at once (#2252).
+  // Organize proposes, which moves nothing: it asks only before a cloud service first reads the
+  // Documents for it, its card's cloud line (#1569, #2252).
   if (checked.confirm === "organize") {
-    const many = checked.changes && context.changed + checked.items.length > COMMAND_AT_ONCE;
-    if (!many && !checked.cloud) return null;
+    if (!checked.cloud) return null;
     return {
       kind: "change",
       command,

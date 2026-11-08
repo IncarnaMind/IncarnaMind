@@ -38,7 +38,6 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
   documentId,
   groupId,
   source: "user",
-  suggested: false,
   status: "classified",
   error: null,
   model: null,

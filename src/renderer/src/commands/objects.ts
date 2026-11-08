@@ -9,6 +9,7 @@ import { countNow, translateNow } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
+import { organizeFolder } from "../organizeDocuments";
 import { useRequests } from "../requests";
 import { hasRowsOfTheirOwn, useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -486,13 +487,13 @@ export const folderCommands: readonly Command[] = [
     appliesTo: ["folder"],
     enabled: (ctx) =>
       folderDocumentIds(ctx).length > 0 ? true : { reason: "folder.organize.empty" },
-    // Suggestions are reviewed and taken back from the Library.
+    // What it proposes waits in the Review, where nothing moves before Confirm (#1569).
     reversible: true,
-    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    // The assistant's Organize is documents.organize, which replies with its Review (#2252).
     assistant: false,
     async run(ctx) {
-      if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
-      await core.classifyDocuments(folderDocumentIds(ctx));
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await organizeFolder(id);
     },
   },
   {

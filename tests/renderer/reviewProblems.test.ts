@@ -32,7 +32,6 @@ const held = (
     documentId,
     groupId: null,
     source: "automatic",
-    suggested: false,
     status: "failed",
     error: kind ? { kind, message: "The provider's own sentence, cut short in a row." } : null,
     model: null,

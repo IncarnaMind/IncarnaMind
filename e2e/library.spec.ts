@@ -120,6 +120,42 @@ async function infoOf(window: Page, row: Locator): Promise<Locator> {
 /** Organize, beside Not in a Folder's count. */
 const organize = (library: Locator) => library.getByTestId("library-organize");
 
+/** The Review, which fills the Library's page once Organize has proposed. */
+const reviewOf = (window: Page) => window.getByTestId("organize-review");
+
+/** A card of the Review, by the name of its Folder. */
+const card = (window: Page, name: string) =>
+  window.getByTestId("organize-review-card").filter({
+    has: window
+      .getByTestId("organize-review-card-name")
+      .filter({ hasText: new RegExp(`^${name}$`) }),
+  });
+
+/** The Documents in a Folder, or with an Organize still to run or to retry: none, before Confirm. */
+const filedOrUnsettled = async (window: Page) =>
+  (await coreOf(window)).evaluate(async (core) =>
+    (await core.getLibrary()).assignments
+      .filter(
+        (each) =>
+          each.groupId !== null ||
+          ["pending", "classifying", "waiting", "failed"].includes(each.status),
+      )
+      .map((each) => `${each.documentId} ${each.status}`),
+  );
+
+/** Each Document's Folder by name (null: none) and who chose it, as the core has them. */
+const placed = async (window: Page) =>
+  (await coreOf(window)).evaluate(async (core) => {
+    const [library, documents] = await Promise.all([core.getLibrary(), core.listDocuments()]);
+    return Object.fromEntries(
+      documents.map((document) => {
+        const held = library.assignments.find((each) => each.documentId === document.id);
+        const folder = library.groups.find((group) => group.id === held?.groupId);
+        return [document.name, { folder: folder?.name ?? null, source: held?.source ?? null }];
+      }),
+    );
+  });
+
 test("folders, tags, search, edits and removal update the index while originals stay in place", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
@@ -201,7 +237,7 @@ test("folders, tags, search, edits and removal update the index while originals 
   }
 });
 
-test("Organize suggests a Folder and Tags, keeps corrections and survives reopening", async () => {
+test("Organize proposes a Folder that Confirm files, keeps the User's corrections and survives reopening", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await dismissChatSetup(window);
@@ -235,20 +271,30 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     const library = window.getByTestId("library");
     await pointAndClick(window, organize(library));
 
-    // Suggested: it lists and counts in the Folder, marked, with Organize's Tags.
+    // Proposed: it waits in the Review under the Folder, and nothing is filed before Confirm.
+    const review = reviewOf(window);
+    await expect(review).toBeVisible({ timeout: 30_000 });
+    await expect(
+      review.getByTestId("organize-review-yours").getByTestId("organize-review-card-name"),
+    ).toHaveText(["Research"]);
+    await expect(card(window, "Research").getByTestId("organize-review-name")).toHaveText([
+      "Research notes",
+    ]);
+    expect(await placed(window)).toEqual({
+      "Research notes": { folder: null, source: "automatic" },
+    });
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
     const research = section(library, "Research");
     const row = rowOf(research, "Research notes");
-    await expect(row.getByTestId("library-suggested")).toHaveText("Suggested");
-    await expect(row.getByTestId("document-tags")).toContainText("Report");
+    await expect(row).toHaveCount(1);
     let info = await infoOf(window, row);
-    await expect(info.getByTestId("info-organize")).toContainText("Suggested");
-    await expect(info.getByTestId("info-organize")).toContainText("small-classifier · Text");
+    await expect(info.getByTestId("info-organize")).toContainText("Your choice");
     await window.keyboard.press("Escape");
 
     // Corrected by hand: its Tags, and out of the Folder.
     await pointAt(window, row);
     await pointAndClick(window, row.getByTestId("document-tags-menu"));
-    await row.getByRole("option", { name: "Report", exact: true }).click();
     await row.getByRole("option", { name: "Invoice", exact: true }).click();
     await window.keyboard.press("Escape");
     await moveRow(window, row, "Not in a Folder");
@@ -256,28 +302,17 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     const looseRow = rowOf(loose, "Research notes");
     await expect(looseRow).toHaveCount(1);
 
-    // Organize again keeps both.
+    // Organize again proposes nothing against the User's own place, and keeps their Tags.
     await pointAndClick(window, organize(library));
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Organize found no Folder to suggest for these Documents",
+    );
+    await expect(review).toHaveCount(0);
     await expect(looseRow.getByTestId("document-tags")).toContainText("Invoice");
-    await expect(looseRow.getByTestId("document-tags")).not.toContainText("Report");
+    expect(await placed(window)).toEqual({ "Research notes": { folder: null, source: "user" } });
     info = await infoOf(window, looseRow);
     await expect(info.getByTestId("info-organize")).toContainText("Your choice");
     await window.keyboard.press("Escape");
-
-    // A new Tag, made in Manage Tags from the row's Tags, is one Organize can give.
-    await pointAt(window, looseRow);
-    await pointAndClick(window, looseRow.getByTestId("document-tags-menu"));
-    await looseRow.getByTestId("open-tags-dialog").click();
-    const dialog = window.getByTestId("tags-dialog");
-    await dialog.getByTestId("tag-name-input").fill("Membrane");
-    await dialog.getByTestId("tag-description-input").fill("Membrane science");
-    await dialog.getByTestId("save-tag").click();
-    await dialog.getByRole("button", { name: "Done" }).click();
-    await pointAndClick(window, organize(library));
-    await expect(looseRow.getByTestId("document-tags")).toContainText("Membrane");
-    await library.getByLabel("Search the Library").fill("Membrane");
-    await expect(library.getByTestId("library-document")).toHaveCount(1);
   } finally {
     await app.close();
   }
@@ -286,7 +321,7 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
     await reopened.window.getByTestId("open-library").click();
     const library = reopened.window.getByTestId("library");
     const row = rowOf(section(library, "Not in a Folder"), "Research notes");
-    await expect(row.getByTestId("document-tags")).toContainText("Membrane");
+    await expect(row.getByTestId("document-tags")).toContainText("Invoice");
     const settings = await taggingSettings(reopened.window, { chosen: true });
     await expect(settings.getByTestId("tagging-other")).toContainText("small-classifier");
     await expect(settings.getByLabel("Model name", { exact: true })).toHaveValue(
@@ -297,7 +332,7 @@ test("Organize suggests a Folder and Tags, keeps corrections and survives reopen
   }
 });
 
-test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one step, leaving a Document chosen in between as it was (#1391)", async () => {
+test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one step, leaving a Document chosen in between as it was (#1391)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await dismissChatSetup(window);
@@ -333,11 +368,13 @@ test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one
     const library = window.getByTestId("library");
     await pointAndClick(window, organize(library));
 
+    const rows = card(window, "Research").getByTestId("organize-review-row");
+    await expect(rows).toHaveCount(3, { timeout: 30_000 });
+    await pointAndClick(window, reviewOf(window).getByTestId("organize-review-confirm"));
     const research = section(library, "Research");
-    const suggested = research.getByTestId("library-suggested");
-    await expect(suggested).toHaveCount(3);
-    await expect(window.getByTestId("undo-line")).toContainText(
-      "Organize suggested a Folder for 3 Documents",
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
+    await expect(window.getByTestId("undo-line-here").getByTestId("undo-message")).toHaveText(
+      "Organized 3 Documents",
     );
     const menu = (id: "edit.undo" | "edit.redo") =>
       app.evaluate(({ Menu }, item) => {
@@ -345,40 +382,44 @@ test("⌘Z takes Organize's suggestions back and ⇧⌘Z brings them back in one
         return { label: found?.label ?? "", enabled: found?.enabled ?? false };
       }, id);
     await expect.poll(() => menu("edit.undo")).toEqual({ label: "Undo Organize", enabled: true });
+    const folders = async () =>
+      Object.entries(await placed(window))
+        .map(([name, place]) => `${name}: ${place.folder ?? "none"}`)
+        .sort();
 
-    // ⌘Z takes all of it back.
+    // ⌘Z takes all of it back, and the Review comes back with what it proposed.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(research.getByTestId("library-document")).toHaveCount(0);
-    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
-      3,
-    );
+    await expect(rows).toHaveCount(3);
+    await expect
+      .poll(folders)
+      .toEqual(["Research notes A: none", "Research notes B: none", "Research notes C: none"]);
     await expect.poll(() => menu("edit.redo")).toEqual({ label: "Redo Organize", enabled: true });
 
-    // One Document is put in the Folder meanwhile, by a change that leaves no step: Redo leaves it as chosen.
+    // One Document is put in another Folder meanwhile, by a change that leaves no step: Redo
+    // leaves it as chosen.
     await (await coreOf(window)).evaluate(async (core) => {
-      const documents = await core.listDocuments();
-      const folders = (await core.getLibrary()).groups;
-      const chosen = documents.find((each) => each.name === "Research notes B");
-      const research = folders.find((each) => each.name === "Research");
-      if (!chosen || !research) throw new Error("No Document or Folder to choose.");
-      await core.assignDocumentGroup(chosen.id, research.id);
+      const chosen = (await core.listDocuments()).find((each) => each.name === "Research notes B");
+      if (!chosen) throw new Error("No Document to choose.");
+      const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+      await core.assignDocumentGroup(chosen.id, archive.id);
     });
-    await expect(research.getByTestId("library-document")).toHaveCount(1);
-    await expect(suggested).toHaveCount(0);
 
-    // ⇧⌘Z brings the other two back, in one step with its line, and a second does nothing.
+    // ⇧⌘Z files the other two again, in one step, and a second does nothing.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(research.getByTestId("library-document")).toHaveCount(3);
-    await expect(suggested).toHaveCount(2);
-    await expect(window.getByTestId("undo-line")).toContainText(
-      "Organize suggested a Folder for 3 Documents",
-    );
+    await expect(reviewOf(window)).toHaveCount(0);
+    await expect(research.getByTestId("library-document")).toHaveCount(2);
+    await expect
+      .poll(folders)
+      .toEqual([
+        "Research notes A: Research",
+        "Research notes B: Archive",
+        "Research notes C: Research",
+      ]);
     await expect.poll(() => menu("edit.redo")).toMatchObject({ enabled: false });
     await window.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(research.getByTestId("library-document")).toHaveCount(3);
-    await expect(suggested).toHaveCount(2);
+    await expect(research.getByTestId("library-document")).toHaveCount(2);
   } finally {
     await app.close();
   }
@@ -418,11 +459,14 @@ test("turning embeddings on files nothing: a Document added before the first Fol
     await expect.poll(statuses).toContain("embedding");
     await expect.poll(async () => (await statuses()).at(-1)).toBe("ready");
 
-    // Its vectors were made again, and nothing was filed: no suggestion in Review or in the Folder.
+    // Its vectors were made again, and nothing was filed or proposed: nothing waits to confirm.
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    await expect(library.getByTestId("library-review")).toHaveCount(0);
-    await expect(library.getByTestId("library-suggested")).toHaveCount(0);
+    await expect(rowOf(library, "Membrane notes")).toHaveCount(1);
+    await expect(library.getByTestId("organize-waiting")).toHaveCount(0);
+    expect(
+      await (await coreOf(window)).evaluate(async (core) => (await core.getOrganizeReview()).items),
+    ).toEqual([]);
     const info = await infoOf(window, rowOf(library, "Membrane notes"));
     await expect(info.getByTestId("info-organize")).toContainText("Not organized yet");
     await expect(info.getByTestId("info-organize")).not.toContainText("Needs attention");
@@ -442,7 +486,7 @@ test("turning embeddings on files nothing: a Document added before the first Fol
   }
 });
 
-test("Undo of an Organize that began with no model leaves the Documents unfiled with nothing waiting, ⇧⌘Z files them again, and the next start organizes nothing (#1391)", async () => {
+test("Undo of a Confirm after an Organize that began with no model leaves the Documents unfiled and waiting, ⇧⌘Z files them again, and the next start organizes nothing (#1391)", async () => {
   const names = ["Research notes A", "Research notes B", "Research notes C"];
   const paths: string[] = [];
   for (const name of names) {
@@ -462,59 +506,50 @@ test("Undo of an Organize that began with no model leaves the Documents unfiled 
     await pointAndClick(window, organize(library));
     await pointAndClick(window, library.getByTestId("library-organize-use"));
 
+    // It proposes, and files nothing before Confirm.
+    const rows = card(window, "Research").getByTestId("organize-review-row");
+    await expect(rows).toHaveCount(3, { timeout: 30_000 });
+    expect(await filedOrUnsettled(window)).toEqual([]);
+    await pointAndClick(window, reviewOf(window).getByTestId("organize-review-confirm"));
     const research = section(library, "Research");
-    const suggested = research.getByTestId("library-suggested");
-    await expect(suggested).toHaveCount(3);
-    await expect(window.getByTestId("undo-line")).toContainText(
-      "Organize suggested a Folder for 3 Documents",
-    );
-    const assignments = async () =>
-      (await coreOf(window)).evaluate(async (core) => (await core.getLibrary()).assignments);
+    await expect(research.getByTestId("library-document")).toHaveCount(3);
 
-    // ⌘Z puts the three back unfiled, with no assignment left to wait or to organize.
+    // ⌘Z puts the three back unfiled, waiting in the Review, with no assignment left to organize.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(research.getByTestId("library-document")).toHaveCount(0);
-    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
-      3,
-    );
-    expect(await assignments()).toEqual([]);
+    await expect(rows).toHaveCount(3);
+    await expect.poll(() => filedOrUnsettled(window)).toEqual([]);
     await expect(window.getByTestId("organization-attention")).toHaveCount(0);
 
-    // ⇧⌘Z gives the Folders back.
+    // ⇧⌘Z files them again.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(research.getByTestId("library-document")).toHaveCount(3);
-    await expect(suggested).toHaveCount(3);
 
-    // Undone again, the next start finds nothing to organize.
+    // Undone again, the next start finds nothing to organize, and the Review still waits.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(research.getByTestId("library-document")).toHaveCount(0);
-    expect(await assignments()).toEqual([]);
+    await expect(rows).toHaveCount(3);
+    await expect.poll(() => filedOrUnsettled(window)).toEqual([]);
   } finally {
     await first.app.close();
   }
   const reopened = await launchApp(dataDir, { fakeChat: true });
   try {
     await reopened.window.getByTestId("open-library").click();
-    await expect(
-      section(reopened.window.getByTestId("library"), "Not in a Folder").getByTestId(
-        "library-document",
-      ),
-    ).toHaveCount(3);
-    expect(
-      await (await coreOf(reopened.window)).evaluate(
-        async (core) => (await core.getLibrary()).assignments,
-      ),
-    ).toEqual([]);
+    const library = reopened.window.getByTestId("library");
+    await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
+      3,
+    );
+    await expect(library.getByTestId("organize-waiting")).toContainText("3 Documents to confirm");
+    expect(await filedOrUnsettled(reopened.window)).toEqual([]);
     await expect(reopened.window.getByTestId("organization-attention")).toHaveCount(0);
   } finally {
     await reopened.app.close();
   }
 });
 
-test("Organize's undo line says what it suggested once the run ends, in English and Chinese (#1391)", async () => {
+test("Organize's Review and Confirm's line say what they do, in English and Chinese (#1391)", async () => {
   const paths: string[] = [];
   for (const name of ["Membrane one", "Membrane two", "Membrane three"]) {
     const path = join(sources, `${name}.txt`);
@@ -529,27 +564,39 @@ test("Organize's undo line says what it suggested once the run ends, in English 
     await connectLocalChatModel(window, "main-chat");
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    const research = section(library, "Research");
-    const suggested = research.getByTestId("library-suggested");
-    const line = window.getByTestId("undo-line");
+    const review = reviewOf(window);
+    const line = window.getByTestId("undo-line-here").getByTestId("undo-message");
 
-    // Organize asks for its model, runs, and says what it suggested, in English.
+    // Organize asks for its model, runs, and the Review says what will move, in English.
     await pointAndClick(window, organize(library));
     await pointAndClick(window, library.getByTestId("library-organize-use"));
-    await expect(suggested).toHaveCount(3);
-    await expect(line).toContainText("Organize suggested a Folder for 3 Documents");
+    await expect(review.getByTestId("organize-review-title")).toHaveText("Suggested Folders", {
+      timeout: 30_000,
+    });
+    await expect(review.getByTestId("organize-review-will-move")).toHaveText(
+      "3 Documents will move into 1 of your Folders. Nothing has moved yet.",
+    );
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(line).toHaveText("Organized 3 Documents");
 
-    // Undone and organized again, with the model already chosen, it says it in the language the interface is in.
+    // Undone and set aside, then organized again with the model already chosen, it says it in
+    // the language the interface is in.
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
+    await expect(review).toBeVisible();
+    await pointAndClick(window, review.getByTestId("organize-review-menu"));
+    await pointAndClick(window, window.getByTestId("organize-review-discard"));
     await expect(section(library, "Not in a Folder").getByTestId("library-document")).toHaveCount(
       3,
     );
     await setLanguage(window, "zh-CN");
     await expect(organize(library)).toHaveText("整理");
     await pointAndClick(window, organize(library));
-    await expect(suggested).toHaveCount(3);
-    await expect(line).toContainText("已为 3 个文档推荐文件夹");
+    await expect(review.getByTestId("organize-review-title")).toHaveText("建议的文件夹", {
+      timeout: 30_000,
+    });
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(line).toHaveText("已整理 3 个文档");
   } finally {
     await app.close();
   }
@@ -716,7 +763,18 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
       await expect(info.getByTestId("info-organize")).toContainText(model);
       await window.keyboard.press("Escape");
     };
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
+    // The model fits neither Document in a Folder: the Review leaves both out, and Discard sets
+    // them aside.
+    const review = reviewOf(window);
+    await expect(review.getByTestId("organize-review-left-out-row")).toHaveCount(2, {
+      timeout: 30_000,
+    });
+    const discard = async () => {
+      await pointAndClick(window, review.getByTestId("organize-review-menu"));
+      await pointAndClick(window, window.getByTestId("organize-review-discard"));
+      await expect(review).toHaveCount(0);
+    };
+    await discard();
     await organized(notes, "tev1:0.8b · Text");
     await organized(scan, "clef-flash · Text + PDF pages");
     // Organize's requests ask for a Folder; the Document that waited for a model was tagged before it ran.
@@ -747,8 +805,11 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
       window,
       library.getByTestId("library-organize-failed").getByRole("button", { name: "Try again" }),
     );
+    await expect(review.getByTestId("organize-review-left-out-row").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await discard();
     await expect(library.getByTestId("library-organize-failed")).toHaveCount(0);
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
     // Auto takes tev1:4b now it's there, unless this computer has too little memory for it
     // (the CI runner has 7 GB): then it keeps to the smaller model, and says why.
     await organized(
@@ -882,9 +943,9 @@ test("organized folders remain separate from source locations and follow changes
   }
 });
 
-test("a bulk Organize leaves the Library's sections, filters and sidebar as the core has them", async () => {
-  // Organize works through every Document, sending each one's progress (#156): the window
-  // gathers those and must still end up showing exactly what the core saved.
+test("a bulk Organize's Confirm leaves the Library's sections, filters and sidebar as the core has them", async () => {
+  // Confirm files every ticked Document in one step (#156, #1569): the window gathers what
+  // changed and must still end up showing exactly what the core saved.
   test.setTimeout(240_000);
   const kinds = [
     ["Research paper", "polyamide membranes separate dissolved salts from seawater."],
@@ -929,6 +990,24 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
         { timeout: 120_000 },
       )
       .toBe(count);
+    // Organize proposes no Tags: these are the User's own, for the filters to count.
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [documents, tags] = await Promise.all([core.listDocuments(), core.listTags()]);
+      for (const [kind, tagName] of [
+        ["Research paper", "Paper"],
+        ["Research report", "Report"],
+        ["Finance invoice", "Invoice"],
+        ["Meetings notes", "Notes"],
+      ]) {
+        const tag = tags.find((each) => each.name === tagName);
+        if (!tag) throw new Error(`No ${tagName} Tag.`);
+        await core.addTagToDocuments(
+          documents.filter((doc) => doc.name.startsWith(`${kind} `)).map((doc) => doc.id),
+          tag.id,
+        );
+      }
+    });
 
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
@@ -936,9 +1015,23 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
     const loose = section(library, "Not in a Folder");
     await expect(loose).toHaveAttribute("data-count", "200");
     await pointAndClick(window, organize(library));
-    await expect(library.getByTestId("library-organizing")).toBeVisible();
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0, { timeout: 120_000 });
-    await expect(organize(library)).toBeVisible();
+
+    // The Review proposes the three Folders there are and a new one for the holiday lists,
+    // which the User unticks: those stay where they are.
+    const review = reviewOf(window);
+    await expect(review).toBeVisible({ timeout: 120_000 });
+    await expect(
+      review.getByTestId("organize-review-yours").getByTestId("organize-review-card-name"),
+    ).toHaveText(["Finance", "Meetings", "Research"]);
+    await pointAndClick(window, card(window, "Holiday").getByTestId("organize-review-card-tick"));
+    await expect(review.getByTestId("organize-review-will-move")).toHaveText(
+      "160 Documents will move into 3 of your Folders. Nothing has moved yet.",
+    );
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
+    await expect(window.getByTestId("undo-line-here").getByTestId("undo-message")).toHaveText(
+      "Organized 160 Documents",
+    );
 
     // What the core saved, Folder by Folder and Tag by Tag.
     const saved = await window.evaluate(async () => {
@@ -950,9 +1043,10 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
       ]);
       const folders: Record<string, number> = { "Not in a Folder": 0 };
       for (const group of library.groups) folders[group.name] = 0;
-      for (const item of library.assignments) {
+      for (const doc of documents) {
+        const held = library.assignments.find((item) => item.documentId === doc.id);
         const name =
-          library.groups.find((group) => group.id === item.groupId)?.name ?? "Not in a Folder";
+          library.groups.find((group) => group.id === held?.groupId)?.name ?? "Not in a Folder";
         folders[name] = (folders[name] ?? 0) + 1;
       }
       const byTag: Record<string, number> = {};
@@ -960,18 +1054,11 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
         byTag[tag.name] = documents.filter((doc) =>
           doc.tags.some((link) => link.tagId === tag.id),
         ).length;
-      return {
-        folders,
-        byTag,
-        classified: library.assignments.filter((item) => item.status === "classified").length,
-        tagged: documents.filter((doc) => doc.tagging === "tagged").length,
-      };
+      return { folders, byTag };
     });
     expect(saved).toEqual({
       folders: { Research: 80, Finance: 40, Meetings: 40, "Not in a Folder": 40 },
       byTag: expect.objectContaining({ Paper: 40, Report: 40, Invoice: 40, Notes: 40, Book: 0 }),
-      classified: count,
-      tagged: count,
     });
 
     // The Library's sections and the sidebar's Folders: the same counts.
@@ -985,11 +1072,7 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
       await expect(section(library, name)).toHaveAttribute("data-count", String(total));
       if (name === "Not in a Folder")
         await expect(notInAFolder).toHaveAttribute("data-count", String(total));
-      else
-        await expect(folderRow(name).getByTestId("browse-count")).toHaveText(
-          // Every Document Organize filed here waits for the User: the count says how many.
-          `${total} · ${total} suggested`,
-        );
+      else await expect(folderRow(name).getByTestId("browse-count")).toHaveText(String(total));
     }
     // Closed, a Folder lists nothing; Not in a Folder lists its first few, then "Show N more".
     await expect(folders.getByTestId("document-list-item")).toHaveCount(5);
@@ -1002,9 +1085,6 @@ test("a bulk Organize leaves the Library's sections, filters and sidebar as the 
     await expect(research.getByTestId("document-list-item")).toHaveCount(5);
     await research.getByTestId("show-more-documents").click();
     await expect(research.getByTestId("document-list-item")).toHaveCount(55);
-    await expect(
-      folders.locator('[data-testid="document-list-item"]:not([data-tagging="tagged"])'),
-    ).toHaveCount(0);
     // Each section lists its first 8; none couldn't be sorted.
     await expect(library.getByTestId("library-document")).toHaveCount(4 * 8);
     await expect(library.getByTestId("library-not-sorted")).toHaveCount(0);

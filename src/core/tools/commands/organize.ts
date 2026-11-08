@@ -1,22 +1,29 @@
 /**
  * Organize by what the Documents say (#1421): the Library's own Organize, on the Documents named
- * or found, or those in no Folder, with the Folder the request names among those it may choose,
- * made for it if there is none, and Folders proposed when there are none at all. The User asked,
- * so it asks once in place and then files them, the way Accept all does (#2252): one Undo puts
- * every Document back and takes away the Folders it made. With no model chosen for Organize it
- * takes the one the Library offers as "Use {company}", asks where that Library question would, and
- * keeps it as Organize's model; under a standing no it only lends it for the run (#2252).
+ * or found, or those in no Folder. With no Folder named, outside every wall, it plans them as the
+ * Library's Organize does, at any size; with one named, proposed by name if there is none, or
+ * inside a wall, it sorts each into the Folders it may choose. Nothing moves from the chat
+ * (#1569): what it proposes waits in Suggestions, and the reply's Review button opens them. It
+ * asks only before a cloud service first reads the Documents for it, and its Undo takes its
+ * proposals back out. With no model chosen for Organize it takes the one the
+ * Library offers as "Use {company}", asks where that Library question would, and keeps it as
+ * Organize's model; under a standing no it only lends it for the run (#2252).
  */
+
+import { translate } from "../../../shared/i18n";
 import type {
-  AssignmentChange,
-  AssignmentState,
   Document,
   DocumentGroupAssignment,
   DocumentTag,
   LibraryGroup,
+  OrganizeLibraryResult,
+  OrganizeReviewChange,
+  OrganizeReviewItem,
+  RunEstimate,
   TagLinkChange,
   TagLinkState,
 } from "../../api";
+import type { Language } from "../../language";
 import { classifyProviderError } from "../../providers/providerErrors";
 import {
   type CheckedCommand,
@@ -24,11 +31,9 @@ import {
   type CommandsCore,
   documentItem,
   documentsOf,
-  folderNamed,
-  holdsAny,
   inApp,
   plural,
-  unmake,
+  same,
 } from "./run";
 
 type TagLink = Pick<DocumentTag, "source" | "confidence" | "needsReview">;
@@ -54,28 +59,29 @@ const sameLink = (a: TagLink | null, b: TagLink | null) =>
     ? a === b
     : a.source === b.source && a.confidence === b.confidence && a.needsReview === b.needsReview;
 
-/** What the Library's Organize hasn't finished with: Undo puts such a Document back with none. */
-const unfinished = (item: DocumentGroupAssignment) =>
-  item.status === "pending" || item.status === "classifying" || item.status === "waiting";
-
-const stateOf = (item: DocumentGroupAssignment | undefined): AssignmentState => {
-  if (!item) return { assignment: null, tagging: null };
-  const { documentId: _id, tagging, ...assignment } = item;
-  return { assignment, tagging: tagging ?? null };
-};
-
-/** As it was before Organize ran, except one it hadn't finished with, which goes back with none (#1391). */
-const wasBefore = (item: DocumentGroupAssignment | undefined): AssignmentState =>
-  item && !unfinished(item) ? stateOf(item) : { assignment: null, tagging: stateOf(item).tagging };
-
-async function assignmentsOf(core: CommandsCore, ids: readonly string[]) {
-  const { assignments } = await core.getLibrary();
-  const wanted = new Set(ids);
-  return new Map(
-    assignments
-      .filter((each) => wanted.has(each.documentId))
-      .map((each) => [each.documentId, each]),
-  );
+/** Puts each Tag link Organize changed back to `to`, where it is still as `from` and the User hasn't decided on it. */
+async function revertTags(
+  core: CommandsCore,
+  ids: readonly string[],
+  changes: readonly TagLinkChange[],
+  direction: "back" | "again",
+): Promise<void> {
+  const documents = await core.listDocuments();
+  const live = new Set(documents.map((each) => each.id));
+  const liveTags = new Set((await core.listTags()).map((each) => each.id));
+  const decided = decisionsOf(await core.listDocumentTagDecisions([...ids]));
+  const linksNow = tagLinksOf(documents.filter((each) => ids.includes(each.id)));
+  const links: TagLinkState[] = [];
+  for (const change of changes) {
+    if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
+    if (decided.get(change.documentId)?.has(change.tagId)) continue;
+    const from = direction === "back" ? change.after : change.before;
+    const to = direction === "back" ? change.before : change.after;
+    const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
+    if (!sameLink(nowLink, from)) continue;
+    links.push({ documentId: change.documentId, tagId: change.tagId, link: to });
+  }
+  if (links.length > 0) await core.revertDocumentTags(links);
 }
 
 /** The User's Documents in no Folder, as the Library's Organize sorts them; the examples never. */
@@ -91,7 +97,7 @@ async function inNoFolder(core: CommandsCore) {
   return own;
 }
 
-/** What couldn't be sorted, in one line: the failure's own words, or the first Document's. */
+/** What couldn't be placed, in one line: the failure's own words, or the first Document's. */
 function unsortedReason(
   failed: unknown,
   waiting: readonly DocumentGroupAssignment[],
@@ -99,6 +105,74 @@ function unsortedReason(
   if (failed) return classifyProviderError(failed).message;
   for (const item of waiting) if (item.error) return item.error.message;
   return null;
+}
+
+/** Why the plan left Documents out, when it is more than that no Folder fitted them. */
+function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
+  for (const { placement } of items) {
+    if (placement.kind !== "leftOut") continue;
+    if (placement.leftOut?.reason === "unreachable")
+      return `${placement.leftOut.service} couldn't be reached`;
+    if (placement.leftOut?.reason === "noText") return "no text to read";
+  }
+  return null;
+}
+
+/**
+ * What the model reads once Organize proposed (#1569): the app writes the proposals as the reply,
+ * since models that narrated them wrote "filed" and "moved" of Documents that only wait. With
+ * nothing else asked the turn ends there; whenever it goes on (more asked, or another call in the
+ * same step), the model is told the same: leave organizing out.
+ */
+const LEAVE_ORGANIZING_OUT =
+  "IncarnaMind has already shown the User what Organize proposed, in its own words. Your reply leaves organizing out entirely, as if it had not been asked: no word about Organize, Folders or where the Documents are.";
+const proposalsShown = (alsoAsked: string | null) =>
+  alsoAsked === null
+    ? `${LEAVE_ORGANIZING_OUT} If the User asked for nothing else, write nothing.`
+    : `${LEAVE_ORGANIZING_OUT} Answer the rest of the request, as its call put it: “${alsoAsked}”`;
+
+/** What Organize proposed, as the reply says it in `language`: the app writes it, not the model. */
+export function proposedText(
+  language: Language,
+  folders: readonly { name: string; count: number }[],
+): string {
+  const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+  const proposed = translate(language, "answer.commands.proposed", {
+    folders: translate(
+      language,
+      folders.length === 1
+        ? "answer.commands.proposed.folders.one"
+        : "answer.commands.proposed.folders",
+      { count: folders.length },
+    ),
+    documents: translate(
+      language,
+      count === 1 ? "organizeReview.documents.one" : "organizeReview.documents",
+      { count },
+    ),
+    parts: folders
+      .map((folder) =>
+        translate(language, "answer.commands.proposed.part", {
+          folder: folder.name,
+          count: folder.count,
+        }),
+      )
+      .join(translate(language, "answer.commands.proposed.separator")),
+  });
+  const wait = translate(
+    language,
+    count === 1 ? "answer.commands.proposed.wait.one" : "answer.commands.proposed.wait",
+  );
+  return language === "zh-CN" ? `${proposed}${wait}` : `${proposed} ${wait}`;
+}
+
+/** What the model is told of a plan that would cost more than IncarnaMind spends unshown. */
+function costSaid(count: number, estimate: RunEstimate): string {
+  const cost = estimate.billing === "per-token" ? estimate.cost : null;
+  const amount = cost
+    ? `about ${cost.amount.toFixed(2)} ${cost.currency}`
+    : "more than 1 US dollar";
+  return `Organizing ${plural(count, "Document")} would cost ${amount} on the Organize model, so nothing was sent and nothing was proposed. Tell the User they can start Organize from the Library, which shows the cost before it runs.`;
 }
 
 export const organizeChecker: Checker = async (input, host, { wallId }) => {
@@ -146,7 +220,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       items,
       requested,
       withPick(async (_asking, signal, permit) => {
-        // Nothing to sort: no Folder is made or taken away for it.
         if (ids.length === 0) {
           return {
             done: { items: [] },
@@ -154,209 +227,164 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             said: "No Document is in no Folder, so Organize had nothing to sort.",
           };
         }
-        const before = await assignmentsOf(core, ids);
-        const made: LibraryGroup[] = [];
+        const runId = crypto.randomUUID();
+        const proposed: string[] = [];
         let named: LibraryGroup | null = null;
         if (requested !== null) {
-          const { folder, made: created } = await folderNamed(core, requested, input.about ?? "");
-          named = folder;
-          if (created) made.push(folder);
-        } else if ((await core.getLibrary()).groups.length === 0) {
-          made.push(...(await host.proposeFolders(ids, permit)));
+          const { groups } = await core.getLibrary();
+          named = groups.find((group) => same(group.name, requested)) ?? null;
+          const folder = named ? null : host.proposeFolder(requested, input.about ?? "");
+          if (folder) proposed.push(folder.id);
         }
+        const waitingBefore = new Set(
+          (await core.getOrganizeReview()).items.map((item) => item.id),
+        );
+        let planned: OrganizeLibraryResult | null = null;
         let failed: unknown | null = null;
         let untouched = 0;
         let tagChanges: TagLinkChange[] = [];
         try {
-          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
-            ids,
-            signal,
-            wallId,
-            permit,
-          ));
+          if (requested === null && wallId === null)
+            planned = await host.organizeByPlan(ids, signal, permit, runId);
+          if (planned === null)
+            ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
+              ids,
+              signal,
+              wallId,
+              permit,
+              runId,
+            ));
         } catch (error) {
-          for (const folder of made) {
-            if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
-          }
+          host.withdrawOrganizeRun(runId, proposed);
           throw error;
         }
-        const after = await assignmentsOf(core, ids);
-        const waiting = [...after.values()].filter((item) => item.suggested);
-        const suggested = waiting.map((item) => item.documentId);
-        // The Folder each was checked against goes with the accept, so the wall is judged at the
-        // filing as the window's Accept all does (#2250).
-        const checked = Object.fromEntries(
-          waiting.map((item) => [item.documentId, item.groupId ?? null]),
+        if (planned?.status === "estimate")
+          return { done: { items: [] }, step: null, said: costSaid(ids.length, planned.estimate) };
+        if (planned?.status === "stopped")
+          return {
+            done: { items: [] },
+            step: null,
+            said: "Organize stopped before it proposed anything. Nothing moved.",
+          };
+        const review = await core.getOrganizeReview();
+        const wanted = new Set(ids);
+        const fresh = review.items.filter(
+          (item) => wanted.has(item.documentId) && !waitingBefore.has(item.id),
         );
-        let moved: AssignmentChange[] = [];
-        try {
-          if (suggested.length > 0)
-            moved = await core.acceptAssignments(suggested, checked, wallId);
-        } catch (error) {
-          for (const folder of made) {
-            if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
-          }
-          throw error;
-        }
-        const movedIds = new Set(moved.map((change) => change.documentId));
-        const left = new Map<string, AssignmentState>();
-        for (const id of ids) left.set(id, stateOf(after.get(id)));
-        for (const change of moved) left.set(change.documentId, change.after);
-        const { groups } = await core.getLibrary();
-        const names = new Map(groups.map((group) => [group.id, group.name]));
-        const counts = new Map<string, number>();
-        for (const change of moved) {
-          const folderId = change.after.assignment?.groupId ?? null;
-          if (folderId !== null) counts.set(folderId, (counts.get(folderId) ?? 0) + 1);
-        }
-        const parts = [...counts].map(
-          ([folderId, count]) => `${count} in “${names.get(folderId) ?? ""}”`,
+        const placed = fresh.filter(
+          (item) => item.placement.kind === "folder" || item.placement.kind === "newFolder",
         );
-        // What Organize reached and couldn't sort; the rest it never read, and they are as they
-        // were when the run stopped.
-        const unsorted = ids.length - untouched - moved.length;
-        const reason =
-          unsorted > 0
-            ? unsortedReason(
-                failed,
-                ids.filter((id) => !movedIds.has(id)).flatMap((id) => after.get(id) ?? []),
-              )
-            : null;
-        // A Folder Organize made but filed nothing in was never seen: it goes for good, not to
-        // Recently deleted, and Redo must not bring it back.
-        for (const folder of [...made]) {
-          if (await holdsAny(core, folder.id)) continue;
-          await unmake(core, "folder", folder.id);
-          made.splice(made.indexOf(folder), 1);
+        // A Folder it proposed that nothing went into was never seen: it goes at once.
+        const used = new Set(
+          placed.flatMap((item) =>
+            item.placement.kind === "newFolder" ? [item.placement.newFolderId] : [],
+          ),
+        );
+        host.withdrawOrganizeRun(
+          null,
+          proposed.filter((id) => !used.has(id)),
+        );
+        // The Folders the plan proposed, and their proposed parents, go with its Undo.
+        if (planned) {
+          const parents = new Map(
+            review.folders.map((folder) => [folder.id, folder.parentNewFolderId]),
+          );
+          for (const id of used)
+            for (let at: string | null | undefined = id; at; at = parents.get(at))
+              proposed.push(at);
         }
-        /** The Folders Organize made that its Undo removed; Redo brings them back first. */
-        const removed = new Set<string>();
-        const removeMade = async () => {
-          for (const folder of made) {
-            if (removed.has(folder.id) || (await holdsAny(core, folder.id))) continue;
-            await core.deleteLibraryGroup(folder.id);
-            removed.add(folder.id);
-          }
+        const { groups: groupsNow } = await core.getLibrary();
+        // A subfolder goes by its path, as the Review heads its card: "Contracts › Leases".
+        const pathOf = (id: string | null): string[] => {
+          const group = groupsNow.find((each) => each.id === id);
+          return group ? [...pathOf(group.parentId), group.name] : [];
         };
-        const madeSaid =
-          made.length === 0
-            ? ""
-            : made.length === 1
-              ? ` It made the Folder “${made[0]?.name ?? ""}”.`
-              : ` It made ${made.length} Folders.`;
+        const proposedPathOf = (id: string): string[] => {
+          const folder = review.folders.find((each) => each.id === id);
+          if (!folder) return [];
+          const parent =
+            folder.parentNewFolderId === null
+              ? pathOf(folder.parentId)
+              : proposedPathOf(folder.parentNewFolderId);
+          return [...parent, folder.name];
+        };
+        const counts = new Map<string, { name: string; count: number }>();
+        for (const { placement } of placed) {
+          const at =
+            placement.kind === "folder"
+              ? { id: placement.folderId, path: pathOf(placement.folderId) }
+              : placement.kind === "newFolder"
+                ? { id: placement.newFolderId, path: proposedPathOf(placement.newFolderId) }
+                : null;
+          if (!at) continue;
+          const was = counts.get(at.id);
+          counts.set(at.id, { name: at.path.join(" › "), count: (was?.count ?? 0) + 1 });
+        }
+        // What Organize reached and couldn't place; the rest it never read.
+        const unsorted = ids.length - untouched - placed.length;
+        const placedIds = new Set(placed.map((item) => item.documentId));
+        const { assignments } = await core.getLibrary();
+        const reason =
+          unsorted === 0
+            ? null
+            : planned
+              ? leftOutReason(fresh)
+              : unsortedReason(
+                  failed,
+                  assignments.filter(
+                    (each) => wanted.has(each.documentId) && !placedIds.has(each.documentId),
+                  ),
+                );
+        let withdrawn: OrganizeReviewChange | null = null;
         return {
           done: {
-            items: moved.map((change) => {
-              const document = documents.find((each) => each.id === change.documentId);
+            items: placed.map((item) => {
+              const document = documents.find((each) => each.id === item.documentId);
               return document
                 ? documentItem(document)
-                : { kind: "document" as const, id: change.documentId, name: change.documentId };
+                : { kind: "document" as const, id: item.documentId, name: item.documentId };
             }),
             ...(named !== null &&
               counts.has(named.id) && {
-                into: {
-                  kind: "folder" as const,
-                  id: named.id,
-                  name: named.name,
-                  made: made.some((folder) => folder.id === named?.id),
-                },
+                into: { kind: "folder" as const, id: named.id, name: named.name, made: false },
               }),
-            folders: [...counts].map(([folderId, count]) => ({
-              name: names.get(folderId) ?? "",
-              count,
-            })),
+            folders: [...counts.values()],
             ...(unsorted > 0 && { unsorted }),
             ...(untouched > 0 && { untouched }),
             considered: ids.length,
+            review: { count: review.count },
+            ...(input.alsoAsked !== null && { alsoAsked: input.alsoAsked }),
           },
           step:
-            moved.length === 0 && tagChanges.length === 0
+            placed.length === 0 && tagChanges.length === 0
               ? null
               : {
                   undo: async () => {
-                    const currentDocuments = await core.listDocuments();
-                    const live = new Set(currentDocuments.map((each) => each.id));
-                    const now = await assignmentsOf(core, ids);
-                    for (const id of ids) {
-                      if (!live.has(id)) continue;
-                      await core.restoreAssignment(
-                        id,
-                        wasBefore(before.get(id)),
-                        left.get(id) ?? stateOf(now.get(id)),
-                      );
-                    }
-                    await removeMade();
-                    const liveTags = new Set((await core.listTags()).map((each) => each.id));
-                    const decided = decisionsOf(await core.listDocumentTagDecisions(ids));
-                    const linksNow = tagLinksOf(
-                      currentDocuments.filter((each) => ids.includes(each.id)),
-                    );
-                    const back: TagLinkState[] = [];
-                    for (const change of tagChanges) {
-                      if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
-                      if (decided.get(change.documentId)?.has(change.tagId)) continue;
-                      const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
-                      if (!sameLink(nowLink, change.after)) continue;
-                      back.push({
-                        documentId: change.documentId,
-                        tagId: change.tagId,
-                        link: change.before,
-                      });
-                    }
-                    if (back.length > 0) await core.revertDocumentTags(back);
+                    withdrawn = host.withdrawOrganizeRun(runId, proposed);
+                    await revertTags(core, ids, tagChanges, "back");
                     return null;
                   },
                   redo: async () => {
-                    for (const folder of made) {
-                      if (removed.has(folder.id)) {
-                        await core.restore([{ kind: "folder", id: folder.id }]);
-                        removed.delete(folder.id);
-                      }
-                    }
-                    // File where the first run filed: Redo never asks the model again.
-                    const currentDocuments = await core.listDocuments();
-                    const live = new Set(currentDocuments.map((each) => each.id));
-                    const targets = new Map<string | null, string[]>();
-                    for (const [id, folderId] of Object.entries(checked)) {
-                      if (!live.has(id)) continue;
-                      targets.set(folderId, [...(targets.get(folderId) ?? []), id]);
-                    }
-                    for (const [folderId, moving] of targets) {
-                      await core.moveToFolder({ documentIds: moving, folderId, wall: wallId });
-                    }
-                    const now = await assignmentsOf(core, ids);
-                    for (const id of ids) left.set(id, stateOf(now.get(id)));
-                    const liveTags = new Set((await core.listTags()).map((each) => each.id));
-                    const decided = decisionsOf(await core.listDocumentTagDecisions(ids));
-                    const linksNow = tagLinksOf(
-                      currentDocuments.filter((each) => ids.includes(each.id)),
-                    );
-                    const again: TagLinkState[] = [];
-                    for (const change of tagChanges) {
-                      if (!live.has(change.documentId) || !liveTags.has(change.tagId)) continue;
-                      if (decided.get(change.documentId)?.has(change.tagId)) continue;
-                      const nowLink = linksNow.get(change.documentId)?.get(change.tagId) ?? null;
-                      if (!sameLink(nowLink, change.before)) continue;
-                      again.push({
-                        documentId: change.documentId,
-                        tagId: change.tagId,
-                        link: change.after,
-                      });
-                    }
-                    if (again.length > 0) await core.revertDocumentTags(again);
+                    // Its proposals come back as they were: Redo never asks the model again.
+                    if (withdrawn)
+                      await core.restoreOrganizeReview(withdrawn.before, withdrawn.after);
+                    withdrawn = null;
+                    await revertTags(core, ids, tagChanges, "again");
                   },
                 },
+          ...(placed.length > 0 && input.alsoAsked === null && { ends: true as const }),
           said:
-            moved.length === 0 && unsorted === 0 && untouched > 0
-              ? `Organize stopped at “${reason ?? "a failure"}” before sorting any Document; the other ${plural(untouched, "Document")} stayed as they were.`
-              : moved.length === 0
-                ? `Organize sorted no Document: ${reason ?? "no Folder fitted"}${madeSaid}.`
-                : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it.`,
+            placed.length === 0 && unsorted === 0 && untouched > 0
+              ? `Organize stopped at “${reason ?? "a failure"}” before reading any Document; the other ${plural(untouched, "Document")} stayed as they were.`
+              : placed.length === 0
+                ? `Organize proposed no Folder for any Document: ${reason ?? "no Folder fitted"}. Nothing moved.`
+                : proposalsShown(input.alsoAsked),
         };
       }),
       documents.length > 0 ? "organize" : null,
     ),
-    changes: true,
+    // Proposals move nothing, so they count towards no limit on the Answer's changes.
+    changes: false,
     ...(cloud && { cloud }),
     ...(cloudDeclined && { cloudDeclined: true }),
   };

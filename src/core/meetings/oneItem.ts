@@ -35,9 +35,9 @@ export function transcriptsApart(db: Database, now: string): TranscriptsToDelete
   );
   for (const row of fileWhereNoteWas) {
     db.run(
-      `INSERT INTO document_groups (id, document_id, group_id, source, suggested, status,
+      `INSERT INTO document_groups (id, document_id, group_id, source, status,
          content_hash, request_id, created_at, updated_at, filed_at)
-       VALUES (?, ?, ?, 'user', 0, 'classified', ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'user', 'classified', ?, ?, ?, ?, ?)`,
       [
         crypto.randomUUID(),
         row.id,
@@ -156,7 +156,7 @@ export function undoMeetingJoin(db: Database, id: unknown, now: string): JoinUnd
     [now, list],
   );
   // The rows the migration put away for them, at its one time; a Tag deleted since stays so.
-  for (const table of ["document_groups", "document_group_rejections", "document_tags"]) {
+  for (const table of ["document_groups", "document_tags"]) {
     db.run(
       `UPDATE ${table} SET deleted_at = NULL, updated_at = ?
        WHERE deleted_at = ? AND document_id IN (SELECT value FROM json_each(?))
