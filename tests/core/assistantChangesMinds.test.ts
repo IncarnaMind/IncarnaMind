@@ -30,6 +30,7 @@ import {
 } from "../helpers/minds";
 import {
   type ModelCall,
+  promptOf,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
@@ -1188,6 +1189,94 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
       conversationId: asked.conversation.id,
       answerId: asked.answerId,
     });
+  });
+
+  // protects=a write the User stops halfway is recorded for the next turn with the changes it kept and their fate, never "nothing changed", in English and Chinese (#2834); fails_when=the next turn reads nothing changed though the Note shows the kept Blocks; no_claim=none beyond protects.
+  test.each(["en", "zh-CN"] as const)(
+    "a write stopped halfway is recorded with what it kept (%s)",
+    async (language) => {
+      const after = JSON.stringify({ content: CONTENT }).indexOf("courier");
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.prompt.includes("<tool-record>")) {
+          return { text: "A risks section is waiting for you." };
+        }
+        return call.results.length === 0
+          ? {
+              calls: [{ tool: "add_to_mind", input: { content: CONTENT }, streamInput: true }],
+              pause: { after, until: new Promise(() => undefined) },
+            }
+          : { text: "Added a risks section." };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.updateSettings({ user: { language } });
+      const asked = await core.askInConversation({ text: "Add a risks section", mindId: mind.id });
+      if (!asked.asked) throw new Error("Not asked.");
+      const ended = answerEnded(core, asked.answerId);
+      await expect
+        .poll(() => shownWithChanges(client), { timeout: 10_000 })
+        .toContain("+ The supplier is late.");
+      await core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+      expect(await ended).toMatchObject({ payload: { status: "stopped" } });
+      // The Note keeps what the write put in it, and the next turn is told so.
+      expect(shownWithChanges(client)).toContain("+ The supplier is late.");
+      const next = await core.askInConversation({
+        conversationId: asked.conversation.id,
+        text: language === "en" ? "What did you change?" : "你改了什么？",
+        mindId: mind.id,
+      });
+      if (!next.asked) throw new Error("Not asked.");
+      const nextEnded = answerEnded(core, next.answerId);
+      await nextEnded;
+      const prompt = promptOf(model, 1)
+        .map((message) => message.text)
+        .join("\n");
+      expect(prompt).toContain(
+        "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, and it didn't finish",
+      );
+    },
+  );
+
+  test("a write stopped before any of it was kept still reads nothing changed", async () => {
+    const after = JSON.stringify({ content: CONTENT }).indexOf("Risks");
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.prompt.includes("<tool-record>")) return { text: "Nothing was added." };
+      return call.results.length === 0
+        ? {
+            calls: [{ tool: "add_to_mind", input: { content: CONTENT }, streamInput: true }],
+            pause: { after, until: new Promise(() => undefined) },
+          }
+        : { text: "Adding." };
+    });
+    const { core, mind } = await setUp(model);
+    const asked = await core.askInConversation({ text: "Add a risks section", mindId: mind.id });
+    if (!asked.asked) throw new Error("Not asked.");
+    const calls = async () => {
+      const { messages } = await core.getConversation(asked.conversation.id);
+      const answer = messages.find((message) => message.id === asked.answerId);
+      return answer?.kind === "answer" ? answer.toolCalls : [];
+    };
+    await expect.poll(calls, { timeout: 10_000 }).toHaveLength(1);
+    const ended = answerEnded(core, asked.answerId);
+    await core.stopConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+    });
+    expect(await ended).toMatchObject({ payload: { status: "stopped" } });
+    const next = await core.askInConversation({
+      conversationId: asked.conversation.id,
+      text: "What did you change?",
+      mindId: mind.id,
+    });
+    if (!next.asked) throw new Error("Not asked.");
+    const nextEnded = answerEnded(core, next.answerId);
+    await nextEnded;
+    const prompt = promptOf(model, 1)
+      .map((message) => message.text)
+      .join("\n");
+    expect(prompt).toMatch(/- add_to_mind [^\n]*: nothing changed/);
   });
 
   // protects=a model that writes its content before naming the Mind gets its Blocks taken back from the Mind in focus and written into the one it named, once each, with nothing left behind; fails_when=a streamed Block stays in the focused Mind, or one is written twice; no_claim=how long the take-back shows.
