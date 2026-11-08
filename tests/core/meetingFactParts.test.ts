@@ -121,7 +121,11 @@ function modelFor(
   return { model, calls, quotes, feedback, schedule };
 }
 
-async function capture(model: ReturnType<typeof modelFor>, long = false) {
+async function capture(
+  model: ReturnType<typeof modelFor>,
+  long = false,
+  name: string | null = null,
+) {
   const { schedule } = model;
   const padding =
     "Workshop participants compared the supporting material before moving on. ".repeat(20);
@@ -138,6 +142,7 @@ async function capture(model: ReturnType<typeof modelFor>, long = false) {
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  if (name) await core.updateSettings({ user: { authorName: name } });
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(1, "Review workshop"), note("review schedule")]);
@@ -406,6 +411,41 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       }
     },
   );
+
+  // protects=with the User's name set, a later part is sent the facts already kept with the token the model wrote, never the name, and the note has the name in its place once, with exact Undo (#2306); fails_when=the name reaches any part's request, or a token is left in the note; no_claim=a real model's wording.
+  test("with the User's name set, a later part's history carries the token, never the name", async () => {
+    const name = "Avery Lin";
+    const kept = "{{me}} noted that the review is on Tuesday";
+    const model = modelFor((part) => ({
+      text: [...(part === 1 ? [fact("P1_review", kept)] : []), overview()].join("\n\n"),
+    }));
+    const captured = await capture(model, true, name);
+    const { core, meeting, client, parts } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      expectRetained(client, `${name} noted that the review is on Tuesday`, ["{{me}}"]);
+      for (const part of [2, 3]) {
+        const prompt = model.calls.find((each) => each.part === part)?.call.prompt;
+        expect(prompt).toContain(`"text":"${kept}`);
+        expect(prompt).toContain("Write the User, who reads these notes, as {{me}}");
+      }
+      for (const call of [...model.model.doStreamCalls, ...model.model.doGenerateCalls]) {
+        expect(JSON.stringify(call.prompt)).not.toContain(name);
+      }
+      expectRequests(
+        model,
+        parts.map(() => 2),
+      );
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
 
   test("cancelling at the next part's boundary writes none of the already checked facts", async () => {
     let release = () => {};

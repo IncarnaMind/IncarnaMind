@@ -17,6 +17,7 @@ import type { QuestionContext } from "../answers/context";
 import { languageSpoken } from "../answers/prompt";
 import { CITATION_NODE } from "../api";
 import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../language";
+import { USER_TOKEN } from "./userName";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -64,13 +65,15 @@ const callIntro =
 
 /**
  * The transcript's marks are its English words: in Chinese notes the model wrote "— Them" and
- * "Me（用户）" (#2305). The Transcript's own words for them, in each other interface language.
+ * "Me（用户）" (#2305). The Transcript's own words for them, in each other interface language;
+ * Me's is left out when the User is written as `USER_TOKEN`.
  */
-const speakerWords = LANGUAGES.filter((language) => language !== "en").map((language) => {
-  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
-  const marks = [SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN, numberedVoice(2)];
-  return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
-});
+const speakerWords = (named: boolean) =>
+  LANGUAGES.filter((language) => language !== "en").map((language) => {
+    const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+    const marks = [...(named ? [] : [SPEAKER_ME]), SPEAKER_THEM, SPEAKER_UNKNOWN, numberedVoice(2)];
+    return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
+  });
 
 /**
  * The languages a call's notes have section titles in, by the name the transcript's language is
@@ -92,24 +95,36 @@ export function callLanguage(passages: readonly { text: string }[]): CallLanguag
   return isCallLanguage(language) ? language : null;
 }
 
-const rules = (spoken: CallLanguage | null) => [
+const rules = (spoken: CallLanguage | null, named: boolean) => [
   "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
   "- Write only what the transcript says. Leave out what it doesn't.",
   spoken
     ? `- Write in ${spoken}, the language of the call.`
     : "- Write in the language of the call.",
-  `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords.join("; ")}. Never call the User "the User" or 用户.`,
+  named
+    ? `- The transcript's marks are not names. Me is always ${USER_TOKEN}. Anyone else never named is written with their mark's word in the language you write in: in English Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(true).join("; ")}. Never call the User "the User" or 用户.`
+    : `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(false).join("; ")}. Never call the User "the User" or 用户.`,
 ];
+
+const everyoneElse =
+  "Name everyone else as they introduced themselves or were named in the call, on either side: a named person is never the other side, 对方 or they. The speaker marks (Me, Them and numbered voices, or their translations) are not names: anyone else who was never named is the other side (对方), or in a recording of a room their numbered voice as marked.";
+
+const userRule = (named: boolean) =>
+  named
+    ? `- Write the User, who reads these notes, as ${USER_TOKEN}, exactly so in every language, even when the call gave their name: the app puts the name the User set in its place. Where the User said my or our, write ${USER_TOKEN}'s (${USER_TOKEN}的 in Chinese). Where the User said we (我们) for something their side does together, keep we (我们); make ${USER_TOKEN} the owner of such an action only when the User clearly took it on themselves. Never write I, me, my, 我 or any name for the User. ${everyoneElse}`
+    : `- Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name, and as we or our (我们) where they spoke for their side. ${everyoneElse}`;
 
 /**
  * Under each of the User's lines, what the call said about it; then the sections, each fact once.
- * `spoken`: the call's language, when it is one the notes have section titles in.
+ * `spoken`: the call's language, when it is one the notes have section titles in. `named`: the
+ * User set their name, so the model writes `USER_TOKEN` for them; the name itself is never asked.
  */
 export function notesContext(
   lines: readonly FillLine[],
   question: string,
   history?: FillHistory,
   spoken: CallLanguage | null = null,
+  named = false,
 ): QuestionContext {
   const shown = lines.map(
     (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
@@ -123,7 +138,7 @@ export function notesContext(
     "Return a ledger of facts, not separate prose accounts under each line and section. Code, not your reply, writes the full fact once and topic-only references with its original Citation in its other places. Do not write references or section drafts yourself.",
     "- Read through to the final agreement before allocating facts. Include all related final choices and work assignments under the User's ordinary lines, not just background or an earlier proposal. Never repeat or reword the User's own line. A line asking about several things needs every relevant answer, with one identity per fact.",
     "- Each fact has one stable id, a short topic label, its complete wording once, its Citation marker inventory, and its related lines and sections. Keep an action, all its actual owners and its spoken deadline together, without restating the same owner or deadline within that fact. Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice. A first-person commitment belongs to that Transcript speaker, not automatically Me; a reported third-party assignment belongs to that third party.",
-    "- Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name, and as we or our (我们) where they spoke for their side. Name everyone else as they introduced themselves or were named in the call, on either side: a named person is never the other side, 对方 or they. The speaker marks (Me, Them and numbered voices, or their translations) are not names: anyone else who was never named is the other side (对方), or in a recording of a room their numbered voice as marked.",
+    userRule(named),
     "- The topic is a label only: no full assertion, figures, dates, owner, deadline or machine address. The complete wording belongs only in the paragraph after the metadata, not in the label or a second frame. Different facts may share a Citation, name or date; those are not reasons to merge their identities.",
     // With no line to point to, Claude Haiku 5.5 filled lines with the transcript's times, and
     // every fact was left out for its metadata (#2773).
@@ -161,7 +176,7 @@ export function notesContext(
           "```",
         ]
       : []),
-    ...rules(spoken),
+    ...rules(spoken, named),
     "- Each Citation quote must be contiguous words from one transcript line, without its time or speaker label. When the words occur more than once, set the cite record's location to the timestamp of the occurrence you mean.",
     "- Then, in the same reply, call cite once with a record for every marker in the notes.",
     "",
@@ -180,8 +195,9 @@ export function sectionsContext(
   question: string,
   history?: FillHistory,
   spoken: CallLanguage | null = null,
+  named = false,
 ): QuestionContext {
-  return notesContext([], question, history, spoken);
+  return notesContext([], question, history, spoken, named);
 }
 
 /** A node's plain text: a Citation has none. */

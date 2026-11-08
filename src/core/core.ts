@@ -5068,6 +5068,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const meetingFill = createMeetingFill({
     content,
     meetings,
+    userName: () => settings.get().user.authorName,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       return documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
