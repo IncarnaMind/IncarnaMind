@@ -1401,6 +1401,8 @@ export const en = {
     "A formula it uses has no value saved by Excel, so this figure can’t be checked.",
   "claim.reason.workbook-unsupported":
     "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
+  "claim.reason.workbook-text":
+    "It’s a text result, such as “OK” or “Breach”, so it isn’t checked against a number.",
   "claim.reason.workbook-changed":
     "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
   "claim.reason.figures-not-read": "The figures in “{document}”, {location}, couldn’t be read.",

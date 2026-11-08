@@ -1353,6 +1353,7 @@ export const zhCN = {
   "claim.reason.workbook-no-saved-value":
     "它用到的某个公式没有 Excel 保存的值，因此无法核对这个数。",
   "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
+  "claim.reason.workbook-text": "这是“OK”或“Breach”这样的文本结果，不按数字核对。",
   "claim.reason.workbook-changed":
     "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
   "claim.reason.figures-not-read": "无法读取“{document}”{location}中的数字。",

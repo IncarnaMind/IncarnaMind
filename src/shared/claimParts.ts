@@ -71,6 +71,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-no-saved-value": true,
   "other-cell": true,
   "workbook-unsupported": true,
+  "workbook-text": true,
   "figures-not-read": true,
   "sentence-figures-not-read": true,
   "library-unsettled": true,

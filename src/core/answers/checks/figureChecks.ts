@@ -460,7 +460,8 @@ async function replayWorkbook(
     return "problem" in checked || checked.input.citation.check !== "found" ? null : checked.input;
   };
   const own = book.cell.input;
-  if (!own) return "workbook-changed";
+  // A text figure has no number to read again; the workbook isn't said to have changed for that.
+  if (!own) return book.text ? "workbook-text" : "workbook-changed";
   const cell = found(own);
   if (!cell || cell.number.value !== book.saved) return "workbook-changed";
   const inputs: FigureInput[] = [];
