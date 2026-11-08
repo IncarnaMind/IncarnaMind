@@ -65,8 +65,8 @@ test("films the empty states and their ways in", async () => {
     await hand.place(640, 620);
     await hand.begin();
 
-    // The empty sidebar and the empty Library, each with its two ways in.
-    hand.caption("No Documents yet · Add files or a folder… · Link a folder…");
+    // The empty sidebar says what is missing; the empty Library holds the two ways in.
+    hand.caption("No Documents yet");
     await hand.moveTo(window.getByTestId("documents-empty"));
     await hand.hold(1200);
     await hand.click(window.getByTestId("open-library"));

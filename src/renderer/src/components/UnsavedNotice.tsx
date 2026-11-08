@@ -68,8 +68,8 @@ export function UnsavedNotices() {
             />
             <details data-testid="unsaved-notice-details" className="mt-1 text-ink-meta">
               <summary className="w-fit cursor-default rounded-sm">{t("error.details")}</summary>
-              <p className="mt-1 max-h-40 overflow-y-auto font-mono text-[12px] leading-4 break-words whitespace-pre-wrap">
-                {unsaved.detail}
+              <p className="mt-1 max-h-40 overflow-y-auto break-words whitespace-pre-wrap">
+                {t(`unsaved.details.${unsaved.reason}`)}
               </p>
             </details>
           </div>

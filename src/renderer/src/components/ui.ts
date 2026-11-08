@@ -22,7 +22,8 @@ const buttonSizes: Record<ButtonSize, string> = {
 };
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-white hover:bg-ink-strong disabled:hover:bg-ink",
+  primary:
+    "bg-ink text-white hover:bg-ink-strong active:scale-[0.98] disabled:hover:bg-ink disabled:active:scale-100",
   secondary:
     "border border-rule-strong bg-sheet text-ink-strong hover:bg-frame disabled:hover:bg-sheet",
   ghost: "text-ink-secondary hover:bg-chip hover:text-ink disabled:hover:bg-transparent",
@@ -51,6 +52,10 @@ export const fieldClass =
 
 /** A text field, under its label, as wide as its column. */
 export const inputClass = `mt-1 block w-full ${fieldClass}`;
+
+/** A text field at a Settings row's end: 28px high, like the row's buttons and pop-ups. */
+export const rowFieldClass =
+  "h-7 rounded-md border border-rule-strong bg-sheet px-2.5 text-[13px] leading-5 text-ink placeholder:text-ink-placeholder aria-invalid:border-warning focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60";
 
 /** A field's label, above it. */
 export const fieldLabelClass = "block text-[13px] leading-5 text-ink-secondary";

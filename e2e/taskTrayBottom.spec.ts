@@ -89,8 +89,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => inside(tray.getByTestId("approval-deny"))).toBe(true);
     await allow.focus();
     await expect(allow).toBeFocused();
-    await window.keyboard.press("Tab");
+    // Allow is the row's last button, so the key back reaches the one before it, still in the card.
+    await window.keyboard.press("Shift+Tab");
     await expect(tray.locator(".approval-actions button:focus")).toHaveCount(1);
+    await expect(allow).not.toBeFocused();
     if (SCREENSHOTS) {
       await window
         .getByTestId("assistant")

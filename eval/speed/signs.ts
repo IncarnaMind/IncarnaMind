@@ -52,6 +52,7 @@ export const SIGNS: readonly CoreEventName[] = [
   "mind.update",
   "comparison.filling",
   "task.changed",
+  "mindCheck.early",
 ];
 const WORDS: ReadonlySet<CoreEventName> = new Set(["answer.delta", "mind.update"]);
 
@@ -73,8 +74,10 @@ export async function timed(
   let firstChangeMs: number | null = null;
   const stops = [...SIGNS, ...also].map((event) =>
     core.on(event, (payload: unknown) => {
-      const place = (payload ?? {}) as { mindId?: string | null };
+      const place = (payload ?? {}) as { mindId?: string | null; sentences?: unknown[] };
       if (mindId !== null && typeof place.mindId === "string" && place.mindId !== mindId) return;
+      // The early checks' list emptied as the Note's own marks land: those are the sign.
+      if (event === "mindCheck.early" && place.sentences?.length === 0) return;
       signs.push(at());
       if (WORDS.has(event)) firstWordsMs ??= at();
       if (event === "mind.update") firstChangeMs ??= at();

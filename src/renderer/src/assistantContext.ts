@@ -3,8 +3,8 @@ import { DELETED_NAMES, type ScopeChip } from "./scope";
 
 /**
  * What the next Question reads and searches, which an empty conversation
- * says once (#253, #258, #391, #544, #621). With a Mind: "Reads “Chapter 3” ·
- * searches “Thesis”", naming the first item of the composer's Search scope
+ * says once (#253, #258, #391, #544, #621). With a Mind: "Reads “Chapter 3”
+ * and “Thesis”", naming the first item of the composer's Search scope
  * (its Folder, by default); with none in focus: "Searches All Documents",
  * or the items the User chose in the composer.
  * Items deleted since are left out, as the search leaves them out.

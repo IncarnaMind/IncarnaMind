@@ -12,7 +12,7 @@ import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useAppStore } from "../store";
 import { isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
-import { ExampleChip, useIsExample } from "./GettingStarted";
+import { useIsExample } from "./GettingStarted";
 import { InlineName } from "./InlineName";
 import { MindLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
@@ -103,6 +103,7 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
         {...treeItem}
         data-testid="mind-list-item"
         data-mind-id={mind.id}
+        data-example={isExample || undefined}
         aria-current={isOpen ? "page" : undefined}
         title={title}
         // A click opens it; ⌘-click and Shift-click select (`useSelectable`).
@@ -122,7 +123,6 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
         >
           {title}
         </span>
-        {isExample && <ExampleChip />}
         {waiting && (
           <span
             role="img"

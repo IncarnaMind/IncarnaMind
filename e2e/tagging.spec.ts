@@ -86,7 +86,7 @@ test("Automatic says which model it uses; another one is chosen from the list an
       "Uncertain Tags are marked for review.",
     );
     await expect(
-      section.getByRole("checkbox", {
+      section.getByRole("switch", {
         name: "Tag and sort new Documents automatically",
         description: "Runs on this computer.",
       }),
@@ -158,7 +158,7 @@ test("in Chinese: 自动打标签, with the model Automatic uses and the list's 
     );
     await expect(section.getByText("在本机运行", { exact: true })).toBeVisible();
     await expect(
-      section.getByRole("checkbox", {
+      section.getByRole("switch", {
         name: "自动为新文档打标签并整理",
         description: "在这台电脑上运行。",
       }),

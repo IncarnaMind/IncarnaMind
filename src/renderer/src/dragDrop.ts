@@ -91,8 +91,12 @@ export const useDragState = create<DragState>()(() => ({
 
 // A drag's data can only be read on the drop, so what is dragged is kept here for the targets it passes over.
 let dragging: ObjectDrag | null = null;
-// Its picture as lifted, so the one that settles into the target on the drop is the same.
+// Its picture as lifted, on the page under the pointer: the layer draws this one itself, so a drop
+// nothing takes clears it at the release instead of the system's drag image, which on macOS stays
+// where it was let go until the pointer next moves (#1513).
 let lifted: HTMLElement | null = null;
+// Where the pointer last was over the window, so the picture can be let go there.
+let pointerAt: Point | null = null;
 let holding: { key: string; timer: ReturnType<typeof setTimeout> } | null = null;
 
 const stopHolding = () => {
@@ -106,9 +110,11 @@ function clear(): void {
 }
 
 function endDrag(): void {
+  // A drop nothing took, or a drag ended some other way, fades its picture where it is.
+  if (lifted) letGo(pointerAt);
   clear();
   dragging = null;
-  lifted = null;
+  pointerAt = null;
   useDragState.setState({ source: null });
 }
 
@@ -118,6 +124,8 @@ function listenForEnd(): void {
   if (listening || typeof window === "undefined") return;
   listening = true;
   window.addEventListener("dragover", takeAnywhere);
+  window.addEventListener("dragover", followPointer);
+  window.addEventListener("dragenter", followPointer);
   window.addEventListener("drop", dropAnywhere);
   window.addEventListener("dragend", endDrag);
   // A drag from another app that is cancelled, or leaves the window, gets no dragend here.
@@ -129,19 +137,55 @@ function listenForEnd(): void {
 const afterFrame = (run: () => void) =>
   typeof requestAnimationFrame === "undefined" ? setTimeout(run) : requestAnimationFrame(run);
 
+const PICTURE_OFFSET = { x: 12, y: 14 };
+
+function placePicture(picture: HTMLElement, at: Point): void {
+  picture.style.left = `${at.x - PICTURE_OFFSET.x}px`;
+  picture.style.top = `${at.y - PICTURE_OFFSET.y}px`;
+}
+
+// The picture follows the pointer itself: the system's image would move without the page hearing
+// about it, and stay where a drop nothing takes is let go (#1513).
+function followPointer(event: globalThis.DragEvent): void {
+  if (!lifted || dragging === null) return;
+  pointerAt = pointOf(event);
+  placePicture(lifted, pointerAt);
+}
+
 function setPicture(event: DragEvent<HTMLElement>, name: string, count: number): void {
   const picture = pictureOf(event.currentTarget, name, count);
-  lifted = picture.cloneNode(true) as HTMLElement;
+  lifted = picture;
   document.body.append(picture);
-  event.dataTransfer.setDragImage(picture, 12, 14);
-  // The browser copies the picture as the drag starts; it isn't needed after.
-  afterFrame(() => picture.remove());
+  pointerAt = pointOf(event);
+  placePicture(picture, pointerAt);
+  hideBrowserPicture(event);
+}
+
+// A 1×1 transparent image, so the browser's own picture is never the one shown. It must be on the
+// page for the browser to copy it, so it sits in the corner for the frame it is taken.
+function hideBrowserPicture(event: DragEvent<HTMLElement>): void {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  Object.assign(canvas.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "1px",
+    height: "1px",
+    pointerEvents: "none",
+  });
+  document.body.append(canvas);
+  event.dataTransfer.setDragImage(canvas, 0, 0);
+  afterFrame(() => canvas.remove());
 }
 
 function pictureOf(source: Element, name: string, count: number): HTMLElement {
   const picture = document.createElement("div");
+  picture.dataset.testid = "drag-picture";
+  picture.setAttribute("aria-hidden", "true");
   picture.className =
-    "fixed top-0 -left-[2000px] flex h-7 max-w-64 items-center gap-2 rounded-md bg-sheet px-2.5 text-[13px] text-ink shadow-[0_0_0_1px_var(--color-rule),0_12px_32px_rgba(23,25,28,0.12)]";
+    "pointer-events-none fixed z-[80] flex h-7 max-w-64 items-center gap-2 rounded-md bg-sheet px-2.5 text-[13px] text-ink shadow-[0_0_0_1px_var(--color-rule),0_12px_32px_rgba(23,25,28,0.12)]";
   const icon = source.querySelector("svg")?.cloneNode(true);
   if (icon instanceof SVGElement) {
     icon.setAttribute("class", "size-4 shrink-0 text-ink-meta");
@@ -318,13 +362,11 @@ function sayWhy(key: string, said: Words, point: Point): void {
   useDragState.setState({ over: null, refusal: { key, said }, at: point });
 }
 
-function letGo(at: Point, into?: Element): void {
-  if (!lifted) return;
+function letGo(at: Point | null, into?: Element): void {
   const picture = lifted;
-  picture.classList.remove("top-0", "-left-[2000px]");
-  picture.style.left = `${at.x - 12}px`;
-  picture.style.top = `${at.y - 14}px`;
-  document.body.append(picture);
+  lifted = null;
+  if (!picture) return;
+  if (at) placePicture(picture, at);
   if (into) exitToward(picture, into);
   else exit(picture, {});
   picture.remove();
@@ -333,9 +375,10 @@ function letGo(at: Point, into?: Element): void {
 // Read as the drag moves, not once: the tests make the page report another platform.
 const onMac = () => /Mac/.test(navigator.platform);
 
-// On macOS a drop nothing accepted holds its picture on screen until the pointer next moves
-// (#1513), so there this window takes its own drag wherever no target did; elsewhere a refused
-// drop stays refused, which keeps the system's no-drop cursor.
+// A drop nothing accepted would hold the system's picture on screen until the pointer next moves
+// on macOS, so there this window takes its own drag wherever no target did; elsewhere a refused
+// drop stays refused, which keeps the system's no-drop cursor. This layer's own picture goes at
+// either way's release, whatever the system does (#1513).
 const untakenOwnDrag = (event: globalThis.DragEvent) =>
   onMac() &&
   dragging !== null &&
@@ -349,10 +392,9 @@ function takeAnywhere(event: globalThis.DragEvent): void {
 }
 
 function dropAnywhere(event: globalThis.DragEvent): void {
-  if (untakenOwnDrag(event)) {
-    event.preventDefault();
-    letGo(pointOf(event));
-  }
+  if (untakenOwnDrag(event)) event.preventDefault();
+  // The drop says where the button was released, past the last move over the window.
+  pointerAt = pointOf(event);
   endDrag();
 }
 
@@ -414,11 +456,12 @@ export function dropProps<Place>(
       leave();
     },
     onDrop(event) {
-      // Where it is let go, which the last move over it may not have said.
+      // Where it is let go, which the last move over it may not have said. A drop ends the drag
+      // here too, taken or refused, so no light or words wait for the browser's own end (#1513).
       const effect = effectOf(event);
+      clear();
       if (!effect) return;
       event.preventDefault();
-      clear();
       const dropped = droppedIn(event.dataTransfer);
       if (!dropped) return;
       // A target that says what its drop does is a row: the picture shrinks into it (DESIGN.md, Motion).
