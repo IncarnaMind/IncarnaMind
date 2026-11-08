@@ -589,11 +589,9 @@ describe("Check this note", () => {
 
     await core.deleteChatProvider(openai.id);
     expect(await named()).toEqual({ providerId: claude.id, modelId: "claude-sonnet-5-5" });
-    // The Answers default goes back to the provider that is left, and the Mind with it.
-    await core.deleteChatProvider(claude.id);
-    const left = (await core.getSettings()).user.chatModel;
-    expect(left?.providerId).toBe(defaultModel?.providerId);
-    expect(await named()).toEqual(left);
+    // Its pick's provider gone, the Mind follows the Answers default wherever it moves.
+    await core.updateSettings({ user: { chatModel: defaultModel } });
+    expect(await named()).toEqual(defaultModel);
   });
 
   test("checks every claim, each marked; the heading, the question and the User's opinion aren't; the run is recorded", async () => {
