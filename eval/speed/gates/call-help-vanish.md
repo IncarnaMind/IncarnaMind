@@ -53,7 +53,7 @@ Over every write of the 240 replies, read item by item with nothing left out (th
 
 Written and committed on 2026-11-08, with the check's new count, before the change it gates and before any run that reads it.
 
-- **What changes.** The core judges as a model's working (#2371) only the text of a help reply before its first option: its first "★" line, or in short lines its first "- " line (#2526). Nothing after it is judged, so no "→" line of a written option is taken back. A help reply with no such line yet is judged as before. The panel shows Pin and Add to note only under something to pin or add, and a help Answer stopped before its first option says so with Try again.
+- **What changes.** The core never judges a help reply's form as a model's working (#2371): from its first option or reading (its "★" line) to the end of its last "→" line, or in short lines from the first "- " line to the last. So no "→" line of a written option is taken back. Text before the form is a model's notes (#2526) and text after it a remark the model added; both are judged as before, as is a reply with no form yet. The panel shows Pin and Add to note only under something to pin or add, and a help Answer stopped before its first option says so with Try again.
 - **The new count:** "a → line shown, then gone at the end": an option or reading the panel showed with its "→" line, still shown at the end but without one.
 - **The replay (no model):** the 240 kept replies above, read by main's panel at this commit, then by the branch's. Every count is the same on both, the new one too: the panel's change touches only a stopped Answer, and none of the 240 is.
 - **The fresh run:** at the branch's head, the same four cases (`en-want`, `en-ask-agents`, `zh-want`, `zh-ask-agents`), each pressed 15 times on Claude Haiku 5.5 (a direct Anthropic key) and on DeepSeek V4.1 Flash 1017 (`deepseek-flash`): 120 presses, 30 a cell. Held by `INCARNAMIND_EVAL_SPEED_STOP_USD=2`, this work's cap.
@@ -62,10 +62,12 @@ Written and committed on 2026-11-08, with the check's new count, before the chan
 
 - "a → line shown, then gone at the end": none.
 - "words, then none at the end" and "no item at the end": none.
-- "an item shown, then taken back by the core": none. The core may now take back only text before the first option, which the panel never draws (#2728).
+- "an item shown, then taken back by the core": no more than main's count in that cell of the 240 (Claude Haiku 5.5: 2 in English, 1 in Chinese; DeepSeek V4.1 Flash: none), and each press counted is read and named. Only notes before the form or a remark after it may be taken back, never an option, a reading or a short line of the form.
 - "an item shown, then hidden though the reply has it": each press counted is read and named. One that is a remark drawn for a moment between two options while it was written is the failure this check already holds as a dated exception (above); any other fails this bar.
 
 A line that fails keeps the change from shipping, and the numbers go on the issue.
+
+**Amended before the fresh run, 2026-11-08,** after the replay of main's 240 with this check (no model asked). As first written, the change judged only text before the first option. In one Claude Haiku 5.5 press (`en-want`), main's judgement took back a remark the model wrote after its one reading, "Wait — let me cite the passages first."; left unjudged, the panel would show it as a second reading once the reply ends. So text after the form's last "→" line is judged as before, and the bar on items taken back by the core compares with main's count instead of asking for none. Main's replay: "a → line shown, then gone at the end" 1 in each of Haiku's English and Chinese, none on DeepSeek; every other count as in the table above.
 
 ### Reported, not held
 
