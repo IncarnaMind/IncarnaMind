@@ -580,6 +580,63 @@ test("help during the call: a model's notes before its records never show, the o
   await removeDataFolder(sources);
 });
 
+// protects=a reading that showed while it was written stays once the reply ends, though its "→" line was taken back, instead of the panel keeping only its heading; fails_when=the reading vanishes when the reply ends; no_claim=why the core takes a line back (#2767).
+test("help during the call: a reading whose → line was taken back stays once the reply ends", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-moves-taken-back");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-button").filter({ hasText: "What do they want?" }),
+  );
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await shot(panel, "help-panel-move-taken-back-done");
+  const reading = suggestion.getByTestId("help-option");
+  await expect(reading).toHaveCount(1);
+  await expect(reading).toHaveAttribute("data-recommended", "true");
+  await expect(reading.getByTestId("help-option-say")).toHaveText(
+    "They want a firm date for the launch",
+  );
+  await expect(reading.getByTestId("help-option-note")).toHaveCount(1);
+  await expect(reading.getByTestId("help-option-effect")).toHaveCount(0);
+  await expect(suggestion.getByTestId("help-nothing")).toHaveCount(0);
+  await app.close();
+});
+
+// protects=a reply with nothing the panel can lay out says so in plain words with Try again, in English and Chinese, instead of only the heading; fails_when=the panel shows only the heading; no_claim=how often a model writes such a reply (#2767).
+test("help during the call: a reply with nothing to show says so, with Try again, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: BUYER },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window, "fake-model-heading-only");
+  await recordingMeeting(window);
+  const panel = await panelOf(app);
+
+  const suggestion = await pressIn(panel, "Sum up so far");
+  await shot(panel, "help-panel-nothing-en");
+  await expect(suggestion.getByTestId("help-option")).toHaveCount(0);
+  const nothing = suggestion.getByTestId("help-nothing");
+  await expect(nothing).toHaveText(
+    "No help this time: the reply had nothing to suggest · Try again",
+  );
+  await setLanguage(window, "zh-CN");
+  await expect(nothing).toHaveText("这次没能给出建议：回复里没有可用的内容 · 重试");
+  await expect(nothing.getByRole("button")).toHaveText("重试");
+  await shot(panel, "help-panel-nothing-zh");
+  await app.close();
+});
+
 test("help during the call with the live text behind and no line yet: the panel says so in one line, not options, in English and Chinese (#1366)", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, {
