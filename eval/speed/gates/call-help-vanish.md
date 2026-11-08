@@ -93,3 +93,20 @@ The done time's median, main's 240 → the fresh run, per button (reported, not 
 
 **Second amendment, before the second fresh run, 2026-11-08.** An independent review of the change found that 60 fresh presses on a model can show no "→" line gone with no fix at all (main lost one in 120 Haiku presses of each language), that #2778 asks for the same 240 presses, and three edges of the form: a reply with no "★", the lead-in line of "Am I leading them?", and a part that runs into the form, which was left unjudged whole. The form now covers the first two and judges such a part by its lines outside the form, with unit tests for each. The fresh run is made again at the head with those fixes, **30 presses a case, 240 in all as main's**, and each cell (60 presses) is read against main's cell, with the same bar. The first fresh run stays above as it was, at 701c53148.
 
+
+### The second fresh run (2026-11-08, at a5bcb7c84)
+
+240 presses, every one finished: each of the four cases 30 times on Claude Haiku 5.5 (a direct Anthropic key) and on DeepSeek V4.1 Flash 1017 (`deepseek-flash`); both were meant and both ran. Spent $0.11 by the core's count; with the first fresh run, $0.16 of the $2 cap. One-minute load 13.3 at the start and 45.7 at the end (15-minute 12.1 and 21.9), from other work on the machine.
+
+Main's 240 → the head's 240, 60 presses a cell, both buttons together:
+
+| Model · language | a → line shown, then gone at the end | words, then none at the end | no item at the end | an item shown, then taken back by the core | an item shown, then hidden though the reply has it |
+|---|---|---|---|---|---|
+| Claude Haiku 5.5 · English | 1 → **0** | 0 → 0 | 0 → 0 | 2 → 0 | 1 → 0 |
+| Claude Haiku 5.5 · Chinese | 1 → **0** | 0 → 0 | 0 → 0 | 1 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash · English | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| DeepSeek V4.1 Flash · Chinese | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+
+**The bar holds on every line,** in every cell. Two Haiku presses (one a language) showed no words while written and ended with their options, as a reply that comes whole does.
+
+The done time's median, main's 240 → the head's 240 (reported, not held; the end of this run was under heavy load): Haiku English 3.27 → 3.66 s and 2.95 → 2.43 s, Haiku Chinese 3.16 → 2.34 s and 2.67 → 2.62 s; DeepSeek English 2.05 → 2.23 s and 2.76 → 2.38 s, DeepSeek Chinese 2.10 → 2.16 s and 2.92 → 2.78 s ("What do they want?", then "What to ask next").
