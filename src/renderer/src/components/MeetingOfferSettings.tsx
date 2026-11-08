@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { MEETING_APPS, meetingAppName } from "../../../shared/meetingApps";
-import { useComingUp } from "../comingUp";
+import { useCalendars } from "../calendars";
 import { useLanguage, useT } from "../i18n";
 import { useMeetingOffers } from "../meetingOffers";
 import { useSettingsTarget } from "../settingsTarget";
@@ -20,7 +20,7 @@ function appsHere() {
 
 /**
  * Settings → General → Notifications, the offers to take notes (#189): before a calendar meeting
- * (#207), shown once a calendar is connected (#190), and when a call app takes the microphone
+ * (#207), shown once a calendar is connected in Settings › Meetings (#190), and when a call app takes the microphone
  * (#208), with Per app… unfolding a switch for each app ("Not for Zoom").
  */
 export function MeetingOfferSettings() {
@@ -29,7 +29,7 @@ export function MeetingOfferSettings() {
   const listId = useId();
   const device = useAppStore((state) => state.settings?.device);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const calendarConnected = useComingUp((state) => state.connected);
+  const calendarConnected = useCalendars((state) => (state.calendars?.accounts.length ?? 0) > 0);
   const problem = useMeetingOffers((state) => state.offers.problem);
   const [perApp, setPerApp] = useState(false);
   const row = useSettingsTarget<HTMLDivElement>(TARGET, device !== undefined);

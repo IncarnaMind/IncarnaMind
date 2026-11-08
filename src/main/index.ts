@@ -40,7 +40,8 @@ import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { closingLastWindowQuits, keptRunning, startsWithoutWindow } from "./background";
 import { serveBackground } from "./backgroundHost";
 import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
-import { createCallWatcher, MAC_WATCHER } from "./calls/watcher";
+import { macWatcherPath } from "./calls/macWatcher";
+import { createCallWatcher } from "./calls/watcher";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
@@ -269,11 +270,7 @@ function callWatching(): { callWatcher?: CallWatcher } {
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };
   }
-  const program = join(
-    app.isPackaged ? process.resourcesPath : join(app.getAppPath(), "resources"),
-    "call-watcher",
-    MAC_WATCHER,
-  );
+  const program = macWatcherPath();
   return {
     callWatcher: createCallWatcher({
       log: logger,

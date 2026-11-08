@@ -1,9 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { describe, expect, test } from "vitest";
-import { CALL_WATCHER } from "../../scripts/callWatcher";
+import { DEV_WATCHER, WATCHER_NAME } from "../../scripts/callWatcher.mjs";
 import { isRecordingEvent, streamsOfJson, streamsOfText } from "../../src/main/calls/pactl";
 import {
   appsOfMacLine,
@@ -44,11 +43,11 @@ describe("macOS: Core Audio's processes running input", () => {
   });
 
   test("the build ships the watcher under the name the app runs", () => {
-    expect(MAC_WATCHER).toBe(CALL_WATCHER);
+    expect(MAC_WATCHER).toBe(WATCHER_NAME);
   });
 
-  // The watcher as the built app runs it: macOS only, once `npm run build` has compiled it.
-  const built = join(__dirname, "..", "..", "resources", "call-watcher", MAC_WATCHER);
+  // The watcher as the built app runs it: macOS only, once `npm run call-watcher` has built it.
+  const built = DEV_WATCHER;
   test.runIf(process.platform === "darwin" && existsSync(built))(
     "the real watcher says what uses the microphone now, and exits when IncarnaMind closes its input",
     async () => {

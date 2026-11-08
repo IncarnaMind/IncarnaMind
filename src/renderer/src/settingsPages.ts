@@ -25,6 +25,7 @@ export type SettingsTarget =
   | "tagging"
   | "turn-on-tagging"
   | "meeting-words"
+  | "calendars"
   | "background"
   | "call-offers"
   | SignInRoute;

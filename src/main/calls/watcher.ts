@@ -12,8 +12,8 @@ import { appOfBundle, appOfLinuxStream, appOfWindowsProgram } from "../../shared
 import { isRecordingEvent, type RecordingStream, streamsOfJson, streamsOfText } from "./pactl";
 import { windowsWatchScript } from "./windowsScript";
 
-/** The macOS watcher's file, in call-watcher/ beside app.asar (scripts/callWatcher.ts builds it). */
-export const MAC_WATCHER = "incarnamind-call-watcher";
+/** The macOS watcher's file beside app.asar, where the packager builds it (scripts/callWatcher.mjs). */
+export const MAC_WATCHER = "call-watcher";
 
 /** How long to wait before starting a watcher again after it stopped by itself; it gives up after `RESTARTS`. */
 const RESTART_MS = 5000;

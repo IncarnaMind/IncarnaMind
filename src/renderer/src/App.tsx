@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { showAppearance } from "./appearance";
 import { GAP, isSide, RAIL, SIDE_MIN, shownDock } from "./assistantPlace";
+import { useCalendars } from "./calendars";
+import { useComingUp } from "./comingUp";
 import { useEditMenu } from "./commands/edit";
 import { sidebarHandle, useHandle } from "./commands/handles";
 import { useKeymap } from "./commands/keymap";
@@ -65,6 +67,8 @@ export function App() {
     void load();
     void useMeetings.getState().load();
     void useMeetingOffers.getState().load();
+    void useCalendars.getState().load();
+    void useComingUp.getState().load();
   }, [load]);
 
   useEffect(() => {

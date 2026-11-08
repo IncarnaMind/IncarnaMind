@@ -6,7 +6,7 @@
 // macOS 14 and later say which process runs input. Before that only "the default input device is
 // running somewhere" is known, so the line names the app in front instead, with "exact":false.
 //
-// Build: npm run build compiles it on macOS (scripts/callWatcher.ts).
+// Built by the packager into the app (scripts/afterPack.mjs), and by `npm run call-watcher` for development.
 
 #import <AppKit/AppKit.h>
 #import <CoreAudio/CoreAudio.h>

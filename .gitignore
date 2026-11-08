@@ -14,8 +14,10 @@ coverage/
 resources/python/
 # Where run_code's Python is downloaded from, with its size and SHA-256 (scripts/pythonNative.ts)
 resources/python-native/
-# The macOS call watcher, compiled by the build (scripts/callWatcher.ts)
-resources/call-watcher/
+# The Mac calendar helper built for development (npm run calendar-helper)
+native/calendar-helper/.build/
+# The macOS call watcher built for development (npm run call-watcher)
+native/callWatcher/.build/
 
 # Evaluation reports (npm run eval)
 eval/results/

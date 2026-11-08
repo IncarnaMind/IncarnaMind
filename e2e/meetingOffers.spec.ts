@@ -328,3 +328,33 @@ test("on Windows, the call watcher's PowerShell says which apps use the micropho
   parent.kill();
   expect(await ended).toBe(0);
 });
+
+test("once a calendar is connected, Settings › General shows its offers' switch, and turning it off is kept", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    extraEnv: { INCARNAMIND_TEST_CALLS: "1" },
+    systemCalendar: {
+      access: "allowed",
+      calendars: [{ id: "home", title: "Home", source: "iCloud", kind: "caldav" }],
+      events: [],
+    },
+  });
+  await dismissChatSetup(window);
+  await setUpMeetings(window);
+  const settings = await openSettings(window, "general");
+  await expect(settings.getByTestId("call-offers")).toBeVisible();
+  await expect(settings.getByTestId("calendar-offers-switch")).toHaveCount(0);
+
+  await (await bridge(window)).evaluate((core) => core.connectCalendar("mac"));
+  const calendarSwitch = settings.getByTestId("calendar-offers-switch");
+  await expect(calendarSwitch).toBeChecked();
+  await calendarSwitch.click();
+  await expect(calendarSwitch).not.toBeChecked();
+  await expect
+    .poll(async () =>
+      (await bridge(window)).evaluate(
+        async (core) => (await core.getSettings()).device.calendarOffers,
+      ),
+    )
+    .toBe(false);
+  await app.close();
+});
