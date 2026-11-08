@@ -188,6 +188,13 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const ids = list("ITEMS");
   const each = env("EACH") ? Number(env("EACH")) : null;
   const runs = Number(env("RUNS") ?? "1") || 1;
+  // Each call is opened once a run and can be stopped only once: a second Stop fails at once and
+  // takes a turn of the arms' order (#2791).
+  if (sets.includes("meeting-notes") && (runs > 1 || models.length > 1)) {
+    throw new Error(
+      "The meeting-notes set runs one model once a run: for more pairs, run it again with the same INCARNAMIND_EVAL_SPEED_LEDGER.",
+    );
+  }
   const stopUsd = Number(env("STOP_USD") ?? "12");
   const margin = Number(env("MARGIN") ?? "0");
   // A set whose replies differ by chance from run to run counts false Supported over the set

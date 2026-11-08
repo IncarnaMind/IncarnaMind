@@ -7,7 +7,7 @@ Claude Haiku 5.5 isn't run: its fill already thinks at low, Claude's lowest effo
 ## The runs
 
 - **Arms:** `today` against `notes-low-effort` (`eval/speed/arms.ts`: each DeepSeek request that thinks is sent with `reasoningEffort: "low"`; in the meeting-notes set that is the fill's request alone, since the claims' checks don't think). Both arms start the notes during the speaker pass, as `notes-before-speakers-2.md` shipped. Paired as `eval/speed/README.md` › Paired runs says, with `INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`.
-- **Set:** `meeting-notes`, its 12 long calls, 6 English and 6 Chinese, with the stand-in speaker pass. Twice (`INCARNAMIND_EVAL_SPEED_RUNS=2`): 24 pairs, 12 a language.
+- **Set:** `meeting-notes`, its 12 long calls, 6 English and 6 Chinese, with the stand-in speaker pass. Twice, as two runs on one ledger, since a call is stopped once a run: 24 pairs, 12 a language. The guards are read over both runs' rows together. A first try with `INCARNAMIND_EVAL_SPEED_RUNS=2` was stopped at its first call, whose second Stop failed on both arms; its one pair ($0.04) isn't counted, and the runner now refuses a second run or model on this set.
 - **Model:** DeepSeek V4.1 Flash 1017 (`deepseek-flash`) as the User's Answers model, on DeepSeek's own key. The judge is Claude Sonnet 5.5.
 
 ## How many pairs, and why
