@@ -15,6 +15,7 @@ import type {
 } from "../../src/core";
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
+import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
@@ -24,7 +25,7 @@ import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { mindCitations, shownPassages, transcriptCitations } from "../helpers/citations";
-import { createTempDataFolder, saveProviderUnasked } from "../helpers/core";
+import { createMemoryKeychain, createTempDataFolder, saveProviderUnasked } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import {
@@ -163,10 +164,19 @@ async function recorded(
     lines = { mine: MY_LINES, theirs: THEIR_LINES },
     createChatModel,
     stop = (core, meetingId) => core.stopMeeting(meetingId),
+    capture,
+    cloud = false,
+    keychain,
   }: {
     speakerSeparator?: SpeakerSeparator;
     /** How Stop is pressed. */
     stop?: (core: Core, meetingId: string) => Promise<unknown>;
+    /** Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer. */
+    cloud?: boolean;
+    /** The keychain its key is kept with, for a start after this one that reads it. */
+    keychain?: ReturnType<typeof createMemoryKeychain>;
+    /** What the fake capture does: the computer's sound silent, for a recording of a room. */
+    capture?: FakeCaptureOptions;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
     /** Models made from each spec, around `model`. */
     createChatModel?: ChatModelFactory;
@@ -178,8 +188,23 @@ async function recorded(
     engine: { lines: lines.mine, theirLines: lines.theirs },
     ...(speakerSeparator && { speakerSeparator }),
     ...(createChatModel && { createChatModel }),
+    ...(capture && { capture }),
+    ...(keychain && { keychain }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  if (cloud) {
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    for (const flow of ["chat", "checks"] as const) {
+      if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+    }
+    await core.updateSettings({
+      user: { chatModel: { providerId: saved.id, modelId: "claude-haiku-5-5" } },
+    });
+  }
   await before?.(core);
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
@@ -259,27 +284,159 @@ const NOTES = [
 describe("After Stop, the notes are filled in from the Transcript (#142)", {
   timeout: 60_000,
 }, () => {
-  // protects=with the speaker pass (#138) running after the save, the notes wait for it, so their Citations name the final speakers, and are filled in once it ends; fails_when=the fill starts while the pass runs, or never starts after it; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
-  test("the notes wait for the speakers to be told apart, then are filled in", async () => {
+  // protects=in a call, the notes start from the saved Transcript while its speakers are told apart (#2773), but nothing is written until the pass ends, and when it renames no one the notes are made once; fails_when=the fill waits for the pass before its request, writes before the pass ends, or is made twice; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
+  test("a call's notes start while its speakers are told apart and are written once the pass renames no one", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
     });
     let passing = true;
-    const whilePassing: boolean[] = [];
+    const asked: boolean[] = [];
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && asked.push(passing) },
+    );
+    const { separator, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const writtenWhile: boolean[] = [];
+    const { core, meeting, client } = await recorded(
+      model,
+      NOTES,
+      async (core) => {
+        core.on("meetings.changed", (meetings) => {
+          const fill = meetings.find((each) => each.kind === "meeting")?.fill;
+          if (fill?.state === "filled" && writtenWhile.length === 0) writtenWhile.push(passing);
+        });
+      },
+      undefined,
+      { speakerSeparator: separator, cloud: true },
+    );
+    const before = shown(client);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await vi.waitFor(() => expect(asked).toEqual([true]));
+    await vi.waitFor(() =>
+      expect(model.doStreamCalls.length + model.doGenerateCalls.length).toBeGreaterThanOrEqual(2),
+    );
+    await client.settled();
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
+    expect(shown(client)).toEqual(before);
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([false]);
+    expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
+    expect(asked).toEqual([true]);
+    core.close();
+  });
+
+  // protects=a model on this computer, which the pass would share it with, waits for the speakers to be told apart before its request, as before (#2773); fails_when=its request goes out while the pass runs; no_claim=the pass's labels.
+  test("on a model on this computer, a call's notes wait for its speakers to be told apart", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && asked.push(passing) },
+    );
+    const { separator, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && transcript.separating,
+    );
+    expect((await fillOf(core, meeting.id))?.state).toBe("waiting");
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(asked).toEqual([false]);
+    core.close();
+  });
+
+  // protects=when the speaker pass renames who spoke a line, notes made before it ended are dropped and made again from the renamed Transcript, so the Citations written name the final speakers (#2773, #138); fails_when=the notes made before the rename are written, or their Citations keep the old label; no_claim=the pass's labels.
+  test("a call whose pass renames a line is filled again from the renamed Transcript, its Citations naming the new speakers", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
+    const said = THEIR_LINES[0] as string;
+    const marks: string[] = [];
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      if (fillRun(call)) {
+        asked.push(passing);
+        const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+          each.text.includes(said),
+        );
+        const mark = passage?.text
+          .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+          ?.find((each) => passage.text.includes(`${each}${said}`));
+        const location = mark?.slice(1, -2) ?? "";
+        marks.push(location);
+        const citations = [{ marker: 1, passage: passage?.id, location, quote: said }];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return {
+        text: [
+          overview("The call covered the budget [^1]."),
+          fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
+            sections: ["decisions"],
+          }),
+        ].join("\n\n"),
+      };
+    });
+    const { separator, requests } = fakeSeparator({ holds });
+    const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+      speakerSeparator: separator,
+      cloud: true,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await vi.waitFor(() => expect(asked).toEqual([true]));
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(asked).toEqual([true, false]);
+    expect(marks).toEqual(["0:00 Them", "0:00 Speaker 1"]);
+    const final = (await savedCues(core, meeting.id)).find((cue) => cue.text === said);
+    expect(final?.speaker).toBe("Speaker 1");
+    const cited = mindCitations(client).filter((each) => each.quote === said);
+    expect(cited.length).toBeGreaterThan(0);
+    for (const citation of cited) {
+      expect(citation.location).toMatchObject({ kind: "time", speaker: "Speaker 1" });
+    }
+    core.close();
+  });
+
+  // protects=a recording of a room, whose pass always names its voices, sends nothing for its notes until its speakers are told apart, then fills them in (#138, #2773); fails_when=a fill request goes out while the pass runs, or none after it; no_claim=the pass's labels.
+  test("a room's notes wait for its speakers to be told apart, then are filled in", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
     const model = fillingModel(
       lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
       { 1: MY_LINES[0] as string },
       {},
-      {
-        seen: (call) => {
-          if (isFill(call)) whilePassing.push(passing);
-        },
-      },
+      { seen: (call) => fillRun(call) && asked.push(passing) },
     );
     const { separator, requests } = fakeSeparator({ holds });
     const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
       speakerSeparator: separator,
+      capture: { system: "silent" },
     });
     await until(
       core,
@@ -291,9 +448,61 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     passing = false;
     release();
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    expect(whilePassing.length).toBeGreaterThan(0);
-    expect(whilePassing.filter(Boolean)).toEqual([]);
+    expect(asked).toEqual([false]);
     core.close();
+  });
+
+  // protects=a quit while a call's notes are made before its speakers are told apart writes nothing, and at the next start the notes wait for the pass to run again, then are filled in once (#2773); fails_when=the next start says the fill stopped, writes before the pass, or writes twice; no_claim=the pass's labels.
+  test("a quit while the notes are made before the speakers are told apart fills them in once the pass has run at the next start", async () => {
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { held: new Promise<void>(() => {}) },
+    );
+    const { separator } = fakeSeparator({ holds: new Promise<void>(() => {}), voiceOf: () => 0 });
+    const keychain = createMemoryKeychain();
+    const { core, meeting, client, dataDir } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+      cloud: true,
+      keychain,
+    });
+    const before = shown(client);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" }),
+    );
+    core.close();
+
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
+    const { separator: again } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const { core: reopened } = await transcribingCore(dataDir, {
+      model: fillingModel(
+        PRICING_REPLY,
+        { 1: MY_LINES[0] as string },
+        {},
+        { seen: (call) => fillRun(call) && asked.push(passing) },
+      ),
+      speakerSeparator: again,
+      keychain,
+    });
+    const shownAgain = await connectToMind(reopened, meeting.mindId);
+    expect(shown(shownAgain)).toEqual(before);
+    expect((await fillOf(reopened, meeting.id))?.state).not.toBe("failed");
+    passing = false;
+    release();
+    expect(await settledFill(reopened, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(asked).toHaveLength(1);
+    expect(
+      shown(shownAgain).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
+    reopened.close();
   });
 
   // protects=a speaker pass that fails releases the notes: they are filled in with the labels the Transcript has, and the Transcript says its speakers couldn't be told apart; fails_when=the fill waits for the rest of the session, or the failure says nothing; no_claim=why the pass failed, which only the log says.
@@ -1099,6 +1308,53 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       problem: { kind: "stopped" },
     });
     expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    core.close();
+  });
+
+  // protects=a call's note deleted while its notes are made before its speakers are told apart, and brought back after the pass ends, gets its notes, as one deleted while it waited for the pass does (#2773); fails_when=the restored note says the fill stopped, or nothing is filled in; no_claim=a note deleted after the pass, which the test above covers.
+  test("a call's note deleted while its notes are made before the pass ends gets them once it is back", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reply = () => {};
+    const held = new Promise<void>((resolve) => {
+      reply = resolve;
+    });
+    let runs = 0;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { held, seen: (call) => fillRun(call) && runs++ },
+    );
+    const { separator: told } = fakeSeparator({ holds, voiceOf: () => 0 });
+    let answered = false;
+    const separator: SpeakerSeparator = {
+      async separate(request) {
+        const turns = await told.separate(request);
+        answered = true;
+        return turns;
+      },
+    };
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+      cloud: true,
+    });
+    await vi.waitFor(() => expect(runs).toBe(1));
+    await core.deleteMind(meeting.mindId);
+    reply();
+    release();
+    await vi.waitFor(() => expect(answered).toBe(true));
+    // The pass ends in the promise turns after its answer: the next task sees it ended.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(
+      shown(await connectToMind(core, meeting.mindId)).filter(
+        (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    ).toHaveLength(1);
     core.close();
   });
 
