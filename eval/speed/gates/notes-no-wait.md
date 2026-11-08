@@ -85,3 +85,28 @@ Main at `90012f912` against the branch at `d901a7732`, both built in test mode. 
   - In `zh-haiku-branch`'s second try, Haiku left one item out (an invalid frame), and its notes were short: 2 Citations. #2773 saw this on main.
   - On the renaming call with Sonnet, finishing the Transcript took 51–68 s on both arms: live text fell behind on the real meeting audio.
 - **Spend:** $0.98 for the gate, the replaced first try included.
+
+## After the review (2026-11-08): the renaming call again, at the fix
+
+The review found that a record checked after the pass changed who's who failed its check. The fix (4aa633124) checks each record against the who's who its model read. The renaming call's branch runs were run again at 89467c43f:
+
+| Run | Load at Stop (1/5/15) | Transcript saved | Pass ends | Fill request (thinking out tokens) | Checks (requests) | Ready | Notes in | In after ready | Citations / wrong speaker / checked again | Lines renamed | Written / made again | Undo in one step | Spend |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ami-sonnet-branch-3 | 25.39 20.76 20.95 | 64.5 | 143.9 | 64.6→67.4 (298); 67.4→71.5 (575) | 71.5→83.2 (3) | 83.2 | **83.2** | 0.0 | 8 / 0 / 0 | 41 | 1 / 0 | yes | $0.058 |
+| ami-haiku-branch-3 | 5.46 12.90 19.06 | 0.1 | 26.0 | 0.1→18.5 (4468) | none | 18.5 | **-** | - | 0 / 0 / 0 | 39 | 0 / 0 | no Undo shown | $0.003 |
+| ami-haiku-branch-4 | 12.85 12.84 19.96 | 0.1 | 22.1 | 0.2→17.7 (4166); 17.8→21.1 (939) | 21.2→26.8 (19) | 26.8 | **26.8** | 0.0 | 19 / 0 / 0 | 41 | 1 / 0 | yes | $0.012 |
+
+- **`ami-sonnet-branch-3`:** every guard held. 41 lines were renamed; 8 Citations, none naming the wrong speaker and none checked again; written once; Undo in one step.
+- **`ami-haiku-branch-3`:** the model wrote its notes without calling `cite`. No first tool call is recorded, and its text came at 15.8 s. So no item had a record, and the fill failed at 18.4 s, before the pass ended at 26.0 s. The fix changes nothing before a rename, and #2773 saw this Haiku failure on main in 2 of 10 fills. With no notes, there was no version at notes-in to compare. It was run again as `ami-haiku-branch-4`.
+- **`ami-haiku-branch-4`:** every guard held. 41 lines were renamed; 19 Citations, none naming the wrong speaker and none checked again; written once; Undo in one step. The pass ended at 22.1 s, while its claims were being checked.
+- The race itself is timing-dependent in the app, so it is held to a test: `tests/core/meetingFill.test.ts` holds the fill's reply until the pass has ended, with and without a rename, and `tests/core/transcriptSpeakers.test.ts` does the same for an Answer. Both fail at 154510658 and pass at the fix.
+
+On the renaming call, the two arms' notes read differently. The model on the branch read the lines as "Them", so its text names the other side as one. Its Citations name each Speaker. Excerpts, Claude Sonnet 5.5:
+
+| main (made again after the pass) | branch (written before the pass ended) |
+|---|---|
+| Speaker 2 said the computer room has only about four or five computers. `Speaker 2 · 0:49` | The other side said the computer room has only about four or five computers. `Speaker 2 · 0:49` |
+| Speaker 3 said reading week is next week. `Speaker 3 · 1:45` | The other side said next week is reading week, and that it is week six. `Speaker 3 · 1:45` |
+| Speaker 1 thought D I L will probably have a class to make up for missing classes. `Speaker 1 · 2:17` | The other side said they think D I L will probably have a class to make up for missing classes. `Speaker 1 · 2:17` |
+
+Spend for these runs: $0.07.
