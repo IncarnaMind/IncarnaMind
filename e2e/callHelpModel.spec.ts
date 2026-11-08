@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   closeSettings,
   createDataFolder,
   dismissChatSetup,
@@ -44,6 +45,7 @@ const bridgeOf = (window: Page) =>
 test("call help's model: Same as Answers by default, Fastest offered on Anthropic with what it trades, ⌘K opens it, in English and Chinese, and no choice for a provider not offered", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1100, 800);
+  await acceptPlainTextKeys(window);
   const bridge = await bridgeOf(window);
   await bridge.evaluate((core) =>
     core.saveChatProvider({
