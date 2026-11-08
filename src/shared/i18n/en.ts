@@ -2804,7 +2804,8 @@ export const en = {
   "rerank.settings.body.details":
     "On by default, with the built-in model, which runs on this computer; Cohere and Voyage AI need a key. You can turn it off. It applies to an Answer from a model that searches once, to Suggest as I write, and to checks and comparison tables. A model that searches by itself doesn’t use it, and searches again when the passages don’t answer.",
   "rerank.settings.inUse": "{service} puts the best search results first ({model}).",
-  "rerank.settings.sends": "Each search and the passages it found are sent to {service}.",
+  "rerank.settings.sends":
+    "Each search and the passages it found, each with its Document’s name, are sent to {service}.",
   "rerank.settings.builtInUse": "The built-in model puts the best results first.",
   "rerank.settings.builtInDefault": "By default, the built-in model puts the best results first.",
   "rerank.settings.notDownloaded": "Downloads once ({total} MB) when there are Documents.",
