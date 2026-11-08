@@ -24,7 +24,7 @@ import {
   resolveProposals,
 } from "../../src/shared/proposals";
 import { BETWEEN_KEPT, BETWEEN_KEPT_LINES } from "../helpers/betweenKept";
-import { setUpWithDocuments } from "../helpers/citations";
+import { mindCitations, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
 import {
   type EditCall,
@@ -249,6 +249,90 @@ describe("Edit with AI", () => {
         quote: "Spring tides happen at new moon and at full moon",
         check: "found",
         [PROPOSAL_ATTRIBUTE]: null,
+      }),
+    ]);
+  });
+
+  // protects=a Citation kept through Edit with AI is not checked again when its Document is behind a wall the Note is outside (#2746); fails_when=the edit's recheck reads the walled Document and points the Note's Citation at a version it may not see; no_claim=the same edit in a Note inside the wall, which does check it again.
+  test("a Citation behind a wall is not checked again by Edit with AI from outside it, and is from inside (#2746)", async () => {
+    const board = {
+      name: "Board.md",
+      contents: [
+        "# Board",
+        "",
+        "Spring tides happen at new moon and at full moon.",
+        "",
+        "Harbours publish the times of high water every year.",
+      ].join("\n"),
+    };
+    const { core, documents } = await setUpWithDocuments(
+      editingModel(
+        () => "Spring tides happen at new moon and at full moon [1], as every sailor knew.",
+      ),
+      [board],
+    );
+    const document = documents[0] as Document;
+    const folder = await core.createLibraryGroup({ name: "Board work", description: "" });
+    await core.assignDocumentGroup(document.id, folder.id);
+    const outside = await core.createMind({ title: "Outside the wall" });
+    const inside = await core.createMind({ title: "Inside the wall", folderId: folder.id });
+    const outsideClient = await connectToMind(core, outside.id);
+    const insideClient = await connectToMind(core, inside.id);
+    // Made before the wall, quoting the version it had: a check now would point it at the current one.
+    const citedNote = () =>
+      paragraph(
+        text("Spring tides happen at new moon and at full moon "),
+        {
+          type: "citation",
+          attrs: {
+            passageId: "passage-made-before-the-wall",
+            documentId: document.id,
+            documentName: "Board",
+            contentHash: "hash-made-before-the-wall",
+            pageFrom: null,
+            pageTo: null,
+            quote: "Spring tides happen at new moon and at full moon",
+            check: "found",
+            checkReason: null,
+          },
+        },
+        text(", as sailors knew."),
+      );
+    const outsideNote = citedNote();
+    writeMind(outsideClient, [outsideNote]);
+    await outsideClient.settled();
+    const insideNote = citedNote();
+    writeMind(insideClient, [insideNote]);
+    await insideClient.settled();
+
+    await core.updateLibraryGroup(folder.id, {
+      name: folder.name,
+      description: folder.description,
+      keepInside: true,
+    });
+
+    await core.editWithAi(
+      wholeParagraph(outsideClient, outside.id, outsideNote.attrs.id, "improve"),
+    );
+    await resolveChanges(outsideClient, "accept");
+    expect(mindCitations(outsideClient)).toEqual([
+      expect.objectContaining({
+        contentHash: "hash-made-before-the-wall",
+        passageId: "passage-made-before-the-wall",
+        quote: "Spring tides happen at new moon and at full moon",
+        check: "found",
+      }),
+    ]);
+    // Nothing of the Document the Note may not read reaches it.
+    expect(await exported(core, outside.id)).not.toContain("Harbours publish");
+
+    await core.editWithAi(wholeParagraph(insideClient, inside.id, insideNote.attrs.id, "improve"));
+    await resolveChanges(insideClient, "accept");
+    expect(mindCitations(insideClient)).toEqual([
+      expect.objectContaining({
+        contentHash: document.contentHash,
+        quote: "Spring tides happen at new moon and at full moon",
+        check: "found",
       }),
     ]);
   });
