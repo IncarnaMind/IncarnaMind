@@ -1478,6 +1478,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           uncovered: null,
           found: true,
         }),
+        unitsMayDiffer: (amount) => ({
+          kind: "units",
+          reason: translate(deps.language(), "claim.unsupported.unitsMayDiffer", { amount }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         keptInside: (documentId) =>
           deps.walledDocument(documentId) !== null &&
           (scope.documentIds === null ||

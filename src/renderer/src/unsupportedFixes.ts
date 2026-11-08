@@ -107,15 +107,18 @@ export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
   (claimWordsAt(editor.state.doc, claim.sentence.from, claim.sentence.to) ?? "").trim();
 
 /**
- * The word a check's mark and card are headed with: "Not found" apart from "Unsupported", and
- * "Record cite" for a Supported sentence one of whose own record cites needs a look.
+ * The word a check's mark and card are headed with: "Not found" or "Units may differ" apart from
+ * "Unsupported", and "Record cite" for a Supported sentence one of whose own record cites needs a
+ * look.
  */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
   markOf(claim) !== claim.shown.state
     ? "claim.state.recordCite"
     : notFoundIn(editor, claim)
       ? "claim.state.notFound"
-      : `claim.state.${claim.shown.state}`;
+      : claim.shown.state === "unsupported" && claim.check.unsupported?.kind === "units"
+        ? "claim.state.unitsMayDiffer"
+        : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";

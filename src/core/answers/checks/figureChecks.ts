@@ -1,6 +1,13 @@
 import { MARKER } from "../../../shared/answerSentences";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
-import { readFigures } from "../../../shared/figures";
+import { quotedSourceText } from "../../../shared/figureSchedule";
+import {
+  type Figure,
+  type FigureUnit,
+  namedCurrencies,
+  readFigures,
+  readStatedUnits,
+} from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
 import type { UnitText } from "../../../shared/units";
@@ -19,10 +26,11 @@ import type {
 } from "../../api";
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
-import { type CalculationSession, documentFigureContext, whole } from "../calculations";
+import { type CalculationSession, documentFigureContext, shifted, whole } from "../calculations";
 import { namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
+import { isPropertyPassage } from "./fileProperties";
 import { FIGURES, figureHandle, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
@@ -426,6 +434,8 @@ export interface FigureCheckOptions {
   around(citation: Citation): readonly string[];
   /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
   otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
+  /** Why a bare figure needs a look when its source (`amount`, in its terms) differs only by a unit (#2864). */
+  unitsMayDiffer(amount: string): UnsupportedReason;
   /** Why an Analysis's figure isn't backed by its run: the sentence doesn't name it as `label` does. */
   misnamed(label: string): UnsupportedReason;
   /** The walled Folder that keeps a Document inside it, outside this check's scope; null otherwise. */
@@ -581,6 +591,109 @@ function inSourceFrame(
   };
 }
 
+/** A figure written as digits alone: no currency, unit or scale of its own, and none offered. */
+function writtenBare(reading: Figure): boolean {
+  return (
+    reading.unit.kind === "plain" &&
+    reading.scale === 1 &&
+    reading.scaleWord === null &&
+    reading.currency === null &&
+    reading.rangeTo === null &&
+    !reading.ambiguous.some(({ kind }) => kind === "scale" || kind === "currency")
+  );
+}
+
+const scaledBy = (value: number, scale: number) => shifted(value, Math.round(Math.log10(scale)));
+
+/** `reading` with a scale and unit put on its digits, its shown precision scaled with it. */
+function readAt(
+  reading: Figure,
+  scale: number,
+  scaleWord: string | null,
+  unit: FigureUnit,
+): Figure {
+  return {
+    ...reading,
+    value: scaledBy(reading.value, scale),
+    scale,
+    scaleWord,
+    unit,
+    ...(typeof reading.precision === "number" && {
+      precision: scaledBy(reading.precision, scale),
+    }),
+  };
+}
+
+/** The unit a scale line states, as its Document writes it: "GBP million", "人民币百万元". */
+function statedUnitWords(statement: NonNullable<FigureInput["unitStatement"]>): string {
+  const line = statement.citation.quote;
+  const read = readStatedUnits(line, documentFigureContext([{ text: line }])).find(
+    (each) => each.scale === statement.scale,
+  );
+  const words = read?.chars
+    .replace(/^(?:金额|金額)?(?:单位|單位)\s*[:：]\s*/u, "")
+    .replace(/^[(（]\s*|\s*[)）]$/gu, "")
+    .replace(/^in\s+/i, "")
+    .trim();
+  return (
+    words ||
+    [statement.currencyChars ?? statement.currency, statement.scaleWord].filter(Boolean).join(" ")
+  );
+}
+
+/**
+ * A figure the sentence writes as bare digits, read in the unit its source's Document states
+ * (#2864): "668.3" under "GBP million unless stated otherwise" is the Document's 668.3, written as
+ * the Document writes it. Only the line the judge quoted as its unitQuote, which the check found
+ * in the Document, gives the scale, so the comparison is of the same digits in one frame. Null
+ * when the source's scale isn't the line's, or the sentence names another currency.
+ */
+function inStatedUnit(
+  target: CheckFigure,
+  source: FigureInput | null,
+  claim: string,
+): { target: CheckFigure; unit: string } | null {
+  const statement = source?.unitStatement;
+  if (!source || !statement || statement.scale === 1) return null;
+  const { number } = source;
+  if (number.scale !== statement.scale) return null;
+  if (number.unit.kind !== "plain" && number.unit.kind !== "currency") return null;
+  const code = number.unit.kind === "currency" ? number.unit.code : null;
+  const named = namedCurrencies(claim, documentFigureContext([{ text: claim }]), null);
+  if ([...named].some((each) => each !== code)) return null;
+  return {
+    target: {
+      ...target,
+      reading: readAt(target.reading, statement.scale, statement.scaleWord, number.unit),
+    },
+    unit: statedUnitWords(statement),
+  };
+}
+
+// A thousand, a million and a billion: the scales a unit line most often leaves off a figure.
+const UNIT_SCALES = [1e3, 1e6, 1e9];
+
+/**
+ * Whether a figure written as bare digits differs from what it is compared with only by a unit:
+ * by a thousand, a million, a billion or the scale its source's Document states (万, 亿), either
+ * way, to the figure's shown precision (#2864). A share, a multiple or a limit never is.
+ */
+function differsOnlyByUnit(
+  bare: Figure,
+  compared: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
+  stated: number | null,
+): boolean {
+  if (typeof compared.value !== "number") return false;
+  if (compared.unit.kind !== "plain" && compared.unit.kind !== "currency") return false;
+  const { value } = compared;
+  const scales = new Set([...UNIT_SCALES, ...(stated !== null && stated > 1 ? [stated] : [])]);
+  return [...scales].some(
+    (scale) =>
+      agreesAtShownPrecision(readAt(bare, scale, null, bare.unit), compared) === true ||
+      agreesAtShownPrecision(bare, { ...compared, value: scaledBy(value, scale) }) === true,
+  );
+}
+
 /** Whether a source number equals the figure in any way the figure can be read. */
 export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): boolean {
   return [target.reading, ...target.reading.ambiguous.flatMap((each) => each.readings)].some(
@@ -718,8 +831,20 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     target = framed;
+    // The figure as the sentence writes it, before a unit its source's Document states frames it.
+    const written = target;
+    // Bare as the Note writes it: neither its own words nor a heading it is under give it a unit. A
+    // file's size is compared in the unit written after its figure, where its property is read.
+    const bareDigits =
+      !replayed &&
+      !isPropertyPassage(sourceInput?.citation.passageId) &&
+      writtenBare(original.reading) &&
+      writtenBare(written.reading);
+    const stated = bareDigits ? inStatedUnit(target, sourceInput, options.claim) : null;
+    if (stated) target = stated.target;
     const base = {
       ...finding(target),
+      ...(stated && { statedUnit: stated.unit }),
       source: replayed ? (sourceInput?.citation ?? null) : (cited ?? sourceInput?.citation ?? null),
     };
     const evidence = sourceInput?.citation ?? calculation?.inputs[0]?.citation ?? null;
@@ -743,6 +868,23 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     const flags = options.caseFlags(evidence);
     const unbacked = (quoted: Citation | null) =>
       figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
+    // Bare digits that differ from their source only by a unit need a look, never Contradicted:
+    // the check can't tell which unit the sentence means. Nor are they ever Supported (#2864).
+    const unitsDiffer = (): FigureCheckResult => {
+      const judged = unbacked(evidence);
+      const amount = sourceInput
+        ? quotedSourceText({ reading: written.reading, sourceInput })
+        : (calculation?.shown ?? null);
+      return {
+        ...finding(written),
+        source: base.source,
+        sourceInput,
+        result:
+          judged.verdict === "unsupported"
+            ? { ...judged, unsupported: options.unitsMayDiffer(amount ?? "") }
+            : judged,
+      };
+    };
     if (!sourceInput && !calculation) {
       // A figure the model doesn't call Supported, with no source that can be read, is one its
       // quotes don't hold: Unsupported in its own right, and not asked about again (#2184). A
@@ -841,12 +983,22 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // The model found the Document giving something else, yet bound a number equal to the
     // figure: another row's, or one in a unit the reader doesn't see. It is never Supported.
     if (agrees && item.verdict === "contradicted") {
-      rows.push({ ...base, sourceInput, result: unavailable("unread") });
+      // Equal only in the unit its Document states, the judge's Contradicted is about that unit.
+      rows.push(stated ? unitsDiffer() : { ...base, sourceInput, result: unavailable("unread") });
       continue;
     }
     // An equal number in another row's or column's cell of the quoted table backs nothing.
     if (agrees && measure?.kind === "other-cell") {
       rows.push({ ...base, sourceInput, result: unavailable("other-cell") });
+      continue;
+    }
+    if (
+      !agrees &&
+      bareDigits &&
+      relation === undefined &&
+      differsOnlyByUnit(written.reading, compared, sourceInput?.unitStatement?.scale ?? null)
+    ) {
+      rows.push(unitsDiffer());
       continue;
     }
     const difference = target.reading.value - compared.value;
@@ -858,13 +1010,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       difference !== 0;
     // Unlike a sentence's, this contradiction isn't judged a second time: it is arithmetic on two
     // numbers read in one frame, and the card shows the source value and its Location beside it.
+    // Only the judge's own Supported can stand here; the arithmetic never gives one.
     rows.push({
       ...base,
       sourceInput,
       difference: Number.isFinite(difference) ? difference : null,
       roundedFrom: rounded ? compared.value : null,
       result: {
-        verdict: agrees ? "supported" : "contradicted",
+        verdict: agrees && item.verdict === "supported" ? "supported" : "contradicted",
         evidence,
         says: item.says,
         unsupported: null,
@@ -962,6 +1115,9 @@ export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 
+const unitsMayDiffer = ({ result }: FigureCheckResult) =>
+  result.verdict === "unsupported" && result.unsupported?.kind === "units";
+
 const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
   contradicted: 0,
   unsupported: 1,
@@ -993,5 +1149,8 @@ export async function withSentenceVerdict(
     (remainder && STRICTNESS[remainder.verdict] <= STRICTNESS[judged.verdict])
   )
     return result;
+  // Beside a figure whose units may differ, a contradiction no figure shows may be that very unit:
+  // the sentence needs a look as the figure does, never Contradicted (#2864).
+  if (judged.verdict === "contradicted" && figures.some(unitsMayDiffer)) return result;
   return { ...aggregateFigureResults(figures, judged), figures, remainder: judged };
 }

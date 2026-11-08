@@ -933,7 +933,11 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
           ? "contradicted"
           : shown.state === "unsupported"
             ? (figureProblem(finding) ??
-              (check && saysNotFound(shown, check, 0) ? "not-found" : "unsupported"))
+              (check?.unsupported?.kind === "units"
+                ? "units-may-differ"
+                : check && saysNotFound(shown, check, 0)
+                  ? "not-found"
+                  : "unsupported"))
             : null;
     const place = layout.places.get(
       occurrence.locator.kind === "text"

@@ -118,6 +118,8 @@ export const LIBRARY_PART_RULES = [
   ...PART_RULES.slice(0, -1),
   "A sentence about the User's Library itself, such as how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, or its Folders, Tags and notes, is a fact.",
   'Words about the text they are in, the note or Answer itself, are kind about-this-text: how it is laid out or grouped, what it lists, shows or leaves out, or how it was made ("set out in the table below", "This summary is grouped by file type", "如下表所示", "本笔记按文件类型分组"). Neither a Document nor the Library could state them. A fact or opinion beside them keeps its own part.',
+  // Sorted as words about the note, a note's unit line was never checked against the Document's (#2864).
+  'Which unit or scale figures are in ("All amounts are in SEK thousands", "下列金额以千日元计") is a fact, which a Document\'s own unit line states; keep it whole with any words that say a Document states it so.',
   ...PART_RULES.slice(-1),
 ];
 
