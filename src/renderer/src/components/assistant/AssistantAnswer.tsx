@@ -17,6 +17,7 @@ import {
   UncalculatedLine,
 } from "../../editor/AnswerView";
 import { AskProblem } from "../../editor/AskProblem";
+import { ConversationIdContext } from "../../editor/mindContext";
 import { PlanLimitLine } from "../../editor/PlanLimitLine";
 import { useT } from "../../i18n";
 import { useModelInUse } from "../../modelInUse";
@@ -86,7 +87,7 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { id, analyses, text, citations, figures, status } = answer;
+  const { id, conversationId, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
     () => answerBlocks({ id, analyses, text, citations, figures, status }),
     [id, analyses, text, citations, figures, status],
@@ -148,16 +149,18 @@ export function AssistantAnswer({
       <CoverageLine answer={answer} question={question} />
       {!streaming && <WrittenFromLine answer={answer} />}
       {(written || streaming) && (
-        <AnswerText
-          answerId={answer.id}
-          blocks={blocks}
-          figureRuns={figureRunsOfAnswer(answer, blocks)}
-          label={t("answer.label")}
-          streaming={streaming}
-          regenerate={regenerate}
-          judged={answer}
-          onOpenTable={(table) => keeping.openTable(answer, table)}
-        />
+        <ConversationIdContext.Provider value={conversationId}>
+          <AnswerText
+            answerId={answer.id}
+            blocks={blocks}
+            figureRuns={figureRunsOfAnswer(answer, blocks)}
+            label={t("answer.label")}
+            streaming={streaming}
+            regenerate={regenerate}
+            judged={answer}
+            onOpenTable={(table) => keeping.openTable(answer, table)}
+          />
+        </ConversationIdContext.Provider>
       )}
       <MindChangesCard answer={answer} streaming={streaming} />
       <CommandsCard answer={answer} streaming={streaming} />

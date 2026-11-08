@@ -17,7 +17,7 @@ import {
   placeComments,
   takeComments,
 } from "./docxPages";
-import { markQuote, textNodes, unmarkQuote } from "./domQuote";
+import { markQuote, quoteNodesIn, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
 import { mapOfficeFontNames } from "./officeFontNames";
@@ -246,7 +246,10 @@ function DocxPages({
     placeComments(wrapper, comments.current, zoom);
   }, [rendered, zoom]);
 
-  /** The heading elements docx-preview drew, in order: those with text, as the outline lists them. */
+  /**
+   * The heading elements docx-preview drew, in order: those with text, as the outline lists them,
+   * and none inside a table, which the core reads as body text (#2810).
+   */
   const headingElements = useCallback((): HTMLElement[] => {
     const body = host.current;
     if (!body || docx.headingStyles.length === 0) return [];
@@ -254,7 +257,7 @@ function DocxPages({
       .map((id) => `section.${CLASS_NAME} > article p.${CSS.escape(styleClass(id))}`)
       .join(",");
     return [...body.querySelectorAll<HTMLElement>(selector)].filter(
-      (element) => (element.textContent ?? "").trim() !== "",
+      (element) => (element.textContent ?? "").trim() !== "" && element.closest("table") === null,
     );
   }, [docx]);
 
@@ -345,12 +348,7 @@ function DocxPages({
       const find = () =>
         target.pageFrom === undefined
           ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
-          : ((section &&
-              markQuote(
-                textNodes(body, section.range).filter((node) => node.parentElement?.closest(place)),
-                quote,
-              )) ??
-            inNotes(anchoredInSection));
+          : (markQuote(quoteNodesIn(body, section, place), quote) ?? inNotes(anchoredInSection));
       found = find();
       if (!found) found = withoutFootnoteNumbers(body, find);
     }

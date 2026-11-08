@@ -35,6 +35,7 @@
  * moment it is made, in a Mind with no title, so the title line of its note names the Mind.
  */
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import { formatDay } from "../../shared/dates";
 import { translate } from "../../shared/i18n";
 import {
@@ -59,12 +60,13 @@ import {
   type MeetingSourceState,
   type Mind,
 } from "../api";
-import { InvalidInputError, isRecord, NotFoundError } from "../errors";
+import { InvalidInputError, isRecord, NotFoundError, TranslatableError } from "../errors";
 import type { Language } from "../language";
 import { parseFolderChoice } from "../minds";
 import type { Database } from "../storage";
 import {
   listParts,
+  MAX_RECORDING_MS,
   meetingFolder,
   msOf,
   PART_SAMPLES,
@@ -72,6 +74,7 @@ import {
   removeAudio,
   removeUnfinished,
   writePart,
+  writeRecording,
 } from "./audioFiles";
 import type { CaptureHealthRecords } from "./health";
 import type { Transcripts } from "./transcript";
@@ -121,6 +124,7 @@ interface MeetingRow {
   started_at: string | null;
   stopped_at: string | null;
   audio_expires_at: string | null;
+  audio_kept_at: string | null;
   audio_deleted_at: string | null;
   fill: string | null;
   transcript_document_id: string | null;
@@ -130,7 +134,7 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -187,6 +191,8 @@ export interface MeetingsOptions {
   noticeAccepted(): boolean;
   /** The "What is recorded" choice in Settings. */
   systemAudioByDefault(): boolean;
+  /** "Keep a meeting's audio" in Settings (#687): a Meeting that starts then keeps its audio. */
+  keepAudioByDefault(): boolean;
   language(): Language;
   createMind(title: string, folderId: string | null): Mind;
   mindExists(mindId: string): boolean;
@@ -272,6 +278,8 @@ export function createMeetings(options: MeetingsOptions) {
   let live: Live | null = null;
   /** Whether each Meeting has audio on disk, looked up once. */
   const kept = new Map<string, boolean>();
+  /** Save recording… writing a Meeting's audio now (#687): set when its audio goes, so it stops. */
+  const writing = new Map<string, { stop: boolean }>();
   /** For the call's help, kept in memory: it matters only while the Meeting is live. */
   const help = new Map<string, MeetingHelp>();
   const templates = new Map<string, MeetingHelpTemplate>();
@@ -346,6 +354,7 @@ export function createMeetings(options: MeetingsOptions) {
         kept: hasAudio(row.id),
         expiresAt: row.audio_expires_at,
         deletedAt: row.audio_deleted_at,
+        keptUntilDeleted: row.audio_kept_at !== null,
       },
       saveError: current?.saveError ?? null,
       transcript:
@@ -643,13 +652,25 @@ export function createMeetings(options: MeetingsOptions) {
     return periods;
   }
 
-  /** When the Meeting's audio goes: a day after its last stretch, if it has any. */
-  const expiryOf = (meetingId: string, periods: Period[]) => {
+  /**
+   * When the Meeting's audio goes: a day after its last stretch, if it has any, unless the User
+   * keeps it (#687).
+   */
+  const expiryOf = (row: Pick<MeetingRow, "id" | "audio_kept_at">, periods: Period[]) => {
     const last = periods.at(-1);
-    return last && hasAudio(meetingId)
+    return last && row.audio_kept_at === null && hasAudio(row.id)
       ? new Date(endOf(last) + MEETING_AUDIO_KEPT_MS).toISOString()
       : null;
   };
+
+  /**
+   * When the audio goes once a stretch ends: a deletion due and not yet done (a Delete now that
+   * failed, a day ended just now) stays due, so the next sweep, or Resume, does it (#687).
+   */
+  const dueOr = (row: Pick<MeetingRow, "audio_expires_at">, otherwise: string | null) =>
+    row.audio_expires_at !== null && row.audio_expires_at <= now()
+      ? row.audio_expires_at
+      : otherwise;
 
   const recordedOf = (periods: Period[]) => {
     const last = periods.at(-1);
@@ -687,6 +708,8 @@ export function createMeetings(options: MeetingsOptions) {
     if (live?.meetingId === meetingId) {
       live.runs.clear();
     }
+    const write = writing.get(meetingId);
+    if (write) write.stop = true;
     removeAudio(folderOf(meetingId));
     kept.set(meetingId, false);
     log.info("meeting.audioDeleted", { meetingId, reason });
@@ -812,7 +835,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "paused",
         paused_by: "interrupted",
         periods: JSON.stringify(periods),
-        audio_expires_at: expiryOf(row.id, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       log.warn("meeting.recovered", {
         meetingId: row.id,
@@ -904,6 +927,8 @@ export function createMeetings(options: MeetingsOptions) {
       system_audio: system ? 1 : 0,
       periods: JSON.stringify([period]),
       started_at: at,
+      // As the setting is when it starts: what the recording notice said holds for it.
+      ...(options.keepAudioByDefault() && { audio_kept_at: at }),
     });
     begin(rowOf(row.id), period);
     log.info("meeting.started", { meetingId: row.id, kind: row.kind, systemAudio: system });
@@ -994,7 +1019,7 @@ export function createMeetings(options: MeetingsOptions) {
         status: "paused",
         paused_by: "user",
         periods: JSON.stringify(periods),
-        audio_expires_at: expiryOf(row.id, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       log.info("meeting.paused", { meetingId: row.id });
       changed();
@@ -1005,6 +1030,20 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       if (row.status !== "paused") throw new InvalidInputError({ key: "error.meeting.notPaused" });
       assertNoneCapturing(row.id);
+      // A deletion already due goes first, so what is recorded next never falls under its date
+      // (#687); one that still fails keeps the Meeting paused, and says why.
+      if (dueOr(row, null) !== null) {
+        try {
+          deleteAudio(row.id, "expired");
+        } catch (error) {
+          log.error("meeting.resumeDeleteFailed", { meetingId: row.id, code: codeOf(error) });
+          throw new TranslatableError(
+            { key: "error.meeting.resumeAudioNotDeleted" },
+            { cause: error },
+          );
+        }
+        save(row.id, { audio_deleted_at: now(), audio_expires_at: null });
+      }
       const periods = periodsOf(row);
       const period: Period = {
         start: now(),
@@ -1036,7 +1075,7 @@ export function createMeetings(options: MeetingsOptions) {
         paused_by: null,
         periods: JSON.stringify(periods),
         stopped_at: now(),
-        audio_expires_at: expiryOf(row.id, periods),
+        audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       transcripts?.stop(row.id);
       help.delete(row.id);
@@ -1099,9 +1138,78 @@ export function createMeetings(options: MeetingsOptions) {
       return { fromMs: from, toMs: to, sampleRate: MEETING_SAMPLE_RATE, samples };
     },
 
+    /**
+     * Keeps a Meeting's audio until the User deletes it, or with `kept` false, as its Undo does,
+     * lets it go a day from now: never at once, however long it was kept (#687).
+     */
+    keepAudio(input: unknown): Meeting {
+      const { meetingId, kept: keep } = isRecord(input) ? input : {};
+      if (typeof keep !== "boolean") {
+        throw new InvalidInputError({ key: "error.meeting.keepAudioChoice" });
+      }
+      const row = rowOf(meetingId);
+      if (keep && !hasAudio(row.id)) {
+        throw new InvalidInputError({ key: "error.meeting.noAudioToKeep" });
+      }
+      const at = now();
+      save(row.id, {
+        audio_kept_at: keep ? (row.audio_kept_at ?? at) : null,
+        audio_expires_at:
+          !keep && (row.status === "paused" || row.status === "stopped") && hasAudio(row.id)
+            ? new Date(Date.parse(at) + MEETING_AUDIO_KEPT_MS).toISOString()
+            : null,
+      });
+      log.info("meeting.audioKept", { meetingId: row.id, kept: keep });
+      changed();
+      return toMeeting(rowOf(row.id));
+    },
+
+    /**
+     * Writes the Meeting's audio as one WAV file at `path`, a place the User chose (#687). Not
+     * while it records. NotFoundError when it has no audio, or its audio goes while it is
+     * written, which then leaves nothing at `path`.
+     */
+    async writeRecording(meetingId: unknown, path: unknown): Promise<void> {
+      if (typeof path !== "string" || !isAbsolute(path)) {
+        throw new InvalidInputError({ key: "error.meeting.recordingPath" });
+      }
+      const row = rowOf(meetingId);
+      if (row.status === "recording") {
+        throw new InvalidInputError({ key: "error.meeting.saveWhileRecording" });
+      }
+      if (writing.has(row.id)) {
+        throw new InvalidInputError({ key: "error.meeting.savingRecording" });
+      }
+      if (!hasAudio(row.id)) throw new NotFoundError({ key: "error.meeting.audioGone" });
+      const durationMs = recordedOf(periodsOf(row));
+      if (durationMs > MAX_RECORDING_MS) {
+        throw new InvalidInputError({ key: "error.meeting.recordingTooLong" });
+      }
+      const write = { stop: false };
+      writing.set(row.id, write);
+      try {
+        const written = await writeRecording(folderOf(row.id), durationMs, path, () => write.stop);
+        if (!written) throw new NotFoundError({ key: "error.meeting.audioGone" });
+        log.info("meeting.recordingSaved", { meetingId: row.id });
+      } finally {
+        writing.delete(row.id);
+      }
+    },
+
+    /**
+     * Delete now. Asked for first, as the audio's day ending now: a removal that fails part-way is
+     * tried again by the sweep and at the next start, kept or not, and its error is thrown.
+     */
     deleteAudio(meetingId: unknown): Meeting {
       const row = rowOf(meetingId);
-      deleteAudio(row.id, "user");
+      save(row.id, { audio_kept_at: null, audio_expires_at: now() });
+      try {
+        deleteAudio(row.id, "user");
+      } catch (error) {
+        log.error("meeting.deleteAudioFailed", { meetingId: row.id, code: codeOf(error) });
+        changed();
+        throw new TranslatableError({ key: "error.meeting.audioNotDeleted" }, { cause: error });
+      }
       save(row.id, { audio_deleted_at: now(), audio_expires_at: null });
       changed();
       return toMeeting(rowOf(row.id));

@@ -4,6 +4,11 @@ import type { SignOffRecord } from "../../../shared/signOffs";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
 export const MindIdContext = createContext<string | null>(null);
+/**
+ * The conversation an Answer is shown in, when it is shown in one: a Citation in it is judged
+ * against that conversation's wall, as one in a Note is against the Note's (#2782).
+ */
+export const ConversationIdContext = createContext<string | null>(null);
 
 /**
  * Writes the Answer an editor shows again: an Answer in the assistant (#201),

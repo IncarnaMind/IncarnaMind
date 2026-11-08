@@ -775,9 +775,9 @@ test("the first cloud read for Organize asks on its card, and Allow is that cons
   const card = await askAndWait(window, "Re organise the files");
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("Organize 6 Documents into Folders?");
-  await expect(card).toContainText("Sends document names and excerpts to OpenAI.");
+  // The Library's card's own line of what goes (#1569).
   await expect(card).toContainText(
-    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI.",
+    "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to OpenAI, each time you organize.",
   );
   await screenshot(window, "commands-organize-cloud-asks-en");
   await setWindowSize(app, window, 900, 900);
@@ -826,11 +826,10 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   const card = await askAndWait(window, "重新整理一下这些文件");
   await expect(card).toHaveAttribute("data-reason", "organize");
   await expect(card).toContainText("整理 6 个文档，放进文件夹？");
-  await expect(card).toContainText(
-    "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。",
-  );
   // The card's Chinese sentences meet with full-width punctuation, never an ASCII space.
-  await expect(card).toContainText("你确认前不会移动任何文档。会把文档名称和摘录发送给 OpenAI。");
+  await expect(card).toContainText(
+    "你确认前不会移动任何文档。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。",
+  );
   await screenshot(window, "commands-organize-cloud-asks-zh");
   await setWindowSize(app, window, 900, 900);
   await card.evaluate((each) => each.scrollIntoView({ block: "start" }));

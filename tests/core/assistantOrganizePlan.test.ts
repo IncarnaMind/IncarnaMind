@@ -42,6 +42,7 @@ async function setUp(planned: OrganizeLibraryResult | null) {
     proposeFolder: () => null,
     withdrawOrganizeRun: () => ({ before: [], after: [] }),
     offeredOrganizeModel: async () => null,
+    localOnly: () => false,
   } as unknown as CommandsHost;
   const organize = async (input: Record<string, unknown>, wallId: string | null = null) => {
     const checked = await organizeChecker(
@@ -107,5 +108,37 @@ describe("The assistant's Organize with no Folder named (#1569)", () => {
     const walled = await setUp(null);
     await walled.organize({}, "a-walled-folder");
     expect(walled.ran).toEqual(["one by one 2"]);
+  });
+});
+
+describe("The assistant's Organize asks where the Library's card would (#1569)", () => {
+  const anthropic = { id: "https://api.anthropic.com", name: "Anthropic" };
+  const checkedWith = async (localOnly: boolean) => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Lease Harbour Street.md", "The rent is 900 euros a month."),
+    ]);
+    const host = {
+      core,
+      offeredOrganizeModel: async () => ({
+        classifier: { kind: "chat", choice: { providerId: "p", modelId: "haiku" } },
+        route: { where: "cloud", service: anthropic },
+      }),
+      localOnly: () => localOnly,
+    } as unknown as CommandsHost;
+    return organizeChecker(parseCommandInput({ command: "documents.organize" }), host, {
+      wallId: null,
+      filing: () => null,
+      findable: async () => NOTHING,
+    });
+  };
+
+  // protects=a cloud service not yet allowed makes the assistant's card ask, and in Local mode nothing asks; fails_when=Local mode shows the card, or it never asks; no_claim=the run's own refusal.
+  test("a cloud service not yet allowed asks, and in Local mode nothing asks", async () => {
+    expect((await checkedWith(false)).cloud).toEqual(anthropic);
+    const local = await checkedWith(true);
+    expect(local.cloud).toBeUndefined();
+    expect(local.cloudDeclined).toBeUndefined();
   });
 });

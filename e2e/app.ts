@@ -1454,6 +1454,16 @@ export async function interceptOpenDialog(app: ElectronApplication, path: string
   }, path);
 }
 
+/** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
+export async function interceptSaveDialog(app: ElectronApplication, path: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: false,
+      filePath: picked,
+    })) as unknown as typeof dialog.showSaveDialog;
+  }, path);
+}
+
 /**
  * Test hook for the system browser: from now on the main process records the
  * URLs it would open (see `urlsOpened`), and opens nothing.
