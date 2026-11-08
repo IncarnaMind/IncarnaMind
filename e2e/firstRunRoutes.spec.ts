@@ -17,6 +17,7 @@ import {
   removeDataFolder,
   setLanguage,
   useLocalChatModel as setLocalChatModel,
+  setupWay,
   setWindowSize,
   urlsOpened,
 } from "./app";
@@ -198,7 +199,7 @@ for (const { language, width, height } of COMBINATIONS) {
 }
 
 for (const { language, width, height } of COMBINATIONS) {
-  test(`with no key and a ChatGPT plan, the plan's sign-in is the first choice offered (${language}, ${width} px)`, async () => {
+  test(`with no key and a ChatGPT plan, the plan's sign-in is the first choice offered where it can be bought, and under Other ways in Chinese (${language}, ${width} px)`, async () => {
     const openai = await createFakeOpenAI();
     const claude = await createFakeAnthropic();
     const { app, window } = await launchApp(dataDir, {
@@ -214,15 +215,34 @@ for (const { language, width, height } of COMBINATIONS) {
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
 
-      await expect(card.getByTestId("way-claude")).toBeVisible();
-      const order = await card.evaluate((element) =>
-        [
-          ...element.querySelectorAll(
-            '[data-testid="setup-chatgpt"], [data-testid="way-claude"], [data-testid="way-local"]',
-          ),
-        ].map((each) => each.getAttribute("data-testid")),
-      );
-      expect(order).toEqual(["setup-chatgpt", "way-claude", "way-local"]);
+      const ways = () =>
+        card.evaluate((element) =>
+          [
+            ...element.querySelectorAll(
+              '[data-testid="setup-chatgpt"], [data-testid="way-claude"], [data-testid="way-local"], [data-testid="setup-other"]',
+            ),
+          ].map((each) => each.getAttribute("data-testid")),
+        );
+      if (language === "en") {
+        await expect(card.getByTestId("way-claude")).toBeVisible();
+        expect(await ways()).toEqual(["setup-chatgpt", "way-claude", "way-local", "setup-other"]);
+      } else {
+        // Neither plan can be bought in mainland China: they wait under Other ways, and no line
+        // says they aren't available (#2865).
+        await expect(card.getByTestId("way-local")).toBeVisible();
+        await expect(card.getByTestId("setup-chatgpt")).toBeHidden();
+        await expect(card.getByTestId("way-claude")).toBeHidden();
+        expect(await ways()).toEqual(["way-local", "setup-other", "setup-chatgpt", "way-claude"]);
+        await setupWay(window, card, "setup-chatgpt");
+        await expect(card.getByTestId("way-claude")).toBeVisible();
+        await expect(card.getByTestId("setup-chatgpt-line")).toHaveText(
+          translate(language, "setup.chatgpt.line"),
+        );
+        await expect(card.getByTestId("way-claude")).toContainText(
+          translate(language, "claudePlan.way.line"),
+        );
+        await expect(card).not.toContainText("中国大陆不可用");
+      }
       await expect(card.getByTestId("setup-chatgpt")).toHaveText(
         translate(language, "setup.chatgpt.use"),
       );

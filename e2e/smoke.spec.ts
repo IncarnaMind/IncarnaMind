@@ -232,16 +232,17 @@ test("first run asks for no model; the first own Question waits while the setup 
   await expect(card.getByTestId("way-local")).toBeVisible();
   await expect(card.getByTestId("setup-other")).toBeVisible();
 
-  // In Chinese the key leads.
+  // In Chinese the key leads, and the plan, which can't be bought in mainland China, waits under
+  // Other ways (#2865).
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
       user: { language: "zh-CN" },
     }),
   );
   await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "粘贴 API 密钥");
-  await expect(card.getByTestId("setup-chatgpt-line")).toHaveText(
-    "Plus 或 Pro（中国大陆不可用）· 无需密钥",
-  );
+  await expect(card.getByTestId("setup-chatgpt")).toBeHidden();
+  await card.getByTestId("setup-other").click();
+  await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus 或 Pro · 无需密钥");
   await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
     "会把你的问题和文档内容发送给 OpenAI。 · 详情",
   );
