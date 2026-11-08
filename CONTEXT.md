@@ -102,7 +102,7 @@ A reference, anchored in the text of an Answer, to the Passage a claim was drawn
 _Avoid_: source, reference
 
 **Calculated figure**:
-A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
+A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated". A workbook's cell that holds text, a covenant's "OK" or "Breach", is a calculated figure too, its result that text (#2389).
 _Avoid_: computed figure, calculated citation, derived number, formula
 
 **What-if**:

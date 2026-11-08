@@ -2911,8 +2911,8 @@ export interface CalculatedFigure {
   /** In Excel's formula syntax, over the inputs' names: "rev2025 / rev2024 - 1". */
   formula: string;
   inputs: FigureInput[];
-  /** As worked out, a double, as Excel computes it; true or false for a comparison. */
-  value: number | boolean;
+  /** As worked out, a double, as Excel computes it; true or false for a comparison; the text a workbook's cell holds for a text figure (#2389). */
+  value: number | boolean | string;
   unit: ResultUnit;
   /** Worked out from an approximate input, so approximate too. */
   approximate: boolean;
@@ -2996,16 +2996,18 @@ export interface FigureFromWorkbook {
    * The figure's cell, with its formula and the number it shows read as an input is, cited to
    * the cell: a Check reads it again there.
    */
-  cell: WorkbookFigureStep & { input: FigureInput };
+  cell: WorkbookFigureStep & { input: FigureInput | null };
   /** The formulas it is worked out through, nearest first, its own excluded. */
   steps: WorkbookFigureStep[];
   /** How many formula cells were worked out for it, and its inputs past those listed. */
   formulaCells: number;
   moreInputs: number;
   /** The value the workbook saved for the cell, which IncarnaMind's own result matched. */
-  saved: number;
+  saved: number | string;
   /** That value as the cell shows it: "254.7". */
   savedShown: string;
+  /** A text figure's text, cited to the cell it is in (#2389); null for a number. */
+  text: { value: string; citation: Citation } | null;
   /**
    * A what-if's changed inputs, each one's name among the inputs and the value it was given;
    * empty for a figure the workbook gives.

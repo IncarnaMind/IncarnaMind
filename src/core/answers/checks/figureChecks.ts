@@ -452,14 +452,16 @@ const KEPT_FAILURES: Partial<Record<WorkbookKeptReason, ClaimCheckFailure>> = {
 async function replayWorkbook(
   saved: CalculatedFigure,
   options: Pick<FigureCheckOptions, "calculations" | "units" | "signal">,
-): Promise<{ cell: FigureInput; figure: CalculatedFigure } | ClaimCheckFailure> {
+): Promise<{ cell: FigureInput | null; figure: CalculatedFigure } | ClaimCheckFailure> {
   const book = saved.workbook;
   if (!book) return "workbook-changed";
   const found = (input: FigureInput) => {
     const checked = options.calculations.recheck(input);
     return "problem" in checked || checked.input.citation.check !== "found" ? null : checked.input;
   };
-  const cell = found(book.cell.input);
+  const own = book.cell.input;
+  if (!own) return "workbook-changed";
+  const cell = found(own);
   if (!cell || cell.number.value !== book.saved) return "workbook-changed";
   const inputs: FigureInput[] = [];
   for (const input of saved.inputs) {
@@ -671,7 +673,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         rows.push({ ...finding(target), result: unavailable(again) });
         continue;
       }
-      if (savedFigure.workbook.changes.length > 0) calculation = again.figure;
+      if (savedFigure.workbook.text || savedFigure.workbook.changes.length > 0)
+        calculation = again.figure;
       else sourceInput = again.cell;
     } else if (replayed) {
       calculation = replay(target, calculations);

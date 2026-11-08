@@ -693,6 +693,7 @@ test.each(["en", "zh-CN"] as const)(
             moreInputs: 0,
             saved: 254.7,
             savedShown: "254.7",
+            text: null,
             changes: [
               { input: "Assumptions_B4", value: 0.03, shown: "3.0%" },
               { input: "Assumptions_B5", value: 0.25, shown: "25.0%" },

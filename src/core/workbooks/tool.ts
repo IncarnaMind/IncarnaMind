@@ -415,26 +415,39 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     book: Opened,
     chain: Chain,
     label: string,
-    value: number,
+    value: number | string,
     inputs: FigureInput[],
     changes: FigureFromWorkbook["changes"],
   ): { marker: number; figure: CalculatedFigure } | string => {
     const target = chain.target;
-    if (typeof target.saved !== "number")
-      return `${where(target.sheet, target.ref)} holds ${scalarText(target.saved)}, not a number.`;
-    const own = inputOf(book, target, new Set());
-    if (!own)
+    const text = typeof value === "string" ? value : null;
+    let saved: number | string;
+    if (text === null) {
+      if (typeof target.saved !== "number")
+        return `${where(target.sheet, target.ref)} holds ${scalarText(target.saved)}, not a number.`;
+      saved = target.saved;
+    } else {
+      if (typeof target.saved !== "string")
+        return `${where(target.sheet, target.ref)} holds ${scalarText(target.saved)}, not text.`;
+      saved = text;
+    }
+    const own = text === null ? inputOf(book, target, new Set()) : null;
+    if (text === null && !own)
       return `${where(target.sheet, target.ref)} shows ${target.shown || "nothing"}, which can't be cited as one number.`;
-    const look = shown(book, target, value);
+    const cited =
+      text === null ? null : cellCitation(options, book.source, target.sheet, target.cell);
+    if (text !== null && !cited)
+      return `${where(target.sheet, target.ref)} shows no text to quote, so the figure can't be cited.`;
+    const look = text === null && typeof value === "number" ? shown(book, target, value) : null;
     const figure: CalculatedFigure = {
       label,
       formula: "",
       inputs,
       value,
-      unit: look.unit,
+      unit: look ? look.unit : { kind: "plain" },
       approximate: false,
-      shown: look.shown,
-      show: { language: options.language, as: null, decimals: look.decimals, scale: null },
+      shown: text ?? look?.shown ?? String(value),
+      show: { language: options.language, as: null, decimals: look?.decimals ?? null, scale: null },
       literals: [],
       engine: FORMULA_VERSION,
       written: null,
@@ -443,8 +456,9 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         steps: chain.steps.map(stepOf),
         formulaCells: chain.formulaCells,
         moreInputs: chain.moreInputs,
-        saved: target.saved,
+        saved,
         savedShown: target.shown || String(target.saved),
+        text: text !== null && cited ? { value: text, citation: cited.citation } : null,
         changes,
         kept: chain.dependsOn.map(keptCell),
         engine: WORKBOOK_ENGINE_VERSION,
@@ -498,7 +512,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     provider: PROVIDER,
     providerTool: WORKBOOK_TOOLS.trace,
     description:
-      'Shows how a figure of an Excel workbook is worked out: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) it is worked out from, worked out again and checked against the values Excel saved. A workbook\'s Passages show only values, never formulas; one marked formulas="rows 4–12" holds, in those rows, values its formulas worked out, which only this Tool explains. Call it before an Answer says how such a figure is worked out, or how it relates to other cells or to its assumptions, even when the rows\' labels seem to show it. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Model!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] in the Answer where the figure\'s number goes, and name its inputs. How much an input changes the figure is what_if\'s to work out, in one call naming each input the Question supposes.',
+      'Shows how a figure of an Excel workbook is worked out: the formulas from its cell down to the inputs (cells holding numbers, such as assumptions) it is worked out from, worked out again and checked against the values Excel saved. A workbook\'s Passages show only values, never formulas; one marked formulas="rows 4–12" holds, in those rows, values its formulas worked out, which only this Tool explains. Call it before an Answer says how such a figure is worked out, or how it relates to other cells or to its assumptions, even when the rows\' labels seem to show it. Give the figure as calculate takes an input, its Passage, its row copied as quote and the number: {"passage": "P3", "quote": "Sales\\t410.0\\t455.2\\t503.8", "number": "455.2", "label": "Sales 2026"}; or a cell a result of this Tool named, {"passage": "P3", "cell": "Model!D12", "label": "Sales 2026"}. It records the figure as [=n], its inputs cited to their cells: write [=n] in the Answer where the figure\'s number goes, or where its text result ("OK", "Breach") goes, and name its inputs. How much an input changes the figure is what_if\'s to work out, in one call naming each input the Question supposes.',
     inputSchema: {
       type: "object",
       properties: {
@@ -539,12 +553,14 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
       const taken = new Set<string>();
       const inputs = chain.inputs.flatMap((each) => inputOf(book, each, taken) ?? []);
       const kept = chain.dependsOn;
+      const textValue = typeof chain.target.value === "string" ? chain.target.value : null;
       const value =
-        kept.length > 0 || typeof chain.target.value !== "number"
+        textValue ??
+        (kept.length > 0 || typeof chain.target.value !== "number"
           ? chain.target.saved
-          : chain.target.value;
-      if (typeof value !== "number")
-        return `Nothing was recorded: ${ref} holds ${scalarText(chain.target.saved)}, not a number.`;
+          : chain.target.value);
+      if (typeof value !== "number" && typeof value !== "string")
+        return `Nothing was recorded: ${ref} holds ${scalarText(chain.target.saved)}, not a number or text.`;
       const label = text(input.label) || chain.target.label;
       const recorded = record(book, chain, label, value, inputs, []);
       if (typeof recorded === "string") return `Nothing was recorded: ${recorded}`;
@@ -557,7 +573,9 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         head,
         ...[setAsideLine(book, chain.target, "the figure")].filter((line) => line !== null),
         ...chainLines(book, chain, inputs),
-        `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with inputs changed, call ${WORKBOOK_TOOLS.whatIf} with each input's cell and its new value.`,
+        typeof value === "string"
+          ? `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the text itself and never a Citation marker for it: its cell holds text, so the figure is that text, worked out through the formulas above.`
+          : `Write [=${recorded.marker}] in the Answer where ${recorded.figure.shown} goes, never the number itself and never a Citation marker for it. To see the figure with inputs changed, call ${WORKBOOK_TOOLS.whatIf} with each input's cell and its new value.`,
       ].join("\n");
     },
   };

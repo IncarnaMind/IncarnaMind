@@ -10,6 +10,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { unsupportedWorkbook } from "../helpers/financeWorkbooks";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { rentalPropertyWorkbook } from "../helpers/rentalHeldOut";
 import { libreOfficeFixture } from "../helpers/workbookFixtures";
 
 type Call = { tool: string; input: unknown };
@@ -161,7 +162,7 @@ describe("a workbook's formulas in an Answer", () => {
       // Each figure is cited to its cell, so the Answer is never called uncited.
       expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
       expect(answer.citations.map((citation) => citation.quote)).toContain(
-        traced?.workbook?.cell.input.citation.quote,
+        traced?.workbook?.cell.input?.citation.quote,
       );
       expect(traced?.workbook?.cell.input).toMatchObject({
         number: { chars: "254.7" },
@@ -249,6 +250,57 @@ describe("a workbook's formulas in an Answer", () => {
     },
   );
 
+  test.each([
+    ["en", "Is the covenant met in year 1? Trace the flag.", "The year 1 covenant is [=1]."],
+    ["zh-CN", "第一年的 DSCR 约束满足了吗？追踪一下这个标记。", "第一年的约束标记为 [=1]。"],
+  ] as const)(
+    "%s: a text result traces to its input cells, with Citations",
+    async (language, question, reply) => {
+      const model = modelling({
+        query: "covenant DSCR",
+        calls: [
+          (passage) => ({
+            tool: "trace_formulas",
+            input: { passage, cell: "Operations!B18", label: "Covenant, year 1" },
+          }),
+        ],
+        answer: reply,
+      });
+      const { core } = await setUp(
+        model,
+        "Rental property.xlsx",
+        new Uint8Array(rentalPropertyWorkbook().xlsx()),
+      );
+      const answer = await ask(core, question);
+      const [figure] = answer.figures;
+      expect(figure?.value).toBe("Breach");
+      expect(figure?.shown).toBe("Breach");
+      expect(figure?.show).toMatchObject({ language });
+      expect(figure?.workbook?.saved).toBe("Breach");
+      expect(figure?.workbook?.cell.input).toBeNull();
+      expect(figure?.workbook?.text).toMatchObject({
+        value: "Breach",
+        citation: {
+          check: "found",
+          location: { kind: "rows", sheet: "Operations", from: 18, to: 18 },
+        },
+      });
+      expect(figure?.inputs.length).toBeGreaterThan(0);
+      expect(figure?.inputs.every((input) => input.citation.check === "found")).toBe(true);
+      // The figure is cited to its cell, so the Answer is never called uncited.
+      expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
+      expect(answer.citations.map((citation) => citation.quote)).toContain(
+        figure?.workbook?.text?.citation.quote,
+      );
+      expect(told(model, "trace_formulas")).toContain("Recorded [=1] = Breach");
+      expect(told(model, "trace_formulas")).toContain("its cell holds text");
+      const node = calculatedFigureNode(figure as NonNullable<typeof figure>, "figure-1");
+      expect(readCalculatedFigure(JSON.parse(JSON.stringify(node.attrs?.figure)))).toEqual(
+        expect.objectContaining({ value: "Breach", workbook: figure?.workbook }),
+      );
+    },
+  );
+
   test("the viewer gets a workbook's text without the formulas and saved values only the core reads", async () => {
     const model = modelling({ query: "EBITDA", calls: [], answer: "Answered." });
     const { core, document } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
@@ -280,7 +332,7 @@ describe("a workbook's formulas in an Answer", () => {
     });
     const cited = answer.citations.map((citation) => citation.quote);
     expect(cited).toEqual([growth?.citation.quote]);
-    expect(cited).not.toContain(changed?.workbook?.cell.input.citation.quote);
+    expect(cited).not.toContain(changed?.workbook?.cell.input?.citation.quote);
     expect(answer.steps?.notCitedAfterAsking).toBeUndefined();
   });
 

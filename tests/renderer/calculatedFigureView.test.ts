@@ -872,6 +872,7 @@ const whatIf: CalculatedFigure = {
     moreInputs: 0,
     saved: 254.6775,
     savedShown: "254.7",
+    text: null,
     changes: [{ input: "Assumptions_B4", value: 0.03, shown: "3.0%" }],
     kept: [],
     engine: 1,

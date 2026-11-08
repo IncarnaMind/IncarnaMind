@@ -352,6 +352,14 @@ function workbookChangesOf(
   return changes;
 }
 
+/** A text figure's text and the Citation to its cell (#2389); null for a number. */
+function workbookTextOf(value: unknown): FigureFromWorkbook["text"] | undefined {
+  if (value == null) return null;
+  if (!isRecord(value) || !named(value.value)) return undefined;
+  const citation = readFigureCitation(value.citation);
+  return citation ? { value: value.value, citation } : undefined;
+}
+
 function workbookOf(
   value: unknown,
   inputs: readonly FigureInput[],
@@ -359,20 +367,28 @@ function workbookOf(
   if (value == null) return null;
   if (!isRecord(value) || !isRecord(value.cell) || !Array.isArray(value.steps)) return undefined;
   const cell = workbookStepOf(value.cell);
-  const own = readFigureInput(value.cell.input);
+  const own = value.cell.input == null ? null : readFigureInput(value.cell.input);
   const steps = value.steps.map(workbookStepOf);
   const kept = Array.isArray(value.kept) ? value.kept.map(keptOf) : null;
   const changes = workbookChangesOf(value, inputs);
+  const text = workbookTextOf(value.text);
+  const saved =
+    finite(value.saved) || (typeof value.saved === "string" && value.saved.trim() !== "")
+      ? value.saved
+      : undefined;
+  // A text figure keeps its text in place of the cell read as a number, and a number the reverse.
+  if (own === undefined || changes === undefined || text === undefined || saved === undefined)
+    return undefined;
+  if ((text === null) !== (own !== null)) return undefined;
+  if (text !== null && (typeof saved !== "string" || changes.length > 0)) return undefined;
+  if (text === null && !finite(saved)) return undefined;
   if (
     !cell ||
-    !own ||
     steps.length > MAX_WORKBOOK_STEPS ||
     steps.some((step) => step === null) ||
     !index(value.formulaCells) ||
     !index(value.moreInputs) ||
-    !finite(value.saved) ||
     !named(value.savedShown) ||
-    !changes ||
     !kept ||
     kept.length > MAX_WORKBOOK_STEPS ||
     kept.some((each) => each === null) ||
@@ -384,8 +400,9 @@ function workbookOf(
     steps: steps as FigureFromWorkbook["steps"],
     formulaCells: value.formulaCells,
     moreInputs: value.moreInputs,
-    saved: value.saved,
+    saved,
     savedShown: value.savedShown,
+    text,
     changes,
     kept: kept as WorkbookKeptCell[],
     engine: value.engine,
@@ -395,8 +412,10 @@ function workbookOf(
 /** The numbers a figure is read from, each cited: its inputs and, for a workbook's figure, its own cell (#2347). */
 export const citedInputs = (
   figure: Pick<CalculatedFigure, "inputs" | "workbook">,
-): FigureInput[] =>
-  figure.workbook ? [figure.workbook.cell.input, ...figure.inputs] : figure.inputs;
+): FigureInput[] => {
+  const own = figure.workbook?.cell.input;
+  return own ? [own, ...figure.inputs] : figure.inputs;
+};
 
 export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
   if (!isRecord(value)) return null;
@@ -413,9 +432,11 @@ export function readCalculatedFigure(value: unknown): CalculatedFigure | null {
     !Array.isArray(value.inputs) ||
     value.inputs.length > MAX_INPUTS_PER_FIGURE ||
     (!analysis && !fromWorkbook && value.inputs.length === 0) ||
-    (!finite(value.value) && typeof value.value !== "boolean") ||
+    (!finite(value.value) && typeof value.value !== "boolean" && typeof value.value !== "string") ||
     !unit ||
     (typeof value.value === "boolean") !== (unit.kind === "yes-no") ||
+    // A text figure's text comes from a workbook's cell, never from arithmetic, under a plain unit.
+    (typeof value.value === "string" && (!fromWorkbook || unit.kind !== "plain")) ||
     typeof value.approximate !== "boolean" ||
     !named(value.shown) ||
     !show ||
