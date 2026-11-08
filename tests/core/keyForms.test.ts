@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { checkKey, formOfKey, serviceOfKey } from "../../src/core/providers/catalog/keyForms";
+import { catalogProvider } from "../../src/core/providers/catalog/providers";
 
 const alnum = (length: number, seed = "aZ3") =>
   seed.repeat(Math.ceil(length / seed.length)).slice(0, length);
@@ -71,9 +72,10 @@ describe("A key's prefix and its service (#1384)", () => {
 
 /*
  * The forms first run reads a key by (#2865), each with a made-up sample key written out in full:
- * no real key is in a test, and none is sent anywhere to find out whose it is.
+ * no real key is in a test, and none is sent anywhere to find out whose it is. Only a form that
+ * names a service with one host is used at once; every other is asked about, naming the host.
  */
-describe("What a key's form says of whose it is (#2865)", () => {
+describe("What a key's form says of where it goes (#2865)", () => {
   test.each([
     ["Anthropic", "sk-ant-api03-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3a", "anthropic"],
     [
@@ -89,47 +91,100 @@ describe("What a key's form says of whose it is (#2865)", () => {
       "sk-proj-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3",
       "openai",
     ],
-    ["GLM's {id}.{secret}", "0123456789abcdef0123456789abcdef.aZ3aZ3aZ3aZ3aZ3a", "glm"],
-  ])("%s key names its service, in either language", (_what, key, service) => {
-    expect(formOfKey(key, "zh-CN")).toEqual({ kind: "named", service });
-    expect(formOfKey(key, "en")).toEqual({ kind: "named", service });
+  ])(
+    "%s key names its service, whose one host takes it at once, in either language",
+    (_what, key, service) => {
+      expect(formOfKey(key, "zh-CN")).toEqual({ kind: "named", service });
+      expect(formOfKey(key, "en")).toEqual({ kind: "named", service });
+      expect(catalogProvider(service)?.endpoints).toHaveLength(1);
+    },
+  );
+
+  test("GLM's {id}.{secret} names GLM but not its platform: it asks, the language's platform first", () => {
+    const key = "0123456789abcdef0123456789abcdef.aZ3aZ3aZ3aZ3aZ3a";
+    expect(serviceOfKey(key)).toBe("glm");
+    expect(formOfKey(key, "zh-CN")).toEqual({
+      kind: "ask",
+      targets: [
+        { service: "glm", region: "cn" },
+        { service: "glm", region: "intl" },
+      ],
+    });
+    expect(formOfKey(key, "en")).toEqual({
+      kind: "ask",
+      targets: [
+        { service: "glm", region: "intl" },
+        { service: "glm", region: "cn" },
+      ],
+    });
   });
 
   test.each([
     ["DeepSeek's or Qwen's 32 hex digits", "sk-0123456789abcdef0123456789abcdef"],
     ["SiliconFlow's lowercase letters", "sk-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv"],
     ["48 letters and digits", "sk-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3"],
-  ])("a bare sk- key (%s) is shared: DeepSeek is asked about first", (_what, key) => {
+  ])("a bare sk- key (%s) asks about DeepSeek first", (_what, key) => {
+    const targets = [
+      { service: "deepseek", region: null },
+      { service: "qwen", region: null },
+      { service: "siliconflow", region: null },
+    ];
+    expect(formOfKey(key, "zh-CN")).toEqual({ kind: "ask", targets });
+    expect(formOfKey(key, "en")).toEqual({ kind: "ask", targets });
+  });
+
+  test("Model Studio's newer sk-ws key asks about Qwen in the language's region first, then the other", () => {
+    const key = "sk-ws-0123456789abcdef0123456789abcdef0123456789";
     expect(formOfKey(key, "zh-CN")).toEqual({
-      kind: "shared",
-      services: ["deepseek", "qwen", "siliconflow"],
+      kind: "ask",
+      targets: [
+        { service: "qwen", region: "cn" },
+        { service: "qwen", region: "intl" },
+        { service: "deepseek", region: null },
+        { service: "siliconflow", region: null },
+      ],
     });
     expect(formOfKey(key, "en")).toEqual({
-      kind: "shared",
-      services: ["deepseek", "qwen", "siliconflow"],
+      kind: "ask",
+      targets: [
+        { service: "qwen", region: "intl" },
+        { service: "qwen", region: "cn" },
+        { service: "deepseek", region: null },
+        { service: "siliconflow", region: null },
+      ],
     });
   });
 
-  test("Model Studio's newer sk-ws key is shared too, with Qwen asked about first", () => {
-    const key = "sk-ws-0123456789abcdef0123456789abcdef0123456789";
-    expect(formOfKey(key, "zh-CN")).toEqual({
-      kind: "shared",
-      services: ["qwen", "deepseek", "siliconflow"],
-    });
-    expect(formOfKey(key, "en")).toEqual({
-      kind: "shared",
-      services: ["qwen", "deepseek", "siliconflow"],
-    });
+  test.each([
+    ["GLM", "0123456789abcdef0123456789abcdef.aZ3aZ3aZ3aZ3aZ3a"],
+    ["sk-ws", "sk-ws-0123456789abcdef0123456789abcdef0123456789"],
+    ["bare sk-", "sk-0123456789abcdef0123456789abcdef"],
+  ])("the question a %s key asks names one host: a region, or a service with one", (_what, key) => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const form = formOfKey(key, language);
+      const [asked] = form.kind === "ask" ? form.targets : [];
+      expect(asked, language).toBeDefined();
+      const hosts = catalogProvider(asked?.service ?? "")?.endpoints ?? [];
+      if (asked?.region === null) expect(hosts, language).toHaveLength(1);
+      else
+        expect(
+          hosts.map((each) => each.id),
+          language,
+        ).toContain(asked?.region);
+    }
   });
 
   test("the form is read from the cleaned key: spaces and invisible characters around it change nothing", () => {
     expect(formOfKey("\u200B sk-0123456789abcdef0123456789abcdef \n", "zh-CN")).toMatchObject({
-      kind: "shared",
+      kind: "ask",
+      targets: [{ service: "deepseek", region: null }, {}, {}],
     });
-    expect(formOfKey("\uFEFF0123456789abcdef0123456789abcdef.aZ3aZ3aZ3aZ3aZ3a ", "en")).toEqual({
-      kind: "named",
-      service: "glm",
-    });
+    expect(formOfKey("\uFEFFsk-ant-api03-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3a ", "en")).toEqual(
+      {
+        kind: "named",
+        service: "anthropic",
+      },
+    );
   });
 
   test.each([

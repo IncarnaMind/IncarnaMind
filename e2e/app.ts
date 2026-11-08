@@ -1474,6 +1474,21 @@ export function pathsShown(app: ElectronApplication) {
   return app.evaluate(() => (globalThis as { pathsShown?: string[] }).pathsShown ?? []);
 }
 
+/** Every request the scripted chat model was sent: where it would have gone, and with which key. */
+export const fakeChatRequests = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (
+        globalThis as {
+          incarnamindFakeChatRequests?: {
+            service: string;
+            endpoint: string | null;
+            apiKey: string | null;
+          }[];
+        }
+      ).incarnamindFakeChatRequests ?? [],
+  );
+
 /** Puts text on the clipboard and pastes it with the keyboard, as a person would. */
 export async function pasteText(app: ElectronApplication, window: Page, text: string) {
   await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), text);

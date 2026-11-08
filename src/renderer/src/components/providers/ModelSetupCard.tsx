@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
+import type { KeyTarget } from "../../../../core/providers/catalog/keyForms";
 import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -72,7 +73,7 @@ function ChooseAnAi() {
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [view, setView] = useState<"key" | null>(null);
   const [initialKey, setInitialKey] = useState("");
-  const [initialKind, setInitialKind] = useState<string | undefined>(undefined);
+  const [initialTarget, setInitialTarget] = useState<KeyTarget | undefined>(undefined);
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
@@ -145,9 +146,9 @@ function ChooseAnAi() {
                 onSaved={() => undefined}
                 unrecognised={{
                   label: "setup.key.chooseService",
-                  run: (key, service) => {
+                  run: (key, next) => {
                     setInitialKey(key);
-                    setInitialKind(service);
+                    setInitialTarget(next);
                     setView("key");
                   },
                 }}
@@ -189,7 +190,10 @@ function ChooseAnAi() {
           <ProviderForm
             providers={providers}
             initialKey={initialKey}
-            {...(initialKind !== undefined && { initialKind })}
+            {...(initialTarget !== undefined && {
+              initialKind: initialTarget.service,
+              initialEndpoint: initialTarget.region,
+            })}
             onSaved={() => undefined}
             standalone
           />
