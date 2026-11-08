@@ -76,12 +76,11 @@ const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
 };
 
 /**
- * Where a reply's Citation markers go. The panel shows a found Citation as checked without judging
- * its sentence: a marker at a sentence's end would vouch for the User's own promise, or another
- * line's fact, before it (#2847).
+ * What a reply's sentence with a Citation may say, and where its markers go. The panel shows a
+ * found Citation as checked without judging its sentence, so the check vouches for all of it (#2847).
  */
 const MARKERS =
-  "- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it. A promise, offer or question the User would make now gets none, though a fact inside it, or what was said earlier in the call, gets its line's marker; an option that only buys time has no marker.";
+  "- A sentence with a Citation marker says only what its quotes state, beside what the User would promise, offer or ask now: put each marker right after the words its quote supports, give each other fact from the Documents or the call its own line's marker right after it, and leave out a fact or a conclusion that no quote states. An option that only buys time has no marker.";
 
 /** A reply in each shape, in the call's language where it is Chinese: a model copies an example's language. */
 const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly string[]>>>> = {

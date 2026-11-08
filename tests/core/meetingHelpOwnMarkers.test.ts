@@ -220,7 +220,7 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
     },
   );
 
-  // protects=call help asks for each marker right after the words its quote supports, a fact from another line under its own marker, and none on the User's own promise, offer or question or a stall; fails_when=the form asks for the markers at the end of each option or line; no_claim=how a real model follows it (#2847).
+  // protects=call help asks that a sentence with a marker say only what its quotes state, each marker right after its words, another line's fact under its own marker, and no marker on a stall; fails_when=the form asks for the markers at the end of each option or line; no_claim=how a real model follows it (#2847).
   test.each([{ kind: "answer" as const }, { kind: "sum" as const }])(
     "the form asks for each marker right after the words it supports: $kind",
     async ({ kind }) => {
@@ -230,10 +230,9 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
       const { calls } = await pressed(unmarked.call, citing("- 好的", []), kind);
 
       const asked = calls[0]?.prompt ?? "";
-      expect(asked).toContain(
-        "Put each Citation marker right after the words its quote supports, even mid-sentence",
-      );
-      expect(asked).toContain("A promise, offer or question the User would make now gets none");
+      expect(asked).toContain("A sentence with a Citation marker says only what its quotes state");
+      expect(asked).toContain("put each marker right after the words its quote supports");
+      expect(asked).toContain("leave out a fact or a conclusion that no quote states");
       expect(asked).not.toContain("its Citation markers at its end");
     },
   );

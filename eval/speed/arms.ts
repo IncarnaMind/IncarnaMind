@@ -52,7 +52,7 @@ const MARKS_BEFORE: readonly (readonly [string, string])[] = [
     "each one sentence of at most 20 words, its Citation markers at its end.\n",
   ],
   [
-    "\n- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it. A promise, offer or question the User would make now gets none, though a fact inside it, or what was said earlier in the call, gets its line's marker; an option that only buys time has no marker.",
+    "\n- A sentence with a Citation marker says only what its quotes state, beside what the User would promise, offer or ask now: put each marker right after the words its quote supports, give each other fact from the Documents or the call its own line's marker right after it, and leave out a fact or a conclusion that no quote states. An option that only buys time has no marker.",
     "",
   ],
   [

@@ -315,8 +315,8 @@ describe("Call help's form as worded before #2847, for the arm that runs it", ()
 
       const before = marksAsBefore(now);
 
-      expect(now).toContain("Put each Citation marker right after the words its quote supports");
-      expect(before).not.toContain("Put each Citation marker");
+      expect(now).toContain("A sentence with a Citation marker says only what its quotes state");
+      expect(before).not.toContain("A sentence with a Citation marker");
       expect(before.split("\n")).toContain(kept);
       expect(before.split("\n")).toContain(example);
       expect(before.split("\n")).toHaveLength(now.split("\n").length - 1);
