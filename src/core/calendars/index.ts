@@ -234,12 +234,11 @@ export function createCalendars(options: CalendarsOptions) {
   const liveAccounts = () =>
     db.all<AccountRow>(
       `SELECT id, service, name, synced_at, problem FROM calendar_accounts
-       WHERE deleted_at IS NULL ORDER BY created_at, rowid`,
+       ORDER BY created_at, rowid`,
     );
   const accountRow = (id: string) =>
     db.get<AccountRow>(
-      `SELECT id, service, name, synced_at, problem FROM calendar_accounts
-       WHERE id = ? AND deleted_at IS NULL`,
+      "SELECT id, service, name, synced_at, problem FROM calendar_accounts WHERE id = ?",
       [id],
     );
 
@@ -352,7 +351,7 @@ export function createCalendars(options: CalendarsOptions) {
   const calendarsOf = (accountId: string) =>
     db.all<CalendarRow>(
       `SELECT id, account_id, external_id, name, source, counted FROM calendars
-       WHERE account_id = ? AND deleted_at IS NULL ORDER BY counted DESC, name COLLATE NOCASE`,
+       WHERE account_id = ? ORDER BY counted DESC, name COLLATE NOCASE`,
       [accountId],
     );
 
@@ -409,22 +408,19 @@ export function createCalendars(options: CalendarsOptions) {
     return { from: day(-1), to: day(3) };
   };
 
-  /** Soft-deletes the live events `where` picks; how many there were. */
-  const softDeleteEvents = (where: string, params: readonly (string | number)[]): number => {
-    const ids = db
-      .all<{ id: string }>(
-        `SELECT id FROM calendar_events WHERE deleted_at IS NULL AND ${where}`,
+  /**
+   * Deletes the events `where` picks; how many there were. Rows go for good, not to a tombstone:
+   * they are this device's copy of what the service holds, and a copy kept past its days would
+   * keep people's names and addresses.
+   */
+  const deleteEvents = (where: string, params: readonly (string | number)[]): number => {
+    const count =
+      db.get<{ count: number }>(
+        `SELECT count(*) AS count FROM calendar_events WHERE ${where}`,
         params,
-      )
-      .map((row) => row.id);
-    if (ids.length === 0) return 0;
-    const at = options.now();
-    db.run(
-      `UPDATE calendar_events SET deleted_at = ?, updated_at = ?
-       WHERE id IN (SELECT value FROM json_each(?))`,
-      [at, at, JSON.stringify(ids)],
-    );
-    return ids.length;
+      )?.count ?? 0;
+    if (count > 0) db.run(`DELETE FROM calendar_events WHERE ${where}`, params);
+    return count;
   };
 
   /** Keeps the account's calendars as listed; true when a counted one came or went. */
@@ -463,12 +459,8 @@ export function createCalendars(options: CalendarsOptions) {
         }
       }
       for (const gone of existing.values()) {
-        db.run("UPDATE calendars SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-          at,
-          at,
-          gone.id,
-        ]);
-        if (softDeleteEvents("calendar_id = ?", [gone.id]) > 0) changed = true;
+        if (deleteEvents("calendar_id = ?", [gone.id]) > 0) changed = true;
+        db.run("DELETE FROM calendars WHERE id = ?", [gone.id]);
       }
     });
     return changed;
@@ -483,7 +475,7 @@ export function createCalendars(options: CalendarsOptions) {
         db
           .all<EventRow>(
             `SELECT id, calendar_id, external_id, event_key, title, starts_at, ends_at, attendees,
-               join_url FROM calendar_events WHERE calendar_id = ? AND deleted_at IS NULL`,
+               join_url FROM calendar_events WHERE calendar_id = ?`,
             [calendarId],
           )
           .map((row) => [row.external_id, row]),
@@ -551,11 +543,7 @@ export function createCalendars(options: CalendarsOptions) {
       }
       // Gone from the calendar in the window read: cancelled, deleted, declined or moved away.
       for (const gone of existing.values()) {
-        db.run("UPDATE calendar_events SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-          at,
-          at,
-          gone.id,
-        ]);
+        db.run("DELETE FROM calendar_events WHERE id = ?", [gone.id]);
         changed = true;
       }
       // A Note made for a moved event keeps its new time, here and on another device.
@@ -713,7 +701,7 @@ export function createCalendars(options: CalendarsOptions) {
         else clearRetry(accountId);
       }
       // Events a day old go, whichever account read them.
-      if (softDeleteEvents("ends_at <= ?", [window().from]) > 0) changed = true;
+      if (deleteEvents("ends_at <= ?", [window().from]) > 0) changed = true;
       emit();
       if (changed) options.eventsChanged();
     })();
@@ -753,11 +741,12 @@ export function createCalendars(options: CalendarsOptions) {
   // Events and their Notes.
 
   /** The Note made for an event's key, newest first, while it is there. */
-  const noteFor = (key: string): string | null => {
+  const noteFor = (keys: readonly string[]): string | null => {
     const rows = db.all<{ mind_id: string }>(
-      `SELECT mind_id FROM calendar_event_notes WHERE event_key = ? AND deleted_at IS NULL
+      `SELECT mind_id FROM calendar_event_notes
+       WHERE event_key IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL
        ORDER BY created_at DESC, rowid DESC`,
-      [key],
+      [JSON.stringify(keys)],
     );
     return rows.find((row) => options.noteLive(row.mind_id))?.mind_id ?? null;
   };
@@ -767,48 +756,61 @@ export function createCalendars(options: CalendarsOptions) {
       `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
          e.attendees, e.join_url, a.service
        FROM calendar_events e
-       JOIN calendars c ON c.id = e.calendar_id AND c.deleted_at IS NULL AND c.counted = 1
-       JOIN calendar_accounts a ON a.id = c.account_id AND a.deleted_at IS NULL
-       WHERE e.deleted_at IS NULL AND e.ends_at > ? AND e.starts_at < ?
+       JOIN calendars c ON c.id = e.calendar_id AND c.counted = 1
+       JOIN calendar_accounts a ON a.id = c.account_id
+       WHERE e.ends_at > ? AND e.starts_at < ?
        ORDER BY e.starts_at, e.ends_at, a.created_at, e.rowid`,
       [from, to],
     );
 
-  /** Each Meeting once: the same invite in two calendars, matched by its key or its title and times. */
-  const once = <T extends EventRow>(rows: readonly T[]): T[] => {
-    const kept: T[] = [];
-    const richer = (a: T, b: T) =>
-      (a.join_url ? 2 : 0) + parseAttendees(a.attendees).length / 1000 >
-      (b.join_url ? 2 : 0) + parseAttendees(b.attendees).length / 1000;
+  /**
+   * Each Meeting once: the copies of one invite in several calendars, matched by its key or by
+   * its title and times, shown as the copy with a call's link and the most people, with every
+   * copy's key and id, so its Note is found from any of them.
+   */
+  const once = <T extends EventRow>(rows: readonly T[]) => {
+    const groups: { shown: T; members: T[] }[] = [];
+    const twins = (a: T, b: T) =>
+      a.event_key === b.event_key ||
+      (a.title === b.title && a.starts_at === b.starts_at && a.ends_at === b.ends_at);
+    const weight = (row: T) => (row.join_url ? 2 : 0) + parseAttendees(row.attendees).length / 1000;
     for (const row of rows) {
-      const twin = kept.findIndex(
-        (each) =>
-          each.event_key === row.event_key ||
-          (each.title === row.title &&
-            each.starts_at === row.starts_at &&
-            each.ends_at === row.ends_at),
-      );
-      if (twin === -1) kept.push(row);
-      else if (richer(row, kept[twin] as T)) kept[twin] = row;
+      const group = groups.find((each) => each.members.some((member) => twins(member, row)));
+      if (!group) {
+        groups.push({ shown: row, members: [row] });
+        continue;
+      }
+      group.members.push(row);
+      if (weight(row) > weight(group.shown)) group.shown = row;
     }
-    return kept;
+    return groups.map(({ shown, members }) => ({
+      shown,
+      keys: [...new Set(members.map((member) => member.event_key))],
+      ids: members.map((member) => member.id),
+    }));
   };
+
+  /** The Meeting an event is a copy of, as Coming up shows it. */
+  const groupOf = (event: EventRow) =>
+    once(countedEvents(event.starts_at, event.ends_at)).find((group) =>
+      group.ids.includes(event.id),
+    );
 
   const parseWindow = (input: unknown): ListCalendarEventsInput => {
     if (!isRecord(input) || typeof input.from !== "string" || typeof input.to !== "string") {
-      throw new InvalidInputError("from and to must be ISO 8601 times.");
+      throw new InvalidInputError({ key: "error.calendar.badRequest" });
     }
     const from = Date.parse(input.from);
     const to = Date.parse(input.to);
     if (Number.isNaN(from) || Number.isNaN(to)) {
-      throw new InvalidInputError("from and to must be ISO 8601 times.");
+      throw new InvalidInputError({ key: "error.calendar.badRequest" });
     }
     return { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
   };
 
   const serviceOf = (input: unknown): CalendarService => {
     if (input === "google" || input === "microsoft" || input === "mac") return input;
-    throw new InvalidInputError("Unknown calendar service.");
+    throw new InvalidInputError({ key: "error.calendar.badRequest" });
   };
 
   const notOffered = (service: CalendarService) =>
@@ -828,23 +830,12 @@ export function createCalendars(options: CalendarsOptions) {
     return id;
   };
 
+  /** Forgets an account on this device, its calendars and events with it. */
   const forget = (accountId: string) => {
-    const at = options.now();
     db.transaction(() => {
-      db.run(
-        `UPDATE calendar_events SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL
-           AND calendar_id IN (SELECT id FROM calendars WHERE account_id = ?)`,
-        [at, at, accountId],
-      );
-      db.run(
-        "UPDATE calendars SET deleted_at = ?, updated_at = ? WHERE account_id = ? AND deleted_at IS NULL",
-        [at, at, accountId],
-      );
-      db.run("UPDATE calendar_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-        at,
-        at,
-        accountId,
-      ]);
+      deleteEvents("calendar_id IN (SELECT id FROM calendars WHERE account_id = ?)", [accountId]);
+      db.run("DELETE FROM calendars WHERE account_id = ?", [accountId]);
+      db.run("DELETE FROM calendar_accounts WHERE id = ?", [accountId]);
     });
     clearRetry(accountId);
   };
@@ -942,7 +933,7 @@ export function createCalendars(options: CalendarsOptions) {
     clearRetry(accountId);
     await read(accountId);
     const row = accountRow(accountId);
-    if (!row) throw new NotFoundError("The calendar account was removed while it connected.");
+    if (!row) throw new NotFoundError({ key: "error.calendar.accountGone" });
     return toAccount(row);
   }
 
@@ -961,7 +952,7 @@ export function createCalendars(options: CalendarsOptions) {
       await read(accountId);
     }
     const row = accountRow(accountId);
-    if (!row) throw new NotFoundError("The calendar account was removed while it connected.");
+    if (!row) throw new NotFoundError({ key: "error.calendar.accountGone" });
     return toAccount(row);
   }
 
@@ -992,12 +983,14 @@ export function createCalendars(options: CalendarsOptions) {
     },
 
     async disconnect(accountId: unknown): Promise<CalendarsState> {
-      if (typeof accountId !== "string") throw new InvalidInputError("accountId must be text.");
+      if (typeof accountId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const row = accountRow(accountId);
       if (!row) throw new NotFoundError({ key: "error.calendar.accountGone" });
       const signIn = signInOf(row);
       if (signIn) {
-        await signIn.signOut();
+        // In Local mode nothing is sent, so the session isn't ended at the service: the token is
+        // forgotten here, and the User can end it in their account there.
+        if (!options.localOnly()) await signIn.signOut();
         await secrets.delete(secretName(row.id));
         signIns.delete(row.id);
       }
@@ -1013,11 +1006,11 @@ export function createCalendars(options: CalendarsOptions) {
         typeof input.calendarId !== "string" ||
         typeof input.counted !== "boolean"
       ) {
-        throw new InvalidInputError("calendarId must be text and counted true or false.");
+        throw new InvalidInputError({ key: "error.calendar.badRequest" });
       }
       const { calendarId, counted } = input;
       const row = db.get<{ account_id: string }>(
-        "SELECT account_id FROM calendars WHERE id = ? AND deleted_at IS NULL",
+        "SELECT account_id FROM calendars WHERE id = ?",
         [calendarId],
       );
       if (!row) throw new NotFoundError({ key: "error.calendar.calendarGone" });
@@ -1027,7 +1020,7 @@ export function createCalendars(options: CalendarsOptions) {
         calendarId,
       ]);
       // A calendar that doesn't count isn't read, and nothing of it is kept.
-      if (!counted && softDeleteEvents("calendar_id = ?", [calendarId]) > 0) {
+      if (!counted && deleteEvents("calendar_id = ?", [calendarId]) > 0) {
         options.eventsChanged();
       }
       emit();
@@ -1045,29 +1038,30 @@ export function createCalendars(options: CalendarsOptions) {
 
     list(input: unknown): CalendarEvent[] {
       const { from, to } = parseWindow(input);
-      return once(countedEvents(from, to)).map((row) => ({
-        id: row.id,
-        title: row.title,
-        startsAt: row.starts_at,
-        endsAt: row.ends_at,
-        attendees: parseAttendees(row.attendees),
-        joinUrl: row.join_url,
-        service: row.service,
-        mindId: noteFor(row.event_key),
+      return once(countedEvents(from, to)).map(({ shown, keys }) => ({
+        id: shown.id,
+        title: shown.title,
+        startsAt: shown.starts_at,
+        endsAt: shown.ends_at,
+        attendees: parseAttendees(shown.attendees),
+        joinUrl: shown.join_url,
+        service: shown.service,
+        mindId: noteFor(keys),
       }));
     },
 
     takeNotes(eventId: unknown): { mindId: string; created: boolean } {
-      if (typeof eventId !== "string") throw new InvalidInputError("eventId must be text.");
+      if (typeof eventId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const event = db.get<EventRow>(
         `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
            e.attendees, e.join_url
-         FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id AND c.deleted_at IS NULL
-         WHERE e.id = ? AND e.deleted_at IS NULL`,
+         FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id WHERE e.id = ?`,
         [eventId],
       );
       if (!event) throw new NotFoundError({ key: "error.calendar.eventGone" });
-      const existing = noteFor(event.event_key);
+      // Any copy of the invite opens the same Note, whichever copy Coming up showed.
+      const group = groupOf(event);
+      const existing = noteFor(group?.keys ?? [event.event_key]);
       if (existing) return { mindId: existing, created: false };
       const mindId = options.createNote(event.title);
       const at = options.now();
@@ -1081,24 +1075,22 @@ export function createCalendars(options: CalendarsOptions) {
     },
 
     noteEvent(mindId: unknown): NoteEvent | null {
-      if (typeof mindId !== "string") throw new InvalidInputError("mindId must be text.");
+      if (typeof mindId !== "string") throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const link = db.get<{ event_key: string; event: string }>(
         `SELECT event_key, event FROM calendar_event_notes WHERE mind_id = ? AND deleted_at IS NULL
          ORDER BY created_at DESC, rowid DESC`,
         [mindId],
       );
       if (!link) return null;
-      const live = once(
-        db.all<EventRow>(
-          `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at,
-             e.ends_at, e.attendees, e.join_url
-           FROM calendar_events e
-           JOIN calendars c ON c.id = e.calendar_id AND c.deleted_at IS NULL AND c.counted = 1
-           JOIN calendar_accounts a ON a.id = c.account_id AND a.deleted_at IS NULL
-           WHERE e.event_key = ? AND e.deleted_at IS NULL`,
-          [link.event_key],
-        ),
-      )[0];
+      const copy = db.get<EventRow>(
+        `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at,
+           e.ends_at, e.attendees, e.join_url
+         FROM calendar_events e
+         JOIN calendars c ON c.id = e.calendar_id AND c.counted = 1
+         WHERE e.event_key = ? ORDER BY e.rowid`,
+        [link.event_key],
+      );
+      const live = copy && groupOf(copy)?.shown;
       if (live) {
         return {
           eventId: live.id,

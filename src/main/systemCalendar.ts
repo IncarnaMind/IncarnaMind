@@ -16,10 +16,15 @@ import type {
   SystemCalendarPerson,
 } from "../core/adapters";
 import type { EngineModule } from "../core/engineModules";
-import { isRecord } from "../core/errors";
+import { isRecord, TranslatableError } from "../core/errors";
 
 /** The helper reads a few days of events in well under a second; a hung one is given up on. */
 const ANSWER_LIMIT_MS = 10_000;
+/**
+ * The system's prompt waits for the User; one left this long is taken as unanswered, as a
+ * browser sign-in is after five minutes.
+ */
+const REQUEST_LIMIT_MS = 5 * 60_000;
 /** A month of a busy calendar, notes included, fits many times over. */
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 /** The helper's exit code when the Mac's calendar access isn't allowed: nothing was read. */
@@ -150,6 +155,10 @@ export function createHelperCalendar(options: {
   ): Promise<T> => {
     const { code, stdout } = await run([command, ...args], limitMs);
     if (code === NOT_ALLOWED_EXIT) throw new SystemCalendarNotAllowedError();
+    if (code === null && command === "request") {
+      log.warn("systemCalendar.requestUnanswered", { limitMs: limitMs ?? "none" });
+      throw new TranslatableError({ key: "error.calendar.askUnanswered" });
+    }
     let answer: unknown;
     try {
       answer = JSON.parse(stdout);
@@ -182,8 +191,7 @@ export function createHelperCalendar(options: {
   };
   return {
     access: () => ask("access", [], ANSWER_LIMIT_MS, parseAccess),
-    // The system's prompt waits for the User, however long they take.
-    requestAccess: () => ask("request", [], null, parseAccess),
+    requestAccess: () => ask("request", [], REQUEST_LIMIT_MS, parseAccess),
     calendars: () => ask("calendars", [], ANSWER_LIMIT_MS, parseCalendars),
     events: ({ from, to, calendarIds }) =>
       calendarIds.length === 0

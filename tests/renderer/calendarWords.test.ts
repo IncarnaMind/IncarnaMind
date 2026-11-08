@@ -209,4 +209,15 @@ describe("Speaker names from the invite", () => {
     expect(inviteNames(attendees, ["Me", "Speaker 1", "Sam Okafor"])).toEqual(["Dana Kim", "张伟"]);
     expect(inviteNames([ME], ["Me"])).toEqual([]);
   });
+
+  test("offers no name a Speaker can't take: too long, with invisible characters, or a label's words", () => {
+    const attendees = [
+      person("A".repeat(61)),
+      person("Dana\u202eKim"),
+      person("Speaker 2"),
+      person("我"),
+      person("Lena Ortiz"),
+    ];
+    expect(inviteNames(attendees, [])).toEqual(["Lena Ortiz"]);
+  });
 });

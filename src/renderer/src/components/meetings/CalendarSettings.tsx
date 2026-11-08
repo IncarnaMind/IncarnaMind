@@ -1,4 +1,10 @@
-import type { CalendarAccount, CalendarInfo, CalendarService } from "../../../../core/api";
+import { useEffect, useState } from "react";
+import type {
+  CalendarAccount,
+  CalendarInfo,
+  CalendarService,
+  SecretStorageStatus,
+} from "../../../../core/api";
 import { CALENDARS_UNDO_PLACE, calendarsOffered, useCalendars } from "../../calendars";
 import {
   accountDetail,
@@ -8,12 +14,14 @@ import {
   SENDS_LINES,
   SERVICE_NAMES,
 } from "../../calendarWords";
+import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { CalendarLineIcon, CheckLineIcon } from "../lineIcons";
 import { LineAction, ProblemMark } from "../ProblemLine";
+import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SettingsGroup, SettingsRow, SettingsSection } from "../settings/SettingsGroup";
 import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
@@ -33,10 +41,21 @@ export function CalendarSettings() {
   const t = useT();
   const calendars = useCalendars((state) => state.calendars);
   const section = useSettingsTarget<HTMLElement>(TARGET, calendars !== null);
+  const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
+  useEffect(() => {
+    core.getSecretStorage().then(setStorage, (error: unknown) => {
+      useAppStore.getState().reportError(error);
+    });
+  }, []);
   if (!calendarsOffered(calendars) || !calendars) return null;
   const unconnected = calendars.services.filter((service) =>
     calendars.accounts.every((account) => account.service !== service),
   );
+  // A sign-in is kept in the secret store: on Linux with no keyring, the User accepts plain text
+  // first, as for a key.
+  const storageRefused =
+    storage !== null && storage.protection !== "os" && !storage.plainTextAccepted;
+  const signInsWaiting = unconnected.some((service) => service !== "mac");
   return (
     <SettingsSection ref={section} title={t("calendars.title")} testId="calendar-settings">
       <SettingsGroup>
@@ -44,9 +63,26 @@ export function CalendarSettings() {
           <AccountRow key={account.id} account={account} />
         ))}
         {unconnected.map((service) => (
-          <ConnectRow key={service} service={service} signingIn={calendars.signingIn === service} />
+          <ConnectRow
+            key={service}
+            service={service}
+            signingIn={calendars.signingIn === service}
+            storageRefused={storageRefused && service !== "mac"}
+          />
         ))}
       </SettingsGroup>
+      {storage && storageRefused && signInsWaiting && (
+        <div className="mt-2">
+          <SecretStorageNotice
+            status={storage}
+            onAccept={() =>
+              void core.acceptPlainTextSecretStorage().then(setStorage, (error: unknown) => {
+                useAppStore.getState().reportError(error);
+              })
+            }
+          />
+        </div>
+      )}
       <UndoLineAt place={CALENDARS_UNDO_PLACE} className="mt-2 px-4" />
     </SettingsSection>
   );
@@ -115,7 +151,16 @@ function FixAction({ account, fix }: { account: CalendarAccount; fix: ProblemFix
   );
 }
 
-function ConnectRow({ service, signingIn }: { service: CalendarService; signingIn: boolean }) {
+function ConnectRow({
+  service,
+  signingIn,
+  storageRefused,
+}: {
+  service: CalendarService;
+  signingIn: boolean;
+  /** The sign-in couldn't be kept: the notice under the group asks first. */
+  storageRefused: boolean;
+}) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const problem = useCalendars((state) => state.problems[service]);
@@ -166,7 +211,7 @@ function ConnectRow({ service, signingIn }: { service: CalendarService; signingI
             type="button"
             data-testid="calendar-connect"
             aria-label={t(CONNECT_LABELS[service])}
-            disabled={signingIn}
+            disabled={signingIn || storageRefused}
             onClick={() => void connect(service, CALENDARS_UNDO_PLACE)}
             className={buttonStyle("secondary", "sm")}
           >

@@ -44,6 +44,22 @@ const CALL_HOSTS = [
 const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 
+/** A Note is named for its event, so a title is one line, at most this many characters. */
+const MAX_TITLE = 200;
+
+/**
+ * An invite's title as one line: line breaks and control characters are spaces, and format
+ * characters (a bidirectional override, a zero-width space) go, but for the joiner emoji use.
+ */
+function titleOf(value: unknown, untitled: string): string {
+  if (typeof value !== "string") return untitled;
+  const line = value
+    .replace(/\p{Cf}/gu, (character) => (character === "\u200d" ? character : ""))
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, " ")
+    .trim();
+  return line === "" ? untitled : [...line].slice(0, MAX_TITLE).join("");
+}
+
 const utc = (value: string | null): string | null => {
   if (value === null) return null;
   const time = Date.parse(value);
@@ -150,7 +166,7 @@ export function fromGoogle(item: unknown, untitled: string): ReadEvent | null {
   return timed(
     id,
     keyOf(text(item.iCalUID), original, `google:${id}`),
-    text(item.summary) ?? untitled,
+    titleOf(item.summary, untitled),
     start,
     end,
     attendees,
@@ -207,7 +223,7 @@ export function fromMicrosoft(item: unknown, account: string, untitled: string):
   return timed(
     id,
     keyOf(text(item.iCalUId), null, `microsoft:${id}`),
-    text(item.subject) ?? untitled,
+    titleOf(item.subject, untitled),
     graphUtc(item.start),
     graphUtc(item.end),
     attendees,
@@ -227,7 +243,7 @@ export function fromMac(event: SystemCalendarEvent, untitled: string): ReadEvent
   return timed(
     externalId,
     keyOf(text(event.externalId), event.occurrence, `mac:${event.id}`),
-    text(event.title) ?? untitled,
+    titleOf(event.title, untitled),
     event.start,
     event.end,
     attendees,

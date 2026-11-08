@@ -4,6 +4,7 @@ import { translate } from "../src/shared/i18n";
 import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import { createFakeCalendars, type FakeCalendarsServer } from "../tests/helpers/fakeCalendars";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   interceptOpenExternal,
   launchApp,
@@ -133,6 +134,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(google.getByTestId("calendar-sends")).toContainText(t("calendars.sends.google"));
       await screenshot(window, `calendars-settings-${language}-1440`);
 
+      // Linux with no keyring: the sign-in is kept only once the User accepts plain text.
+      await acceptPlainTextKeys(window, calendars);
       await google.getByTestId("calendar-connect").click();
       await expect(calendars.getByTestId("calendar-signing-in")).toHaveText(
         new RegExp(t("calendars.signingIn")),

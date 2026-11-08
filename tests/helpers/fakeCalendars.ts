@@ -540,6 +540,8 @@ export interface FakeCalendarBrowser extends Browser {
   opened: string[];
   /** What the User does on the service's page. */
   behaviour: "approve" | "decline" | "ignore";
+  /** Where the browser reaches "localhost": IPv4's loopback, or IPv6's first, as some do. */
+  localhost: "127.0.0.1" | "[::1]";
   /** The page the loopback redirect showed, once the browser came back. */
   visits: Promise<number>[];
 }
@@ -549,13 +551,14 @@ export function createFakeCalendarBrowser(fake: FakeCalendarsServer): FakeCalend
   const browser: FakeCalendarBrowser = {
     opened: [],
     behaviour: "approve",
+    localhost: "127.0.0.1",
     visits: [],
     async open(url) {
       browser.opened.push(url);
       if (browser.behaviour === "ignore") return;
       const back = fake.redirectFor(url, browser.behaviour);
       // A redirect to "localhost" reaches the loopback server on 127.0.0.1, as the browser does.
-      if (back.hostname === "localhost") back.hostname = "127.0.0.1";
+      if (back.hostname === "localhost") back.hostname = browser.localhost;
       browser.visits.push(
         new Promise((resolve) => setTimeout(resolve, 5)).then(
           async () => (await fetch(back)).status,

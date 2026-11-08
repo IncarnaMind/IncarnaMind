@@ -60,10 +60,17 @@ describe("The Mac's calendar through the helper (#190)", () => {
     expect(runs).toEqual([{ args: ["access"], limitMs: 10_000 }]);
   });
 
-  it("asks with `request` only, and waits for the User however long they take", async () => {
+  it("asks with `request` only, and waits five minutes for the User", async () => {
     const { calendar, runs } = fakeHelper({ request: ok({ access: "denied" }) });
     expect(await calendar.requestAccess()).toBe("denied");
-    expect(runs).toEqual([{ args: ["request"], limitMs: null }]);
+    expect(runs).toEqual([{ args: ["request"], limitMs: 300_000 }]);
+  });
+
+  it("says plainly when the system's question goes unanswered", async () => {
+    const { calendar } = fakeHelper({ request: { code: null, stdout: "" } });
+    await expect(calendar.requestAccess()).rejects.toThrow(
+      "macOS didn’t get an answer about your calendar in time. Connect it again.",
+    );
   });
 
   it("reads the calendars and the events of those asked for, between two times", async () => {

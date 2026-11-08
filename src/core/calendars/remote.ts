@@ -71,10 +71,14 @@ function createApi({ config, credentials, check, fetch }: ApiOptions) {
       ) {
         throw new CalendarRequestError(0, `Refusing to send the sign-in to ${url.host}.`);
       }
+      // Before any token work too: renewing the sign-in sends its refresh token, and Google's
+      // client secret, to the service.
+      check();
       let { accessToken } = await credentials.access();
       let response = await send(url, accessToken, headers);
       if (response.status === 401) {
         await response.body?.cancel();
+        check();
         ({ accessToken } = await credentials.access({ rejected: accessToken }));
         response = await send(url, accessToken, headers);
       }
@@ -100,6 +104,18 @@ const text = (value: unknown) => (typeof value === "string" && value !== "" ? va
 const items = (body: unknown, key: string): unknown[] =>
   isRecord(body) && Array.isArray(body[key]) ? body[key] : [];
 
+/**
+ * Only what is used is asked for. An event's place and description are read only to find a call's
+ * address in them, and aren't kept.
+ */
+const GOOGLE_CALENDAR_FIELDS =
+  "items(id,summary,summaryOverride,primary,accessRole,selected,deleted),nextPageToken";
+const GOOGLE_EVENT_FIELDS =
+  "items(id,iCalUID,status,eventType,summary,start/dateTime,end/dateTime," +
+  "attendees(email,displayName,self,responseStatus,resource),organizer(email,displayName,self)," +
+  "hangoutLink,conferenceData/entryPoints(entryPointType,uri),location,description," +
+  "originalStartTime),nextPageToken";
+
 /** Google's calendars that hold no Meetings of the User's: holidays, and contacts' birthdays. */
 const GOOGLE_NOT_MEETINGS = /#(holiday|contacts)@group\.v\.calendar\.google\.com$/;
 
@@ -114,6 +130,7 @@ export function googleCalendar(options: ApiOptions & { untitled: () => string })
       for (let page = 0; page < MAX_PAGES; page += 1) {
         const url = new URL(`${base}/users/me/calendarList`);
         url.searchParams.set("maxResults", "250");
+        url.searchParams.set("fields", GOOGLE_CALENDAR_FIELDS);
         if (pageToken) url.searchParams.set("pageToken", pageToken);
         const body = await api.get(url);
         for (const item of items(body, "items")) {
@@ -150,6 +167,7 @@ export function googleCalendar(options: ApiOptions & { untitled: () => string })
         url.searchParams.set("orderBy", "startTime");
         url.searchParams.set("showDeleted", "false");
         url.searchParams.set("maxResults", "250");
+        url.searchParams.set("fields", GOOGLE_EVENT_FIELDS);
         if (pageToken) url.searchParams.set("pageToken", pageToken);
         const body = await api.get(url);
         for (const item of items(body, "items")) {
@@ -164,6 +182,7 @@ export function googleCalendar(options: ApiOptions & { untitled: () => string })
   };
 }
 
+/** As Google's: the place and the body's preview are read only to find a call's address. */
 const GRAPH_EVENT_FIELDS = [
   "id",
   "iCalUId",

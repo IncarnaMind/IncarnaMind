@@ -369,7 +369,7 @@ export const en = {
   "calendars.sends.microsoft":
     "Reads your events with your Microsoft sign-in. They stay on this computer.",
   "calendars.sends.details":
-    "Sends only your sign-in and which calendars and days to read. Your events’ titles, times, attendees and links come back and are kept on this computer. Nothing is sent unless you allow it. Change it any time in Settings › Privacy.",
+    "Sends your sign-in, and which calendars and days to read (yesterday to the day after tomorrow). Each event’s title, times, attendees’ names and e-mail addresses and call link are kept on this computer for those days; its place and description are read only to find a call link, and aren’t kept. Take notes keeps the event’s details with its note. Renewing the sign-in sends it again. Nothing is sent unless you allow it. Change it any time in Settings › Privacy.",
   "calendars.signingIn": "Finish signing in in your browser",
   "calendars.cancel": "Cancel",
   "calendars.connected": "Connected {service}",
@@ -3552,7 +3552,7 @@ export const en = {
   "consent.flow.calendars": "Calendars",
   "consent.flow.calendars.purpose": "show the meetings coming up from your calendar",
   "consent.data.calendar-request":
-    "Your sign-in and which of your calendars and days to read; your events come back to this computer and stay there",
+    "Your sign-in, renewed with its refresh token, and which of your calendars and days to read; each event’s title, times, attendees’ names and e-mail addresses and call link come back and stay on this computer",
   "consent.flow.find-sources": "Find sources",
   "consent.flow.find-sources.purpose": "find papers and other sources, and add the ones you choose",
   "consent.data.search-terms":
@@ -5940,6 +5940,8 @@ export const en = {
   "calendar.page.failure.title": "Couldn’t connect {service}",
   "calendar.page.failure.body": "Close this tab and try again in IncarnaMind.",
   "error.calendar.notOffered": "This copy of IncarnaMind can’t connect {service}.",
+  "error.calendar.askUnanswered": "macOS didn’t get an answer about your calendar in time. Connect it again.",
+  "error.calendar.badRequest": "IncarnaMind asked for a calendar in a way it can’t read. Try again.",
   "error.calendar.localMode": "Can’t connect {service}: “Keep everything on this computer” is on.",
   "error.calendar.signIn": "Couldn’t connect {service}. Try again.",
   "error.calendar.accountGone": "That calendar account isn’t connected anymore.",

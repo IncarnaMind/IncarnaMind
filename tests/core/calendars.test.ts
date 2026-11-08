@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { CalendarsState, Core, CoreAdapters } from "../../src/core";
 import { calendarStandIns } from "../../src/core/calendars/endpoints";
@@ -6,7 +7,7 @@ import {
   type FakeSystemCalendar,
   type SystemCalendarFixture,
 } from "../../src/core/calendars/fakeSystem";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import {
   createFakeCalendarBrowser,
   createFakeCalendars,
@@ -54,6 +55,7 @@ function googleAccount(events: FakeEvent[] = [standup]): FakeAccount {
 
 interface Setup {
   core: Core;
+  dataDir: string;
   fake: FakeCalendarsServer;
   browser: FakeCalendarBrowser;
   system: FakeSystemCalendar;
@@ -83,7 +85,8 @@ async function setUp(
   );
   const clock = manualClock(NOW);
   const stand = calendarStandIns(fake.origin);
-  const core = startCore(options.dataDir ?? (await createTempDataFolder()), {
+  const dataDir = options.dataDir ?? (await createTempDataFolder());
+  const core = startCore(dataDir, {
     now: clock.now,
     browser,
     systemCalendar: system,
@@ -93,7 +96,7 @@ async function setUp(
     },
     ...options.adapters,
   });
-  return { core, fake, browser, system, clock };
+  return { core, dataDir, fake, browser, system, clock };
 }
 
 const DAY = { from: "2026-11-09T00:00:00.000Z", to: "2026-11-11T00:00:00.000Z" };
@@ -432,22 +435,28 @@ describe("Calendars: Google and Microsoft (#190)", () => {
 });
 
 describe("Calendars: consent, Local mode and being offline (#190)", () => {
-  test("background reading never asks: with the flow turned off it sends nothing and the row says so", async () => {
-    const { core, fake } = await setUp({ google: googleAccount() });
+  test("background reading never asks: with the flow turned off nothing is sent, not even a renewal, and the row says so", async () => {
+    const { core, fake, clock } = await setUp({ google: googleAccount() });
     await core.connectCalendar("google");
     const asked = vi.fn();
     core.on("consent.requested", asked);
     await core.revokeConsent("calendars", new URL(fake.origin).origin);
     const requests = fake.google.requests.length;
+    const tokenRequests = fake.google.tokenRequests.length;
+    // Three hours on, the access token has expired: a read would renew it first.
+    clock.advance(3 * 60 * 60_000);
 
     const state = await core.syncCalendars();
     expect(accountOf(state, "google")?.problem).toBe("not-allowed");
     expect(fake.google.requests.length).toBe(requests);
+    expect(fake.google.tokenRequests.length).toBe(tokenRequests);
     expect(asked).not.toHaveBeenCalled();
     expect(await titles(core)).toEqual(["Standup"]);
 
     await core.allowDataFlow("calendars", new URL(fake.origin).origin);
     expect(accountOf(await core.syncCalendars(), "google")?.problem).toBeNull();
+    // Allowed again, the same read renews the sign-in first.
+    expect(fake.google.tokenRequests.at(-1)?.get("grant_type")).toBe("refresh_token");
   });
 
   test("Local mode stops Google and Microsoft and keeps the Mac's calendar", async () => {
@@ -680,3 +689,138 @@ describe("Calendars: the Mac's own calendar (#190)", () => {
     ]);
   });
 });
+
+describe("Calendars: what is kept, and for how long (#190)", () => {
+  const eventRows = (dataDir: string) =>
+    queryDatabase<{ title: string; attendees: string }>(
+      dataDir,
+      "SELECT title, attendees FROM calendar_events",
+    );
+
+  test("an event that ends before yesterday is deleted, not kept as a deleted row", async () => {
+    const { core, dataDir, clock } = await setUp({ google: googleAccount() });
+    await core.connectCalendar("google");
+    expect(eventRows(dataDir).map((row) => row.title)).toEqual(["Standup"]);
+
+    clock.advance(3 * 24 * 60 * 60_000);
+    await core.syncCalendars();
+    expect(eventRows(dataDir)).toEqual([]);
+  });
+
+  test("disconnecting deletes the account's calendars and events outright", async () => {
+    const { core, dataDir } = await setUp({ google: googleAccount() });
+    const account = await core.connectCalendar("google");
+    await core.disconnectCalendar(account?.id ?? "");
+    expect(eventRows(dataDir)).toEqual([]);
+    expect(queryDatabase(dataDir, "SELECT id FROM calendars")).toEqual([]);
+    expect(queryDatabase(dataDir, "SELECT id FROM calendar_accounts")).toEqual([]);
+  });
+
+  test("disconnecting in Local mode sends nothing: the sign-in is forgotten here", async () => {
+    const { core, fake } = await setUp({ google: googleAccount() });
+    const account = await core.connectCalendar("google");
+    await core.setLocalOnly(true);
+    await core.disconnectCalendar(account?.id ?? "");
+    expect(fake.google.revoked).toEqual([]);
+    expect((await core.getCalendars()).accounts).toEqual([]);
+  });
+
+  test("deleting the Note permanently deletes the event's details it kept", async () => {
+    const { core, dataDir } = await setUp({ google: googleAccount() });
+    await core.connectCalendar("google");
+    const [event] = await core.listCalendarEvents(DAY);
+    const { mindId } = await core.takeEventNotes(event?.id ?? "");
+    await core.deleteMind(mindId);
+    await core.deletePermanently([{ kind: "mind", id: mindId }]);
+    const kept = queryDatabase<{ event: string; deleted_at: string | null }>(
+      dataDir,
+      "SELECT event, deleted_at FROM calendar_event_notes WHERE mind_id = ?",
+      [mindId],
+    );
+    expect(kept).toEqual([{ event: "{}", deleted_at: expect.any(String) }]);
+    expect(JSON.stringify(kept)).not.toContain("dana@northwind.com");
+  });
+
+  test("an invite's title names its Note as one line of at most 200 characters", async () => {
+    const { core } = await setUp({
+      google: googleAccount([
+        {
+          ...standup,
+          title: `Quarterly\nreview\u202e with\tNorthwind ${"x".repeat(300)}`,
+        },
+      ]),
+    });
+    await core.connectCalendar("google");
+    const [event] = await core.listCalendarEvents(DAY);
+    const { mindId } = await core.takeEventNotes(event?.id ?? "");
+    const title = (await core.listMinds()).find((mind) => mind.id === mindId)?.title ?? "";
+    expect(title.startsWith("Quarterly review with Northwind x")).toBe(true);
+    expect([...title]).toHaveLength(200);
+  });
+
+  test("Take notes on either copy of one invite opens the same Note", async () => {
+    const lunch = {
+      title: "Lunch with Ana",
+      start: "2026-11-09T12:00:00Z",
+      end: "2026-11-09T13:00:00Z",
+    };
+    const { core } = await setUp({
+      google: googleAccount([{ id: "lunch-g", ...lunch, joinUrl: "https://meet.google.com/lun" }]),
+      mac: {
+        access: "allowed",
+        calendars: [{ id: "work", title: "Work", source: "Exchange", kind: "exchange" }],
+        events: [
+          {
+            calendarId: "work",
+            id: "lunch-m",
+            externalId: "another-uid",
+            occurrence: null,
+            ...lunch,
+            allDay: false,
+            status: "confirmed",
+            attendees: [],
+            organizer: null,
+            url: null,
+            location: null,
+            notes: null,
+          },
+        ],
+      },
+    });
+    await core.connectCalendar("mac");
+    const [macCopy] = await core.listCalendarEvents(DAY);
+    const first = await core.takeEventNotes(macCopy?.id ?? "");
+
+    await core.connectCalendar("google");
+    const [shown] = await core.listCalendarEvents(DAY);
+    expect(shown).toMatchObject({ service: "google", mindId: first.mindId });
+    expect(await core.takeEventNotes(shown?.id ?? "")).toEqual({
+      mindId: first.mindId,
+      created: false,
+    });
+    expect(await core.getNoteEvent(first.mindId)).toMatchObject({
+      eventId: shown?.id,
+      joinUrl: "https://meet.google.com/lun",
+    });
+  });
+});
+
+/** Whether this computer can listen on IPv6's loopback. */
+const hasIpv6Loopback = await new Promise<boolean>((resolve) => {
+  const probe = createServer();
+  probe.once("error", () => resolve(false));
+  probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+});
+
+test.skipIf(!hasIpv6Loopback)(
+  "Microsoft's sign-in comes back when the browser reaches localhost over IPv6",
+  async () => {
+    const { core, browser } = await setUp({
+      microsoft: { email: "priya@contoso.com", name: "Priya Raman", calendars: [] },
+    });
+    browser.localhost = "[::1]";
+    const account = await core.connectCalendar("microsoft");
+    expect(await browser.visits[0]).toBe(200);
+    expect(account).toMatchObject({ service: "microsoft", name: "priya@contoso.com" });
+  },
+);

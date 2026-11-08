@@ -357,7 +357,7 @@ export const zhCN = {
   "calendars.sends.google": "用你的 Google 账号读取日程，日程只保存在这台电脑上。",
   "calendars.sends.microsoft": "用你的 Microsoft 账号读取日程，日程只保存在这台电脑上。",
   "calendars.sends.details":
-    "只发送你的登录信息，以及要读取哪些日历和哪几天。日程的标题、时间、参会人和会议链接会传回，只保存在这台电脑上。你允许之前不会发送任何内容。可随时在“设置 › 隐私”中更改。",
+    "发送你的登录信息，以及要读取哪些日历和哪几天（昨天到后天）。每个日程的标题、时间、参会人的姓名和邮箱以及会议链接会在这几天里保存在这台电脑上；地点和描述只用来查找会议链接，不会保存。点“记笔记”后，日程的这些信息会随笔记一起保存。续期登录时会再次发送登录信息。你允许之前不会发送任何内容。可随时在“设置 › 隐私”中更改。",
   "calendars.signingIn": "在浏览器中完成登录",
   "calendars.cancel": "取消",
   "calendars.connected": "已连接“{service}”",
@@ -3383,7 +3383,7 @@ export const zhCN = {
   "consent.flow.calendars": "日历",
   "consent.flow.calendars.purpose": "显示日历中即将开始的会议",
   "consent.data.calendar-request":
-    "你的登录信息，以及要读取哪些日历和哪几天；日程会传回这台电脑并只保存在这里",
+    "你的登录信息（续期时发送刷新令牌），以及要读取哪些日历和哪几天；每个日程的标题、时间、参会人的姓名和邮箱以及会议链接会传回，只保存在这台电脑上",
   "consent.flow.find-sources": "查找资料",
   "consent.flow.find-sources.purpose": "查找论文等资料，并添加你选中的",
   "consent.data.search-terms":
@@ -5654,6 +5654,8 @@ export const zhCN = {
   "calendar.page.failure.title": "未能连接 {service}",
   "calendar.page.failure.body": "请关闭此标签页，然后在 IncarnaMind 中重试。",
   "error.calendar.notOffered": "这个版本的 IncarnaMind 无法连接 {service}。",
+  "error.calendar.askUnanswered": "macOS 没有及时收到是否允许访问日历的回答，请重新连接。",
+  "error.calendar.badRequest": "IncarnaMind 读取日历的请求无效，请重试。",
   "error.calendar.localMode": "无法连接 {service}：已开启“所有内容都留在这台电脑上”。",
   "error.calendar.signIn": "未能连接 {service}，请重试。",
   "error.calendar.accountGone": "这个日历账号已不再连接。",

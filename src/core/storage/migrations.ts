@@ -2830,7 +2830,9 @@ export const migrations: readonly Migration[] = [
       "Calendars: the accounts connected on this device, their calendars and events, and the Note made for an event (#190)",
     sql: `
       -- Each device signs in for itself and keeps the sign-in in its secret store, never here, so
-      -- the accounts, calendars and events stay on this device: another reads its own.
+      -- the accounts, calendars and events stay on this device: another reads its own. They are
+      -- this device's copy of what the services hold, so a row that goes is deleted, not left as a
+      -- tombstone: a copy kept past its days would keep people's names and addresses.
       -- service: 'google', 'microsoft' or 'mac'. name: the account's address, NULL for the Mac's.
       -- problem: why it isn't read now (src/core/api.ts CalendarProblem), NULL when it is.
       CREATE TABLE calendar_accounts (
@@ -2840,8 +2842,7 @@ export const migrations: readonly Migration[] = [
         synced_at TEXT,
         problem TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT
+        updated_at TEXT NOT NULL
       ) STRICT;
       -- source: the account a Mac calendar is in there ("iCloud"), NULL for the others.
       -- counted: its events show in Coming up.
@@ -2853,15 +2854,13 @@ export const migrations: readonly Migration[] = [
         source TEXT,
         counted INTEGER NOT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT
+        updated_at TEXT NOT NULL
       ) STRICT;
-      CREATE UNIQUE INDEX calendars_by_external ON calendars (account_id, external_id)
-        WHERE deleted_at IS NULL;
+      CREATE UNIQUE INDEX calendars_by_external ON calendars (account_id, external_id);
       -- One occurrence of an event, as the service has it now: only timed ones the User hasn't
-      -- declined, between yesterday and the day after tomorrow. event_key: the invite's own id and
-      -- occurrence, the same in every calendar that holds it. attendees: JSON of
-      -- src/core/api.ts CalendarAttendee[].
+      -- declined, between yesterday and the day after tomorrow, from calendars that count.
+      -- event_key: the invite's own id and occurrence, the same in every calendar that holds it.
+      -- attendees: JSON of src/core/api.ts CalendarAttendee[].
       CREATE TABLE calendar_events (
         id TEXT PRIMARY KEY NOT NULL,
         calendar_id TEXT NOT NULL REFERENCES calendars(id),
@@ -2873,12 +2872,10 @@ export const migrations: readonly Migration[] = [
         attendees TEXT NOT NULL DEFAULT '[]',
         join_url TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT
+        updated_at TEXT NOT NULL
       ) STRICT;
-      CREATE UNIQUE INDEX calendar_events_by_external ON calendar_events (calendar_id, external_id)
-        WHERE deleted_at IS NULL;
-      CREATE INDEX calendar_events_by_start ON calendar_events (starts_at) WHERE deleted_at IS NULL;
+      CREATE UNIQUE INDEX calendar_events_by_external ON calendar_events (calendar_id, external_id);
+      CREATE INDEX calendar_events_by_start ON calendar_events (starts_at);
       -- The Note Take notes made for an event, with the event as it was then (JSON of
       -- src/core/api.ts NoteEvent without its eventId), so the Note keeps its details once the
       -- event leaves the calendar, and on another device. It goes with the Note.

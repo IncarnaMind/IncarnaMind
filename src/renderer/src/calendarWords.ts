@@ -1,3 +1,4 @@
+import { isSpeakerName } from "../../shared/speakers";
 import type {
   CalendarAccount,
   CalendarAttendee,
@@ -221,7 +222,9 @@ export function inviteNames(
   const names: string[] = [];
   for (const attendee of othersOn(attendees)) {
     const name = attendee.name.trim();
-    if (name === "" || [...taken, ...names].some((each) => sameName(each, name))) continue;
+    // A name the core would refuse for a Speaker isn't offered: too long, invisible characters,
+    // or a label's words ("Me", "Speaker 2").
+    if (!isSpeakerName(name) || [...taken, ...names].some((each) => sameName(each, name))) continue;
     names.push(name);
   }
   return names;
