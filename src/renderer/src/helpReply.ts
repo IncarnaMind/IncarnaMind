@@ -73,9 +73,10 @@ const plain = (line: string) => line.replace(/\*\*|__/g, "").trim();
 
 /**
  * What the panel shows of a reply in its button's shape: at most two options or readings, after
- * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the one
- * still being written included while it `streaming`; or at most three short lines. What a model
- * adds anyway around them (a lead-in, a remark, a third option) is left out.
+ * the one line "Am I leading them?" or "the live text is behind" puts first (`leadIn`), the last
+ * included before its "→" line; or at most three short lines. What a model adds anyway around
+ * them (a lead-in, a remark, a third option) is left out. The same text shows no less once the
+ * reply ends than while it was `streaming`.
  */
 export function shownItems(
   items: readonly ReplyItem[],
@@ -91,13 +92,18 @@ export function shownItems(
     return [...lead, ...rest].slice(0, 3);
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
-  // While it is written, text before the first "★" line is a model's notes, taken back once it
-  // records its Citations (#2526): the outline stays in its place instead.
-  const from = streaming ? items.findIndex((item) => item.recommended) : 0;
-  const drawn = from === -1 ? [] : items.slice(from);
-  const last = drawn.at(-1);
-  const writing = streaming && last && last.effect === null && !lead.includes(last) ? [last] : [];
-  const options = [...drawn.filter((item) => item.effect !== null), ...writing].slice(0, 2);
+  // Text before the first "★" line is a model's notes, taken back once it records its Citations
+  // (#2526): while it is written, the outline stays in its place instead.
+  const star = items.findIndex((item) => item.recommended);
+  const from = star !== -1 ? star : streaming ? items.length : 0;
+  const last = items.at(-1);
+  // An item with no "→" line that another follows is a remark between options. The last is an
+  // option still being written, or one whose "→" line never came or was taken back as the model's
+  // working (#2767): it stays as written once the reply ends, so what showed doesn't vanish.
+  const options = items
+    .slice(from)
+    .filter((item) => !lead.includes(item) && (item.effect !== null || item === last))
+    .slice(0, 2);
   return [...lead, ...options];
 }
 

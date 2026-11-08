@@ -82,9 +82,6 @@ describe("A help reply", () => {
     expect(shownItems(writing, { shape: "options", leadIn: false, streaming: true })).toHaveLength(
       1,
     );
-    expect(shownItems(writing, { shape: "options", leadIn: false, streaming: false })).toHaveLength(
-      0,
-    );
   });
 
   test("short lines keep only the marked ones, at most three", () => {
@@ -135,6 +132,104 @@ describe("A help reply", () => {
         textOf(item.lead),
       ),
     ).toEqual(["A little: it suggests the answer."]);
+  });
+
+  // protects=a finished reply shows every option or reading the panel showed while it was written, an item whose "→" line the core took back as the model's working included, in English and Chinese: a reply of one such item no longer ends with only the heading; fails_when=an item with no "→" line is dropped once the reply ends; no_claim=why the core takes the line back (#2767).
+  test("once written, an option or reading whose → line was taken back still shows, in English and Chinese", () => {
+    const shown = (text: string, shape: "options" | "readings", streaming: boolean) =>
+      shownItems(readHelpReply(text), { shape, leadIn: false, streaming }).map((item) =>
+        textOf(item.lead),
+      );
+    // Each reply as Claude Haiku 5.5 or DeepSeek V4.1 Flash wrote it, with its last "→" line
+    // taken back once its Citations were recorded.
+    const replies = [
+      {
+        shape: "readings" as const,
+        text: "★ They want the system live before their June audit, within a fixed budget\n5:56 “Let me be straight about where we are” [^1]",
+        shows: ["They want the system live before their June audit, within a fixed budget"],
+      },
+      {
+        shape: "readings" as const,
+        text: "★ 对方想要在六月审计前上线，并把每月预算控制在五万以内\n5:32 “我们必须在六月审计之前上线” [^1]",
+        shows: ["对方想要在六月审计前上线，并把每月预算控制在五万以内"],
+      },
+      {
+        shape: "options" as const,
+        text: "★ How many support agents would your team have when the add-on starts, since we price it per agent at $12 a month [^1]",
+        shows: [
+          "How many support agents would your team have when the add-on starts, since we price it per agent at $12 a month [1]",
+        ],
+      },
+      {
+        shape: "options" as const,
+        text: "★ 客服增值包的定价是按坐席数每月 80 元，你们预估需要多少个坐席 [^1]",
+        shows: ["客服增值包的定价是按坐席数每月 80 元，你们预估需要多少个坐席 [1]"],
+      },
+      {
+        shape: "readings" as const,
+        text: "★ They want the rollout running before their June audit, within a fixed budget of eight thousand dollars a month\n5:56 “Let me be straight about where we are[^3].” [^1]\n→ Confirm June timeline and price against $8k/month cap\n\nActually, a more explicit reading of their last lines:\n\n★ They want the rollout finished before June, and total cost held at eight thousand dollars a month\n6:00 “We need this running before our audit in June[^4].” [^2]",
+        shows: [
+          "They want the rollout running before their June audit, within a fixed budget of eight thousand dollars a month",
+          "They want the rollout finished before June, and total cost held at eight thousand dollars a month",
+        ],
+      },
+      {
+        shape: "readings" as const,
+        text: "★ 对方想要在六月审计前上线，并把每月预算控制在五万以内\n5:32 “我们必须在六月审计之前上线” [^1]\n→ 先确认上线时间表能否赶在六月前，再谈价格\n\n★ 对方想先确认实施的时间安排和人员投入，再谈价格\n0:00 “在谈价格之前，能先讲讲头两周一般怎么安排吗” [^2]",
+        shows: [
+          "对方想要在六月审计前上线，并把每月预算控制在五万以内",
+          "对方想先确认实施的时间安排和人员投入，再谈价格",
+        ],
+      },
+    ];
+    for (const reply of replies) {
+      expect(shown(reply.text, reply.shape, false)).toEqual(reply.shows);
+    }
+    const [reading] = readHelpReply(replies[0]?.text ?? "");
+    expect(reading?.notes.map(textOf)).toEqual([
+      "5:56 “Let me be straight about where we are” [1]",
+    ]);
+    expect(reading?.effect).toBeNull();
+  });
+
+  // protects=the same reply shows no less once it ends than as it was last written: the item being written stays, and a remark another item follows is left out in both, in English and Chinese; fails_when=the end drops an item the last write showed; no_claim=what the core takes back (#2767).
+  test("a reply shows no less once written than as it was last written, in English and Chinese", () => {
+    const shown = (text: string, shape: "options" | "readings", streaming: boolean) =>
+      shownItems(readHelpReply(text), { shape, leadIn: false, streaming }).map((item) =>
+        textOf(item.lead),
+      );
+    const remark =
+      "★ One\n→ a\n\nActually, a more explicit reading of their last lines:\n\n★ Two\n→ b";
+    const replies: [string, "options" | "readings"][] = [
+      ["★ We can extend the pil", "options"],
+      ["★ 我们可以把试用延长", "options"],
+      [
+        "★ They want the system live before their June audit, within a fixed budget\n5:56 “Let me be straight about where we are.” [^1]\n→ Confirm a June go-live date, then probe the $8,000 monthly ceiling\n\nThey want the monthly cost held at eight thousand dollars\n6:00 “within eight thousand a month” [^2]",
+        "readings",
+      ],
+      [
+        "★ 对方想要在六月审计前上线，并把每月预算控制在五万以内\n5:32 “我们必须在六月审计之前上线” [^1]\n→ 先确认上线时间表能否赶在六月前，再谈价格\n\n对方想先确认实施的时间安排",
+        "readings",
+      ],
+      ["I'll read it from the call.\n\n★ One\n→ a\n\nTwo", "options"],
+      [remark, "readings"],
+    ];
+    for (const [text, shape] of replies) {
+      const written = shown(text, shape, true);
+      expect(written.length).toBeGreaterThan(0);
+      expect(shown(text, shape, false)).toEqual(written);
+    }
+    expect(shown(remark, "readings", false)).toEqual(["One", "Two"]);
+  });
+
+  test("a reply with nothing in the shape the panel lays out shows no item", () => {
+    expect(
+      shownItems(readHelpReply("## Suggestions\n\n[^1]: Transcript"), {
+        shape: "options",
+        leadIn: false,
+        streaming: false,
+      }),
+    ).toEqual([]);
   });
 
   test("while it streams, an option before its arrow has no effect yet", () => {
