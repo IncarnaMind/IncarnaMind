@@ -36,6 +36,7 @@ import {
   noteGroup,
   type PaletteGroup,
   type PaletteItem,
+  rankedNamesAndActions,
   readQuery,
   recentGroup,
   runItem,
@@ -183,8 +184,11 @@ function Palette() {
       ];
     }
     return [
-      ...nameGroups(words, found),
-      ...actionGroup(words, context, language, found.names),
+      ...rankedNamesAndActions(
+        nameGroups(words, found),
+        actionGroup(words, context, language, found.names),
+        words,
+      ),
       ...(notes ? noteGroup(notes.items, minds, t) : []),
       ...(passages ? meetingTextGroup(meetingTextItems(passages.items, documents, minds, t)) : []),
       ...(passages ? documentTextGroup(passages.items, documents, t) : []),

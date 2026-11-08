@@ -1561,6 +1561,12 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /**
+   * The Citations that text holds, each once, as they were when it was written: the sources its
+   * Answer's steps count beside the reply's own (#2768). A record of the write, kept after the
+   * User accepts, rejects or edits it; their checks since are the Note's. Absent: none.
+   */
+  citations?: Citation[];
   /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
   uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */

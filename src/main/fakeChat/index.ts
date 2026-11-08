@@ -63,6 +63,7 @@ const SLOW_STEP_MS = 1200;
 const SLOW_WORD_MS = 250;
 /** An Edit with AI asked "forever" writes nothing until it is stopped, or this long. */
 const HOLD_MS = 120_000;
+const PAUSE_HALFWAY = /\bpause halfway\b/i;
 /** Between two words of Edit with AI's new text: a passage takes a moment, not seconds. */
 const EDIT_WORD_MS = 10;
 
@@ -346,6 +347,18 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
       const checked = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";
       const slow = edit ? edit.slow : !search && SLOWLY.test(`${lastQuestion(prompt)} ${checked}`);
       const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const holdUntilStopped = () =>
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, HOLD_MS);
+          abortSignal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      // Its first section whole in the Note, a write asked to pause halfway holds until it is
+      // stopped, so a spec stops it there whatever the machine's pace (#2768).
+      const halfway = !search && !edit && PAUSE_HALFWAY.test(lastQuestion(prompt));
+      let headings = 0;
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
           const part = parts.shift();
@@ -353,14 +366,10 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
             controller.close();
             return;
           }
-          if (edit?.holds && part.type === "stream-start") {
-            await new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, HOLD_MS);
-              abortSignal?.addEventListener("abort", () => {
-                clearTimeout(timer);
-                resolve();
-              });
-            });
+          if (edit?.holds && part.type === "stream-start") await holdUntilStopped();
+          if (halfway && part.type === "tool-input-delta") {
+            if (headings >= 2) await holdUntilStopped();
+            if (part.delta.includes("##")) headings++;
           }
           if (slow && part.type === "stream-start") await wait(SLOW_STEP_MS);
           // A slow cell's words stand a moment before its Answer ends, for a test to see them.
