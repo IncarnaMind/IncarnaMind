@@ -6,10 +6,10 @@
  */
 import { readFileSync } from "node:fs";
 import type { JSONContent } from "@tiptap/core";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, Document, TranscriptSpeakers } from "../../src/core";
 import { cleanQuote } from "../../src/core/answers/citations";
-import type { Cue } from "../../src/core/documents/formats/vtt";
+import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import { clockTime } from "../../src/shared/clock";
 import {
   SPEAKER_ME,
@@ -33,6 +33,7 @@ import {
   savedCues,
   toldCues,
   transcriptRead,
+  until,
 } from "../helpers/transcription";
 
 const linesOf = (cues: readonly Cue[]): TranscriptLine[] =>
@@ -263,6 +264,64 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
         check: "found",
       });
     }
+    core.close();
+  });
+
+  // protects=an Answer asked while a call's speakers are told apart, whose records are still out when the pass gives the line another Speaker, is checked against who's who as its model read it: its "0:00 Them" is found, stores the line's own label and shows the new Speaker (#2839); fails_when=the record is checked against who's who changed while it was out and isn't found; no_claim=a real model's wording.
+  test("an Answer whose records are out when the pass renames their line finds them", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answer = () => {};
+    const recordsHeld = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let recorded = false;
+    let cite = { location: "", quote: "" };
+    const plan = {
+      query: "",
+      records: (passages: ShownPassage[]) => {
+        recorded = true;
+        const passage = passages.find((each) => each.text.includes(cite.quote));
+        return [{ marker: 1, passage: passage?.id, location: cite.location, quote: cite.quote }];
+      },
+      answer: "They said so [^1].",
+      recordsHeld,
+    };
+    const { separator } = fakeSeparator({ holds });
+    const dataDir = await createTempDataFolder();
+    const { core, meeting } = await recordedCall(dataDir, {
+      speakerSeparator: separator,
+      model: citingModel(plan),
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const cues = await (async () => {
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      return readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+    })();
+    await transcriptRead(core, dataDir, meeting.id, (await transcriptOf(core, meeting.id)).id);
+    const line = lineBy(cues, "Them");
+    const mind = await core.createMind({ title: "Who said it" });
+    const client = await connectToMind(core, mind.id);
+    plan.query = line.text;
+    cite = { location: `${clockTime(line.startMs)} Them`, quote: line.text };
+    const asked = askAndFinish(core, client, mind.id, "What did they say?");
+    await vi.waitFor(() => expect(recorded).toBe(true));
+    release();
+    const told = await toldCues(core, meeting.id);
+    const now = told[cues.indexOf(line)]?.speaker;
+    expect(now).toMatch(/^Speaker \d$/);
+    answer();
+    const { answerId } = await asked;
+    expect(onlyCitation(client, answerId)).toMatchObject({
+      location: { kind: "time", from: line.startMs, speaker: "Them" },
+      check: "found",
+    });
     core.close();
   });
 

@@ -476,6 +476,81 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=a call's notes whose reply is still out when the speaker pass ends are checked against who's who as their model read it, so their records of "Them" lines are found and written, and their Citations then name the new speaker; without a rename the same holds (#2839); fails_when=a record is checked against who's who changed while its reply was out, so the notes fail or lose items; no_claim=the pass's accuracy.
+  test.each([
+    ["renames", undefined, "Speaker 1"],
+    ["renames no one", () => 0, "Them"],
+  ] as const)(
+    "notes whose reply is out when the pass %s are found and written",
+    async (_, voiceOf, speaker) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let answer = () => {};
+      const held = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let asked = 0;
+      const said = THEIR_LINES[0] as string;
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        if (fillRun(call)) {
+          asked++;
+          const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+            each.text.includes(said),
+          );
+          const mark = passage?.text
+            .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+            ?.find((each) => passage.text.includes(`${each}${said}`));
+          const citations = [
+            { marker: 1, passage: passage?.id, location: mark?.slice(1, -2) ?? "", quote: said },
+          ];
+          return {
+            calls: [{ tool: "cite", input: { citations } }],
+            pause: { after: 0, until: held },
+          };
+        }
+        return {
+          text: [
+            overview("The call covered the budget [^1]."),
+            fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
+              sections: ["decisions"],
+            }),
+          ].join("\n\n"),
+        };
+      });
+      const { separator, requests } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+        speakerSeparator: separator,
+        cloud: true,
+      });
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await vi.waitFor(() => expect(asked).toBe(1));
+      release();
+      await until(core, meeting.id, (each) => !each.separating);
+      answer();
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+      expect(asked).toBe(1);
+      const transcriptId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+        ?.transcript?.documentId;
+      const transcript = (await core.listDocuments()).find((each) => each.id === transcriptId);
+      const cited = mindCitations(client).filter((each) => each.quote === said);
+      expect(cited.length).toBeGreaterThan(0);
+      const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+      for (const citation of cited) {
+        expect(citation.check).toBe("found");
+        expect(
+          formatLocation(citation.location as CitationLocation, t, {
+            speakers: transcript?.speakers ?? null,
+          }),
+        ).toBe(`${speaker} · 0:00`);
+      }
+      core.close();
+    },
+  );
+
   // protects=a call's claims are checked while its speakers are told apart, the fill says how many while the checks run, and a pass that renames a line meanwhile leaves the checks and the notes as they are, made once (#2839); fails_when=the notes are made again, the checks are stopped, or no count is said while they run or one is left after; no_claim=what the checks say.
   test("a call's claims are counted while they are checked, and a rename meanwhile doesn't make the notes again", async () => {
     let release = () => {};

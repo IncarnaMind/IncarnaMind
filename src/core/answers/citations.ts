@@ -1697,6 +1697,8 @@ export function createCitationSession(
   const handleOf = new Map<string, string>();
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
+  /** Who's who each Transcript Passage was marked with, by its handle, as `shownTexts` keeps its text. */
+  const shownSpeakers = new Map<string, TranscriptSpeakers | null>();
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
@@ -1761,9 +1763,16 @@ export function createCitationSession(
     return matching;
   };
 
-  /** Who's who in a Transcript a record cites (#138): the names its model read. */
-  const speakersFor = (source: Pick<CitationSource, "documentId" | "documentKind">) =>
-    source.documentKind === "transcript" ? (documents.speakers?.(source.documentId) ?? null) : null;
+  /**
+   * Who's who in a Transcript a record cites (#138): the names its model read in the Passage it
+   * names. The speaker pass may change who's who while a reply is out (#2839); a Citation stores
+   * its line's own label, so it shows who's who as it is now.
+   */
+  const speakersFor = (record: Pick<Accepted, "handle" | "source">) => {
+    if (record.source.documentKind !== "transcript") return null;
+    const shown = shownSpeakers.get(record.handle);
+    return shown !== undefined ? shown : (documents.speakers?.(record.source.documentId) ?? null);
+  };
 
   /** The stored text of the Units a record cites, of the version its Passage was built from. */
   const citedText = (record: Pick<Accepted, "source" | "range">) =>
@@ -1812,7 +1821,7 @@ export function createCitationSession(
         record.quote,
         record.time,
         matchingFor(record.source),
-        speakersFor(record.source),
+        speakersFor(record),
       )
       ? NOT_ON_PAGES
       : result;
@@ -1829,7 +1838,7 @@ export function createCitationSession(
       matching,
       find: (words) =>
         record.time
-          ? quoteInCues(units, words, record.time, matching, speakersFor(record.source))
+          ? quoteInCues(units, words, record.time, matching, speakersFor(record))
           : quoteInUnits(units, words, matching),
       documentName: record.source.documentName,
       throughNextUnit: () =>
@@ -1911,7 +1920,7 @@ export function createCitationSession(
               record.quote,
               record.time,
               matchingFor(record.source),
-              speakersFor(record.source),
+              speakersFor(record),
             )
           : quoteInUnits(usable, record.quote, matchingFor(record.source))
         : null,
@@ -1970,7 +1979,7 @@ export function createCitationSession(
           citedText(taken.record),
           matchingFor(taken.source),
           taken.record.time,
-          speakersFor(taken.source),
+          speakersFor(taken.record),
         ) ??
         (!taken.record.time && check(taken.record).check === "not-found"
           ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
@@ -2279,19 +2288,23 @@ export function createCitationSession(
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
+      const speakers = units.some((unit) => unit.kind === "cues")
+        ? (documents.speakers?.(passage.documentId) ?? null)
+        : null;
       const plain = foldRadicals(
         withCueMarks(
           withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
           units,
-          units.some((unit) => unit.kind === "cues")
-            ? (documents.speakers?.(passage.documentId) ?? null)
-            : null,
+          speakers,
         ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
-      if (!notCited && !measuring) shownTexts.set(id, plain);
+      if (!notCited && !measuring) {
+        shownTexts.set(id, plain);
+        shownSpeakers.set(id, speakers);
+      }
       if (!measuring) {
         read.push({
           documentId: passage.documentId,
