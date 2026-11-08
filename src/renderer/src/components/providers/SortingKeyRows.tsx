@@ -1,15 +1,10 @@
-import { type ReactNode, useState } from "react";
 import type { DecisionHostStatus, JevSettings } from "../../../../core/api";
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
-import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
-import { ProblemLine } from "../ProblemLine";
-import { SettingsRow } from "../settings/SettingsGroup";
-import { buttonStyle } from "../ui";
 import { DecisionKeyForm, hostName } from "./DecisionKeyForm";
 import { JevForm } from "./JevSettings";
-import { ProviderLogo } from "./ProviderLogo";
+import { KeyRow } from "./KeyRow";
 import { keptForSorting } from "./sortingOptions";
 
 /**
@@ -39,8 +34,9 @@ export function SortingKeyRows({
         const account = host.account?.value;
         const workspace = host.key === "provider";
         return (
-          <SortingKeyRow
+          <KeyRow
             key={host.host}
+            testId="sorting-key"
             id={host.host}
             name={
               workspace && host.provider
@@ -75,7 +71,8 @@ export function SortingKeyRows({
         );
       })}
       {jev?.enabled && jev.hasApiKey && (
-        <SortingKeyRow
+        <KeyRow
+          testId="sorting-key"
           id="jev"
           name={t("jev.settings.title")}
           logo={null}
@@ -96,89 +93,5 @@ export function SortingKeyRows({
         />
       )}
     </>
-  );
-}
-
-function SortingKeyRow({
-  id,
-  name,
-  logo,
-  status,
-  change,
-  remove,
-  onRemove,
-  form,
-}: {
-  id: string;
-  name: string;
-  logo: string | null;
-  status: string;
-  change: string;
-  remove: string;
-  onRemove(): Promise<void>;
-  /** The form that changes the key in place; `done` puts it away. */
-  form(done: () => void): ReactNode;
-}) {
-  const t = useT();
-  const [changing, setChanging] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const removeKey = async () => {
-    setProblem(null);
-    try {
-      await onRemove();
-    } catch (failure) {
-      setProblem(errorMessage(failure, t));
-    }
-  };
-  const below = changing || problem !== null;
-  return (
-    <SettingsRow
-      role="listitem"
-      data-testid="sorting-key-row"
-      data-host={id}
-      leading={<ProviderLogo id={logo} />}
-      label={
-        <span className="block truncate" title={name}>
-          {name}
-        </span>
-      }
-      detail={
-        <span data-testid="sorting-key-status" className="block truncate" title={status}>
-          {status}
-        </span>
-      }
-      control={
-        changing ? undefined : (
-          <>
-            <button
-              type="button"
-              data-testid="sorting-key-change"
-              onClick={() => {
-                setProblem(null);
-                setChanging(true);
-              }}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {change}
-            </button>
-            <button
-              type="button"
-              data-testid="sorting-key-remove"
-              onClick={() => void removeKey()}
-              className={buttonStyle("ghost", "sm")}
-            >
-              {remove}
-            </button>
-          </>
-        )
-      }
-    >
-      {below && (
-        <div className="flex flex-col gap-1 pl-11">
-          {changing && form(() => setChanging(false))}
-          {problem && <ProblemLine>{problem}</ProblemLine>}
-        </div>
-      )}
-    </SettingsRow>
   );
 }

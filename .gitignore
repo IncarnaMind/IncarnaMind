@@ -16,6 +16,8 @@ resources/python/
 resources/python-native/
 # The Mac calendar helper built for development (npm run calendar-helper)
 native/calendar-helper/.build/
+# The macOS call watcher built for development (npm run call-watcher)
+native/callWatcher/.build/
 
 # Evaluation reports (npm run eval)
 eval/results/

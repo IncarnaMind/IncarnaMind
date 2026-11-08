@@ -254,7 +254,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
           <button
             type="button"
             data-testid="setup-transcription-add-key"
-            onClick={() => openSettings("meetings")}
+            onClick={() => openSettings("models", "transcription")}
             className={linkClass}
           >
             {t("setup.step.addKey")}

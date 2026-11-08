@@ -99,7 +99,8 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
   ].join("\n");
 }
 
-const VERDICTS = new Set(["supported", "unsupported", "contradicted"]);
+const oneOf = <T extends string>(value: unknown, words: readonly T[]): T | null =>
+  words.find((word) => word === value) ?? null;
 
 /** A reply's sentence number, written as a number or as digits; null for anything else. */
 function sentenceNumber(value: unknown): number | null {
@@ -109,8 +110,9 @@ function sentenceNumber(value: unknown): number | null {
 
 /**
  * A batch's reply, by the sentence's number from 1. A sentence it gave nothing readable for is
- * missing, and so is one it gave two entries for; when an entry's number can't be read as a
- * whole number, every sentence is.
+ * missing, and so is one it gave two entries for, or one whose kind, verdict, roles or time is
+ * missing or not one of its words (#2816); when an entry's number can't be read as a whole number,
+ * every sentence is.
  */
 export async function readBatchReply(
   reply: string,
@@ -124,19 +126,23 @@ export async function readBatchReply(
   const entries = isRecord(value) && Array.isArray(value.sentences) ? value.sentences : [];
   for (const entry of entries) {
     if (!isRecord(entry)) continue;
-    const { kind, verdict, roles, time, says } = entry;
     const number = sentenceNumber(entry.number);
     // An entry whose sentence can't be told might be any of them: none of the batch is judged.
     if (number === null) return new Map();
     if (number < 1 || number > count) continue;
     if (seen.has(number)) twice.add(number);
     seen.add(number);
-    if (typeof verdict !== "string" || !VERDICTS.has(verdict)) continue;
+    const kind = oneOf(entry.kind, ["fact", "opinion"] as const);
+    const verdict = oneOf(entry.verdict, ["supported", "unsupported", "contradicted"] as const);
+    const roles = oneOf(entry.roles, ["same", "differs"] as const);
+    const time = oneOf(entry.time, ["same", "differs"] as const);
+    if (!kind || !verdict || !roles || !time) continue;
+    const { says } = entry;
     read.set(number, {
-      kind: kind === "opinion" ? "opinion" : "fact",
-      verdict: verdict as BatchVerdict["verdict"],
-      roles: roles === "differs" ? "differs" : "same",
-      time: time === "differs" ? "differs" : "same",
+      kind,
+      verdict,
+      roles,
+      time,
       says: typeof says === "string" && says.trim() ? says.trim() : null,
     });
   }
