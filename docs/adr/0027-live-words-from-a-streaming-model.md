@@ -52,7 +52,7 @@ Sources, checked 2026-11-07:
   - On an installation that already has the speech model, the streaming model downloads on its own when a Meeting starts. Transcription goes on meanwhile without it, and the next Meeting uses it.
   - Its part of a first download is optional: if it fails, the speech model is still ready, the log says why, and the next Meeting asks for it again.
   - Its licence, with Qwen3-ASR's and Silero VAD's, ships in `notices/speech-models.txt`.
-- **Memory.** Both models stay loaded until IncarnaMind quits, as Qwen3-ASR already did, so the process keeps its extra memory after the first Meeting transcribed here. Unloading them when idle is a follow-up.
+- **Memory.** Both models stay loaded while a Meeting records or is transcribed. Five minutes after the last stream finishes, the transcription process closes the engine and ends, which frees them (#2673); the next Meeting loads them again, its audio waiting meanwhile as it does while the engine starts.
 
 ## The licence and where the model comes from
 

@@ -65,16 +65,23 @@ export type TranscriberResponse =
   | { type: "lost"; stream: string; loss: CloudLoss }
   | { type: "opened"; stream: string };
 
-/** A running process that serves the engine, as the side that sends requests sees it. */
+/**
+ * A running process that serves the engine, as the side that sends requests sees it. Its exit code
+ * 0 is the process's word for an idle unload, never a crash: a host's own exit must use another
+ * code, and a signal (null) is a crash or a stop too.
+ */
 export interface TranscriberChannel {
   send(request: TranscriberRequest): void;
   onResponse(listener: (response: TranscriberResponse) => void): void;
-  /** It stopped: crashed, ran out of memory, or was stopped. */
+  /** It stopped: crashed, ran out of memory, was stopped, or ended its engine idle with code 0 (#2673). */
   onExit(listener: (code: number | null) => void): void;
   stop(): void;
 }
 
 type Pending = { resolve(): void; reject(error: Error): void };
+
+/** A request the idle unload ended before the process answered it (#2673). */
+class IdleUnloadError extends Error {}
 
 /**
  * How long the process has to confirm it dropped cloud streams before it is stopped (#2702). The
@@ -145,9 +152,10 @@ export function createChannelTranscriber(
           return;
       }
     });
-    started.onExit((code) =>
-      gone(started, `The transcription process stopped (exit code ${code}).`),
-    );
+    started.onExit((code) => {
+      if (code === 0) unloaded(started);
+      else gone(started, `The transcription process stopped (exit code ${code}).`);
+    });
     return started;
   }
 
@@ -160,6 +168,18 @@ export function createChannelTranscriber(
     for (const waiting of pending.values()) waiting.reject(error);
     pending.clear();
     for (const listener of listeners) listener.stopped(reason);
+  }
+
+  /** The process ended its work on purpose: its engine was idle (#2673), which is not a crash. */
+  function unloaded(started: TranscriberChannel): void {
+    if (channel !== started) return;
+    channel = undefined;
+    loadedKey = undefined;
+    clouds.clear();
+    const error = new IdleUnloadError("The transcription process unloaded its models while idle.");
+    for (const waiting of pending.values()) waiting.reject(error);
+    pending.clear();
+    for (const listener of listeners) listener.unloaded();
   }
 
   function request(
@@ -177,9 +197,16 @@ export function createChannelTranscriber(
   return {
     async load(model) {
       const key = JSON.stringify(model);
-      if (channel && loadedKey === key) return;
+      // Always ask, even for the files the process runs: the ask tells it a Meeting needs the
+      // engine, so an idle unload waits (#2673), and it answers at once when they are loaded.
       if (loading?.key !== key) {
         const done = request({ type: "load", model })
+          // The process may end idle between this ask leaving and its answer: the engine it named
+          // never heard it, so it is asked once more, of the process the ask starts (#2673).
+          .catch((error: unknown) => {
+            if (!(error instanceof IdleUnloadError)) throw error;
+            return request({ type: "load", model });
+          })
           .then(() => {
             loadedKey = key;
           })
@@ -258,6 +285,23 @@ export function createChannelTranscriber(
   };
 }
 
+/**
+ * How long the engine and its models stay loaded once the last stream is finished (#2673): a
+ * Meeting saved and left alone gives the computer its memory back. The next Meeting loads them
+ * again, its audio waiting meanwhile as it does while the engine starts.
+ */
+const IDLE_UNLOAD_MS = 5 * 60_000;
+
+export interface ServingOptions {
+  /** The idle wait, for tests that would not wait minutes. */
+  idleMs?: number;
+  /**
+   * Called once the engine is closed and forgotten: the app ends its process here, which is what
+   * frees the native models a closed recognizer still holds.
+   */
+  unloaded?(): void;
+}
+
 /** What the serving end needs for streams that go to a cloud service. */
 export interface CloudServing {
   connect: CloudConnect;
@@ -275,15 +319,20 @@ export interface TranscriberPort {
 
 /**
  * Serves an engine over `port`: `createEngine` loads one for the files a
- * load names, and a load of other files replaces it.
+ * load names, and a load of other files replaces it. With no stream open for
+ * `IDLE_UNLOAD_MS`, the engine is closed, and `unloaded` hears it.
  */
 export function serveTranscriber(
   createEngine: (model: TranscriptionModelFiles) => Promise<SpeechEngine>,
   port: TranscriberPort,
   cloud?: CloudServing,
+  serving: ServingOptions = {},
 ): void {
   let host: SpeechHost | undefined;
   let loadedKey: string | undefined;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  /** Cloud streams open now: the idle unload must not end one, nor the process serving it. */
+  const cloudOpen = new Set<string>();
   /** Loads run one after the other; audio waits for the load before it. */
   let ready: Promise<void> = Promise.resolve();
   const report = {
@@ -298,6 +347,29 @@ export function serveTranscriber(
     failed: (stream: string, message: string) => port.respond({ type: "failed", stream, message }),
   };
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+  function cancelIdle(): void {
+    if (idle !== undefined) clearTimeout(idle);
+    idle = undefined;
+  }
+
+  /** An idle engine, a cloud stream with none: the wait to unload starts again. */
+  function maybeIdle(): void {
+    cancelIdle();
+    if (!host?.idle() || cloudOpen.size > 0) return;
+    idle = setTimeout(unload, serving.idleMs ?? IDLE_UNLOAD_MS);
+    idle.unref();
+  }
+
+  function unload(): void {
+    idle = undefined;
+    if (!host?.idle() || cloudOpen.size > 0) return;
+    host.close();
+    host = undefined;
+    loadedKey = undefined;
+    serving.unloaded?.();
+  }
+
   /** Cloud streams, each once its connection is made: requests for one wait for it, in order. */
   const clouds = new Map<string, Promise<CloudStreamHandle | null>>();
   /**
@@ -339,7 +411,9 @@ export function serveTranscriber(
   async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
     const lost = (loss: CloudLoss) => {
       clouds.delete(stream);
+      cloudOpen.delete(stream);
       port.respond({ type: "lost", stream, loss });
+      maybeIdle();
     };
     if (!cloud) {
       lost("dropped");
@@ -397,6 +471,7 @@ export function serveTranscriber(
   }
 
   port.onRequest((request) => {
+    cancelIdle();
     const handle = "stream" in request ? clouds.get(request.stream) : undefined;
     if (handle) {
       const early = "stream" in request ? before.get(request.stream) : undefined;
@@ -420,21 +495,28 @@ export function serveTranscriber(
           sendHeld(request.stream);
           void handle
             .then((each) => each?.finish())
-            .then(() => port.respond({ type: "done", id: request.id }));
+            .then(() => port.respond({ type: "done", id: request.id }))
+            .finally(() => {
+              cloudOpen.delete(request.stream);
+              maybeIdle();
+            });
           return;
         case "drop":
-          void forgetCloud(request.stream);
+          cloudOpen.delete(request.stream);
+          void forgetCloud(request.stream).finally(maybeIdle);
           return;
       }
     }
     switch (request.type) {
       case "dropCloud":
-        void Promise.all(request.streams.map(forgetCloud)).then(() =>
-          port.respond({ type: "done", id: request.id }),
-        );
+        for (const stream of request.streams) cloudOpen.delete(stream);
+        void Promise.all(request.streams.map(forgetCloud))
+          .then(() => port.respond({ type: "done", id: request.id }))
+          .finally(maybeIdle);
         return;
       case "open": {
         const { stream } = request;
+        cloudOpen.add(stream);
         before.set(stream, { audio: false, ended: false });
         const made = openCloud(stream, request.cloud);
         clouds.set(stream, made);
@@ -450,10 +532,15 @@ export function serveTranscriber(
               host?.close();
               host = undefined;
               loadedKey = undefined;
-              host = createSpeechHost(await createEngine(request.model), report);
+              host = createSpeechHost(await createEngine(request.model), report, {
+                onIdle: maybeIdle,
+              });
               loadedKey = key;
             }
             port.respond({ type: "done", id: request.id });
+            // A Meeting that never sends audio would otherwise keep the engine: no host event
+            // follows this load to start the wait again.
+            maybeIdle();
           } catch (error) {
             port.respond({ type: "error", id: request.id, message: messageOf(error) });
           }
@@ -480,7 +567,11 @@ export function serveTranscriber(
         });
         return;
       case "drop":
-        void ready.then(() => host?.drop(request.stream));
+        void ready.then(() => {
+          host?.drop(request.stream);
+          // A stream that finished already leaves the host unchanged, and with it no idle event.
+          maybeIdle();
+        });
         return;
     }
   });

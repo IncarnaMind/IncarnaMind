@@ -171,6 +171,8 @@ interface Live {
   /** Microphone streams a pause ended, until their last lines are in: a closed gate drops them too. */
   finishing: Finishing[];
   started: boolean;
+  /** The engine let its models go while idle: the next audio starts it again (#2673). */
+  unloaded: boolean;
   /** Audio waiting for the engine to start. */
   held: TrackedAudio[];
   /** How far audio has gone to the engine, and how far its text is final on every stream, in the Meeting's time. */
@@ -744,6 +746,37 @@ export function createTranscripts(options: TranscriptsOptions) {
     options.changed();
   }
 
+  /** The engine unloaded its models after a long idle (#2673): nothing failed, and its next audio starts it again. */
+  function engineUnloaded(): void {
+    if (closed) return;
+    log.info("transcript.engineUnloaded", {});
+    for (const state of states.values()) {
+      const live = state.live;
+      if (!live?.started) continue;
+      // The process ends only with no stream open: audio still sent on a stream the core holds was
+      // never decoded, so it is a gap from that stream's own progress and read again from the kept
+      // audio after Stop, as a crash's is (#2673). A pause's finished stream has left
+      // `live.streams` already, and its last stretch is transcribed, so it is no gap.
+      const open = Object.values(live.streams);
+      if (open.length > 0) {
+        const from = Math.min(...open.map((each) => each.doneMs));
+        const lost = { fromMs: from, toMs: Math.max(from, live.pushedMs) };
+        if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
+          state.gaps.push({ ...lost, reason: "restarted" });
+          state.pending = addRange(state.pending, lost);
+        }
+      }
+      live.started = false;
+      live.unloaded = true;
+      live.stream = `${state.meetingId}:${++streams}`;
+      live.streams = {};
+      live.doneMs = live.pushedMs;
+      live.heardMs = live.doneMs;
+      state.partials.clear();
+    }
+    options.changed();
+  }
+
   /** The transcriber moved a stream to another engine (#141, #462): the Meeting's health says when, and why. */
   function heardSwitch(change: EngineSwitch): void {
     const found = owner(change.stream);
@@ -874,6 +907,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     // Not the engine's message: one from a cloud service could quote what it was sent.
     failed: (stream) => log.warn("transcript.decodeFailed", { stream }),
     stopped: engineStopped,
+    unloaded: engineUnloaded,
     switched: heardSwitch,
     lost: heardLost,
     opened: heardOpened,
@@ -1136,6 +1170,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       return;
     }
     live.held.push(audio);
+    if (live.unloaded) {
+      live.unloaded = false;
+      startEngine(state);
+    }
     // Audio that waited too long is transcribed after Stop: live text starts from what is left.
     const newest = audio.atMs + audio.lengthMs;
     while ((live.held[0]?.atMs ?? newest) < newest - HELD_MS) {
@@ -1629,6 +1667,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         microphoneStreams: 0,
         finishing: [],
         started: false,
+        unloaded: false,
         held: [],
         pushedMs: offsetMs,
         doneMs: offsetMs,
