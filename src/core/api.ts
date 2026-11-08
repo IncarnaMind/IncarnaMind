@@ -2360,25 +2360,33 @@ export interface TurnPlace {
 }
 
 /**
- * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
- * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ * A Citation looked for again for a Note or conversation outside the walled Folder that keeps its
+ * Document (#1934): nothing was read, so nothing is known of the new version, and the result it
+ * was made with stands.
  */
 export interface CitationKeptInside {
   /** The walled Folder's name. */
   keptInside: string;
 }
 
-/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+/** What looking for a Citation again for a Note or conversation came to: checked, or kept inside a wall. */
 export type RecheckResult = CitationRecheck | CitationKeptInside;
 
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
-   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
-   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
-   * walled Folder isn't read again for a Note outside it: the check it was made with stands
-   * (#1934). Never left out.
+   * The Note the Citation is in, or going into; null for one shown in no Note (the Document's
+   * viewer, or an Answer that names its conversation below), which is read as browsing is unless
+   * a conversation is given too. A Document kept inside a walled Folder isn't read again for a
+   * Note outside it: the check it was made with stands (#1934). Never left out.
    */
   mindId: string | null;
+  /**
+   * The conversation the Citation is in, when it is in an Answer: one shown with no Note reads
+   * as browsing only when this is null too, so a Document kept inside a walled Folder the
+   * conversation is outside isn't read again (#2782). Absent or null for a Citation in a Note
+   * or in a Document's viewer.
+   */
+  conversationId?: string | null;
 }
 
 /**

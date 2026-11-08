@@ -439,6 +439,7 @@ export const zhCN = {
   "error.folder.wall": "只在本文件夹内工作。",
   "error.turnPlace": "需要知道这是在哪篇笔记或哪个对话中。",
   "error.citation.recheckNote": "只能针对引用所在的笔记重新核对引用。",
+  "error.citation.recheckPlace": "只能针对引用所在的笔记或对话重新核对引用。",
   "error.folder.wallMove":
     "未移动：只在本文件夹内工作的文件夹，助手不能移入或移出其中的内容。你仍可以自己移动。",
   "error.folder.notFiled":

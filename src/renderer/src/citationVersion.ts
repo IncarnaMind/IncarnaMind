@@ -17,6 +17,8 @@ export function useCitationRecheck(
   currentVersion: string | null | undefined,
   /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
   mindId: string | null,
+  /** The conversation an Answer shows it in, when it does: its wall is asked too (#2782). */
+  conversationId: string | null = null,
 ): RecheckResult | "failed" | null {
   const documentId = citation?.documentId ?? null;
   const quote = citation?.quote ?? "";
@@ -38,6 +40,7 @@ export function useCitationRecheck(
         pageTo,
         contentHash: version,
         mindId,
+        conversationId,
         location,
       })
       .then(
@@ -55,6 +58,17 @@ export function useCitationRecheck(
     return () => {
       current = false;
     };
-  }, [changed, documentId, quote, pageFrom, pageTo, version, currentVersion, mindId, location]);
+  }, [
+    changed,
+    documentId,
+    quote,
+    pageFrom,
+    pageTo,
+    version,
+    currentVersion,
+    mindId,
+    conversationId,
+    location,
+  ]);
   return recheck;
 }
