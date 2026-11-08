@@ -640,6 +640,8 @@ export interface AnswersOptions {
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
+  /** See `CoreAdapters.quotesAsGiven`. */
+  quotesAsGiven?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -1572,6 +1574,7 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
+        showsWholeSentences: () => !options.quotesAsGiven?.(),
       },
       original
         ? {

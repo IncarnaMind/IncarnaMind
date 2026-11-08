@@ -27,6 +27,9 @@ import { type OllamaChatReply, type OllamaServer, startOllamaServer } from "../h
 
 const SPRING = "Spring tides happen at new moon and at full moon";
 const NEAP = "Neap tides happen at the quarter moons";
+/** A found quote shows the whole sentence that holds it (#2739). */
+const SPRING_SHOWN = `${SPRING}, when the Sun and the Moon pull in line.`;
+const NEAP_SHOWN = `${NEAP}, when the Sun and the Moon pull at right angles.`;
 
 /** A request for exact quotes, rather than an Answer or tagging. */
 const isQuoteRetry = (body: Record<string, unknown>) =>
@@ -99,7 +102,7 @@ describe("A small local model's quotes the check doesn't find", () => {
 
     expect(answers(ollama)).toHaveLength(1);
     expect(retries(ollama)).toHaveLength(1);
-    expect(finished.citations).toMatchObject([{ quote: SPRING, check: "found" }]);
+    expect(finished.citations).toMatchObject([{ quote: SPRING_SHOWN, check: "found" }]);
     expect(finished.quoteRetry).toEqual({
       records: 1,
       recovered: 1,
@@ -237,8 +240,8 @@ describe("A small local model's quotes the check doesn't find", () => {
     });
     expect(finished.citations).toMatchObject([
       { quote: "Spring tides come at new and full moon", check: "not-found" },
-      { quote: NEAP, check: "found" },
-      { quote: SPRING, check: "found" },
+      { quote: NEAP_SHOWN, check: "found" },
+      { quote: SPRING_SHOWN, check: "found" },
     ]);
     expect(finished.quoteRetry).toMatchObject({ records: 2, recovered: 1 });
   });
@@ -409,7 +412,7 @@ describe("A structured Answer's final reply", () => {
 
     expect(await answered(json)).toMatchObject({
       event: "finished",
-      payload: { citations: [{ quote: SPRING, check: "found" }] },
+      payload: { citations: [{ quote: SPRING_SHOWN, check: "found" }] },
     });
     expect(await answered(json.slice(0, json.indexOf(" and at full moon")))).toMatchObject({
       event: "failed",

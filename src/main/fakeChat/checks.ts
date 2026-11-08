@@ -102,6 +102,7 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
         verdict: beyond ? "unsupported" : "supported",
         roles: "same",
         time: beyond ? "differs" : "same",
+        quoted: "states",
         says: beyond
           ? "The Document says when it happens, not that it is already done."
           : "The Document says so.",

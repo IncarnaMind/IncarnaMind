@@ -227,7 +227,8 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         citations: [
           expect.objectContaining({
             documentName: "Tides",
-            quote: "Spring tides happen at new moon and at full moon",
+            // The quote shows the whole sentence that holds it (#2739).
+            quote: `${SPRING}, when the Sun and the Moon pull together.`,
             check: "found",
           }),
         ],

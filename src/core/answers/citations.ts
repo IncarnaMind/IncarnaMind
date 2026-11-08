@@ -52,7 +52,7 @@ import {
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
 import { type LinePart, markWords, partsOf, speakerMark, speakerOf } from "../../shared/speakers";
-import { foldRadicals } from "../../shared/text";
+import { foldRadicals, normaliseText } from "../../shared/text";
 import { TURN_PAUSE_MS } from "../../shared/transcriptTurns";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
@@ -109,6 +109,7 @@ import {
 } from "./quotedWords";
 import { readDocumentPages } from "./readDocumentPages";
 import { withSetAsideMarks } from "./sheetRows";
+import { wholeSentences } from "./wholeSentences";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -1746,6 +1747,11 @@ interface Accepted {
   time?: RowsOrLines;
   unresolved: boolean;
   quote: string;
+  /**
+   * The words its Citation shows, when they aren't `quote`: a found quote's whole sentences
+   * (./wholeSentences, #2739). The check, a figure's inputs and the model's feedback read `quote`.
+   */
+  shown?: string;
   /** Where it points, for its label, worked out once when the record is taken. */
   location: Citation["location"];
   result: CheckResult | null;
@@ -1792,7 +1798,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   pageFrom: record.range.pageFrom,
   pageTo: record.range.pageTo,
   location: record.location,
-  quote: record.quote,
+  quote: record.shown ?? record.quote,
   ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
   check: result?.check ?? "checking",
   checkReason: result?.checkReason ?? null,
@@ -1812,6 +1818,12 @@ export interface CitationSessionEvents {
    * matches (`quoteAsIn`).
    */
   defuses?: readonly PromptTag[];
+  /**
+   * Whether a found quote shows as the whole sentence that holds it, and `cite` tells the model
+   * once when two records give one quote (#2739): an Answer's, unless the evaluation compares the
+   * quotes as given. A check's own evidence keeps its quote.
+   */
+  showsWholeSentences?(): boolean;
 }
 
 /**
@@ -1836,6 +1848,8 @@ export function createCitationSession(
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
+  /** Quotes `cite` has told the model two records share, by Document: told once, never held back. */
+  const toldSameQuote = new Set<string>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
@@ -2202,6 +2216,10 @@ export function createCitationSession(
         record = { ...placed, location: locationFor(placed) };
       }
     }
+    if (marker > 0 && !record.time && events.showsWholeSentences?.() && located(check(record))) {
+      const shown = wholeSentences(citedText(record), quote, matchingFor(source));
+      if (shown !== quote) record = { ...record, shown };
+    }
     return { ok: true, record, source, passageUnits };
   }
 
@@ -2278,12 +2296,41 @@ export function createCitationSession(
         problems.push(`[^${marker}]: ${problem}`);
         if (!options.structured) toFix.add(marker);
       } else toFix.delete(marker);
+      const same = problem ? null : sameQuoteAs(record);
+      const told =
+        same === null ? null : `${record.source.documentId}\n${normaliseText(record.quote)}`;
+      if (told !== null && !toldSameQuote.has(told)) {
+        toldSameQuote.add(told);
+        problems.push(
+          `[^${marker}]: its quote is [^${same}]'s too. Give [^${marker}] the words that state its own claim; if it is [^${same}]'s claim, use [^${same}] for it instead.`,
+        );
+      }
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
     const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
     return `${done}${fix}`;
+  }
+
+  /**
+   * Another marker whose record gives the same words of the same Document, or null: citing first,
+   * a model gave the quote of one claim to the next sentence's claim too (#2739).
+   */
+  function sameQuoteAs(record: Accepted): number | null {
+    if (!events.showsWholeSentences?.() || record.kept || !record.quote) return null;
+    const words = normaliseText(record.quote);
+    for (const other of records.values()) {
+      if (
+        other.marker !== record.marker &&
+        !other.kept &&
+        other.source.documentId === record.source.documentId &&
+        normaliseText(other.quote) === words
+      ) {
+        return other.marker;
+      }
+    }
+    return null;
   }
 
   /** What the check will find wrong with a record, for the model to fix; null when nothing. */
@@ -2326,7 +2373,8 @@ export function createCitationSession(
     passage: record.handle,
     passageText: record.source.text,
     matching: matchingFor(record.source),
-    citation: toCitation(record, null),
+    // A figure reads its number from the words the model gave, not the sentence shown around them.
+    citation: { ...toCitation(record, null), quote: record.quote },
     units: citedText(record),
     check: () => check(record),
   });

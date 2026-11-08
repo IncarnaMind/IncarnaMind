@@ -5,8 +5,8 @@
  * bottom in batches against the Passages their Citations quote (./sentenceBatch), on the model that
  * answered as its own request used it, a few batches at a time, each within the claim time limit;
  * none on a model on this computer too small to judge reliably (#680). Its Citations show the
- * result: found only when it is supported. A limit that stops the judgement stops it at a batch,
- * so the sentences it leaves are the last ones.
+ * result: found only when it is supported and the words it cites say so (#2739). A limit that
+ * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
 import { generateText } from "ai";
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
@@ -159,6 +159,9 @@ async function supportOf(
   ) {
     return { check: "unsupported", verdict: verdict.says };
   }
+  // A Citation shows its words beside the check: a sentence they don't state is never green,
+  // whatever another part of the Passage says (#2739).
+  if (verdict.quoted === "other") return null;
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
@@ -170,7 +173,9 @@ async function supportOf(
     quotedWords: [
       ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
     ],
-    confirm: async () => false,
+    // Which of a quote's numbers is the sentence's, the batch read when it found that its quoted
+    // words state it (#2739): a whole sentence quoted often holds several.
+    confirm: async () => true,
   });
   return calculation ? null : { check: "found", verdict: null };
 }
