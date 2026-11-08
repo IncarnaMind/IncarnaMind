@@ -62,7 +62,8 @@ export const ENGLISH: readonly Case[] = [
     sentence: "The result was just over 5 million documents, about 23 GB of text.",
     quote: "once repeats and pages whose text could not be extracted were removed",
     states: ["5 million documents", "23 GB"],
-    ends: "found",
+    // Its sentence shown states both, but the model's own words hold neither of its two numbers.
+    ends: "not-checked",
   },
   {
     name: "quotes the sentence before its claim",
@@ -333,8 +334,9 @@ export const STATED_CHINESE: readonly Case[] = [
 ];
 
 /**
- * Held out too: a figure the whole sentence holds, given to the wrong thing. Its sentence must
- * never show a green check, though its number is in the quote shown.
+ * Held out too: a figure the whole sentence shown holds, given to the wrong thing, and a judge that
+ * errs and calls it stated. Its sentence must never show a green check: the model's own quote holds
+ * another figure of that unit.
  */
 export const DECOY_ENGLISH: readonly Case[] = [
   {
@@ -342,9 +344,8 @@ export const DECOY_ENGLISH: readonly Case[] = [
     lines: ["The plant's output rose to 4,200 tonnes in 2025, up 300 tonnes on the year before."],
     sentence: "The plant's output was 300 tonnes in 2025.",
     quote: "The plant's output rose to 4,200 tonnes in 2025",
-    states: ["output was 300 tonnes"],
-    verdict: "unsupported",
-    ends: "unsupported",
+    states: ["300 tonnes"],
+    ends: "not-checked",
   },
 ];
 
@@ -354,9 +355,8 @@ export const DECOY_CHINESE: readonly Case[] = [
     lines: ["该厂 2025 年产量升至 4,200 吨，比上年增加 300 吨。"],
     sentence: "该厂 2025 年的产量为 300 吨。",
     quote: "该厂 2025 年产量升至 4,200 吨",
-    states: ["产量为 300 吨"],
-    verdict: "unsupported",
-    ends: "unsupported",
+    states: ["300 吨"],
+    ends: "not-checked",
   },
 ];
 

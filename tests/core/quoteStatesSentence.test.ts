@@ -99,7 +99,7 @@ describe("a Citation's shown quote states its sentence, or the sentence has no g
     ["English", ENGLISH[1] as Case, false],
     ["Chinese", CHINESE[1] as Case, true],
   ] as const)(
-    "in %s, the quote as the model gave it, as before #2739, leaves its date out and the sentence unchecked",
+    "in %s, a quote kept as the model gave it, by the evaluation's switch, leaves its date out and its sentence unchecked",
     async (_, each, chinese) => {
       const citation = await asked(each, chinese, { quotesAsGiven: () => true });
 
@@ -138,7 +138,7 @@ describe("cite says when two records give one quote", () => {
     );
   }
 
-  test("once, for the later marker, and the record is kept", async () => {
+  test("once, for the later marker, as advice that leaves the Answer to be written, and the record is kept", async () => {
     const told: string[] = [];
     const { core } = await setUpWithDocuments(repeatingModel(told), [
       { name: "Methods.pdf", contents: buildPdf([{ lines: LINES }]) },
@@ -146,13 +146,15 @@ describe("cite says when two records give one quote", () => {
 
     const citation = await judgedCitation(core, "Who proposed the method?");
 
-    expect(told[0]).toContain("[^2]: its quote is [^1]'s too.");
-    expect(told[0]).not.toContain("[^1]: its quote");
-    expect(told[1]).not.toContain("its quote is");
+    expect(told[0]).toContain("Recorded [^1], [^2]. [^2] gives the quote of [^1].");
+    expect(told[0]).not.toContain("[^1] gives the quote");
+    expect(told[0]).toContain("Write the Answer now");
+    expect(told[0]).not.toContain("Fix these");
+    expect(told[1]).not.toContain("gives the quote of");
     expect(citation?.quote).toBe(MARROW);
   });
 
-  test("never, with the quotes as the model gave them, as before #2739", async () => {
+  test("never, with the evaluation's switch for quotes as given", async () => {
     const told: string[] = [];
     const { core } = await setUpWithDocuments(
       repeatingModel(told),
@@ -163,6 +165,6 @@ describe("cite says when two records give one quote", () => {
     await judgedCitation(core, "Who proposed the method?");
 
     expect(told[0]).toContain("Recorded [^1], [^2].");
-    expect(told[0]).not.toContain("its quote is");
+    expect(told[0]).not.toContain("gives the quote of");
   });
 });

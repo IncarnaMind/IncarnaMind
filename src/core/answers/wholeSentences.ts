@@ -26,10 +26,11 @@ const ENDS_SENTENCE = /[.!?。．！？；;:：…]/u;
 const RUNS_ON = /[,，、]/u;
 const HAS_WORDS = /[\p{L}\p{N}]/u;
 /**
- * A sentence's end, with the closing marks and reference marks after it ("…提出的。[2]"): text
- * that ends otherwise is a table's rows, a list or a heading, never widened into.
+ * A sentence's end, with the closing marks and bracketed reference marks after it ("…提出的。[2]"):
+ * text that ends otherwise, a decimal's digits included, is a table's rows, a list or a heading,
+ * never widened into.
  */
-const ENDS_PROSE = /[.!?。．！？…][\s"'”’»」』)）\]】\d[]*$/u;
+const ENDS_PROSE = /[.!?。．！？…](?:["'”’»」』)）\]】]|\[\d{1,3}\])*\s*$/u;
 const TRAILING_OPENERS = /[\s[（(「『“‘《]+$/u;
 /** A reference mark the sentence before closes ("…提出的。[2]"), which the segmenter gives the next. */
 const LEADING_REFERENCES = /^(?:\[?\d{1,3}\]\s*)+/u;
@@ -97,8 +98,8 @@ export function wholeSentences(
   let from = Math.min(first.start, holding[0]?.from ?? first.start);
   from += LEADING_REFERENCES.exec(text.slice(from, first.start))?.[0].length ?? 0;
   let to = Math.max(last.end, holding.at(-1)?.to ?? last.end);
-  if (!ENDS_PROSE.test(text.slice(from, to))) return quote;
   to = from + text.slice(from, to).replace(TRAILING_OPENERS, "").length;
+  if (!ENDS_PROSE.test(text.slice(from, to))) return quote;
   const added = text.slice(from, first.start) + text.slice(Math.max(last.end, from), to);
   if (!HAS_WORDS.test(added) || to - from > WIDEST_QUOTE) return quote;
   const widened = foldRadicals(readableQuote(text, [{ start: from, end: to }]));

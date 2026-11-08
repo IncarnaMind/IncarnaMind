@@ -2914,6 +2914,11 @@ export interface Citation {
   pageTo: number | null;
   location: CitationLocation | null;
   quote: string;
+  /**
+   * The words the model quoted, when `quote` shows the whole sentence around them (#2739): which of
+   * the sentence's numbers the model meant. Kept with an Answer's Citations, not in a Note.
+   */
+  given?: string;
   /** Set for a snapshot of a Mind, the User's own note (#335): when it was taken. */
   yourNoteAt?: string | null;
   check: CitationCheck;

@@ -27,7 +27,6 @@ import { type OllamaChatReply, type OllamaServer, startOllamaServer } from "../h
 
 const SPRING = "Spring tides happen at new moon and at full moon";
 const NEAP = "Neap tides happen at the quarter moons";
-/** A found quote shows the whole sentence that holds it (#2739). */
 const SPRING_SHOWN = `${SPRING}, when the Sun and the Moon pull in line.`;
 const NEAP_SHOWN = `${NEAP}, when the Sun and the Moon pull at right angles.`;
 

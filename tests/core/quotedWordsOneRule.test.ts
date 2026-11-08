@@ -187,7 +187,7 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       question: "What does the schedule say?",
       page: 1,
       quote: "after the grace period of ten days",
-      changedQuote: "The fee is 3% per week after the grace period of twelve days.",
+      changedQuote: "after the grace period of twelve days",
       sentence: (words) => `The schedule says "${words}," said Mr. Smith[^1].`,
       found: "The fee is 3% per week",
       notFound: "The fee is 5% per week",
@@ -200,7 +200,7 @@ const CASES: Record<string, Record<"en" | "zh", Case>> = {
       question: "收费表怎么写？",
       page: 1,
       quote: "宽限期为十天",
-      changedQuote: "逾期每周收取3%的费用，宽限期为十二天。",
+      changedQuote: "宽限期为十二天",
       sentence: (words) => `收费表写道“${words}。”史密斯先生如是说[^1]。`,
       found: "逾期每周收取3%的费用",
       notFound: "逾期每周收取5%的费用",
@@ -581,10 +581,15 @@ async function rewrite(
 /** The verdict of each path on the first Citation of the sentence quoting `words`. */
 async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   const sentence = wanted.sentence(words);
-  const { core, documents, mind } = await setUpWithDocuments(modelFor(wanted, language, sentence), [
-    { name: wanted.name, contents: buildPdf(wanted.pages) },
-    ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
-  ]);
+  const { core, documents, mind } = await setUpWithDocuments(
+    modelFor(wanted, language, sentence),
+    [
+      { name: wanted.name, contents: buildPdf(wanted.pages) },
+      ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
+    ],
+    // Each path reads the quote as the case gives it, and `changedQuote` is its new version's.
+    { quotesAsGiven: () => true },
+  );
   const document = documents.find((each) => bare(each.name) === bare(wanted.name));
   if (!document) throw new Error("No Document.");
   const found: Record<string, string | undefined> = {};

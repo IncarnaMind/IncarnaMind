@@ -599,7 +599,6 @@ describe("outside agents", () => {
     }>(await agent.callTool({ name: "ask", arguments: { question: "When are spring tides?" } }));
     expect(answered.status).toBe("done");
     expect(answered.unchecked).toBe(0);
-    // The quote shows the whole sentence that holds it (#2739).
     expect(answered.citations).toEqual([
       expect.objectContaining({
         document: "Tides",

@@ -10,6 +10,7 @@
  */
 import { generateText } from "ai";
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
+import type { Figure, FigureUnit } from "../../../shared/figures";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
@@ -28,8 +29,10 @@ import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
+import { documentFigureContext } from "../calculations";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
+import { figuresInClaim } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
@@ -173,11 +176,29 @@ async function supportOf(
     quotedWords: [
       ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
     ],
-    // Which of a quote's numbers is the sentence's, the batch read when it found that its quoted
-    // words state it (#2739): a whole sentence quoted often holds several.
-    confirm: async () => true,
+    confirm: async (figure, cited) => pinnedByModel(figure, cited),
   });
   return calculation ? null : { check: "found", verdict: null };
+}
+
+const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
+  (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
+
+/**
+ * Whether the words the model quoted hold `figure` as their one figure of its unit (#2739). A whole
+ * sentence shown around them may hold others of that unit, and only the model's own words say which
+ * it meant; words that hold several leave the sentence unjudged, as they always have.
+ */
+function pinnedByModel(figure: Figure, cited: readonly Citation[]): boolean {
+  return cited.some(({ given, quote }) => {
+    const words = given ?? quote;
+    const ofUnit = figuresInClaim(words, documentFigureContext([{ text: words }])).filter((each) =>
+      sameUnit(each.unit, figure.unit),
+    );
+    return ofUnit.length === 1 && ofUnit[0]?.value === figure.value;
+  });
 }
 
 /** The limit a failed batch met, if it was one. */

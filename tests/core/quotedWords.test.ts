@@ -190,7 +190,6 @@ const REPORTS = {
     contents:
       "# Site safety report\n\nSafety training: coverage reached 98% of site staff, up 6 points on 2024.\n",
     quote: "coverage reached 98% of site staff",
-    shown: "Safety training: coverage reached 98% of site staff, up 6 points on 2024.",
     query: "training coverage",
     question: "How many staff were trained?",
     found: "The report says “coverage reached 98% of site staff” [^1].",
@@ -212,7 +211,6 @@ const REPORTS = {
     name: "安全生产报告.md",
     contents: "# 安全生产报告\n\n安全培训，覆盖率达到98%，较上年提高 6 个百分点。\n",
     quote: "覆盖率达到98%",
-    shown: "安全培训，覆盖率达到98%，较上年提高 6 个百分点。",
     query: "覆盖率",
     question: "培训覆盖率是多少？",
     found: "报告称“覆盖率达到98%”[^1]。",
@@ -268,8 +266,8 @@ describe.each(["en", "zh"] as const)("Quoted words in an Answer's sentence (%s)"
     expect(citation).toMatchObject({
       check: "not-found",
       checkReason: "quoted-words-not-on-pages",
-      // The Citation's own quote is still the record's, shown as the sentence that holds it (#2739).
-      quote: report.shown,
+      // The Citation's own quote is still the record's, which the Document has.
+      quote: report.quote,
     });
     const expected: QuotedWords = {
       answer: [...report.answer],

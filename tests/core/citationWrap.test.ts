@@ -42,7 +42,6 @@ test("a Chinese PDF's line wrap is joined in the Passage the model reads, and a 
   expect(shown[0]?.text).toContain("配送成本上升，7月起免运费门槛又下调至 40 英镑");
   expect(shown[0]?.text).not.toContain("7\n月");
   expect(ended.payload.citations).toHaveLength(1);
-  // Shown as the whole sentence that holds it (#2739).
   expect(ended.payload.citations[0]).toMatchObject({
     check: "found",
     quote:
@@ -72,7 +71,6 @@ test("an English PDF keeps its line break, and a quote across it is found whole"
 
   expect(shown[0]?.text).toContain("37.5% a year\nearlier");
   expect(ended.payload.citations).toHaveLength(1);
-  // Shown as the whole sentence that holds it (#2739).
   expect(ended.payload.citations[0]).toMatchObject({
     check: "found",
     quote: `${quote}: delivery costs rose, and the free-delivery threshold was cut to £40 in July.`,

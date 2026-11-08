@@ -511,7 +511,6 @@ describe("The Citation check", { timeout: 30_000 }, () => {
     const { answerId } = await askAndFinish(core, client, mind.id, "What did label smoothing do?");
 
     expect(answerText(client, answerId)).toBe("Label smoothing hurt perplexity but helped BLEU .");
-    // Shown as the page's whole sentences that hold it (#2739), the reference as the page writes it.
     expect(citationsIn(client, answerId)).toEqual([
       expect.objectContaining({
         quote:

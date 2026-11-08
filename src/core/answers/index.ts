@@ -1594,7 +1594,7 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
-        showsWholeSentences: () => !options.quotesAsGiven?.(),
+        quotesStateClaims: () => !options.quotesAsGiven?.(),
       },
       original
         ? {

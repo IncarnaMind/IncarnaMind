@@ -1798,7 +1798,10 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   pageFrom: record.range.pageFrom,
   pageTo: record.range.pageTo,
   location: record.location,
-  quote: record.shown ?? record.quote,
+  // A Citation that ends not found shows the words that weren't, not a sentence around them.
+  ...(record.shown && (!result || result.check === "found")
+    ? { quote: record.shown, given: record.quote }
+    : { quote: record.quote }),
   ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
   check: result?.check ?? "checking",
   checkReason: result?.checkReason ?? null,
@@ -1823,7 +1826,7 @@ export interface CitationSessionEvents {
    * once when two records give one quote (#2739): an Answer's, unless the evaluation compares the
    * quotes as given. A check's own evidence keeps its quote.
    */
-  showsWholeSentences?(): boolean;
+  quotesStateClaims?(): boolean;
 }
 
 /**
@@ -1848,7 +1851,7 @@ export function createCitationSession(
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
-  /** Quotes `cite` has told the model two records share, by Document: told once, never held back. */
+  /** Quotes `cite` has told the model two records share, by Document: each told once, as advice. */
   const toldSameQuote = new Set<string>();
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
@@ -2216,15 +2219,12 @@ export function createCitationSession(
         record = { ...placed, location: locationFor(placed) };
       }
     }
-    // A scan's word that may be misread asks the User to look at it, never at words around it.
-    if (
-      marker > 0 &&
-      !record.time &&
-      events.showsWholeSentences?.() &&
-      check(record).check === "found"
-    ) {
+    if (marker > 0 && events.quotesStateClaims?.() && check(record).check === "found") {
       const shown = wholeSentences(citedText(record), quote, matchingFor(source));
-      if (shown !== quote) record = { ...record, shown };
+      // Words around the quote may hold a scan's word that may be misread: the check reads them too.
+      if (shown !== quote && check({ ...record, quote: shown }).check === "found") {
+        record = { ...record, shown };
+      }
     }
     return { ok: true, record, source, passageUnits };
   }
@@ -2283,6 +2283,7 @@ export function createCitationSession(
   function cite(inputs: readonly CitationRecordInput[], options: CiteOptions = {}): string {
     const recorded: number[] = [];
     const problems: string[] = [];
+    const advice: string[] = [];
     for (const input of inputs) {
       const taken = take(input, options);
       if (!taken.ok) {
@@ -2307,16 +2308,17 @@ export function createCitationSession(
         same === null ? null : `${record.source.documentId}\n${normaliseText(record.quote)}`;
       if (told !== null && !toldSameQuote.has(told)) {
         toldSameQuote.add(told);
-        problems.push(
-          `[^${marker}]: its quote is [^${same}]'s too. Give [^${marker}] the words that state its own claim; if it is [^${same}]'s claim, use [^${same}] for it instead.`,
+        advice.push(
+          ` [^${marker}] gives the quote of [^${same}]. If its claim is another, record it again with the words that state that claim; if it is the same claim, write [^${same}] for it.`,
         );
       }
     }
     const done = recorded.length
       ? `Recorded ${recorded.map((marker) => `[^${marker}]`).join(", ")}.`
       : "Nothing was recorded.";
+    // Advice, not a fix: an Answer written beside `cite` stays complete, never written twice.
     const fix = problems.length ? ` ${FIX_THESE}\n- ${problems.join("\n- ")}` : WRITE_NOW;
-    return `${done}${fix}`;
+    return `${done}${advice.join("")}${fix}`;
   }
 
   /**
@@ -2324,7 +2326,7 @@ export function createCitationSession(
    * a model gave the quote of one claim to the next sentence's claim too (#2739).
    */
   function sameQuoteAs(record: Accepted): number | null {
-    if (!events.showsWholeSentences?.() || record.kept || !record.quote) return null;
+    if (!events.quotesStateClaims?.() || record.kept || !record.quote) return null;
     const words = normaliseText(record.quote);
     for (const other of records.values()) {
       if (
