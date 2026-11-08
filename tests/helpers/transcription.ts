@@ -98,6 +98,7 @@ export function inProcessTranscriber(
   serving: ServingOptions = {},
 ) {
   let kill: (() => void) | null = null;
+  let endIdle: (() => void) | null = null;
   let started = 0;
   const transcriber: Transcriber = createChannelTranscriber(() => {
     started++;
@@ -114,6 +115,10 @@ export function inProcessTranscriber(
           if (open) for (const listener of responses) listener(response);
         }),
     };
+    const idleExit = () => {
+      open = false;
+      for (const listener of exits) listener(0);
+    };
     serveTranscriber(
       engine,
       options.failover ? failingOver(port, options.failover) : port,
@@ -126,11 +131,11 @@ export function inProcessTranscriber(
         idleMs: serving.idleMs,
         unloaded: () => {
           serving.unloaded?.();
-          open = false;
-          for (const listener of exits) listener(0);
+          idleExit();
         },
       },
     );
+    endIdle = idleExit;
     kill = () => {
       open = false;
       for (const listener of exits) listener(null);
@@ -150,6 +155,8 @@ export function inProcessTranscriber(
   return {
     transcriber,
     crash: () => kill?.(),
+    /** Ends the running process idle, as its own five quiet minutes do, with the requests still in flight dropped (#2673). */
+    unload: () => endIdle?.(),
     get started() {
       return started;
     },

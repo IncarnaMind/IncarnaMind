@@ -753,6 +753,13 @@ export function createTranscripts(options: TranscriptsOptions) {
     for (const state of states.values()) {
       const live = state.live;
       if (!live?.started) continue;
+      // Audio sent as the process ended was never decoded: it is a gap, and read again from the
+      // kept audio after Stop, as a crash's is (#2673).
+      const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
+      if (live.pendingFrom === null && lost.toMs > lost.fromMs) {
+        state.gaps.push({ ...lost, reason: "restarted" });
+        state.pending = addRange(state.pending, lost);
+      }
       live.started = false;
       live.unloaded = true;
       live.stream = `${state.meetingId}:${++streams}`;

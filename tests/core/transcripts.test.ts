@@ -421,6 +421,46 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
     expect(readVtt(readFileSync(saved.savedPath as string, "utf8")).gaps).toEqual([]);
   });
 
+  test("audio sent just as the process unloads idle is marked as a gap, and read from the kept audio after Stop (#2673)", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record, engineHost } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(4 * SECOND);
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "live" && transcript.lines >= 2,
+    );
+
+    // Two seconds are counted as sent, then the process ends idle before any of them arrives.
+    record(2 * SECOND);
+    engineHost.unload();
+    record(4 * SECOND);
+    await vi.waitFor(() => expect(engineHost.started).toBe(2), { timeout: 10_000 });
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "live" && transcript.lines >= 4,
+    );
+
+    const path = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    const gap = readVtt(readFileSync(path, "utf8")).gaps.find(
+      (each) => each.reason === "restarted" && each.toMs > each.fromMs,
+    );
+    expect(gap).toBeDefined();
+    expect(gap?.toMs).toBeGreaterThan(4000);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    // The lost stretch is read from the kept audio after Stop, so nothing stays missing.
+    expect(final.gaps).toEqual([]);
+    expect(
+      final.cues.some((cue) => cue.startMs >= (gap?.fromMs ?? 0) && cue.startMs < (gap?.toMs ?? 0)),
+    ).toBe(true);
+  });
+
   test("a Meeting in a Mind with no title yet names its Transcript plainly", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);

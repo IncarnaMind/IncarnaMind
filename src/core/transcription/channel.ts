@@ -65,16 +65,23 @@ export type TranscriberResponse =
   | { type: "lost"; stream: string; loss: CloudLoss }
   | { type: "opened"; stream: string };
 
-/** A running process that serves the engine, as the side that sends requests sees it. */
+/**
+ * A running process that serves the engine, as the side that sends requests sees it. Its exit code
+ * 0 is the process's word for an idle unload, never a crash: a host's own exit must use another
+ * code, and a signal (null) is a crash or a stop too.
+ */
 export interface TranscriberChannel {
   send(request: TranscriberRequest): void;
   onResponse(listener: (response: TranscriberResponse) => void): void;
-  /** It stopped: crashed, ran out of memory, or was stopped. */
+  /** It stopped: crashed, ran out of memory, was stopped, or ended its engine idle with code 0 (#2673). */
   onExit(listener: (code: number | null) => void): void;
   stop(): void;
 }
 
 type Pending = { resolve(): void; reject(error: Error): void };
+
+/** A request the idle unload ended before the process answered it (#2673). */
+class IdleUnloadError extends Error {}
 
 /**
  * How long the process has to confirm it dropped cloud streams before it is stopped (#2702). The
@@ -169,7 +176,7 @@ export function createChannelTranscriber(
     channel = undefined;
     loadedKey = undefined;
     clouds.clear();
-    const error = new Error("The transcription process unloaded its models while idle.");
+    const error = new IdleUnloadError("The transcription process unloaded its models while idle.");
     for (const waiting of pending.values()) waiting.reject(error);
     pending.clear();
     for (const listener of listeners) listener.unloaded();
@@ -194,6 +201,12 @@ export function createChannelTranscriber(
       // engine, so an idle unload waits (#2673), and it answers at once when they are loaded.
       if (loading?.key !== key) {
         const done = request({ type: "load", model })
+          // The process may end idle between this ask leaving and its answer: the engine it named
+          // never heard it, so it is asked once more, of the process the ask starts (#2673).
+          .catch((error: unknown) => {
+            if (!(error instanceof IdleUnloadError)) throw error;
+            return request({ type: "load", model });
+          })
           .then(() => {
             loadedKey = key;
           })
