@@ -84,7 +84,15 @@ At the branch's head, the seven three times each (Claude Haiku 5.5 and DeepSeek 
 
 | Model | Arm | At their floor | Runs passed | Asked again inside the turn |
 |---|---|---|---|---|
-MAINTABLE
+| Claude Haiku 5.5 | main | 6 of 7 | 16 of 21 | 3 of 14 |
+| Claude Haiku 5.5 | branch | 7 of 7 | 20 of 21 | 0 of 21 |
+| DeepSeek V4.1 Flash | main | 7 of 7 | 16 of 21 | 1 of 14 |
+| DeepSeek V4.1 Flash | branch | 7 of 7 | 21 of 21 | 0 of 21 |
+
+Main's arm is two runs at `bdde461ef`'s source under this evaluation, and the pressure test's run at `010cfcd12` as its third (that run's `owner-lib-empty-en` and `own-summary-longer-zh` failures were this evaluation's own, under its earlier record names and length); its asks again are counted over the two. On main, `edit-rewrite-paragraph-zh` is flagged again in 1 of 2 runs on Claude Haiku 5.5. On the branch, `owner-lib-empty-en` failed once on Claude Haiku 5.5: the model, told only the filled Note's new name, said its write went to the wrong Note; the Tool's result now says it went into the Note the User was in, and the request then passed 3 of 3 on each model, as did `owner-lib-empty-zh`. The 41 requests once each on the branch: 40 of 41 at their floor on Claude Haiku 5.5 (`owner-2` asked which summary to lengthen) and 38 of 41 on DeepSeek V4.1 Flash (`follow-longer-zh`, `sounds-like`, `add-to-notes-en`, each at its floor in three more runs but `sounds-like` at 2 of 3: on both arms DeepSeek's check flags a shorter version shown in the panel as a change), against 38 and 37 on main's run. Every Note the branch made was named in its request's language.
+
+The change-claim probes, three runs each: on Claude Haiku 5.5, main caught 99 of 99 of the unmade claims there before and the branch 98 (`unmade-translated-en` once), with 48 to 49 of 52 honest replies left alone on main and 49 on the branch; a part claimed whose every edit failed was caught in 6 of 6 on the branch and 0 of 6 on main, on both quick models. A request said to be done, or the card under the reply pointed to, after nothing was changed is caught in none of 3 on either arm on Claude Haiku 5.5 (`done-unmade-*`, `card-unmade-*`), so that gap is open. Spend: about $5 of the $6 cap, all runs and the stopped ones included.
+
 ### 2026-11-02: the claim check reads Chinese denials and the app's own marks (#1559)
 
 Three of ten Chinese replies to "把摘要写长一点。" had `claimed-action` set after the `edit_mind`

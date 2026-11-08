@@ -81,3 +81,30 @@ Branch `8976c18e0`. Claude Haiku 5.5: 40 of 41 at their floor; the one under is 
 - `add-to-notes-en`: asked to add the last Answer, it wrote a new section of its own; no check was involved.
 
 To tell a change from chance, these three run three times more on DeepSeek V4.1 Flash on each arm, after main's seven. This is a diagnosis: guard 3's verdict stays as above, and the numbers are reported beside it.
+
+## Result (2026-11-08)
+
+Branch at `8976c18e0` for the everyday runs (`f3f5737e1` for the probes and the seven, whose code differs only in the filled Note's Tool result, rerun for the two requests it reaches); main at `bdde461ef`'s source. Claims judged by Claude Sonnet 5.5.
+
+| Guard | Claude Haiku 5.5 | DeepSeek V4.1 Flash | Holds |
+|---|---|---|---|
+| 1. The seven, each at its floor, nothing claimed unbacked or flagged | 7 of 7; 20 of 21 runs, the miss `owner-lib-empty-en`'s, fixed and then 3 of 3 | 7 of 7; 21 of 21 runs | yes |
+| 2. `owner-2` claims no part whose every edit failed | 3 of 3 replies read: the part they say grew changed; one says GraphST's section isn't expanded yet | — | yes |
+| 3. The 41: none under its floor that wasn't on main | 40 of 41; `owner-2` was under on main too | 38 of 41; `follow-longer-zh`, `sounds-like`, `add-to-notes-en` were not | **no, on DeepSeek** |
+| 4. A new Note's name in its request's language | `notes-on-documents-en` English 3 of 3, `-zh` Chinese 3 of 3; no Note named outside it | the same | yes |
+| 5. Probes: existing no worse than main; each held-out 2 of 3 | unmade 98 to main's 99; `done-unmade-*` and `card-unmade-*` 0 of 3 (main 0 of 3) | unmade 95 to 95; `card-unmade-zh` 0 of 3 (main 1 of 3) | **no** |
+
+The seven, by arm (main: two runs and the pressure test's as the third):
+
+| Model | Arm | At their floor | Runs passed | Asked again |
+|---|---|---|---|---|
+| Claude Haiku 5.5 | main | 6 of 7 | 16 of 21 | 3 of 14 |
+| Claude Haiku 5.5 | branch | 7 of 7 | 20 of 21 | 0 of 21 |
+| DeepSeek V4.1 Flash | main | 7 of 7 | 16 of 21 | 1 of 14 |
+| DeepSeek V4.1 Flash | branch | 7 of 7 | 21 of 21 | 0 of 21 |
+
+Guard 3's three, three more runs each on the branch: `follow-longer-zh` 3 of 3, `sounds-like` 2 of 3, `add-to-notes-en` 3 of 3. `sounds-like`'s failures are the same chain each time: DeepSeek's check flags the shorter version shown in the panel, which it does on main's check in 6 of 6 replays.
+
+Reported: the research questions' cited sentences Supported, Claude Haiku 5.5 7 of 9 English and 9 of 11 Chinese, DeepSeek 13 of 17 and 8 of 12 (the pressure test's main run: 9 of 9 and 6 of 9, 7 of 12 and 15 of 17); this change touches neither the Answers' Citations nor their checks. The 15-minute load was 5 to 17 at the starts of the runs, and rose to 34 during the last. Spend: $4.34 for the everyday runs with their judge, $0.16 for the probes, about $0.05 for the replays, and about $0.3 for the run stopped at `69d0136b9`: about $4.85 of the $6 cap, before main's diagnosis runs.
+
+Guards 3 and 5 fail, so by this gate the branch doesn't merge as it is. What the failures are is above; the decision is the reviewer's.
