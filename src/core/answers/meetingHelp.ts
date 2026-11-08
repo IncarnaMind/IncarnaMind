@@ -112,23 +112,30 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
 
 /**
  * Where a button's reply in `text` lays out its form: from its first option or reading (its "★"
- * line) to the end of its last "→" line, or from its first short line to its last. Null while none
- * is written. Before it are a model's notes (#2526) and after it a remark it added; the form itself
- * is never the model's working, so no line of it is taken back (#2778).
+ * line, or its first "→" line when it has none; "Am I leading them?" from its first line) to the
+ * end of its last "→" line, or from its first short line to its last. Null while none is written.
+ * Before it are a model's notes (#2526) and after it a remark it added; the form itself is never
+ * the model's working, so no line of it is taken back (#2778).
  */
 export function helpForm(kind: MeetingHelpKind, text: string): { from: number; to: number } | null {
-  const lines = HELP_SHAPE[kind] === "lines";
-  const opens = lines ? LINE_MARK : RECOMMENDED_MARK;
-  const goesOn = lines ? LINE_MARK : EFFECT_MARK;
-  let form: { from: number; to: number } | null = null;
+  const lines: { from: number; to: number; plain: string }[] = [];
   let at = 0;
   for (const line of text.split("\n")) {
-    const end = at + line.length;
-    if (form === null && opens.test(plainLine(line))) form = { from: at, to: end };
-    else if (form !== null && goesOn.test(plainLine(line))) form.to = end;
-    at = end + 1;
+    if (line.trim() !== "") lines.push({ from: at, to: at + line.length, plain: plainLine(line) });
+    at += line.length + 1;
   }
-  return form;
+  const shortLines = HELP_SHAPE[kind] === "lines";
+  const goesOn = shortLines ? LINE_MARK : EFFECT_MARK;
+  const first =
+    kind === "leading"
+      ? lines[0]
+      : shortLines
+        ? lines.find((line) => LINE_MARK.test(line.plain))
+        : (lines.find((line) => RECOMMENDED_MARK.test(line.plain)) ??
+          lines.find((line) => EFFECT_MARK.test(line.plain)));
+  if (!first) return null;
+  const last = lines.findLast((line) => line.from >= first.from && goesOn.test(line.plain));
+  return { from: first.from, to: Math.max(first.to, last?.to ?? first.to) };
 }
 
 /** The most of the User's Documents a button's Question takes, found ahead for the newest lines. */

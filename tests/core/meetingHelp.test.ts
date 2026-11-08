@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
+import { helpForm } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -234,6 +235,21 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       judged: [],
     },
     {
+      name: "an uncited last option with a remark under it",
+      kind: "answer" as const,
+      reply:
+        "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send you the price sheet today\n→ buys time\nCitations need to be recorded now.",
+      kept: "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send you the price sheet today\n→ buys time",
+      judged: [["Citations need to be recorded now."]],
+    },
+    {
+      name: "an option with no star",
+      kind: "answer" as const,
+      reply: "Yes, Enterprise is $45 a seat [^1]\n→ answers at once",
+      kept: "Yes, Enterprise is $45 a seat [^1]\n→ answers at once",
+      judged: [],
+    },
+    {
       name: "short lines",
       kind: "facts" as const,
       reply:
@@ -420,4 +436,30 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       core.updateSettings({ device: { meetingHelpKeys: { leading: "Ctrl+Alt+1" } } } as never),
     ).rejects.toThrow();
   });
+});
+
+// protects=the form a help reply lays out, which the core never judges as the model's working, is found however a model marks it: "★" or "⭐", "→" or "->", bold marks, Windows line ends, no star, the lead-in of "Am I leading them?" and short lines; fails_when=a line of the form falls outside it or notes and a remark fall inside; no_claim=what is judged outside it (#2778).
+test("a help reply's form runs from its first option to its last → line, however it is marked", () => {
+  const formOf = (kind: MeetingHelpKind, text: string) => {
+    const form = helpForm(kind, text);
+    return form && text.slice(form.from, form.to);
+  };
+  const notes = "The newest lines ask about the price.";
+  const remark = "Citations need to be recorded now.";
+  expect(formOf("answer", `${notes}\n\n★ One [^1]\n→ a\n\nTwo\n→ b\n${remark}`)).toBe(
+    "★ One [^1]\n→ a\n\nTwo\n→ b",
+  );
+  expect(
+    formOf("want", `${notes}\n**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why`),
+  ).toBe("**⭐ They want a date**\n12:04 “by June” [^1]\n-> ask why");
+  expect(formOf("answer", `${notes}\r\n\r\n★ One [^1]\r\n→ a\r\n\r\n${remark}`)).toBe(
+    "★ One [^1]\r\n→ a\r",
+  );
+  expect(formOf("answer", `${notes}\n\nOne [^1]\n→ a`)).toBe("→ a");
+  expect(formOf("leading", "A little: it suggests the answer.\n★ What happened?\n→ hears")).toBe(
+    "A little: it suggests the answer.\n★ What happened?\n→ hears",
+  );
+  expect(formOf("sum", `${notes}\n- One [^1]\n- Two\n\n${remark}`)).toBe("- One [^1]\n- Two");
+  expect(formOf("answer", notes)).toBeNull();
+  expect(formOf("sum", notes)).toBeNull();
 });

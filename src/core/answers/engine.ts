@@ -828,6 +828,30 @@ function workingCandidates(text: string): TextPart[] {
   return out;
 }
 
+/**
+ * The parts outside a reply's own form (`form`, in the text kept so far, which `shift` long comes
+ * before the parts): a part that runs into it is judged by its lines outside it.
+ */
+function outsideForm(
+  parts: readonly TextPart[],
+  form: { from: number; to: number } | null,
+  shift: number,
+): TextPart[] {
+  if (form === null) return [...parts];
+  const outside = (part: TextPart) => shift + part.to <= form.from || shift + part.from >= form.to;
+  return parts.flatMap((part) =>
+    outside(part)
+      ? [part]
+      : linesOf(part.text)
+          .map((line) => ({
+            from: part.from + line.from,
+            to: part.from + line.to,
+            text: line.text,
+          }))
+          .filter(outside),
+  );
+}
+
 /** `text` without `parts`, its blank runs closed up. */
 function withoutParts(text: string, parts: readonly { from: number; to: number }[]): string {
   let out = "";
@@ -2308,14 +2332,12 @@ async function* toolLoop(
           if (recorded && !stepTools.some((each) => !recording(each)) && !again)
             setAside.push({ text: stepText, searched });
         } else {
-          const form = request.formOf?.(keptText + stepText) ?? null;
           const candidates =
             recorded && request.toolSet !== "check"
-              ? workingCandidates(stepText).filter(
-                  (each) =>
-                    form === null ||
-                    keptText.length + each.to <= form.from ||
-                    keptText.length + each.from >= form.to,
+              ? outsideForm(
+                  workingCandidates(stepText),
+                  request.formOf?.(keptText + stepText) ?? null,
+                  keptText.length,
                 )
               : [];
           /** The candidates the judgement called the model's working. */
