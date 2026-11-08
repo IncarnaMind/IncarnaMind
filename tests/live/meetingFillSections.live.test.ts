@@ -1709,9 +1709,10 @@ const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The call scored with the User's name set in Settings (#2306): each of their own actions must
- * name them by it, and is wrong with I, me or my (我, but not 我们 or 我方), the token in any
- * form, "the User" (用户), or a word the fixture already turned down for it other than the name.
- * Every other fact is scored as before.
+ * name them by it, or keep we (我们) where the fixture already took we for that action, a
+ * commitment of the User's side. It is wrong with I, me or my (我, but not 我们 or 我方), the token
+ * in any form, "the User" (用户), or a word the fixture already turned down for it other than the
+ * name. Every other fact is scored as before.
  */
 function namedCall(call: Call, name: string): Call {
   const facts = call.facts.map((fact) => {
@@ -1727,9 +1728,13 @@ function namedCall(call: Call, name: string): Call {
       call.language === "en"
         ? [...turnedDown, "\\bI\\b(?![./-])", "\\b(?:me|my|mine|myself)\\b", "\\bthe\\s+User\\b"]
         : ["我(?![们方])", "用户"];
-    const named = call.language === "en" ? `\\b${literally(name)}\\b` : literally(name);
+    const we = call.language === "en" ? "\\bwe\\b" : "我们(?!的)";
+    const owners = [
+      call.language === "en" ? `\\b${literally(name)}\\b` : literally(name),
+      ...(firstPerson.test(call.language === "en" ? "we send it" : "我们发") ? [we] : []),
+    ];
     const owned = new RegExp(
-      `^(?![\\s\\S]*(?:${[...wrong, "[{}｛｝]"].join("|")}))[\\s\\S]*${named}`,
+      `^(?![\\s\\S]*(?:${[...wrong, "[{}｛｝]"].join("|")}))[\\s\\S]*(?:${owners.join("|")})`,
       "iu",
     );
     return { ...fact, pattern: patterns.map((each, index) => (index === owner ? owned : each)) };
@@ -3047,7 +3052,7 @@ function expectCompleteFill(fill: MeetingFill): void {
   expect(fill.unfinishedParts ?? 0, "No transcript parts were left unfinished").toBe(0);
 }
 
-// protects=with a name set in Settings, the User's own actions in held-out calls m, n and o count only when they name the User by it, and fail in the first person, with the token in any form, as "the User" or with "my", while 我们 and every other fact score as before (#2306); fails_when=a first-person or token sentence passes, or a named one fails; no_claim=a real model's wording.
+// protects=with a name set in Settings, the User's own actions in held-out calls m, n and o count only when they name the User by it, or keep we (我们) where the fixture took we, and fail in the first person, with the token in any form, as "the User" or with "my", while every other fact scores as before (#2306); fails_when=a first-person, token or unlisted we sentence passes, or a named one fails; no_claim=a real model's wording.
 test("meeting scores with a Settings name require it for the User's own actions", async () => {
   const cases: Record<string, { name: string; right: string[]; wrong: string[] }[]> = {
     "reserved-en-structured-m": [
@@ -3066,11 +3071,13 @@ test("meeting scores with a Settings name require it for the User's own actions"
     "reserved-en-structured-n": [
       {
         name: "Avery Lin",
-        right: ["Avery Lin will send the other side our glossary of product terms by November 5."],
+        right: [
+          "Avery Lin will send the other side our glossary of product terms by November 5.",
+          "We will send the glossary by November 5.",
+        ],
         wrong: [
           "I will send our glossary of product terms by November 5.",
           "{me} will send the glossary by November 5.",
-          "We will send the glossary by November 5.",
         ],
       },
     ],
@@ -3083,13 +3090,20 @@ test("meeting scores with a Settings name require it for the User's own actions"
       {
         name: "Sunita",
         right: ["Sunita will pay the deposit by May 21."],
-        wrong: ["｛｛ME｝｝ will pay the deposit by May 21.", "Me will pay the deposit by May 21."],
+        wrong: [
+          "｛｛ME｝｝ will pay the deposit by May 21.",
+          "Me will pay the deposit by May 21.",
+          "We will pay the deposit by May 21.",
+        ],
       },
     ],
     "reserved-zh-structured-m": [
       {
         name: "梁薇",
-        right: ["梁薇在六月二十日前把各班的人数统计发给季川。"],
+        right: [
+          "梁薇在六月二十日前把各班的人数统计发给季川。",
+          "我们在六月二十日前把各班的人数统计发给季川。",
+        ],
         wrong: [
           "我在六月二十日前把各班的人数统计发给季川。",
           "{{me}}在六月二十日前把各班的人数统计发给季川。",
@@ -3101,7 +3115,10 @@ test("meeting scores with a Settings name require it for the User's own actions"
       {
         name: "林安",
         right: ["林安在九月十日前把我们门店每个月的用量表发给对方。"],
-        wrong: ["我九月十日前把门店每个月的用量表发给对方。"],
+        wrong: [
+          "我九月十日前把门店每个月的用量表发给对方。",
+          "我们九月十日前把门店每个月的用量表发给对方。",
+        ],
       },
     ],
     "reserved-zh-structured-o": [

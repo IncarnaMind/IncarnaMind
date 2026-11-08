@@ -5,6 +5,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
+import type { LogFields } from "../../src/core/adapters";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages, transcriptCitations } from "../helpers/citations";
@@ -27,10 +28,10 @@ const CALLS = {
     line: "glossary and price",
     /** What the model writes: the token as asked, and as a model may miswrite it. */
     named: {
-      overview: "The call settled {me}'s glossary and ｛｛ME｝｝'s price",
-      action: { topic: "{{Me}}'s glossary", body: "{{me}} will send the glossary by Friday" },
+      overview: "The call settled {{user}}'s glossary and {{**me**}}'s price",
+      action: { topic: "{{ Me }}'s glossary", body: "{{me}} will send the glossary by Friday" },
       decision: { topic: "price", body: "We agreed the price is 45 dollars a seat" },
-      claim: { topic: "{ me }'s budget", body: "{{me}}'s team approved the budget" },
+      claim: { topic: "｛｛ME｝｝'s budget", body: "{me}'s team approved the budget" },
     },
     firstPerson: {
       overview: "The call settled my glossary and the price",
@@ -49,10 +50,10 @@ const CALLS = {
     heading: "评审",
     line: "术语表和价格",
     named: {
-      overview: "这次会议定下了{me}的术语表和｛｛ME｝｝的价格",
-      action: { topic: "{{Me}}的术语表", body: "{{me}}周五前把术语表发过去" },
+      overview: "这次会议定下了{{user}}的术语表和{{**me**}}的价格",
+      action: { topic: "{{ Me }}的术语表", body: "{{me}}周五前把术语表发过去" },
       decision: { topic: "价格", body: "我们同意每个席位 45 美元" },
-      claim: { topic: "{ me }的预算", body: "{{me}}的团队批准了预算" },
+      claim: { topic: "｛｛ME｝｝的预算", body: "{me}的团队批准了预算" },
     },
     firstPerson: {
       overview: "这次会议定下了我的术语表和价格",
@@ -155,6 +156,7 @@ async function filled(language: Language, name: string | null) {
   const reply = replyFor(language, name === null ? call.firstPerson : call.named);
   const quotes = Object.fromEntries(call.said.map((line, index) => [index + 1, line]));
   const fills: string[] = [];
+  const warnings: { event: string; fields?: LogFields }[] = [];
   const checks: string[] = [];
   const model = scriptedModel((request) => {
     if (isCheckRun(request)) {
@@ -169,6 +171,11 @@ async function filled(language: Language, name: string | null) {
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model,
     engine: { lines: call.said },
+    log: {
+      info: () => undefined,
+      warn: (event, fields) => warnings.push({ event, fields }),
+      error: () => undefined,
+    },
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.updateSettings({ user: { language, authorName: name } });
@@ -194,7 +201,7 @@ async function filled(language: Language, name: string | null) {
   /** Every request the model was sent, as it was sent. */
   const sent = () =>
     [...model.doStreamCalls, ...model.doGenerateCalls].map((each) => JSON.stringify(each.prompt));
-  return { core, meeting, client, before, fill, fills, checks, sent };
+  return { core, meeting, client, before, fill, fills, checks, sent, warnings };
 }
 
 const TOKENS = /[{}｛｝]/u;
@@ -202,13 +209,13 @@ const TOKENS = /[{}｛｝]/u;
 describe("The User's own items carry the name they set, which never reaches the model (#2306)", {
   timeout: 60_000,
 }, () => {
-  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line and in the claims list), the model's near-miss tokens included, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
+  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line and in the claims list), the model's near-miss tokens included, "{{user}}" and a token split by formatting cleaned by the last pass and logged, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
   test.each([
     ["en", "Avery Lin"],
     ["zh-CN", "林安"],
     ["zh-CN", "Avery Lin"],
   ] as const)("in %s, named %s", async (language, name) => {
-    const { core, meeting, client, before, fill, fills, checks, sent } = await filled(
+    const { core, meeting, client, before, fill, fills, checks, sent, warnings } = await filled(
       language,
       name,
     );
@@ -219,6 +226,9 @@ describe("The User's own items carry the name they set, which never reaches the 
         for (const line of named(language, name)) expect(text).toContain(line);
       });
       expect(readMind(client).textContent).not.toMatch(TOKENS);
+      expect(warnings.filter((each) => each.event === "meeting.fillTokenLeftover")).toEqual([
+        { event: "meeting.fillTokenLeftover", fields: { meetingId: meeting.id, leftovers: 1 } },
+      ]);
 
       expect(fills).toHaveLength(1);
       expect(fills[0]).toContain("Write the User, who reads these notes, as {{me}}");

@@ -2960,7 +2960,7 @@ export const en = {
   "settings.language.zh-CN": "简体中文",
   "settings.authorName": "Your name",
   "settings.authorName.tip": "Your edits in a Word file go under this name, as tracked changes.",
-  "settings.authorName.meetings": "Once set, meeting notes use it for your own items.",
+  "settings.authorName.meetings": "Type your name, and meeting notes name you by it.",
   "settings.motion": "Motion",
   "settings.motion.tip": "Reduced uses short fades; Off changes everything at once.",
   "settings.motion.on": "On",

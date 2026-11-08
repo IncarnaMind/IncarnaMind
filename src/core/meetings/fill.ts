@@ -710,13 +710,22 @@ export function createMeetingFill(options: MeetingFillOptions) {
           const line = present.find((line) => line.heading && line.marker === marker);
           if (line) headings.set(section, line);
         }
+        let leftovers = 0;
         const named = <K>(placed: ReadonlyMap<K, NodeJSON[]>) =>
           new Map(
-            [...placed].map(([key, nodes]): [K, NodeJSON[]] => [key, withUserName(nodes, name)]),
+            [...placed].map(([key, nodes]): [K, NodeJSON[]] => {
+              const done = withUserName(nodes, name);
+              leftovers += done.leftovers;
+              return [key, done.nodes];
+            }),
           );
+        const namedLines = named(planned.lines);
+        const namedSections = named(planned.sections);
+        if (leftovers > 0)
+          log.warn("meeting.fillTokenLeftover", { meetingId: meeting.id, leftovers });
         return [
-          ...placeUnderLines(blocks, present, named(planned.lines)),
-          ...placeSections(blocks, named(planned.sections), headings, language),
+          ...placeUnderLines(blocks, present, namedLines),
+          ...placeSections(blocks, namedSections, headings, language),
         ];
       },
     };
