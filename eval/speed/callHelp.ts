@@ -45,6 +45,7 @@ import { CALL_HELP_CHINESE } from "./callHelpChinese";
 import { CALL_HELP_DOCUMENTS } from "./callHelpDocuments";
 import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
+import { CALL_HELP_TWINS } from "./callHelpTwins";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
 const STEP_MS = 500;
@@ -530,7 +531,8 @@ type CallHelpSet =
   | "call-help-fresh"
   | "call-help-documents"
   | "call-help-checks"
-  | "call-help-chinese";
+  | "call-help-chinese"
+  | "call-help-twins";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -539,6 +541,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-documents": CALL_HELP_DOCUMENTS,
   "call-help-checks": CALL_HELP_CHECKS,
   "call-help-chinese": CALL_HELP_CHINESE,
+  "call-help-twins": CALL_HELP_TWINS,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
