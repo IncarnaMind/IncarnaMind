@@ -2741,7 +2741,7 @@ export const en = {
   "embeddingProviders.settings.turnOn": "Turn on…",
   "embeddingProviders.settings.builtIn": "Built-in model",
   "embeddingProviders.settings.sendsTo":
-    "The text of your Documents, and your searches, are sent to {service}.",
+    "The text of your Documents, each passage with its Document’s name, and your searches, are sent to {service}.",
   "embeddingProviders.settings.local": "Runs on this computer.",
   "embeddingProviders.settings.change": "Change model",
   "embeddingProviders.settings.error":
@@ -2772,7 +2772,7 @@ export const en = {
   "embeddingProviders.confirm.reprocess":
     "Reads every Document ({count}) again; until then search matches words.",
   "embeddingProviders.confirm.cloud":
-    "{service} will receive the full text of all your Documents, and every search you make.",
+    "{service} will receive the full text of all your Documents, each passage with its Document’s name, and every search you make.",
   "embeddingProviders.confirm.local": "Everything stays on this computer.",
   "embeddingProviders.confirm.cancel": "Cancel",
   "embeddingProviders.confirm.switch": "Switch and process again",
