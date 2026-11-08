@@ -401,7 +401,8 @@ The pre-review found ways the first version of this code showed a quote as found
   - Its "only", "but" or 只 must be the sentence's own.
   - "non-" counts as a negation.
   - A table header's columns count as rows. A "#" heading's row may stay out of the lines under it, as before.
-  - Still listed below: an opposite said in other words that none of these catch.
+  - The fourth round added within/after, earlier/later, weekdays/weekends, free/charged, in advance/in arrears, rise/fall, first/last, on-site/remote and most/few. It also added "per seat" against "per store" and "non-" in the line but not the sentence. A section heading's row may stay out of its lines even when it is also a table column. "Non-" counts only here, not for the picker at large.
+- **Known limit, as for every quote this picker takes:** a Document line that differs from the sentence in one content word of four or more is recorded ("onboarding takes 6 weeks" from "Payroll setup takes 6 weeks", "covered by the vendor" from "covered by the store"). A model naming the Passage doesn't change that: the picker would quote the same line for it. The pre-review's last round found this in 3 of its 17 longer probes after the pairs above.
 
 ### The slice
 

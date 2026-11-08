@@ -1066,6 +1066,44 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
       ["single sign-on is included for admins", "Single sign-on is included for admins on Chain."],
       ["orders of more than 50 seats get 10% off", "Orders of less than 50 seats get 10% off."],
       ["客服工作日开放", "客服周末开放。"],
+      [
+        "invoices for new stores are due within 30 days",
+        "Invoices for new stores are due after 30 days.",
+      ],
+      [
+        "the free trial for new stores ends 14 days earlier",
+        "The free trial for new stores ends 14 days later.",
+      ],
+      [
+        "customer support for new stores is open on weekends",
+        "Customer support for new stores is open on weekdays.",
+      ],
+      [
+        "the Enterprise plan costs $45 per seat each month",
+        "The Enterprise plan costs $45 per store each month.",
+      ],
+      [
+        "list prices for all plans rise 5% in January",
+        "List prices for all plans fall 5% in January.",
+      ],
+      ["the first month of the annual plan is free", "The last month of the annual plan is free."],
+      [
+        "monthly fees for every store are billed in advance",
+        "Monthly fees for every store are billed in arrears.",
+      ],
+      [
+        "staff training for new stores is delivered on-site",
+        "Staff training for new stores is delivered remotely.",
+      ],
+      ["新门店要提前 5 天付款", "新门店要延后 5 天付款。"],
+      [
+        "on-site installation for new stores is free",
+        "On-site installation for new stores is charged separately.",
+      ],
+      [
+        "most plans include single sign-on for store managers",
+        "Few plans include single sign-on for store managers.",
+      ],
       ["上门安装免费", "上门安装另外收费。"],
     ]) {
       const heard = { id: "P1", text: `[0:02 Me] ${said}.` };
@@ -1254,6 +1292,31 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
     };
     expect(markedPassages("连锁版含单点登录 [^2]", [zh], everywhere, none).records).toEqual([
       { marker: 2, passage: "P2", quote: "每家门店每月比成长版贵 320 元，含单点登录。" },
+    ]);
+  });
+
+  // protects=on every marker, a column of a comparison table that a section's heading names too may stay out of the lines under it, and "non-" is no negation outside a check's agreement, so "Non-members pay $15" is still quoted from "everyone else pays $15"; fails_when=these correct Citations are refused (#2526).
+  test("a column a section heading names, and a non- claim, keep their quotes", () => {
+    const plans = {
+      id: "P2",
+      text: "# Plans\n\n| Feature | Starter | Growth |\n|---|---|---|\n| Kiosks | 1 | 3 |\n| Price | $299 | $549 |\n\n## Growth\n\nForecasts are included, unlike Starter.",
+    };
+    const heard = { id: "P1", text: "[0:01 Them] We are looking at Growth or Starter." };
+    expect(
+      markedPassages("Growth includes forecasts [^2]", [heard, plans], everywhere, none).records,
+    ).toEqual([{ marker: 2, passage: "P2", quote: "Forecasts are included, unlike Starter." }]);
+    const sessions = {
+      id: "P2",
+      text: "Members pay $10 a session; everyone else pays $15 a session.",
+    };
+    expect(
+      markedPassages("Non-members pay $15 a session [^2]", [sessions], everywhere, none).records,
+    ).toEqual([
+      {
+        marker: 2,
+        passage: "P2",
+        quote: "Members pay $10 a session; everyone else pays $15 a session.",
+      },
     ]);
   });
 

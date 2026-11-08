@@ -260,7 +260,7 @@ const CJK_AFTER_NEGATION = new Set([..."有是在会能要用必"]);
  * Negations the picker reads beyond those ./unmarkedQuotes counts for every Answer: this path's
  * quotes have no claim check behind them, so it reads more of them as a "not".
  */
-const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none|non)$|n’t$/iu;
+const MORE_NEGATIONS = /^(?:without|cannot|neither|nor|none)$|n’t$/iu;
 const negating = (word: string) => negates(word) || MORE_NEGATIONS.test(word);
 
 /** The ends of "I'll", "we're" and "they've", which are no words of a claim or a line. */
@@ -735,12 +735,13 @@ function readOf(passage: { text: string; name?: string }): Read {
   );
   let call = false;
   const columns = new Set<string>();
+  const sections = new Set<string>();
   for (const [index, raw] of rows.entries()) {
     const row = raw.trim();
     if (row === "") continue;
     if (heading[index]) {
       for (const word of wordSet(row)) topic.add(word);
-      if (row.startsWith("|")) for (const word of wordSet(row)) columns.add(word);
+      for (const word of wordSet(row)) (row.startsWith("|") ? columns : sections).add(word);
       for (const figure of figuresOf(row)) if (/^\d{4}$/u.test(figure)) topicFigures.add(figure);
       continue;
     }
@@ -766,6 +767,8 @@ function readOf(passage: { text: string; name?: string }): Read {
       }
     }
   }
+  // A column a section's heading names too ("## Growth") may stay out of the lines under it.
+  for (const word of sections) columns.delete(word);
   return {
     lines,
     topic,
@@ -1030,9 +1033,31 @@ const RESTRICTS = /\b(?:only|except|but|unless|excluding|reserved)\b|仅|只|除
 const restrictionsOf = (text: string) =>
   new Set([...text.toLowerCase().matchAll(RESTRICTS)].map((found) => found[0]));
 
+/** What a figure is counted by: "$45 per seat" is no "$45 per store", 每个席位 no 每家门店. */
+const RATE = /\b(?:per|each)\s+(\p{L}+)|每(?:个|家|位|名|台|件)?(\p{Script=Han})/giu;
+const ratesOf = (text: string) =>
+  new Set(
+    [...text.matchAll(RATE)].map(([, word, character]) =>
+      folded((word ?? character ?? "").toLowerCase()),
+    ),
+  );
+/** A word's "non-", as "non-refundable" says the opposite of "refundable". */
+const NON = /\bnon-/iu;
+
 /** Words whose other side says the opposite: "5 days before" is no "5 days after". */
 const OPPOSITES: readonly (readonly [RegExp, RegExp])[] = [
-  [/\bbefore\b|之前|以前|[日天月年]前/iu, /\bafter\b|之后|以后|[日天月年]后/iu],
+  [
+    /\b(?:before|within)\b|之前|以前|以内|之内|[日天月年]前/iu,
+    /\bafter\b|之后|以后|[日天月年]后/iu,
+  ],
+  [/\b(?:earlier|sooner)\b|提前|更早/iu, /\blater\b|延后|推迟|更晚/iu],
+  [/\bweekdays?\b|工作日/iu, /\bweekends?\b|周末/iu],
+  [/\bfree\b|免费/iu, /\b(?:charged?|paid for)\b|收费/iu],
+  [/\bin advance\b|预付/iu, /\bin arrears\b|后付/iu],
+  [/\b(?:rises?|increases?)\b|上涨|上调/iu, /\b(?:falls?|decreases?|drops?)\b|下降|下调/iu],
+  [/\bfirst\b|首/iu, /\blast\b|最后|末/iu],
+  [/\bon-site\b|上门|现场/iu, /\bremotely\b|\bremote\b|远程/iu],
+  [/\bmost\b|大多数/iu, /\bfew\b|少数/iu],
   [/\b(?:minimum|min|at least)\b|最少|至少/iu, /\b(?:maximum|max|up to|at most)\b|最多|至多/iu],
   [/\bpaid\b/iu, /\bunpaid\b/iu],
   [/\b(?:includ(?:e|es|ed|ing)|count(?:s|ed)?)\b/iu, /\bexclud(?:e|es|ed|ing)\b/iu],
@@ -1065,12 +1090,17 @@ function saysWholly(
   );
   const times = new Set(quotes.flatMap((line) => [...timesOf(line.quote)]));
   const limits = restrictionsOf(what.text);
+  const rates = ratesOf(what.text);
   return (
     held >= all * MIN_AGREED_SHARE &&
     figuresOf(what.text).every((figure) => figures.has(figure)) &&
     [...timesOf(what.text)].every((unit) => times.has(unit)) &&
     quotes.every((line) => [...line.words].every((word) => !isRow(word) || what.words.has(word))) &&
     quotes.every((line) => [...restrictionsOf(line.quote)].every((limit) => limits.has(limit))) &&
+    quotes.every((line) =>
+      [...ratesOf(line.quote)].every((rate) => rates.size === 0 || rates.has(rate)),
+    ) &&
+    quotes.every((line) => !NON.test(line.quote) || NON.test(what.text)) &&
     OPPOSITES.every(([one, other]) =>
       quotes.every(
         (line) =>
