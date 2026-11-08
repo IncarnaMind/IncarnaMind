@@ -981,21 +981,24 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
   // protects=such a sentence shows uncited when no line of the Documents it names holds all of it: a figure only the call said, another row, a figure it adds after saying the Document agrees, or a line only another Document holds; fails_when=the call's line stays found under a sentence the Document doesn't support, or a line holding part of it is recorded at its end (#2526).
   test("such a sentence goes uncited when no line of the Document it names holds all of it", () => {
     const said = {
-      id: "P1",
+      id: "P5",
       text: "[0:02 Them] So admins on Growth get single sign-on, overtime counts after 45 hours, and it costs $10 an hour, right?",
     };
     const prices = { id: "P4", name: "Price sheet", text: "Growth is $89 a location a month." };
-    for (const reply of [
-      "They said admins on Growth get single sign-on [^1]; the document agrees.",
-      "They said overtime counts after 45 hours [^1]; the Payroll export supports this.",
-      "They said overtime counts after 40 hours a week and costs $10 an hour [^1]; the document agrees.",
-      `${SAID} [^1]; the payroll export agrees, though drivers start at 45 hours.`,
-      `${SAID} [^1]; the price sheet agrees.`,
-    ]) {
+    for (const [reply, marker] of [
+      ["They said admins on Growth get single sign-on [^5]; the document agrees.", " [^5]"],
+      ["They said overtime counts after 45 hours [^5]; the Payroll export supports this.", " [^5]"],
+      [`${SAID} [^1]; the price sheet agrees.`, " [^1]"],
+      [`${SAID}, and after 35 hours for night shifts [^1]; the payroll export agrees.`, " [^1]"],
+    ] as const) {
+      const night = {
+        ...payroll,
+        text: `${payroll.text} Night shifts count overtime after 35 hours.`,
+      };
       expect(
-        markedPassages(reply, [said, call, payroll, privacy, prices], everywhere, none),
+        markedPassages(reply, [said, call, night, privacy, prices], everywhere, none),
         reply,
-      ).toEqual({ text: reply.replace(" [^1]", ""), records: [] });
+      ).toEqual({ text: reply.replace(marker, ""), records: [] });
     }
   });
 
@@ -1023,12 +1026,60 @@ describe("A check that says a Document agrees, and a sentence about two rows", (
     }
   });
 
+  // protects=such a Document line says no opposite in other words ("before" and "after", "minimum" and "maximum", "at least" and "up to", "paid" and "unpaid", "counts" and "excluded", 前 and 后, 最少 and 最多), no limit the sentence doesn't ("only" against its own "except", "reserved"), no row a table's header names that the sentence doesn't, and no other unit of time in Chinese (每月 against 每年); fails_when=any of those lines is recorded (#2526).
+  test("a Document line recorded for such a check says no opposite, limit or row the sentence doesn't", () => {
+    for (const [said, line] of [
+      ["invoices go out 5 days before the due date", "Invoices go out 5 days after the due date."],
+      ["the minimum order is 50 seats", "The maximum order is 50 seats."],
+      ["one kiosk serves at least 60 staff", "One kiosk serves up to 60 staff."],
+      ["paid leave is 20 days a year", "Unpaid leave is 20 days a year."],
+      ["weekend shifts count towards overtime", "Weekend shifts are excluded from overtime."],
+      ["single sign-on is included for every user", "Single sign-on is reserved for admin users."],
+      ["overtime counts every day except Sundays", "Overtime counts every day, only for admins."],
+      ["single sign-on is included on every plan", "Single sign-on is included on Chain."],
+      ["发票在到期日前 5 天发出", "发票在到期日后 5 天发出。"],
+      ["最少订 50 个席位", "最多订 50 个席位。"],
+      ["预测每月 99 元", "预测每年 99 元。"],
+    ]) {
+      const heard = { id: "P1", text: `[0:02 Me] ${said}.` };
+      const document = {
+        id: "P2",
+        name: "Terms",
+        text: `# Terms\n\n| Feature | Starter | Growth | Chain |\n|---|---|---|---|\n| Kiosks | yes | yes | yes |\n\n${line}`,
+      };
+      const reply = `You said ${said} [^1]; the document agrees.`;
+      expect(markedPassages(reply, [heard, document], everywhere, none), reply).toEqual({
+        text: reply.replace(" [^1]", ""),
+        records: [],
+      });
+    }
+    const plans = {
+      id: "P2",
+      text: "# Plans\n\n| Feature | Starter | Growth | Chain |\n|---|---|---|---|\n| Price | $299 | $549 | $869 |\n\nLabour forecasts are included on Growth and Chain; Starter pays $99 a store for them.",
+    };
+    expect(
+      markedPassages("Starter includes labour forecasts [^2]", [plans], everywhere, none).records,
+    ).toEqual([]);
+    expect(
+      markedPassages("Growth pays $99 a store for labour forecasts [^2]", [plans], everywhere, none)
+        .records,
+    ).toEqual([]);
+    const heard = { id: "P1", text: `[0:02 Me] ${SAID.replace("You said o", "O")}.` };
+    expect(
+      markedPassages(`__${SAID} [^1]; the document agrees.__`, [heard, payroll], everywhere, none)
+        .text,
+    ).toBe(`__${SAID} [^1]; the document agrees [^2].__`);
+  });
+
   // protects=a sentence whose words after the call's line don't say a Document agrees is left as it is: one saying the Documents don't cover it, one saying a Document differs, and one already citing the Document, whose text gets no second marker; fails_when=the call's line is taken away, or a Document's line or a second marker is added (#2526).
   test("a verdict that doesn't say a Document agrees, or one already citing it, is left as it is", () => {
     for (const reply of [
       "They said that matches what their payroll lead expected [^1]; the Documents don't cover what the payroll lead expected.",
       `${SAID} [^1]; the payroll export differs for drivers.`,
       `${SAID} [^1]; the payroll export doesn't support this.`,
+      `${SAID} [^1]; the payroll export agrees and adds weekend rates.`,
+      `${SAID} [^1]; the payroll export matches nothing like that.`,
+      `${SAID} [^1], as in the payroll export document.`,
     ]) {
       expect(markedPassages(reply, [call, payroll, privacy], everywhere, none).text, reply).toBe(
         reply,
