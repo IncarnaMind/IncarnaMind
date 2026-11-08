@@ -35,9 +35,9 @@ const TURN_ON = ["turn-on-tagging"] as const;
 type SortingPayer = { kind: "plan"; name: string } | { kind: "keys" } | { kind: "local" };
 
 /**
- * Everything that can sort, grouped by who pays: the list the picker always had first (the best
- * each key reaches, Jev, the User's AI model, the models on this computer), then every other model
- * the core lists, which Advanced › Tagging listed before.
+ * Everything that can sort, grouped by who pays: the curated list first (the best each key
+ * reaches, Jev, the User's AI model, the models on this computer), then every other model the
+ * core lists.
  */
 export function organizeGroups(
   shown: readonly SortingOption[],
@@ -91,8 +91,8 @@ export function organizeGroups(
 
 /**
  * Settings › AI › Organize and Tags: the one model for Organize, Tags and meeting hints, set up in
- * place from its picker's foot (Jev, a decision model host), and its options with it once the row
- * is opened: sorting and tagging new Documents as they arrive, and reading scans as page images.
+ * place from its picker's foot (Jev, a decision model host), and its options under it: sorting
+ * and tagging new Documents as they arrive, and reading scans as page images.
  */
 export function OrganizeRows({
   id,
@@ -252,9 +252,9 @@ const optionRow = {
 };
 
 /**
- * The Organize and Tags row's options, under it once it is opened. Turning on sorting new
- * Documents as they arrive is the consent for the service the line names (ADR-0022, #2308); so is
- * reading scans as page images, for the service that reads them.
+ * The Organize and Tags row's options, under it. Turning on sorting new Documents as they arrive
+ * is the consent for the service the line names (ADR-0022, #2308); so is reading scans as page
+ * images, for the service that reads them.
  */
 function OrganizeOptions({
   switchId,
