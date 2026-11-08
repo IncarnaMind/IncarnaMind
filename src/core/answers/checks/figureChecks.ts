@@ -452,14 +452,17 @@ const KEPT_FAILURES: Partial<Record<WorkbookKeptReason, ClaimCheckFailure>> = {
 async function replayWorkbook(
   saved: CalculatedFigure,
   options: Pick<FigureCheckOptions, "calculations" | "units" | "signal">,
-): Promise<{ cell: FigureInput; figure: CalculatedFigure } | ClaimCheckFailure> {
+): Promise<{ cell: FigureInput | null; figure: CalculatedFigure } | ClaimCheckFailure> {
   const book = saved.workbook;
   if (!book) return "workbook-changed";
   const found = (input: FigureInput) => {
     const checked = options.calculations.recheck(input);
     return "problem" in checked || checked.input.citation.check !== "found" ? null : checked.input;
   };
-  const cell = found(book.cell.input);
+  const own = book.cell.input;
+  // A text figure has no number to read again; the workbook isn't said to have changed for that.
+  if (!own) return book.text ? "workbook-text" : "workbook-changed";
+  const cell = found(own);
   if (!cell || cell.number.value !== book.saved) return "workbook-changed";
   const inputs: FigureInput[] = [];
   for (const input of saved.inputs) {
@@ -469,11 +472,15 @@ async function replayWorkbook(
   }
   const { documentId, contentHash } = cell.citation;
   const stored = { documentId, contentHash, units: options.units(cell.citation) };
-  const { change } = book;
-  if (change) {
-    const changed = inputs.find((input) => input.name === change.input)?.cell;
-    if (!changed) return "workbook-changed";
-    const value = await whatIfAgain(stored, book.cell, changed, change.value, options.signal);
+  const { changes } = book;
+  if (changes.length > 0) {
+    const places: { sheet: string | null; ref: string; value: number }[] = [];
+    for (const change of changes) {
+      const changed = inputs.find((input) => input.name === change.input)?.cell;
+      if (!changed) return "workbook-changed";
+      places.push({ sheet: changed.sheet, ref: changed.ref, value: change.value });
+    }
+    const value = await whatIfAgain(stored, book.cell, places, options.signal);
     if (value !== saved.value) return "workbook-changed";
   } else {
     // Its cell's number backs it only when every formula behind it is worked out here and gives
@@ -667,7 +674,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         rows.push({ ...finding(target), result: unavailable(again) });
         continue;
       }
-      if (savedFigure.workbook.change) calculation = again.figure;
+      if (savedFigure.workbook.changes.length > 0) calculation = again.figure;
       else sourceInput = again.cell;
     } else if (replayed) {
       calculation = replay(target, calculations);

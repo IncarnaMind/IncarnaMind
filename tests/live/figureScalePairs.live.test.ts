@@ -144,7 +144,7 @@ const CASES: readonly Case[] = [
   },
 ];
 
-const near = (a: number | boolean | null | undefined, b: number): boolean =>
+const near = (a: number | boolean | string | null | undefined, b: number): boolean =>
   typeof a === "number" && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 
 async function ask(core: Core, text: string, mindId: string) {

@@ -400,7 +400,7 @@ function collectUse(attrs: Record<string, unknown>, needed: FigureUses): boolean
   if (!node) return false;
   const { figure, analysisId } = node;
   if (!figure.analysis) return true;
-  if (!analysisId) return false;
+  if (!analysisId || typeof figure.value === "string") return false;
   const values = needed.get(analysisId) ?? new Map<string, Set<number | boolean>>();
   const expected = values.get(figure.analysis.result) ?? new Set<number | boolean>();
   expected.add(figure.value);
