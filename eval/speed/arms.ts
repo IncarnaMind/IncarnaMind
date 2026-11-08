@@ -153,6 +153,20 @@ export const ARMS: readonly Arm[] = [
     }),
   },
   {
+    id: "help-answers-model",
+    label: "call help on the Answers model: Settings › Meetings' Same as Answers, as before #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "answers" } });
+    },
+  },
+  {
+    id: "help-fastest",
+    label: "call help on the quick model of the Answers model's provider, the default since #2526",
+    prepare: async (core) => {
+      await core.updateSettings({ user: { callHelpModel: "fastest" } });
+    },
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
