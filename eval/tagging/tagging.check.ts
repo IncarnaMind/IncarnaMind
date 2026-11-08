@@ -8,7 +8,7 @@
  * The walk's files then go through Organize in a core on a temporary data folder, and what it
  * proposes is read from the Review, before anything is confirmed.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { wrapLanguageModel } from "ai";
 import { test } from "vitest";
@@ -179,7 +179,8 @@ async function organizeWalk(
   const core = startCore(await createTempDataFolder(), { createChatModel: () => chat });
   try {
     await core.saveChatProvider({ kind: "ollama", modelId: "walk" });
-    const sources = await createTempDataFolder();
+    // The core keeps each file by its resolved path: on macOS the temporary folder is under /var's link.
+    const sources = await realpath(await createTempDataFolder());
     const paths = new Map<string, SetDocument>();
     for (const document of documents)
       paths.set(await writeSourceFile(sources, `${document.name}.md`, document.text), document);
