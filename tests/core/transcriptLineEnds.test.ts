@@ -12,7 +12,7 @@ import type { CloudConnect, CloudSocketEvents } from "../../src/core/transcripti
 import { createSonioxStream } from "../../src/core/transcription/cloud/soniox";
 import { createSpeechmaticsStream } from "../../src/core/transcription/cloud/speechmatics";
 import { createXaiStream } from "../../src/core/transcription/cloud/xai";
-import { turnsOf } from "../../src/shared/transcriptTurns";
+import { endsSentence, turnsOf } from "../../src/shared/transcriptTurns";
 
 /** A word of the monologue: its text as written (with any mark after it), when, and who says it. */
 interface Said {
@@ -339,5 +339,99 @@ describe("A sentence that runs on", () => {
     });
     socket.say({ tokens: [{ text: "<end>", is_final: true }], finished: true });
     expect(heardBy.finals().map((line) => line.text)).toEqual(["It grew 3.5%.", "Next year too."]);
+  });
+});
+
+/** Soniox's final lines for these pieces, a piece every 300 ms, by one speaker. */
+function sonioxLines(pieces: readonly string[]): string[] {
+  const heardBy = heard();
+  const socket = service();
+  createSonioxStream({
+    stream: "m:system",
+    model: "stt-rt-v5",
+    apiKey: "key",
+    connect: socket.connect,
+    report: heardBy.report,
+  });
+  socket.open();
+  socket.say({
+    tokens: pieces.map((text, index) => ({
+      text,
+      start_ms: index * 300,
+      end_ms: index * 300 + 280,
+      is_final: true,
+      speaker: "1",
+    })),
+  });
+  socket.say({ tokens: [{ text: "<end>", is_final: true }], finished: true });
+  return heardBy.finals().map((line) => line.text);
+}
+
+describe("A full stop that ends no sentence", () => {
+  // protects=an initialism ("U.S.", "a.m.", "e.g.") or a common shortened word ("Inc.", "Fig.", "approx.") ends no line and starts no paragraph, in English and inside a Chinese line, while a real sentence's end does; fails_when=a line or a paragraph breaks mid-sentence after "U.S." or "Inc."; no_claim=a sentence that really ends with one of them, which runs on into the next.
+  test("an initialism or a shortened word ends no line and no paragraph", () => {
+    for (const text of [
+      "We moved to the U.S.",
+      "Sales in the U.K.",
+      "We meet at 9 a.m.",
+      "It ends at 5 p.m.",
+      "Acme Inc.",
+      "As Fig.",
+      "It takes approx.",
+      "Some, e.g.",
+      "The rest, i.e.",
+      "我们在U.S.",
+      "见Fig.",
+    ]) {
+      expect(endsAfter(text, 2000, true), text).toBe(false);
+      expect(endsSentence(text), text).toBe(false);
+    }
+    for (const text of [
+      "We sign on Friday.",
+      "我们在U.S.签约。",
+      "Ask the U.S. team.",
+      "Plan B.",
+    ]) {
+      expect(endsAfter(text, 2000, true), text).toBe(true);
+      expect(endsSentence(text), text).toBe(true);
+    }
+  });
+
+  // protects=on Soniox's subword pieces an initialism stays inside its line, in English and in a Chinese line, and the sentence ends where it really does; fails_when=a line ends at "U.S." or "a.m."; no_claim=the routes that give whole words, whose words go through the same rule.
+  test("Soniox keeps an initialism inside its line, in English and Chinese", () => {
+    expect(
+      sonioxLines([" We", " moved", " to", " the", " U", ".", "S", ".", " last", " year", "."]),
+    ).toEqual(["We moved to the U.S. last year."]);
+    expect(
+      sonioxLines(["我", "们", "在", "U", ".", "S", ".", "的", "业", "务", "很", "好", "。"]),
+    ).toEqual(["我们在U.S.的业务很好。"]);
+  });
+});
+
+describe("A sentence's closing quote or bracket", () => {
+  // protects=on Soniox, a question mark or a Chinese full stop that a closing quote or bracket follows ends its line after the closing mark, so the next line never starts with it; fails_when=a line starts with ” or 」; no_claim=the routes that attach punctuation to words, which never split it off.
+  test("Soniox keeps a closing quote or bracket with its sentence", () => {
+    expect(
+      sonioxLines([" She", " asked", " “", "why", "?", "”", " Then", " we", " left", "."]),
+    ).toEqual(["She asked “why?”", "Then we left."]);
+    expect(
+      sonioxLines([
+        "他",
+        "问",
+        "：",
+        "「",
+        "为",
+        "什",
+        "么",
+        "？",
+        "」",
+        "我",
+        "们",
+        "走",
+        "了",
+        "。",
+      ]),
+    ).toEqual(["他问：「为什么？」", "我们走了。"]);
+    expect(sonioxLines(["（", "笑", "。", "）", "好", "。"])).toEqual(["（笑。）", "好。"]);
   });
 });

@@ -53,6 +53,7 @@ import {
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
 import { type LinePart, markWords, partsOf, speakerMark, speakerOf } from "../../shared/speakers";
 import { foldRadicals } from "../../shared/text";
+import { TURN_PAUSE_MS } from "../../shared/transcriptTurns";
 import { parseCueTarget, sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -327,7 +328,9 @@ export function quotePlaceProblem(
 /**
  * The quote in the cues of a model's "14:26 Dana": those said then, by the Speaker named as the
  * model read them, the name the User gave (#138) or the label, so a line the User gave to someone
- * else is never found as said by the one the file has.
+ * else is never found as said by the one the file has. A quote that starts there may run on into
+ * the lines the Speaker goes on with in the same turn: a line is a sentence, and a quote can be
+ * two. Its place is still the lines cited.
  */
 function quoteInCues(
   units: readonly PageText[],
@@ -341,14 +344,21 @@ function quoteInCues(
   const then = (span: { startMs: number; endMs: number }) =>
     span.startMs < until && span.endMs > time.from;
   if (!time.speaker) {
+    const turn = goingOn();
     return quoteInCueWindow(
       units,
       quote,
-      (cue, _label, said) => (then(cue) ? [{ start: 0, end: said.length }] : []),
+      (cue, label, said) => {
+        const cited = then(cue);
+        const goesOn = !cited && turn.goesOn(cue, label);
+        turn.said(cited || goesOn ? cue : null, label);
+        return cited || goesOn ? [{ start: 0, end: said.length, ...(goesOn && { goesOn }) }] : [];
+      },
       matching,
     );
   }
   const asked = markWords(time.speaker);
+  const turn = goingOn();
   // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
   // a part said then, as a line that isn't split is whole: a quote that runs into another
   // Speaker's part isn't theirs.
@@ -356,22 +366,37 @@ function quoteInCues(
     units,
     quote,
     (cue, label, said) => {
-      if (label === null) return [];
+      if (label === null) {
+        turn.said(null, label);
+        return [];
+      }
       const parts = partsOf(speakers, { ...cue, text: said, label });
       const theirs = parts.map(
         (part) =>
           asked === markWords(speakerMark(speakers, part.startMs, label)) ||
           asked === markWords(speakerOf(speakers, part.startMs, label)),
       );
-      const ranges: TextRange[] = [];
+      const ranges: CueStretch[] = [];
       for (let first = 0; first < parts.length; first++) {
-        if (!theirs[first]) continue;
+        if (!theirs[first]) {
+          turn.said(null, asked);
+          continue;
+        }
         let last = first;
         while (theirs[last + 1]) last++;
-        if (parts.slice(first, last + 1).some(then)) {
+        const run = parts.slice(first, last + 1);
+        const spoken = {
+          startMs: (run[0] as LinePart).startMs,
+          endMs: (run.at(-1) as LinePart).endMs,
+        };
+        const cited = run.some(then);
+        const goesOn = !cited && turn.goesOn(spoken, asked);
+        turn.said(cited || goesOn ? spoken : null, asked);
+        if (cited || goesOn) {
           ranges.push({
             start: (parts[first] as LinePart).at,
             end: parts[last + 1]?.at ?? said.length,
+            ...(goesOn && { goesOn }),
           });
         }
         first = last;
@@ -382,6 +407,22 @@ function quoteInCues(
   );
 }
 
+/**
+ * Whether a line goes on with the turn of the lines before it, as the Transcript draws turns
+ * (../../shared/transcriptTurns): the same Speaker, within `TURN_PAUSE_MS` of the last. `said`
+ * takes each line looked at, in order: the line, or null for one a quote can't run into.
+ */
+function goingOn() {
+  let last: { endMs: number; speaker: string | null } | null = null;
+  return {
+    goesOn: (line: { startMs: number }, speaker: string | null) =>
+      last !== null && last.speaker === speaker && line.startMs - last.endMs < TURN_PAUSE_MS,
+    said(line: { endMs: number } | null, speaker: string | null) {
+      last = line && { endMs: line.endMs, speaker };
+    },
+  };
+}
+
 function quoteInStoredCues(
   units: readonly PageText[],
   quote: string,
@@ -389,20 +430,30 @@ function quoteInStoredCues(
   matching: Matching & { unique?: boolean },
   accepted?: (ranges: readonly TextRange[]) => boolean,
 ): TextRange[] | null {
-  // A stored speaker names the first cue, not every cue in its interval.
+  // A stored speaker names the first cue, not every cue in its interval. The quote may run on
+  // into the lines its Speaker goes on with, as when it was cited (quoteInCues).
+  const turn = goingOn();
   return quoteInCueWindow(
     units,
     quote,
-    (cue, _label, said) =>
-      cue.startMs >= time.from && cue.endMs <= time.to ? [{ start: 0, end: said.length }] : [],
+    (cue, label, said) => {
+      const cited = cue.startMs >= time.from && cue.endMs <= time.to;
+      const goesOn = !cited && turn.goesOn(cue, label);
+      turn.said(cited || goesOn ? cue : null, label);
+      return cited || goesOn ? [{ start: 0, end: said.length, ...(goesOn && { goesOn }) }] : [];
+    },
     matching,
     accepted,
   );
 }
 
+/** Of a cue's words, a stretch to look in; `goesOn`: only as the rest of a quote cited before it. */
+type CueStretch = TextRange & { goesOn?: boolean };
+
 /**
  * The quote in the stretches of cues `selected` picks: of each cue's words (`said`), the ranges
- * it gives, those next to each other read as one.
+ * it gives, those next to each other read as one. A quote must start in a stretch that isn't one
+ * that `goesOn`, and its ranges end with that stretch's cited words, the place a Citation keeps.
  */
 function quoteInCueWindow(
   units: readonly PageText[],
@@ -411,12 +462,14 @@ function quoteInCueWindow(
     cue: { startMs: number; endMs: number },
     speaker: string | null,
     said: string,
-  ) => readonly TextRange[],
+  ) => readonly CueStretch[],
   matching: Matching & { unique?: boolean },
   accepted?: (ranges: readonly TextRange[]) => boolean,
 ): TextRange[] | null {
   const { text, starts } = joinUnits(units);
-  const spans: TextRange[] = [];
+  const spans: (TextRange & { cited: TextRange[] })[] = [];
+  const joined = (before: TextRange | undefined, start: number) =>
+    before !== undefined && text.slice(before.end, start).trim() === "";
   units.forEach((unit, index) => {
     if (unit.kind !== "cues") return;
     for (const [at, anchor] of (unit.anchors ?? []).entries()) {
@@ -427,8 +480,13 @@ function quoteInCueWindow(
         const start = (starts[index] ?? 0) + anchor.start + range.start;
         const end = (starts[index] ?? 0) + anchor.start + range.end;
         const previous = spans.at(-1);
-        if (previous && text.slice(previous.end, start).trim() === "") previous.end = end;
-        else spans.push({ start, end });
+        if (previous && joined(previous, start)) previous.end = end;
+        else spans.push({ start, end, cited: [] });
+        const span = spans.at(-1) as (typeof spans)[number];
+        if (range.goesOn) continue;
+        const cited = span.cited.at(-1);
+        if (cited && joined(cited, start)) cited.end = end;
+        else span.cited.push({ start, end });
       }
     }
   });
@@ -437,10 +495,30 @@ function quoteInCueWindow(
     const part = text.slice(span.start, span.end);
     const absolute = (ranges: readonly TextRange[]) =>
       ranges.map((range) => ({ start: span.start + range.start, end: span.start + range.end }));
+    const whole = span.cited[0];
+    const goesOn = !(
+      span.cited.length === 1 &&
+      whole?.start === span.start &&
+      whole.end === span.end
+    );
+    // Of a quote that runs on past its cited words, the part in them.
+    const cited = (ranges: readonly TextRange[]): TextRange[] | null => {
+      const head = ranges[0];
+      const within =
+        head && span.cited.find((each) => each.start <= head.start && head.start < each.end);
+      if (!within) return null;
+      return ranges
+        .filter((range) => range.start < within.end)
+        .map((range) => ({ start: range.start, end: Math.min(range.end, within.end) }));
+    };
+    const keep = (ranges: readonly TextRange[]) => {
+      const kept = goesOn ? cited(ranges) : ranges;
+      return kept !== null && (!accepted || accepted(kept));
+    };
     const options = {
       ...matching,
-      ...(accepted && {
-        acceptMatch: (ranges: readonly TextRange[]) => accepted(absolute(ranges)),
+      ...((accepted || goesOn) && {
+        acceptMatch: (ranges: readonly TextRange[]) => keep(absolute(ranges)),
       }),
     };
     const ranges = findQuote(part, quote, { ...options, unique: false });
@@ -448,7 +526,7 @@ function quoteInCueWindow(
     if (matching.unique && (found || !findQuote(part, quote, { ...options, unique: true }))) {
       return null;
     }
-    found = absolute(ranges);
+    found = goesOn ? cited(absolute(ranges)) : absolute(ranges);
     if (!matching.unique) return found;
   }
   return found;

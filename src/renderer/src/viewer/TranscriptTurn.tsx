@@ -1,8 +1,7 @@
 import { Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { Document, TranscriptSpeakers } from "../../../core/api";
-import type { Cue } from "../../../core/documents/formats/vtt";
 import { clockTime, paddedClockTime } from "../../../shared/clock";
-import { type LinePart, shownSpeaker, type TranscriptLine } from "../../../shared/speakers";
+import { shownSpeaker, type TranscriptLine } from "../../../shared/speakers";
 import { joinsUnspaced } from "../../../shared/transcriptTurns";
 import { atTime } from "../../../shared/wordTimes";
 import { PlusLineIcon } from "../components/lineIcons";
@@ -10,17 +9,7 @@ import { SpeakerMenu } from "../components/meetings/SpeakerMenu";
 import { useT } from "../i18n";
 import type { SpeakersStep } from "../store";
 import { useTranscriptPlayer } from "../transcriptPlayer";
-import type { WordPiece } from "./transcriptWords";
-
-/** A line as the Transcript shows it: a file's line, or a part of one the User split (#138). */
-export interface PartRow {
-  /** Names it: two lines can start together, so its start alone doesn't. */
-  id: string;
-  part: LinePart;
-  /** Its file's line. */
-  cue: Cue;
-  pieces: WordPiece[];
-}
+import { type PartRow, type TurnRow, turnLinesOf } from "./transcriptTurnRows";
 
 /** Within this of the view's foot, the line being played is brought up. */
 const FOOT_PX = 70;
@@ -96,16 +85,6 @@ function PartWords({
   );
 }
 
-/** A turn as the Transcript shows it: one Speaker's lines, in paragraphs (../../../shared/transcriptTurns). */
-export interface TurnRow {
-  /** Names it while it grows: its first line's id. */
-  id: string;
-  startMs: number;
-  /** Its Speaker, as its lines have it now; null for lines that name no one. */
-  speaker: string | null;
-  paragraphs: PartRow[][];
-}
-
 /** Words being said, not yet final: at the end of the turn they go on, greyed. */
 export interface Saying {
   text: string;
@@ -179,9 +158,7 @@ export function TranscriptTurn({
     if (!aim) aimAt(row, element);
     else resting.current = setTimeout(() => aimAt(row, element), AIM_REST_MS);
   };
-  const turnLines = rows.flatMap((row) =>
-    row.cue.speaker === null ? [] : [{ startMs: row.part.startMs, label: row.part.label }],
-  );
+  const turnLines = turnLinesOf(turn);
   return (
     <li
       data-testid="transcript-turn"

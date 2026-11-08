@@ -1,3 +1,4 @@
+import { endsShortened } from "../../../shared/transcriptTurns";
 import { UNSPACED } from "./live";
 
 /**
@@ -11,19 +12,20 @@ export const CLAUSE_CUT_MS = 30_000;
 export const WORD_CUT_MS = 45_000;
 
 const CLOSING = /["'”’）)」』\]]+$/u;
+/** A piece that closes what comes before it: a quote or a bracket, with no space before it. */
+export const CLOSES = /^["'”’）)」』\]]/u;
 const SENTENCE_END = /[。！？!?…]$/u;
 const CLAUSE_END = /[，,；;：:、]$/u;
-const SHORTENED = /(?:^|[\s(])(?:mr|mrs|ms|dr|st|prof|vs|etc|e\.g|i\.e|no|jr|sr)\.$/iu;
 
 /**
  * Whether a line reading `text`, `ms` long, ends after its last word. A full stop ends it only once
  * the word it closes is whole (`whole`): a route of subword pieces knows that from the piece after
- * it ("3." of "3.5" isn't an end), and not after a shortened word ("Dr.").
+ * it ("3." of "3.5" isn't an end), and not after a shortened word ("Dr.", "U.S.").
  */
 export function endsAfter(text: string, ms: number, whole: boolean): boolean {
   const end = text.trimEnd().replace(CLOSING, "");
   if (SENTENCE_END.test(end)) return true;
-  if (whole && end.endsWith(".") && !SHORTENED.test(end)) return true;
+  if (whole && end.endsWith(".") && !endsShortened(end)) return true;
   return ms >= CLAUSE_CUT_MS && CLAUSE_END.test(end);
 }
 

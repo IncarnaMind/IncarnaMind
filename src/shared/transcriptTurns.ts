@@ -32,9 +32,18 @@ export const TURN_PAUSE_MS = 2000;
 export const PARAGRAPH_MS = 30_000;
 
 const SENTENCE_END = /[。！？.!?…]["'”’）)」』\]]*$/u;
+const CLOSING = /["'”’）)」』\]]+$/u;
+/** "U.S.", "a.m.", "e.g." and a few shortened words, whose full stop ends no sentence. */
+const SHORTENED =
+  /(?<!\p{Script=Latin})(?:(?:\p{Script=Latin}\.){2,}|(?:mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|inc|ltd|co|corp|fig|figs|approx|dept|no|vol|cf|al)\.)$/iu;
+
+/** Whether `text` ends with a shortened word's full stop ("U.S.", "Inc."), which ends no sentence. */
+export const endsShortened = (text: string): boolean =>
+  SHORTENED.test(text.trimEnd().replace(CLOSING, ""));
 
 /** Whether a line's words end a sentence: a paragraph may break after it, never inside one. */
-export const endsSentence = (text: string): boolean => SENTENCE_END.test(text.trimEnd());
+export const endsSentence = (text: string): boolean =>
+  SENTENCE_END.test(text.trimEnd()) && !endsShortened(text);
 
 /**
  * Turns of `lines`, in the order given: one Speaker's lines one after another, until someone else

@@ -7,7 +7,7 @@
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import { endsAfter, endsBefore, startsWord } from "./lineEnds";
+import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
 import { createLiveStream, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
@@ -88,10 +88,12 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     if (line && first) {
       const text = wordsOf(line.tokens);
       const ms = (line.tokens.at(-1) as Token).end - first.start;
-      // A full stop ends the sentence once the piece after it starts a word: not "3." of "3.5".
+      const wordStart = startsWord(text, token.text);
+      // A sentence ends at the piece after it, unless that piece closes it ("?" then "”") or goes
+      // on with its word ("3." then "5").
       if (
-        (/^\s/u.test(token.text) && endsAfter(text, ms, true)) ||
-        endsBefore(token.end - first.start, startsWord(text, token.text))
+        (!CLOSES.test(token.text) && endsAfter(text, ms, wordStart)) ||
+        endsBefore(token.end - first.start, wordStart)
       ) {
         close();
       }
@@ -99,8 +101,6 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     line ??= { id: nextId++, tokens: [], speaker: null };
     line.tokens.push(token);
     if (words && line.speaker === null) line.speaker = token.speaker;
-    const start = (line.tokens[0] as Token).start;
-    if (endsAfter(wordsOf(line.tokens), token.end - start, false)) close();
   }
 
   return createLiveStream(options, {

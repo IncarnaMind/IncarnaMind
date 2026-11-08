@@ -648,4 +648,108 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: absent, check: "not-found" }]);
   });
+
+  // A Transcript's line is a sentence: a quote of two runs on into the next line of the turn.
+  const said =
+    language === "en"
+      ? {
+          sign: "We sign on Friday.",
+          board: "Then the board reads it.",
+          agreed: "Agreed.",
+          more: "One more thing.",
+          paused: "After a long pause.",
+          old: "Lines saved before ran twenty seconds and",
+          cut: "cut a sentence in two.",
+        }
+      : {
+          sign: "我们周五签约。",
+          board: "然后董事会审阅。",
+          agreed: "同意。",
+          more: "还有一件事。",
+          paused: "停了很久之后。",
+          old: "以前保存的一行长达二十秒，",
+          cut: "把一句话切成两半。",
+        };
+  const joined = (a: string, b: string) => (language === "en" ? `${a} ${b}` : `${a}${b}`);
+  const turns = {
+    name: "Turns.vtt",
+    contents: writeVtt({
+      cues: [
+        { startMs: 0, endMs: 3000, text: said.sign, speaker: first },
+        { startMs: 3500, endMs: 6000, text: said.board, speaker: first },
+        { startMs: 6200, endMs: 7000, text: said.agreed, speaker: second },
+        { startMs: 20_000, endMs: 22_000, text: said.more, speaker: first },
+        { startMs: 24_000, endMs: 26_000, text: said.paused, speaker: first },
+        { startMs: 40_000, endMs: 60_000, text: said.old, speaker: second },
+        { startMs: 60_000, endMs: 65_000, text: said.cut, speaker: second },
+      ],
+      gaps: [],
+    }),
+  };
+  const quoteTurns = async (records: { location: string; quote: string }[]) => {
+    const setup = await setUpWithDocuments(
+      citingModel({
+        query: "Turns",
+        records: (passages) =>
+          records.map((record, index) => ({
+            marker: index + 1,
+            passage: passages[0]?.id,
+            ...record,
+          })),
+        answer: records.map((_, index) => `${answer.replace("[^1]", `[^${index + 1}]`)}`).join(" "),
+      }),
+      [turns],
+    );
+    await setup.core.updateSettings({ user: { language } });
+    const { answerId } = await askAndFinish(
+      setup.core,
+      setup.client,
+      setup.mind.id,
+      language === "en" ? "What was said?" : "说了什么？",
+    );
+    return { ...setup, citations: citationsIn(setup.client, answerId) };
+  };
+
+  // protects=a quote of two sentences cited at the first one's time is found when the second is the same Speaker's next line in the turn, and its Citation keeps the first line's time and Speaker, then and when it is checked again; fails_when=the fill drops a fact quoted across two sentences of one turn, or the Citation's time grows to take in the next line; no_claim=a time range the model names across both lines, which keeps both.
+  test(`a quote runs on into the same Speaker's next line of the turn, and keeps the line cited, ${language}`, async () => {
+    const { core, citations } = await quoteTurns([
+      { location: `0:00 ${first}`, quote: joined(said.sign, said.board) },
+    ]);
+    const cited = { kind: "time", from: 0, to: 3000, speaker: first };
+    expect(citations).toMatchObject([{ check: "found", location: cited }]);
+    const citation = citations[0];
+    if (!citation?.documentId) throw new Error("No Citation");
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          ...citation,
+          documentId: citation.documentId,
+          quote: joined(said.sign, said.board),
+          mindId: null,
+        }),
+      ),
+    ).toMatchObject({ check: "found", location: cited });
+  });
+
+  // protects=a quote never runs on into another Speaker's line, nor across a pause of two seconds or more, which starts another turn, nor starts in a line after the one cited; fails_when=a quote is found as said by one Speaker with words another said, or across a turn break; no_claim=the turns the view draws, which their own tests cover.
+  test(`a quote doesn't run on into another Speaker's line, across a pause, or from a later line, ${language}`, async () => {
+    const { citations } = await quoteTurns([
+      { location: `0:03 ${first}`, quote: joined(said.board, said.agreed) },
+      { location: `0:20 ${first}`, quote: joined(said.more, said.paused) },
+      { location: `0:00 ${first}`, quote: said.board },
+    ]);
+    expect(citations.map((citation) => citation.check)).toEqual([
+      "not-found",
+      "not-found",
+      "not-found",
+    ]);
+  });
+
+  // protects=on a Transcript saved before lines were sentences, a quote within one 20-second line keeps its check and its line's time, as before; fails_when=an old Citation moves or is lost; no_claim=a quote across an old 20-second cut, which now reads on as the same turn.
+  test(`an old 20-second line's quote keeps its check and time, ${language}`, async () => {
+    const { citations } = await quoteTurns([{ location: `0:40 ${second}`, quote: said.old }]);
+    expect(citations).toMatchObject([
+      { check: "found", location: { kind: "time", from: 40_000, to: 60_000, speaker: second } },
+    ]);
+  });
 }

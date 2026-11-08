@@ -11,7 +11,6 @@ import {
 } from "react";
 import type { Document, Meeting } from "../../../core/api";
 import {
-  type Cue,
   type GapReason,
   listedGaps,
   readVtt,
@@ -21,15 +20,8 @@ import {
 } from "../../../core/documents/formats/vtt";
 import { paddedClockTime } from "../../../shared/clock";
 import type { MessageKey } from "../../../shared/i18n";
-import {
-  type FileLine,
-  partsOf,
-  speakerName,
-  speakerOf,
-  type TranscriptLine,
-  withLineSplit,
-} from "../../../shared/speakers";
-import { TURN_PAUSE_MS, turnsOf } from "../../../shared/transcriptTurns";
+import { partsOf, speakerName, type TranscriptLine, withLineSplit } from "../../../shared/speakers";
+import { TURN_PAUSE_MS } from "../../../shared/transcriptTurns";
 import { timeAt } from "../../../shared/wordTimes";
 import { transcriptHandle, useHandle } from "../commands/handles";
 import { MicOffLineIcon } from "../components/lineIcons";
@@ -50,7 +42,8 @@ import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
-import { type PartRow, TranscriptTurn, type TurnRow } from "./TranscriptTurn";
+import { TranscriptTurn } from "./TranscriptTurn";
+import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
@@ -204,17 +197,6 @@ type Row =
 /** How long "Added to the note" shows in the header. */
 const ADDED_SHOWN_MS = 3000;
 
-/** Names a line: two can start together, so its start alone doesn't. */
-const lineId = (startMs: number, endMs: number, speaker: string | null) =>
-  `${startMs}-${endMs}-${speaker ?? ""}`;
-
-const fileLineOf = (cue: Cue): FileLine => ({
-  startMs: cue.startMs,
-  endMs: cue.endMs,
-  text: cue.text,
-  label: cue.speaker ?? "",
-});
-
 /** The word before or after the caret, or the line's first or last when it has none. */
 function wordBeside(
   list: HTMLElement,
@@ -324,38 +306,8 @@ function TranscriptContent({
     ],
     [transcript, microphonePausedAtMs],
   );
-  // A turn breaks at a gap in the Transcript, and around a line asking who speaks it: the answer
-  // is that line's alone.
-  const turns = useMemo<TurnRow[]>(
-    () =>
-      turnsOf(
-        parts.map((row, index) => {
-          const before = parts[index - 1];
-          return {
-            row,
-            startMs: row.part.startMs,
-            endMs: row.part.endMs,
-            text: row.part.text,
-            speaker:
-              row.cue.speaker === null
-                ? null
-                : speakerOf(speakers, row.part.startMs, row.part.label),
-            startsTurn:
-              rest?.line === row.id ||
-              (rest !== null && rest.line === before?.id) ||
-              (before !== undefined &&
-                breaks.some((at) => before.part.startMs < at && at <= row.part.startMs)),
-          };
-        }),
-      ).map((turn) => {
-        const paragraphs = turn.paragraphs.map((paragraph) => paragraph.map((line) => line.row));
-        return {
-          id: paragraphs[0]?.[0]?.id ?? "",
-          startMs: turn.startMs,
-          speaker: turn.speaker,
-          paragraphs,
-        };
-      }),
+  const turns = useMemo(
+    () => turnRowsOf(parts, speakers, breaks, rest?.line ?? null),
     [parts, speakers, breaks, rest],
   );
   const rows = useMemo<Row[]>(
