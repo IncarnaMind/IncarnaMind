@@ -44,3 +44,10 @@ $5 for all of this piece of work's runs, the built app's included, held by the r
 ## Reported, not gated
 
 Per model: the times to the first sign, to the notes going into the page and to the end; model calls and tokens; each language's counts; every item side by side; the load during the runs; and what each run cost.
+
+## Result (2026-11-08)
+
+It fails on both models, so no model is listed and the fill's request keeps thinking as an Answer does. On the meeting-notes set, first pass, judged by Claude Sonnet 5.5, $0.17 in all:
+
+- **DeepSeek V4.1 Flash:** the run stopped at its second item, `notes-en-say-records`, on a new false Supported: 15 sentences against today's 2 (8 of the 15 are lines that point to another, "— see above"; today's own first item had 17). Done 44.5 s and 48.8 s against today's 86.0 s and 99.0 s.
+- **Claude Haiku 5.5:** stopped by hand after 5 of 12 items. Without thinking, every item was judged wrong, citing only its overview, and one wrote nothing ("the model found nothing to add"); today's were right on 1, partly on 2 and wrong on 2. Done 4.2–8.9 s against today's 17.4–46.8 s.
