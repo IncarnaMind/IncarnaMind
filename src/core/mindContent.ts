@@ -15,6 +15,17 @@ import type { Database } from "./storage";
 /** The origin of the core's own changes to a Mind's document. */
 const CORE_ORIGIN = Symbol("the core");
 
+/** What is stored for a Mind doesn't decode as a Yjs document. */
+export class MindDamagedError extends Error {
+  constructor(
+    readonly mindId: string,
+    cause: unknown,
+  ) {
+    super(`Mind ${mindId}'s stored document can't be read.`, { cause });
+    this.name = "MindDamagedError";
+  }
+}
+
 export type MindContent = ReturnType<typeof createMindContent>;
 
 /**
@@ -142,18 +153,30 @@ export function createMindContent(
     loaded.delete(mindId);
   };
 
-  /** A new document holding what is stored for the Mind, and how many rows that took. */
-  const fromStorage = (mindId: string, deleted = false) => {
-    // A Mind waiting in Recently deleted has all its rows marked deleted.
-    const rows = db.all<{ data: Uint8Array }>(
+  /** What is stored for the Mind, in order. A Mind waiting in Recently deleted has all its rows marked deleted. */
+  const storedRows = (mindId: string, deleted: boolean) =>
+    db.all<{ data: Uint8Array }>(
       `SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS ${deleted ? "NOT " : ""}NULL ORDER BY rowid`,
       [mindId],
     );
+
+  const docOf = (rows: readonly { data: Uint8Array }[]): Y.Doc => {
     const doc = new Y.Doc();
-    doc.transact(() => {
-      for (const row of rows) Y.applyUpdate(doc, row.data);
-    });
-    return { doc, rows: rows.length };
+    try {
+      doc.transact(() => {
+        for (const row of rows) Y.applyUpdate(doc, row.data);
+      });
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    return doc;
+  };
+
+  /** A new document holding what is stored for the Mind, and how many rows that took. */
+  const fromStorage = (mindId: string, deleted = false) => {
+    const rows = storedRows(mindId, deleted);
+    return { doc: docOf(rows), rows: rows.length };
   };
 
   const peekStored = <T>(
@@ -473,10 +496,11 @@ export function createMindContent(
 
     /**
      * Changes the Mind's own choices as stored, for an upgrade the User didn't make: no edit is
-     * reported, so the Note keeps its edited time, its title and its index. A Mind in Recently
-     * deleted (`deletedAt`) gets the change stored deleted with it, so its restore brings it back.
-     * A Mind a newer version wrote is left as it is. Only for a Mind that isn't loaded, as when
-     * the core starts.
+     * reported, so the Note keeps its edited time and its title. A Mind in Recently deleted
+     * (`deletedAt`) gets the change stored deleted with it, so its restore brings it back. A Mind
+     * a newer version wrote is left as it is. Throws `MindDamagedError` when what is stored can't
+     * be read, and a failed write as it is. Only for a Mind that isn't loaded, as when the core
+     * starts.
      */
     upgradeStoredSettings(
       mindId: string,
@@ -484,7 +508,13 @@ export function createMindContent(
       change: (settings: Y.Map<unknown>) => void,
     ): void {
       if (loaded.has(mindId)) throw new Error(`Mind ${mindId} is loaded: change it as an edit.`);
-      const { doc } = fromStorage(mindId, deletedAt !== null);
+      const rows = storedRows(mindId, deletedAt !== null);
+      let doc: Y.Doc;
+      try {
+        doc = docOf(rows);
+      } catch (error) {
+        throw new MindDamagedError(mindId, error);
+      }
       try {
         if (contentVersionOf(doc) > CONTENT_SCHEMA_VERSION) return;
         const updates: Uint8Array[] = [];

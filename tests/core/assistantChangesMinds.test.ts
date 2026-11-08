@@ -6,6 +6,7 @@ import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { ownTextRemoved } from "../../src/shared/askedChanges";
 import { translate } from "../../src/shared/i18n";
+import { mindModelOf } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
   answerRequests,
@@ -336,6 +337,27 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
     ]);
+  });
+
+  // protects=a Note the assistant makes goes on with the model its Question was asked with (#2836); fails_when=it has no pick of its own and follows the Answers default; no_claim=which model a User should pick.
+  test("a new note made from a conversation goes on with the model it was asked with", async () => {
+    const model = toolModel(
+      { tool: "create_mind", input: { title: "Tide notes", content: "Tides come twice a day." } },
+      "Made “Tide notes”.",
+    );
+    const { core } = await setUp(model);
+    const [ollama] = await core.listChatProviders();
+    const other = { providerId: ollama?.id ?? "", modelId: "other-model" };
+
+    const answer = await ask(core, {
+      text: "Make a new note on tides",
+      mindId: null,
+      model: other,
+    });
+
+    const [change] = changesIn(answer);
+    expect(change).toMatchObject({ created: true });
+    expect(mindModelOf((await connectToMind(core, change?.mindId ?? "")).doc)).toEqual(other);
   });
 
   // protects=a Mind the assistant makes starts with its title as a Heading 1, written with the Mind and not a change to accept, and a draft that begins with a heading of its own gets no second one (#908, the owner's résumé summary); fails_when=the title is missing, waits as a change, or shows twice; no_claim=how a real model titles a page.

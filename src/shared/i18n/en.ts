@@ -3841,7 +3841,7 @@ export const en = {
   "composer.model.standIn.titleForNow":
     "{chosen}’s limit is used up. Questions go to {model} until it’s back.",
   "composer.model.menu": "This note uses",
-  "composer.model.menuNoNote": "With no note open, the assistant uses",
+  "composer.model.menuConversation": "This conversation uses",
   "composer.model.group.keys": "Your keys",
   "composer.model.group.plan": "Your plans",
   "composer.model.group.local": "On this computer",
@@ -3859,7 +3859,6 @@ export const en = {
   "composer.model.useForNew": "Use this for new notes too",
   "composer.model.default": "New notes use {model}, from {settings}.",
   "composer.model.defaultUnset": "New notes have no model yet. Choose one in {settings}.",
-  "composer.model.settingsPlace": "Settings › AI",
   "models.other.title": "Other models",
   "models.other.group.unknown": "Not known to IncarnaMind",
   "models.other.group.older": "Older models",

@@ -149,6 +149,11 @@ export interface CreateMindInput {
   kind?: MindKind;
   /** The Folder to make it in; none, or null: Not in a Folder. */
   folderId?: string | null;
+  /**
+   * The model it is made from a conversation with (#2836): it becomes the Note's own pick, unless
+   * it is the Answers default or its provider isn't saved.
+   */
+  model?: ChatModelChoice | null;
 }
 
 /**

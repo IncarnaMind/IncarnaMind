@@ -652,7 +652,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options.first()).toBeFocused();
     await expect(menu).not.toContainText("For this note’s Questions.");
     await expect(menu.getByTestId("composer-model-default")).toHaveText(
-      "New notes use fake-model, from Settings › AI.",
+      "New notes use fake-model, from Settings › Models.",
     );
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
@@ -718,7 +718,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在这台电脑上" })).toBeVisible();
     await expect(menuZh.getByTestId("composer-model-default")).toHaveText(
-      "新笔记使用 fake-model，在“设置 › AI”中设置。",
+      "新笔记使用 fake-model，在“设置 › 模型”中设置。",
     );
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");

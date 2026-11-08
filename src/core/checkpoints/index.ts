@@ -33,6 +33,7 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
+  MIND_COMMENTS_FIELD,
   MIND_CONTENT_FIELD,
   type MindComparison,
   RECENTLY_DELETED_DAYS,
@@ -142,6 +143,25 @@ function nameCitations(blocks: Y.XmlFragment): void {
   }
 }
 
+/** A value with every object's keys in order, so two documents holding the same read the same. */
+const ordered = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(ordered)
+    : isRecord(value)
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, ordered(value[key])]),
+        )
+      : value;
+
+/** What the User and the AI wrote in a Mind: its Blocks and its comments, not its own choices. */
+const writtenIn = (doc: Y.Doc): string =>
+  JSON.stringify([
+    doc.getXmlFragment(MIND_CONTENT_FIELD).toString(),
+    ordered(doc.getMap(MIND_COMMENTS_FIELD).toJSON()),
+  ]);
+
 export function createCheckpoints(options: CheckpointsOptions) {
   const { db, content, retention } = options;
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -193,6 +213,21 @@ export function createCheckpoints(options: CheckpointsOptions) {
     saved.byteLength > 0 && Y.equalSnapshots(Y.decodeSnapshot(saved), snapshot);
 
   /**
+   * Whether `doc` is as the newest Checkpoint `last` saved it, apart from the Mind's own choices
+   * (its model, its style): a change only to those is nothing History can show or restore (#2836).
+   */
+  const unchangedSince = (last: Row & { snapshot: Uint8Array }, doc: Y.Doc): boolean => {
+    if (sameState(last.snapshot, Y.snapshot(doc))) return true;
+    if (last.snapshot.byteLength === 0) return false;
+    const saved = docOfCheckpoint(last.mind_id, last.id);
+    try {
+      return writtenIn(saved) === writtenIn(doc);
+    } finally {
+      saved.destroy();
+    }
+  };
+
+  /**
    * Saves the Mind as it is, or for one sent as `file`, as it was when it was read for sending
    * (`sentState`): a sent one is always its own.
    */
@@ -210,7 +245,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
     try {
       const snapshot = Y.snapshot(doc);
       const last = newest(mindId);
-      if (last && file === null && sameState(last.snapshot, snapshot)) {
+      if (last && file === null && unchangedSince(last, doc)) {
         if (last.reason !== "idle" || reason === "idle") return toCheckpoint(last);
         // Now the state before an AI change: kept for good.
         db.run("UPDATE mind_checkpoints SET reason = ?, updated_at = ? WHERE id = ?", [
@@ -288,7 +323,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
       if (last) {
         const doc = docOf(content.storedState(mindId));
         try {
-          if (sameState(last.snapshot, Y.snapshot(doc))) current = last.id;
+          if (unchangedSince(last, doc)) current = last.id;
         } finally {
           doc.destroy();
         }

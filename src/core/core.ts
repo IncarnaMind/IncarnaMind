@@ -31,7 +31,7 @@ import {
   citationStyleIn,
   setCitationStyle,
 } from "../shared/mindCitationStyle";
-import { mindModelOf } from "../shared/mindModel";
+import { mindModelOf, sameModel, setMindModel } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
 import { fingerprintOfBlocks } from "../shared/mindState";
 import {
@@ -287,6 +287,7 @@ import {
   parseFolderChoice,
   parseIds,
   parseMindId,
+  parseMindModel,
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
@@ -2383,8 +2384,8 @@ export function createCore(adapters: CoreAdapters): Core {
         checkpoints.save(mindId, "accept");
       },
       now: () => adapters.now?.() ?? new Date(),
-      create: (title, folderId, headed) => {
-        const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
+      create: (title, folderId, headed, model) => {
+        const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed, model });
         return { id: mind.id, name: mindName(mind) || title };
       },
       discard: (mindId) => {
@@ -2603,7 +2604,8 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderId,
     filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
-    createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    createMind: (title, folderId, model) =>
+      makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { model }).id,
     moveMind: (mindId, folderId) => {
       if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
     },
@@ -2899,7 +2901,10 @@ export function createCore(adapters: CoreAdapters): Core {
    * empty line under it: a page has no title field (#908), and a Mind made with
    * its name reads as it did with one.
    */
-  const makeMind = (input: NewMind, { headed = false } = {}): Mind => {
+  const makeMind = (
+    input: NewMind,
+    { headed = false, model = null }: { headed?: boolean; model?: ChatModelChoice | null } = {},
+  ): Mind => {
     if (input.folderId !== null) library.folder(input.folderId);
     const mind = minds.create(input);
     if (headed) {
@@ -2922,6 +2927,16 @@ export function createCore(adapters: CoreAdapters): Core {
     const style = input.folderId === null ? null : library.citationStyle(input.folderId);
     if (style !== null) {
       content.editSettings(mind.id, (mindSettings) => setCitationStyle(mindSettings, style));
+    }
+    // A Note the assistant makes from a conversation goes on with its model (#2836).
+    if (
+      model !== null &&
+      chat.exists(model.providerId) &&
+      !sameModel(model, settings.get().user.chatModel)
+    ) {
+      content.editSettings(mind.id, (mindSettings) => {
+        if (mindSettings.doc) setMindModel(mindSettings.doc, model);
+      });
     }
     startInWritingStyle(mind.id);
     mindsChanged();
@@ -5485,7 +5500,10 @@ export function createCore(adapters: CoreAdapters): Core {
   // Async on purpose: the renderer reaches these over IPC, and a future hosted core may be remote.
   api = {
     createMind: async (input) =>
-      makeMind(parseCreateMindInput(input), { headed: isRecord(input) && input.headed === true }),
+      makeMind(parseCreateMindInput(input), {
+        headed: isRecord(input) && input.headed === true,
+        model: isRecord(input) ? parseMindModel(input.model) : null,
+      }),
     duplicateMind: async (mindId) => {
       const source = minds.get(mindId);
       const name = mindName(source) || translate(settings.get().language, "mind.untitled");

@@ -7,7 +7,7 @@
  * default (`modelInUse`).
  */
 import type * as Y from "yjs";
-import { type ChatModelChoice, MIND_SETTINGS_FIELD } from "../core/api";
+import { type ChatModelChoice, type ConversationMessage, MIND_SETTINGS_FIELD } from "../core/api";
 
 const MODEL_KEY = "model";
 
@@ -51,6 +51,17 @@ export function modelInUse(
 ): ChatModelChoice | null {
   const { own, fallback } = models;
   return own !== null && saved(own.providerId) ? own : fallback;
+}
+
+/**
+ * The model a Conversation goes on with: its last Question's, as it was asked (#2836). Null for a
+ * New chat, or when that Question was asked on the Answers default.
+ */
+export function conversationModelOf(
+  messages: readonly ConversationMessage[],
+): ChatModelChoice | null {
+  const last = messages.findLast((message) => message.kind === "question");
+  return last?.kind === "question" ? last.model : null;
 }
 
 /** Calls `listener` whenever the Mind's choice may have changed, here or from elsewhere. Returns how to stop. */

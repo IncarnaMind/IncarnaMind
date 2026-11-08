@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { type CreateMindInput, DEFAULT_MIND_KIND, type Mind, type MovedItem } from "./api";
+import {
+  type ChatModelChoice,
+  type CreateMindInput,
+  DEFAULT_MIND_KIND,
+  type Mind,
+  type MovedItem,
+} from "./api";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import { parseKind } from "./mindAccess";
 import type { Database } from "./storage";
@@ -48,7 +54,7 @@ export function parseFolderChoice(folderId: unknown): string | null {
 }
 
 /** What the store needs to make a Mind; making it `headed` is the core's (`makeMind`). */
-export type NewMind = Required<Omit<CreateMindInput, "headed">>;
+export type NewMind = Required<Omit<CreateMindInput, "headed" | "model">>;
 
 export function parseCreateMindInput(input: unknown): NewMind {
   if (input === undefined) return { title: "", kind: DEFAULT_MIND_KIND, folderId: null };
@@ -57,6 +63,21 @@ export function parseCreateMindInput(input: unknown): NewMind {
   const parsedKind = parseKind(kind);
   if (parsedKind === null) throw new InvalidInputError("That kind of Note isn't known.");
   return { title: parseTitle(title), kind: parsedKind, folderId: parseFolderChoice(folderId) };
+}
+
+/** `createMind`'s model: a choice of provider and model, or none. */
+export function parseMindModel(model: unknown): ChatModelChoice | null {
+  if (model === undefined || model === null) return null;
+  if (
+    !isRecord(model) ||
+    typeof model.providerId !== "string" ||
+    model.providerId === "" ||
+    typeof model.modelId !== "string" ||
+    model.modelId === ""
+  ) {
+    throw new InvalidInputError("A Note's model must name its provider and model.");
+  }
+  return { providerId: model.providerId, modelId: model.modelId };
 }
 
 /** A list of ids, each once, in order. */

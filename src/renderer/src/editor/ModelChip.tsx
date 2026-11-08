@@ -24,6 +24,7 @@ import { chooseModel, setAnswersModel, useAnswersModel, useModelInUse } from "..
 import { useModelMenuRequests } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import { usePlanStandIn } from "../planLimits";
+import { type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
 import { untestedHintKey } from "../untestedModels";
 import { ChevronDownSmallIcon } from "./icons";
@@ -62,6 +63,9 @@ const VIA: Record<ModelGroup, MessageKey> = {
   cloud: "composer.model.via.cloud",
 };
 
+/** Where Settings sets the Answers default the foot names: by this page's own label (#2835 renames it). */
+const ANSWERS_PAGE: SettingsPage = "models";
+
 /** The model a run in the Mind uses: the one in use, else the default the composer shows. */
 export function useRunModel(doc: Y.Doc | null): {
   providerId: string | null;
@@ -82,7 +86,7 @@ export function useRunModel(doc: Y.Doc | null): {
  * Mind's next Questions are asked with, and a menu to choose another, grouped
  * by who pays (your plans, your keys, this computer), with a hint only on a
  * model that needs one. A choice is for this Mind only (`chooseModel`); with no
- * Mind in focus, for the assistant in this window. "Use this for new notes too"
+ * Mind in focus, for the conversation the assistant shows. "Use this for new notes too"
  * makes the model in use the Answers default, which the foot names: a Mind with
  * no pick of its own follows it (`modelInUse`, #2836). Until the User is
  * signed in with ChatGPT, the plans' group offers "Continue with ChatGPT";
@@ -187,7 +191,7 @@ export function ModelChip({
   const label = via
     ? t("composer.model.label", { model: fullText, via })
     : t("composer.model.labelPlain", { model: fullText });
-  const heading = t(doc ? "composer.model.menu" : "composer.model.menuNoNote");
+  const heading = t(doc ? "composer.model.menu" : "composer.model.menuConversation");
   const isDefault = sameModel(current, newMindModel);
 
   const choose = (choice: ChatModelChoice) => {
@@ -400,7 +404,7 @@ export function ModelChip({
                   }
                   onOpenSettings={() => {
                     menu.close();
-                    openSettings("models");
+                    openSettings(ANSWERS_PAGE, "chat-model");
                   }}
                 />
               </p>
@@ -468,8 +472,8 @@ function ModelItem({
 }
 
 /**
- * What new Notes start on, "from Settings › AI", which opens Settings: the words around the link
- * come from one sentence, so the link sits where each language puts it.
+ * What new Notes start on, "from Settings › {page}", which opens that page: the words around the
+ * link come from one sentence, so the link sits where each language puts it.
  */
 function DefaultLine({ model, onOpenSettings }: { model: string | null; onOpenSettings(): void }) {
   const t = useT();
@@ -488,7 +492,7 @@ function DefaultLine({ model, onOpenSettings }: { model: string | null; onOpenSe
         onClick={onOpenSettings}
         className="model-menu-link"
       >
-        {t("composer.model.settingsPlace")}
+        {t("settings.title")} › {t(settingsPageLabels[ANSWERS_PAGE])}
       </button>
       {after}
     </>

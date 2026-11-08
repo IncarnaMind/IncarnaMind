@@ -161,7 +161,7 @@ test("a model picked in a note's chip is for that note only: a new note and an o
   await expect(menu).toHaveAccessibleName("This note uses");
   await expect(menu.getByTestId("composer-model-heading")).toHaveText("This note uses");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Sonnet 5.5, from Settings › AI.",
+    "New notes use Claude Sonnet 5.5, from Settings › Models.",
   );
   // The note already uses the Answers default: there is nothing to set.
   await expect(menu.getByTestId("composer-model-for-new")).toHaveAttribute("aria-disabled", "true");
@@ -204,7 +204,7 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   await pointAndClick(window, forNew);
   // The menu stays, so the foot says at once what new notes now use.
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Haiku 5.5, from Settings › AI.",
+    "New notes use Claude Haiku 5.5, from Settings › Models.",
   );
   await expect(forNew).toHaveAttribute("aria-disabled", "true");
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: HAIKU });
@@ -233,12 +233,12 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   menu = await openMenu(window);
   await expect(menu).toHaveAccessibleName("这篇笔记使用");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Haiku 5.5，在“设置 › AI”中设置。",
+    "新笔记使用 Claude Haiku 5.5，在“设置 › 模型”中设置。",
   );
   await expect(forNew).toHaveText("新笔记也用这个");
   await pointAndClick(window, forNew);
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Opus 5.5，在“设置 › AI”中设置。",
+    "新笔记使用 Claude Opus 5.5，在“设置 › 模型”中设置。",
   );
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: OPUS });
   await closeMenu(window);
@@ -270,7 +270,7 @@ test("the menu groups models by who pays: your plans, your keys, on this compute
     await expect(groups.nth(2).getByTestId("composer-model-option")).toHaveText([/fake-model/]);
     // The menu ends with what new notes use, in view however long the list: only the models scroll.
     const last = menu.getByRole("menuitem").last();
-    await expect(last).toHaveText("Settings › AI");
+    await expect(last).toHaveText("Settings › Models");
     await closeMenu(window);
     if (!running) throw new Error("The app isn't running.");
     await setWindowSize(running, window, 1100, 640);
@@ -313,29 +313,49 @@ test("when a provider is removed, a note on its model falls back to the Answers 
   }
 });
 
-test("with no note open, the assistant uses the Answers default; a pick there holds in this window only, never for notes", async () => {
+test("with no note in view the chip picks for the conversation: its Questions keep it through History and a restart, a New chat starts on the Answers default, and a note added from it goes on with it", async () => {
   const ollama = await ollamaListing(["fake-model", "other-model"]);
   try {
     let window = await start();
     await connectOllama(window, ollama.url);
-
-    await newMind(window);
     await pointAndClick(window, window.getByTestId("open-library"));
     await expect(chipOf(window)).toHaveText("fake-model");
     const menu = await openMenu(window);
-    await expect(menu).toHaveAccessibleName("With no note open, the assistant uses");
+    await expect(menu).toHaveAccessibleName("This conversation uses");
+    await expect(menu.getByTestId("composer-model-heading")).toHaveText("This conversation uses");
     await closeMenu(window);
     await chooseInChip(window, "other-model");
     await expect(chipOf(window)).toHaveText("other-model");
-    const answer = await askInAssistant(window, "Which model answers?");
+    const question = "Which model answers?";
+    const answer = await askInAssistant(window, question);
     await expect(await openSteps(window, answer)).toContainText("Answered by other-model");
 
-    await newMind(window);
+    // A New chat starts on the Answers default; the conversation, reopened from History, goes on.
+    await pointAndClick(window, window.getByTestId("assistant-new-chat"));
     await expect(chipOf(window)).toHaveText("fake-model");
+    await pointAndClick(window, window.getByTestId("assistant-title"));
+    await pointAndClick(
+      window,
+      window.getByTestId("assistant-history-row").filter({ hasText: "Which model answers" }),
+    );
+    await expect(chipOf(window)).toHaveText("other-model");
+    await setLanguage(window, "zh-CN");
+    await openMenu(window);
+    await expect(menu.getByTestId("composer-model-heading")).toHaveText("这个对话使用");
+    await closeMenu(window);
     await quit();
 
     window = await start();
     await pointAndClick(window, window.getByTestId("open-library"));
+    await expect(chipOf(window)).toHaveText("other-model");
+    const again = await askInAssistant(window, "And now?");
+    await expect(await openSteps(window, again)).toContainText("由 other-model 回答");
+
+    // Written as a note, the Answer's model goes with it; a note made by hand doesn't take it.
+    await pointAndClick(window, again.getByTestId("answer-write-note"));
+    await expect(window.getByTestId("mind-list-item")).toHaveCount(1);
+    await expect(chipOf(window)).toHaveText("other-model");
+    await newMind(window);
     await expect(chipOf(window)).toHaveText("fake-model");
   } finally {
     ollama.server.close();

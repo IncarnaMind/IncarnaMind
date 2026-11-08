@@ -1,21 +1,18 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
-import { create } from "zustand";
 import type { ChatModelChoice } from "../../core/api";
 import { mindModelOf, modelInUse, observeMindModel, setMindModel } from "../../shared/mindModel";
+import { conversationModel, pickForConversation, useConversations } from "./conversations";
 import { isSaved, loadSavedProviders, useSavedProviders } from "./savedProviders";
 import { useAppStore } from "./store";
 
 /**
- * The model picked in the assistant's chip while no Note is in focus: it holds for this window
- * until it closes, and is never what a Note or a new Note uses (#2836).
+ * The model the User picked in the Mind, kept up to date; with no Mind, the one the assistant's
+ * conversation goes on with (`conversationModel`).
  */
-const useNoNotePick = create<{ choice: ChatModelChoice | null }>(() => ({ choice: null }));
-
-/** The model the User picked in the Mind, kept up to date; with no Mind, the assistant's pick here. */
 export function useOwnModel(doc: Y.Doc | null): ChatModelChoice | null {
   const [own, setOwn] = useState(() => (doc ? mindModelOf(doc) : null));
-  const noNote = useNoNotePick((state) => state.choice);
+  const noNote = useConversations(conversationModel);
   useEffect(() => {
     setOwn(doc ? mindModelOf(doc) : null);
     if (!doc) return;
@@ -45,17 +42,20 @@ export function useModelInUse(doc: Y.Doc | null): ChatModelChoice | null {
 export function modelInUseOf(doc: Y.Doc | null): ChatModelChoice | null {
   return modelInUse(
     {
-      own: doc ? mindModelOf(doc) : useNoNotePick.getState().choice,
+      own: doc ? mindModelOf(doc) : conversationModel(useConversations.getState()),
       fallback: useAppStore.getState().settings?.user.chatModel ?? null,
     },
     isSaved(useSavedProviders.getState().ids),
   );
 }
 
-/** A model picked in a composer's chip: for its Mind only, or with none, for the assistant here. */
+/**
+ * A model picked in a composer's chip: for its Mind only, or with none, for the conversation the
+ * assistant shows, whose next Question keeps it.
+ */
 export function chooseModel(doc: Y.Doc | null, choice: ChatModelChoice): void {
   if (doc) setMindModel(doc, choice);
-  else useNoNotePick.setState({ choice });
+  else pickForConversation(choice);
 }
 
 /** Makes `choice` the Answers default, which new Notes start on (Settings › Models, the chip). */
