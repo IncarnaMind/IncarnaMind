@@ -244,18 +244,9 @@ describe("What a reply says its Citations cover and don't", () => {
       "全体职工必须付款",
     ],
   ])(
-    "a repeated verdict replaces only the %s field it repeats",
-    (_language, earlier, tail, covered, uncovered) => {
-      expect(
-        readVerdict(`Verdict: supported\n${earlier}\nVerdict: supported\n${tail}`),
-      ).toMatchObject({
-        scope: "wider",
-        topic: "found",
-        roles: "same",
-        covered,
-        uncovered,
-        calculations: [],
-      });
+    "a repeated verdict that gives the %s field it repeats another value can't be read",
+    (_language, earlier, tail) => {
+      expect(readVerdict(`Verdict: supported\n${earlier}\nVerdict: supported\n${tail}`)).toBeNull();
     },
   );
 
@@ -272,21 +263,16 @@ describe("What a reply says its Citations cover and don't", () => {
       "范围：乙方，same\n主题：not found\n角色：same\n已涵盖：另一部分\n未涵盖：无",
       "另一部分",
     ],
-  ])("the latest actual %s field replacement wins", (_language, earlier, replacement, covered) => {
-    expect(
-      readVerdict(
-        `Verdict: unsupported\n${earlier}\n${replacement}\nVerdict: supported\nCalculation: none`,
-      ),
-    ).toMatchObject({
-      verdict: "supported",
-      scope: "same",
-      topic: "not found",
-      roles: "same",
-      covered,
-      uncovered: null,
-      calculations: [],
-    });
-  });
+  ])(
+    "a %s reply that replaces its verdict and its fields with others can't be read",
+    (_language, earlier, replacement) => {
+      expect(
+        readVerdict(
+          `Verdict: unsupported\n${earlier}\n${replacement}\nVerdict: supported\nCalculation: none`,
+        ),
+      ).toBeNull();
+    },
+  );
 
   test("a repeated verdict replaces calculation declarations without dropping other fields", () => {
     expect(
@@ -349,10 +335,10 @@ describe("What a reply says its Citations cover and don't", () => {
     expect(rolesOf("Roles: none, same")).toBe("same");
     expect(rolesOf("Roles: the Tenant pays")).toBeNull();
     expect(
-      rolesOf(
-        "Roles: the Tenant may pay / the Tenant may pay, same\nRoles: the Tenant must pay / the Tenant may pay, differs",
+      readVerdict(
+        "Verdict: supported\nRoles: the Tenant may pay / the Tenant may pay, same\nRoles: the Tenant must pay / the Tenant may pay, differs\n文件这样写 [^1]。",
       ),
-    ).toBe("differs");
+    ).toBeNull();
     expect(readVerdict("Verdict: supported\nIt says so.")?.roles).toBeNull();
     expect(
       readVerdict('{"verdict": "supported", "says": "Yes.", "roles": "differs"}'),

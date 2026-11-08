@@ -60,7 +60,7 @@ async function ask(retry?: object | string, cut = false) {
         : [],
   };
   const model = scriptedModel((call) =>
-    call.system.startsWith("You fix the calculated figures")
+    call.question === "figure-retry"
       ? {
           text: typeof retry === "string" ? retry : retry ? JSON.stringify(retry) : "I can't.",
           cutOff: cut,

@@ -20,6 +20,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import {
+  comparesAQuote,
   type GenerateCall,
   type ModelCall,
   scriptedModel,
@@ -704,8 +705,8 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
     },
     {
       generate(call) {
-        if (call.system.startsWith("Compare a sentence")) judged.push(call);
-        if (call.system.startsWith("You checked a sentence")) {
+        if (comparesAQuote(call)) judged.push(call);
+        if (call.question === "evidence" || call.question === "covered-evidence") {
           evidence.push(call);
           const quote =
             CASES[/<sentence>\n(.*)\n<\/sentence>/.exec(call.prompt)?.[1] ?? ""]?.quotes[0];
@@ -888,7 +889,7 @@ interface Shape {
   reason?: string;
 }
 
-describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never recorded is asked for, and only a reply with no verdict is a refusal (#2184)", () => {
+describe("Claude Haiku 5.5's replies: a quote it never recorded is asked for, and only a reply with no verdict is a refusal (#2184)", () => {
   test.each<Shape>([
     {
       sentence: "Every month the Company pays the Employee a rent of 950.",
@@ -904,20 +905,6 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
       figures: ["unsupported"],
       asks: 0,
       evidence: 1,
-    },
-    {
-      sentence: "甲方每月向乙方支付租金人民币一千五百元。",
-      state: "contradicted",
-      figures: ["unsupported"],
-      asks: 0,
-      evidence: 1,
-    },
-    {
-      sentence: "The salary is 61,500 a year.",
-      state: "supported",
-      figures: ["supported"],
-      asks: 0,
-      evidence: 0,
     },
     {
       sentence: "The Company pays the Employee 950 per month in rent.",
@@ -983,6 +970,14 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
     expect(checked.asked).toHaveLength(asks);
     expect(checked.evidence).toHaveLength(evidence);
   });
+
+  // protects=a reply that corrects its verdict gives two that differ, and is read as neither, whichever it ends on (#2817); fails_when=its last verdict is taken, Supported among them.
+  test.each(["甲方每月向乙方支付租金人民币一千五百元。", "The salary is 61,500 a year."])(
+    "%s: a reply that corrects its verdict is Not checked",
+    async (sentence) => {
+      expect((await checkSentence(sentence)).check).toMatchObject({ state: "not-checked" });
+    },
+  );
 });
 
 test.each<Shape>([

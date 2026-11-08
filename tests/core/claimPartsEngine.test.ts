@@ -5,7 +5,12 @@ import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt"
 import { wholeNumberWords } from "../../src/shared/numberWords";
 import { listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
+import {
+  comparesAQuote,
+  type GenerateCall,
+  type ModelCall,
+  scriptedModel,
+} from "../helpers/models";
 
 type Part = { kind: "fact" | "opinion"; text: string };
 type Outcome = {
@@ -126,7 +131,7 @@ async function check(
     },
     {
       generate: (call) => {
-        if (call.system.startsWith("You sort the sentences")) {
+        if (call.question === "find-claims") {
           sorts.push(call);
           return {
             text: JSON.stringify({
@@ -137,7 +142,7 @@ async function check(
             }),
           };
         }
-        if (call.system.startsWith("Compare a sentence")) {
+        if (comparesAQuote(call)) {
           judgements.push(call.system);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
@@ -145,7 +150,7 @@ async function check(
             text: outcomes[target]?.judge?.(quote) ?? outcomes[target]?.judgement ?? "neither",
           };
         }
-        if (call.system.startsWith("Your last check of this sentence")) {
+        if (call.question === "recheck") {
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           looks.set(target, (looks.get(target) ?? 0) + 1);
           return {
@@ -154,7 +159,7 @@ async function check(
               `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
           };
         }
-        if (call.system.startsWith("You checked a sentence")) {
+        if (call.question === "evidence" || call.question === "covered-evidence") {
           recoveries.push(call);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           const passages = [
@@ -169,6 +174,7 @@ async function check(
                 citations: records.map(({ marker, quote }) => ({
                   marker,
                   passage: passages.find((passage) => passage[2]?.includes(quote))?.[1] ?? "P999",
+                  location: null,
                   quote,
                 })),
               }),
@@ -1005,7 +1011,7 @@ describe("literal sentence parts", () => {
     const explained = judged(
       (
         await run(
-          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / the redesign, differs\nThe Document gives it another way.\nEvidence: [1]`,
+          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / the redesign, differs\nTime: none / none, same\nThe Document gives it another way.\nEvidence: [1]`,
         )
       ).result,
     );
@@ -1086,7 +1092,12 @@ describe("literal sentence parts", () => {
       evidence: "Evidence: none",
       ends: { verdict: "not-checked", reason: "malformed" },
     },
-    { name: "Scope wider", scope: "Scope: staff, wider", ends: { verdict: "unsupported" } },
+    {
+      name: "Scope wider",
+      scope: "Scope: staff, wider",
+      time: "Time: none / none, same\nThe Document states it.",
+      ends: { verdict: "unsupported" },
+    },
     {
       name: "Time differs",
       time: "Time: has closed / will close, differs",
@@ -2139,7 +2150,7 @@ describe("structural part and declared-count readers", () => {
     ]);
     expect(readVerdict("Verdict: supported\nCalculation: [1]")?.calculations).toEqual(["[1]"]);
     const quote = "The Source prints [^1] and [=2] literally.";
-    expect(readEvidence(JSON.stringify({ passage: "P1", quote }))?.quote).toBe(quote);
+    expect(readEvidence({ passage: "P1", location: null, quote })?.quote).toBe(quote);
     expect(
       readClaimParts(
         JSON.stringify({ sentences: [{ number: 1, parts: [{ kind: "fact", text: quote }] }] }),

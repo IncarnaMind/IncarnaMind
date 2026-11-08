@@ -416,7 +416,7 @@ function writingItsRecord(sentence: string, given: string, second?: "alone" | "l
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You checked a sentence"))
+          if (!(call.question === "evidence" || call.question === "covered-evidence"))
             return checkGenerate({ [sentence]: { judgement: "same" } })(call);
           const passages = [
             ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),

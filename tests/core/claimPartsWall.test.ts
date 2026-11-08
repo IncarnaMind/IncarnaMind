@@ -85,8 +85,7 @@ async function setUp(example: Example) {
     },
     {
       generate(call) {
-        if (!call.system.startsWith("You sort the sentences"))
-          return { text: JSON.stringify({ passage: null }) };
+        if (call.question !== "find-claims") return { text: JSON.stringify({ passage: null }) };
         const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
           number,
           parts: factsIn(example, text),

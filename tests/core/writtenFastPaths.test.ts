@@ -8,7 +8,6 @@ import {
   type FastPathDependencies,
   type FirstLook,
   holdsFigure,
-  QUICK_CHECK_INSTRUCTIONS,
 } from "../../src/core/answers/checks/fastPaths";
 import type { CitationSource } from "../../src/core/documents";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -114,7 +113,7 @@ async function write(writing: Writing) {
     },
     {
       generate: (call) => {
-        if (call.system !== QUICK_CHECK_INSTRUCTIONS) return generate(call);
+        if (call.question !== "quick-check") return generate(call);
         quickCalls.push(call.prompt);
         // A reply that never comes.
         if (writing.quick === undefined) return { text: "", until: new Promise(() => undefined) };

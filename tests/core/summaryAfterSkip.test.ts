@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { CITATION_NODE, type ConversationAnswer, type Core, type MindChange } from "../../src/core";
-import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { askAssistant, mindCalls } from "../helpers/assistant";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
@@ -93,7 +92,7 @@ function afterSkip(
   const model = scriptedModel(
     (call): ScriptedReply => {
       if (call.json) {
-        if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
+        if (call.question === "unmarked-quotes") asked.push(call);
         return { text: JSON.stringify({ citations: givesNone ? [] : citationsAsked(call) }) };
       }
       const results = (tool: string) => call.results.filter((each) => each.tool === tool);
@@ -244,7 +243,7 @@ describe("A summary written after a skipped question cites each Document (#1415)
     const model = scriptedModel(
       (call): ScriptedReply => {
         if (call.json) {
-          if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
+          if (call.question === "unmarked-quotes") asked.push(call);
           return { text: JSON.stringify({ citations: [] }) };
         }
         if (searches && !call.results.some((each) => each.tool === "search_documents")) {

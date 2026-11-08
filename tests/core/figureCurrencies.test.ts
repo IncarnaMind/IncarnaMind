@@ -1276,7 +1276,7 @@ describe("Checking a worked-out figure", { timeout: 30_000 }, () => {
     };
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) =>
-        call.system.startsWith("You sort the sentences")
+        call.question === "find-claims"
           ? {
               text: JSON.stringify({
                 sentences: listedSentences(call.prompt).map(({ number }) => ({

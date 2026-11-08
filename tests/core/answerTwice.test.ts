@@ -3,7 +3,6 @@
  * ends when the records are all taken, and keeps one copy when they weren't.
  */
 import { describe, expect, test } from "vitest";
-import { WORKING_TEXT_INSTRUCTIONS } from "../../src/core/answers/workingText";
 import { askAndFinish, citationsIn, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import type { MindClient } from "../helpers/mindClient";
 import { answerIn } from "../helpers/minds";
@@ -29,7 +28,7 @@ const WRITES_THEN_CITES = { answerPaths: { writesThenCites: () => true } };
 const judging =
   (...parts: ("answer" | "working")[]) =>
   (call: GenerateCall): GeneratedReply =>
-    call.system === WORKING_TEXT_INSTRUCTIONS ? { text: JSON.stringify({ parts }) } : { text: "" };
+    call.question === "working-text" ? { text: JSON.stringify({ parts }) } : { text: "" };
 
 /** A model that searches, then writes its Answer and calls `cite` in one turn, as Claude Haiku 5.5 does. */
 function writesBesideCite(quotes: string[]) {

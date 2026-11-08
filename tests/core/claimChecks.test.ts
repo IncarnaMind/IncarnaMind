@@ -244,12 +244,21 @@ describe("Check against Documents", () => {
     "P1 is about spring tides, not penguins.\n\nVerdict: unsupported",
     "Unsupported. No Passage mentions penguins.",
     '{"verdict": "unsupported"}',
-    "Verdict: contradicted\nP1 is about another harbour, so it doesn't bear on this.\nVerdict: unsupported",
   ])("reads the verdict however the model words it: %j", async (reply) => {
     const plans = { [UNSUPPORTED]: { reply: { text: reply } } };
     const { core, client, check } = await mindWith([UNSUPPORTED], checkingModel(plans));
     await check();
     expect((await shownChecks(core, client))[0]?.shown).toEqual({ state: "unsupported" });
+  });
+
+  // protects=a reply that gives two verdicts that differ is read as neither: Not checked, never the last one's (#2817); fails_when=its last verdict is taken.
+  test("a reply that changes its verdict is Not checked", async () => {
+    const reply =
+      "Verdict: contradicted\nP1 is about another harbour, so it doesn't bear on this.\nVerdict: unsupported";
+    const plans = { [UNSUPPORTED]: { reply: { text: reply } } };
+    const { core, client, check } = await mindWith([UNSUPPORTED], checkingModel(plans));
+    await check();
+    expect((await shownChecks(core, client))[0]?.shown).toMatchObject({ state: "not-checked" });
   });
 
   test("a sentence holding a change still waiting is left out and counted; with only such sentences, nothing is sent", async () => {
@@ -2635,7 +2644,11 @@ describe("When the model can't check a sentence", () => {
     const model = checkingModel(
       plans,
       [],
-      JSON.stringify({ passage: "P1", quote: "Spring tides happen at new moon and at full moon" }),
+      JSON.stringify({
+        passage: "P1",
+        location: null,
+        quote: "Spring tides happen at new moon and at full moon",
+      }),
     );
     const { core, client, check } = await mindWith([SUPPORTED], model);
 
@@ -2682,7 +2695,11 @@ describe("When the model can't check a sentence", () => {
         const plans: Record<string, Plan> = {
           [each.claim]: { verdict: "supported", says: "It says so.", judgement },
         };
-        const model = checkingModel(plans, [], JSON.stringify({ passage: "P1", quote }));
+        const model = checkingModel(
+          plans,
+          [],
+          JSON.stringify({ passage: "P1", location: null, quote }),
+        );
         const { core } = await setUpWithDocuments(model, [each.document]);
         core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
         await core.saveChatProvider({

@@ -217,7 +217,7 @@ function writingModel(
     },
     {
       generate: (call: GenerateCall) => {
-        if (call.system.startsWith("You sort the sentences")) {
+        if (call.question === "find-claims") {
           const listed = listedSentences(call.prompt);
           sent.push(...listed.map((each) => each.text));
           return {

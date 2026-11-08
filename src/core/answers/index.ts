@@ -198,7 +198,7 @@ import { messageReference } from "../references";
 import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
-import type { GateDecision } from "../runs/engine";
+import type { GateDecision, TokenUsage } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -322,6 +322,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { countingJudges } from "./judge";
 import {
   type LiveTranscript,
   listenedTokens,
@@ -1408,6 +1409,12 @@ export function createAnswers(options: AnswersOptions) {
       outputTokens: 0,
       cachedInputTokens: 0,
       cacheWriteTokens: 0,
+    };
+    const count = (more: TokenUsage) => {
+      usage.inputTokens += more.inputTokens ?? 0;
+      usage.outputTokens += more.outputTokens ?? 0;
+      usage.cachedInputTokens += more.cachedInputTokens ?? 0;
+      usage.cacheWriteTokens += more.cacheWriteTokens ?? 0;
     };
     const toolCalls: AnswerToolCall[] = [];
     // Its last Answer put in as it is ("make it a document") holds what that Answer covered.
@@ -3318,12 +3325,6 @@ export function createAnswers(options: AnswersOptions) {
                         signal: controller.signal,
                       }),
                     );
-                    if (checked.usage) {
-                      usage.inputTokens += checked.usage.inputTokens ?? 0;
-                      usage.outputTokens += checked.usage.outputTokens ?? 0;
-                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
-                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
-                    }
                     // Any claim that stands, and a check that couldn't run, name what the turn
                     // refused as the User's alone, whatever the judge took a claim to be about, so
                     // none of it reads as done (#2407). Only a verdict asks again.
@@ -3460,7 +3461,7 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-      for await (const event of engine.generate({
+      const events = engine.generate({
         instructions: (
           mode,
           {
@@ -3703,7 +3704,9 @@ export function createAnswers(options: AnswersOptions) {
             : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
-      })) {
+      });
+      // A judge's call counts here as it is made, the claimed-change check's too (./judge).
+      for await (const event of countingJudges(events, count)) {
         if (finished) break;
         switch (event.type) {
           case "support":
@@ -3751,10 +3754,7 @@ export function createAnswers(options: AnswersOptions) {
             writeSoon();
             break;
           case "usage":
-            usage.inputTokens += event.usage.inputTokens ?? 0;
-            usage.outputTokens += event.usage.outputTokens ?? 0;
-            usage.cachedInputTokens += event.usage.cachedInputTokens ?? 0;
-            usage.cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
+            count(event.usage);
             break;
           case "reasoning":
             // Raw chain of thought is dropped: only a provider's own summary is kept.

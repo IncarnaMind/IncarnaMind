@@ -11,7 +11,6 @@ import {
   type UsageEventFields,
   type UsageEventMessage,
 } from "../../src/core";
-import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { createEventHub } from "../../src/core/events";
 import { spendRange } from "../../src/core/modelSpend";
 import {
@@ -643,7 +642,7 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
     scriptedModel(() => ({ text: "OK" }), {
       // The Answer's change-claim check reads a JSON verdict; "OK" would be logged as unreadable.
       generate: (call) =>
-        call.system.includes(CLAIM_CHECK_INSTRUCTIONS) ? { text: '{"claims":[]}' } : { text: "OK" },
+        call.question === "claimed-changes" ? { text: '{"claims":[]}' } : { text: "OK" },
       judgesItsAnswers: true,
     });
 

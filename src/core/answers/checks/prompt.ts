@@ -13,7 +13,17 @@ import type {
   UnsupportedReason,
 } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
-import { asAttribute, asData, fromData, type PromptTag, tagged } from "../../promptData";
+import { asData, fromData, type PromptTag, tagged } from "../../promptData";
+import {
+  declines,
+  fieldsOf,
+  type JudgePart,
+  judgePrompt,
+  oneValue,
+  text,
+  textOrNull,
+  withoutThinking,
+} from "../judge";
 import { setAsideRowsMeaning } from "../prompt";
 import { LIBRARY_PART_RULES, PART_RULES, PARTS_LINE } from "./claims";
 
@@ -366,7 +376,7 @@ export const COVERED_EVIDENCE_INSTRUCTIONS = [
 ].join("\n");
 
 /** The request for that record: the sentence, the verdict, the part covered if asked for, and the Passages the check read. */
-export function evidencePrompt(input: {
+export function evidenceParts(input: {
   claim: string;
   verdict: ClaimVerdict;
   says: string | null;
@@ -374,23 +384,32 @@ export function evidencePrompt(input: {
   markers?: readonly number[];
   coverage?: ReadCoverage | null;
   passages: readonly { id: string; text: string }[];
-}): string {
+}): JudgePart[] {
   return [
-    tagged("sentence", input.claim.trim(), "", CHECK_TAGS),
-    asData(`Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}`, CHECK_TAGS),
-    ...(input.covered ? [asData(`Covered: ${input.covered}`, CHECK_TAGS)] : []),
+    { tag: "sentence", text: input.claim.trim() },
+    { text: `Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}` },
+    ...(input.covered ? [{ text: `Covered: ${input.covered}` }] : []),
     ...(input.markers?.length
       ? [
           `Missing Citation markers: ${JSON.stringify(input.markers)}`,
-          ...(input.coverage ? [`Your declared coverage: ${JSON.stringify(input.coverage)}`] : []),
+          ...(input.coverage
+            ? [{ text: `Your declared coverage: ${JSON.stringify(input.coverage)}` }]
+            : []),
         ]
       : []),
     "",
     "The Passages:",
-    ...input.passages.map((each) => tagged("passage", each.text, ` id="${each.id}"`, CHECK_TAGS)),
+    ...input.passages.map((each) => ({
+      tag: "passage" as const,
+      text: each.text,
+      attributes: { id: each.id },
+    })),
     ...meaningOf(input.passages.map((each) => each.text).join("\n")),
-  ].join("\n");
+  ];
 }
+
+export const evidencePrompt = (input: Parameters<typeof evidenceParts>[0]): string =>
+  judgePrompt(evidenceParts(input), CHECK_TAGS);
 
 /** What the marks of a sheet's set-aside rows mean, when the Passages shown have any. */
 const meaningOf = (passages: string): string[] =>
@@ -447,8 +466,7 @@ const RECORD_JUDGED =
  * changes its mind or hedges ("supported, partly") is never read as either word.
  */
 export function readRecordJudgement(reply: string): "supported" | "partly" | "unsupported" | null {
-  const lines = reply
-    .replace(THINKING, "")
+  const lines = withoutThinking(reply)
     .split("\n")
     .map((each) => each.trim())
     .filter((each) => each !== "");
@@ -504,38 +522,45 @@ export const partInstructions = (language: Language): string =>
     `Reply in two lines, in ${LANGUAGE_NAMES[language]}: "Covered: " and a short phrase for the part of the sentence the quote states ("the speed comparison"), then "Not covered: " and one of the same kind for the part of the sentence it doesn't state ("memory and robustness"). Name only what the sentence itself says, a few words each, with no explanation.`,
   ].join("\n");
 
-/** The two phrases of a reply to that request; null for one it doesn't give as a phrase. */
-export function readPart(reply: string): { covered: string | null; uncovered: string | null } {
-  const lines = reply
-    .replace(THINKING, "")
+/**
+ * The two phrases of a reply to that request, each on its one line; null unless it gives both, each
+ * once, as a phrase.
+ */
+export function readPart(reply: string): { covered: string; uncovered: string } | null {
+  const lines = withoutThinking(reply)
     .split("\n")
     .map((line) => line.trim());
   const phrase = (label: RegExp) =>
-    phraseOf(lines.map((line) => label.exec(line)?.[1]).find(Boolean));
-  return { covered: phrase(COVERED), uncovered: phrase(NOT_COVERED) };
+    oneValue(lines.flatMap((line) => label.exec(line)?.[1] ?? []).map(phraseOf));
+  const covered = phrase(COVERED);
+  const uncovered = phrase(NOT_COVERED);
+  return covered && uncovered ? { covered, uncovered } : null;
 }
 
 /** The request to confirm a contradiction: the sentence, the quote, and the Passage it is in. */
-export function confirmPrompt(input: {
+export function confirmParts(input: {
   claim: string;
   quote: string;
   passage: string;
   quantity?: { chars: string; start: number; end: number };
-}): string {
+}): JudgePart[] {
   return [
-    tagged("sentence", input.claim.trim(), "", CHECK_TAGS),
-    tagged("quote", input.quote.trim(), "", CHECK_TAGS),
+    { tag: "sentence", text: input.claim.trim() },
+    { tag: "quote", text: input.quote.trim() },
     "The Passage it is quoted from, for what its words refer to:",
-    tagged("passage", input.passage.trim(), "", CHECK_TAGS),
+    { tag: "passage", text: input.passage.trim() },
     ...meaningOf(input.passage),
     ...(input.quantity
       ? [
-          `Quantity to confirm: ${JSON.stringify(input.quantity)}`,
+          { text: `Quantity to confirm: ${JSON.stringify(input.quantity)}` },
           "Compare only what this quantity measures in the sentence, keeping its subject, period and unit. Does the quote state it as that same quantity? Do not work it out from other numbers. A matching addend is not a stated total. Other quantities in the sentence are checked separately.",
         ]
       : []),
-  ].join("\n");
+  ];
 }
+
+export const confirmPrompt = (input: Parameters<typeof confirmParts>[0]): string =>
+  judgePrompt(confirmParts(input), CHECK_TAGS);
 
 /** The judgement in a reply to any of those requests, read as `judgedWord` reads it. */
 export function readJudgement(reply: string): "conflict" | "same" | "neither" | null {
@@ -571,24 +596,26 @@ export const STRICT_PRESENCE_INSTRUCTIONS = [
  * with its Document's name, without which a staff handbook's dog contradicted a lease's "nothing
  * about pets" (#1443).
  */
-export function presencePrompt(input: {
+export function presenceParts(input: {
   claim: string;
   absent: string | null;
   quote: string;
   document: string;
   passage: string;
-}): string {
+}): JudgePart[] {
   const absent = input.absent?.trim();
-  const document = asAttribute(input.document, CHECK_TAGS);
   return [
-    tagged("sentence", input.claim.trim(), "", CHECK_TAGS),
-    ...(absent ? [asData(`What it says is absent: ${absent}`, CHECK_TAGS)] : []),
-    tagged("quote", input.quote.trim(), ` document="${document}"`, CHECK_TAGS),
+    { tag: "sentence", text: input.claim.trim() },
+    ...(absent ? [{ text: `What it says is absent: ${absent}` }] : []),
+    { tag: "quote", text: input.quote.trim(), attributes: { document: input.document } },
     "The Passage it is quoted from, for what its words refer to:",
-    tagged("passage", input.passage.trim(), "", CHECK_TAGS),
+    { tag: "passage", text: input.passage.trim() },
     ...meaningOf(input.passage),
-  ].join("\n");
+  ];
 }
+
+export const presencePrompt = (input: Parameters<typeof presenceParts>[0]): string =>
+  judgePrompt(presenceParts(input), CHECK_TAGS);
 
 const JUDGEMENT = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：](.*)$/i;
 const WORD_EDGES = /^[\s*_"'“”`]+|[\s*_"'“”`.。]+$/g;
@@ -600,8 +627,7 @@ const WORD_EDGES = /^[\s*_"'“”`]+|[\s*_"'“”`.。]+$/g;
  * be read: null, so a judge that hedges or changes its mind is read as neither word (#2816).
  */
 function judgedWord<T extends string>(reply: string, words: readonly T[]): T | null {
-  const lines = reply
-    .replace(THINKING, "")
+  const lines = withoutThinking(reply)
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
@@ -622,24 +648,17 @@ export function readPresence(reply: string): "there" | "elsewhere" | "not" | nul
   return judgedWord(reply, ["there", "elsewhere", "not"]);
 }
 
-/** A record from the model's reply to that request, or null when it gives none. */
+/** A record a reply to that request gives, with every field the request asks for; null otherwise. */
 export function readEvidence(
-  reply: string,
+  value: unknown,
 ): { passage: string; location: string | null; quote: string } | null {
-  const start = reply.indexOf("{");
-  const end = reply.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const value: unknown = JSON.parse(reply.slice(start, end + 1));
-    if (typeof value !== "object" || value === null) return null;
-    const { passage, location, quote } = value as Record<string, unknown>;
-    if (typeof passage !== "string" || typeof quote !== "string" || quote.trim() === "")
-      return null;
-    return { passage, location: typeof location === "string" ? location : null, quote };
-  } catch {
-    return null;
-  }
+  const record = fieldsOf(value, { passage: text, location: textOrNull, quote: text });
+  return record && record.quote.trim() !== "" ? record : null;
 }
+
+/** That a reply to that request gives no record: `{"passage": null}`, as the request asks. */
+export const givesNoEvidence = (value: unknown): boolean =>
+  fieldsOf(value, { passage: (given) => (given === null ? null : undefined) }) !== null;
 
 /** A contradicted reply's old words, and each Document's words for them with its quote's marker. */
 export interface ReadCorrection {
@@ -693,7 +712,6 @@ export interface ReadCoverage {
 
 const MARKERS = /\s*\[[\^=]?\d{1,4}\]/g;
 const DISPLAY_MARKERS = /[\t ]*\[[\^=]\d{1,4}\]/g;
-const THINKING = /<think>[\s\S]*?(?:<\/think>|$)/gi;
 /** "Verdict: supported", in bold or quoted too, on a line of its own. */
 const LABELLED =
   /^[\s>*_#`"'“”-]*(?:verdict|结论|判断)[\s*_]*[:：][\s*_"'“”`]*(supported|unsupported|contradicted)\b[\s*_"'“”`.]*/i;
@@ -1054,7 +1072,7 @@ const OTHER_WORDS = new RegExp(String.raw`(\s+${NOTE}(?:\s*${NOTE})*\s*)${AFTER_
  */
 function toMarkers(reply: string): Map<number, number> {
   const markers = new Map<number, number>();
-  for (const line of reply.replace(THINKING, "").split("\n").flatMap(fieldLines)) {
+  for (const line of withoutThinking(reply).split("\n").flatMap(fieldLines)) {
     const match = TO.exec(line.trim());
     const own = (match?.[2] ?? "").replace(OTHER_WORDS, "$1");
     const marker = match && /\[[\^=]?(\d{1,4})\]\s*$/.exec(own)?.[1];
@@ -1109,8 +1127,7 @@ function readCorrection(
  * when it gives none, or not as one plain answer.
  */
 export function readChangeLines(reply: string): ReadCorrection | null {
-  const lines = reply
-    .replace(THINKING, "")
+  const lines = withoutThinking(reply)
     .replace(DISPLAY_MARKERS, "")
     .split("\n")
     .flatMap(fieldLines)
@@ -1159,24 +1176,59 @@ const cleanSays = (text: string): string | null => {
 };
 
 /**
- * Reads a check's reply: its last "Verdict: …" line, wherever it is (some
- * models think aloud first), or a first line that starts with the verdict, then
- * what the Document says; or a JSON object with `verdict` and `says`, as
- * some models give. Null when no verdict can be read.
+ * Each field a reply gives once, read from each line that gives it: a reply that gives one of them
+ * two values changes its mind, and can't be read (#2817).
  */
-export function readVerdict(reply: string): ReadVerdict | null {
-  const text = reply.replace(THINKING, "").replace(DISPLAY_MARKERS, "").trim();
-  const lines = text
+const SINGLE_FIELDS: readonly [RegExp, (line: string) => unknown][] = [
+  [SCOPE, (line) => [scopeOf(line), scopeNamesOf(line)]],
+  [TOPIC, topicOf],
+  [ROLES, (line) => [rolesOf(line), rolesSidesOf(line)]],
+  [TIME, timeOf],
+];
+
+const verdictLines = (reply: string): string[] =>
+  withoutThinking(reply)
+    .replace(DISPLAY_MARKERS, "")
+    .trim()
     .split("\n")
     .flatMap(fieldLines)
     .map((line) => line.trim())
     .filter((line) => line !== "");
-  // A model that thinks aloud corrects itself with a second verdict: its last word counts.
+
+/**
+ * Whether a check's reply gives two verdicts that differ, or one of its fields two values: a
+ * model that corrects itself has changed its mind, and is read as neither (#2817).
+ */
+export function changesItsMind(reply: string): boolean {
+  const lines = verdictLines(reply);
+  const bare = BARE.exec(lines[0] ?? "")?.[1];
+  const verdicts = [
+    ...lines.flatMap((each) => LABELLED.exec(each)?.[1] ?? []),
+    ...(bare === undefined ? [] : [bare]),
+  ].map((word) => word.toLowerCase());
+  return [
+    verdicts,
+    ...SINGLE_FIELDS.map(([label, read]) => lines.filter((each) => label.test(each)).map(read)),
+  ].some((values) => values.length > 0 && oneValue(values) === null);
+}
+
+/**
+ * Reads a check's reply: its "Verdict: …" line, wherever it is (some models
+ * think aloud first), or a first line that starts with the verdict, then what
+ * the Document says; or a JSON object with `verdict` and `says`, as some
+ * models give. Null when no verdict can be read, and when the reply gives two
+ * verdicts that differ, or a field two values: a model that corrects itself is
+ * read as neither word (#2817).
+ */
+export function readVerdict(reply: string): ReadVerdict | null {
+  const text = withoutThinking(reply).replace(DISPLAY_MARKERS, "").trim();
+  const lines = verdictLines(reply);
   const labelled = lines.findLastIndex((line) => LABELLED.test(line));
   const at = labelled >= 0 ? labelled : BARE.test(lines[0] ?? "") ? 0 : -1;
   const line = lines[at];
   const match = line === undefined ? null : (labelled >= 0 ? LABELLED : BARE).exec(line);
   if (line !== undefined && match?.[1]) {
+    if (changesItsMind(reply)) return null;
     const verdict = match[1].toLowerCase() as ClaimVerdict;
     // One sentence: what follows the verdict on its line, else the next line. Notes after it aren't.
     const rest = line.slice(match[0].length).trim();
@@ -1212,7 +1264,6 @@ export function readVerdict(reply: string): ReadVerdict | null {
       scope: scopeOf(fields.findLast((each) => SCOPE.test(each))),
       ...scopeNamesOf(fields.findLast((each) => SCOPE.test(each))),
       topic: topicOf(fields.findLast((each) => TOPIC.test(each))),
-      // A model that corrects its Roles line writes it again: its last one counts.
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
       ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
@@ -1230,9 +1281,21 @@ export function readVerdict(reply: string): ReadVerdict | null {
   return withShortReason(jsonVerdict(text));
 }
 
-/** Words a model refuses with, in English and Chinese. */
-const REFUSAL =
-  /\b(?:I(?:'m| am)? (?:sorry|unable|not able)|I can(?:no|')t (?:help|assist|check|do)|I won't|cannot (?:help|assist|comply))|抱歉|无法(?:协助|帮助|完成|核对)|不能(?:协助|帮助)/i;
+/**
+ * A reply to `RECHECK_INSTRUCTIONS`: its verdict and every field line the request's form asks
+ * for, Scope, Topic, Roles and Time, each given once; null when one is missing or given twice
+ * with two values (#2817).
+ */
+export function readRecheck(reply: string): ReadVerdict | null {
+  const read = readVerdict(reply);
+  return read &&
+    read.scope !== null &&
+    read.topic !== null &&
+    read.roles !== null &&
+    read.time !== undefined
+    ? read
+    : null;
+}
 
 /**
  * A reply that declined: it says so and gives no verdict. A reason uses the same words for what
@@ -1240,7 +1303,7 @@ const REFUSAL =
  * verdict has answered.
  */
 export const readsAsRefusal = (reply: string): boolean =>
-  REFUSAL.test(reply) && readVerdict(reply) === null;
+  declines(reply) && readVerdict(reply) === null;
 
 /** A line that labels a verdict, whatever it says: "Verdict: not supported", "结论：不支持". */
 const VERDICT_LABEL = /^[\s>*_#`"'“”-]*(?:verdict|结论|判断)[\s*_]*[:：]/i;
@@ -1253,8 +1316,7 @@ const VERDICT_WORDS =
 
 /** A turn's lines that are neither its fields nor only markers. */
 const proseOf = (turn: string): string[] =>
-  turn
-    .replace(THINKING, "")
+  withoutThinking(turn)
     .split("\n")
     .flatMap(fieldLines)
     .map((line) => line.replace(MARKERS, "").trim())

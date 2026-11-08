@@ -85,7 +85,7 @@ type Inventory = Record<
 /** A model that checks each sentence as `plans` say: search, cite, then its verdict. */
 function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory: Inventory = {}) {
   const generate = (call: GenerateCall) => {
-    if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+    if (call.question !== "find-claims") return checkGenerate({})(call);
     const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
       number,
       parts: inventory[text] ?? [{ kind: "fact", text }],

@@ -1,4 +1,3 @@
-import { generateText } from "ai";
 import { locationOf } from "../../../shared/locations";
 import type {
   CheckedVersion,
@@ -12,19 +11,16 @@ import type {
   ProviderError,
 } from "../../api";
 import { isRecord } from "../../errors";
-import { tagged } from "../../promptData";
-import { outputTokens } from "../../providers/outputLimits";
-import { classifyProviderError } from "../../providers/providerErrors";
+import type { PromptTag } from "../../promptData";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature, parseRecords } from "../engine";
-import { replyJson } from "../quoteRetry";
+import { fieldsOf, type JudgePart, json, judge, judgePrompt, text, word } from "../judge";
 import type {
   AtomicClaimCheckResult,
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
 import { absenceFigureResults } from "./figureChecks";
-import { readsAsRefusal } from "./prompt";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
@@ -51,9 +47,31 @@ export type Presence =
   | { kind: "there" | "elsewhere" | "not" | "malformed" | "stopped" }
   | { failed: ProviderError };
 
+const ABSENCE_TAGS: readonly PromptTag[] = ["passage"];
+
 /** What a whole read's judgement is asked about: the sentence, then the text it reads. */
+const absenceParts = (claim: string, whole: string): JudgePart[] => [
+  { tag: "sentence", text: claim },
+  "",
+  whole,
+];
+
 export const absencePrompt = (claim: string, whole: string): string =>
-  `${tagged("sentence", claim, "", ["passage"])}\n\n${whole}`;
+  judgePrompt(absenceParts(claim, whole), ABSENCE_TAGS);
+
+/** A whole read's reply: what the sentence says is absent, and whether the text holds it. */
+interface AbsenceReply {
+  absent: string;
+  absence: "holds" | "contained";
+  /** The quotes it gives with its answer, as given. */
+  citations: unknown;
+}
+
+export const ABSENCE_REPLY = json((value): AbsenceReply | null => {
+  const reply = fieldsOf(value, { absent: text, absence: word("holds", "contained") });
+  if (!reply || reply.absent.trim() === "") return null;
+  return { ...reply, citations: isRecord(value) ? value.citations : undefined };
+});
 
 interface WholeReading {
   documentId: string;
@@ -203,24 +221,22 @@ export async function checkAbsence({
     });
   }
   const whole = reading.map(({ passages }) => session.show(passages)).join("\n\n");
-  let reply: string;
-  try {
-    const { text } = await generateText({
-      model: model.model,
-      instructions: WHOLE_READ,
-      prompt: absencePrompt(request.claim, whole),
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: outputTokens("absence-read"),
-      maxRetries: 1,
-      abortSignal: signal,
-    });
-    reply = text;
-  } catch (error) {
-    if (signal.aborted) return notChecked("stopped");
-    return failedCheck(classifyProviderError(error));
+  const judged = await judge({
+    model: model.model,
+    question: { id: "absence-read", instructions: WHOLE_READ },
+    parts: absenceParts(request.claim, whole),
+    data: ABSENCE_TAGS,
+    reply: ABSENCE_REPLY,
+    retries: 1,
+    signal,
+    temperature: answerTemperature(model.capabilities.facts.temperature),
+  });
+  if (!judged.ok) {
+    if (judged.reason === "stopped") return notChecked("stopped");
+    if (judged.error) return failedCheck(judged.error);
+    return notChecked(judged.reason === "refused" ? "refused" : "malformed");
   }
-  const value = await replyJson(reply);
-  if (!isRecord(value)) return notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
+  const value = judged.value;
   // The read decides the part, so only what it read backs it: the pages read whole, and the quote
   // that contains the absent thing when it is there. A quote the check's search cited on the way
   // backs nothing here, and a card or Citation that showed it would show an unrelated line.
@@ -236,9 +252,7 @@ export async function checkAbsence({
     versions: read,
     excluded,
   });
-  const absent =
-    typeof value.absent === "string" && value.absent.trim() !== "" ? value.absent : null;
-  if (absent === null) return notChecked("malformed");
+  const { absent } = value;
   let absence: ClaimJudgment;
   if (value.absence === "holds") {
     // Live reads offered a quote beside "holds" (#1443). It holds only when each quote it offers is
@@ -259,7 +273,7 @@ export async function checkAbsence({
       if (presence.kind !== "not") return notChecked("malformed");
     }
     absence = judgment("supported", null);
-  } else if (value.absence === "contained") {
+  } else {
     const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
     if (citations.length === 0) return notChecked("no-evidence");
     if (!session.tools.cite(citations).startsWith("Recorded")) return notChecked("no-evidence");
@@ -278,7 +292,7 @@ export async function checkAbsence({
     // A clause of another Document can't contradict a sentence about this one (#1443).
     if (presence.kind === "elsewhere") return notChecked("absence-other-document");
     absence = judgment("contradicted", evidence);
-  } else return notChecked("malformed");
+  }
   const figures = request.figures ?? [];
   const result =
     figures.length === 0 ? absence : absenceFigureResults(request.claim, figures, absence, absent);

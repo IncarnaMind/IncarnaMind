@@ -20,6 +20,7 @@ import {
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
+  unscripted,
 } from "./models";
 
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
@@ -177,8 +178,9 @@ function plannedParts(prompt: string, plans: Record<string, Plan>) {
   }));
 }
 
-/** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
-export const isStrict = (call: { system: string }) => call.system.includes("Judgement: one word");
+/** The strict judgement, which asks for the sentence's detail and the quote's before the word. */
+export const isStrict = (call: Pick<GenerateCall, "question">) =>
+  call.question === "strict" || call.question === "strict-figure";
 
 /** A check Run's instructions (src/core/answers/checks/prompt.ts). */
 export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check one sentence");
@@ -316,10 +318,10 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
 }
 
 /**
- * What the model gives when it isn't streamed: asked which of a document's
- * sentences make claims, those it has a plan for; asked to confirm a
- * contradiction, the plan's judgement; asked once more for the deciding
- * Passage, `evidence` (none by default).
+ * What the model gives when it isn't streamed, by the judge's question it asks: asked which of a
+ * document's sentences make claims, those it has a plan for; asked to confirm a contradiction, the
+ * plan's judgement; asked once more for the deciding Passage, `evidence` (none by default). A
+ * question with no reply here fails the test (tests/setup/judges.ts).
  */
 /** A plan's judgement as the record-cite judgement words it (src/core/answers/checks/prompt.ts). */
 const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsupported" } as const;
@@ -344,20 +346,33 @@ export const checkGenerate =
             ),
           ) === tidy(sentence),
       )?.[1];
-    if (call.system.startsWith("You sort the sentences")) {
-      return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
-    }
-    if (call.system.startsWith("A sentence the User wrote says more")) {
-      return { text: plan?.part ?? "" };
-    }
-    if (call.system.startsWith("Compare a sentence")) {
-      if (plan?.strict && isStrict(call)) return plan.strict;
-      if (call.system.includes("exact Passage a record cite names")) {
+    switch (call.question) {
+      case "find-claims":
+        return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
+      case "parts":
+        return { text: plan?.part ?? "" };
+      case "record-cite":
         return { text: `Judgement: ${RECORD_WORDS[plan?.judgement ?? "conflict"]}` };
-      }
-      return { text: plan?.judgement ?? "conflict" };
+      case "confirm":
+      case "strict":
+      case "strict-figure":
+      case "nearest":
+        if (plan?.strict && isStrict(call)) return plan.strict;
+        return { text: plan?.judgement ?? "conflict" };
+      case "evidence":
+      case "covered-evidence":
+        return { text: evidence };
+      // What an Answer asks beside its checks: no claimed change, and no sentence of it judged.
+      case "claimed-changes":
+        return { text: JSON.stringify({ claims: [] }) };
+      case "sentence-batch":
+        return { text: JSON.stringify({ sentences: [] }) };
+      // A request that is no judge's question, such as a search query's rewrite.
+      case undefined:
+        return { text: evidence };
+      default:
+        return unscripted(call.question, call.system);
     }
-    return { text: evidence };
   };
 
 /** A model that checks as its plans say (`checkReply`, `checkGenerate`), keeping each call. */

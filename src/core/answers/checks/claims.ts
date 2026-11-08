@@ -15,6 +15,7 @@
 
 import { readPartPlans } from "../../../shared/claimParts";
 import type { ClaimPartPlan, DocumentText } from "../../api";
+import { fieldsOf, list, replyJson } from "../judge";
 
 /** A paragraph of the document, and the page it is on. */
 export interface DocumentParagraph {
@@ -197,21 +198,16 @@ export function readClaimDecisions(
   return decisions.size > 0 ? decisions : null;
 }
 
-export function readClaimParts(
-  reply: string,
+/**
+ * Each sentence's parts in a sorting reply, by its number among `sentences`: one the reply gives no
+ * readable parts for is undecided, and so is one it gives twice. Null when the reply decides none.
+ */
+export function claimPartsOf(
+  value: unknown,
   sentences: readonly { number: number; text: string }[],
 ): Map<number, readonly ClaimPartPlan[]> | null {
-  const start = reply.indexOf("{");
-  const end = reply.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(reply.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null || !("sentences" in parsed)) return null;
-  if (!Array.isArray(parsed.sentences)) return null;
+  const parsed = fieldsOf(value, { sentences: list });
+  if (!parsed) return null;
   const found = new Map<number, readonly ClaimPartPlan[]>();
   const seen = new Set<number>();
   for (const value of parsed.sentences) {
@@ -226,6 +222,12 @@ export function readClaimParts(
   }
   return found.size > 0 || parsed.sentences.length === 0 ? found : null;
 }
+
+/** A sorting reply as `claimPartsOf` reads it, its JSON taken from the reply's text. */
+export const readClaimParts = (
+  reply: string,
+  sentences: readonly { number: number; text: string }[],
+): Map<number, readonly ClaimPartPlan[]> | null => claimPartsOf(replyJson(reply), sentences);
 
 /** The sentence a sorting reply's record is for, and its parts (null when they can't be read); null for no sentence asked. */
 function recordOf(
