@@ -21,7 +21,7 @@ test("the privacy page's reference-check row says when a check sends again", () 
 
 test("both data pages' Find sources row says when a check sends again", () => {
   expect(read("docs/where-your-data-goes.md")).toContain(
-    "answers are kept here, and only Check again, or Try again after a service failed, sends a reference no service found, or a lookup that failed, once more",
+    "reference check answers are kept here, and only Check again, or Try again after a service failed, sends a reference no service found, or a lookup that failed, once more",
   );
   expect(read("docs/where-your-data-goes.zh-CN.md")).toContain(
     "核对得到的结果保存在本机，只有点按“重新核对”，或服务失败后点按“重试”时，才会把未找到的文献或失败的请求再发送一次",
