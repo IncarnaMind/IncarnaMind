@@ -138,6 +138,29 @@ describe("Every turn has the write and edit commands (#1559)", { timeout: 30_000
     expect(changesIn(filled)[0]).toMatchObject({ mindId: empty.id, filled: true });
     expect(changesIn(added)[0]).not.toHaveProperty("filled");
   });
+
+  // protects=the model reads that a piece it wrote into the empty Note in front went into the Note the User is in, which its first line now names, while a piece added to a Note with text reads as added to it by name (#2769); fails_when=it reads only the Note's new name, from which a model told the User its write went to another Note; no_claim=how a real model words its reply.
+  test("a piece written into the empty Note in front is told as written into the Note the User is in", async () => {
+    const results: string[] = [];
+    const model = scriptedModel((call): ScriptedReply => {
+      const result = call.results.find((each) => each.tool === "add_to_mind");
+      if (!result) return { calls: [{ tool: "add_to_mind", input: { content: SUMMARY_PAGE } }] };
+      results.push(result.text);
+      return { text: "Done." };
+    });
+    const { core, mind } = await setUp(model);
+    const empty = await core.createMind({ title: "" });
+
+    await askAssistant(core, { text: "write a summary", mindId: empty.id });
+    await askAssistant(core, { text: "add a summary", mindId: mind.id });
+
+    const name = (await core.listMinds()).find((each) => each.id === empty.id)?.autoTitle ?? "";
+    expect(name).not.toBe("");
+    expect(results[0]).toContain(
+      `in the Note the User is in, which held nothing before and which its first line now names “${name}”`,
+    );
+    expect(results[1]).toContain(`in “${mind.title}”, at its end`);
+  });
 });
 
 describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {

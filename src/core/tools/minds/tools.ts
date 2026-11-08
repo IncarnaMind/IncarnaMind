@@ -2794,7 +2794,11 @@ export function mindTools(options: MindToolsOptions): {
       return added(
         mind,
         written,
-        `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
+        // An empty Note takes its first line as its name: told only the new name, the model said
+        // its write went to another Note than the one the User was in (#2769).
+        written.change.filled
+          ? `in the Note the User is in, which held nothing before and which its first line now names “${minds.list().find((each) => each.id === mind.id)?.name ?? mind.name}”`
+          : `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
         checked,
       );
     },
