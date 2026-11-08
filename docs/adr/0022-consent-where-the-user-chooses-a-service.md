@@ -37,3 +37,11 @@ The User found scans they dropped left in no Folder, with nothing saying why. Wi
 - **What one Organize request sends**, as the code builds it: the Document's name and type ("PDF, 46 pages"), the start of its text (its first 6 Passages, cut at about 1,500 tokens), a deck's slide titles or a workbook's sheet names (up to 16, 60 characters each), every Folder's name and description except those the User turned down for it, the name and description of the Tags in the Document's script, and fixed instructions; a scan with no text adds up to 3 page images only where that flow is allowed. When the only Tag given is an Invoice Tag the text doesn't bear out, a second request asks again without it. No path, size, date or language is sent.
 
 This reverses, for sorting, the rule that only setup, Settings › Tagging and Settings › Models turn the switch on: the row's Allow is a fourth place, with the line on screen.
+
+## Amendment: the switch lets new Documents be read; what they're given waits for the User (2026-11-07, #1569, #2339)
+
+Nothing the AI sorts or tags is kept until the User confirms it (ADR-0012). "Tag and sort new Documents automatically" still decides what may leave the computer by itself: with it on for a service, each new Document is read by that service as it arrives, under every rule above. It no longer files or tags anything. What the run proposes waits in Suggestions, with every other run's, until the User confirms it.
+
+- **Consent is unchanged.** The same gates decide, per service, just before each send, and turning the switch off withdraws it as before. Only what happens after the answer changes.
+- **The row's Allow** (amendment of 2026-11-04) records the consent and turns the switch on as before. The Documents waiting are read at the press as the User's own Organize, and what it proposes opens for the User to confirm; nothing moves at the press.
+- **Background work still never asks.** Its proposals add to Suggestions, and a count on the Library's sidebar row says they wait.

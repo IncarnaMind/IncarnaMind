@@ -97,6 +97,7 @@ import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
   AssistantFoldedContext,
+  ConversationIdContext,
   InFootnoteContext,
   JudgedAnswerContext,
   MindIdContext,
@@ -207,18 +208,22 @@ export function CitationView({
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
+  const conversationId = useContext(ConversationIdContext);
   const looked = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
     mindId,
+    conversationId,
   );
   // Kept inside a wall, nothing of the new version was read: the card says Kept inside and its last result.
   const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const speakers = citedSpeakers(attributes, documents);
-  const where = location ? formatLocation(location, t, { speakers }) : null;
+  const where = location
+    ? formatLocation(location, t, { speakers, quote: attributes.quote })
+    : null;
   const recheckAsked = editor.isEditable && needsRecheck(state, attributes, recheck);
   // Kept over, or moved to, only the version the card showed: a check still of an older one, or failed, isn't it.
   const lookedAt =
@@ -232,6 +237,7 @@ export function CitationView({
       ? [{ words: asked, cited: { ...update, documentId: attributes.documentId } }]
       : [],
     mindId,
+    conversationId,
   );
   const newVersion = asked ? newVersionCitation(attributes, recheck, onPage) : update;
   const badge = badgeMessage(state, shown, t);
@@ -873,7 +879,10 @@ function CitationCard({
   const location = citationLocation(attributes);
   const lives = live ? [live] : null;
   const where = location
-    ? formatLocation(location, t, { speakers: citedSpeakers(attributes, lives) })
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(attributes, lives),
+        quote: attributes.quote,
+      })
     : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);

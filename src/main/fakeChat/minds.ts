@@ -46,6 +46,7 @@
  * after" (…，写完再引用) adds it first and cites in the next step, as a model sometimes does (#1635).
  * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
  * with no Citation into a new Mind, and again as it was once told it has none (#1415).
+ * "…, with a section for each" (各写一节) is `sectionsReply`'s.
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -64,6 +65,7 @@ import {
   userText,
 } from "./prompt";
 import { REGIONAL_CHART, regionalChart } from "./regionalChart";
+import { sectionsReply } from "./sections";
 
 /** A Question about the User's notes or what they selected in them. */
 const ABOUT_THE_MIND = /\bnotes?\b|\bselect(?:ed|ion)\b|笔记|选中/i;
@@ -258,6 +260,8 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   }
   const paragraphs = paragraphsReply(prompt, question);
   if (paragraphs) return paragraphs;
+  const sections = sectionsReply(prompt, question);
+  if (sections) return sections;
   const both = ADD_AND_NEW.exec(question);
   if (both) {
     if (lastResult(prompt, "add_to_mind") === undefined) {

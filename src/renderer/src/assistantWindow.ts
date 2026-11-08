@@ -85,24 +85,13 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor(
-  command: Command,
-  { targets, mindId, wall }: WindowCommandRequest,
-): CommandContext {
-  // An accept files what it names in the Folders the core checked: it acts on those alone.
-  const checkedIn: Pick<CommandContext, "checked" | "checkedWall"> = targets.some(
-    (each) => each.into !== undefined,
-  )
-    ? { checked: targets, checkedWall: wall }
-    : {};
-  if (!command.appliesTo) {
-    return { ...inFront(mindId), checked: targets, checkedWall: wall, assistant: true };
-  }
+function contextFor(command: Command, { targets, mindId }: WindowCommandRequest): CommandContext {
+  if (!command.appliesTo) return { ...inFront(mindId), assistant: true };
   const [one] = targets;
   if (!one) return { ...inFront(mindId), assistant: true };
   return targets.length === 1
-    ? { selection: [], focus: one, surface: "palette", ...checkedIn, assistant: true }
-    : { selection: targets, focus: null, surface: "palette", ...checkedIn, assistant: true };
+    ? { selection: [], focus: one, surface: "palette", assistant: true }
+    : { selection: targets, focus: null, surface: "palette", assistant: true };
 }
 
 /** How a command the assistant asked for ended: why it didn't, or the change it made, for the Undo. */
@@ -178,7 +167,6 @@ export function startForAssistant(request: WindowCommandRequest): {
     started: true,
     ended: tried.change.then(
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
-      // The core's own words, as for a suggestion that moved since it was checked (#2243).
       (error: unknown) => {
         const { message, wording: described } = describeError(error);
         // A Check refused because another window checks the Note says so by its name, never Done.

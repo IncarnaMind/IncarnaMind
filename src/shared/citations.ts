@@ -519,7 +519,10 @@ export function citedLocation(
 ): string | null {
   const location = citationLocation(attributes);
   return location
-    ? formatLocation(location, t, { speakers: citedSpeakers(attributes, documents) })
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(attributes, documents),
+        ...(typeof attributes.quote === "string" && { quote: attributes.quote }),
+      })
     : null;
 }
 
@@ -578,7 +581,10 @@ export function citationSource(
     location.kind === "rows" && location.sheet !== null && sameName(location.sheet)
       ? { ...location, sheet: null }
       : location;
-  const where = formatLocation(shown, t, { speakers: citedSpeakers(attributes, documents) });
+  const where = formatLocation(shown, t, {
+    speakers: citedSpeakers(attributes, documents),
+    ...(typeof attributes.quote === "string" && { quote: attributes.quote }),
+  });
   return { name, where, text: t("citation.where", { document: name, location: where }) };
 }
 

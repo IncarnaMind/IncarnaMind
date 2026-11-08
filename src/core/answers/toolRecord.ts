@@ -6,6 +6,7 @@
  * and a reply that claims a change no call made is asked again with it
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
+import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
 import { asData } from "../promptData";
 import { COMMAND_TOOLS } from "../tools";
@@ -82,16 +83,12 @@ function whyNot(problem: MindProblem | undefined): string {
       return `it is a new version of your own text “${problem.text}” there: change that text in place with edit_mind`;
     case "stopped":
       return "it was stopped";
-    case "no-table":
-      return "its table couldn't be made";
-    case "unplaced":
-      return "the text it marked to take out isn't there word for word";
-    case "misnamed":
-      return "the rewrite didn't say clearly which paragraph each of its own replaces";
-    case "typed-tag":
-      return "the rewrite left out a <removed> tag the User typed";
     case "not-placed":
-      return "the rewrite would hold a Citation, footnote or figure its reply didn't place";
+    case "misnamed":
+    case "typed-tag":
+    case "no-table":
+    case "unplaced":
+      return REFUSAL_WORDS[problem.kind].model;
     case "new-mind":
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":
@@ -295,7 +292,10 @@ function commandLine(call: AnswerToolCall): string {
       item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
     )
     .join(", ");
-  const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
+  // Organize only proposes (#1569): its Folders are what it proposed, never where it filed.
+  const organized = done.command === "documents.organize";
+  const into =
+    done.into && !organized ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
   // A Tag merge's pairs and Organize's Folders, when a call does more than one (#2252).
   const merges = done.merges?.length
     ? `; merged ${done.merges
@@ -303,9 +303,11 @@ function commandLine(call: AnswerToolCall): string {
         .join(", ")}; the merged Tags are in Recently deleted, where the User can restore them`
     : "";
   const folders = done.folders?.length
-    ? `; filed ${done.folders
-        .map((folder) => `${counted(folder.count, "item")} in the folder ${quoted(folder.name)}`)
-        .join(", ")}`
+    ? `; proposed Folders for them: ${done.folders
+        .map((folder) => `${quoted(folder.name)} for ${counted(folder.count, "item")}`)
+        .join(
+          ", ",
+        )}; they wait in Suggested Folders for the User's Review, and nothing was filed or moved`
     : "";
   const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
   const considered =

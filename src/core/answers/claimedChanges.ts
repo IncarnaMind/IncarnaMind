@@ -11,6 +11,7 @@ import {
   CLAIMED_CHANGES,
   type ClaimedChange,
   type ClaimedCommand,
+  type CommandDone,
   type MindProblem,
 } from "../api";
 import { isRecord } from "../errors";
@@ -131,6 +132,8 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- 记录：add_to_mind“订单”已应用，其中 1 个表格；所要求的图表未绘制：没有写成表格。回复：“我已把各地区订单总额的柱状图加到笔记里。”kind: added, about: mind, backed: false。",
   "- Record: run_command document.moveTo, outcome done, 2 items into the folder “Contracts”. Reply: “Both contracts are now in “Contracts”.” Back it.",
   "- Record: run_command mind.check, outcome started. Reply: “I've started checking your note.” Back it.",
+  "- Record: run_command documents.organize, outcome proposed, waiting for the User's Review: nothing filed or moved, proposedFolders “Invoices” for 2. Reply: “Both invoices are in the Invoices folder now.” kind: changed, about: app, backed: false: Organize only proposed it.",
+  "- Record: run_command documents.organize, outcome proposed, waiting for the User's Review: nothing filed or moved, proposedFolders “Invoices” for 2. Reply: “Organize suggests an Invoices folder for both; nothing has moved yet.” Back it.",
   "- Record: run_command document.openBeside, outcome done. Reply: “我在右边打开了这份租约，你可以对照着看。” Back it.",
   "- Record: run_command settings.change (localMode), outcome refused. Reply: “Everything now stays on this computer.” kind: changed, about: local_mode, backed: false.",
   "- Record: run_command document.delete, outcome not allowed by the User. Reply: “The old draft is gone.” kind: removed, about: app, backed: false.",
@@ -184,6 +187,8 @@ function outcomeOf(call: AnswerToolCall): string {
   if (call.command?.yours) return "refused: the User's alone";
   if (call.status === "failed") return "failed";
   if (call.status === "running" || call.command?.window?.running) return "started";
+  if (call.command?.command === "documents.organize")
+    return "proposed, waiting for the User's Review: nothing filed or moved";
   return "done";
 }
 
@@ -257,6 +262,21 @@ function unchangedParts(calls: readonly AnswerToolCall[], spans?: PartSpans): Se
   return unchanged;
 }
 
+/**
+ * Organize only proposes (#1569): its record names the Folders it proposed and says nothing was
+ * filed or moved, and never gives the Folder the request named as where Documents went.
+ */
+function commandRecordOf(done: CommandDone) {
+  if (done.command !== "documents.organize") return done;
+  const { into: _into, folders, ...rest } = done;
+  return {
+    ...rest,
+    proposedFolders: folders ?? [],
+    filed:
+      "nothing: no Document was filed or moved; they wait in Suggested Folders until the User confirms them",
+  };
+}
+
 function recordOf(
   calls: readonly AnswerToolCall[],
   names: MindNames,
@@ -282,7 +302,7 @@ function recordOf(
       ...(call.mindProblem && { problem: call.mindProblem.kind }),
       ...(call.tool === "run_command" && {
         input: call.input,
-        command: call.command ?? null,
+        command: call.command ? commandRecordOf(call.command) : null,
         ...(call.commandProblem && { commandProblem: call.commandProblem.message }),
         ...(call.command?.merges?.length && {
           mergedTags:

@@ -215,7 +215,11 @@ export function commandsReply(
     if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
     return {
       tool: "run_command",
-      input: { command: "documents.organize", about: "the files, each by what it says" },
+      input: {
+        command: "documents.organize",
+        about: "the files, each by what it says",
+        done: true,
+      },
     };
   }
   if (REDUCE_TAGS.test(asked)) {
@@ -255,6 +259,7 @@ export function commandsReply(
       command: "documents.organize",
       folder: capitalized(topic),
       about: topic,
+      done: true,
     });
   }
   const restore = RESTORE.exec(question);

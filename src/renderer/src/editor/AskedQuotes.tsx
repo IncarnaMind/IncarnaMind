@@ -20,7 +20,12 @@ import { useAppStore } from "../store";
 
 const whereOf = (quote: AskedQuote, t: Translate, documents: readonly LiveDocument[]): string => {
   const location = citationLocation(quote);
-  return location ? formatLocation(location, t, { speakers: citedSpeakers(quote, documents) }) : "";
+  return location
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(quote, documents),
+        quote: quote.quote,
+      })
+    : "";
 };
 
 export function showQuote(quote: AskedQuote): void {

@@ -16,6 +16,8 @@ interface MeetingsState {
   meetings: Meeting[];
   /** What went wrong with the last thing done to a Meeting, by its id, until the next try. */
   problems: Readonly<Record<string, string>>;
+  /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
+  audioProblems: Readonly<Record<string, string>>;
   /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
   noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
   starting: Readonly<Record<string, true>>;
@@ -53,6 +55,8 @@ interface MeetingsState {
   stop(meetingId: string): Promise<void>;
   discard(meetingId: string): Promise<void>;
   deleteAudio(meetingId: string): Promise<void>;
+  /** Keep audio (#687): kept until the User deletes it, with one Undo that lets it go again. */
+  keepAudio(meetingId: string): Promise<void>;
   /** Tries the Meeting's Transcript again after a problem: the model's download, its engine, or saving it. */
   retryTranscript(meetingId: string): Promise<void>;
   /** Fills the notes in from the Transcript again (#142): Try again, or after an Undo. */
@@ -80,6 +84,20 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     } catch (error) {
       set((state) => ({
         problems: { ...state.problems, [meetingId]: errorMessage(error, translateNow) },
+      }));
+    }
+  };
+
+  const onAudio = async (meetingId: string, action: () => Promise<unknown>) => {
+    set((state) => ({ audioProblems: withoutKey(state.audioProblems, meetingId) }));
+    try {
+      await action();
+    } catch (error) {
+      set((state) => ({
+        audioProblems: {
+          ...state.audioProblems,
+          [meetingId]: errorMessage(error, translateNow),
+        },
       }));
     }
   };
@@ -127,6 +145,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
   return {
     meetings: [],
     problems: {},
+    audioProblems: {},
     noticeFor: null,
     cantRecord: false,
     starting: {},
@@ -267,7 +286,21 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       // The block it leaves had the focus: the Mind stays as a note, and its text takes the cursor.
       if (mindId && !(meetingId in get().problems)) useAppStore.setState({ bodyToFocus: mindId });
     },
-    deleteAudio: (meetingId) => attempt(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    deleteAudio: (meetingId) => onAudio(meetingId, () => core.deleteMeetingAudio(meetingId)),
+    keepAudio: (meetingId) =>
+      onAudio(meetingId, async () => {
+        const keep = (kept: boolean) => async () => {
+          await core.keepMeetingAudio({ meetingId, kept });
+        };
+        await keep(true)();
+        // Taken back past the day's end, the audio goes at the next sweep, as it would have.
+        useUndo.getState().push({
+          said: (t) => t("meetings.audio.keptLine"),
+          name: (t) => t("meetings.command.keepAudio"),
+          undo: keep(false),
+          redo: keep(true),
+        });
+      }),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
     fillNotes: (meetingId) =>
       attempt(meetingId, async () => {

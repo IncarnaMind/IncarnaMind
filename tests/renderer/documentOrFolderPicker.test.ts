@@ -86,7 +86,6 @@ const library: ScopeLibrary = {
       groupId: finance.id,
       documentId: lease.id,
       source: "user",
-      suggested: false,
       status: "classified",
       error: null,
       model: null,
@@ -95,7 +94,6 @@ const library: ScopeLibrary = {
       groupId: chinese.id,
       documentId: rental.id,
       source: "user",
-      suggested: false,
       status: "classified",
       error: null,
       model: null,
@@ -124,7 +122,6 @@ describe("Document-or-Folder choices", () => {
       groupId,
       documentId,
       source,
-      suggested: false,
       status: "classified" as const,
       error: null,
       model: null,
@@ -133,16 +130,16 @@ describe("Document-or-Folder choices", () => {
     const zhMatter = { ...group("g-zh-matter", "案件"), keepInside: true };
     const brief = doc("d-brief", "Brief");
     const zhBrief = doc("d-zh-brief", "答辩状");
-    const suggested = doc("d-suggested", "Suggested");
+    const sorted = doc("d-sorted", "Sorted");
     const walled: ScopeLibrary = {
       ...library,
       groups: [finance, chinese, empty, matter, zhMatter],
-      documents: [lease, rental, scan, brief, zhBrief, suggested],
+      documents: [lease, rental, scan, brief, zhBrief, sorted],
       assignments: [
         ...(library.assignments ?? []),
         filed(matter.id, brief.id, "user"),
         filed(zhMatter.id, zhBrief.id, "user"),
-        filed(matter.id, suggested.id, "automatic"),
+        filed(matter.id, sorted.id, "automatic"),
       ],
     };
     const kept = (wall: string | null, query = "") =>
@@ -172,7 +169,7 @@ describe("Document-or-Folder choices", () => {
       const reasons = kept(null);
       expect(reasons[matter.id]).toEqual({ inside: "Matter" });
       expect(reasons[brief.id]).toEqual({ inside: "Matter" });
-      expect(reasons[suggested.id]).toEqual({ inside: "Matter" });
+      expect(reasons[sorted.id]).toEqual({ inside: "Matter" });
       expect(reasons[zhMatter.id]).toEqual({ inside: "案件" });
       expect(kept(null, "dbz")).toEqual({ [zhBrief.id]: { inside: "案件" } });
       for (const free of [finance.id, chinese.id, lease.id, rental.id]) {

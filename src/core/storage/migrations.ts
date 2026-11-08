@@ -2660,6 +2660,170 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE documents ADD COLUMN speakers TEXT;
     `,
   },
+  {
+    version: 135,
+    description:
+      "Suggestions: what Organize and tagging propose waits here until the User confirms it (#1569, #2339)",
+    sql: `
+      -- One open row per Document. placement: 'folder' (group_id), 'newFolder' (folder_id),
+      -- 'leftOut' (left_out, a reason code, and left_out_detail) or 'unchanged' (Tags only).
+      -- state: 'open', 'confirmed' (confirmation_id) or 'discarded' (discard_id); an Undo opens
+      -- it again and keeps the id, which its Redo finds. filed: what Confirm's filing changed, as
+      -- JSON, for its Undo.
+      CREATE TABLE organize_review_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        placement TEXT NOT NULL,
+        group_id TEXT,
+        folder_id TEXT,
+        left_out TEXT,
+        left_out_detail TEXT,
+        ticked INTEGER NOT NULL DEFAULT 1,
+        origin TEXT NOT NULL,
+        run_id TEXT,
+        edited INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT,
+        state TEXT NOT NULL DEFAULT 'open',
+        confirmation_id TEXT,
+        discard_id TEXT,
+        filed TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX organize_review_items_open ON organize_review_items (document_id)
+        WHERE state = 'open' AND deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_confirmation ON organize_review_items (confirmation_id)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX organize_review_items_by_discard ON organize_review_items (discard_id)
+        WHERE deleted_at IS NULL;
+
+      -- A Folder proposed by name. group_id is the Folder Confirm filed into, and made whether
+      -- Confirm made it, so its Undo sends only that one to Recently deleted.
+      CREATE TABLE organize_review_folders (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        parent_id TEXT,
+        group_id TEXT,
+        made INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+
+      -- A Tag proposed for a row: the Library's (tag_id) or a new one by name, which Confirm makes
+      -- (made). link_before: the Document's link to it before Confirm added it, as JSON.
+      CREATE TABLE organize_review_tags (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        tag_id TEXT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        added_by_user INTEGER NOT NULL DEFAULT 0,
+        made INTEGER NOT NULL DEFAULT 0,
+        link_before TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_tags_by_item ON organize_review_tags (item_id)
+        WHERE deleted_at IS NULL;
+
+      -- What the User unticked or took off isn't proposed again for that Document until "until".
+      -- kind: 'folder' or 'tag'; target_id is null for one proposed by name.
+      CREATE TABLE organize_review_declines (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_id TEXT,
+        name TEXT NOT NULL,
+        until TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX organize_review_declines_by_document ON organize_review_declines (document_id)
+        WHERE deleted_at IS NULL;
+
+      CREATE TABLE organize_review_confirmations (
+        id TEXT PRIMARY KEY NOT NULL,
+        confirmed_at TEXT NOT NULL,
+        undone_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+    `,
+  },
+  {
+    version: 136,
+    description:
+      "A Document waiting in a Suggested Folder waits in Suggestions instead, in no Folder until the User confirms it (#1569)",
+    sql: `
+      -- A deleted Document's row waits with it, and shows again if it is restored. A deleted
+      -- Folder's suggestions are kept by its deletion and join Suggestions when it is restored.
+      INSERT INTO organize_review_items
+        (id, document_id, placement, group_id, ticked, origin, edited, content_hash, state,
+         created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, g.document_id, 'folder', g.group_id, 1, 'migrated', 0,
+          d.content_hash, 'open',
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_groups g
+        JOIN library_groups f ON f.id = g.group_id AND f.deleted_at IS NULL
+        JOIN documents d ON d.id = g.document_id
+        WHERE g.deleted_at IS NULL AND g.suggested = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM organize_review_items i
+            WHERE i.document_id = g.document_id AND i.state = 'open' AND i.deleted_at IS NULL
+          );
+      -- How many moved, for the Library's one line the first time (device-local, never synced).
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, 'organizeReviewMovedNotice', json(moved.count),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM (
+          SELECT count(*) AS count FROM organize_review_items i
+          JOIN documents d ON d.id = i.document_id AND d.deleted_at IS NULL
+          WHERE i.origin = 'migrated' AND i.state = 'open' AND i.deleted_at IS NULL
+        ) moved
+        WHERE moved.count > 0;
+      UPDATE document_groups
+        SET group_id = NULL, suggested = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL AND suggested = 1;
+    `,
+  },
+  {
+    version: 137,
+    description:
+      "A Folder the User turned down for a Document is declined in Suggestions, and Suggested Folders are gone (#1569)",
+    sql: `
+      -- Turned down before Suggestions, a Folder isn't proposed for that Document for 30 days
+      -- from the upgrade, as one the User unticks.
+      INSERT INTO organize_review_declines
+        (id, document_id, kind, target_id, name, until, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, r.document_id, 'folder', r.group_id, g.name,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 days'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM document_group_rejections r
+        JOIN library_groups g ON g.id = r.group_id
+        WHERE r.deleted_at IS NULL;
+      DROP TABLE document_group_rejections;
+      -- deleted_folder_items.suggested stays: a Folder deleted before Suggestions still restores
+      -- its suggestions into them.
+      ALTER TABLE document_groups DROP COLUMN suggested;
+    `,
+  },
+  {
+    version: 138,
+    description:
+      "A Meeting's audio can be kept until the User deletes it, by Keep audio or the setting (#687)",
+    sql: `
+      -- When the User kept the audio (ISO 8601 UTC): by Keep audio, or the setting "Keep a
+      -- meeting's audio" as the Meeting started recording. A kept Meeting has no
+      -- audio_expires_at. NULL: its audio goes a day after its last stretch.
+      ALTER TABLE meetings ADD COLUMN audio_kept_at TEXT;
+    `,
+  },
 ];
 
 /**

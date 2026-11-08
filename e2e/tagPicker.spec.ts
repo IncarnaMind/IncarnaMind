@@ -12,6 +12,7 @@ import {
   launchApp,
   openManageTags,
   removeDataFolder,
+  runCommand,
   setWindowSize,
   tabTo,
 } from "./app";
@@ -107,6 +108,14 @@ const rowOf = (library: Locator, name: string) =>
     .filter({ has: library.page().getByRole("button", { name, exact: true }) });
 
 const tokens = (popover: Locator) => popover.getByTestId("tag-token");
+
+/** Waits for Organize's Review to open with the four Documents, then leaves it with Not Now. */
+async function notNow(window: Page): Promise<void> {
+  const review = window.getByTestId("organize-review");
+  await expect(review.getByTestId("organize-review-row")).toHaveCount(4, { timeout: 15_000 });
+  await slideAndClick(window, review.getByTestId("organize-review-not-now"));
+  await expect(review).toHaveCount(0);
+}
 
 test("Tags are added, created and removed with the keyboard, on one Document and on several at once", async () => {
   const { app, window } = await launchApp(dataDir);
@@ -264,6 +273,9 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     await slideAndClick(window, window.getByTestId("open-library"));
     const library = window.getByTestId("library");
     await slideAndClick(window, library.getByTestId("library-organize"));
+    // The Folders Organize proposes wait in its Review, which fills the Library's page once it
+    // ends; Not Now goes back to the rows, where the Tags it chose already are.
+    await notNow(window);
     const march = rowOf(library, "March invoice");
     const april = rowOf(library, "April invoice");
     // Applied, with an amber mark, waiting for the User.
@@ -276,9 +288,6 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
       "data-source",
       "automatic",
     );
-    // Automatic tagging may tag them before Organize files them: wait for that, so the rows stay put.
-    await expect(library.getByTestId("library-suggested")).toHaveCount(4);
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
     await screenshot(window, "library-review");
 
     // The viewer's header shows the open Document's Tags too, in a viewer wide enough for chips.
@@ -314,25 +323,11 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     await slideTo(window, aprilInvoice);
     await slideAndClick(window, aprilInvoice.getByTestId("reject-document-tag"));
     await expect(april.getByTestId("tag-chip")).toHaveCount(0);
-    // They wait in their Suggested Folders now: each Folder's ⋯ organizes it again.
+    // They are still in no Folder: Organize from ⌘K reads all four again.
     const asked = decisions.requests;
-    for (const name of ["Finance", "Reports & presentations"]) {
-      const head = library
-        .getByTestId("library-section")
-        .filter({ hasText: name })
-        .getByTestId("library-section-head");
-      await slideTo(window, head);
-      await slideAndClick(window, head.getByTestId("folder-menu"));
-      await slideAndClick(
-        window,
-        window
-          .getByTestId("folder-actions")
-          .filter({ visible: true })
-          .getByTestId("folder.organize"),
-      );
-    }
+    await runCommand(window, "library.organize", "Organize Documents not in a Folder");
     await expect.poll(() => decisions.requests, { timeout: 15_000 }).toBe(asked + 4);
-    await expect(library.getByTestId("library-organizing")).toHaveCount(0);
+    await notNow(window);
     await expect(april.getByTestId("tag-chip")).toHaveCount(0);
     await expect(march.getByTestId("tag-chip")).toHaveAttribute("data-source", "user");
 

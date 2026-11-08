@@ -7,7 +7,7 @@ import { citationState } from "../../src/shared/citations";
 import { askAndFinish, citationsIn, citingModel } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
@@ -205,7 +205,7 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
       harbour.id,
     ]);
 
-    // Organize files the User's Documents and leaves the Transcript where its Note is.
+    // Organize proposes a Folder for the User's Documents and leaves the Transcript where its Note is.
     const loose = await addAndProcess(core, [
       await writeSourceFile(await createTempDataFolder(), "pier-survey.txt", "The pier survey."),
     ]);
@@ -215,12 +215,12 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
       automatic: true,
     });
     await core.classifyDocuments();
-    await vi.waitFor(async () => {
-      const filed = await filedTranscripts(core, loose[0]?.id ?? "");
-      expect(filed.map((each) => each.groupId)).toEqual([harbour.id]);
-    });
+    await vi.waitFor(async () =>
+      expect(await proposedFor(core, loose[0]?.id ?? "")).toBe(harbour.id),
+    );
     await core.classifyDocuments([document.id]);
     expect(await filedTranscripts(core, document.id)).toEqual([]);
+    expect(await proposedFor(core, document.id)).toBeNull();
   });
 });
 
@@ -269,6 +269,9 @@ describe("A search inside a Transcript", { timeout: 60_000 }, () => {
 });
 
 const ours = migrations.find((each) => each.description.includes("(#2528)")) as Migration;
+const endsSuggestedFolders = migrations.find((each) =>
+  each.sql.includes("DROP TABLE document_group_rejections"),
+) as Migration;
 
 /**
  * Takes the data folder back to how the version before this one left it: this migration undone,
@@ -282,7 +285,17 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
     DROP TABLE meetings_left_apart;
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
-    DELETE FROM schema_migrations WHERE version = ${ours.version};
+    -- That version still had what a later migration takes away (#1569).
+    CREATE TABLE document_group_rejections (
+      id TEXT PRIMARY KEY NOT NULL,
+      document_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    ) STRICT;
+    ALTER TABLE document_groups ADD COLUMN suggested INTEGER NOT NULL DEFAULT 0;
+    DELETE FROM schema_migrations WHERE version IN (${ours.version}, ${endsSuggestedFolders.version});
   `);
   before(db);
   db.close();

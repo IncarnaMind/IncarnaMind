@@ -62,7 +62,7 @@ const WORDS = {
     mine: "My notes",
     transcript: "Transcript",
     views: "Meeting views",
-    switchTip: /^Switch views \(\S+ \S+\)$/,
+    switchTip: /^Switch views \(outside a table: \S+ \S+\)$/,
     beside: "Open in a split on the right",
     besideTip: "Open the Transcript in a split on the right",
     soon: "The transcript appears with its first line",
@@ -75,7 +75,7 @@ const WORDS = {
     undone: "Fill-in undone",
     again: "Fill in again",
     recorded: /^Recorded \d+:\d{2}$/,
-    audio: /^Audio kept until .+\d:\d{2}/,
+    audio: /^Audio kept until .*\d:\d{2}/,
     deleteNow: "Delete now",
     confirm: "Delete this meeting’s audio for good? The note stays.",
     keep: "Keep it",
@@ -89,7 +89,7 @@ const WORDS = {
     mine: "我的笔记",
     transcript: "转写稿",
     views: "会议视图",
-    switchTip: /^切换视图（\S+ \S+）$/,
+    switchTip: /^切换视图（表格外：\S+ \S+）$/,
     beside: "在右侧一栏中打开",
     besideTip: "在右侧一栏中打开转写稿",
     soon: "第一句话转写后即可显示转写稿",
@@ -102,7 +102,7 @@ const WORDS = {
     undone: "已撤销补全",
     again: "重新补全",
     recorded: /^已录制 \d+:\d{2}$/,
-    audio: /^音频保留到 .+\d:\d{2}/,
+    audio: /^音频保留到.*\d:\d{2}/,
     deleteNow: "立即删除",
     confirm: "永久删除这次会议的音频？笔记会保留。",
     keep: "保留",
@@ -331,6 +331,50 @@ for (const language of ["en", "zh-CN"] as const) {
     await shot(window, `meeting-page-beside-${language}-1440`);
     await pointAndClick(window, bar.getByTestId("meeting-stop"));
     await expect(panel.getByTestId("meeting-bar")).toHaveCount(0);
+    await app.close();
+  });
+
+  // protects=with the cursor in a table ⌥⌘← and ⌥⌘→ are the table's (a column is added, the view stays), and ⌘K still switches the views from inside one (#2682); fails_when=the keys switch the page instead of adding a column, the view moves, or Show the Transcript and Show notes do nothing with the cursor in a table; no_claim=the hint's wording, which the first test reads.
+  test(`in a table, ⌥⌘← and ⌥⌘→ add a column and the view stays; ⌘K still switches (${language})`, async () => {
+    const words = WORDS[language];
+    const { app, window } = await launchApp(dataDir);
+    await setWindowSize(app, window, 1440, 660);
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        device: { meetingNoticeAccepted: true },
+      }),
+    );
+
+    const bar = await recordMeetingNow(window);
+    const { panel } = await notePanel(window);
+    const editor = panel.getByTestId("mind-editor");
+    await pointAndClick(window, editor);
+    await focusSettled(window, editor);
+    await window.keyboard.insertText(words.lines[0]);
+    await editor.evaluate((dom) => {
+      const { editor: held } = dom as unknown as { editor: Editor };
+      held.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: false });
+    });
+    const columns = () => editor.locator("table tr").first().locator("td, th").count();
+    await expect.poll(columns).toBe(2);
+    const switcher = bar.getByTestId("meeting-views");
+    await expect(switcher).toHaveAttribute("title", words.switchTip);
+
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
+    await expect.poll(columns).toBe(3);
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
+    await expect.poll(columns).toBe(4);
+    await expect(bar.getByTestId("meeting-view-notes")).toBeChecked();
+    await expect(editor).toBeVisible();
+
+    await runCommand(window, "meeting.showTranscript", words.showTranscript);
+    await expect(panel.getByTestId("meeting-note-transcript")).toBeVisible();
+    await runCommand(window, "meeting.showNotes", words.showNotes);
+    await expect(editor).toBeVisible();
+
+    await pointAndClick(window, bar.getByTestId("meeting-stop"));
     await app.close();
   });
 

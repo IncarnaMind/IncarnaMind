@@ -47,6 +47,7 @@ import {
   SPEAKER_THEM,
   SPEAKER_UNKNOWN,
 } from "../../shared/speakers";
+import { alignWords } from "../../shared/wordTimes";
 import type {
   CloudLoss,
   CloudStream,
@@ -642,7 +643,22 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live && state.partials.get(segment.stream)?.id === segment.id) {
       state.partials.delete(segment.stream);
     }
-    const cue = { startMs, endMs: baseMs + segment.endMs, text, speaker };
+    const words = segment.words
+      ? alignWords(
+          text,
+          segment.words.map((word) => ({
+            text: options.lineText ? options.lineText(word.text, meetingWords(state)) : word.text,
+            ms: baseMs + word.ms,
+          })),
+        )
+      : [];
+    const cue: Cue = {
+      startMs,
+      endMs: baseMs + segment.endMs,
+      text,
+      speaker,
+      ...(words.length > 0 && { words }),
+    };
     if (text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
       if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);

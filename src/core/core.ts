@@ -8,7 +8,6 @@ import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
-import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { exportMarksOf, isExportMarks, writeExportMarks } from "../shared/exportMarks";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
@@ -111,6 +110,7 @@ import {
   type CheckRecordFormat,
   type CitationAttributes,
   type CitedArea,
+  type CloudReadPermit,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -129,6 +129,7 @@ import {
   type ExportMindOptions,
   type ExternalService,
   type FigureSchedule,
+  type FirstOpenQuestion,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -140,11 +141,11 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OrganizeStart,
   type OwnFileKind,
   type PassageSearchPlace,
   type ProviderError,
   RECENTLY_DELETED_DAYS,
-  type ReadyQuestion,
   type RecheckCitationInput,
   type RecheckResult,
   type SavedExport,
@@ -175,6 +176,7 @@ import { createConnectorRegistry, REGISTRY, REGISTRY_SENDS } from "./connectors/
 import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
+import { inCurrency } from "./cost/price";
 import {
   createDocuments,
   type DocumentFile,
@@ -188,6 +190,7 @@ import { statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { createOwnFiles } from "./documents/ownFiles";
+import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -249,10 +252,11 @@ import {
   pacedBy,
   withPageReader,
 } from "./library/classifier";
+import { createLibraryOrganizer } from "./library/organizeLibrary";
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
-import type { TaggingClassifier } from "./library/types";
+import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -287,10 +291,16 @@ import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
+import {
+  createOrganizeReview,
+  type OrganizeReviewRun,
+  organizeReviewCount,
+} from "./organizeReview";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
+import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
@@ -321,6 +331,7 @@ import {
 } from "./providers/ollama";
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
+import { outputTokens } from "./providers/outputLimits";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -348,7 +359,12 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags, tagsOfDocument } from "./tags";
-import { chatClassifier, type TagClassifier } from "./tags/classify";
+import {
+  chatClassifier,
+  excerptFromPassages,
+  TAGGING_INSTRUCTIONS,
+  type TagClassifier,
+} from "./tags/classify";
 import { createDecisionHosts } from "./tags/decisionHosts";
 import { mayBackgroundSend } from "./tags/held";
 import { createJevTagging, decisionModelTagger } from "./tags/jev";
@@ -433,6 +449,12 @@ export interface Core extends CoreApi, CoreEventSource {
    * `shell` adapter. Throws NotFoundError for any other path.
    */
   showSavedFile(path: string): Promise<void>;
+  /**
+   * Save recording… (#687): writes a Meeting's audio as one WAV file at `path`, which the host's
+   * save dialog gave. Not while it records; NotFoundError when it has no audio, or its audio is
+   * deleted while it is written, which then leaves nothing at `path`.
+   */
+  writeMeetingRecording(meetingId: string, path: string): Promise<void>;
   /**
    * Opens a file IncarnaMind saved since it started in the default app for its
    * type, through the `shell` adapter. Throws NotFoundError for any other path.
@@ -746,6 +768,7 @@ export function createCore(adapters: CoreAdapters): Core {
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
   });
+  const changes = createChanges({ notes: content, now: () => adapters.now?.() ?? new Date() });
   // A Mind waiting in Recently deleted comes back with its Citations, so it counts until it is purged.
   const eachCitingMind = (
     visit: (blocks: Y.XmlFragment, mindId: string) => void,
@@ -2023,36 +2046,50 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
-    organizeAtOnce: (ids, signal, wall, permit) => {
+    organizeAtOnce: (ids, signal, wall, permit, runId) => {
       const allowed = new Set(
         library
           .folders()
           .filter((folder) => filedWithin(wall, folder.id)?.folderId === folder.id)
           .map((folder) => folder.id),
       );
-      return library.organizeAtOnce(ids, signal, allowed, permit);
+      // Inside a wall it proposes only the wall's own Folders, never one proposed by name (#1934).
+      return library.organizeAtOnce(ids, signal, allowed, permit, {
+        origin: "assistant",
+        runId,
+        newFolders: wall === null,
+      });
     },
-    proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
-    allowCloudRead: async (service) => {
-      consent.choose(["classification"], service);
-      await dataFlowsChanged().catch((error: unknown) =>
-        console.error("The window couldn't be told which services may read the Documents.", error),
+    organizeByPlan: async (ids, signal, permit, runId) => {
+      const outside = new Set(
+        library
+          .folders()
+          .filter((folder) => filedWithin(null, folder.id)?.folderId === folder.id)
+          .map((folder) => folder.id),
       );
+      try {
+        return await libraryOrganizer.organize(
+          { documentIds: [...ids] },
+          { run: { origin: "assistant", runId }, permit, signal, folders: outside },
+        );
+      } catch (error) {
+        // A model that can't name Folders still sorts into those there are, one Document at a time.
+        const cantPlan =
+          error instanceof InvalidInputError && error.wording?.key === "error.library.cantPropose";
+        if (cantPlan && outside.size > 0) return null;
+        throw error;
+      }
     },
+    proposeFolder: (name, about) =>
+      organizeReview.proposeFolders([{ name, description: about }])[0] ?? null,
+    withdrawOrganizeRun: (runId, folderIds) => organizeReview.withdraw(runId, folderIds),
+    allowCloudRead: (service) => allowOrganizeRead(service),
     offeredOrganizeModel: async () => {
-      if (organizeModelOf(library.settings())) return null;
-      const { automatic } = await taggingModels();
-      return (
-        automatic && { classifier: automatic.classifier, route: routeOf(automatic.classifier) }
-      );
+      const offered = await organizeOffer();
+      return offered && { classifier: offered, route: routeOf(offered) };
     },
-    keepOrganizeModel: async (classifier) => {
-      const saved = library.settings();
-      if (organizeModelOf(saved)) return;
-      library.saveSettings({ ...saved, organizeWith: classifier });
-      await dataFlowsChanged();
-      await taggingChanged();
-    },
+    keepOrganizeModel: (classifier) => keepOrganizeModel(classifier),
+    localOnly: () => embedding.localOnly(),
     lendOrganizeModel: (classifier) => library.lendOrganizeModel(classifier),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
@@ -2078,21 +2115,6 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         return undefined;
       };
-      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
-      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
-      if (input.command === ACCEPT_SUGGESTIONS) {
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
-        );
-        const crossing = input.ids.some((id) => {
-          const into = suggested.get(id) ?? null;
-          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
-        });
-        if (crossing) {
-          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
-          throw new InvalidInputError({ key });
-        }
-      }
       for (const id of input.ids) {
         const wall = wallOf(id);
         if (wall !== undefined && wall !== wallId) refuse();
@@ -2177,6 +2199,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const answers = createAnswers({
     content,
+    changes,
     events,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
@@ -2352,6 +2375,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoint: (mindId) => {
         checkpoints.save(mindId, "accept");
       },
+      now: () => adapters.now?.() ?? new Date(),
       create: (title, folderId, headed) => {
         const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
         return { id: mind.id, name: mindName(mind) || title };
@@ -2497,7 +2521,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const permitted = ids.filter((id) => allowed.includes(id));
       return evidence.scope(mindId, permitted).documentIds ?? [...permitted];
     },
-    checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
+    changes,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       unfinished: () => tasks.unfinished(),
@@ -2593,6 +2617,7 @@ export function createCore(adapters: CoreAdapters): Core {
       file: (documentIds, folderId) => {
         db.transaction(() => library.move(documentIds, folderId));
         library.moved([...documentIds]);
+        organizeReview.filedByHand(documentIds, folderId);
       },
     },
     tags: {
@@ -2814,6 +2839,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
   const edits = createEdits({
     content,
+    changes,
     requireMind: (mindId) => {
       writableMind(mindId);
     },
@@ -2852,7 +2878,6 @@ export function createCore(adapters: CoreAdapters): Core {
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");
     },
-    now: () => adapters.now?.() ?? new Date(),
   });
 
   // Check against Documents (#96): check Runs that can only search and cite.
@@ -3103,12 +3128,30 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   /**
-   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
-   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
-   * for a Citation made before the wall (#1934).
+   * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
+   * Note it is in, or of the conversation it is in when that has no Note; somewhere with neither
+   * reads as browsing is, which may. A place whose wall can't be judged (its Note or conversation
+   * gone) may not.
+   */
+  const mayRecheckFrom = (place: TurnPlace, documentId: string): boolean => {
+    const wall = walledDocument(documentId);
+    if (wall === null) return true;
+    if (place.mindId === null && place.conversationId === null) return true;
+    try {
+      return wall === turnWall(place);
+    } catch (error) {
+      if (error instanceof NotFoundError) return false;
+      throw error;
+    }
+  };
+  /**
+   * A Citation checked again in the Note or conversation it is shown in: one whose Document is
+   * kept inside a walled Folder that place is outside isn't read from there, so the check it was
+   * made with stands, as for a Citation made before the wall (#1934, #2782).
    */
   const recheckIn = (input: RecheckCitationInput): RecheckResult => {
-    if (mayRecheckIn(input.mindId, input.documentId)) return recheckCitation(documents, input);
+    const place = { mindId: input.mindId, conversationId: input.conversationId ?? null };
+    if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
@@ -3621,8 +3664,8 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const tagger = createTagger({
     // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
-    maySend: (id, service) =>
-      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnSeq),
+    maySend: (id, service, pressed) =>
+      !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
     db,
     now,
     tags,
@@ -3669,6 +3712,72 @@ export function createCore(adapters: CoreAdapters): Core {
     head: (id) => documents.head(id),
     headIds: () => documents.headIds(),
   });
+  /** The classifier Organize uses with these settings, through the consent its service needs. */
+  async function prepareOrganize(
+    settings: LibrarySettings,
+    permit?: CloudReadPermit,
+  ): Promise<GroupClassifier> {
+    const classifier = organizeModelOf(settings);
+    if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
+    if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
+    if (classifier.kind === "auto") {
+      let automatic = automaticClassifiers.get(classifier.baseUrl);
+      if (!automatic) {
+        automatic = automaticGroupClassifier(classifier.baseUrl);
+        automaticClassifiers.set(classifier.baseUrl, automatic);
+      }
+      return automatic;
+    }
+    if (classifier.kind === "ollama")
+      return decisionGroupClassifier({
+        baseUrl: classifier.baseUrl,
+        model: classifier.modelId,
+        apiKey: "ollama",
+        local: true,
+        usePageImages: classifier.usePageImages,
+      });
+    if (classifier.kind === "jev") {
+      if (embedding.localOnly() && jev.service())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      const prepared = await jev.prepareGroups(permit);
+      if (embedding.localOnly() && !prepared.local)
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return prepared;
+    }
+    if (classifier.kind === "decision") {
+      if (embedding.localOnly())
+        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+      return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
+    }
+    const { choice } = classifier;
+    const ready = await chat.readiness(choice, "classification");
+    if (embedding.localOnly() && "provider" in ready && ready.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
+    if (embedding.localOnly() && prepared.provider.service)
+      throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    // A scan's page images go only where the User allowed them (the "scan-images" flow).
+    const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
+    let chosen: GroupClassifier = {
+      ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
+      model: { id: choice.modelId, images, reason: "selected" as const },
+    };
+    // A scan goes to the image model when this one can't read its pages.
+    const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
+    if (imageModel && scanImagesAllowed(imageModel)) {
+      chosen = withPageReader(chosen, async () => {
+        const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+          permit,
+        });
+        return {
+          ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
+          model: { id: imageModel.modelId, images: true, reason: "selected" as const },
+        };
+      });
+    }
+    const plan = planPaceOf(prepared.provider.kind);
+    return plan ? pacedBy(chosen, plan.run) : chosen;
+  }
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
   let isExampleDocument: (documentId: string) => boolean = () => false;
@@ -3683,6 +3792,12 @@ export function createCore(adapters: CoreAdapters): Core {
     isExampleDocument: (documentId) => isExampleDocument(documentId),
     head: (id) => documents.head(id),
     localOnly: () => embedding.localOnly(),
+    reviewCount: () => organizeReviewCount(db),
+    review: {
+      propose: (run, proposals) => organizeReview.propose(run, proposals),
+      proposeFolders: (folders) => organizeReview.proposeFolders(folders),
+      offeredFolders: () => organizeReview.offeredFolders(),
+    },
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3754,68 +3869,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
       }
     },
-    async prepare(settings, permit) {
-      const classifier = organizeModelOf(settings);
-      if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
-      if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
-      if (classifier.kind === "auto") {
-        let automatic = automaticClassifiers.get(classifier.baseUrl);
-        if (!automatic) {
-          automatic = automaticGroupClassifier(classifier.baseUrl);
-          automaticClassifiers.set(classifier.baseUrl, automatic);
-        }
-        return automatic;
-      }
-      if (classifier.kind === "ollama")
-        return decisionGroupClassifier({
-          baseUrl: classifier.baseUrl,
-          model: classifier.modelId,
-          apiKey: "ollama",
-          local: true,
-          usePageImages: classifier.usePageImages,
-        });
-      if (classifier.kind === "jev") {
-        if (embedding.localOnly() && jev.service())
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        const prepared = await jev.prepareGroups(permit);
-        if (embedding.localOnly() && !prepared.local)
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        return prepared;
-      }
-      if (classifier.kind === "decision") {
-        if (embedding.localOnly())
-          throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        return decisionHosts.prepareGroups(classifier.host, classifier.modelId, permit);
-      }
-      const { choice } = classifier;
-      const ready = await chat.readiness(choice, "classification");
-      if (embedding.localOnly() && "provider" in ready && ready.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
-      if (embedding.localOnly() && prepared.provider.service)
-        throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      // A scan's page images go only where the User allowed them (the "scan-images" flow).
-      const images = readsImages(prepared.capabilities) && scanImagesAllowed(choice);
-      let chosen: GroupClassifier = {
-        ...chatGroupClassifier(prepared.model, prepared.provider.service === null, images),
-        model: { id: choice.modelId, images, reason: "selected" as const },
-      };
-      // A scan goes to the image model when this one can't read its pages.
-      const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
-      if (imageModel && scanImagesAllowed(imageModel)) {
-        chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, {
-            permit,
-          });
-          return {
-            ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
-            model: { id: imageModel.modelId, images: true, reason: "selected" as const },
-          };
-        });
-      }
-      const plan = planPaceOf(prepared.provider.kind);
-      return plan ? pacedBy(chosen, plan.run) : chosen;
-    },
+    prepare: prepareOrganize,
   });
   const mindSources = createMindSources({
     dataDir,
@@ -3841,6 +3895,80 @@ export function createCore(adapters: CoreAdapters): Core {
         : null;
     const pages = reader && chat.describeModel(reader)?.service;
     return [...(service ? [service] : []), ...(pages && pages.id !== service?.id ? [pages] : [])];
+  };
+  /** The model the Library offers Organize, Automatic's pick; null when one is chosen or none. */
+  const organizeOffer = async (): Promise<TaggingClassifier | null> =>
+    organizeModelOf(library.settings())
+      ? null
+      : ((await taggingModels()).automatic?.classifier ?? null);
+  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  const keepOrganizeModel = async (classifier: TaggingClassifier) => {
+    const saved = library.settings();
+    if (organizeModelOf(saved)) return;
+    library.saveSettings({ ...saved, organizeWith: classifier });
+    await dataFlowsChanged();
+    await taggingChanged();
+  };
+  /** The User allowed Organize to send to `service` where its words said what goes (ADR-0022). */
+  const allowOrganizeRead = async (service: ExternalService) => {
+    consent.choose(["classification"], service);
+    await dataFlowsChanged().catch((error: unknown) =>
+      console.error("The window couldn't be told which services may read the Documents.", error),
+    );
+  };
+  /** What Organize needs before the User's own run, and the model the Library offers (#1569). */
+  const organizeNeeds = async (): Promise<{
+    start: OrganizeStart;
+    offered: TaggingClassifier | null;
+  }> => {
+    const offered = await organizeOffer();
+    const classifier = organizeModelOf(library.settings()) ?? offered;
+    // Local mode sends nothing to a cloud service, so nothing asks: it says so, as the run would.
+    const paused = () => new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
+    if (!classifier) {
+      const readiness = await chat.readiness();
+      const noProvider = !readiness.ready && readiness.reason === "no-provider";
+      // Automatic offers no cloud model in Local mode, though one is set up.
+      if (embedding.localOnly() && !noProvider) throw paused();
+      return { start: { ready: false, needs: "model", noProvider }, offered };
+    }
+    const route = routeOf(classifier);
+    if (route.where === "cloud") {
+      if (embedding.localOnly()) throw paused();
+      const decided = consent.status("classification", route.service);
+      if (decided !== "accepted")
+        return {
+          start: {
+            ready: false,
+            needs: "consent",
+            service: route.service,
+            declined: decided === "declined",
+            model: classifier.kind,
+          },
+          offered,
+        };
+    }
+    return { start: { ready: true, model: classifier.kind }, offered };
+  };
+  /**
+   * A run the User allowed alone under their earlier no (#2252, ADR-0022): a permit for the
+   * service they allowed, on the model the Library offers there, lent for the run when none is
+   * chosen. Nothing is kept.
+   */
+  const allowedOnce = async (
+    input: unknown,
+  ): Promise<{ permit: CloudReadPermit; giveBack(): void } | null> => {
+    if (!isRecord(input) || input.once === undefined || input.once === false) return null;
+    if (input.once !== true || typeof input.forService !== "string" || input.forService === "")
+      throw new InvalidInputError({ key: "error.organize.invalid" });
+    const offered = await organizeOffer();
+    return {
+      permit: { flow: "classification", serviceId: input.forService },
+      giveBack:
+        offered && tagging.service(offered)?.id === input.forService
+          ? library.lendOrganizeModel(offered)
+          : () => {},
+    };
   };
   consent.registry.register({
     id: "classification",
@@ -3983,6 +4111,108 @@ export function createCore(adapters: CoreAdapters): Core {
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
+  });
+  const organizeReview = createOrganizeReview({
+    db,
+    now,
+    library,
+    tags,
+    removeFolder: (id, at) => {
+      removeFolder(id, at);
+    },
+    removeTag: (id, at) => removeTag(id, at),
+    restoreDeleted: (refs) => {
+      recentlyDeleted.restore(refs);
+    },
+    folderIsEmpty: (id) =>
+      library.allDocumentIds(id).length === 0 &&
+      library.subtree(id).length === 1 &&
+      !db.get("SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
+      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]),
+    saved: ({ filed, folderIds, tagged, tagsMade }) => {
+      library.moved(filed);
+      for (const folderId of folderIds) checks.folderContentsChanged(folderId);
+      if (tagsMade) tagsChanged();
+      announceTagged(tagged);
+    },
+    changed: (count) => events.emit("organizeReview.changed", { count }),
+  });
+  /** Tagging states that leave a Document without its automatic Tags yet. */
+  const UNTAGGED: ReadonlySet<string> = new Set([
+    "off",
+    "failed",
+    "waiting-for-provider",
+    "pending",
+  ]);
+  // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
+  const libraryOrganizer = createLibraryOrganizer({
+    db,
+    folders: () => library.folders(),
+    settings: () => library.settings(),
+    language: () => settings.get().language,
+    isExampleDocument: (id) => isExampleDocument(id),
+    wallOf: (folderId) => library.wallOf(folderId),
+    embedding: embedding.model,
+    organizeService: (chosen) => {
+      const classifier = organizeModelOf(chosen);
+      return classifier && tagging.service(classifier);
+    },
+    prepare: (chosen, permit) => prepareOrganize(chosen, permit),
+    localOnly: () => embedding.localOnly(),
+    // Tagging after the plan (`settled`) goes on the Organize model when tagging picks no other.
+    taggingRequests: (ids) => {
+      if (library.settings().classifier.kind !== "chat") return [];
+      const listed = approximateTokens(
+        [TAGGING_INSTRUCTIONS, ...tags.list().map((tag) => `${tag.name}: ${tag.description}`)].join(
+          "\n",
+        ),
+      );
+      return documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => ({
+          inputTokens:
+            listed +
+            approximateTokens(
+              excerptFromPassages(
+                db
+                  .all<{ text: string }>(
+                    "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT 6",
+                    [each.id],
+                  )
+                  .map((row) => row.text),
+              ),
+            ),
+          outputTokens: outputTokens("tags"),
+        }));
+    },
+    estimate: (chosen, requests) => {
+      const classifier = organizeModelOf(chosen);
+      const metered = classifier?.kind === "chat" ? chat.metered(classifier.choice) : null;
+      return metered && meter.estimateRead(metered, { likely: requests, most: requests });
+    },
+    inDollars: (estimate) =>
+      estimate.billing === "per-token" && estimate.cost
+        ? inCurrency(estimate.cost.amount, estimate.cost.currency, "USD")
+        : null,
+    tokensOf: approximateTokens,
+    propose: (run, proposals) => organizeReview.propose(run, proposals),
+    settled: (ids) => {
+      library.settle(ids);
+      // Organize used to add Tags as it filed; its plan doesn't, so the tagger adds them, through
+      // the tagging flow's consent, as it tags by itself, until Tags wait in the Review too (#1569).
+      const untagged = documents
+        .getMany([...ids])
+        .filter((each) => UNTAGGED.has(each.tagging))
+        .map((each) => each.id);
+      if (untagged.length > 0)
+        void lookForTaggingModel()
+          .then(() => tagger.afterOrganize(untagged))
+          .catch((error: unknown) =>
+            console.error("Tagging after Organize couldn't start.", error),
+          );
+    },
+    progress: (progress) => events.emit("organize.progress", progress),
   });
   try {
     recentlyDeleted.expire();
@@ -4453,7 +4683,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
-  const readyQuestionNow = (): ReadyQuestion | null => {
+  const readyQuestionNow = (): FirstOpenQuestion => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
       own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
@@ -4662,6 +4892,7 @@ export function createCore(adapters: CoreAdapters): Core {
     capture: adapters.audioCapture,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
+    keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,
     createMind: (title, folderId) => {
       const mind = minds.create(parseCreateMindInput({ title, folderId }));
@@ -5726,6 +5957,14 @@ export function createCore(adapters: CoreAdapters): Core {
       if (input.mindId !== null && typeof input.mindId !== "string") {
         throw new InvalidInputError({ key: "error.citation.recheckNote" });
       }
+      // A conversation named must be one that can be judged; left out, the Citation is browsing.
+      if (
+        input.conversationId !== undefined &&
+        input.conversationId !== null &&
+        (typeof input.conversationId !== "string" || input.conversationId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.citation.recheckPlace" });
+      }
       return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
@@ -5735,6 +5974,7 @@ export function createCore(adapters: CoreAdapters): Core {
         quotedWords: parseQuotedWords(input.quotedWords),
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
+        conversationId: input.conversationId ?? null,
       });
     },
     citeSelection: async (input) => {
@@ -6316,7 +6556,27 @@ export function createCore(adapters: CoreAdapters): Core {
     proposeFolders: async (ids, options) =>
       library.propose(ids, settings.get().language, undefined, options?.forService),
     classifyDocuments: async (ids, options) => {
-      library.classify(ids, options?.forService);
+      const run: OrganizeReviewRun = options?.folderId
+        ? { origin: "folder", folderId: library.folder(options.folderId).id }
+        : { origin: "library" };
+      const once = await allowedOnce(options);
+      if (once) {
+        // Sorted before it returns: the model it is lent is given back then.
+        try {
+          const { failed } = await library.organizeAtOnce(
+            ids ?? documents.list().map((each) => each.id),
+            lifetime.signal,
+            undefined,
+            once.permit,
+            run,
+          );
+          if (failed !== null) throw failed;
+        } finally {
+          once.giveBack();
+        }
+      } else {
+        library.classify(ids, options?.forService, run);
+      }
       const classifier = organizeModelOf(library.settings());
       if (classifier) {
         usageData.record({
@@ -6329,9 +6589,16 @@ export function createCore(adapters: CoreAdapters): Core {
         });
       }
     },
-    assignDocumentGroup: async (id, groupId) => library.assign(id, groupId),
+    assignDocumentGroup: async (id, groupId) => {
+      const change = library.assign(id, groupId);
+      organizeReview.filedByHand([change.documentId], groupId);
+      return change;
+    },
     restoreAssignment: async (id, before, after) => {
       const change = library.restoreAssignment(id, before, after);
+      const groupId = change?.after.assignment?.groupId ?? null;
+      if (change && (change.before.assignment?.groupId ?? null) !== groupId)
+        organizeReview.filedByHand([change.documentId], groupId);
       // A Document whose tagging goes back to pending has its turn again: the one it had was
       // dropped while Organize held it (#1928).
       if (change?.after.tagging?.status === "pending") tagger.resume();
@@ -6386,30 +6653,39 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new TranslatableError({ key: "error.meeting.purgeFailed" });
       }
     },
-    acceptAssignments: async (ids, checked, wall) => {
-      if (checked !== undefined && wall !== undefined) {
-        // Judged here, at the filing (#2250): a Folder that gained a wall since the check, or a
-        // Document that left it, accepts nothing. One that now waits for another Folder is the
-        // move check's to refuse, with its own words (#2243).
-        const side = wall;
-        const suggested = new Map(
-          library.snapshot().assignments.map((each) => [each.documentId, each]),
-        );
-        const crossing = ids.some((id) => {
-          const into = checked[id] ?? null;
-          const waiting = suggested.get(id);
-          if (!waiting?.suggested || waiting.groupId !== into) return false;
-          return !mayFileWithin(side, into, walledDocument(id));
-        });
-        if (crossing) {
-          throw new InvalidInputError({
-            key: side === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside",
-          });
-        }
+    getOrganizeReview: async () => organizeReview.get(),
+    editOrganizeReview: async (edit) => organizeReview.edit(edit),
+    restoreOrganizeReview: async (before, after) => organizeReview.restore(before, after),
+    confirmOrganizeReview: async (itemIds) => organizeReview.confirm(itemIds),
+    undoOrganizeReviewConfirmation: async (id) => organizeReview.undoConfirmation(id),
+    redoOrganizeReviewConfirmation: async (id) => organizeReview.redoConfirmation(id),
+    discardOrganizeReview: async (itemIds) => organizeReview.discard(itemIds),
+    restoreDiscardedOrganizeReview: async (id) => organizeReview.restoreDiscarded(id),
+    organizeLibrary: async (input) => {
+      const once = await allowedOnce(input);
+      try {
+        return await libraryOrganizer.organize(input, once ? { permit: once.permit } : undefined);
+      } finally {
+        once?.giveBack();
       }
-      return library.accept(ids, checked);
     },
-    rejectAssignments: async (ids) => library.reject(ids),
+    startOrganize: async () => {
+      const { start, offered } = await organizeNeeds();
+      // A model that may run without asking is kept, as the card's Allow keeps the one it names.
+      if (start.ready && offered) await keepOrganizeModel(offered);
+      return start;
+    },
+    allowOrganize: async (serviceId) => {
+      if (typeof serviceId !== "string" || serviceId === "")
+        throw new InvalidInputError({ key: "error.organize.invalid" });
+      const { start, offered } = await organizeNeeds();
+      if (start.ready || start.needs !== "consent" || start.declined) return start;
+      if (start.service.id !== serviceId) return start;
+      if (offered) await keepOrganizeModel(offered);
+      await allowOrganizeRead(start.service);
+      return (await organizeNeeds()).start;
+    },
+    stopOrganizeLibrary: async () => libraryOrganizer.stop(),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);
@@ -6438,6 +6714,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents: library.move(documentIds, folderId),
         conversations: conversations.move(conversationIds, folderId),
       }));
+      organizeReview.filedByHand(documentIds, folderId);
       // Said once it is saved, so a move that rolled back says nothing.
       const joined = move.minds.filter((item) => item.from !== folderId);
       if (joined.length > 0) mindsChanged();
@@ -6547,6 +6824,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagger.resume();
     },
     dismissAutomaticOffNotice: async () => library.dismissAutomaticOffNotice(),
+    reviewMovedSeen: async () => library.reviewMovedSeen(),
 
     getJevSettings: () => jev.status(),
     saveJevSettings: async (input) => {
@@ -7048,6 +7326,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetingFill.followUndo(id, input.undone);
     },
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
+    keepMeetingAudio: async (input) => meetings.keepAudio(input),
+    writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
+    readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: async (input) => {

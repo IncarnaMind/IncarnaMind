@@ -13,6 +13,14 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewFolder,
+  OrganizeReviewRow,
+} from "./organizeReview/types";
 import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
@@ -39,6 +47,20 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewFolder,
+  OrganizeReviewItem,
+  OrganizeReviewLeftOut,
+  OrganizeReviewOrigin,
+  OrganizeReviewPlacement,
+  OrganizeReviewRow,
+  OrganizeReviewTag,
+  OrganizeReviewTarget,
+} from "./organizeReview/types";
 export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
@@ -710,6 +732,8 @@ export type ProposalRequest =
       reason?: string;
       /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
       removesOnly?: true;
+      /** What its new text left out of the passage stayed, unless it quoted it as taken out (#880, #2180): made again, it still does (#2796). */
+      keepsLeftOut?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -1370,7 +1394,7 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
-  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  /** Organize: the Folders it proposed for the Documents, by name, with how many each (#2252, #1569). */
   folders?: readonly { name: string; count: number }[];
   /** Organize: how many of the Documents it read it couldn't sort (#2252). */
   unsorted?: number;
@@ -1378,6 +1402,10 @@ export interface CommandDone {
   untouched?: number;
   /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
   considered?: number;
+  /** Organize: how many Documents wait in Suggestions after it, for the reply's Review button (#1569). */
+  review?: { count: number };
+  /** Organize: what else the User asked for in the request, which the reply answers (#1569). */
+  alsoAsked?: string;
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
   /** A Tag merge: how many Tags the Library held before and after (#2252). */
@@ -1413,12 +1441,7 @@ export interface AnalysisCall {
  * still wait in the text it was to change, which the assistant can't revise
  * (someone else's, or the User's own requests), `count` of them in the Mind;
  * "mixed": its own waiting text sits beside the User's there. "model": the
- * model failed, as `message` says. "no-table": a table it wrote couldn't be
- * made, so none of its text went in (#961). "unplaced": text it marked to take
- * out isn't in the Mind word for word, so none of its text went in (#2180).
- * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
- * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
- * "not-placed": the rewrite would hold a Citation, footnote or figure its reply didn't place, so none of its text went in (#2424).
+ * model failed, as `message` says. A refusal (`changeRefusals`): none of its text went in.
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1437,11 +1460,7 @@ export type MindProblem =
         | "changed"
         | "content-not-own"
         | "stopped"
-        | "no-table"
-        | "unplaced"
-        | "misnamed"
-        | "typed-tag"
-        | "not-placed"
+        | ChangeRefusalKind
         | "uncited"
         /** New text off the length the User asked for (#1385). */
         | "length"
@@ -1568,6 +1587,12 @@ export interface MindChange {
   replacedOwn?: { paragraphs: number; tables: number; charts: number };
   /** How many Citations the text it wrote there holds. Absent: none, or it rewrote text keeping its own. */
   cited?: number;
+  /**
+   * The Citations that text holds, each once, as they were when it was written: the sources its
+   * Answer's steps count beside the reply's own (#2768). A record of the write, kept after the
+   * User accepts, rejects or edits it; their checks since are the Note's. Absent: none.
+   */
+  citations?: Citation[];
   /** It wrote new text there with no Citation at all, once its Answer had searched and found Passages (#1415). */
   uncited?: true;
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
@@ -2335,25 +2360,33 @@ export interface TurnPlace {
 }
 
 /**
- * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
- * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ * A Citation looked for again for a Note or conversation outside the walled Folder that keeps its
+ * Document (#1934): nothing was read, so nothing is known of the new version, and the result it
+ * was made with stands.
  */
 export interface CitationKeptInside {
   /** The walled Folder's name. */
   keptInside: string;
 }
 
-/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+/** What looking for a Citation again for a Note or conversation came to: checked, or kept inside a wall. */
 export type RecheckResult = CitationRecheck | CitationKeptInside;
 
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
-   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
-   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
-   * walled Folder isn't read again for a Note outside it: the check it was made with stands
-   * (#1934). Never left out.
+   * The Note the Citation is in, or going into; null for one shown in no Note (the Document's
+   * viewer, or an Answer that names its conversation below), which is read as browsing is unless
+   * a conversation is given too. A Document kept inside a walled Folder isn't read again for a
+   * Note outside it: the check it was made with stands (#1934). Never left out.
    */
   mindId: string | null;
+  /**
+   * The conversation the Citation is in, when it is in an Answer: one shown with no Note reads
+   * as browsing only when this is null too, so a Document kept inside a walled Folder the
+   * conversation is outside isn't read again (#2782). Absent or null for a Citation in a Note
+   * or in a Document's viewer.
+   */
+  conversationId?: string | null;
 }
 
 /**
@@ -3435,6 +3468,12 @@ export interface DeviceSettings {
   /** What a Meeting records unless the start block says otherwise: the computer's sound too ("Me and them"), or only the microphone. */
   meetingSystemAudio: boolean;
   /**
+   * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
+   * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
+   * leaves Meetings already recorded as they are.
+   */
+  keepMeetingAudio: boolean;
+  /**
    * The source a failed model download's line picked on this device (#1578), leading the others.
    * "auto" by default: the probe orders them.
    */
@@ -3458,6 +3497,8 @@ export interface DeviceSettings {
   meetingHelpKeys: HelpKeys;
   /** How the window moves here (Settings → General → Motion): see `MotionPreference`. */
   motion: MotionPreference;
+  /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
+  appearance: Appearance;
   /**
    * The model the User last chose here, in a composer or as the Answers default: a Mind with no
    * pick of its own and the assistant with no Mind in focus use it (`modelInUse`). Null until
@@ -3584,6 +3625,13 @@ export interface SetTranscriptionKeyInput {
  */
 export const MOTION_PREFERENCES = ["system", "on", "reduced", "off"] as const;
 export type MotionPreference = (typeof MOTION_PREFERENCES)[number];
+
+/**
+ * The window's theme on a device (#1262): as the system's appearance is ("system", the default,
+ * followed live), or always light or dark. Documents and pages stay paper-white in both.
+ */
+export const APPEARANCES = ["system", "light", "dark"] as const;
+export type Appearance = (typeof APPEARANCES)[number];
 
 /**
  * How the programs Tools start (Skill scripts) are confined:
@@ -4242,6 +4290,20 @@ export interface Document {
 export interface TranscriptSpeakers {
   labels: Record<string, string>;
   lines: Record<string, string>;
+  /**
+   * Lines the User split in two or more (#138), by `lineKey` of the line as its file has it: its
+   * text, which the split holds to (a file whose line reads otherwise leaves it unsplit), and
+   * where each later part starts in that text and in time. Each later part is a line of its own
+   * in `lines`, by its start and the file's label.
+   */
+  splits?: Record<string, TranscriptSplit>;
+}
+
+/** Where the User split a Transcript's line (#138). */
+export interface TranscriptSplit {
+  text: string;
+  /** In order: where each part after the first starts, in UTF-16 code units, and in ms. */
+  parts: { at: number; ms: number }[];
 }
 
 /**
@@ -5213,6 +5275,17 @@ export interface ReadyQuestion {
    * answers now. Asking waits for it, saying so, rather than doing nothing (#2218).
    */
   waitingFor: string | null;
+}
+
+/**
+ * What the first open's Ask step shows (#2127): the ready Question, and the User's own Document
+ * still being read, named, so the line that says so needs no second read.
+ */
+export interface FirstOpenQuestion {
+  /** The ready Question; null while there is none, as when the only Document of theirs is being read. */
+  ready: ReadyQuestion | null;
+  /** The User's own newest Document still being read; the step shows it in place of the Question. */
+  reading: string | null;
 }
 
 /**
@@ -6454,6 +6527,77 @@ export type RunEstimate =
     }
   | { billing: "plan" | "free" };
 
+export interface OrganizeLibraryInput {
+  /** These Documents only; the Library's Documents in no Folder when left out. */
+  documentIds?: string[];
+  /** Organize This Folder: its own Documents, into subfolders inside it. */
+  folderId?: string;
+  /** The service the User allowed on the press: a run for another sends nothing (#2308). */
+  forService?: string;
+  /**
+   * With `forService`: the User allowed this run alone, under their earlier no to that service
+   * (#2252, ADR-0022). It sends there under a permit, on the model the Library offers when none
+   * is chosen, and keeps neither the consent nor the model.
+   */
+  once?: boolean;
+  /** The User saw the estimate and went on. */
+  costAccepted?: boolean;
+  /**
+   * Fewer Folders or More Folders in the Suggestions: plan again for fewer or more new Folders
+   * than the last plan proposed in the same place (subfolders when `folderId` is given), still
+   * 3 to 7.
+   */
+  folders?: FolderCountAim;
+}
+
+/** How many new Folders a plan made again aims at, against how many the last plan proposed. */
+export type FolderCountAim = { fewerThan: number } | { moreThan: number };
+
+/**
+ * What Organize needs before a run of the User's own (#1569, ADR-0022). `model`: the kind of model
+ * it runs on, the chosen one or the one the Library offers.
+ */
+export type OrganizeStart =
+  /** It runs now: its model is on this computer, or its service is allowed. */
+  | { ready: true; model: TaggingClassifier["kind"] }
+  /** No model can organize. `noProvider`: no AI model is set up at all. */
+  | { ready: false; needs: "model"; noProvider: boolean }
+  /**
+   * The first time this cloud service would read the Documents for Organize: the card says what
+   * goes there. `declined`: the User said no to it before, so its Allow covers one run (`once`).
+   */
+  | {
+      ready: false;
+      needs: "consent";
+      service: ExternalService;
+      declined: boolean;
+      model: TaggingClassifier["kind"];
+    };
+
+export type OrganizeLibraryResult =
+  /** Estimated at more than $1: nothing was sent, and the User is asked first. */
+  | { status: "estimate"; estimate: RunEstimate }
+  | {
+      status: "done";
+      runId: string;
+      /** The Documents planned, and the rows written to the Review. */
+      documents: number;
+      proposed: number;
+      /** The Documents the model was asked about one by one, past the sample. */
+      placedByModel: number;
+      requests: number;
+    }
+  | { status: "stopped"; runId: string };
+
+/** "Organizing 12 of 40…", or the Documents still being read before it can start. */
+export interface OrganizeProgress {
+  runId: string;
+  /** Documents still being read: the plan waits for them. */
+  waiting: number;
+  done: number;
+  total: number;
+}
+
 export type ConnectionTestResult = { ok: true } | { ok: false; error: ProviderError };
 
 /** A model on a saved chat provider. */
@@ -6749,6 +6893,27 @@ export interface RegenerateProposalInput {
   model?: ChatModelChoice | null;
 }
 
+/**
+ * Why a model's change to a Note was refused, whichever feature wrote it (#2796), in the order
+ * they are checked: nothing of the change stays in the Note.
+ * - "not-placed": it would hold a Citation, footnote or figure its text didn't place, or change
+ *   one that was there (#2424).
+ * - "misnamed": it named a paragraph the passage hasn't, named one twice, or named one and wrote
+ *   no words for it, so which paragraph it replaces can't be told (#2356).
+ * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
+ *   take their words out (#2356).
+ * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
+ * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
+ */
+export const changeRefusals = [
+  "not-placed",
+  "misnamed",
+  "typed-tag",
+  "no-table",
+  "unplaced",
+] as const;
+export type ChangeRefusalKind = (typeof changeRefusals)[number];
+
 /** What Edit with AI did. */
 export type EditWithAiResult =
   /**
@@ -6817,31 +6982,12 @@ export type EditWithAiResult =
   | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
-  /**
-   * The model wrote lines that read as a table's rows but make no table
-   * (#961): nothing was written. `text`: the passage's new text, as it wrote it.
-   */
+  /** The change was refused (`changeRefusals`): nothing was written. */
+  | { kind: Exclude<ChangeRefusalKind, "no-table" | "unplaced"> }
+  /** `text`: the passage's new text, as the model wrote it. */
   | { kind: "no-table"; text: string }
-  /**
-   * The model marked text to take out that the passage doesn't have word for word in one
-   * place (#2180): nothing was written. `quotes`: that text, as it wrote it.
-   */
+  /** `quotes`: the text it marked to take out, as it wrote it. */
   | { kind: "unplaced"; quotes: string[] }
-  /**
-   * The model named a paragraph the passage hasn't, named one twice, or named one and wrote no
-   * words for it (#2356): which paragraph its text replaces can't be told, so nothing was written.
-   */
-  | { kind: "misnamed" }
-  /**
-   * The model rewrote a paragraph without a <removed> tag the User typed in it, which would take
-   * their words out (#2356): nothing was written.
-   */
-  | { kind: "typed-tag" }
-  /**
-   * What the change wrote would hold a Citation, footnote or figure its reply didn't place, or
-   * change one that was there (#2424): nothing was written.
-   */
-  | { kind: "not-placed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -10408,16 +10554,8 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  /**
-   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
-   * the core checked it against (null: none): it is accepted only while it waits for that one.
-   */
-  targets: { kind: CommandTarget; id: string; into?: string | null }[];
-  /**
-   * The Folder wall the core checked it behind (null: outside every wall): what it files is filed
-   * by the walls judged again when it is filed, never across this one (#2250).
-   */
-  wall: string | null;
+  /** What it acts on. */
+  targets: { kind: CommandTarget; id: string }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -11107,7 +11245,8 @@ export type MeetingKind = "meeting" | "memo";
  * - "starting": asked for, not heard from yet.
  * - "recording": its audio is coming in.
  * - "silent": the computer's sound has been nothing but silence for a minute,
- *   which is what macOS gives when IncarnaMind isn't allowed to record it.
+ *   which is what macOS gives when IncarnaMind isn't allowed to record it; or
+ *   the microphone for fifteen seconds, which a muted or wrong one gives.
  * - "denied": this computer doesn't allow IncarnaMind to record it.
  * - "unavailable": there is none (no microphone), or this computer can't
  *   record it (the computer's sound on Linux, for now).
@@ -11450,6 +11589,24 @@ export interface MeetingAudio {
   expiresAt: string | null;
   /** When the User, or the day's limit, last deleted it. */
   deletedAt: string | null;
+  /**
+   * Kept until the User deletes it (#687): they chose Keep audio, or "Keep a meeting's audio" was
+   * on when the Meeting started recording. It then has no `expiresAt`.
+   */
+  keptUntilDeleted: boolean;
+}
+
+/**
+ * A stretch of a stopped Meeting's audio, for playing it from a word of its Transcript (#138):
+ * the microphone and the computer's sound mixed into one, mono, `fromMs` to `toMs` of the
+ * Meeting's time.
+ */
+export interface MeetingAudioStretch {
+  fromMs: number;
+  toMs: number;
+  sampleRate: number;
+  /** -1 to 1. */
+  samples: Float32Array<ArrayBuffer>;
 }
 
 /** How long a Meeting's audio is kept after its last recording, at most. */
@@ -11756,21 +11913,30 @@ export interface CoreApi {
   /**
    * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
    * a few Folders that would hold these Documents, named from what they say in the interface
-   * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
-   * Folders made, none when no Document has text to read. Throws InvalidInputError with no
-   * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then. With `forService`, a continuation of a press
-   * authorized for that service: Organize sending elsewhere proposes nothing.
+   * language, and proposes them in Suggestions: none is made before the User confirms (#1569).
+   * `classifyDocuments` then proposes one for each. Returns the Folders proposed, none when no
+   * Document has text to read. Throws InvalidInputError with no model for Organize, or one that
+   * can't name Folders (a decision model), and what the provider throws; nothing is proposed
+   * then. With `forService`, a continuation of a press authorized for that service: Organize
+   * sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
+  proposeFolders(
+    documentIds: string[],
+    options?: { forService?: string },
+  ): Promise<OrganizeReviewFolder[]>;
   /**
-   * Queues selected documents, or all. Organize suggests a Folder for each
-   * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested. With `forService`, a continuation of a press
-   * authorized for that service: a different destination queues and clears
-   * nothing, and a change while the run waits sends nothing there.
+   * Queues selected documents, or all. Organize proposes a Folder for each in Suggestions, where
+   * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
+   * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
+   * press authorized for that service: a different destination queues and clears nothing, and a
+   * change while the run waits sends nothing there. With `once` too, the User allowed this run
+   * alone under their earlier no (see `OrganizeLibraryInput.once`): it sorts them before it
+   * returns, and throws what stopped it.
    */
-  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
+  classifyDocuments(
+    documentIds?: string[],
+    options?: { forService?: string; folderId?: string; once?: boolean },
+  ): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -11784,6 +11950,8 @@ export interface CoreApi {
   setTaggingWithAi(folderId: string | null, on: boolean): Promise<void>;
   /** Closes the Library's one-time line that automatic tagging and sorting went off (`LibrarySnapshot.automaticOffNotice`). */
   dismissAutomaticOffNotice(): Promise<void>;
+  /** The Review was opened: the Library's top line says what waits in its usual words from now on (`LibrarySnapshot.reviewMoved`). */
+  reviewMovedSeen(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
    * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
@@ -11791,40 +11959,16 @@ export interface CoreApi {
   assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
    * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
-   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
-   * the Document again. Other rejections stay. Each row goes back only while it still equals what
-   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
-   * Returns the change it made, its real rows before and after, or null when it moved neither row.
+   * automatic choice stays automatic and Organize may propose for it again. Each row goes back
+   * only while it still equals what the change left there (`after`); a later move, run or re-tag
+   * wins and that row is left alone. Returns the change it made, its real rows before and after,
+   * or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
     before: AssignmentState,
     after: AssignmentState,
   ): Promise<AssignmentChange | null>;
-  /**
-   * Makes these Documents' Suggested Folders the User's choices, which
-   * Organize never changes. Documents with none waiting are left alone; an
-   * unknown Document throws and changes nothing. Returns what changed.
-   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
-   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
-   * `wall` is the Folder wall the assistant checked them behind, given with `checked` (null:
-   * outside every wall): the walls are judged again here, when they are filed, so one that gained
-   * a wall since takes nothing (#2250). Without it, as To review accepts for the User, the User
-   * files anywhere.
-   */
-  acceptAssignments(
-    documentIds: string[],
-    checked?: Record<string, string | null>,
-    wall?: string | null,
-  ): Promise<AssignmentChange[]>;
-  /**
-   * Turns down these Documents' Suggested Folders: each is left Not in a
-   * Folder, and Organize doesn't suggest that Folder for it again. Documents
-   * with none waiting are left alone; an unknown Document throws and changes
-   * nothing. Returns what changed.
-   */
-  rejectAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
   /**
    * Moves Minds, Documents and conversations into a Folder, or out of every Folder
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
@@ -11834,6 +11978,79 @@ export interface CoreApi {
    * "minds.changed", "library.assignments" and "conversations.changed" follow, once each.
    */
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;
+
+  /**
+   * Suggestions (CONTEXT.md): what Organize and tagging proposed that the User hasn't confirmed,
+   * each Document's row once, with the Folders proposed by name and how many wait. Nothing in it
+   * is in the Library yet (#1569).
+   */
+  getOrganizeReview(): Promise<OrganizeReview>;
+  /**
+   * One change the User makes to the Suggestions. Returns the rows it touched, before and after,
+   * for `restoreOrganizeReview`; none when nothing changed, as for a row confirmed meanwhile.
+   */
+  editOrganizeReview(edit: OrganizeReviewEdit): Promise<OrganizeReviewChange>;
+  /**
+   * Puts rows back as `before` has them, each only while it is still as `after` left it: a later
+   * run or edit wins. Returns the change it made, or null when it made none.
+   */
+  restoreOrganizeReview(
+    before: OrganizeReviewRow[],
+    after: OrganizeReviewRow[],
+  ): Promise<OrganizeReviewChange | null>;
+  /**
+   * Confirms the rows the User saw, all or none: makes the proposed Folders that a ticked row
+   * waits in (a live Folder of the same name is used instead), files each ticked Document there
+   * as the User's own choice, and adds its Tags as the User's, skipping a Tag the User took off
+   * it. Every row given closes, unticked ones too; one added since keeps waiting. Returns what
+   * it did, or null when none of them waits any more.
+   */
+  confirmOrganizeReview(itemIds: string[]): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Takes a Confirm back: each filing and Tag still as it left them goes back, the Folders and
+   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
+   */
+  undoOrganizeReviewConfirmation(confirmationId: string): Promise<void>;
+  /** Confirms again what its Undo put back. Null when nothing of it waits. */
+  redoOrganizeReviewConfirmation(
+    confirmationId: string,
+  ): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Sets these rows aside. What the User unticked or took off stays declined. Returns the id
+   * `restoreDiscardedOrganizeReview` takes, or null when none of them waited.
+   */
+  discardOrganizeReview(itemIds: string[]): Promise<string | null>;
+  /** Brings back what a Discard set aside, but for a Document proposed again since. */
+  restoreDiscardedOrganizeReview(discardId: string): Promise<void>;
+
+  /**
+   * Organize, planned from the whole set at any size, with the User's Organize model through the
+   * classification flow's consent: the Library's Documents in no Folder, `documentIds`, or with
+   * `folderId` Organize This Folder, which sorts that Folder's own Documents into subfolders
+   * inside it and moves nothing out. It waits for Documents still being read ("organize.progress"
+   * says how many), then proposes Folders, subfolders and each Document's place, or why it is
+   * left out, and returns once that is in the Review. A run estimated at more than $1 sends
+   * nothing and returns its estimate, until it is asked again with `costAccepted`. A new run
+   * stops the one under way. Throws InvalidInputError when Organize has no model, or a model
+   * that can't name Folders.
+   */
+  organizeLibrary(input?: OrganizeLibraryInput): Promise<OrganizeLibraryResult>;
+  /** Stops the Organize under way; nothing it planned goes into the Review. */
+  stopOrganizeLibrary(): Promise<void>;
+  /**
+   * Organize's first step on the User's press (#1569, ADR-0022): what it needs before it runs.
+   * A model the Library offers that may run without asking (one on this computer, or one whose
+   * service the User allowed) is kept as Organize's. In Local mode nothing asks: a cloud model
+   * throws TaggingNotReadyError, as its run would.
+   */
+  startOrganize(): Promise<OrganizeStart>;
+  /**
+   * The card's "Allow and organize": Organize may send to `serviceId` from now on, through the
+   * classification flow's consent, on the model the Library offers when none is chosen, which is
+   * kept. Records nothing when that isn't what Organize asks now, or under the User's earlier no,
+   * whose Allow covers one run (`OrganizeLibraryInput.once`). Returns what Organize needs now.
+   */
+  allowOrganize(serviceId: string): Promise<OrganizeStart>;
 
   /**
    * Brings back deleted Minds with their content, conversations with their messages,
@@ -12547,11 +12764,12 @@ export interface CoreApi {
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
   /**
-   * The first open's ready Question (see `ReadyQuestion`): about the most recently added of
-   * the User's own Documents that a search can answer from, and the example's only while they
-   * have none. Null while theirs are still being read, or when there is nothing to ask.
+   * The first open's Ask step (see `FirstOpenQuestion`): its ready Question, about the most
+   * recently added of the User's own Documents that a search can answer from, and the example's
+   * only while they have none; and, named, the Document of theirs still being read, which the
+   * step shows in its place until it can be answered.
    */
-  readyQuestion(): Promise<ReadyQuestion | null>;
+  readyQuestion(): Promise<FirstOpenQuestion>;
   /**
    * Whether a Document is one of the examples' (see `Examples`): read with them,
    * and left out of the User's own Folders, Tags and search (#1942).
@@ -13806,6 +14024,21 @@ export interface CoreApi {
   stopMeeting(meetingId: string): Promise<Meeting>;
   /** Deletes the Meeting's audio on this computer now; a recording goes on keeping what comes next. */
   deleteMeetingAudio(meetingId: string): Promise<Meeting>;
+  /**
+   * Keep audio (#687): keeps a Meeting's audio until the User deletes it, or with `kept` false
+   * lets it go a day after its last stretch again, as its Undo does; past that, at the next
+   * sweep. InvalidInputError with no audio to keep.
+   */
+  keepMeetingAudio(input: { meetingId: string; kept: boolean }): Promise<Meeting>;
+  /**
+   * Up to 30 seconds of a stopped Meeting's audio, from `fromMs` (#138). NotFoundError once its
+   * audio is deleted or its files are gone, and while it records.
+   */
+  readMeetingAudio(input: {
+    meetingId: string;
+    fromMs: number;
+    toMs: number;
+  }): Promise<MeetingAudioStretch>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
@@ -14032,8 +14265,7 @@ export interface CoreEvents {
   "library.changed": null;
   /**
    * Documents' Library assignments changed: Organize queued, started,
-   * finished or failed on them, or the User put one in a Folder, or accepted
-   * or rejected its Suggested Folder. Carries each
+   * finished or failed on them, or the User put one in a Folder. Carries each
    * one's assignment whole, as `getLibrary` lists it, so the snapshot needn't
    * be read again.
    */
@@ -14043,6 +14275,10 @@ export interface CoreEvents {
    * or sorted, or its Suggested Folders changed. Carries the batch whole.
    */
   "documents.batch": DocumentBatch;
+  /** The Suggestions changed: how many Documents wait with something to confirm. */
+  "organizeReview.changed": { count: number };
+  /** An Organize run's progress: Documents still being read, then "Organizing 12 of 40…". */
+  "organize.progress": OrganizeProgress;
   /**
    * Documents' Tags changed, or where automatic tagging is for them: the User
    * added or removed a Tag, automatic tagging started, waited, finished or
@@ -14437,11 +14673,22 @@ const methods: Record<CoreApiMethod, true> = {
   stopTagging: true,
   setTaggingWithAi: true,
   dismissAutomaticOffNotice: true,
+  reviewMovedSeen: true,
   assignDocumentGroup: true,
-  acceptAssignments: true,
-  rejectAssignments: true,
   moveToFolder: true,
   restoreAssignment: true,
+  getOrganizeReview: true,
+  editOrganizeReview: true,
+  restoreOrganizeReview: true,
+  confirmOrganizeReview: true,
+  undoOrganizeReviewConfirmation: true,
+  redoOrganizeReviewConfirmation: true,
+  discardOrganizeReview: true,
+  restoreDiscardedOrganizeReview: true,
+  organizeLibrary: true,
+  stopOrganizeLibrary: true,
+  startOrganize: true,
+  allowOrganize: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,
@@ -14556,6 +14803,8 @@ const methods: Record<CoreApiMethod, true> = {
   resumeMeeting: true,
   stopMeeting: true,
   deleteMeetingAudio: true,
+  keepMeetingAudio: true,
+  readMeetingAudio: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,
   removeTranscriptionKey: true,

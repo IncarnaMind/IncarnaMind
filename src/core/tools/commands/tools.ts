@@ -185,6 +185,7 @@ export function commandTools(options: CommandToolsOptions): {
   const readTitles = new Set(options.titledPages);
   /** What the model read of the window's commands that ran, and of refusals: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
+  const endsAlone = new Set<string>();
   /** The window's commands still going on when their calls returned, by call. */
   const goingOn = new Map<string, CommandDone>();
   /** An end that came before its call had returned, by call. */
@@ -314,6 +315,11 @@ export function commandTools(options: CommandToolsOptions): {
         folder: { type: "string" },
         tag: { type: "string" },
         about: { type: "string" },
+        alsoAsked: {
+          type: "string",
+          description:
+            'documents.organize only: what else the User\'s request asks for besides organizing, in their words, short ("say which is newest", "and who signed it?", "再说说哪份最新"), a question asked alongside too, never the organizing itself; empty when it asks for nothing but organizing.',
+        },
         format: { type: "string", enum: [...COMMAND_EXPORT_FORMATS] },
         marks: {
           type: "string",
@@ -356,8 +362,11 @@ export function commandTools(options: CommandToolsOptions): {
     untrustedResult: false,
     // Only a window's command or a refusal the model marked as the request's last ends the turn,
     // so a request that asked for more goes on to it. After a refusal the model, told IncarnaMind
-    // says it, still said it again, and that the place was opened for the User (#2252).
-    endsTurn: (result, input) => input.done === true && oneLine.has(result),
+    // says it, still said it again, and that the place was opened for the User (#2252). Organize's
+    // proposals end it when the call names nothing else the User asked for: the app writes them,
+    // since models that did wrote "filed" (#1569), and a done mark dropped the rest of a request.
+    endsTurn: (result, input) =>
+      endsAlone.has(result) || (input.done === true && oneLine.has(result)),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
       checked.delete(toolCallId);
@@ -366,9 +375,10 @@ export function commandTools(options: CommandToolsOptions): {
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       // The card named the cloud service and what goes to it: the User's Allow is that consent.
       // This run sends under a permit for that service, and the Allow is stored after it, as the
-      // Library stores "Use {company}" after it saves the model: a consent stored first would
-      // read as a turn-on of the switch for tagging by itself (#2308). A standing no is theirs to
-      // change in Settings: this Allow carries the permit for this run only, and nothing is stored.
+      // Library's "Allow and organize" stores it after keeping the model: a consent stored first
+      // would read as a turn-on of the switch for tagging by itself (#2308). A standing no is
+      // theirs to change in Settings: this Allow carries the permit for this run only, and nothing
+      // is stored.
       const permit: CloudReadPermit | undefined = command.cloud && {
         flow: "classification",
         serviceId: command.cloud.id,
@@ -398,6 +408,7 @@ export function commandTools(options: CommandToolsOptions): {
       const done = { ...ran.done, command: command.command, run: options.runId };
       options.ran(toolCallId, done);
       if (ran.done.window || ran.done.yours) oneLine.add(ran.said);
+      if (ran.ends) endsAlone.add(ran.said);
       if (ran.done.window?.running) {
         goingOn.set(toolCallId, done);
         const early = endedEarly.get(toolCallId);

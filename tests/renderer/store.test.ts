@@ -75,7 +75,6 @@ const assignment = (
   documentId,
   groupId,
   source: "automatic",
-  suggested: false,
   status,
   error: null,
   model: null,
@@ -103,7 +102,6 @@ const movedDocument = (
         documentId: id,
         groupId: to,
         source: "user",
-        suggested: false,
         status: "classified",
         error: null,
         model: null,
@@ -134,6 +132,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
     taggingStopped: [],
   },
   automaticDefault: false,
+  reviewCount: 0,
 });
 
 let useAppStore: typeof import("../../src/renderer/src/store").useAppStore;
@@ -1592,15 +1591,6 @@ describe("making a Folder", () => {
     expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
   });
 
-  test("a Folder only Organize has suggested into goes, and says nothing about being kept", async () => {
-    await useAppStore.getState().createFolder();
-    // A suggestion waiting in To review is Organize's, not something the User filed here.
-    withNewFolder(made.name, [{ ...assignment("later", "pending", "n"), suggested: true }]);
-    await useUndo.getState().undo();
-    expect(method("deleteLibraryGroup")).toHaveBeenCalledWith("n");
-    expect(noteNow()).toBeNull();
-  });
-
   test("the line says how many went in, in English and in Chinese", async () => {
     useAppStore.setState({ documents: [doc("a"), doc("b"), doc("c")] });
     method("moveToFolder").mockResolvedValue({
@@ -1907,142 +1897,6 @@ describe("loading keeps a list the core pushed after reading it", () => {
       ["example", "ready"],
       ["mine", undefined],
     ]);
-  });
-});
-
-describe("Organize says what it did (#763)", () => {
-  test("once it has gone through the Documents it says how many got a Suggested Folder, and Undo puts each back", async () => {
-    const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
-    const { useUndo } = await import("../../src/renderer/src/undo");
-    const before = new Map([
-      ["a", assignment("a", "classified")],
-      ["b", assignment("b", "classified")],
-    ]);
-    sayWhenOrganized(["a", "b"], before);
-
-    useAppStore.setState({
-      library: snapshot([assignment("a", "pending"), assignment("b", "classifying")]),
-    });
-    const earlier = useUndo.getState().line;
-    expect(useUndo.getState().line).toBe(earlier);
-    const suggested = (id: string) => ({
-      ...assignment(id, "classified", "g"),
-      suggested: true,
-    });
-    useAppStore.setState({ library: snapshot([suggested("a"), suggested("b")]) });
-
-    const change = useUndo.getState().line?.change;
-    expect(said(change)).toBe("Organize suggested a Folder for 2 Documents");
-    await useUndo.getState().undo();
-    const restored = method("restoreAssignment");
-    expect(restored).toHaveBeenCalledTimes(2);
-    expect(restored.mock.calls[0]?.[0]).toBe("a");
-    expect(restored.mock.calls[0]?.[1]).toMatchObject({
-      assignment: { groupId: null, suggested: false },
-    });
-  });
-
-  test("Undo leaves a Document the User moved since", async () => {
-    const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
-    const { useUndo } = await import("../../src/renderer/src/undo");
-    method("restoreAssignment").mockClear();
-    const before = new Map([
-      ["a", assignment("a", "classified")],
-      ["b", assignment("b", "classified")],
-    ]);
-    useAppStore.setState({
-      library: snapshot([assignment("a", "pending"), assignment("b", "pending")]),
-    });
-    sayWhenOrganized(["a", "b"], before);
-    const suggested = (id: string) => ({ ...assignment(id, "classified", "g"), suggested: true });
-    useAppStore.setState({ library: snapshot([suggested("a"), suggested("b")]) });
-    // The User puts b somewhere else.
-    useAppStore.setState({
-      library: snapshot([
-        suggested("a"),
-        { ...assignment("b", "classified", null), source: "user" },
-      ]),
-    });
-    await useUndo.getState().undo();
-    const restored = method("restoreAssignment");
-    expect(restored).toHaveBeenCalledTimes(1);
-    expect(restored.mock.calls[0]?.[0]).toBe("a");
-  });
-});
-
-describe("Undo of an Organize that began with Documents unfinished (#1391)", () => {
-  const FOLDERS = ["g1", "g2", "g3", "g4", "g5"];
-  const ids = (count: number) => Array.from({ length: count }, (_, at) => `d${at}`);
-  const suggestedIn = (id: string, groupId: string) => ({
-    ...assignment(id, "classified", groupId),
-    suggested: true,
-  });
-
-  // protects=Documents that were waiting for a model or queued when Organize was asked go back with no assignment, so none shows "Needs attention" with a model chosen and none is organized again at the next start, and Redo gives each its Folder back, for 70 Documents in 5 Folders; fails_when=Undo puts them back as waiting or queued, or Redo skips Documents that have no assignment; no_claim=the core's restore.
-  test.each([
-    { count: 2, before: "waiting" as const },
-    { count: 70, before: "waiting" as const },
-    { count: 70, before: "pending" as const },
-  ])(
-    "$count Documents $before: Undo puts them back with no assignment, and Redo gives their Folders",
-    async ({ count, before: status }) => {
-      const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
-      const { useUndo } = await import("../../src/renderer/src/undo");
-      method("restoreAssignment").mockClear();
-      const documents = ids(count);
-      const folderOf = (at: number) => FOLDERS[at % FOLDERS.length] ?? "g1";
-      const before = new Map(documents.map((id) => [id, assignment(id, status)]));
-      useAppStore.setState({
-        library: snapshot(documents.map((id) => assignment(id, "pending"))),
-      });
-      sayWhenOrganized(documents, before);
-      useAppStore.setState({
-        library: snapshot(documents.map((id, at) => suggestedIn(id, folderOf(at)))),
-      });
-      // As the core does: the change it made, the rows before and after, the other way round.
-      method("restoreAssignment").mockImplementation(
-        async (id: string, putBack: unknown, left: unknown) => ({
-          documentId: id,
-          before: left,
-          after: putBack,
-        }),
-      );
-
-      await useUndo.getState().undo();
-      const restored = method("restoreAssignment");
-      expect(restored).toHaveBeenCalledTimes(count);
-      expect(restored.mock.calls.map((call) => call[1])).toEqual(
-        documents.map(() => ({ assignment: null, tagging: null })),
-      );
-
-      // Nothing is left for Organize to do: the Library holds no assignment for them.
-      restored.mockClear();
-      useAppStore.setState({ library: snapshot([]) });
-      await useUndo.getState().redo();
-      expect(restored).toHaveBeenCalledTimes(count);
-      documents.forEach((id, at) => {
-        const call = restored.mock.calls.find((each) => each[0] === id);
-        expect(call?.[1]).toMatchObject({
-          assignment: { groupId: folderOf(at), suggested: true },
-        });
-      });
-    },
-  );
-
-  test("a Document that was filed before Organize is put back as it was", async () => {
-    const { sayWhenOrganized } = await import("../../src/renderer/src/organizeRun");
-    const { useUndo } = await import("../../src/renderer/src/undo");
-    method("restoreAssignment").mockClear();
-    const before = new Map([["a", assignment("a", "classified", "g0")]]);
-    useAppStore.setState({ library: snapshot([assignment("a", "pending")]) });
-    sayWhenOrganized(["a"], before);
-    useAppStore.setState({ library: snapshot([suggestedIn("a", "g")]) });
-
-    await useUndo.getState().undo();
-
-    expect(method("restoreAssignment").mock.calls[0]?.[1]).toMatchObject({
-      assignment: { groupId: "g0", suggested: false, status: "classified" },
-    });
   });
 });
 
@@ -2424,6 +2278,59 @@ describe("who's who in a Transcript (#138)", () => {
       speakers: dana,
     });
     expect(shownNow()).toEqual(dana);
+  });
+
+  // protects=a split and who speaks its rest are one step: one Undo sets the line back whole, Redo makes both again, and the Edit menu names it "Split the line"; a choice once something else was done is a step of its own; fails_when=the rest's Speaker is a second step, Undo leaves the split, Redo loses the Speaker, or a late choice amends an older step; no_claim=the menu that asks, which the window spec covers.
+  test("a split and who speaks the rest are one Undo step", async () => {
+    const split = {
+      labels: {},
+      lines: { "4100 Speaker 1": "Speaker 1" },
+      splits: { "2000 Speaker 1": { text: "We sign. No.", parts: [{ at: 9, ms: 4100 }] } },
+    };
+    const told = {
+      ...split,
+      labels: { "Speaker 3": "Sam" },
+      lines: { "4100 Speaker 1": "Speaker 3" },
+    };
+    // As the core keeps it: who's who with nothing in it is none.
+    method("setTranscriptSpeakers").mockImplementation(async (input) => {
+      const { speakers } = input as { speakers: NonNullable<Document["speakers"]> };
+      return { ...transcript, speakers: Object.keys(speakers.lines).length > 0 ? speakers : null };
+    });
+    const step = await useAppStore.getState().setTranscriptSpeakers(
+      "t",
+      split,
+      (t) => t("transcript.split.done"),
+      (t) => t("undo.name.splitLine"),
+    );
+    expect(step).not.toBeNull();
+    await step?.amend(told);
+    expect(shownNow()).toEqual(told);
+    expect(useUndo.getState().done).toHaveLength(1);
+    expect(said(top())).toBe("Split the line");
+    expect(named(top())).toBe("Split the line");
+    await useUndo.getState().undo();
+    expect(method("setTranscriptSpeakers")).toHaveBeenLastCalledWith({
+      documentId: "t",
+      speakers: { labels: {}, lines: {} },
+    });
+    expect(shownNow()).toBeNull();
+    await useUndo.getState().redo();
+    expect(shownNow()).toEqual(told);
+
+    // Once another change is the last step, a choice for an older split is a step of its own.
+    const again = await useAppStore.getState().setTranscriptSpeakers(
+      "t",
+      split,
+      (t) => t("transcript.split.done"),
+      (t) => t("undo.name.splitLine"),
+    );
+    await useAppStore
+      .getState()
+      .setTranscriptSpeakers("t", dana, (t) => t("transcript.speaker.change"));
+    await again?.amend(told);
+    expect(useUndo.getState().done).toHaveLength(4);
+    expect(shownNow()).toEqual(told);
   });
 
   // protects=a name the core refuses goes from the screen again, says why, and leaves no step to undo; fails_when=the refused name stays shown, or Undo offers to take back what never happened; no_claim=the wording of the core's refusal.

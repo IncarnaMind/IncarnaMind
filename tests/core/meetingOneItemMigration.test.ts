@@ -185,8 +185,9 @@ const liveTags = (db: Database) =>
       "SELECT document_id FROM document_tags WHERE deleted_at IS NULL ORDER BY document_id",
     )
     .map((row) => row.document_id);
-const liveRejections = (db: Database) =>
-  db.all<{ id: string }>("SELECT id FROM document_group_rejections WHERE deleted_at IS NULL");
+/** What an earlier version's turned-down Folders became (migration 137). */
+const liveDeclines = (db: Database) =>
+  db.all<{ id: string }>("SELECT id FROM organize_review_declines WHERE deleted_at IS NULL");
 
 async function seeded(file?: string): Promise<Database> {
   const db = openDatabase(file ?? join(await createTempDataFolder(), "test.db"));
@@ -296,7 +297,7 @@ describe("Migration: a Meeting's Transcript belongs to its Note (#2528)", () => 
     ]);
     expect(leftApart(db)).toEqual(["n10", "n4", "n8"]);
     expect(liveTags(db)).toEqual(["t4", "u1"]);
-    expect(liveRejections(db)).toEqual([]);
+    expect(liveDeclines(db)).toEqual([]);
     const row = db.get<{ id: string; created_at: string; said_at: string | null }>(
       "SELECT id, created_at, said_at FROM meeting_joins WHERE mind_id = 'n1'",
     );

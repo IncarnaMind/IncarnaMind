@@ -27,11 +27,18 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
 import { joinUnits, locationOf, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
-import { looksLikeLabel, parseTranscriptSpeakers, readStoredSpeakers } from "../../shared/speakers";
+import {
+  type FileLine,
+  looksLikeLabel,
+  parseTranscriptSpeakers,
+  readStoredSpeakers,
+  splitsHold,
+} from "../../shared/speakers";
 import {
   type Anchor,
   anchorsOf,
   cellNumber,
+  parseCueTarget,
   type TextUnit,
   type UnitKind,
   type UnitLabel,
@@ -1795,6 +1802,21 @@ export function createDocuments(options: DocumentsOptions) {
       .map(toUnitText);
   }
 
+  /** A Transcript's lines as its current version's Units hold them: each cue with its label. */
+  function transcriptLines(documentId: string, contentHash: string): FileLine[] {
+    return pageTexts(documentId, contentHash, null, null).flatMap((unit) =>
+      unit.kind !== "cues"
+        ? []
+        : (unit.anchors ?? []).flatMap((anchor, at) => {
+            const cue = parseCueTarget(anchor.target);
+            const label = unit.label?.speakers?.[at];
+            return cue && label
+              ? [{ ...cue, text: unit.text.slice(anchor.start, anchor.end), label }]
+              : [];
+          }),
+    );
+  }
+
   /**
    * When the words a text search found in a Transcript were said (#2528): the start of the line
    * the words from the first one found are in, else of the first line holding that word.
@@ -3335,6 +3357,9 @@ export function createDocuments(options: DocumentsOptions) {
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       if (row.kind !== "transcript") {
         throw new InvalidInputError({ key: "error.transcript.speakersOfTranscript" });
+      }
+      if (speakers?.splits && !splitsHold(speakers, transcriptLines(row.id, row.content_hash))) {
+        throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
       }
       db.run("UPDATE documents SET speakers = ?, updated_at = ? WHERE id = ?", [
         speakers === null ? null : JSON.stringify(speakers),

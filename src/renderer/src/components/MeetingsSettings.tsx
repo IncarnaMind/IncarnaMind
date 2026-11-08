@@ -9,7 +9,12 @@ import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
 import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import { WordsToKnow } from "./meetings/WordsToKnow";
 import { PopUpSelect } from "./settings/PopUpButton";
-import { SettingsGroup, SettingsRow, SettingsSection } from "./settings/SettingsGroup";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitchRow,
+} from "./settings/SettingsGroup";
 
 const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
   simplified: "meetings.script.simplified",
@@ -68,6 +73,17 @@ export function MeetingsSettings() {
                 <option value="me">{t("meetings.audio.me")}</option>
               </PopUpSelect>
             }
+          />
+          <SettingsSwitchRow
+            label={t("meetings.settings.keepAudio")}
+            detail={t(
+              device.keepMeetingAudio
+                ? "meetings.settings.keepAudioOn"
+                : "meetings.settings.keepAudioOff",
+            )}
+            checked={device.keepMeetingAudio}
+            onChange={(keepMeetingAudio) => void updateSettings({ device: { keepMeetingAudio } })}
+            switchTestId="meetings-keep-audio"
           />
           <SettingsRow
             label={t("meetings.settings.route")}

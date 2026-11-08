@@ -47,6 +47,7 @@ interface Turn {
   endMs: number;
   text: string;
   speaker: string | null;
+  words: { text: string; ms: number }[];
 }
 
 const numberOf = (value: unknown) => (typeof value === "number" ? value : null);
@@ -82,6 +83,10 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
       endMs: Math.max(startMs, last ?? known?.endMs ?? startMs),
       text: cleanSpeech(transcript),
       speaker,
+      words: words.flatMap((word) => {
+        const ms = numberOf(word.start);
+        return typeof word.text === "string" && ms !== null ? [{ text: word.text, ms }] : [];
+      }),
     };
     open.set(order, turn);
     return turn;
@@ -98,6 +103,7 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
       final,
       decodeMs: 0,
       ...(turn.speaker !== null && { speaker: turn.speaker }),
+      ...(final && turn.words.length > 0 && { words: turn.words }),
     });
   }
 

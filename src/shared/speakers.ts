@@ -1,5 +1,6 @@
-import type { TranscriptSpeakers } from "../core/api";
+import type { TranscriptSpeakers, TranscriptSplit } from "../core/api";
 import type { MessageKey, MessageParams } from "./i18n";
+import { findQuote } from "./quoteMatch";
 
 /**
  * Who a live line of a Meeting's Transcript is from, before speakers are told
@@ -145,7 +146,7 @@ export function withSpeakerChosen(
   all: boolean,
 ): TranscriptSpeakers {
   const before = speakers ?? { labels: {}, lines: {} };
-  const after = { labels: { ...before.labels }, lines: { ...before.lines } };
+  const after = { ...before, labels: { ...before.labels }, lines: { ...before.lines } };
   const now = speakerOf(before, line.startMs, line.label);
   let to: string;
   if ("label" in choice) to = choice.label;
@@ -176,7 +177,7 @@ export const MAX_SPEAKER_NAME = 60;
 const MAX_SPEAKER_LABEL = 200;
 /** More entries than a Transcript has lines, by far. */
 const MAX_SPEAKER_ENTRIES = 50_000;
-const LINE_KEY = /^\d{1,12} (.+)$/su;
+const LINE_KEY = /^(\d{1,12}) (.+)$/su;
 
 // No control characters, and no format ones (a bidirectional override, a zero-width space), which
 // would let a name read as another.
@@ -229,24 +230,70 @@ export function parseTranscriptSpeakers(value: unknown): {
   );
   const keptLines = lines.filter(
     ([key, label]) =>
-      speakerText(LINE_KEY.exec(key)?.[1], MAX_SPEAKER_LABEL) &&
+      speakerText(LINE_KEY.exec(key)?.[2], MAX_SPEAKER_LABEL) &&
       speakerText(label, MAX_SPEAKER_LABEL),
   );
+  const splits = record((given as { splits?: unknown }).splits);
+  const keptSplits = splits.filter(([key, split]) => {
+    const line = LINE_KEY.exec(key);
+    return (
+      speakerText(line?.[2], MAX_SPEAKER_LABEL) && isSplit(split, Number(line?.[1] ?? Number.NaN))
+    );
+  });
+  const kept = keptLabels.length + keptLines.length + keptSplits.length;
   const shape =
     typeof value === "object" &&
     value !== null &&
-    Object.keys(value).every((key) => key === "labels" || key === "lines") &&
-    keptLabels.length + keptLines.length <= MAX_SPEAKER_ENTRIES;
+    Object.keys(value).every((key) => key === "labels" || key === "lines" || key === "splits") &&
+    kept <= MAX_SPEAKER_ENTRIES;
   const dropped =
-    labels.length - keptLabels.length + lines.length - keptLines.length + (shape ? 0 : 1);
-  if (!shape || keptLabels.length + keptLines.length === 0) return { speakers: null, dropped };
+    labels.length -
+    keptLabels.length +
+    lines.length -
+    keptLines.length +
+    splits.length -
+    keptSplits.length +
+    (shape ? 0 : 1);
+  if (!shape || kept === 0) return { speakers: null, dropped };
   return {
     speakers: {
       labels: Object.fromEntries(keptLabels) as Record<string, string>,
       lines: Object.fromEntries(keptLines) as Record<string, string>,
+      ...(keptSplits.length > 0 && {
+        splits: Object.fromEntries(keptSplits) as Record<string, TranscriptSplit>,
+      }),
     },
     dropped,
   };
+}
+
+/** The most parts one line is split into. */
+const MAX_SPLITS = 100;
+
+/**
+ * A split as stored or sent: the line's text, and each later part after the one before it, the
+ * first after the line's start. Where its line ends only the line knows (`splitFits`).
+ */
+function isSplit(value: unknown, lineMs: number): value is TranscriptSplit {
+  if (typeof value !== "object" || value === null) return false;
+  const { text, parts } = value as { text?: unknown; parts?: unknown };
+  if (typeof text !== "string" || text === "" || !Array.isArray(parts)) return false;
+  if (parts.length === 0 || parts.length > MAX_SPLITS) return false;
+  let at = 0;
+  let ms = lineMs;
+  for (const part of parts) {
+    if (typeof part !== "object" || part === null) return false;
+    const next = part as { at?: unknown; ms?: unknown };
+    if (!Number.isInteger(next.at) || typeof next.ms !== "number" || !Number.isFinite(next.ms)) {
+      return false;
+    }
+    if ((next.at as number) <= at || (next.at as number) >= text.length || next.ms <= ms) {
+      return false;
+    }
+    at = next.at as number;
+    ms = next.ms;
+  }
+  return true;
 }
 
 /** Who's who as the database keeps it, as JSON; text that isn't JSON counts as one dropped. */
@@ -259,4 +306,160 @@ export function readStoredSpeakers(
   } catch {
     return { speakers: null, dropped: 1 };
   }
+}
+
+/** A line as the Transcript shows it: a file's line, or one part of a line the User split. */
+export interface LinePart {
+  /** When the part starts: the file's line's start for its first part. */
+  startMs: number;
+  endMs: number;
+  /** Where the part starts in its file's line's text. */
+  at: number;
+  text: string;
+  /** The file's label of its line, which a Citation of it stores. */
+  label: string;
+  /** Its file's line's start, which a Citation of it stores. */
+  lineMs: number;
+}
+
+/** A line of a Transcript's file, as `partsOf` reads it. */
+export interface FileLine {
+  startMs: number;
+  endMs: number;
+  text: string;
+  label: string;
+}
+
+/**
+ * Whether a split holds for the line as its file has it now: the text it split, and each part's
+ * start strictly inside the line's time, so a part is never said outside its line.
+ */
+export const splitFits = (split: TranscriptSplit, line: FileLine) =>
+  split.text === line.text &&
+  split.parts.every((part) => part.ms > line.startMs && part.ms < line.endMs);
+
+/**
+ * Whether every split in who's who holds for a Transcript's lines as its file has them: its line
+ * is there and it fits it (`splitFits`), and no part starts where another line or part by its
+ * label does, which would make them one in `lines`.
+ */
+export function splitsHold(speakers: TranscriptSpeakers, lines: readonly FileLine[]): boolean {
+  const byKey = new Map(lines.map((line) => [lineKey(line.startMs, line.label), line]));
+  const starts = new Set(byKey.keys());
+  for (const [key, split] of Object.entries(speakers.splits ?? {})) {
+    const line = byKey.get(key);
+    if (!line || !splitFits(split, line)) return false;
+    for (const part of split.parts) {
+      const partKey = lineKey(part.ms, line.label);
+      if (starts.has(partKey)) return false;
+      starts.add(partKey);
+    }
+  }
+  return true;
+}
+
+/** The split of a file's line, while it holds for the line (`splitFits`). */
+function splitOf(
+  speakers: TranscriptSpeakers | null | undefined,
+  line: FileLine,
+): TranscriptSplit | null {
+  const splits = speakers?.splits;
+  const split =
+    splits && Object.hasOwn(splits, lineKey(line.startMs, line.label))
+      ? splits[lineKey(line.startMs, line.label)]
+      : undefined;
+  return split && splitFits(split, line) ? split : null;
+}
+
+/** The parts the User split a file's line into (#138), in order: the line whole when they didn't. */
+export function partsOf(
+  speakers: TranscriptSpeakers | null | undefined,
+  line: FileLine,
+): LinePart[] {
+  const starts = [{ at: 0, ms: line.startMs }, ...(splitOf(speakers, line)?.parts ?? [])];
+  return starts.map((start, index) => {
+    const next = starts[index + 1];
+    return {
+      startMs: start.ms,
+      endMs: next ? next.ms : line.endMs,
+      at: start.at,
+      text: line.text.slice(start.at, next ? next.at : undefined).trim(),
+      label: line.label,
+      lineMs: line.startMs,
+    };
+  });
+}
+
+/** The time nearest `ms` strictly between `from` and `to` that isn't taken; null when none is free. */
+function freeTime(ms: number, from: number, to: number, taken: ReadonlySet<number>): number | null {
+  const wanted = Math.min(Math.max(Math.round(ms), from + 1), to - 1);
+  for (let step = 0; step < to - from; step++) {
+    for (const each of [wanted + step, wanted - step]) {
+      if (each > from && each < to && !taken.has(each)) return each;
+    }
+  }
+  return null;
+}
+
+/**
+ * Who's who with a file's line split before the character at `at`, the part after it starting at
+ * `ms` (#138), said by the Speaker of the part it was in until "Who speaks the rest?" says
+ * otherwise. `lines`: the Transcript's lines and parts. The rest is known by its start and label,
+ * as they are, so it starts at the free time nearest `ms` strictly inside its part, never where
+ * another line by its label starts. Unchanged when `at` is the start of a part already or outside
+ * the line, or the part has no time free to start another.
+ */
+export function withLineSplit(
+  speakers: TranscriptSpeakers | null,
+  line: FileLine,
+  at: number,
+  ms: number,
+  lines: readonly TranscriptLine[] = [],
+): TranscriptSpeakers {
+  const before = speakers ?? { labels: {}, lines: {} };
+  const parts = partsOf(before, line);
+  const inside = parts.findLast((part) => part.at <= at);
+  if (!inside || inside.at === at || at <= 0 || at >= line.text.length) return before;
+  const taken = new Set(
+    [...lines, ...parts].filter((each) => each.label === line.label).map((each) => each.startMs),
+  );
+  const startMs = freeTime(ms, inside.startMs, inside.endMs, taken);
+  if (startMs === null) return before;
+  const split = splitOf(before, line);
+  const after = {
+    ...before,
+    lines: { ...before.lines },
+    splits: { ...before.splits },
+  };
+  put(after.lines, lineKey(startMs, line.label), speakerOf(before, inside.startMs, line.label));
+  Object.defineProperty(after.splits, lineKey(line.startMs, line.label), {
+    value: {
+      text: line.text,
+      parts: [...(split?.parts ?? []), { at, ms: startMs }].sort((a, b) => a.at - b.at),
+    },
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return after;
+}
+
+/**
+ * When the part a quote of a file's line starts in begins (#138): a Citation stores its line's
+ * start and label, and shows the part its words are in. The line's start when it isn't split, or
+ * the quote isn't found in it.
+ */
+export function partStartOf(
+  speakers: TranscriptSpeakers | null | undefined,
+  lineMs: number,
+  label: string,
+  quote: string | null | undefined,
+): number {
+  const splits = speakers?.splits;
+  const split =
+    splits && Object.hasOwn(splits, lineKey(lineMs, label)) ? splits[lineKey(lineMs, label)] : null;
+  if (!split || !quote) return lineMs;
+  const at = findQuote(split.text, quote)?.[0]?.start;
+  if (at === undefined) return lineMs;
+  return split.parts.findLast((part) => part.at <= at)?.ms ?? lineMs;
 }

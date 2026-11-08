@@ -152,7 +152,7 @@ export interface LaunchOptions {
    * What the Meeting's fake microphone does: makes a tone (by default), is denied and says so,
    * or waits for the system's permission prompt until the test answers it.
    */
-  microphone?: "allowed" | "denied" | "waiting";
+  microphone?: "allowed" | "denied" | "waiting" | "silent";
   /**
    * Where the guide for a permission added by hand opens, whatever the screen: in a window
    * beside System Settings, or as text in the app's window. Without it, the system decides.
@@ -229,6 +229,11 @@ export interface LaunchOptions {
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
   switches?: readonly string[];
+  /**
+   * The pages see the system's light or dark as Electron gives it (#1262), not the light that
+   * every page is shown otherwise so a spec reads the same on any computer.
+   */
+  systemColours?: boolean;
 }
 
 /**
@@ -301,6 +306,7 @@ export async function launchApp(
     extraEnv,
     trace = false,
     switches = [],
+    systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -359,6 +365,7 @@ export async function launchApp(
       ...APP_ARGS,
     ],
     env,
+    ...(systemColours && { colorScheme: null }),
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
     ...(KEEP_ARTIFACTS && {
       recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
@@ -1004,6 +1011,21 @@ export async function useLocalChatModel(window: Page, modelId = "fake-model"): P
   }, modelId);
 }
 
+/** Organize plans with the first chat model set up, the scripted one with `fakeChat`, and sorts nothing by itself. */
+export async function organizeWithChatModel(window: Page, modelId = "fake-model"): Promise<void> {
+  await window.evaluate(async (model) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [provider] = await bridge.listChatProviders();
+    if (!provider) throw new Error("No AI model was set up.");
+    const { settings } = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: model } },
+      automatic: false,
+    });
+  }, modelId);
+}
+
 /**
  * Turns embeddings on with the built-in model (the smoke tests' fake), through
  * the core's bridge as Settings would: they are off by default.
@@ -1429,6 +1451,16 @@ export async function interceptOpenDialog(app: ElectronApplication, path: string
       canceled: false,
       filePaths: [picked],
     })) as unknown as typeof dialog.showOpenDialog;
+  }, path);
+}
+
+/** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
+export async function interceptSaveDialog(app: ElectronApplication, path: string) {
+  await app.evaluate(({ dialog }, picked) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: false,
+      filePath: picked,
+    })) as unknown as typeof dialog.showSaveDialog;
   }, path);
 }
 
@@ -3464,6 +3496,16 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
 /** The core's bridge in the page, for a test to set things up or read them: `(await coreOf(window)).evaluate(...)`. */
 export const coreOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
+
+/** How many Checkpoints the Note made last has, as its History lists them. */
+export async function checkpointsOfNewestNote(window: Page): Promise<number> {
+  return (await coreOf(window)).evaluate(async (core) => {
+    const [mind] = (await core.listMinds()).toSorted((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    return mind ? (await core.listCheckpoints(mind.id)).checkpoints.length : 0;
+  });
+}
 
 /**
  * What the core holds that a change to a Mind, Document, Folder, Tag, Linked folder or Recently

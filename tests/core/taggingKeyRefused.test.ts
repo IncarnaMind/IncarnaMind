@@ -10,6 +10,7 @@ import type { Core, Document } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { heldClock } from "../helpers/heldClock";
+import { proposedFor } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
 import { scriptedChat } from "../helpers/scriptedChat";
 import { waitForTagging } from "../helpers/tags";
@@ -120,7 +121,7 @@ describe("Tagging meets a refused key", () => {
 });
 
 describe("Organize meets a refused key", () => {
-  test("it stops too: one request is refused, the rest wait, and they are organized once a key works", async () => {
+  test("it stops too: one request is refused, the rest wait, and their Folder is proposed once a key works", async () => {
     const { core, chat } = await start();
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
@@ -142,10 +143,8 @@ describe("Organize meets a refused key", () => {
     await vi.waitFor(async () => {
       const { assignments: now } = await core.getLibrary();
       for (const id of ids) {
-        expect(now.find((each) => each.documentId === id)).toMatchObject({
-          groupId: reports.id,
-          status: "classified",
-        });
+        expect(now.find((each) => each.documentId === id)?.status).toBe("classified");
+        expect(await proposedFor(core, id)).toBe(reports.id);
       }
     });
   });

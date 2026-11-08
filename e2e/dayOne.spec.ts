@@ -516,7 +516,6 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
           assignment: {
             groupId: null,
             source: "automatic",
-            suggested: false,
             status: "pending",
             error: null,
             model: null,

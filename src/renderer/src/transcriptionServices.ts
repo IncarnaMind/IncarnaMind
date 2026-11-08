@@ -133,10 +133,16 @@ export async function addTranscriptionCredit(route: CloudTranscriptionRoute): Pr
   else await checkTranscriptionKey(route);
 }
 
-/** Where a Meeting's recording stays, said so it holds with a cloud route chosen too. */
+/**
+ * Where a Meeting's recording stays and for how long, said so it holds with a cloud route chosen
+ * too: a day, or until the User deletes it with "Keep a meeting's audio" on (#687).
+ */
 export function useAudioKeptKey(): MessageKey {
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute);
-  return route && route !== "local" ? "meetings.audio.keptCloud" : "meetings.audio.kept";
+  const kept = useAppStore((state) => state.settings?.device.keepMeetingAudio === true);
+  const cloud = route !== undefined && route !== null && route !== "local";
+  if (kept) return cloud ? "meetings.audio.keptToDeleteCloud" : "meetings.audio.keptToDelete";
+  return cloud ? "meetings.audio.keptCloud" : "meetings.audio.kept";
 }
 
 /** "gpt-live-transcribe · about $1.02 an hour · uses your OpenAI key". */

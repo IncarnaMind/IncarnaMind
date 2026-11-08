@@ -185,7 +185,7 @@ function pictureOf(source: Element, name: string, count: number): HTMLElement {
   picture.dataset.testid = "drag-picture";
   picture.setAttribute("aria-hidden", "true");
   picture.className =
-    "pointer-events-none fixed z-[80] flex h-7 max-w-64 items-center gap-2 rounded-md bg-sheet px-2.5 text-[13px] text-ink shadow-[0_0_0_1px_var(--color-rule),0_12px_32px_rgba(23,25,28,0.12)]";
+    "pointer-events-none fixed z-[80] flex h-7 max-w-64 items-center gap-2 rounded-md bg-sheet px-2.5 text-[13px] text-ink shadow-popover";
   const icon = source.querySelector("svg")?.cloneNode(true);
   if (icon instanceof SVGElement) {
     icon.setAttribute("class", "size-4 shrink-0 text-ink-meta");
@@ -199,7 +199,7 @@ function pictureOf(source: Element, name: string, count: number): HTMLElement {
     const badge = document.createElement("span");
     badge.dataset.testid = "drag-count";
     badge.className =
-      "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white";
+      "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-on-primary";
     badge.textContent = String(count);
     picture.append(badge);
   }

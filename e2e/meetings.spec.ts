@@ -533,7 +533,10 @@ test("Open beside opens the live Transcript next to the meeting, closing its tab
   });
   const washed = window.getByTestId("viewer-transcript").locator("[data-quote-highlight]");
   await expect(washed.first()).toBeVisible();
-  await expect(washed.first()).toHaveText("The launch moves to the eighteenth of November.");
+  // Each word is an element of its own (#138), so the wash comes in pieces that read as the line.
+  await expect
+    .poll(async () => (await washed.allTextContents()).join(""))
+    .toBe("The launch moves to the eighteenth of November.");
   await shot(window, "meeting-transcript-citation-en");
 });
 
@@ -743,6 +746,31 @@ test("with the computer's sound denied, a line says so and opens System Settings
   const box = await bar.getByTestId("meeting-controls").boundingBox();
   expect(box?.height).toBeLessThanOrEqual(28);
   await shot(window, "meeting-bar-narrow-zh");
+});
+
+test("a microphone that gives nothing but silence says so after 15 seconds, with the way to its settings", async () => {
+  const { app, window } = await launchApp(dataDir, { microphone: "silent" });
+  await dismissChatSetup(window);
+  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+
+  const line = window.getByTestId("meeting-line-microphone");
+  await expect(line).toContainText(
+    "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",
+    { timeout: 20_000 },
+  );
+  await expect(bar).toHaveAttribute("data-status", "recording");
+  // In Chinese, the same line in Chinese words.
+  await window.evaluate(async () =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      user: { language: "zh-CN" },
+    }),
+  );
+  await expect(line).toContainText("15 秒没有麦克风声音：可能已静音，或选错了麦克风。");
+  const open = line.getByTestId("meeting-settings-microphone");
+  await open.hover();
+  await open.click();
+  await expect.poll(async () => (await fakeAudio(app)).settingsOpened).toEqual(["microphone"]);
+  await bar.getByTestId("meeting-stop").click();
 });
 
 test("a device change keeps recording, the new microphone's audio at the right time", async () => {

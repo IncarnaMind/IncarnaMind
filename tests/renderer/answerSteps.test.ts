@@ -133,7 +133,11 @@ describe("an Answer's steps", () => {
       "irrigated parks",
       "park edge",
     ]);
-    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1, 2, 4]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.passageId)).toEqual([
+      "a",
+      "c",
+      "e",
+    ]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 3, extraScopes: 0 });
   });
 
@@ -155,7 +159,7 @@ describe("an Answer's steps", () => {
     const [, row] = stepRows(steps);
     expect(row).toMatchObject({ kind: "search", found: 2, used: 1 });
     expect(row?.kind === "search" && row.calls.map((call) => call.id)).toEqual(["r1"]);
-    expect(row?.kind === "search" && row.sources.map((source) => source.marker)).toEqual([1]);
+    expect(row?.kind === "search" && row.sources.map((source) => source.passageId)).toEqual(["a"]);
     expect(foldedLine(steps)).toEqual({ kind: "searched", sources: 1, extraScopes: 0 });
     expect(documentReadText(en, read)).toBe("Read pages 12–13 of “Filing”");
     expect(documentReadText(zh, read)).toBe("读取了“Filing”第 12–13 页");
@@ -444,6 +448,62 @@ describe("an Answer's steps", () => {
       steps: { ...STEPS, citedAfterChecking: 1 },
     });
     expect(foldedLine(both)).toEqual({ kind: "searched", sources: 2, extraScopes: 0 });
+  });
+
+  // protects=#2768: the Citations of what an Answer wrote into a Note are sources it used, on the line, on its search's row with their sources, and on the row of Documents read whole, but not those of the last Answer written in as it was; the reply's check row stays the reply's; fails_when=the last Answer's Citations count, a cited write reads "no sentence matched them" or "no sources", its search "0 used", or the write's Citations go to the reply's check; no_claim=which Citations a write keeps, which is the core's (tests/core/writtenSourcesLine.test.ts).
+  test("a write's Citations are sources it used, beside the reply's", () => {
+    const searches = [search("s1", "tide gauges", { passages: ["p1", "p2", "p3"] })];
+    const { marker: _one, ...field } = citation(1, "p1", "d1", 3);
+    const { marker: _two, ...update } = citation(2, "p2", "d2", 1);
+    const wrote: AnswerToolCall = {
+      id: "w1",
+      tool: "add_to_mind",
+      source: "minds",
+      input: {},
+      status: "done",
+      resultCount: null,
+      mindChange: {
+        mindId: "m1",
+        created: false,
+        request: "r1",
+        proposals: 4,
+        cited: 3,
+        citations: [field, update],
+      },
+    };
+    const written = input({ toolCalls: [...searches, wrote] });
+    expect(foldedLine(written)).toEqual({ kind: "searched", sources: 2, extraScopes: 0 });
+    expect(stepRows(written).find((row) => row.kind === "search")).toMatchObject({
+      found: 4,
+      used: 2,
+      sources: [field, update],
+    });
+    expect(stepRows(written).some((row) => row.kind === "check")).toBe(false);
+    expect(foldedLine(input({ toolCalls: [...searches, wrote] }, { meeting: true }))).toEqual({
+      kind: "listened",
+      sources: 2,
+    });
+
+    // The last Answer written in as it was cites what that Answer used, not this one.
+    const lastAnswer: AnswerToolCall = { ...wrote, id: "w2", input: { answer: true } };
+    expect(foldedLine(input({ toolCalls: [...searches, lastAnswer] }))).toEqual({
+      kind: "read-passages",
+      passages: 3,
+      citedAfterChecking: 0,
+    });
+
+    // Documents sent whole with the Question: the row lists the write's Citations into them.
+    const whole = input({
+      toolCalls: [wrote],
+      steps: { ...STEPS, sent: { documents: ["d1", "d2"] } },
+    });
+    expect(stepRows(whole).find((row) => row.kind === "read-documents")).toMatchObject({
+      documents: [
+        { documentId: "d1", name: "Doc d1" },
+        { documentId: "d2", name: "Doc d2" },
+      ],
+      sources: [field, update],
+    });
   });
 
   // protects=the rows' order: reasoning, the Mind read, the calls as they started, the check last; fails_when=any row is out of order or a call waiting for approval shows; no_claim=none beyond protects.

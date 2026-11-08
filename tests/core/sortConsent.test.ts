@@ -2,8 +2,9 @@
  * Dropped Documents wait for the User's Allow before a cloud service reads them (#2308, ADR-0022):
  * nothing goes before the press; the press is the consent for that service alone, turns sorting
  * new Documents on there and sorts the Documents that waited; later drops go by themselves; the
- * switch turned off, another service, a walled Folder and Local mode send nothing. Through the
- * core, as the footer row uses it, counting every request each provider's model gets.
+ * switch turned off, another service, a walled Folder and Local mode send nothing. What a sort
+ * chooses waits in Suggestions for the User (#1569). Through the core, as the footer row uses it,
+ * counting every request each provider's model gets.
  */
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
@@ -22,6 +23,7 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { proposedFor } from "../helpers/library";
 
 /** A scripted model for each provider kind, counting its requests: it files every Document in the first Folder. */
 function perProvider() {
@@ -147,15 +149,17 @@ const WAIT = { timeout: 30_000, interval: 50 };
 const filedIn = async (core: Core, id: string) =>
   (await core.getLibrary()).assignments.find((each) => each.documentId === id);
 
+/** Sorted: Organize read them, and each waits in Suggestions to go into `folderId`, filed in none. */
 async function sorted(core: Core, ids: readonly string[], folderId: string) {
   await vi.waitFor(async () => {
     for (const id of ids) {
       const found = await filedIn(core, id);
       expect([found?.groupId, found?.status, found?.error?.message]).toEqual([
-        folderId,
+        null,
         "classified",
         undefined,
       ]);
+      expect(await proposedFor(core, id)).toBe(folderId);
     }
   }, WAIT);
 }
@@ -230,6 +234,7 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     await sorted(core, [beside], harbour.id);
     expect(models.sent("anthropic")).toBe(2);
     expect((await filedIn(core, inside))?.groupId).toBe(walled.id);
+    expect(await proposedFor(core, inside)).toBeNull();
 
     // Off again, a drop would wait for the Allow; in Local mode nothing asks.
     const { settings } = await core.getLibrary();
@@ -241,8 +246,8 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     expect(models.sent("anthropic")).toBe(2);
   });
 
-  // protects=Organize may file a Document into a walled Folder, its matter's, and the one Undo takes it out again, with nothing more sent; fails_when=a walled Folder can't be chosen, or Undo leaves the Document inside the wall; no_claim=which Folder a real model picks.
-  test("a Document filed into a wall comes back out with the Undo", async () => {
+  // protects=Organize may propose a walled Folder, its matter's; the User's Confirm files it there, and the one Undo takes it out again, with nothing more sent; fails_when=a walled Folder can't be chosen, or Undo leaves the Document inside the wall; no_claim=which Folder a real model picks.
+  test("a Document confirmed into a wall comes back out with the Undo", async () => {
     const { core, models, drop } = await setup();
     // Before Harbour by name, so the scripted model's first Folder is the walled one.
     const walled = await core.createLibraryGroup({
@@ -255,19 +260,16 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     await sorted(core, [document], walled.id);
     expect(models.sent("anthropic")).toBe(1);
 
-    const filed = await filedIn(core, document);
-    if (!filed) throw new Error("Not filed.");
-    const { documentId: _id, tagging, ...assignment } = filed;
-    await core.restoreAssignment(
-      document,
-      { assignment: null, tagging: null },
-      { assignment, tagging: tagging ?? null },
-    );
-    expect(await filedIn(core, document)).toBeUndefined();
+    const { items } = await core.getOrganizeReview();
+    const confirmed = await core.confirmOrganizeReview(items.map((item) => item.id));
+    if (!confirmed) throw new Error("Not confirmed.");
+    expect(await filedIn(core, document)).toMatchObject({ groupId: walled.id, source: "user" });
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+    expect((await filedIn(core, document))?.groupId).toBeNull();
     expect(models.sent("anthropic")).toBe(1);
   });
 
-  // protects=after a restart the Allow still holds for new drops and nothing that was sorted is sent again; a sort taken back with Undo stays taken back; a failing service leaves its Document with its problem, not waiting again; fails_when=a restart forgets the Allow, sends again, re-sorts after an Undo, or counts a failed Document to sort; no_claim=how the failure is worded.
+  // protects=after a restart the Allow still holds for new drops and nothing that was sorted is sent again; a sort set aside with Discard stays set aside; a failing service leaves its Document with its problem, not waiting again; fails_when=a restart forgets the Allow, sends again, re-sorts after an Undo, or counts a failed Document to sort; no_claim=how the failure is worded.
   test("a restart, an Undo and a failing service", async () => {
     const { core, dataDir, keychain, models, harbour, drop } = await setup();
     const first = await drop();
@@ -283,15 +285,9 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     await sorted(reopened, [later.id], harbour.id);
     expect(models.sent("anthropic")).toBe(2);
 
-    const filed = await filedIn(reopened, later.id);
-    if (!filed) throw new Error("Not filed.");
-    const { documentId: _id, tagging, ...assignment } = filed;
-    await reopened.restoreAssignment(
-      later.id,
-      { assignment: null, tagging: null },
-      { assignment, tagging: tagging ?? null },
-    );
-    expect(await filedIn(reopened, later.id)).toBeUndefined();
+    const { items } = await reopened.getOrganizeReview();
+    await reopened.discardOrganizeReview(items.map((item) => item.id));
+    expect(await proposedFor(reopened, later.id)).toBeNull();
     expect(models.sent("anthropic")).toBe(2);
 
     models.fail("anthropic");
@@ -407,16 +403,16 @@ describe("The row's words (#2308)", () => {
       "4 to organize",
       "1 to organize",
       "Allow Anthropic",
-      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for these and for Documents you add later.",
-      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for this one and for Documents you add later.",
+      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, for these and for Documents you add later.",
+      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, for this one and for Documents you add later.",
     ],
     [
       "zh-CN",
       "4 个待整理",
       "1 个待整理",
       "允许 Anthropic",
-      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 Anthropic，包括这些文档和以后添加的文档。",
-      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述以及相符标签的名称和描述，发送给 Anthropic，包括这个文档和以后添加的文档。",
+      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic，包括这个文档和以后添加的文档。",
     ],
   ] as const)("%s", (language, many, one, allowLabel, sends, sendsOne) => {
     expect(translate(language, "library.toSort.other", { count: 4 })).toBe(many);

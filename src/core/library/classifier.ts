@@ -23,6 +23,8 @@ import {
   tagsToOffer,
 } from "../tags/suggest";
 import type { DocumentPageImage } from "./pdfImages";
+import type { PlanModel } from "./plan";
+import { chatPlanModel } from "./planModel";
 import type { ClassificationModel, LibraryGroup } from "./types";
 
 const UNSORTED = "__unsorted__";
@@ -36,6 +38,9 @@ export interface OrganizationDecision {
 }
 
 /** A Folder Organize proposes, where there are none to sort into. */
+/** What Organize is told of a Folder it may choose: a live one, or one proposed by name (#1569). */
+export type FolderChoice = Pick<LibraryGroup, "id" | "name" | "description">;
+
 export interface ProposedFolder {
   name: string;
   description: string;
@@ -59,14 +64,14 @@ export interface GroupClassifier {
   pageImages?: PageImageMode;
   model?: ClassificationModel;
   organize(
-    groups: LibraryGroup[],
+    groups: FolderChoice[],
     tags: TagDefinition[],
     excerpt: DocumentExcerpt,
     signal: AbortSignal,
     images?: DocumentPageImage[],
   ): Promise<OrganizationDecision>;
   decide(
-    groups: LibraryGroup[],
+    groups: FolderChoice[],
     excerpt: DocumentExcerpt,
     signal: AbortSignal,
     images?: DocumentPageImage[],
@@ -81,6 +86,8 @@ export interface GroupClassifier {
     language: Language,
     signal: AbortSignal,
   ): Promise<ProposedFolder[]>;
+  /** The whole-Library plan's requests (./plan): the chat model's only, as with `proposeFolders`. */
+  plan?: PlanModel;
 }
 
 /**
@@ -136,6 +143,7 @@ export function chatGroupClassifier(
   return {
     local,
     ...(readsImages ? { pageImages: "no-text" as const } : {}),
+    plan: chatPlanModel(model),
     async decide(groups, excerpt, signal, images) {
       return (await this.organize(groups, [], excerpt, signal, images)).groupId;
     },
@@ -302,6 +310,7 @@ export function withPageReader(
       return (await classifier.organize(groups, [], excerpt, signal, images)).groupId;
     },
     ...(text.proposeFolders && { proposeFolders: text.proposeFolders }),
+    ...(text.plan && { plan: text.plan }),
     async organize(groups, tags, excerpt, signal, images = []) {
       if (images.length === 0) {
         if (text.model) classifier.model = text.model;
@@ -333,10 +342,18 @@ export function pacedBy(
     organize: (groups, tags, excerpt, signal, images = []) =>
       run(() => classifier.organize(groups, tags, excerpt, signal, images), signal),
   };
-  const { proposeFolders } = classifier;
+  const { proposeFolders, plan } = classifier;
   if (proposeFolders)
     paced.proposeFolders = (documents, existing, language, signal) =>
       run(() => proposeFolders(documents, existing, language, signal), signal);
+  if (plan)
+    paced.plan = {
+      sort: (request, signal) => run(() => plan.sort(request, signal), signal),
+      place: (documents, folders, signal) =>
+        run(() => plan.place(documents, folders, signal), signal),
+      nameSubfolders: (groups, language, signal) =>
+        run(() => plan.nameSubfolders(groups, language, signal), signal),
+    };
   return paced;
 }
 

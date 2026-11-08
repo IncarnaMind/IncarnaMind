@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installAppearance } from "./appearance";
 import { PanelBoundary } from "./components/PanelBoundary";
 import "./commands/app";
 import { files } from "./core";
@@ -20,6 +21,7 @@ installTestHooks();
 retryTaggingWhenOnline();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.
 installMotion();
+installAppearance();
 
 // Which title bar the window has, and whether it's full screen, for styles.css ("The title bar").
 document.documentElement.dataset.titleBar = files.titleBar;

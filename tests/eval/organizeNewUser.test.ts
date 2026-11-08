@@ -5,6 +5,7 @@ import {
   type Outcome,
   problemsOf,
   scoreNewUser,
+  splitByArea,
   type TopicVerdict,
 } from "../../eval/organize/lib/newUser";
 
@@ -63,6 +64,7 @@ describe("the Organize benchmark's new-User scores", () => {
       filed: 5,
       samePairs: 4,
       sameShared: 1,
+      sameTogether: 1,
       differentPairs: 6,
       differentShared: 2,
       kinds: { tp: 5, fp: 1, fn: 2 },
@@ -80,6 +82,7 @@ describe("the Organize benchmark's new-User scores", () => {
     expect(result.map((each) => [each.value, each.pass])).toEqual([
       ["5/6 (83%)", true],
       ["1 (sizes 3, 1, 2)", false],
+      ["1/4 (25%)", false],
       ["1/4 (25%)", false],
       ["2/6 (33%)", false],
       ["0.77 (P 0.83, R 0.71)", false],
@@ -101,6 +104,62 @@ describe("the Organize benchmark's new-User scores", () => {
       scoreNewUser(good, folders.slice(0, 2), [{ id: "b", tag: "Sleep", about: true }]),
     );
     expect(result.every((each) => each.pass)).toBe(true);
+  });
+
+  describe("the same-label bar's allowance for a split by area", () => {
+    const part = (prefix: string, label: string, kinds: string[], folder: string, count: number) =>
+      Array.from({ length: count }, (_, at) => outcome(`${prefix}${at}`, label, kinds, folder, []));
+    const scored = (each: Outcome[]) => {
+      const scores = scoreNewUser(each, folders, []);
+      return [scores.samePairs, scores.sameShared, scores.sameTogether];
+    };
+
+    test("a label in two Folders of 3 or more, each at least 90% the label, counts as together", () => {
+      const split = [
+        ...part("a", "meetings", ["notes"], "f1", 3),
+        ...part("b", "meetings", ["notes"], "f2", 3),
+      ];
+      expect([...splitByArea(split)]).toEqual(["meetings"]);
+      expect(scored(split)).toEqual([15, 6, 15]);
+    });
+
+    test("a split in three doesn't count", () => {
+      const three = [
+        ...part("a", "meetings", ["notes"], "f1", 3),
+        ...part("b", "meetings", ["notes"], "f2", 3),
+        ...part("c", "meetings", ["notes"], "f3", 3),
+      ];
+      expect(splitByArea(three).size).toBe(0);
+      expect(scored(three)).toEqual([36, 9, 9]);
+    });
+
+    test("a part under 90% the label doesn't count", () => {
+      const mixed = [
+        ...part("a", "meetings", ["notes"], "f1", 8),
+        outcome("x", "finance", ["invoice"], "f1", []),
+        ...part("b", "meetings", ["notes"], "f2", 3),
+      ];
+      expect(splitByArea(mixed).size).toBe(0);
+      expect(scored(mixed)).toEqual([55, 31, 31]);
+    });
+
+    test("a part of fewer than 3 doesn't count", () => {
+      const small = [
+        ...part("a", "meetings", ["notes"], "f1", 4),
+        ...part("b", "meetings", ["notes"], "f2", 2),
+      ];
+      expect(splitByArea(small).size).toBe(0);
+      expect(scored(small)).toEqual([15, 7, 7]);
+    });
+
+    test("a split by kind never counts", () => {
+      const byKind = [
+        ...part("a", "research", ["paper"], "f1", 3),
+        ...part("b", "research", ["paper", "report"], "f2", 3),
+      ];
+      expect(splitByArea(byKind).size).toBe(0);
+      expect(scored(byKind)).toEqual([15, 6, 6]);
+    });
   });
 
   test("names what is wrong with a Document by its labels", () => {

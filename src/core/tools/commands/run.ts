@@ -25,6 +25,9 @@ import type {
   LibraryGroup,
   MarkAiTextChoice,
   Mind,
+  OrganizeLibraryResult,
+  OrganizeReviewChange,
+  OrganizeReviewFolder,
   SavedFile,
   TaggingClassifier,
   TaggingRoute,
@@ -50,6 +53,8 @@ export type CommandsCore = Pick<
   | "listDocuments"
   | "listMinds"
   | "getLibrary"
+  | "getOrganizeReview"
+  | "restoreOrganizeReview"
   | "listTags"
   | "renameDocument"
   | "renameMind"
@@ -74,7 +79,6 @@ export type CommandsCore = Pick<
   | "updateLibraryGroup"
   | "updateTag"
   | "classifyDocuments"
-  | "acceptAssignments"
   | "mergeTags"
   | "getTaggingRoute"
   | "listDataFlows"
@@ -114,28 +118,49 @@ export interface CommandsHost {
   /**
    * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
    * the Library's Organize, which the background queue can't run while an Answer is written.
+   * What it chooses waits in Suggestions under `runId` (#1569).
    */
   organizeAtOnce(
     ids: readonly string[],
     signal: AbortSignal,
     wall: string | null,
-    permit?: CloudReadPermit,
+    permit: CloudReadPermit | undefined,
+    runId: string,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
-  /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
-  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
+  /**
+   * Plans these Documents as the Library's Organize does, at any size, with the run's permit, and
+   * proposes into Suggestions under `runId`, into Folders outside every wall (#1569). Null when
+   * Organize's model can't name Folders and there are Folders to sort into one by one instead.
+   */
+  organizeByPlan(
+    ids: readonly string[],
+    signal: AbortSignal,
+    permit: CloudReadPermit | undefined,
+    runId: string,
+  ): Promise<OrganizeLibraryResult | null>;
+  /** Proposes a Folder by name, made only when the User confirms it; null when one has that name. */
+  proposeFolder(name: string, about: string): OrganizeReviewFolder | null;
+  /**
+   * Takes a run's proposals out of Suggestions, but those the User edited, and these proposed
+   * Folders once nothing waits in them; `restoreOrganizeReview` with the change puts them back.
+   * A null run takes out only the Folders.
+   */
+  withdrawOrganizeRun(runId: string | null, folderIds: readonly string[]): OrganizeReviewChange;
   /**
    * The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022):
    * stores the consent and tells the window, so the Privacy page shows it.
    */
   allowCloudRead(service: ExternalService): Promise<void>;
   /**
-   * With no model chosen for Organize, the one the Library offers as "Use {company}" (Automatic's
-   * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
+   * With no model chosen for Organize, the one the Library offers (Automatic's pick) and where
+   * it sends; null when one is chosen or Automatic has none (#2252).
    */
   offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
+  /** Local mode is on: nothing goes to a cloud service, so nothing asks to send there (ADR-0022). */
+  localOnly(): boolean;
   /**
    * Saves that pick as Organize's model. It records no consent and lifts no decline: the card's
-   * Allow is the consent, and the Library's "Use {company}" is the answer that does both.
+   * Allow is the consent, and the Library's "Allow and organize" does both.
    */
   keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
   /**
@@ -204,6 +229,8 @@ export interface CommandInput {
   value: string | null;
   /** A Tag merge's groups, instead of ids and tag, when more than one Tag stays (#2252). */
   merges: { ids: string[]; tag: string | null }[];
+  /** Organize: what else the User's request asks for, in their words; null when nothing (#1569). */
+  alsoAsked: string | null;
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -211,6 +238,8 @@ export interface Ran {
   done: Omit<CommandDone, "command" | "run">;
   step: CommandStep | null;
   said: string;
+  /** What it did is the whole reply, which the app writes: the turn ends, whatever the done mark. */
+  ends?: true;
 }
 
 /**
@@ -260,6 +289,16 @@ const sameFiles = (a: readonly string[], b: readonly string[]): boolean =>
 export const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 
+/** The most of what else the User asked for an Organize call names (#1569). */
+const ALSO_ASKED_MOST = 200;
+
+/** What else the User asked for, as the call named it: one line of plain words, at most `ALSO_ASKED_MOST` characters. */
+const askedAlso = (value: unknown): string | null => {
+  const said = text(value)?.replace(/\s+/g, " ");
+  if (!said) return null;
+  return said.length > ALSO_ASKED_MOST ? `${said.slice(0, ALSO_ASKED_MOST - 1).trimEnd()}…` : said;
+};
+
 const texts = (value: unknown): string[] =>
   Array.isArray(value) ? value.flatMap((each) => text(each) ?? []) : [];
 
@@ -285,6 +324,7 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
           isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
         )
       : [],
+    alsoAsked: askedAlso(input.alsoAsked),
   };
 }
 

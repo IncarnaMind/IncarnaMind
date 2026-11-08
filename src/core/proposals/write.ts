@@ -1329,6 +1329,16 @@ function markRemoved(element: Y.XmlElement, from: number, to: number, ref: Propo
   }
 }
 
+/**
+ * The `proposal` attribute of a Block or inline node a Proposal adds or removes whole, recording
+ * the text it changes: "" for one it adds, the node's `targetText` for one it removes.
+ */
+export const blockProposal = (
+  ref: { id: string; request: string },
+  kind: ProposalAttribute["kind"],
+  text: string,
+): ProposalAttribute => ({ ...ref, target: targetHash(text), kind });
+
 /** Sets a node's `proposal` attribute. Yjs types attributes as text, but keeps any JSON value. */
 export function setProposal(element: Y.XmlElement, value: ProposalAttribute): void {
   (element as unknown as Y.XmlElement<Record<string, ProposalAttribute>>).setAttribute(

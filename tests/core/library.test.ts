@@ -4,7 +4,7 @@ import type { AssignmentState, DocumentGroupAssignment } from "../../src/core/ap
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
-import { classifierModel } from "../helpers/library";
+import { classifierModel, proposedFor } from "../helpers/library";
 
 /** An assignment as a change carries it: its fields and the Document's tagging row. */
 const stateOf = (item: DocumentGroupAssignment): AssignmentState => {
@@ -75,7 +75,9 @@ describe("Library groups", () => {
     const { core, fake, group, specs, dataDir } = await setup();
     const doc = await add(core);
     await core.classifyDocuments([doc.id]);
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: group.id, source: "automatic" });
+    // It proposes the Folder, and files nothing before the User confirms it (#1569).
+    expect(await settled(core, doc.id)).toMatchObject({ groupId: null, source: "automatic" });
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     expect(specs).toContain("small-classifier");
     const calls = fake.calls.length;
     await core.getLibrary();
@@ -83,7 +85,7 @@ describe("Library groups", () => {
     expect(fake.calls).toHaveLength(calls);
     core.close();
     const reopened = startCore(dataDir, { createChatModel: () => fake.model });
-    expect((await reopened.getLibrary()).assignments[0]?.groupId).toBe(group.id);
+    expect(await proposedFor(reopened, doc.id)).toBe(group.id);
     expect(fake.calls).toHaveLength(calls);
   });
 
@@ -149,7 +151,7 @@ describe("Library groups", () => {
     expect((await core.listDocuments())[0]?.tags.map((t) => t.tagId).sort()).toEqual(
       [relevant.id, manual.id].sort(),
     );
-    expect((await core.getLibrary()).assignments[0]?.groupId).toBe(group.id);
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     expect(specs).not.toContain("main-model");
     await core.removeDocumentTag(doc.id, relevant.id);
     await core.assignDocumentGroup(doc.id, null);
@@ -283,7 +285,8 @@ describe("Library groups", () => {
       name: "Papers",
       description: "Scientific papers",
     });
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: replacement.id });
+    await settled(core, doc.id);
+    expect(await proposedFor(core, doc.id)).toBe(replacement.id);
   });
 
   test("editing tags during inference reruns the complete organization decision", async () => {
@@ -534,7 +537,8 @@ describe("Library groups", () => {
     });
     const doc = await add(core, "研究.txt", "膜分离技术与 water filtration. ".repeat(350));
     await core.classifyDocuments([doc.id]);
-    expect(await settled(core, doc.id)).toMatchObject({ groupId: group.id });
+    await settled(core, doc.id);
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
     const body = server.requests[0]?.body;
     expect(body?.model).toBe("tev1:4b");
     expect(body?.questions.group?.type).toBe("choice");

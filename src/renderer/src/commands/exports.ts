@@ -11,31 +11,10 @@ import {
   FORMAT_LABELS,
   useExports,
 } from "../exports";
-import { currentTabOf } from "../layoutSlice";
 import { useShareDialog } from "../shareDialog";
 import { useAppStore } from "../store";
-import { findTab } from "../tabs";
-import type { Command, CommandContext } from "./registry";
-import { onlyOne } from "./targets";
-
-/**
- * The Mind a command exports: the Mind's row or the tab its menu was opened on, else the Mind in
- * the tab the User is in (⇧⌘E, ⌘K). One Mind at a time: none for several selected.
- */
-function mindOf(ctx: CommandContext): string | null {
-  const targets = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
-  if (targets.length > 1) return null;
-  const [target] = targets;
-  if (target?.kind === "mind") return target.id;
-  const { layout } = useAppStore.getState();
-  const tab =
-    target === undefined
-      ? currentTabOf(layout)
-      : target.kind === "tab"
-        ? findTab(layout, target.id)
-        : undefined;
-  return tab?.item.kind === "mind" ? tab.item.mindId : null;
-}
+import type { Command } from "./registry";
+import { mindOf, onlyOne } from "./targets";
 
 /**
  * Exporting a Mind (#100): ⇧⌘E exports in the last format, as the tab strip's Export does; each

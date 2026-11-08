@@ -1,7 +1,7 @@
 /**
  * The footer's "4 to organize · Allow {service}" (#2308, ADR-0022): the press is the User's consent
- * for that service alone, which turns sorting new Documents on there, and then Organize sorts the
- * Documents that waited, with its one Undo. Nothing went to the service before.
+ * for that service alone, which turns sorting new Documents on there, and then Organize plans the
+ * Documents that waited into the Review (#1569). Nothing went to the service before.
  */
 import { core } from "./core";
 import { organizeDocuments } from "./organizeDocuments";

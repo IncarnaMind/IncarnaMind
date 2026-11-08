@@ -14,7 +14,7 @@ import {
 } from "../../../../shared/speakers";
 import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
-import { useAppStore } from "../../store";
+import { type SpeakersStep, useAppStore } from "../../store";
 import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
 import {
@@ -59,10 +59,16 @@ export function SpeakerMenu({
   document,
   lines,
   line,
+  rest = null,
 }: {
   document: Document;
   lines: readonly TranscriptLine[];
   line: TranscriptLine;
+  /**
+   * The line was just split off another (#138): the menu opens by itself to ask who speaks it,
+   * and the choice completes the split's step. `done` once it closes, chosen or not.
+   */
+  rest?: { step: SpeakersStep; done(): void } | null;
 }) {
   const t = useT();
   const menu = usePopoverMenu();
@@ -76,13 +82,31 @@ export function SpeakerMenu({
   const now = speakerOf(speakers, line.startMs, line.label);
   const named = (label: string) => nameOf(speakers, label) ?? speakerName(label, t);
 
+  const asking = useRef(false);
+  const wasOpen = useRef(false);
+  const { show } = menu;
   useEffect(() => {
-    if (menu.open) return;
+    if (!rest) return;
+    asking.current = true;
+    show();
+  }, [rest, show]);
+  useEffect(() => {
+    if (menu.open) {
+      wasOpen.current = true;
+      return;
+    }
     setAll(false);
     setNaming(false);
     setName("");
     setRefused(null);
-  }, [menu.open]);
+    // Only once it has closed: it is still to open when it is first asked to.
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    if (asking.current) {
+      asking.current = false;
+      rest?.done();
+    }
+  }, [menu.open, rest]);
   useEffect(() => {
     if (naming) field.current?.focus();
   }, [naming]);
@@ -97,7 +121,8 @@ export function SpeakerMenu({
     const label = "label" in choice ? choice.label : now;
     const key = all ? "transcript.speaker.allSet" : "transcript.speaker.set";
     const said: WordsInLine = (t, cut) => t(key, { name: cut(typed ?? speakerName(label, t)) });
-    void useAppStore.getState().setTranscriptSpeakers(document.id, next, said);
+    if (rest && asking.current) void rest.step.amend(next);
+    else void useAppStore.getState().setTranscriptSpeakers(document.id, next, said);
   };
 
   const onNameKey = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -129,14 +154,16 @@ export function SpeakerMenu({
       <div
         {...menu.menuProps}
         role="menu"
-        aria-label={t("transcript.speaker.who")}
+        aria-label={t(rest ? "transcript.speaker.whoRest" : "transcript.speaker.who")}
         data-testid="speaker-menu"
         data-quote-skip=""
         className={`${menuFrameClass} w-[250px] max-w-[calc(100vw-16px)]`}
       >
         {menu.open && (
           <>
-            <p className={menuTitleClass}>{t("transcript.speaker.who")}</p>
+            <p className={menuTitleClass}>
+              {t(rest ? "transcript.speaker.whoRest" : "transcript.speaker.who")}
+            </p>
             {speakersIn(speakers, lines).map((label) => (
               <button
                 key={label}

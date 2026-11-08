@@ -43,7 +43,6 @@ export function withTranscriptsFiled<
             documentId: document.id,
             groupId,
             source: "user",
-            suggested: false,
             status: "classified",
             error: null,
             model: null,

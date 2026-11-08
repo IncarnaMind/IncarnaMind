@@ -226,7 +226,7 @@
 
   /* Pages lie on a grey backdrop: sheets with a hairline edge, no heavy shadow. */
   .viewer-backdrop {
-    background: var(--color-chip);
+    background: var(--color-page-backdrop);
   }
   [data-quote-tone="not-found"] {
     --quote-wash: var(--color-warning-wash);
@@ -250,11 +250,13 @@
       outline-offset: -1.5px;
     }
   }
+  /* A Document's page is paper in both themes, with its own ink (#1262). */
   .viewer-page {
     @apply bg-sheet;
+    color-scheme: light;
     box-shadow:
       0 0 0 1px var(--color-rule),
-      0 1px 2px rgb(23 25 28 / 0.06);
+      0 1px 2px var(--color-shadow-soft);
   }
 
   /* A TXT or Markdown Document: one page, the Mind's serif at a readable measure. */
@@ -372,6 +374,39 @@
   }
   .transcript-follow {
     @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-[12px] leading-5 font-semibold text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;
+  }
+  /*
+   * A saved Meeting's Transcript plays from a clicked word while its audio is kept (#138): the
+   * word being said is washed, the caret Enter splits the line at is a bar before its word, and
+   * the player sits at the foot, the last line kept clear of it.
+   */
+  .transcript-word {
+    @apply rounded-[3px];
+  }
+  .transcript-word[data-playable]:hover {
+    @apply cursor-pointer bg-hover;
+  }
+  .transcript-word[data-playing] {
+    @apply bg-accent-wash;
+  }
+  .transcript-word[data-caret] {
+    box-shadow: -2px 0 0 var(--color-ink);
+  }
+  .transcript-page[data-player] {
+    @apply pb-20;
+  }
+  .transcript-player {
+    @apply absolute bottom-5 left-1/2 z-10 m-0 flex h-11 w-[520px] max-w-[calc(100%-32px)] min-w-0 -translate-x-1/2 items-center gap-3 rounded-[10px] border-0 bg-sheet pr-2.5 pl-1.5 font-sans text-[13px] leading-5 text-ink-secondary;
+    box-shadow: var(--shadow-popover);
+  }
+  .transcript-player-toggle {
+    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink text-on-primary hover:bg-ink-strong disabled:opacity-50;
+  }
+  .transcript-player-track {
+    @apply block h-1 min-w-10 flex-auto overflow-hidden rounded-sm bg-rule;
+  }
+  .transcript-player-track > span {
+    @apply block h-full origin-left bg-ink-secondary;
   }
 
   .document-plain {
@@ -689,6 +724,7 @@
    */
   .viewer-sheet {
     @apply bg-sheet;
+    color-scheme: light;
     --grid-line: var(--color-rule);
     --grid-freeze: var(--color-ink-placeholder);
     /* The quote's wash over a cell's own fill. */
@@ -923,9 +959,10 @@
 }
 .docx-view .docx-wrapper > section.docx {
   margin-bottom: 0;
+  color-scheme: light;
   box-shadow:
     0 0 0 1px var(--color-rule),
-    0 1px 2px rgb(23 25 28 / 0.06);
+    0 1px 2px var(--color-shadow-soft);
   /* Word's own defaults for what a document leaves unset: Times New Roman, 10pt, single spacing. */
   font-family: "Times New Roman", var(--font-serif);
   font-size: 10pt;
@@ -1106,7 +1143,7 @@
   /* A note, beside its mark: its quote, the User's note in place, its colour and what it can do. */
   .annotation-popover {
     @apply flex w-80 flex-col gap-2 rounded-[10px] border border-rule bg-sheet p-3 font-sans text-ui text-ink;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+    box-shadow: 0 8px 24px var(--color-shadow);
   }
   .annotation-popover-head {
     @apply flex items-center gap-2 text-[12px] text-ink-meta;

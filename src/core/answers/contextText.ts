@@ -73,7 +73,10 @@ function citationSource(attributes: Record<string, unknown>, { documents, ids }:
     pageTo: typeof to === "number" ? to : null,
   });
   const speakers = citedSpeakers({ ...cited, location }, documents);
-  const source = location ? `${name}, ${englishLocation(location, { speakers })}` : name;
+  const quote = textOf(attributes.quote) ?? undefined;
+  const source = location
+    ? `${name}, ${englishLocation(location, { speakers, ...(quote !== undefined && { quote }) })}`
+    : name;
   const id = ids?.idOf(attributes);
   return { source: id ? `${source} · ${id}` : source, unverified: false };
 }

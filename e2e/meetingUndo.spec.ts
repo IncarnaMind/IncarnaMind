@@ -50,17 +50,17 @@ const WORDS = {
     restored: (name: string) => `Restored “${name}”`,
     lost: (name: string) =>
       `Restored “${name}” without its audio: it was no longer on this computer.`,
-    gone: "Audio deleted",
+    gone: /^Audio deleted on \d{1,2} [A-Z][a-z]{2}( \d{4})?$/,
     question: (name: string) =>
       `Your text in “${name}” is gone. Its recording and Transcript are deleted too. This can’t be undone. Your files stay where they are.`,
   },
   "zh-CN": {
     recorded: /^已录制 0:\d\d$/,
-    audio: /^音频保留到 /,
+    audio: /^音频保留到/,
     deleted: (name: string) => `已将“${name}”移到回收站`,
     restored: (name: string) => `已恢复“${name}”`,
     lost: (name: string) => `已恢复“${name}”，但音频已不在这台电脑上，无法恢复。`,
-    gone: "音频已删除",
+    gone: /^音频已于(\d{4}年)?\d{1,2}月\d{1,2}日删除$/,
     question: (name: string) =>
       `“${name}”中你写的内容将丢失。会议的录音和转写稿也将彻底删除。此操作无法撤销。你的文件仍在原处。`,
   },
@@ -259,7 +259,7 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     await expect(frontMindName(window)).toHaveText(name);
     const chip = await stoppedChip(window, language);
-    expect(await audioLine(window, chip)).toBe(WORDS[language].gone);
+    expect(await audioLine(window, chip)).toMatch(WORDS[language].gone);
     await screenshot(window, `meeting-undo-lost-${language}`);
     await app.close();
   });

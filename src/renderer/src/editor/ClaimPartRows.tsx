@@ -72,7 +72,10 @@ function PartCitation({
   const property = location?.kind === "properties" ? location : null;
   const library = location?.kind === "library" ? location : null;
   const where = location
-    ? formatLocation(location, t, { speakers: citedSpeakers(citation, documents) })
+    ? formatLocation(location, t, {
+        speakers: citedSpeakers(citation, documents),
+        quote: citation.quote,
+      })
     : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);

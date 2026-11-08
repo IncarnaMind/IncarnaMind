@@ -26,6 +26,7 @@ import { useWordImport } from "../wordImport";
 import { addDocumentCommands } from "./addDocuments";
 import { analysisCommands } from "./analysis";
 import { answerTableCommands } from "./answerTables";
+import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { chartCommands } from "./charts";
@@ -76,7 +77,6 @@ import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
 import { sortCommands } from "./sort";
-import { suggestionCommands } from "./suggestions";
 import "./objectMenus";
 import { annotationCommands } from "./annotations";
 import { mindSourceCommands } from "./mindSources";
@@ -192,7 +192,6 @@ const appCommands: readonly Command[] = [
   ...mindCommands,
   ...documentCommands,
   ...peekCommands,
-  ...suggestionCommands,
   ...folderCommands,
   ...mixedSelectionCommands,
   ...taggingCommands,
@@ -202,6 +201,7 @@ const appCommands: readonly Command[] = [
   ...deletedCommands,
   ...libraryCommands,
   ...languageCommands,
+  ...appearanceCommands,
   ...answerCommands,
   ...citationCommands,
   ...figureCommands,
