@@ -1092,7 +1092,7 @@ const SORTING_MODELS = [
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const { modelId, model } of SORTING_MODELS) {
-    test(`a sorting choice saved on ${model} says where it goes once the list is read when another is the chat default, and says nothing when its provider is gone (${language})`, async () => {
+    test(`a sorting choice saved on ${model} says where it goes once the list is read when another is the chat default, and goes back to Automatic when its provider is gone (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -1139,18 +1139,20 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(words).toContain(sends);
         expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
 
-        // Anthropic is removed: the choice names a model that is gone. Nothing is said about where
-        // it goes, and it can't be used, once the list shows it isn't there.
+        // Anthropic is removed: sorting goes back to Automatic (#2693), and the step names
+        // Automatic's pick, never the model that is gone.
         await removeAnthropic(window);
+        await expect
+          .poll(async () => (await bridge(window).library()).classifier.kind)
+          .toBe("automatic");
         await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
         await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
-        await expect(
-          card
-            .getByTestId("models-sorting")
-            .locator("option", { hasText: translate(language, "models.sorting.chat") }),
-        ).toHaveCount(1);
-        await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
-        expect(await sortingWords(card)).toBe("");
+        await expect
+          .poll(() => sortingWords(card))
+          .toContain(translate(language, "setup.sorting.sends", { service: "OpenAI" }));
+        const after = await sortingWords(card);
+        expect(after).not.toContain(model);
+        expect(after).not.toContain(sends);
       } finally {
         await app.close();
       }
@@ -1883,13 +1885,19 @@ for (const language of ["en", "zh-CN"] as const) {
             );
           }
 
-          // Its provider is removed: the core can't say, so nothing is said and it can't be used.
+          // Its provider is removed: sorting goes back to Automatic (#2693), and the step names
+          // Automatic's pick, never the model that is gone.
           if (chatDefault === "another") {
             await removeOllama(window);
+            await expect
+              .poll(async () => (await bridge(window).library()).classifier.kind)
+              .toBe("automatic");
             await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
             await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
-            await expect(card.getByTestId("setup-sorting-use")).toBeDisabled();
-            expect(await sortingWords(card)).toBe("");
+            await expect
+              .poll(() => sortingWords(card))
+              .toContain(translate(language, "setup.sorting.sends", { service: "OpenAI" }));
+            expect(await sortingWords(card)).not.toContain(shown);
           }
         } finally {
           await app.close();

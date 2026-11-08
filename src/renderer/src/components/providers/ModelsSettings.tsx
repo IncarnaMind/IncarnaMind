@@ -66,9 +66,13 @@ export function ModelsSettings() {
   // Read with the providers, so the page lays out once: a section landing later would move the
   // one a link scrolled to (Plans, Advanced) out of view.
   const [hosts, setHosts] = useDecisionHosts();
-  // One read for the page: the Meeting transcription row and the keys in Your providers.
+  // One read for the page: the Meeting transcription row and the keys in Your providers. The page
+  // waits for its first answer only: a Try again after a failure keeps the page on screen.
   const services = useTranscriptionServicesRead();
-  const laidOut = providers !== null && hosts !== null && services.state !== "loading";
+  const [servicesAnswered, setServicesAnswered] = useState(false);
+  if (!servicesAnswered && services.state !== "loading") setServicesAnswered(true);
+  const laidOut =
+    providers !== null && hosts !== null && (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
     core.listChatProviders().then(setProviders, (failure: unknown) => {
