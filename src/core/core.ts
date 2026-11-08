@@ -2905,6 +2905,9 @@ export function createCore(adapters: CoreAdapters): Core {
     );
   }
 
+  const documentVersions = () =>
+    new Map(documents.summaries().map((document) => [document.id, document.contentHash]));
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2914,7 +2917,7 @@ export function createCore(adapters: CoreAdapters): Core {
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
         basis: fingerprintOfBlocks(blocks),
         blocks,
-        versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
+        versions: documentVersions(),
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
@@ -2937,7 +2940,7 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryState: () =>
       JSON.stringify(
         documents
-          .list()
+          .summaries()
           .map((document) => [
             document.id,
             document.name,
@@ -3012,8 +3015,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
-      documentVersions: () =>
-        new Map(documents.list().map((document) => [document.id, document.contentHash])),
+      documentVersions,
       background,
       runCost: (runId) => meter.taskCost(runId),
       delayMs: adapters.contradictionWatch?.delayMs ?? AFTER_NEW_VERSION_MS,
@@ -4414,8 +4416,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       });
     },
-    linkedFolderExists: (linkedFolderId) =>
-      documents.linkedFolders.list().some((folder) => folder.id === linkedFolderId),
+    linkedFolderExists: (linkedFolderId) => documents.linkedFolders.has(linkedFolderId),
     documentsIn: (linkedFolderId) => documents.list({ linkedFolderId }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     now,
@@ -4447,7 +4448,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const readyQuestionNow = (): ReadyQuestion | null => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
-      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
+      own: documents.summaries().filter((each) => !exampleDocuments.has(each.id)),
       example: examples.readyQuestion(),
       language: settings.get().language,
     });
