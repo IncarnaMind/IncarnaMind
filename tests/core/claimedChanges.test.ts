@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import { CLAIM_CHECK_INSTRUCTIONS, unbackedClaims } from "../../src/core/answers/claimedChanges";
+import {
+  CLAIM_CHECK_INSTRUCTIONS,
+  UNCHANGED_PART_RULE,
+  unbackedClaims,
+} from "../../src/core/answers/claimedChanges";
 import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
@@ -305,7 +309,11 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(later).not.toContain(UNCHANGED);
     const whole = await recordRead([partCall("a", failed, null), partCall("b", null, {})]);
     expect(whole).not.toContain(UNCHANGED);
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("A call with nothingChangedIn failed");
+    expect(prompt).toContain("A call with nothingChangedIn failed");
+    expect(later).not.toContain("nothingChangedIn");
+    expect(whole).not.toContain("nothingChangedIn");
+    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("nothingChangedIn");
+    expect(UNCHANGED_PART_RULE).toContain("A call with nothingChangedIn failed");
   });
 
   // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).

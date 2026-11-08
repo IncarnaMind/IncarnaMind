@@ -94,8 +94,7 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Note earlier is a change, like any other change to a Note. A sentence saying a change was not made, had no effect, or is still waiting for the User is backed when the record shows that change not made or waiting: never return that negated change unbacked. An affirmative part of the same sentence is still a claim, judged as any other. / 回复说某处改动没有做、没有生效、还在等用户确认时，记录里那处改动也确实没做或还在等待，就算有依据：不要把那处被否定的改动判为没有依据。同一句里的肯定部分仍是声称的改动，照常判断。",
   "A Note made (created) opens for the User beside their Note: a sentence saying where it was made, or that it was opened there, is backed by its making. / 新建的笔记会在用户的笔记旁边打开：说它建在哪里、在那里打开的句子，有它的新建就算有依据。",
   "Some sentences report a change and also what the result now holds or kept: its length, a word count, a ratio, a figure, a date, a term, or that these stayed as they were. Those details are about the result, not another change, and this check judges only whether the change the sentence reports was made. When the record shows the change the sentence reports to that Note, never return it unbacked because the record doesn't give those details, or how far the change got, or that it fell short of what the User asked, nor because the record words the change differently, as rewritten where the sentence says shortened or merged, or as sentences taken out whole and new ones written where the sentence says rewritten. A sentence claiming a change the record does not show at all — a Note made, text added or removed, a change to another Note, or a result reported with no change to that Note — is unbacked, as every affirmative report of a change is. A sentence that only says what stayed as it was, claiming no change, is no claim: return no item for it. / 有些句子报告改动时也说明结果现在如何、保留了哪些：长度、字数、比例、数字、日期、术语，或这些保持不变。这些细节说的是结果，不是另一处改动；这个检查只判断句子所说的改动有没有做。记录显示句子所说改动做在那篇笔记里时，不要因为记录没有给出这些细节、改动做到什么程度、或没达到用户的要求，也不要因为记录对改动的说法不同（回复说缩短或合并，记录说改写；回复说改写，记录说整句删去、另写了新句），就把句子判为没有依据。句子所说的改动记录里完全没有——新建了笔记、加了文字、删了文字、改动在另一篇笔记，或记录里那篇笔记没有改动而句子报告了结果——就没有依据，和任何肯定的改动声称一样。只说明什么保持原样、没有声称改动的句子不算声称改动，不要返回。",
-  "A sentence that says the request is done or complete, or that its changes are listed under the reply, is backed when the record shows a change to a Note applied or a command done, no call with nothingChangedIn, and names nothing those calls didn’t do. Each command's outcome says what its call did. A run_command whose outcome is done or started backs a claim only of what its command, items, setting, window, mergedTags and tagCount say. One refused as the User's alone, one that failed and one not allowed by the User did nothing in the app, and nor was anything done that no call shows.",
-  "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。",
+  "A sentence that says the request is done or complete, or that its changes are listed under the reply, is backed when the record shows a change to a Note applied or a command done, and names nothing those calls didn’t do. Each command's outcome says what its call did. A run_command whose outcome is done or started backs a claim only of what its command, items, setting, window, mergedTags and tagCount say. One refused as the User's alone, one that failed and one not allowed by the User did nothing in the app, and nor was anything done that no call shows.",
   "When the record has no Tool calls, or no change to a Note and no command done, every affirmative report of a change or of something done is unbacked; never return an empty list just to be cautious. / 如果没有工具调用、没有改动、也没有执行成功的命令，任何声称已经改动或已经做了的话都没有依据，必须返回，不能留空。",
   "Never flag a sentence about the reply itself, searching, what a Document says, or something that wasn't or couldn't be done, nor one that says other things stayed as they were, nor one that says what the User can do or where, or that something is theirs to change, nor one that says Undo puts a change back; nor one that points to the card under the reply, or to the app, as listing or showing what its commands did: the app draws that card itself; in Chinese too, 没有, 未, 没能, 无法 or 尚未 before a verb says it wasn't or couldn't be done — 「这次没有改动……之外的内容」「前面一次修改没有生效」「我没有确认……」 claim nothing, while an affirmative part of the same sentence (「只是改写了措辞」) is still a claim; but a sentence that says a page, a setting or a window was opened, shown or brought up is a claim, even when it goes on to say what the User can do there. When the record shows a write or an edit to a Note, never flag a sentence saying sentences in that Note were marked, flagged, noted, not supported, not confirmed or couldn't be checked: the app makes those marks on the text it wrote, not a Tool. In Chinese, 「已在笔记中标出」「我已标注」「被标记了」「需要你自己核实」 describe those marks too, also beside 「没能核对」 or 「无法核对」. With no such write, a sentence saying the assistant marked, flagged or highlighted something in a Note is a claim, and an affirmative part of a sentence with a mark (「并把它们改成了统一格式」) is still a claim. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Note's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Note.",
   "For every claim, about says what the sentence is about: mind when it is a Note, a page or a part of one that the assistant says it changed; app when it is anything else done in the app, to a Document, a Folder, a Tag, a window or a setting; local_mode when it is Local mode, “Keep everything on this computer”, or what goes to cloud services (web search, suggestions as the User writes, cloud transcription); keys when it is an API key or a sign-in; spending_cap when it is the monthly spending cap; approval_rules when it is what the assistant may do without asking; deleted_for_good when it is deleting for good or emptying Recently deleted; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is what a Document says, holds or is; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind, the app, local_mode, keys, spending_cap, approval_rules or deleted_for_good counts. For one done in the app, kind is removed for a delete and changed otherwise.",
@@ -144,6 +143,15 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- Record: run_command settings.change (monthlyCap), outcome refused. Reply: “I can't change the spending cap; you set it in Settings › General.” Return no claim: it says what wasn't done.",
   "- Record: no calls. Reply: “Want me to move these into a folder?” Return no claim: it offers.",
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
+].join("\n");
+
+/**
+ * Told only beside a record that names a part no change reached: sent with every record, it made
+ * DeepSeek V4.1 Flash flag honest reports of a revised section (#2769).
+ */
+export const UNCHANGED_PART_RULE = [
+  "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。",
+  "A sentence saying the request is done or complete is not backed beside a call with nothingChangedIn. / 有带 nothingChangedIn 的调用时，说要求已经完成的句子没有依据。",
 ].join("\n");
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -422,13 +430,9 @@ export async function unbackedClaims(
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
+  const record = recordOf(calls, named, states, parts);
   const prompt = [
-    tagged(
-      "tool-record",
-      JSON.stringify(recordOf(calls, named, states, parts), null, 2),
-      "",
-      JUDGED_TAGS,
-    ),
+    tagged("tool-record", JSON.stringify(record, null, 2), "", JUDGED_TAGS),
     tagged(
       "focused-mind",
       focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
@@ -442,7 +446,9 @@ export async function unbackedClaims(
   try {
     const result = await generateText({
       model,
-      instructions: CLAIM_CHECK_INSTRUCTIONS,
+      instructions: record.some((each) => "nothingChangedIn" in each)
+        ? `${CLAIM_CHECK_INSTRUCTIONS}\n${UNCHANGED_PART_RULE}`
+        : CLAIM_CHECK_INSTRUCTIONS,
       prompt,
       output: Output.object({ schema: verdictSchema, name: "change-claims" }),
       maxOutputTokens: outputTokens("claimed-changes"),

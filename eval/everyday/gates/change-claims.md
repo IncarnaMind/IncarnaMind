@@ -118,3 +118,7 @@ The probes ask a model, so a miss in 1 of 3 runs can be chance. Main is now `7c3
 - **Guard 3, again:** the 41 once each on DeepSeek V4.1 Flash, on each arm, one after the other. It holds when no request is under its floor on the branch that isn't on main in this same rerun.
 
 The cap for these is $3.
+
+### One change before the probes' branch runs (2026-11-08)
+
+Replayed 30 times each through DeepSeek V4.1 Flash as the check, `follow-longer-zh`'s two honest replies were flagged 2 and 5 times on the branch and 0 and 2 times on main. The one rule the branch adds that reaches a record with no part named is the rule for `nothingChangedIn`, sent with every record; sent only beside a record that names such a part, the same replays were flagged 0 and 0 times (and `sounds-like`'s reply 26 of 30, main's 29 of 30). So the rule now goes only with a record that names a part, and the probes' branch runs, and the 41's, are on that head. Main's 20 runs on Claude Haiku 5.5 stand, since main's code didn't change; the branch's 20 on Claude Haiku 5.5 at `88ca31f18` are reported but replaced.
