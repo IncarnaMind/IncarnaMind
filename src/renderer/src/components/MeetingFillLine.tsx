@@ -7,6 +7,7 @@ import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
 import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
+import { speechModelDownload } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
 
 const REASONS = {
@@ -43,7 +44,7 @@ const WORDS = {
 
 /**
  * Where filling the notes in from the Transcript is (#142), one line under a stopped Meeting:
- * waiting for the Transcript, filling in (on this computer, where it is), "Notes filled in ·
+ * finishing the Transcript, filling in (on this computer, where it is), "Notes filled in ·
  * Undo", or why they weren't, with Try again. A voice memo's says its note was written, or that
  * its Transcript went in as it is, and why. `editor`: the one it shows in, whose own Undo may
  * hold the fill. What the User asked of it and couldn't be done says so in its place.
@@ -98,13 +99,25 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     );
   }
   if (fill.state === "waiting" || fill.state === "filling") {
-    const text =
-      fill.state === "waiting"
-        ? t(words.waiting)
-        : t(fill.local ? words.fillingLocal : words.filling);
+    // From Stop, a call's note says what is under way: its Transcript's last lines and speakers,
+    // then the note (#2773). A Transcript that stopped says why in its own line.
+    const finishing =
+      meeting.kind === "meeting" && fill.state === "waiting" && !meeting.transcript?.problem;
+    const downloading = finishing
+      ? speechModelDownload(meeting.transcript?.model ?? null, t)
+      : null;
+    const text = downloading
+      ? t("meetings.transcript.finishingDownload", downloading)
+      : finishing
+        ? t("meetings.transcript.finishing")
+        : fill.state === "waiting"
+          ? t(words.waiting)
+          : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine testId="meeting-fill-line" role="status" className="">
-        <span className={fill.state === "filling" ? "answer-writing" : undefined}>{text}</span>
+        <span className={fill.state === "filling" || finishing ? "answer-writing" : undefined}>
+          {text}
+        </span>
       </ProblemLine>
     );
   }

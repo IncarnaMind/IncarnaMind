@@ -504,23 +504,64 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
   });
 
   test.each([
-    [
-      "waiting",
-      false,
-      "The note is filled in once the transcript is saved…",
-      "转写稿保存后补全笔记…",
-    ],
+    ["waiting", false, "Finishing the transcript…", "正在完成转写稿…"],
     ["filling", false, "Filling in the note…", "正在补全笔记…"],
     ["filling", true, "Filling in the note on this computer…", "正在这台电脑上补全笔记…"],
   ] as const)(
-    "%s (local: %s) keeps its progress text and no actions",
+    "%s (local: %s) says what is under way, with the live dot and no actions",
     async (state, local, en, zh) => {
       const line = await show(meetingOf(fillOf({ state, local })));
       expect(line?.textContent).toBe(language === "en" ? en : zh);
       expect(line?.getAttribute("role")).toBe("status");
+      expect(line?.querySelector(".answer-writing")?.textContent).toBe(language === "en" ? en : zh);
       expect(line?.querySelectorAll("button")).toHaveLength(0);
     },
   );
+
+  // protects=from Stop, while the speech model the Transcript is finished with still downloads, the note's line says how far, in the transcript's own words (#2773); fails_when=it says only that the transcript is being finished, or nothing; no_claim=the download itself.
+  test("while the speech model downloads after Stop, the line says how far", async () => {
+    const meeting = meetingOf(fillOf({ state: "waiting" }));
+    const transcript = meeting.transcript;
+    if (!transcript) throw new Error("The meeting has no Transcript.");
+    const line = await show({
+      ...meeting,
+      transcript: {
+        ...transcript,
+        state: "finishing",
+        model: {
+          name: "qwen3-asr-0.6b-int8",
+          host: "huggingface.co",
+          state: "downloading",
+          downloadedBytes: 240_000_000,
+          totalBytes: 960_000_000,
+          error: null,
+        },
+      },
+    });
+    expect(line?.textContent).toBe(
+      language === "en"
+        ? "Finishing the transcript: downloading the speech model, 25% of 960 MB…"
+        : "正在完成转写稿：正在下载语音模型（25%，共 960 MB）…",
+    );
+    expect(line?.querySelector(".answer-writing")).not.toBeNull();
+  });
+
+  // protects=a Transcript that stopped with a problem says why in its own line, so the note's line doesn't claim it is being finished (#2773); fails_when=the line says "Finishing the transcript…" with the live dot while nothing is being finished; no_claim=the Transcript's problem line, which TranscriptLines' tests cover.
+  test("a Transcript that stopped leaves the note waiting, with no live dot", async () => {
+    const meeting = meetingOf(fillOf({ state: "waiting" }));
+    const transcript = meeting.transcript;
+    if (!transcript) throw new Error("The meeting has no Transcript.");
+    const line = await show({
+      ...meeting,
+      transcript: { ...transcript, state: "failed", problem: { kind: "engine", message: "" } },
+    });
+    expect(line?.textContent).toBe(
+      language === "en"
+        ? "The note is filled in once the transcript is saved…"
+        : "转写稿保存后补全笔记…",
+    );
+    expect(line?.querySelector(".answer-writing")).toBeNull();
+  });
 
   test("an undone fill still offers Fill in again, not Transcript or Undo", async () => {
     const meeting = meetingOf(fillOf({ state: "undone", omitted: 2, unfinishedParts: 1 }));
