@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
+import { CALL_HELP_DOCUMENTS } from "../../eval/speed/callHelpDocuments";
 import { CALL_HELP_FRESH } from "../../eval/speed/callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "../../eval/speed/callHelpHeldOut";
 import { openLedger } from "../../eval/speed/ledger";
@@ -142,6 +143,7 @@ describe("The call-help cases", () => {
     ["first", CALL_HELP_CASES, 15],
     ["held-out", CALL_HELP_HELD_OUT, 15],
     ["fresh", CALL_HELP_FRESH, 8],
+    ["documents", CALL_HELP_DOCUMENTS, 12],
   ] as const)(
     "%s set: as many cases in each language, each with ids of its own, Documents of its own, and the lines it rests on in them",
     (_, cases, perLanguage) => {
@@ -168,6 +170,11 @@ describe("The call-help cases", () => {
   test.each([
     ["the held-out set", CALL_HELP_HELD_OUT, [CALL_HELP_CASES]],
     ["the fresh slice", CALL_HELP_FRESH, [CALL_HELP_CASES, CALL_HELP_HELD_OUT]],
+    [
+      "the Documents set",
+      CALL_HELP_DOCUMENTS,
+      [CALL_HELP_CASES, CALL_HELP_HELD_OUT, CALL_HELP_FRESH],
+    ],
   ])("%s shares no case and no Document with a set before it", (_, cases, before) => {
     const ids = new Set(before.flat().map((each) => each.id));
     const files = new Set(before.flat().flatMap((each) => each.documents.map((one) => one.file)));

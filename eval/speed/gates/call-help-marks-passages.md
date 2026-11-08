@@ -157,3 +157,85 @@ The runs were made at 5680e53a0 (the step) with the sets at d2ee5e5a4. Each was 
   - a quote was taken from a line sharing only the Document's own name with the claim ("Driver app");
   - a claim listing three facts got quotes for two of them.
 - **Spend:** these six runs, $6.02. With the first runs, the stopped ones and the probes, $10.24 for this gate; this work's ledger reads $31.64.
+
+## Second look: how a quote is picked (added 2026-11-08, committed before any run on its set)
+
+The trust review at 7e7f5b555 found the picker could give a Citation on weak evidence, in a flow that runs no claim check, so the green mark is the User's only verdict:
+
+- "Yes, Enterprise is $39 a seat" was quoted from "Enterprise plan: $45 per seat" and shown found;
+- a line sharing one word with the claim, only the Document's name, or a heading written without "#" was quoted;
+- a short line sharing fewer of the claim's words beat a longer one sharing more (en2-ask-store).
+
+### What changes
+
+A quote is taken only from a line that holds the claim; `src/core/answers/markedPassages.ts` says how. In short:
+
+- **Figures:** every figure a sentence gives in digits is in a quote taken for its markers, or none of them is recorded and the sentence shows uncited. A figure said in the call may stand beside one a quote holds ("your Android 10 phones won't run it: it needs Android 11 or later").
+- **Words:** the first quote holds at least two of the claim's words, a CJK character counting half of one. Words of the Document's name are no evidence. A heading is never quoted: a "#" line, a table's header row, or a short line standing alone with no closing punctuation. A transcript line's time and speaker are no words of it.
+- **Order:** the line holding the most of the claim's figures, then of its words, comes first. A further line is added when it adds two of the claim's words, a further figure beside one of its words, or a word no other line holds. A line whose figures are all other than the claim's is never added.
+- **Negation:** a claim that is a line said again with a "not" more or less gets nothing from that Passage; a reply's own "No," before it doesn't count.
+- **No model after the reply:** on this path, no request after the reply asks a model for the Citations the rules refused. Every Citation on the path is one the rules made.
+- **Another language:** a press whose Passages are in another language than the call keeps `cite`, since a reply shares no words with them.
+
+### The set
+
+`../callHelpDocuments.ts` (`call-help-documents`), 12 English and 12 Chinese presses written for this look. Its Documents are written as people write them:
+
+- paragraphs of several sentences and a table of figures;
+- figures one step from the right one: a volume price beside the list price, battery life at each reporting interval, an onboarding fee beside the size at which it's waived;
+- a Document whose name is in its own text;
+- one call in each language over a Document in the other.
+
+No run and no prompt has seen its calls, and no model has written a reply to them. Before any run, its Documents were used to check these rules with replies written by hand. That check led to two of the rules: the first quote ordered by figures (a table row of "60 元 | 1 年" lost to a prose line sharing more CJK pairs) and the lines about other figures left out. The bar is read on the model's own replies, which no rule was fitted to.
+
+### The runs
+
+- Claude Sonnet 5.5 on the direct Anthropic key, judged by Claude Opus 5.5.
+- `today` against `help-marks-passages`, paired, three runs each, false Supported counted:
+  - on `call-help-documents`;
+  - on `call-help-fresh`, the slice that listed Sonnet before.
+- One at a time, each started at a 15-minute load of 24 or less.
+- If money allows within this look's $12: Claude Haiku 5.5 (judge Claude Sonnet 5.5) and DeepSeek V4.1 Flash 1017 (judge DeepSeek V4 Pro) on `call-help-documents`, reported only. Neither is listed by these runs.
+- Spend: about $4 for Sonnet on the set and $2 on the slice; Haiku and DeepSeek about $0.70.
+
+### The bar
+
+Sonnet stays listed only if, on each of the two sets:
+
+- **English cited and false Supported** hold on counts pooled over the three runs: the step's presses with the expected Passages cited are no fewer than today's, and its presses with a false Supported no more.
+- **Every other line** holds as "The bar" above says: Chinese cited and false Supported, judged right and every Citation found by the range rule; done and the first whole option sooner per language; none new.
+
+### Reported, not gated
+
+- Each false Supported sentence on both arms.
+- The share of found Citations whose quote doesn't state their sentence, per arm and language.
+- How often each arm searched again.
+
+### From the runs already made (their records, no new spend)
+
+The share of found Citations the judge read as unstated (found-but-unstated), per arm, over all presses of each run:
+
+| Run (commit) | Model | Language | today | step |
+|---|---|---|---|---|
+| First, 24 cases (8aaadba53) | Sonnet 5.5 | en | 13 of 90 (14%) | **34 of 115 (30%)** |
+| | | zh | 14 of 97 (14%) | 13 of 99 (13%) |
+| | DeepSeek | en | 10 of 81 (12%) | 16 of 92 (17%) |
+| | | zh | 5 of 86 (6%) | 8 of 96 (8%) |
+| Rerun, 24 cases (5680e53a0) | Sonnet 5.5 | en | 15 of 91 (16%) | **40 of 119 (34%)** |
+| | | zh | 11 of 97 (11%) | 10 of 93 (11%) |
+| | Haiku 5.5 | en | 20 of 78 (26%) | 30 of 95 (32%) |
+| | | zh | 14 of 53 (26%) | 18 of 73 (25%) |
+| | DeepSeek | en | 17 of 84 (20%) | 13 of 91 (14%) |
+| | | zh | 7 of 78 (9%) | 7 of 73 (10%) |
+| Fresh slice (5680e53a0) | Sonnet 5.5 | en | 9 of 50 (18%) | 12 of 61 (20%) |
+| | | zh | 11 of 51 (22%) | 13 of 53 (25%) |
+| | Haiku 5.5 | en | 8 of 40 (20%) | 6 of 49 (12%) |
+| | | zh | 3 of 40 (8%) | 6 of 60 (10%) |
+| | DeepSeek | en | 8 of 50 (16%) | 6 of 51 (12%) |
+| | | zh | 6 of 51 (12%) | 4 of 56 (7%) |
+
+- **Sonnet's English found-but-unstated was twice today's on the 24 cases.** Of the step's 40 in the rerun, 22 were on en2-sum: summary lines carrying four to eight markers on the call's Passages, each quote read alone against the whole line. The rest: en2-say-offline (5), en2-answer-unknown (3), en2-check-right (3), en2-want (2), en2-say-competitor (2), en2-ask-store (2), en2-no-deposit (1).
+- **Cases with a false Supported**, pooled over three runs: Sonnet on the 24 cases 13 → 15 (en) and 11 → 10 (zh); on the fresh slice 6 → 8 and 11 → 10.
+- Neither arm searched again in any Sonnet run; DeepSeek's today arm did once.
+- The sentences, step's arm, Sonnet rerun (English): en2-answer-unknown "Webhooks and the API are available, so I'll confirm options in writing" quoting only the webhooks line, and "your IT team could connect NetSuite themselves" (twice); en2-say-competitor "so it isn't free on every plan. Shopify is included in every plan" (twice); en2-say-offline, three options promising a two-week trial, a named contact and a written rota from separate lines; en2-want, two moments whose words or time the quoted line doesn't hold; en2-sum, the five summary lines above; en2-no-deposit "walk through how the refund works"; en2-ask-store, the API line for "Webhooks are in every plan", and the webhooks line for "We connect to Shopify on every plan" (the review's case); en2-check-right, "which matches the 30-day term" against the speaker's own line (three).
+- Today's arm, same run (English): en2-answer-total's computed $2,808 (three), en2-answer-earlier's "the on-site day is free" (three), en2-say-offline (two), en2-sum (four), en2-answer-edition (one), en2-ask-store (two).
