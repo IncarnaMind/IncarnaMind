@@ -103,7 +103,9 @@ async function stopped(
   reply: string,
   judge: { grade: string; unstated: number[] },
 ) {
-  const group = meetingNotesSet().find((each) => each.name === `meeting-notes-${id}`);
+  const group = meetingNotesSet({ passPerAudioSecond: 0 }).find(
+    (each) => each.name === `meeting-notes-${id}`,
+  );
   const item = group?.items[0];
   if (!group || !item) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];

@@ -115,8 +115,15 @@ export interface LibraryOptions {
   /** What records and transcribes a Meeting: a fake capture and engine, for a run that asks during a call. */
   meetings?: Pick<
     CoreAdapters,
-    "audioCapture" | "transcriber" | "transcriptionModelSource" | "transcriptionKeyFetch"
+    | "audioCapture"
+    | "transcriber"
+    | "transcriptionModelSource"
+    | "transcriptionKeyFetch"
+    | "speakerSeparator"
+    | "speakerModelSource"
   >;
+  /** Whether a call's notes start before its speakers are told apart, for an arm that decides it. */
+  notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
 }
 
 export interface EvalWebPage {
@@ -319,6 +326,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(timings && { answerEngine: timings.engine }),
     ...(options.answerPaths && { answerPaths: options.answerPaths }),
     ...(options.checkPaths && { checkPaths: options.checkPaths }),
+    ...(options.notesBeforeSpeakers && { notesBeforeSpeakers: options.notesBeforeSpeakers }),
   });
   const close = async () => {
     core.close();

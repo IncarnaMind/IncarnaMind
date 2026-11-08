@@ -4878,6 +4878,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return cues;
     },
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
+    startsBeforeSpeakers: () => adapters.notesBeforeSpeakers?.() ?? true,
     language: () => settings.get().language,
     filled(meeting) {
       const notifications = adapters.notifications;

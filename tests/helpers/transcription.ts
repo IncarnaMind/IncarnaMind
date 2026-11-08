@@ -188,6 +188,7 @@ export async function transcribingCore(
     cloud,
     systemLanguages,
     answerPaths,
+    notesBeforeSpeakers,
     examples,
     serving,
     engineFactory,
@@ -221,6 +222,8 @@ export async function transcribingCore(
     transcriptionModelSource?: CoreAdapters["transcriptionModelSource"];
     /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
     answerPaths?: CoreAdapters["answerPaths"];
+    /** Whether a call's notes start before its speakers are told apart, instead of the default. */
+    notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
   } = {},
@@ -252,6 +255,7 @@ export async function transcribingCore(
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
     ...(systemLanguages && { systemLanguages: () => systemLanguages }),
     ...(answerPaths && { answerPaths }),
+    ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
     ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });

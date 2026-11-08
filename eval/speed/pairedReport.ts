@@ -16,6 +16,8 @@ export interface PairedRow {
   run: number;
   /** The arm that ran first in this pair: 0 the baseline, 1 the candidate. */
   first: 0 | 1;
+  /** Both arms' first requests were the same, ids and times aside; set only when the run asks. */
+  sameRequest?: boolean;
   baseline: ArmRun;
   candidate: ArmRun;
 }
@@ -28,6 +30,21 @@ export interface PairedRow {
 export function armTurns(): () => readonly [0 | 1, 0 | 1] {
   let pairs = 0;
   return () => (pairs++ % 2 === 0 ? [0, 1] : [1, 0]);
+}
+
+/** What tells two arms' libraries apart in a request: ids, and the times files were made. */
+const PER_LIBRARY = [
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+  /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
+  /file-modified=\\"[^"\\]*\\"/g,
+];
+
+/** Whether two arms sent the same first request, what differs between their libraries aside. */
+export function sameRequestOf(baseline: string | null, candidate: string | null): boolean {
+  if (baseline === null || candidate === null) return false;
+  const masked = (prompt: string) =>
+    PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
+  return masked(baseline) === masked(candidate);
 }
 
 /** How many of `rows` each arm went first in, baseline then candidate. */

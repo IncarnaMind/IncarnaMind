@@ -118,6 +118,8 @@ export interface MeetingFillOptions {
   ): Citation | null;
   /** Saves a Checkpoint of the Mind before the notes go in (#113). */
   checkpoint(mindId: string): void;
+  /** Whether a call's notes start while its speakers are told apart (#2773). */
+  startsBeforeSpeakers(): boolean;
   language(): Language;
   /** The notes are in: a system notification, unless the Mind is on screen. */
   filled(meeting: Meeting): void;
@@ -942,7 +944,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
      * so its notes start now, and are written once the pass has ended.
      */
     transcriptWritten(meetingId: string): void {
-      if (meetings.isDeleted(meetingId)) return;
+      if (meetings.isDeleted(meetingId) || !options.startsBeforeSpeakers()) return;
       if (meetings.storedFill(meetingId)?.state === "waiting") start(meetingId);
     },
 

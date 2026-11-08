@@ -80,6 +80,9 @@ The sets' baselines, and which set each is (#2019). Re-baselined on the mixed se
 - **Other guards:** a Tool call left as text, notes with a problem or only partly filled in, or nothing written.
 - Pair `today` with `write-then-cite` (#489) to measure writing the notes before their records; the gate is `gates/write-then-cite-tasks.md`.
 - Pair `today` with `notes-without-thinking` (#2773) to measure the fill's request made with thinking off, as a small call is; the gate is `gates/notes-without-thinking.md`.
+- **The speaker pass.** After Stop, each call runs a stand-in speaker pass that takes as long as the app's did on this Mac: 0.11 s for each second of audio, about 30–36 s for these calls. It hears one voice on the other side, so it renames no line.
+- Pair `speakers-first` (the notes wait for the pass, as before #2773) with `notes-before-speakers` (they start once the call's words are final) to measure starting the notes during the pass. Use `INCARNAMIND_EVAL_SPEED_SAME_REQUEST=1`, which holds both arms to sending the same first request in every pair, ids and file times aside. The report says in how many pairs they did. The gate is `gates/notes-before-speakers-2.md`.
+- Pair `today` with `notes-low-effort` to measure the fill's thinking one level down on DeepSeek (`reasoning_effort` low, from its default high). Claude Haiku 5.5 already thinks at `low`, the least it takes short of none.
 - A key refused for credit shows as notes that failed, which the runner can't tell from a model's failure, so it doesn't stop by itself: watch the log.
 
 ### Adding an arm

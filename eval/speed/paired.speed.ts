@@ -48,6 +48,7 @@ import {
   outcomeOf,
   type PairedRow,
   pairedSection,
+  sameRequestOf,
   seconds,
   timeTable,
   wentFirst,
@@ -192,6 +193,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   // A set whose replies differ by chance from run to run counts false Supported over the set
   // instead of stopping at the first (eval/speed/gates/call-help.md).
   const falseSupportedCounted = env("FALSE_SUPPORTED") === "counted";
+  // A change that should leave what is asked as it was is held to sending the same first request
+  // in every pair (eval/speed/gates/notes-before-speakers-2.md).
+  const sameRequest = env("SAME_REQUEST") === "1";
   const startedAt = new Date().toISOString();
   const ledger = await openLedger(env("LEDGER"), `${startedAt} ${named.join(" against ")}`);
   const judge = judgeOf(models);
@@ -232,6 +236,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       chatModels: switches[which].chatModels,
       answerPaths: switches[which].answerPaths,
       checkPaths: switches[which].checkPaths,
+      notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
@@ -284,10 +289,12 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             loads.push(loadavg()[0] ?? 0);
             const order = turn();
             const done: ArmRun[] = [];
+            const firstSent: (string | null)[] = [null, null];
             for (const which of order) {
               const arm = arms[which];
               const { library } = opened[which];
               await arm.prepare?.(library.core);
+              switches[which].takeSent();
               done[which] = await runOnArm(item, {
                 library,
                 ...(opened[which].meeting && { meeting: opened[which].meeting }),
@@ -298,6 +305,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
                 grade: (expected, answer) => gradeAnswer(judge.model, expected, answer),
                 claimsJudge: judge.model,
               });
+              firstSent[which] = switches[which].takeSent()[0] ?? null;
             }
             const row: PairedRow = {
               set: item.set,
@@ -307,6 +315,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               model: name,
               run: time,
               first: order[0],
+              ...(sameRequest && {
+                sameRequest: sameRequestOf(firstSent[0] ?? null, firstSent[1] ?? null),
+              }),
               baseline: done[0] as ArmRun,
               candidate: done[1] as ArmRun,
             };
@@ -381,6 +392,12 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     `This computer: ${cpus()[0]?.model ?? "unknown CPU"}, ${cpus().length} cores, ${Math.round(totalmem() / 2 ** 30)} GB; one-minute load ${loads.length ? `${Math.min(...loads).toFixed(1)} to ${Math.max(...loads).toFixed(1)}, median ${(percentile(loads, 0.5) ?? 0).toFixed(1)}` : "–"}. Spent: $${spent.toFixed(2)} (the judge $${judge.spent().toFixed(2)})${ledger.before > 0 ? `; with the runs before it, $${(ledger.before + spent).toFixed(2)} of $${stopUsd}` : ""}.${stopped ? ` ${stopped}` : ""}`,
     "",
     `Went first: ${arms[0].id} in ${wentFirst(rows)[0]} pairs, ${arms[1].id} in ${wentFirst(rows)[1]}.`,
+    ...(sameRequest
+      ? [
+          "",
+          `The same first request: ${rows.filter((row) => row.sameRequest).length} of ${rows.length} pairs.`,
+        ]
+      : []),
     "",
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",

@@ -167,6 +167,7 @@ async function recorded(
     capture,
     cloud = false,
     keychain,
+    notesBeforeSpeakers,
   }: {
     speakerSeparator?: SpeakerSeparator;
     /** How Stop is pressed. */
@@ -177,6 +178,8 @@ async function recorded(
     keychain?: ReturnType<typeof createMemoryKeychain>;
     /** What the fake capture does: the computer's sound silent, for a recording of a room. */
     capture?: FakeCaptureOptions;
+    /** Whether a call's notes start before its speakers are told apart: unset, the default. */
+    notesBeforeSpeakers?: () => boolean;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
     /** Models made from each spec, around `model`. */
     createChatModel?: ChatModelFactory;
@@ -190,6 +193,7 @@ async function recorded(
     ...(createChatModel && { createChatModel }),
     ...(capture && { capture }),
     ...(keychain && { keychain }),
+    ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (cloud) {
@@ -327,6 +331,40 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     expect(writtenWhile).toEqual([false]);
     expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
     expect(asked).toEqual([true]);
+    core.close();
+  });
+
+  // protects=with the notes held until the speakers are told apart, as before #2773 and as the evaluation's baseline arm runs, a call's fill sends nothing while the pass runs; fails_when=the switch is ignored and the request goes out during the pass; no_claim=which way the app ships, which the default covers.
+  test("with the notes held for the speakers, a call's fill waits for the pass", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let passing = true;
+    const asked: boolean[] = [];
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && asked.push(passing) },
+    );
+    const { separator, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+      cloud: true,
+      notesBeforeSpeakers: () => false,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && transcript.separating,
+    );
+    expect((await fillOf(core, meeting.id))?.state).toBe("waiting");
+    passing = false;
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(asked).toEqual([false]);
     core.close();
   });
 
