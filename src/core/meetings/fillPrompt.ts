@@ -15,7 +15,8 @@ import {
 } from "../../shared/speakers";
 import type { QuestionContext } from "../answers/context";
 import { CITATION_NODE } from "../api";
-import { LANGUAGE_NAMES, LANGUAGES } from "../language";
+import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
+import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../language";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -71,18 +72,51 @@ const speakerWords = LANGUAGES.filter((language) => language !== "en").map((lang
   return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
 });
 
-const rules = [
+/**
+ * The languages a call's notes have section titles in, by the name the transcript's language is
+ * told by. Their notes are written in it, whatever the interface's (#2770).
+ */
+export const CALL_LANGUAGES = { English: "en", Chinese: "zh-CN" } as const satisfies Record<
+  string,
+  Language
+>;
+
+export type CallLanguage = keyof typeof CALL_LANGUAGES;
+
+const isCallLanguage = (name: string | null): name is CallLanguage =>
+  name !== null && Object.hasOwn(CALL_LANGUAGES, name);
+
+/** A transcript line's time and who spoke ("[12:07 Them] "): marks, not what was said. */
+const LINE_MARK = /\[[^\]\n]*\]/g;
+
+/** The language the call was held in, told from what was said; null where it isn't one above. */
+export function callLanguage(passages: readonly { text: string }[]): CallLanguage | null {
+  const said = passages
+    .map((passage) => passage.text.replace(LINE_MARK, " "))
+    .join("\n")
+    .slice(0, LANGUAGE_SAMPLE);
+  const language = detectLanguage(said);
+  return isCallLanguage(language) ? language : null;
+}
+
+const rules = (spoken: CallLanguage | null) => [
   "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
   "- Write only what the transcript says. Leave out what it doesn't.",
-  "- Write in the language of the call.",
+  spoken
+    ? `- Write in ${spoken}, the language of the call.`
+    : "- Write in the language of the call.",
   `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords.join("; ")}. Never call the User "the User" or 用户.`,
 ];
 
-/** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
+/**
+ * Under each of the User's lines, what the call said about it; then the sections, each fact once.
+ * `spoken`: the call's language, when it is one the notes have section titles in.
+ */
 export function notesContext(
   lines: readonly FillLine[],
   question: string,
   history?: FillHistory,
+  spoken: CallLanguage | null = null,
 ): QuestionContext {
   const shown = lines.map(
     (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
@@ -130,7 +164,7 @@ export function notesContext(
           "```",
         ]
       : []),
-    ...rules,
+    ...rules(spoken),
     "- Each Citation quote must be contiguous words from one transcript line, without its time or speaker label. When the words occur more than once, set the cite record's location to the timestamp of the occurrence you mean.",
     "- Then, in the same reply, call cite once with a record for every marker in the notes.",
     "",
@@ -145,8 +179,12 @@ export function notesContext(
 }
 
 /** The meeting's notes in sections, when the User took none. */
-export function sectionsContext(question: string, history?: FillHistory): QuestionContext {
-  return notesContext([], question, history);
+export function sectionsContext(
+  question: string,
+  history?: FillHistory,
+  spoken: CallLanguage | null = null,
+): QuestionContext {
+  return notesContext([], question, history, spoken);
 }
 
 /** A node's plain text: a Citation has none. */
