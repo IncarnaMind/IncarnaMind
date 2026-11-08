@@ -94,6 +94,12 @@ export const ARMS: readonly Arm[] = [
         : { ...spec, thinking: "summary" },
   },
   {
+    id: "notes-without-thinking",
+    label:
+      "every call that would think as an Answer made with thinking off: in the meeting-notes set, the fill's request alone (#2773)",
+    spec: (spec) => (spec.thinking === "answer" ? { ...spec, thinking: "off" } : spec),
+  },
+  {
     id: "newest-stretch",
     label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
     request: (params) => ({

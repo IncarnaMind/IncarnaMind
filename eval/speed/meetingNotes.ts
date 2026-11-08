@@ -4,11 +4,12 @@
  * Transcript (#142) on the User's Answers model. From Stop: the first sign the meeting bar shows
  * (the notes waiting or being filled in), when the notes go into the page, and the end; whether
  * they cite each line the case rests on; whether they give what the case expects; and every
- * sentence a found Citation backs whose quote doesn't say it.
+ * sentence a found Citation backs whose quote doesn't say it. Notes only partly filled in fail.
  */
 import { generateText, type LanguageModel } from "ai";
 import type { Core, MeetingFill } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
+import { isPartialMeetingFill } from "../../src/shared/meetingFill";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
 import { type Judged, openCall, quotes, readJudged } from "./callHelp";
@@ -166,6 +167,7 @@ function item(each: MeetingNotesCase): PairedItem {
         failures: [
           ...(toolTextIn(notes.text).length > 0 ? ["tool-text"] : []),
           ...(filled && fill.problem ? [`fill-${fill.problem.kind}`] : []),
+          ...(filled && !fill.problem && isPartialMeetingFill(fill) ? ["fill-partial"] : []),
           ...(filled && notes.text === "" ? ["nothing-written"] : []),
         ],
         firstSignMs,
