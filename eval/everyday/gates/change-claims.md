@@ -149,3 +149,26 @@ On Claude Haiku 5.5 the branch catches every probe at least as often as main, an
 **Guard 3**, the 41 once each on DeepSeek V4.1 Flash: the branch 39 of 41 (`owner-1`, `sounds-like`), main 40 of 41 (`sounds-like`), so by the letter it fails on `owner-1`. `follow-longer-zh` and `add-to-notes-en` passed on both. `owner-1` searched eleven times, ran out of steps and wrote nothing, before any check or write that this change touches; three more runs of it on the branch passed 3 of 3, and on main 2 of 3, its third failing the same way. `sounds-like` is the chain on both arms: DeepSeek's check flags the shorter version shown in the panel, and the model, asked again, makes the change.
 
 Spend for these: about $2.6 of the $3.
+
+## The review's fixes, and the runs that judge them (2026-11-08, written before them)
+
+An independent review asked for five changes, which come with this section's runs:
+
+1. "Done", or the changes listed under the reply, is backed by a change to a Note only when no call of the Answer was left undone: failed, stopped, denied, or a change still waiting for the User, unless a later call of the same Tool applied a change to the same Note and part. Otherwise main's sentence goes, as before. Eight held-out probes come with this section, in English and Chinese, written before the fix: "done" after one change applied and another left undone in the same Note, in another Note, after a stopped write, and after a failed command (`partial-*`).
+2. The results the body and the README gave for the seven, guards 2 and 4, and the 41 on Claude Haiku 5.5 came from heads whose check sent other rules. They run again at the new head.
+3. A new Note's name is asked for in the language the request is written in as the code detects it (Japanese, French, German…), English when it detects none, not only English or Chinese.
+4. A write into an empty Note is told as "the Note the User is in" only when that Note is the one in front.
+5. Guard 3's exception says its cause is unproven, and guard 5's open gap is #2878.
+
+The runs, at the new head, against main at the branch's base:
+
+- **Guard 5 again:** the whole probe set, twenty runs each, on each arm, with each quick model, read as before; and **each of the eight `partial-*` probes is caught on the branch at least as often as on main**, on each quick model.
+- **Guards 1, 2 and 4 again:** the seven, three runs each, on Claude Haiku 5.5, on the branch.
+- **Guard 3 again on Claude Haiku 5.5:** the 41 once each on the branch, against #2769's run on main.
+- DeepSeek V4.1 Flash's everyday results stay those of the heads they ran at, named beside them.
+
+The cap is $3 more.
+
+### Guard 3's exception, as it stands
+
+On DeepSeek V4.1 Flash, the branch put `owner-1` under its floor where main didn't. It searched eleven times, ran out of steps and wrote nothing; in three more runs it passed 3 of 3 on the branch and 2 of 3 on main, which failed the same way once. Every request of that run carried this change's `create_mind` title description in its Tool list, so its cause is unproven. The guard stays failed, as a dated exception for the reviewer.

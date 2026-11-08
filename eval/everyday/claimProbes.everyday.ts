@@ -113,6 +113,60 @@ const madeLibrary: AnswerToolCall = {
   mindChange: { mindId: "library", created: true, request: "r-lib", proposals: 5, cited: 8 },
 };
 
+const outlookApplied = sectionEdit("partial-outlook", "budget", "Outlook", { cited: 2 });
+
+/** One change applied and another left undone, each pair as a record (#2769's review). */
+const partialRecords: { id: string; calls: AnswerToolCall[] }[] = [
+  {
+    id: "same-note",
+    calls: [
+      {
+        id: "partial-add",
+        tool: "add_to_mind",
+        source: "minds",
+        input: {},
+        status: "done",
+        resultCount: null,
+        mindChange: { mindId: "budget", created: false, request: "partial-add-r", proposals: 2 },
+      },
+      sectionEdit("partial-risks", "budget", "Risks", null, "length"),
+    ],
+  },
+  {
+    id: "other-note",
+    calls: [outlookApplied, sectionEdit("partial-plan", "plan", "风险", null, "length")],
+  },
+  {
+    id: "stopped",
+    calls: [
+      outlookApplied,
+      {
+        id: "partial-stopped",
+        tool: "add_to_mind",
+        source: "minds",
+        input: {},
+        status: "failed",
+        resultCount: null,
+        mindProblem: { kind: "stopped", mindId: "budget" },
+      },
+    ],
+  },
+  {
+    id: "command",
+    calls: [
+      outlookApplied,
+      {
+        id: "partial-command",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.rename", ids: ["budget"], name: "Budget 2027" },
+        status: "failed",
+        resultCount: null,
+      },
+    ],
+  },
+];
+
 /**
  * Held out for #2769, written before its instructions were tuned: a rewrite read as sentences
  * taken out and written new, a section claimed whose own calls failed while another section
@@ -200,6 +254,20 @@ const heldOut = [
     unbacked: true,
     calls: [sectionEdit("nothing-zh", "plan", "下季度安排", null, "no-text")],
   },
+  // Held out for the review of #2769, written before its fix: a request said to be done after
+  // one change applied and another failed, in the same Note, in another, after a stopped write,
+  // and after a failed command.
+  ...(["en", "zh"] as const).flatMap((language) =>
+    partialRecords.map(({ id, calls }) => ({
+      id: `partial-${id}-${language}`,
+      reply:
+        language === "en"
+          ? "Everything you asked for is done; the changes are listed under this reply."
+          : "你要的都已经做完了，改动都列在这条回复下方。",
+      unbacked: true,
+      calls,
+    })),
+  ),
   // Held out again, written before the card rule was changed (#2769).
   {
     id: "card-unmade-en",
