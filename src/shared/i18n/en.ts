@@ -3812,6 +3812,8 @@ export const en = {
   "composer.placeholder.followUp": "Ask a follow-up…",
   "composer.label": "Ask, or say ‘write a note on…’ ({shortcut})",
   "composer.ask": "Ask (Enter)",
+  "composer.queued": "Asks next, when this reply ends",
+  "composer.queued.cancel": "Cancel",
   "composer.scope.all": "All Documents",
   "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
   "composer.scope.leftOut": "All Documents · {count} Folders left out",
