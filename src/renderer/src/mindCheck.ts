@@ -339,7 +339,12 @@ async function start(
 ): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
-  if (useChecks.getState().running[mindId]) return { kind: "running" };
+  // The check already running there, such as one of what the assistant wrote (#2830), is the one
+  // to see: its card shows how far it has got, with Stop.
+  if (useChecks.getState().running[mindId]) {
+    showCheckCard(mindId);
+    return { kind: "running" };
+  }
   // A rewrite writes its reply only into a Note nothing else started on meanwhile.
   if (useChecks.getState().rewriting[mindId]) {
     noteBusy(mindId);

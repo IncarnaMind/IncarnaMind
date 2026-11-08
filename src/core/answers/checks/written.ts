@@ -686,14 +686,21 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const tracked = options.track(request, mindId);
     const ending = new AbortController();
     const signal = AbortSignal.any([tracked.signal, ending.signal]);
-    const progress = () =>
+    // A sentence lands as its check ends, so its verdict shows while the others are checked. A
+    // table's wait, and land together after every check, in their order, as their marks are
+    // footed against each other as they land (a total against its cells). The count moves as
+    // each check ends all the same.
+    const held: { index: number; landing: Landing; outcome: Outcome }[] = [];
+    const progress = () => {
+      const heldOpinions = held.filter(({ outcome }) => outcome === "opinion").length;
       options.progress({
         mindId,
         request,
-        done: done.checked + done.failed,
-        total: sentences.length - done.leftOut,
+        done: done.checked + done.failed + held.length - heldOpinions,
+        total: sentences.length - done.leftOut - heldOpinions,
         running: done.running,
       });
+    };
     let over = false;
     const end = (undone = false) => {
       if (over) return;
@@ -713,23 +720,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       // What never landed couldn't be checked: Stop, an Undo or quitting ended it first.
       done.failed = sentences.length - done.leftOut - done.checked;
       done.running = false;
+      held.length = 0;
       progress();
       input.ended?.(snapshot());
     };
     live.set(request, { mindId, ids: input.ids, end });
     progress();
 
-    // A sentence lands as its check ends, so its verdict shows while the others are checked. A
-    // table's wait, and land together after every check, in their order, as their marks are
-    // footed against each other as they land (a total against its cells).
-    const held: { index: number; landing: Landing; outcome: Outcome }[] = [];
     const landNow = (landing: Landing, outcome: Outcome) => {
       if (landing.sentence.inCell)
         held.push({ index: sentences.indexOf(landing.sentence), landing, outcome });
-      else {
-        landAll([{ landing, outcome }]);
-        progress();
-      }
+      else landAll([{ landing, outcome }]);
+      progress();
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
