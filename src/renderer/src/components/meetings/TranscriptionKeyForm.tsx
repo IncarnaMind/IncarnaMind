@@ -6,6 +6,7 @@ import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServices } from "../../transcriptionServices";
+import { useMounted } from "../../useMounted";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
@@ -46,13 +47,7 @@ export function TranscriptionKeyForm({
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const keyField = useRef<HTMLInputElement>(null);
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const mounted = useMounted();
   useEffect(() => {
     core.getSecretStorage().then(setStorage, (failure: unknown) => {
       console.error("The keychain's state couldn't be read.", failure);
@@ -78,13 +73,13 @@ export function TranscriptionKeyForm({
         .getState()
         .setKey(service.route, key.text, takesServer ? server : undefined);
       // The User left the form while the key was checked: it is kept, nothing is chosen.
-      if (!mounted.current) return;
+      if (!mounted()) return;
       key.clear();
       onSaved({ unchecked, chosen: choosing ? await choosing.choose() : false });
     } catch (failure) {
-      if (mounted.current) setProblem(errorMessage(failure, t));
+      if (mounted()) setProblem(errorMessage(failure, t));
     } finally {
-      if (mounted.current) setBusy(false);
+      if (mounted()) setBusy(false);
     }
   };
 
