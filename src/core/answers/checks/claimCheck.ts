@@ -357,7 +357,8 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
  * Unsupported, since asked to cite a number its quote doesn't hold, Claude Haiku 5.5 often wrote
  * prose in place of its reply (#2184). A remainder is asked for only when the reply's own verdict
  * is Supported: a stricter one stands for the sentence's other words (`withSentenceVerdict`).
- * `asking` is told each reply asked about.
+ * `asking` is told each reply asked about, read across its turns by `across`, which keeps the
+ * Duty and Condition lines held back across an earlier ask (#1766).
  */
 function figuresReplied(
   request: ClaimCheckRequest,
@@ -365,6 +366,7 @@ function figuresReplied(
   searched: () => boolean,
   recorded: (marker: number) => boolean,
   asking: (text: string) => void,
+  across: (last: string, setAside?: readonly string[]) => string,
 ): TurnCheck[] {
   const figures = request.figures ?? [];
   const asked = (text: string) => figures.length > 0 && searched() && readVerdict(text) !== null;
@@ -376,7 +378,7 @@ function figuresReplied(
     {
       name: "figures-line",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -390,7 +392,7 @@ function figuresReplied(
       // The judge decides an Analysis figure: a reply whose fields disagree is asked once (#2378).
       name: "analysis-names",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {
@@ -410,7 +412,7 @@ function figuresReplied(
     {
       name: "figures-sources",
       check(last, setAside = []) {
-        const text = replyAcrossTurns(last, setAside);
+        const text = across(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         // A supported figure with no source must record its quote, not only write it in prose:
@@ -1321,6 +1323,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           (text) => {
             askedAbout = text;
           },
+          across,
         ),
         {
           name: "calculate-first",

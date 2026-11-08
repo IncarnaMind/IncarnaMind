@@ -76,6 +76,8 @@ interface Case {
   look?: string;
   /** With `split`, the lines its last turn writes once asked for its Roles in its own words. */
   rolesAgain?: readonly string[];
+  /** Asked for its Roles, it leaves its Figures line out; asked for that line, it writes it alone. */
+  figuresWhenAsked?: true;
 }
 
 /** What every ask for the Duty and Condition lines says. */
@@ -83,6 +85,9 @@ const ASKED = "its Duty line gives each side as one of must, should, may, must n
 
 /** How the check's ask for a Roles line in the sentence's own words starts. */
 const ROLES_ASKED = "Your Roles line's first side";
+
+/** How the check's ask for a Figures line starts. */
+const FIGURES_ASKED = "Your reply has no Figures line that can be read";
 
 /** How the check's second look at a reply that disagreed with itself starts. */
 const LOOKS_AGAIN = "Your last check of this sentence";
@@ -168,9 +173,12 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
         source: { citation: 1, number: each.number, reading: null, unitQuote: null },
         calculation: null,
       }));
-      return {
-        text: `${lines.join("\n")}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
-      };
+      const figuresLine = `Figures: ${JSON.stringify({ items, remainder: null })}`;
+      if (each.figuresWhenAsked && call.prompt.includes(FIGURES_ASKED))
+        return { text: figuresLine };
+      if (each.figuresWhenAsked && call.prompt.includes(ROLES_ASKED))
+        return { text: lines.join("\n") };
+      return { text: `${lines.join("\n")}\n${figuresLine}` };
     },
     {
       generate: (call) => {
@@ -812,6 +820,48 @@ describe("a Duty or Condition line that differs holds from any turn set aside, w
   ])("%s", (_, setAside, read) => {
     expect(condition(setAside)).toBe(read);
   });
+});
+
+describe("a line held back across an ask still holds when a Figures ask follows (#1766)", () => {
+  const discount = (condition: string): Case => ({
+    sentence: "Berth holders get a 10% discount on fuel.",
+    quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
+    verdict: "supported",
+    duty: SAME,
+    condition,
+    number: "10%",
+    split: true,
+    lastLines: [
+      "Roles: members get a discount / Berth holders get a discount, same",
+      `Duty: ${SAME}`,
+      `Condition: ${SAME}`,
+    ],
+    rolesAgain: [
+      "Roles: Berth holders get a discount / Berth holders get a discount, same",
+      `Duty: ${SAME}`,
+      `Condition: ${SAME}`,
+    ],
+    figuresWhenAsked: true,
+  });
+  test.each<[string, Case, "supported" | "unsupported"]>([
+    [
+      "a 'differs' beside cite",
+      discount("none / unless they pay their fees late, differs"),
+      "unsupported",
+    ],
+    // Paired: with every line the same, the same turns read Supported.
+    ["every line the same", discount(SAME), "supported"],
+  ])(
+    "%s, then a Roles ask, and a Figures ask answered with that line alone",
+    async (_, each, state) => {
+      const calls: ModelCall[] = [];
+      const checked = await check(each, BERTHS, calls);
+      expect(calls.some((call) => call.prompt.includes(ROLES_ASKED))).toBe(true);
+      expect(calls.some((call) => call.prompt.includes(FIGURES_ASKED))).toBe(true);
+      if (state === "supported") expect(checked?.state).toBe("supported");
+      else expect(checked?.state).not.toBe("supported");
+    },
+  );
 });
 
 describe("a Duty or Condition line is read only by its own closing word (#1766, #1708)", () => {
