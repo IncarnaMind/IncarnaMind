@@ -1138,6 +1138,55 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(change?.selfCheck).toBeUndefined();
   });
 
+  // protects=a table's cell whose check ended before Stop keeps the verdict it was given, while the sentence whose check Stop cut short lands Not checked (#2710); fails_when=the held cell verdict is overwritten by the stopped mark, as when the stopped marks are chosen before the held ones land; no_claim=the verdict the scripted judge gives the first cell.
+  test("Stop while a table's write is checked keeps the cell verdict that ended, and stops the rest", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const model = writingModel(
+      {
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
+        into: true,
+        // One claim at a time, as a local model checks: the second check starting proves the first ended.
+        check: (call, core) => {
+          if (!sentenceOf(call).includes("Neap tides are twice as strong")) return null;
+          if (call.results.length > 0) return null;
+          const stopped = Promise.resolve().then(() =>
+            answer ? core.stopConversationAnswer(answer) : undefined,
+          );
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
+    started = core;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon", "unsupported", null],
+      ["Neap tides are twice as strong", "not-checked", "stopped"],
+    ]);
+  });
+
   // protects=Stop while a write made before cite is checked after its Run ends the Answer stopped, keeps the text with its Citations and the mark that landed, and lands Not checked for the sentence Stop cut short (#1635, #2710); fails_when=a mark lands after Stop, the stopped sentence stays unmarked, or the Citations go; no_claim=what the Answer says once stopped.
   test("Stop while a write made before cite is checked after its Run keeps what landed", async () => {
     const calls: ModelCall[] = [];
