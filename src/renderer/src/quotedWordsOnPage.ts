@@ -6,6 +6,7 @@ import {
   quotedWordsOnPage,
 } from "../../shared/citations";
 import { core } from "./core";
+import { useMounted } from "./useMounted";
 
 const keyOf = (
   words: QuotedWords,
@@ -37,13 +38,7 @@ export function useQuotedWordsOnPage(
 ): QuotedWordsOnPage {
   const [verdicts, setVerdicts] = useState<ReadonlyMap<string, boolean | null>>(new Map());
   const asked = useRef(new Set<string>());
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMounted();
   const wanted = asks.map(({ words, cited }) => keyOf(words, cited, mindId, conversationId));
   const wantedKeys = wanted.join("\n");
   // biome-ignore lint/correctness/useExhaustiveDependencies: each place is asked again only when the places asked for change.
@@ -53,7 +48,7 @@ export function useQuotedWordsOnPage(
       if (!ask || asked.current.has(key)) continue;
       asked.current.add(key);
       const settle = (onPage: boolean | null) => {
-        if (mounted.current) setVerdicts((known) => new Map(known).set(key, onPage));
+        if (mounted()) setVerdicts((known) => new Map(known).set(key, onPage));
       };
       quotedWordsOnPage(
         (input) => core.recheckCitation({ ...input, mindId, conversationId }),

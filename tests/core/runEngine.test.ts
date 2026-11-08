@@ -595,7 +595,7 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
     expect(run.events.at(-1)?.type).toBe("finished");
   });
 
-  // protects=a reply that said nothing, as Claude's comes back from a Run (an assistant turn holding only its message_start), isn't sent to Anthropic when the Answer asks again, so the prompt cache can't mark an empty text block, which Anthropic refuses with a 400; fails_when=the re-ask sends the empty turn and is refused; no_claim=other providers, whose requests are unchanged (#2701).
+  // protects=a reply that said nothing, as Claude's comes back from a Run (an assistant turn holding only its message_start), isn't sent when the Answer asks again, so the prompt cache can't mark an empty text block, which Anthropic refuses with a 400; fails_when=the re-ask sends the empty turn and is refused; no_claim=the other providers, which ./emptyTurns serves with the same rule (#2701).
   test("on Anthropic, asking again after a reply that said nothing leaves that reply out, and is answered", async () => {
     const bodies: { messages: { role: string; content: { type: string; text?: string }[] }[] }[] =
       [];
@@ -738,9 +738,64 @@ describe.each(ENGINES)("A Run engine: $name", ({ create }) => {
 
       expect(first.finished).toEqual([{ role: "assistant", text: "", toolCalls: [] }]);
       expect(bodies).toHaveLength(2);
-      expect(bodies[1]?.contents.map((content) => content.role)).toEqual(["user", "user"]);
+      expect(bodies[1]?.contents.map((content) => content.role)).toEqual(["user"]);
       expect(again.text).toBe("Written.");
       expect(again.events.at(-1)?.type).toBe("finished");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // protects=an assistant turn that said nothing, in the history of any provider, isn't sent, here a chat-completions one that never refused it, so only the rule keeps it out; fails_when=the request carries the turn; no_claim=which reply leaves such a turn, Claude's message_start, Gemini's thoughts alone, or one of thoughts alone in an OpenAI-compatible reply (#2701).
+  test("on a chat-completions provider, a turn that said nothing isn't sent, and the note after it is", async () => {
+    const bodies: { messages: { role: string; content: unknown }[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: { body?: unknown }): Promise<Response> => {
+        bodies.push(JSON.parse(String(init?.body)));
+        const chunk = JSON.stringify({
+          id: "c1",
+          object: "chat.completion.chunk",
+          created: 1_790_000_000,
+          model: "deepseek-chat",
+          choices: [
+            { index: 0, delta: { role: "assistant", content: "Written." }, finish_reason: "stop" },
+          ],
+        });
+        return new Response(`data: ${chunk}\r\n\r\ndata: [DONE]\r\n\r\n`, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }),
+    );
+    try {
+      const deepseek = createAiSdkChatModel({
+        kind: "deepseek",
+        baseUrl: null,
+        apiKey: "test-key",
+        modelId: "deepseek-chat",
+      });
+
+      const run = await collect(
+        create(),
+        request(
+          scriptedModel(() => ({ text: "" })),
+          {
+            model: deepseek,
+            messages: [
+              { role: "user", text: "When is high water?" },
+              { role: "assistant", text: "", toolCalls: [] },
+              { role: "user", text: "Your reply is empty. Say when high water is." },
+            ],
+          },
+        ),
+      );
+
+      expect(run.text).toBe("Written.");
+      const messages = bodies[0]?.messages ?? [];
+      expect(messages.map((message) => message.role)).not.toContain("assistant");
+      expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+      expect(JSON.stringify(messages)).toContain("When is high water?");
+      expect(JSON.stringify(messages)).toContain("Say when high water is.");
     } finally {
       vi.unstubAllGlobals();
     }

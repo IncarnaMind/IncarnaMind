@@ -103,6 +103,8 @@ export function withCacheBreakpoints(model: ChatLanguageModel): ChatLanguageMode
       specificationVersion: "v4",
       transformParams: async ({ params }) => {
         // Anthropic refuses a cache mark on an empty text block, which such a turn would get (#2701).
+        // The model leaves such turns out before this (./emptyTurns); it stands here too, as the
+        // tests of this step compose it on its own.
         const sent = params.prompt.filter((message) => !saysNothing(message)) as Prompt;
         const marks = new Set(breakpointsOf(sent));
         let prefixes = 0;
