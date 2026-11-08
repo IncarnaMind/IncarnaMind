@@ -167,7 +167,7 @@ export const cancelCopilotSignIn = () =>
 export function signInToCopilotAgain(): Promise<boolean> {
   settleAgain(false);
   openCopilotNotice();
-  useAppStore.getState().openSettings("models", "copilot");
+  useAppStore.getState().openSettings("ai", "copilot");
   return new Promise((resolve) => {
     const stopSettings = useAppStore.subscribe((state) => {
       if (!state.settingsOpen) settleAgain(false);

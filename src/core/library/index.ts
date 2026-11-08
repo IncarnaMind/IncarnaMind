@@ -330,6 +330,9 @@ export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"]
 
 /** How many Documents a Folder proposal reads the start of, how much of each, and how many more by name. */
 const SAMPLED = 60;
+
+/** What the Library keeps as Organize's own model: nothing, since #2835. */
+const NOT_KEPT: TaggingClassifier | null = null;
 const SAMPLE_TOKENS = 120;
 const NAMED = 240;
 
@@ -442,7 +445,8 @@ export function createLibrary(options: {
             ),
           )
         : null,
-      organizeWith: taggingClassifierOf(saved.organizeWith),
+      // Organize keeps no model of its own (#2835): only one lent to a run is set, in memory.
+      organizeWith: NOT_KEPT,
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
             (each): each is string | null => each === null || typeof each === "string",
@@ -493,7 +497,7 @@ export function createLibrary(options: {
   let lent: TaggingClassifier | null = null;
   const getSettings = (): LibrarySettings => {
     const saved = savedSettings();
-    return shownSettings(lent && !saved.organizeWith ? { ...saved, organizeWith: lent } : saved);
+    return shownSettings(lent ? { ...saved, organizeWith: lent } : saved);
   };
   /** What the User chose: the same as `settings`, without a model lent to a run (#2252). */
   const chosenSettings = (): LibrarySettings => shownSettings(savedSettings());
@@ -1925,24 +1929,17 @@ export function createLibrary(options: {
       });
     },
     /**
-     * Forgets the choice, and Organize's kept model, where `reached` says they name what can't run
-     * any more: a removed key's host (#1907). They go back to Automatic and to none as saved, with
-     * no check of what they named, which may be gone too, and nothing else changes: the switch,
-     * its turn-ons and a model lent to a run stay as they are. False when neither named it.
+     * Forgets the choice where `reached` says it names what can't run any more: a removed key's
+     * host (#1907). It goes back to Automatic as saved, with no check of what it named, which may
+     * be gone too, and nothing else changes: the switch, its turn-ons and a model lent to a run
+     * stay as they are. False when it didn't name it.
      */
     forgetModel(reached: (classifier: TaggingClassifier) => boolean): boolean {
       const stored = settings.readDeviceValue("library");
       const saved = isRecord(stored) ? stored : {};
       const classifier = taggingClassifierOf(saved.classifier);
-      const organizeWith = taggingClassifierOf(saved.organizeWith);
-      const dropsChoice = classifier !== null && reached(classifier);
-      const dropsKept = organizeWith !== null && reached(organizeWith);
-      if (!dropsChoice && !dropsKept) return false;
-      settings.writeDeviceValue("library", {
-        ...saved,
-        ...(dropsChoice && { classifier: AUTOMATIC }),
-        ...(dropsKept && { organizeWith: null }),
-      });
+      if (classifier === null || !reached(classifier)) return false;
+      settings.writeDeviceValue("library", { ...saved, classifier: AUTOMATIC });
       revision++;
       changed();
       return true;
@@ -1953,18 +1950,14 @@ export function createLibrary(options: {
       // Null was "Organize manually" before there was Automatic: it is Automatic now.
       const chosen = input.classifier ?? AUTOMATIC;
       const automaticChosen = isRecord(chosen) && chosen.kind === "automatic";
-      const organizeWith =
-        input.organizeWith === undefined ? savedSettings().organizeWith : input.organizeWith;
-      const toCheck: unknown[] = automaticChosen ? [] : [chosen];
-      if (organizeWith !== null) toCheck.push(organizeWith);
-      for (const each of toCheck) {
-        if (!isRecord(each)) throw new InvalidInputError("Choose a classifier.");
-        checkClassifier(each);
+      if (!automaticChosen) {
+        if (!isRecord(chosen)) throw new InvalidInputError("Choose a classifier.");
+        checkClassifier(chosen);
       }
       const before = savedSettings();
       const next = {
         classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
-        organizeWith: taggingClassifierOf(organizeWith),
+        organizeWith: NOT_KEPT,
       };
       // Only `turnOn`, sent where the line says what goes, turns it on, and records when and
       // where in the database's order, for each service it sends to (ADR-0022, #2370). Any other
@@ -2007,7 +2000,6 @@ export function createLibrary(options: {
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
         ...(automatic !== null && { automatic }),
-        organizeWith,
         automaticSince,
         automaticSinceSeq,
         taggingStopped: before.taggingStopped,

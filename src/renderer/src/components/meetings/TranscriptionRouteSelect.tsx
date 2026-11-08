@@ -32,6 +32,7 @@ export function TranscriptionRouteSelect({
   id,
   className,
   popUp = false,
+  grouped = false,
   labelledBy,
   focusOnShow,
   localOnly = false,
@@ -47,6 +48,8 @@ export function TranscriptionRouteSelect({
   className?: string;
   /** Drawn as a pop-up button, as Settings' rows draw a choice; its look is then its own. */
   popUp?: boolean;
+  /** Its services under who pays for them (Settings › AI): this computer, or the User's keys. */
+  grouped?: boolean;
   /** The element that names it, where its label isn't one that points at it. */
   labelledBy?: string;
   /** It takes the focus when it shows (Change was just pressed). */
@@ -114,11 +117,30 @@ export function TranscriptionRouteSelect({
       }}
       className={className}
     >
-      {offered.map((each) => (
-        <option key={each} value={each}>
-          {t(ROUTE_LABELS[each])}
-        </option>
-      ))}
+      {grouped ? (
+        <>
+          {offered.some((each) => each !== "local") && (
+            <optgroup label={t("ai.payer.keys")}>
+              {offered
+                .filter((each) => each !== "local")
+                .map((each) => (
+                  <option key={each} value={each}>
+                    {t(ROUTE_LABELS[each])}
+                  </option>
+                ))}
+            </optgroup>
+          )}
+          <optgroup label={t("ai.payer.local")}>
+            <option value="local">{t(ROUTE_LABELS.local)}</option>
+          </optgroup>
+        </>
+      ) : (
+        offered.map((each) => (
+          <option key={each} value={each}>
+            {t(ROUTE_LABELS[each])}
+          </option>
+        ))
+      )}
       {setUp && setUp.offers.length > 0 && (
         <optgroup label={t("meetings.setUp.group")}>
           {setUp.offers.map((each) => (

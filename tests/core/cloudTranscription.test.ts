@@ -826,6 +826,10 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
         cloud: null,
         fellBack: { route: "qwen", reason: "refused" },
       });
+      // Settings › AI's row for the key says so, until the key changes.
+      const services = (await core.listTranscriptionServices()).services;
+      expect(services.find((each) => each.route === "qwen")?.refused).toBe(true);
+      expect(services.find((each) => each.route === "soniox")?.refused).toBe(false);
       record(6 * SECOND);
       await until(
         core,

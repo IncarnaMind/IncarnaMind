@@ -3,6 +3,7 @@ import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
+import { AccountState, type RowState } from "../ai/AccountState";
 import { ProblemLine } from "../ProblemLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
@@ -11,9 +12,10 @@ import { ProviderLogo } from "./ProviderLogo";
 const NOWHERE: readonly SettingsTarget[] = [];
 
 /**
- * A key Your providers keeps for one job other than Answers (sorting, meeting transcription): its
- * name, what it is for, and Change key, which opens `form` in place, and Remove key. `reachedBy`:
- * the Settings targets that scroll to it and open Change key (a refused key's "Check the key").
+ * A key Accounts and keys keeps for a job other than Answers (sorting, meeting transcription,
+ * ordering search results): its company, what it is used for and whether it works, and Change key,
+ * which opens `form` in place, and Remove key. `reachedBy`: the Settings targets that scroll to it
+ * and open Change key (a refused key's "Check the key").
  */
 export function KeyRow({
   testId,
@@ -22,6 +24,7 @@ export function KeyRow({
   logo,
   fallback,
   status,
+  state = null,
   change,
   remove,
   onRemove,
@@ -29,16 +32,18 @@ export function KeyRow({
   note = null,
   reachedBy = NOWHERE,
 }: {
-  testId: "sorting-key" | "transcription-key";
+  testId: "sorting-key" | "transcription-key" | "rerank-key" | "search-key";
   id: string;
   name: string;
   logo: string | null;
   /** Drawn in place of a logo the app doesn't have. */
   fallback?: ReactNode;
   status: string;
+  state?: RowState | null;
   change: string;
-  remove: string;
-  onRemove(): Promise<void>;
+  /** Left out where removing the key would stop a job with nothing to go back to. */
+  remove?: string;
+  onRemove?(): Promise<void>;
   /** The form that changes the key in place; `done` puts it away. */
   form(done: () => void): ReactNode;
   /** A line under the row while the form is away, such as the key's not being checked. */
@@ -53,6 +58,7 @@ export function KeyRow({
     setChanging(true);
   });
   const removeKey = async () => {
+    if (!onRemove) return;
     setProblem(null);
     try {
       await onRemove();
@@ -69,7 +75,7 @@ export function KeyRow({
       data-host={id}
       leading={<ProviderLogo id={logo} fallback={fallback} />}
       label={
-        <span className="block truncate" title={name}>
+        <span className="block truncate font-semibold" title={name}>
           {name}
         </span>
       }
@@ -81,6 +87,7 @@ export function KeyRow({
       control={
         changing ? undefined : (
           <>
+            {state && <AccountState state={state} />}
             <button
               type="button"
               data-testid={`${testId}-change`}
@@ -92,14 +99,16 @@ export function KeyRow({
             >
               {change}
             </button>
-            <button
-              type="button"
-              data-testid={`${testId}-remove`}
-              onClick={() => void removeKey()}
-              className={buttonStyle("ghost", "sm")}
-            >
-              {remove}
-            </button>
+            {remove && onRemove && (
+              <button
+                type="button"
+                data-testid={`${testId}-remove`}
+                onClick={() => void removeKey()}
+                className={buttonStyle("ghost", "sm")}
+              >
+                {remove}
+              </button>
+            )}
           </>
         )
       }

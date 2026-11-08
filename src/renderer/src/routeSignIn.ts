@@ -36,14 +36,14 @@ export function wayBackRun(
     case "use-another-model":
       return requestModelMenu;
     case "paste-api-key":
-      return () => line.onOpenSettings("models");
+      return () => line.onOpenSettings("ai");
   }
 }
 
 export function signInToRoute(route: SignInRoute): Promise<boolean> {
   const signIn = SIGN_INS[route];
   if (signIn) return signIn();
-  useAppStore.getState().openSettings("models", route);
+  useAppStore.getState().openSettings("ai", route);
   return Promise.resolve(false);
 }
 

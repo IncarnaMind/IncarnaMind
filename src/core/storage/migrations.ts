@@ -2894,6 +2894,34 @@ export const migrations: readonly Migration[] = [
         WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 141,
+    description:
+      "Organize keeps no model of its own: the one it kept becomes the choice for Organize and Tags (#2835)",
+    // Under Automatic (stored as {"kind":"automatic"}, null, or left out, which all read as it),
+    // Organize used the model it kept, `organizeWith`, while tagging followed Automatic's pick.
+    // That kept model becomes the Library's one choice, so Organize goes on with the model it used,
+    // and tagging now follows it. A choice the User made already wins: Organize used it, and its
+    // kept model was never read. Nothing else in the record changes, the switch and its turn-ons
+    // included, and no consent is recorded.
+    sql: `
+      UPDATE device_settings
+        SET value = json_set(value, '$.classifier', json(json_extract(value, '$.organizeWith'))),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL AND json_valid(value)
+          AND json_type(value, '$.organizeWith') = 'object'
+          AND (
+            json_type(value, '$.classifier') IS NULL
+            OR json_type(value, '$.classifier') = 'null'
+            OR json_extract(value, '$.classifier.kind') = 'automatic'
+          );
+      UPDATE device_settings
+        SET value = json_remove(value, '$.organizeWith'),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL AND json_valid(value)
+          AND json_type(value, '$.organizeWith') IS NOT NULL;
+    `,
+  },
 ];
 
 /**

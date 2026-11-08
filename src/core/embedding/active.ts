@@ -48,12 +48,15 @@ import { storedApiKey } from "../providers/apiKey";
 import {
   type ApiEmbeddingChoice,
   type ApiEmbeddingModel,
+  type ApiEmbeddingProviderKind,
   type EmbeddingModelFactory,
   embeddingKeyRequired,
   embeddingModelKey,
   embeddingProviderName,
   embeddingProviderOptions,
   embeddingServiceFor,
+  type HostedEmbeddingKind,
+  isHostedKind,
   type ParsedEmbeddingInput,
   parseEmbeddingInput,
   parseStoredChoice,
@@ -220,6 +223,11 @@ export function createActiveEmbedding(options: {
   signal: AbortSignal;
   /** The provider's error, or its dimensions, changed: the core reports the settings again. */
   onChange(): void;
+  /**
+   * The key of the User's account with the company behind a hosted kind (their OpenAI or Google
+   * chat provider's), used when no key of the embedding's own is kept: one key per company.
+   */
+  accountKey?(kind: HostedEmbeddingKind): Promise<string | null>;
 }) {
   const { builtIn, settings, secrets, consent, createModel, signal } = options;
   const readyListeners = new Set<() => void>();
@@ -228,6 +236,10 @@ export function createActiveEmbedding(options: {
   let error: ProviderError | null = null;
 
   const stored = () => parseStored(settings.readDeviceValue(PROVIDER_VALUE));
+  /** A key kept for the embedding model itself: one typed in its own form before keys were per company. */
+  const ownKey = async () => storedApiKey(await secrets.tryGet(KEY_NAME));
+  const accountKeyOf = async (kind: ApiEmbeddingProviderKind): Promise<string | null> =>
+    isHostedKind(kind) && options.accountKey ? options.accountKey(kind) : null;
   const localOnly = () => settings.readDeviceValue(LOCAL_ONLY_VALUE) === true;
   const gate = createSendGate(consent, localOnly);
   // No choice stored, on a new install or one from before embeddings could be off: on only
@@ -269,7 +281,7 @@ export function createActiveEmbedding(options: {
 
     /** The key, if the provider takes one; throws (setting the error) when a required one is missing. */
     const key = async (): Promise<string | null> => {
-      const apiKey = storedApiKey(await secrets.tryGet(KEY_NAME));
+      const apiKey = (await ownKey()) ?? (await accountKeyOf(choice.kind));
       if (!apiKey && embeddingKeyRequired(choice.kind)) {
         throw new EmbeddingUnavailableError(
           `No API key for ${embeddingProviderName(choice)} can be read on this device.`,
@@ -425,15 +437,23 @@ export function createActiveEmbedding(options: {
     options.onChange();
   }
 
-  /** The key a test or save uses: the one given, or the stored one if it belongs to the same server. */
-  async function keyFor(parsed: Extract<ParsedEmbeddingInput, { choice: ApiEmbeddingChoice }>) {
-    if (parsed.apiKey !== undefined) return parsed.apiKey;
+  /**
+   * The key a test or save uses: the one given, else one kept for the same server, which stays
+   * the embedding's own; else the User's account with that company, read again at each use.
+   */
+  async function keyFor(
+    parsed: Extract<ParsedEmbeddingInput, { choice: ApiEmbeddingChoice }>,
+  ): Promise<{ apiKey: string; own: boolean } | null> {
+    if (parsed.apiKey !== undefined) return { apiKey: parsed.apiKey, own: true };
     const saved = stored();
     const sameServer =
       saved !== null &&
       saved.kind === parsed.choice.kind &&
       saved.baseUrl === parsed.choice.baseUrl;
-    return sameServer ? storedApiKey(await secrets.tryGet(KEY_NAME)) : null;
+    const own = sameServer ? await ownKey() : null;
+    if (own) return { apiKey: own, own: true };
+    const account = await accountKeyOf(parsed.choice.kind);
+    return account ? { apiKey: account, own: false } : null;
   }
 
   function refuseCloudInLocalMode(service: ExternalService | null): void {
@@ -504,7 +524,7 @@ export function createActiveEmbedding(options: {
         kind: provider.kind,
         baseUrl: provider.baseUrl,
         modelId: provider.modelId,
-        hasApiKey: (await secrets.tryGet(KEY_NAME)) !== null,
+        hasApiKey: (await ownKey()) !== null || (await accountKeyOf(provider.kind)) !== null,
         dimensions: provider.dimensions,
         service: embeddingServiceFor(provider.kind, provider.baseUrl),
       };
@@ -556,8 +576,8 @@ export function createActiveEmbedding(options: {
       const { choice } = parsed;
       const service = embeddingServiceFor(choice.kind, choice.baseUrl);
       refuseCloudInLocalMode(service);
-      const apiKey = await keyFor(parsed);
-      if (!apiKey && embeddingKeyRequired(choice.kind)) {
+      const key = await keyFor(parsed);
+      if (!key && embeddingKeyRequired(choice.kind)) {
         throw new InvalidInputError({
           key: "error.provider.keyMissing",
           values: { provider: embeddingProviderName(choice) },
@@ -566,7 +586,7 @@ export function createActiveEmbedding(options: {
       const saved = stored();
       const sameModel =
         wasOn && saved !== null && embeddingModelKey(saved) === embeddingModelKey(choice);
-      if (apiKey) await secrets.set(KEY_NAME, apiKey);
+      if (key?.own) await secrets.set(KEY_NAME, key.apiKey);
       else await secrets.delete(KEY_NAME);
       settings.writeDeviceValue(PROVIDER_VALUE, {
         ...choice,
@@ -610,8 +630,8 @@ export function createActiveEmbedding(options: {
       const { choice } = parsed;
       const service = embeddingServiceFor(choice.kind, choice.baseUrl);
       refuseCloudInLocalMode(service);
-      const apiKey = await keyFor(parsed);
-      if (!apiKey && embeddingKeyRequired(choice.kind)) {
+      const key = await keyFor(parsed);
+      if (!key && embeddingKeyRequired(choice.kind)) {
         throw new InvalidInputError({
           key: "error.provider.keyMissing",
           values: { provider: embeddingProviderName(choice) },
@@ -619,7 +639,7 @@ export function createActiveEmbedding(options: {
       }
       try {
         const { embedding } = await embed({
-          model: createModel({ ...choice, apiKey }),
+          model: createModel({ ...choice, apiKey: key?.apiKey ?? null }),
           value: TEST_TEXT,
           maxRetries: 0,
           abortSignal: AbortSignal.any([signal, AbortSignal.timeout(TEST_TIMEOUT_MS)]),

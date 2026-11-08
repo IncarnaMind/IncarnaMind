@@ -1081,8 +1081,7 @@ export async function acceptPlainTextKeys(window: Page, form?: Locator): Promise
 /** The pages in Settings' list. */
 export type SettingsPage =
   | "general"
-  | "models"
-  | "search"
+  | "ai"
   | "meetings"
   | "connectors"
   | "skills"

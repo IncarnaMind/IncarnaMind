@@ -387,7 +387,7 @@ export function ModelChip({
                 data-testid="composer-model-settings"
                 onClick={() => {
                   menu.close();
-                  openSettings("models");
+                  openSettings("ai");
                 }}
                 className="model-menu-link"
               >

@@ -494,8 +494,7 @@ test("an Organize the User runs on the plan, while Automatic tagging goes to ano
       });
       await core.createLibraryGroup({ name: "Invoices", description: "Invoices" });
       await core.saveLibrarySettings({
-        classifier: null,
-        organizeWith: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: false,
       });
       await core.setTaggingWithAi(null, false);

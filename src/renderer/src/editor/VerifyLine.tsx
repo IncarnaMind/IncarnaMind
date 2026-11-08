@@ -449,7 +449,7 @@ export function VerifyCard({
         <ProblemLine
           testId="verify-problem"
           className="mind-verify-problem"
-          action={{ label: t("checks.problem.chooseModel"), onClick: () => openSettings("models") }}
+          action={{ label: t("checks.problem.chooseModel"), onClick: () => openSettings("ai") }}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

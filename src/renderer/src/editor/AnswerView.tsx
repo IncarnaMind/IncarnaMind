@@ -481,7 +481,7 @@ export function AnswerError({
       />
     );
   }
-  const chooseModel = fix.kind === "settings" && fix.page === "models";
+  const chooseModel = fix.kind === "settings" && fix.page === "ai";
   const action =
     chooseModel && pickedModel && onRetryWith
       ? { label: t("answer.error.askAgain"), onClick: () => onRetryWith(pickedModel) }

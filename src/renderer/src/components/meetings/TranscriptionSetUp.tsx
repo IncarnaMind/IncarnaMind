@@ -64,7 +64,7 @@ function asTyped(service: TranscriptionServiceStatus, typed: string): Transcript
  * A service chosen from the picker's foot: what it is, its key (and Deepgram's server), and where
  * the audio goes and what an hour costs above Use this, which keeps the key and chooses the service.
  */
-function TranscriptionSetUp({
+export function TranscriptionSetUp({
   service,
   onDone,
 }: {

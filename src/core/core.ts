@@ -947,6 +947,7 @@ export function createCore(adapters: CoreAdapters): Core {
     createModel: adapters.createEmbeddingModel ?? createAiSdkEmbeddingModel,
     signal: lifetime.signal,
     onChange: () => embeddingChanged(),
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   // Usage data: only from a copy built to send it, only while the User agrees, never in local mode.
   const usageData = createUsageData({
@@ -1299,6 +1300,7 @@ export function createCore(adapters: CoreAdapters): Core {
     builtIn: rerankingModel,
     localOnly: () => embedding.localOnly(),
     signal: lifetime.signal,
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   const rerankChanged = async () => {
     const status = await rerank.status();
@@ -3908,11 +3910,15 @@ export function createCore(adapters: CoreAdapters): Core {
     organizeModelOf(library.settings())
       ? null
       : ((await taggingModels()).automatic?.classifier ?? null);
-  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  /**
+   * Keeps `classifier`, the model Organize was offered, as the Library's one choice for Organize
+   * and Tags when none is chosen: Organize keeps no model of its own (#2835). It records no
+   * consent, and the switch for new Documents stays as shown.
+   */
   const keepOrganizeModel = async (classifier: TaggingClassifier) => {
     const saved = library.settings();
     if (organizeModelOf(saved)) return;
-    library.saveSettings({ ...saved, organizeWith: classifier });
+    library.saveSettings({ ...saved, classifier });
     await dataFlowsChanged();
     await taggingChanged();
   };

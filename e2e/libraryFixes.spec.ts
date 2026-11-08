@@ -197,15 +197,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, needs.getByTestId("library-organize-dismiss"));
     await expect(needs).toHaveCount(0);
 
-    // A model on this computer sends nothing, so Organize runs on it without asking, keeps it,
-    // and what it proposes waits in the Review until Confirm.
+    // A model on this computer sends nothing, so Organize runs on it without asking, keeps it as
+    // the choice for Organize and Tags, and what it proposes waits in the Review until Confirm.
     await connectLocalChatModel(window);
     await pointAndClick(window, lib.getByTestId("library-organize"));
     await expect(lib.getByTestId("library-organize-consent")).toHaveCount(0);
     await expect(needs).toHaveCount(0);
     const organizeModel = () =>
       bridge(window, async (core) => {
-        const chosen = (await core.getLibrary()).settings.organizeWith;
+        const chosen = (await core.getLibrary()).settings.classifier;
         return chosen?.kind === "chat" ? chosen.choice.modelId : null;
       });
     await expect.poll(organizeModel).toBe("fake-model");

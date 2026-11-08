@@ -12,7 +12,7 @@ import { en } from "../../src/shared/i18n/en";
 
 const COMPONENTS = join(__dirname, "../../src/renderer/src/components");
 
-/** What makes up the Settings pages: each page's files, and the folders of the Agents, Connectors and Models pages. */
+/** What makes up the Settings pages: each page's files, and the folders of the Agents, AI and Connectors pages. */
 const FILES = [
   "SettingsDialog.tsx",
   "AiUseSettings.tsx",
@@ -27,11 +27,9 @@ const FILES = [
   "SkillsSettings.tsx",
   "SpendingCapSettings.tsx",
   "SuggestionSettings.tsx",
-  "TaggingSettings.tsx",
   "TaskNotificationSettings.tsx",
-  "WebSearchSettings.tsx",
 ];
-const FOLDERS = ["agents", "connectors", "providers"];
+const FOLDERS = ["agents", "ai", "connectors", "providers", "settings"];
 /** First-run screens in those folders: not Settings. */
 const NOT_SETTINGS = new Set(["ModelSetupCard.tsx", "GetOllama.tsx", "OllamaCard.tsx"]);
 

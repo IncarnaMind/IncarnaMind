@@ -108,11 +108,11 @@ export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Pro
   const { openSettings } = useAppStore.getState();
   try {
     const service = (await servicesNow()).find((each) => each.route === route);
-    if (service?.key !== "own") openSettings("models");
-    else openSettings("models", service.hasKey ? `transcription-key:${route}` : "transcription");
+    if (service?.key !== "own") openSettings("ai");
+    else openSettings("ai", service.hasKey ? `transcription-key:${route}` : "transcription");
   } catch (error) {
     console.error("The transcription services couldn't be read.", error);
-    openSettings("models");
+    openSettings("ai");
   }
 }
 

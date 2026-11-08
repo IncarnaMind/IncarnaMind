@@ -85,7 +85,7 @@ export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
     } catch (error) {
       reportError(error);
     }
-    openSettings("models");
+    openSettings("ai");
   },
 
   async checkService(serviceId) {

@@ -639,7 +639,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     const older = (await core.getLibrary()).settings;
     await core.saveLibrarySettings({ ...older, automatic: false });
 
-    await core.saveLibrarySettings({ ...older, organizeWith: null });
+    await core.saveLibrarySettings(older);
     const held = await add(core, "After the older save.txt");
 
     expect(older.automatic).toBe(true);

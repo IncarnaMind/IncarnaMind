@@ -210,14 +210,14 @@ test("Organize as a new User meets it", async () => {
   if (library.groups.length > 0) throw new Error("A new User's Library has Folders already.");
 
   // With no model for Organize yet, the press asks for one, and "Use {company}" keeps the model
-  // Automatic offers, which is the consent for where it sends.
+  // Automatic offers as the Organize and Tags choice, which is the consent for where it sends.
   const { automatic } = await core.getTaggingModels();
   if (!automatic) throw new Error("Automatic offers no model to organize with.");
   if (automatic.classifier.kind !== "chat")
     throw new Error(
       `Automatic offers ${automatic.name}, which can't name Folders: the starter Folders open instead.`,
     );
-  await core.saveLibrarySettings({ ...library.settings, organizeWith: automatic.classifier });
+  await core.saveLibrarySettings({ ...library.settings, classifier: automatic.classifier });
   log(`Organizing with ${automatic.name}…`);
 
   const pressed = performance.now();

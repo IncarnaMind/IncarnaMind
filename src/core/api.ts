@@ -3601,6 +3601,8 @@ export interface TranscriptionServiceStatus {
   /** The saved chat provider whose key it uses, for a `key` "provider" route that has one; null otherwise. */
   providerId: string | null;
   hasKey: boolean;
+  /** The service refused the key it has now, and keeps refusing it until the key changes. */
+  refused: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
   /** Where credit is added to the account the key is for; null where none is known. */
@@ -12047,18 +12049,17 @@ export interface CoreApi {
   /**
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
-   * classifier of null is Automatic; `organizeWith` left out stays as it was.
+   * classifier of null is Automatic. A model lent to a run (`organizeWith`) is never saved.
    * `automatic` is the switch as shown, and a save can only turn it off.
    * `turnOn` turns it on, and records when, as the consent for the services
    * it sends to now (ADR-0022): only where the line says what goes, as
-   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * setup's Use this and Settings › AI's Organize and Tags switch do.
    * Turned on for one service, it reads off for another until it is turned
    * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
-      organizeWith?: TaggingClassifier | null;
       turnOn?: boolean;
     },
   ): Promise<void>;

@@ -414,7 +414,6 @@ describe("The core says where the saved choice goes", () => {
     await core.saveLibrarySettings({
       ...(await core.getLibrary()).settings,
       classifier: { kind: "chat", choice },
-      organizeWith: { kind: "chat", choice },
     });
     await core.deleteChatProvider(anthropic.id);
 
@@ -625,7 +624,7 @@ describe("Which model each quick call uses", () => {
     const { automatic } = await core.getTaggingModels();
     if (!automatic) throw new Error("Automatic picked nothing.");
     const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({ ...settings, organizeWith: automatic.classifier });
+    await core.saveLibrarySettings({ ...settings, classifier: automatic.classifier });
     await vi.waitFor(async () => expect(await status()).toBe("classified"));
     expect(calls.filter((each) => each.purpose === "organize")).toEqual([
       { kind: "openai", modelId: "gpt-6-luna", thinking: "off", purpose: "organize" },
@@ -823,11 +822,10 @@ describe("The image model reads scans the model that tags can't", () => {
         imageModel: { providerId: anthropic.id, modelId: "claude-haiku-5-5" },
       },
     });
-    // Organize uses the local model, as "Use Ollama" in the Library sets it.
+    // Organize uses the local model, as "Use Ollama" in the Library makes it the choice.
     await core.saveLibrarySettings({
-      classifier: { kind: "automatic" },
+      classifier: { kind: "chat", choice: { providerId: ollama.id, modelId: "local-model" } },
       automatic: true,
-      organizeWith: { kind: "chat", choice: { providerId: ollama.id, modelId: "local-model" } },
     });
     await core.allowDataFlow("classification", ANTHROPIC);
     await core.allowDataFlow("scan-images", ANTHROPIC);

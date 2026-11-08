@@ -246,7 +246,7 @@ const appCommands: readonly Command[] = [
     // Signs in, then shows the plan in Settings → Models, where its model is chosen; a failure says why there.
     run: async () => {
       const { openSettings } = useAppStore.getState();
-      if (await signInAgain(openSettings)) openSettings("models");
+      if (await signInAgain(openSettings)) openSettings("ai");
     },
   },
   {
@@ -257,7 +257,7 @@ const appCommands: readonly Command[] = [
     reversible: true,
     when: claudeSignInOffered,
     // The words come before any request, so it opens the Claude row in Settings › Models.
-    run: () => useAppStore.getState().openSettings("models", "claude-account"),
+    run: () => useAppStore.getState().openSettings("ai", "claude-account"),
   },
   {
     ...fromMenu("sidebar.toggle"),

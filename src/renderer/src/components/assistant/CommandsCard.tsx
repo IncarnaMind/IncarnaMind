@@ -221,7 +221,7 @@ function openYours(what: Yours): void {
   const app = useAppStore.getState();
   switch (what) {
     case "keys":
-      app.openSettings("models");
+      app.openSettings("ai");
       return;
     case "privacy":
       app.openSettings("privacy", "local-mode");
