@@ -4221,9 +4221,9 @@ export function createCore(adapters: CoreAdapters): Core {
         service,
         // Walls and stopped places hold for Organize, as for tagging in the background.
         sends: (id) => asked || (!library.inWall(id) && !library.taggingStoppedFor(id)),
-        // Organize changes nothing outside the Review; the User's Re-tag settles its Documents' tagging.
+        // Its Documents are tagged, their Tags waiting in the Review, so tagging in the background
+        // doesn't send them again. Only the User's Re-tag clears them for the service, as always.
         tagged: (ids) => {
-          if (!asked) return;
           db.transaction(() => {
             const at = now();
             db.run(
@@ -4232,8 +4232,7 @@ export function createCore(adapters: CoreAdapters): Core {
                WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`,
               [at, JSON.stringify(ids)],
             );
-            // It clears its Documents for that service, as the User's re-tag always has.
-            if (service) for (const id of ids) clearForService(db, id, [service], at);
+            if (asked && service) for (const id of ids) clearForService(db, id, [service], at);
           });
           announceTagged(ids);
         },

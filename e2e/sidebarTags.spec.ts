@@ -19,7 +19,6 @@ import {
   tabTo,
   tagDocument,
   typeWithInputMethod,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -147,6 +146,8 @@ const marksOf = (row: Locator) =>
   });
 
 test("the Tags section lists each Tag a Document carries with its colour and count, and filters the Library by it, with the mouse and the keyboard", async () => {
+  // Organize's Review is confirmed before the Tags are read, in both languages.
+  test.setTimeout(120_000);
   const { server } = await decisionServer();
   const { app, window } = await launchApp(dataDir);
   try {
@@ -295,12 +296,12 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     await window.keyboard.press("Escape");
     await expect(libraryTagMenu).toBeHidden();
 
-    // In Chinese.
+    // In Chinese, where a kind's Tag is named in Chinese (#2339).
     await setLanguage(window, "zh-CN");
     await expect(tagsToggle).toHaveText("标签");
-    await slideAndClick(window, openTag("Paper"));
-    await expect(tagFilter).toHaveText("标签：Paper");
-    await expect(openTag("Paper")).toHaveAttribute("aria-selected", "true");
+    await slideAndClick(window, openTag("论文"));
+    await expect(tagFilter).toHaveText("标签：论文");
+    await expect(openTag("论文")).toHaveAttribute("aria-selected", "true");
     await window.mouse.move(700, 400, { steps: 6 });
     await screenshot(window, "tags-tab-zh");
     await slideAndClick(window, tagFilter.getByTestId("library-filter-chip"));
@@ -333,7 +334,7 @@ test("a Document row shows up to three Tag colours and +N after its name, names 
     await tagDocuments(window, {
       Attention: ["Paper", "Book", "Contract", "Report"],
       "Q1 report": ["Report"],
-      [long]: ["Paper", "Notes"],
+      [long]: ["Paper", "Meeting notes"],
     });
     await expect(row("Attention").getByTestId("tag-dot")).toHaveCount(3);
     // The Tags arrive one by one: wait for the fourth's "+1", not just three dots.
@@ -463,13 +464,13 @@ test("a Document row shows up to three Tag colours and +N after its name, names 
       .poll(async () => (await window.getByTestId("sidebar").boundingBox())?.width)
       .toBeCloseTo(248, 0);
 
-    // In Chinese.
+    // In Chinese, the kinds' Tags in Chinese (#2339).
     await setLanguage(window, "zh-CN");
     await expect(attention).toHaveAttribute(
       "title",
-      "Attention\nAttention.txt\n标签：Book, Contract, Paper, Report",
+      "Attention\nAttention.txt\n标签：书籍, 合同, 论文, 报告",
     );
-    await expect(attention).toHaveAccessibleDescription("标签：Book, Contract, Paper, Report");
+    await expect(attention).toHaveAccessibleDescription("标签：书籍, 合同, 论文, 报告");
     await tabIntoRow(window, attention);
     await expect(tip).toBeVisible();
     await screenshot(window, "row-marks-zh");
@@ -496,7 +497,7 @@ test("the Tag names shown for the keyboard go as soon as the arrow keys move on,
     const [first, tagged, alsoTagged] = names;
     if (!first || !tagged || !alsoTagged) throw new Error("The sidebar lists too few Documents.");
     const wanted: Record<string, string[]> = {
-      [tagged]: ["Notes", "Report"],
+      [tagged]: ["Meeting notes", "Report"],
       [alsoTagged]: ["Report"],
     };
     await tagDocuments(window, wanted);
@@ -557,7 +558,7 @@ test("the Tag names shown for the keyboard go as soon as the arrow keys move on,
     // Under the row, over the next rows' names and the resting pointer, never its own name.
     expect(await onRow(tagged)).toEqual({
       focused: tagged,
-      tags: ["Notes", "Report"],
+      tags: ["Meeting notes", "Report"],
       coversName: false,
       underPointer: true,
     });
@@ -785,15 +786,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await setLanguage(window, language);
       await addTextDocuments(window, { "Tides.txt": "Spring tides happen at new moon." });
+      // A kind's Tag is named in the interface's language (#2339).
+      const report = language === "en" ? "Report" : "报告";
+      const paperName = language === "en" ? "Paper" : "论文";
       // "Report" is carried, so the section is there; "Paper" is a preset nothing carries.
-      await tagDocument(window, "Tides", "Report");
+      await tagDocument(window, "Tides", report);
       await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.createTag({ name: "Drafts" });
       });
       const drafts = tagRow(window, "Drafts");
       await expect(drafts.getByTestId("browse-count")).toHaveText("0");
-      await expect(tagRow(window, "Paper")).toHaveCount(0);
+      await expect(tagRow(window, paperName)).toHaveCount(0);
 
       // The Library filtered by the renamed Tag follows the merge to the Tag kept.
       await slideAndClick(window, drafts.getByRole("treeitem"));
@@ -806,40 +810,40 @@ for (const language of ["en", "zh-CN"] as const) {
       await drafts.getByRole("treeitem").focus();
       await window.keyboard.press("F2");
       const field = window.getByTestId("sidebar-tags").getByRole("textbox");
-      await field.fill("Paper");
+      await field.fill(paperName);
       await window.keyboard.press("Enter");
-      const paper = tagRow(window, "Paper");
+      const paper = tagRow(window, paperName);
       await expect(drafts).toHaveCount(0);
       await expect(paper.getByTestId("browse-count")).toHaveText("0");
       await expect(paper.getByRole("treeitem")).toBeFocused();
       await expect(paper.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
-      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：Paper");
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：论文");
       await expect(window.getByTestId("undo-message")).toHaveText(
-        language === "en" ? "Merged into “Paper”" : "已合并到“Paper”",
+        language === "en" ? "Merged into “Paper”" : "已合并到“论文”",
       );
       const tags = await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         return (await core.listTags()).map((tag) => [tag.name, tag.madeByUser] as const);
       });
-      expect(tags).toContainEqual(["Paper", true]);
+      expect(tags).toContainEqual([paperName, true]);
       expect(tags.map(([name]) => name)).not.toContain("Drafts");
 
       // One Undo brings the renamed Tag back, with the filter; Paper is a preset again, hidden at 0.
       await window.getByTestId("undo-line").getByTestId("undo-action").click();
       await expect(tagRow(window, "Drafts")).toHaveCount(1);
-      await expect(tagRow(window, "Paper")).toHaveCount(0);
+      await expect(tagRow(window, paperName)).toHaveCount(0);
       await expect(tagFilter).toHaveText(language === "en" ? "Tags: Drafts" : "标签：Drafts");
       const afterUndo = await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         return (await core.listTags()).map((tag) => [tag.name, tag.madeByUser] as const);
       });
-      expect(afterUndo).toContainEqual(["Paper", false]);
+      expect(afterUndo).toContainEqual([paperName, false]);
 
       // Redo merges them again, and the Library filter moves forward with it.
       await window.keyboard.press("ControlOrMeta+Shift+z");
       await expect(tagRow(window, "Drafts")).toHaveCount(0);
-      await expect(tagRow(window, "Paper").getByTestId("browse-count")).toHaveText("0");
-      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：Paper");
+      await expect(tagRow(window, paperName).getByTestId("browse-count")).toHaveText("0");
+      await expect(tagFilter).toHaveText(language === "en" ? "Tags: Paper" : "标签：论文");
     } finally {
       await app.close();
     }
@@ -848,33 +852,22 @@ for (const language of ["en", "zh-CN"] as const) {
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`the Tags section lists a Tag at 0 only when the User made it or changed it (${language})`, async () => {
-    const subject = language === "en" ? "Littoral drift" : "海岸漂沙";
-    const text =
-      language === "en"
-        ? "Subject: Littoral drift\nNotes about the harbour and the tides."
-        : "主题：海岸漂沙\n关于港口与潮汐的笔记。";
+    // A kind's Tag is named in the interface's language (#2339).
+    const report = language === "en" ? "Report" : "报告";
+    const paper = language === "en" ? "Paper" : "论文";
+    const slidesName = language === "en" ? "Slides" : "幻灯片";
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await dismissChatSetup(window);
       await setLanguage(window, language);
-      // biome-ignore lint/correctness/useHookAtTopLevel: a test helper, not a React hook.
-      await useLocalChatModel(window);
-      await addTextDocuments(window, { "Harbour notes.txt": text });
-      // A carried preset, so the section stays once the tagging Tag comes off.
-      await tagDocument(window, "Harbour notes", "Report");
+      await addTextDocuments(window, {
+        "Harbour notes.txt": "Notes about the harbour and the tides.",
+      });
+      // A carried kind, so the section is there; a kind nothing carries isn't listed.
+      await tagDocument(window, "Harbour notes", report);
       const document = documentRow(window, "Harbour notes");
-      await expect(document).toHaveAttribute("data-tagging", "tagged");
-      // Automatic tagging made the Tag, and its Document carries it: it is listed.
-      const auto = tagRow(window, subject);
-      await expect(auto.getByTestId("browse-count")).toHaveText("1");
-      await expect(tagRow(window, "Paper")).toHaveCount(0);
-
-      // The User takes it off its only Document: a tagging-made Tag at 0 hides.
-      await document.hover();
-      await document.getByTestId("document-tags-menu").click();
-      await document.getByRole("option", { name: subject, exact: true }).click();
-      await window.keyboard.press("Escape");
-      await expect(auto).toHaveCount(0);
+      await expect(tagRow(window, report).getByTestId("browse-count")).toHaveText("1");
+      await expect(tagRow(window, paper)).toHaveCount(0);
 
       // Manage Tags and the Tag picker still list it.
       await window.mouse.move(700, 400, { steps: 4 });
@@ -883,7 +876,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.getByTestId("tags-menu-items").getByTestId("tags.manage").click();
       const dialog = window.getByTestId("tags-dialog");
       await expect(dialog).toBeVisible();
-      const hidden = dialog.getByTestId("tag-row").filter({ hasText: subject });
+      const hidden = dialog.getByTestId("tag-row").filter({ hasText: paper });
       await expect(hidden).toHaveCount(1);
       await expect(hidden.getByTestId("tag-count")).toHaveText(
         language === "en" ? "0 Documents" : "0 个文档",
@@ -891,11 +884,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await document.hover();
       await document.getByTestId("document-tags-menu").click();
-      await expect(document.getByRole("option", { name: subject, exact: true })).toBeVisible();
+      await expect(document.getByRole("option", { name: paper, exact: true })).toBeVisible();
       await window.keyboard.press("Escape");
 
       // One the User made shows at 0, from the heading's +.
-      await tagDocument(window, "Harbour notes", subject);
       await window.getByTestId("tags-toggle").hover();
       await window.getByTestId("tags-add").click();
       await window.getByTestId("sidebar-tag-new-name").fill("Drafts");
@@ -907,7 +899,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.getByTestId("tags-menu").click();
       await window.getByTestId("tags-menu-items").getByTestId("tags.manage").click();
       await expect(dialog).toBeVisible();
-      const slides = dialog.getByTestId("tag-row").filter({ hasText: "Slides" });
+      const slides = dialog.getByTestId("tag-row").filter({ hasText: slidesName });
       await slides.getByTestId("edit-tag").click();
       // The row swaps itself for its form, which is the first one in the dialog.
       await dialog
@@ -917,11 +909,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await dialog.getByTestId("save-tag").first().click();
       await window.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
-      await expect(tagRow(window, "Slides").getByTestId("browse-count")).toHaveText("0");
+      await expect(tagRow(window, slidesName).getByTestId("browse-count")).toHaveText("0");
 
       // Undo puts back that the preset was not the User's, so at 0 it hides again.
       await window.getByTestId("undo-line").getByTestId("undo-action").click();
-      await expect(tagRow(window, "Slides")).toHaveCount(0);
+      await expect(tagRow(window, slidesName)).toHaveCount(0);
     } finally {
       await app.close();
     }

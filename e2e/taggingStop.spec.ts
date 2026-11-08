@@ -215,6 +215,8 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
     ),
     folderId,
   );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Supply contract");
   await openFolder(window, FOLDER);
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
@@ -262,6 +264,8 @@ test("⌘K stops Tagging, and turns it back on for Documents not in a Folder", a
     .setInputFiles(
       await Promise.all(["Field notes", "Site visit", "Interview", "Survey"].map(slowFile)),
     );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Field notes");
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status).toBeVisible();
 
@@ -289,6 +293,8 @@ test("after Stop, the status row and a new Document's Tag picker say Tagging sto
     .setInputFiles(
       await Promise.all(["Field notes", "Site visit", "Interview", "Survey"].map(slowFile)),
     );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Field notes");
   const footer = window.getByTestId("sidebar-status");
   await expect(footer.getByTestId("tagging-status")).toBeVisible();
   await runFromPalette(window, "Stop Tagging");
@@ -598,6 +604,8 @@ for (const cloud of [true, false] as const) {
           ["Supply contract", "Purchase order", "Delivery log", "Draft brief"].map(slowFile),
         ),
       );
+    // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+    await makeTagOnDocument(window, "Supply contract");
     const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
     const label = status.getByTestId("status-label");
 

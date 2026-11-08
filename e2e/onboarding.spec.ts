@@ -361,10 +361,11 @@ test("an empty Mind of one's own shows no second start guide, the example's step
   await expect(window.getByTestId("start-guide")).toHaveCount(0);
 
   // The examples fold to one row once a Document of one's own is there (#1944).
-  // Tagging finishes in the background and adds the Tags section above it: wait, so the row holds still.
-  await expect(window.getByTestId("sidebar").getByTestId("sidebar-tags")).toBeVisible({
-    timeout: 30_000,
-  });
+  // Tagging finishes in the background, its Tags waiting in the Review (#2339): wait, so the row
+  // holds still.
+  await expect(
+    window.getByTestId("document-list-item").filter({ hasText: "Harbour notes" }),
+  ).toHaveAttribute("data-tagging", "tagged", { timeout: 30_000 });
   await pointAndClick(window, window.getByTestId("example-section").getByTestId("mind-list-item"));
   const checks = window
     .getByTestId("mind-pane")

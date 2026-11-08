@@ -407,6 +407,8 @@ export function TagPicker({
         aria-multiselectable="true"
         aria-label={label}
         data-testid="tag-picker-list"
+        // Chromium makes a list long enough to scroll a Tab stop; the field already moves through it.
+        tabIndex={-1}
         className="max-h-64 overflow-y-auto p-1"
       >
         {options.length === 0 && (

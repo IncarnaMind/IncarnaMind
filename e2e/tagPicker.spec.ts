@@ -398,7 +398,7 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     });
     const ids = await (await bridge(window)).evaluate(async (core) => {
       const tags = await core.listTags();
-      const notes = tags.find((tag) => tag.name === "Notes");
+      const notes = tags.find((tag) => tag.name === "Meeting notes");
       const report = tags.find((tag) => tag.name === "Report");
       if (!notes || !report) throw new Error("A preset is missing.");
       const documents = await core.listDocuments();
@@ -442,10 +442,10 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     ).toHaveAttribute("data-colour", "teal");
     await openManageTags(window);
 
-    // Merging Report into Notes: its Document keeps one Tag, Notes.
+    // Merging Report into Meeting notes: its Document keeps one Tag, Meeting notes.
     await slideAndClick(window, row("Report").getByTestId("merge-tag"));
-    await row("Report").getByTestId("merge-target").selectOption({ label: "Notes" });
-    await expect(row("Report")).toContainText("Its Documents get “Notes”");
+    await row("Report").getByTestId("merge-target").selectOption({ label: "Meeting notes" });
+    await expect(row("Report")).toContainText("Its Documents get “Meeting notes”");
     await slideAndClick(window, row("Report").getByTestId("confirm-merge-tag"));
     await expect(row("Report")).toHaveCount(0);
     await expect(row("Notes").getByTestId("tag-count")).toHaveText("2 Documents");
@@ -455,7 +455,7 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     await slideAndClick(window, row("Notes").getByTestId("tag-count"));
     await expect(dialog).toBeHidden();
     await expect(library.locator('[data-testid="library-filter"][data-facet="tag"]')).toHaveText(
-      "Tags: Notes",
+      "Tags: Meeting notes",
     );
 
     // Deleting asks nothing: the Tag goes to Recently deleted.

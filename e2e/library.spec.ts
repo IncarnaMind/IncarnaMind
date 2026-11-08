@@ -1005,7 +1005,7 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
         ["Research paper", "Paper"],
         ["Research report", "Report"],
         ["Finance invoice", "Invoice"],
-        ["Meetings notes", "Notes"],
+        ["Meetings notes", "Meeting notes"],
       ]) {
         const tag = tags.find((each) => each.name === tagName);
         if (!tag) throw new Error(`No ${tagName} Tag.`);
@@ -1065,7 +1065,13 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
     });
     expect(saved).toEqual({
       folders: { Research: 80, Finance: 40, Meetings: 40, "Not in a Folder": 40 },
-      byTag: expect.objectContaining({ Paper: 40, Report: 40, Invoice: 40, Notes: 40, Book: 0 }),
+      byTag: expect.objectContaining({
+        Paper: 40,
+        Report: 40,
+        Invoice: 40,
+        "Meeting notes": 40,
+        Book: 0,
+      }),
     });
 
     // The Library's sections and the sidebar's Folders: the same counts.
@@ -1137,7 +1143,7 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
         .filter({
           has: window.locator(':scope > div [data-testid="row-text"]', { hasText: name }),
         });
-    for (const name of ["Paper", "Report", "Invoice", "Notes"])
+    for (const name of ["Paper", "Report", "Invoice", "Meeting notes"])
       await expect(tagRow(name).getByTestId("browse-count")).toHaveText(String(saved.byTag[name]));
     await expect(tagRow("Book")).toHaveCount(0);
     await tagRow("Invoice")

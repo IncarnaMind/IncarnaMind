@@ -203,6 +203,29 @@ describe("an Organize run", () => {
     expect(useNotices.getState().confirmation).toBeNull();
   });
 
+  test("that proposes nothing with Folders there says no Folder fits, as a notice", async () => {
+    method("getLibrary").mockResolvedValue({
+      ...planning,
+      groups: [
+        {
+          id: "f1",
+          name: "Finance",
+          description: "",
+          parentId: null,
+          countsOwnFiles: false,
+          keepInside: false,
+          createdAt: "2026-11-01T00:00:00.000Z",
+          updatedAt: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+    });
+    method("organizeLibrary").mockResolvedValue(planned(0));
+
+    await flow.organize({});
+    expect(state()).toMatchObject({ open: false, run: null, apart: null });
+    expect(useNotices.getState().confirmation?.message).toBe("library.organize.noneFit");
+  });
+
   test("a Re-tag that proposes nothing says no Tag fits, and the next run clears it", async () => {
     method("tagDocuments").mockResolvedValue(planned(0));
     await flow.tagDocuments(["d1", "d2"]);

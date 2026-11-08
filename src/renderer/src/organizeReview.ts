@@ -51,7 +51,8 @@ interface ReviewState {
   stoppedTagging: boolean;
   /**
    * The last run proposed nothing, no Folder and no Tag, so no Review opened: its line says the
-   * Documents are too different to group yet, or, for a Re-tag (`tags`), that no Tag fits them.
+   * Documents are too different to group yet, with no Folder to file into, or, for a Re-tag
+   * (`tags`), that no Tag fits them.
    */
   apart: { count: number; tags: boolean } | null;
   /**
@@ -234,7 +235,11 @@ async function runInReview(
     }
     const [review] = await Promise.all([refreshReview(), useAppStore.getState().refreshLibrary()]);
     if (result.proposed === 0 || review.items.length === 0) {
-      useOrganizeReview.setState({ apart: { count: result.documents, tags: tags === true } });
+      // "Too different to group yet" is true only with no Folder to file into (#2339).
+      const noFolders = (useAppStore.getState().library?.groups.length ?? 0) === 0;
+      if (tags || noFolders)
+        useOrganizeReview.setState({ apart: { count: result.documents, tags: tags === true } });
+      else useNotices.getState().confirm("library.organize.noneFit");
     } else if (libraryShown()) {
       useOrganizeReview.setState({ open: true, shownAll: new Set() });
     }

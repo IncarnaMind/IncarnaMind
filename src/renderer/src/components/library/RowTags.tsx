@@ -104,7 +104,8 @@ const chipButtonClass =
 
 /**
  * One Tag on a row: its name, a spark when tagging gave it, and, pointed at,
- * × over its end to take it off, so nothing moves under the pointer.
+ * × over its end to take it off, so nothing moves under the pointer. It is wide enough that a
+ * two-character name (报告) still opens the picker where it is pointed at, not ×.
  */
 function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: DocumentTag }) {
   const t = useT();
@@ -115,7 +116,7 @@ function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: 
       data-source={link.source}
       data-colour={tag.colour}
       title={chipTitle(link, tag, t)}
-      className={`group/chip relative ${chipClass} ${tagChipColour(tag.colour)} min-w-0 shrink`}
+      className={`group/chip relative ${chipClass} ${tagChipColour(tag.colour)} min-w-12 shrink`}
     >
       {link.source === "automatic" && (
         <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />

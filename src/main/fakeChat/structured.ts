@@ -14,8 +14,17 @@ const tags = (options: GenerateOptions): boolean => {
   return format?.type === "json" && !!format.schema?.properties?.tagged;
 };
 
-const taggingExcerpt = (options: GenerateOptions): string | null =>
-  tags(options) ? organizeInput(options) : null;
+/**
+ * What a tagging request reads of its Documents, their names and text: the same Documents read
+ * the same however the interface's language or the Tags offered change between requests.
+ */
+function taggingExcerpt(options: GenerateOptions): string | null {
+  if (!tags(options)) return null;
+  const input = JSON.parse(organizeInput(options) || "{}") as {
+    documents?: { name: string; text: string }[];
+  };
+  return (input.documents ?? []).map((document) => `${document.name}\n${document.text}`).join("\n");
+}
 
 const organizeInput = (options: GenerateOptions): string => {
   const message = options.prompt.find((part) => part.role === "user");
