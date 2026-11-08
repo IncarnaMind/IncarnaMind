@@ -11207,7 +11207,8 @@ export interface Meeting {
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
  * the Transcript's times; the User's own text never changes.
- * - "waiting": for the Transcript to be finished and saved;
+ * - "waiting": for the Transcript to be finished and saved. A call's notes may already be under
+ *   way while its speakers are told apart; they are written once that ends (#2773);
  * - "filling": the model is writing;
  * - "filled": written, and one Undo takes it all back;
  * - "undone": taken back;

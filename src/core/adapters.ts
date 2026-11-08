@@ -1235,6 +1235,11 @@ export interface CoreAdapters {
    */
   checkPaths?: CheckPathsOverride;
   /**
+   * Whether a call's notes start once its words are final, while its speakers are told apart
+   * (#2773), instead of after them; unset, they do. Only tests and the evaluation pass one.
+   */
+  notesBeforeSpeakers?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

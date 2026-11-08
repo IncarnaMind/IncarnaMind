@@ -33,6 +33,8 @@ export interface Arm {
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
+  /** Whether a call's notes start before its speakers are told apart (#2773); unset: the core's default. */
+  notes?: { beforeSpeakers?: boolean };
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -100,6 +102,40 @@ export const ARMS: readonly Arm[] = [
     spec: (spec) => (spec.thinking === "answer" ? { ...spec, thinking: "off" } : spec),
   },
   {
+    id: "speakers-first",
+    label: "a call's notes wait for its speakers to be told apart, as before #2773",
+    notes: { beforeSpeakers: false },
+  },
+  {
+    id: "notes-before-speakers",
+    label:
+      "a call's notes start once its words are final, while its speakers are told apart, and are written once the pass ends (#2773)",
+    notes: { beforeSpeakers: true },
+  },
+  {
+    id: "notes-low-effort",
+    label:
+      "every DeepSeek request that thinks does so at reasoning_effort low, one level down from its default high: in the meeting-notes set, the fill's requests and the claims' checks (#2773)",
+    request: (params) => {
+      const deepseek = params.providerOptions?.deepseek;
+      const thinking = deepseek?.thinking;
+      const off =
+        typeof thinking === "object" &&
+        thinking !== null &&
+        "type" in thinking &&
+        thinking.type === "disabled";
+      return off
+        ? params
+        : {
+            ...params,
+            providerOptions: {
+              ...params.providerOptions,
+              deepseek: { ...deepseek, reasoningEffort: "low" },
+            },
+          };
+    },
+  },
+  {
     id: "newest-stretch",
     label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
     request: (params) => ({
@@ -137,9 +173,15 @@ export function armNamed(id: string): Arm {
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
+  /** Each request's prompt as sent, for a run that holds two arms to sending the same one. */
+  const sent: string[] = [];
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
-    transformParams: async ({ params }) => current?.request?.(params) ?? params,
+    transformParams: async ({ params }) => {
+      const next = current?.request?.(params) ?? params;
+      sent.push(JSON.stringify(next.prompt));
+      return next;
+    },
   };
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
@@ -155,6 +197,9 @@ export function armSwitch() {
         wrapLanguageModel({ model: inner(current?.spec?.(spec) ?? spec), middleware }),
     answerPaths,
     checkPaths,
+    notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
+    /** The prompts sent since it was last asked, oldest first. */
+    takeSent: (): string[] => sent.splice(0),
     use(arm: Arm): void {
       current = arm;
     },

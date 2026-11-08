@@ -20,6 +20,7 @@ import {
   newFalseSupported,
   type PairedRow,
   pairedSection,
+  sameRequestOf,
   timeTable,
   wentFirst,
   wentFirstByCell,
@@ -389,5 +390,46 @@ describe("Which arm goes first (#2791)", () => {
       first: turn("deepseek/deepseek-flash · meeting-notes · en")[0],
     }));
     expect(wentFirst(rows)).toEqual([3, 2]);
+  });
+});
+
+describe("The same first request (#2773)", () => {
+  const prompt = (id: string, made: string, words: string) =>
+    JSON.stringify([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `<passage id="${id}" file-modified="${made}">\n[0:05 Them] ${words}\n</passage>`,
+          },
+        ],
+      },
+    ]);
+
+  // protects=two arms' libraries give their files other ids and times, which don't make a request another one, while any change in what is asked does; fails_when=ids or times count as a change, or a changed word doesn't; no_claim=what a model does with either request.
+  test("ids and the times files were made aside, the words decide", () => {
+    const today = prompt(
+      "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+      "2026-11-08T02:10:04.629Z",
+      "Is the price fixed?",
+    );
+    const other = prompt(
+      "6ec0bd7f-11c0-43da-975e-2a8ad9ebae0b",
+      "2026-11-08T02:14:31.221Z",
+      "Is the price fixed?",
+    );
+    expect(sameRequestOf(today, other)).toBe(true);
+    expect(
+      sameRequestOf(
+        today,
+        prompt(
+          "6ec0bd7f-11c0-43da-975e-2a8ad9ebae0b",
+          "2026-11-08T02:14:31.221Z",
+          "Is the price final?",
+        ),
+      ),
+    ).toBe(false);
+    expect(sameRequestOf(today, null)).toBe(false);
   });
 });

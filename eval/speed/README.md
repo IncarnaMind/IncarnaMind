@@ -71,7 +71,7 @@ The sets' baselines, and which set each is (#2019). Re-baselined on the mixed se
 
 ### The meeting-notes set
 
-`meeting-notes` stops a call and fills its notes in from its Transcript (#142), as Stop does, on the User's Answers model. Each case (`meetingNotesCases.ts`) is one of the call-help set's long calls, heard live through the same fake capture and engine, in a Library of only its own Documents, with what its notes must give: the case's own lines (an offer, a worry, a date, an owner, a request) and two lines of the rollout talk (the trial workspace, and the onboarding contact put in writing). The cases were written and committed before any run, and no prompt has seen them. Each case is stopped once a run, so `RUNS` stays 1: run the set again for more pairs.
+`meeting-notes` stops a call and fills its notes in from its Transcript (#142), as Stop does, on the User's Answers model. Each case (`meetingNotesCases.ts`) is one of the call-help set's long calls, heard live through the same fake capture and engine, in a Library of only its own Documents, with what its notes must give: the case's own lines (an offer, a worry, a date, an owner, a request) and two lines of the rollout talk (the trial workspace, and the onboarding contact put in writing). The cases were written and committed before any run, and no prompt has seen them. Each case is stopped once a run, so a run asks one model once, and the runner refuses `RUNS` above 1 or a second model: run the set again for more pairs, with the same ledger.
 
 - **The times,** from Stop: the first sign the meeting bar shows (the notes waiting or being filled in), when the notes go into the page, and the end.
 - **Cited:** each line the case rests on is quoted by a found Citation of the Transcript in the notes.
@@ -80,6 +80,9 @@ The sets' baselines, and which set each is (#2019). Re-baselined on the mixed se
 - **Other guards:** a Tool call left as text, notes with a problem or only partly filled in, or nothing written.
 - Pair `today` with `write-then-cite` (#489) to measure writing the notes before their records; the gate is `gates/write-then-cite-tasks.md`.
 - Pair `today` with `notes-without-thinking` (#2773) to measure the fill's request made with thinking off, as a small call is; the gate is `gates/notes-without-thinking.md`.
+- **The speaker pass.** After Stop, each call runs a stand-in speaker pass that takes as long as the app's did on this Mac: 0.11 s for each second of audio, about 30–36 s for these calls. It hears one voice on the other side, so it renames no line.
+- Pair `speakers-first` (the notes wait for the pass, as before #2773) with `notes-before-speakers` (they start once the call's words are final) to measure starting the notes during the pass. Use `INCARNAMIND_EVAL_SPEED_SAME_REQUEST=1`, which holds both arms to sending the same first request in every pair, ids and file times aside. The report says in how many pairs they did. The gate is `gates/notes-before-speakers-2.md`.
+- Pair `today` with `notes-low-effort` to measure DeepSeek thinking one level down (`reasoning_effort` low, from its default high). It lowers every DeepSeek request that thinks, which in this set means the fill's requests and the claims' checks, since the checks ask for no kind of call. Claude Haiku 5.5 already thinks at `low`, the least it takes short of none. The gate is `gates/notes-low-effort.md`. It held with the checks lowered too, but a run that lowered only the fill failed on false Supported.
 - A key refused for credit shows as notes that failed, which the runner can't tell from a model's failure, so it doesn't stop by itself: watch the log.
 
 ### Adding an arm

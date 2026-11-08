@@ -5,9 +5,9 @@ import { useT } from "../i18n";
 import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { speechModelDownload } from "../speechModelDownload";
 import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
-import { speechModelDownload } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
 
 const REASONS = {

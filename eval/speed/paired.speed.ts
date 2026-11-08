@@ -49,6 +49,7 @@ import {
   outcomeOf,
   type PairedRow,
   pairedSection,
+  sameRequestOf,
   seconds,
   timeTable,
   wentFirst,
@@ -189,11 +190,21 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const ids = list("ITEMS");
   const each = env("EACH") ? Number(env("EACH")) : null;
   const runs = Number(env("RUNS") ?? "1") || 1;
+  // Each call is opened once a run and can be stopped only once: a second Stop fails at once and
+  // takes a turn of the arms' order (#2791).
+  if (sets.includes("meeting-notes") && (runs > 1 || models.length > 1)) {
+    throw new Error(
+      "The meeting-notes set runs one model once a run: for more pairs, run it again with the same INCARNAMIND_EVAL_SPEED_LEDGER.",
+    );
+  }
   const stopUsd = Number(env("STOP_USD") ?? "12");
   const margin = Number(env("MARGIN") ?? "0");
   // A set whose replies differ by chance from run to run counts false Supported over the set
   // instead of stopping at the first (eval/speed/gates/call-help.md).
   const falseSupportedCounted = env("FALSE_SUPPORTED") === "counted";
+  // A change that should leave what is asked as it was is held to sending the same first request
+  // in every pair (eval/speed/gates/notes-before-speakers-2.md).
+  const sameRequest = env("SAME_REQUEST") === "1";
   const startedAt = new Date().toISOString();
   const ledger = await openLedger(env("LEDGER"), `${startedAt} ${named.join(" against ")}`);
   const judge = judgeOf(models);
@@ -234,6 +245,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       chatModels: switches[which].chatModels,
       answerPaths: switches[which].answerPaths,
       checkPaths: switches[which].checkPaths,
+      notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
@@ -286,10 +298,12 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             loads.push(loadavg()[0] ?? 0);
             const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
             const done: ArmRun[] = [];
+            const firstSent: (string | null)[] = [null, null];
             for (const which of order) {
               const arm = arms[which];
               const { library } = opened[which];
               await arm.prepare?.(library.core);
+              switches[which].takeSent();
               done[which] = await runOnArm(item, {
                 library,
                 ...(opened[which].meeting && { meeting: opened[which].meeting }),
@@ -300,6 +314,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
                 grade: (expected, answer) => gradeAnswer(judge.model, expected, answer),
                 claimsJudge: judge.model,
               });
+              firstSent[which] = switches[which].takeSent()[0] ?? null;
             }
             const row: PairedRow = {
               set: item.set,
@@ -309,6 +324,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               model: name,
               run: time,
               first: order[0],
+              ...(sameRequest && {
+                sameRequest: sameRequestOf(firstSent[0] ?? null, firstSent[1] ?? null),
+              }),
               baseline: done[0] as ArmRun,
               candidate: done[1] as ArmRun,
             };
@@ -387,6 +405,12 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     )
       .map(([cell, [first, second]]) => `${cell}, ${first} and ${second}`)
       .join("; ")}.`,
+    ...(sameRequest
+      ? [
+          "",
+          `The same first request: ${rows.filter((row) => row.sameRequest).length} of ${rows.length} pairs.`,
+        ]
+      : []),
     "",
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",

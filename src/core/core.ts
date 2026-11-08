@@ -4511,7 +4511,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
-  let transcriptSaved = (_meetingId: string) => {};
+  let transcriptSaved = (_meetingId: string, _renamed: boolean) => {};
+  let transcriptWritten = (_meetingId: string) => {};
   /** "Transcript · {meeting}", named for its note, in Recently deleted too, in the interface's language. */
   const transcriptName = (meeting: ReturnType<typeof meetingRecord>) => {
     const language = settings.get().language;
@@ -4646,7 +4647,8 @@ export function createCore(adapters: CoreAdapters): Core {
              WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
           )
           .map((row) => row.path),
-      saved: (meetingId) => transcriptSaved(meetingId),
+      saved: (meetingId, renamed) => transcriptSaved(meetingId, renamed),
+      written: (meetingId) => transcriptWritten(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
     });
@@ -4830,15 +4832,18 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
-    async supports({ claim, mindId, transcriptId, model }) {
+    async supports({ claim, mindId, transcriptId, model, signal }) {
       const { folderId } = minds.get(mindId);
-      const result = await checks.checkClaim({
-        claim,
-        scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
-        mindId,
-        checked: { documentIds: [transcriptId] },
-        model,
-      });
+      const result = await checks.checkClaim(
+        {
+          claim,
+          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          mindId,
+          checked: { documentIds: [transcriptId] },
+          model,
+        },
+        signal,
+      );
       return result.verdict === "supported";
     },
     citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
@@ -4876,6 +4881,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return cues;
     },
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
+    startsBeforeSpeakers: () => adapters.notesBeforeSpeakers?.() ?? true,
     language: () => settings.get().language,
     filled(meeting) {
       const notifications = adapters.notifications;
@@ -4907,7 +4913,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     log: adapters.log ?? silentLogger,
   });
-  transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
+  transcriptSaved = (meetingId, renamed) => meetingFill.transcriptSaved(meetingId, renamed);
+  transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
   /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
   const stopMeeting = (meetingId: unknown): Meeting => {
