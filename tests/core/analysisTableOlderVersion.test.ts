@@ -2,7 +2,7 @@
  * The content schema bump for an Analysis's table as one calculated object (#2378): a Mind written
  * at version 51, whose table of an Analysis's numbers is a typed table, opens and edits as it did,
  * keeps that table typed and unbound, and nothing rewrites it until the User changes it; a change
- * records version 55.
+ * records version 56.
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -83,7 +83,7 @@ const tableOf = (state: Uint8Array): Y.XmlElement | undefined =>
     );
 
 test("a Mind written before Analysis tables opens to edit, its table typed, and opening it rewrites nothing", async () => {
-  expect(CONTENT_SCHEMA_VERSION).toBe(55);
+  expect(CONTENT_SCHEMA_VERSION).toBe(56);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -99,7 +99,7 @@ test("a Mind written before Analysis tables opens to edit, its table typed, and 
   core.close();
 });
 
-test("a change to a Mind written before Analysis tables records the current version, 55", async () => {
+test("a change to a Mind written before Analysis tables records the current version, 56", async () => {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -116,7 +116,7 @@ test("a change to a Mind written before Analysis tables records the current vers
   if (!update) throw new Error("The edit made no update.");
   await core.applyMindUpdate(mind.id, update);
   const stored = await core.openMind(mind.id);
-  expect(versionOf(stored.state)).toBe(55);
+  expect(versionOf(stored.state)).toBe(56);
   expect(tableOf(stored.state)?.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)).toBeUndefined();
   core.close();
 });

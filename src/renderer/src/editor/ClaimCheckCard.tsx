@@ -512,7 +512,10 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
   const { workbook } = figure;
-  const changed = workbook?.change ? byName.get(workbook.change.input.toLowerCase()) : undefined;
+  const changes = (workbook?.changes ?? []).flatMap((change) => {
+    const input = byName.get(change.input.toLowerCase());
+    return input ? [{ change, input }] : [];
+  });
   const working = workbook
     ? `${workbook.cell.sheet}!${workbook.cell.ref} = ${workbook.cell.formula}`
     : formulaText(figure.formula, (name) => byName.get(name.toLowerCase())?.number.chars ?? null);
@@ -522,15 +525,17 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
       <p data-testid="claim-figure" className="claim-card-figure">
         {working} = {figure.shown}
       </p>
-      {changed?.cell && workbook?.change && (
-        <p className="claim-card-says">
-          {t("figures.workbook.change", {
-            input: changed.label,
-            cell: `${changed.cell.sheet ?? ""}!${changed.cell.ref}`,
-            from: changed.number.chars,
-            to: workbook.change.shown,
-          })}
-        </p>
+      {changes.map(({ change, input }) =>
+        input.cell ? (
+          <p key={change.input} className="claim-card-says">
+            {t("figures.workbook.change", {
+              input: input.label,
+              cell: `${input.cell.sheet ?? ""}!${input.cell.ref}`,
+              from: input.number.chars,
+              to: change.shown,
+            })}
+          </p>
+        ) : null,
       )}
       {!calculation.agrees && (
         <p data-testid="claim-stated" className="claim-card-says">
