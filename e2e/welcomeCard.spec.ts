@@ -604,7 +604,9 @@ test("the Welcome card keeps one height through every step, so the page's text n
     await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
-      await expect(window.getByTestId("first-open-next").first()).toBeVisible();
+      await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText(
+        language === "en" ? "You’re set up" : "准备好了",
+      );
       expect(await measure(window), `${language} at ${width} px, all done, set up`).toEqual(
         heights.get(`${language} ${width}`),
       );

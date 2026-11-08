@@ -1149,6 +1149,16 @@ const PROSE_START =
 const LABEL_REFERENCE =
   /(?:(?<![A-Za-z])(?:[Pp]aragraphs?|[Pp]ara|[Ss]ections?|[Nn]otes?|[Pp]ages?|[Pp]art|[Cc]lause|[Aa]rticle)|第|[条款项章节页])$/;
 
+/** A word a clause ends on, where a statement line's label is a noun phrase: "Net loss was £3.6m (£3.6m)" (#2799). */
+const CLAUSE_END =
+  /(?:(?<![A-Za-z])(?:[Ww]as|[Ww]ere|[Ii]s|[Aa]re|[Aa]m|[Bb]e|[Bb]een|[Bb]eing|[Hh]as|[Hh]ave|[Hh]ad|[Ww]ill|[Ww]ould|[Cc]an|[Cc]ould|[Mm]ay|[Mm]ight|[Mm]ust|[Ss]hould|[Dd]id|[Dd]o|[Dd]oes|to|by|from)|[为是达至])\s*$/;
+
+/** Whether the words before the amount at `from` end on a clause's word, not a statement line's label (#2799). */
+function clauseLabel(prepared: Prepared, from: number): boolean {
+  const start = prepared.s.lastIndexOf("\n", from - 1) + 1;
+  return CLAUSE_END.test(prepared.s.slice(start, from));
+}
+
 const COUNT_LABEL =
   /(?:(?<![A-Za-z])(?:head ?count|employees?|staff|FTEs?|people)|人数|员工|人员|职工)$/i;
 
@@ -3034,12 +3044,14 @@ function restates(
     // A statement line writes one amount twice, its minused column in the same scale form in
     // brackets: "£3.6m (£3.6m)", "3.6亿元（3.6亿元）" is positive then negative, not a gloss (#2576).
     // The sign words and the page's far reaches don't change that: the column is a minus anyway.
+    // A sentence in running text with a clause before its figure keeps the bracket an aside (#2799).
     if (
       before.scaleWord !== null &&
       before.scaleWord === inner.scaleWord &&
       before.core.chinese === inner.core.chinese &&
       before.rangeTo === null &&
-      row === "statement"
+      row === "statement" &&
+      !clauseLabel(prepared, before.from)
     ) {
       return { repeated: true };
     }

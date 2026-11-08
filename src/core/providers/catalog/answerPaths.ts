@@ -82,3 +82,29 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+/**
+ * Call help on its Answers model's provider's quick model, offered as the User's choice in
+ * Settings › Meetings, never the default (#2526): a provider is listed with the quick model it
+ * was measured with, offered under any of that provider's Answers models; call help under any
+ * other provider offers no choice. Anthropic with Claude Haiku 5.5 (2026-11-08,
+ * eval/speed/gates/call-help-fastest.md, measured under Claude Sonnet 5.5): the first option
+ * 4.6 → 1.0 s, but English false Supported 12 → 25 of 45 presses, so it stays a choice.
+ */
+const QUICK_HELP: readonly { provider: string; quick: string; since: string; gate: string }[] = [
+  {
+    provider: "anthropic",
+    quick: "claude-haiku-5-5",
+    since: "2026-11-08",
+    gate: "eval/speed/gates/call-help-fastest.md",
+  },
+];
+
+/** Whether call help under an Answers model of `answers`' provider may be set to answer on `quick`. */
+export const offersQuickHelp = (answers: ListedModel, quick: ListedModel): boolean =>
+  answers.catalogId !== null &&
+  answers.catalogId === quick.catalogId &&
+  QUICK_HELP.some(
+    (each) =>
+      each.provider === answers.catalogId && each.quick === withoutDateSuffix(quick.modelId),
+  );

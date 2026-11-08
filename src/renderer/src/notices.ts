@@ -31,6 +31,10 @@ export interface ErrorNotice {
   call: string | null;
   /** The technical text, kept for the log. */
   log: string;
+  /** This window's own code failed, so the notice shows the plain Problem and plain Details (#2823). */
+  programError: boolean;
+  /** A method the core doesn't have, which a restart puts right. */
+  stale: boolean;
   /** The one thing that puts it right, as a button beside Dismiss. */
   action: NoticeAction | null;
 }
@@ -66,7 +70,7 @@ export function createNotices(clock: Clock = systemClock) {
     errors: [],
     confirmation: null,
     showError(error, action) {
-      const { message, wording, reason, call, log } = describeError(error);
+      const { message, wording, reason, call, log, programError, stale } = describeError(error);
       // The same failure twice is one notice: it says it once.
       if (
         get().errors.some(
@@ -78,7 +82,17 @@ export function createNotices(clock: Clock = systemClock) {
       set((state) => ({
         errors: [
           ...state.errors,
-          { id: ++ids, message, wording, reason, call, log, action: action ?? null },
+          {
+            id: ++ids,
+            message,
+            wording,
+            reason,
+            call,
+            log,
+            programError,
+            stale,
+            action: action ?? null,
+          },
         ],
       }));
     },

@@ -1908,6 +1908,86 @@ describe("a statement line's bracket that repeats its amount (#2576)", () => {
   );
 });
 
+// protects=#2799; fails_when=a prose sentence whose amount repeats in brackets reads the bracket
+// as a statement line's minus, so a true sentence is Contradicted; the same in Chinese.
+describe("a prose sentence whose amount repeats in brackets (#2799)", () => {
+  test.each([
+    [
+      "Net loss was £3.6m (£3.6m).",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["£3.6m", 3600000],
+      ],
+    ],
+    [
+      "Net loss was £3.6m (£3.6m)",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["£3.6m", 3600000],
+      ],
+    ],
+    [
+      "Losses narrowed to £3.6m (£3.6m).",
+      EN,
+      [
+        ["£3.6m", 3600000],
+        ["£3.6m", 3600000],
+      ],
+    ],
+    [
+      "净亏损为 3.6亿元 （3.6亿元）。",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["3.6亿元", 360000000],
+      ],
+    ],
+    [
+      "净亏损为 3.6亿元 （3.6亿元）",
+      ZH,
+      [
+        ["3.6亿元", 360000000],
+        ["3.6亿元", 360000000],
+      ],
+    ],
+  ] as [text: string, context: FigureContext, figures: [string, number][]][])(
+    "%s",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map((each) => [each.chars, each.value])).toEqual(figures);
+    },
+  );
+
+  test("a repeated bracket that isn't the same amount keeps its reading", () => {
+    expect(
+      readFigures("Net loss was £3.6m (£5m).", EN).map((each) => [each.chars, each.value]),
+    ).toEqual([
+      ["£3.6m", 3600000],
+      ["£5m", 5000000],
+    ]);
+  });
+
+  // protects=a lone bracket stays a minus in an accounts Document, whatever words come before it (#2799); fails_when=a clause-ending label turns "Operating result was (£1.2m)" positive; no_claim=none beyond protects.
+  test.each([
+    ["Operating result was (£1.2m)", EN, -1200000],
+    ["Net debt is (£1.2m)", EN, -1200000],
+    ["Net cash flow was (£3.2m)", EN, -3200000],
+    ["Amounts owed by (£2.0m)", EN, -2000000],
+    ["Transfers to (£2.0m)", EN, -2000000],
+    ["Repaid to (£2.0m)", EN, -2000000],
+    ["Profit for the year was (250)", EN, -250],
+    ["利润总额是（250）", ZH, -250],
+  ] as [text: string, context: FigureContext, value: number][])(
+    "a lone bracket in an accounts Document: %s",
+    (text, context, value) => {
+      expect(readFigures(text, { ...context, accounts: true }).map((each) => each.value)).toEqual([
+        value,
+      ]);
+    },
+  );
+});
+
 // protects=#2341; fails_when=a bracket that gives the amount just before it again in figures, as
 // contracts write "人民币九万八千元（¥98,000）" and "Seventy-Five Thousand Dollars ($75,000.00)", is read
 // as an accounting negative, so a correct sentence is Contradicted; or a bracket that is a real
