@@ -1136,7 +1136,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         fits: readsWhole(),
         notChecked,
         failedCheck,
-        lookAt: (evidence, absent) => lookForPresence(request, evidence, absent, session, signal),
+        lookAt: (evidence, absent, first) =>
+          lookForPresence(request, evidence, absent, session, signal, first),
       });
     };
 
@@ -1727,6 +1728,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     const missing = [
       ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
     ];
+    const givenAfter = new Set<string>();
     if (
       missing.length > 0 &&
       !namedMarkers.some((marker) => {
@@ -1736,6 +1738,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     ) {
       const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
       if (isFailed(recovered)) failed = recovered.failed;
+      for (const citation of missing.map((marker) => session.finalCitation(marker)))
+        if (citation) givenAfter.add(citationKey(citation));
     }
     const namedCitations = namedMarkers.map((marker) => session.finalCitation(marker));
     namedEvidence = uniqueCitations([
@@ -1848,8 +1852,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       shown: Citation | null,
     ): Promise<ClaimCheckResult> => {
       if (!again) return notChecked("malformed");
+      const fieldDiffers =
+        again.roles === "differs" ||
+        again.time === "differs" ||
+        again.scope === "wider" ||
+        again.condition === "differs";
       if (again.verdict === "supported") {
-        if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+        if (fieldDiffers)
           return unsupported(
             {
               reason: again.says,
@@ -1860,10 +1869,16 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             shown,
             null,
           );
+        // Each line it is asked for must be read, and its Absence must not disagree with the first
+        // reply's: a missing, unknown or contradicting line backs nothing (#2816).
         if (
           again.absence !== "no" ||
+          verdict.absence === "yes" ||
+          again.scope !== "same" ||
           again.topic !== "found" ||
           again.roles !== "same" ||
+          again.time !== "same" ||
+          again.condition !== "same" ||
           !again.evidence?.length ||
           comparesOtherWords(again, request.claim, true)
         )
@@ -1898,7 +1913,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ...facts(),
         };
       }
-      if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+      if (fieldDiffers)
         return unsupported(
           {
             reason: again.says,
@@ -1964,6 +1979,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       });
     }
     const cited = namedEvidence[0] ?? (await askForEvidence(request, verdict, session, signal));
+    if (cited && !isFailed(cited) && namedEvidence.length === 0) givenAfter.add(citationKey(cited));
     const evidence = cited ?? worked?.evidence ?? null;
     const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
@@ -2121,6 +2137,19 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           )
         : null;
     const decided = corrected?.evidence ?? evidence;
+    const backing = uniqueCitations([decided, ...namedEvidence]);
+    if (
+      verdict.verdict === "supported" &&
+      backing.some((citation) => givenAfter.has(citationKey(citation)))
+    ) {
+      // A quote the model gave only when asked for one after its verdict was found on its page,
+      // never compared with the sentence: it backs a Supported sentence only once a judge finds
+      // the quotes say what the sentence says (#2816).
+      const judged = await compare(request, backing, session, signal, STRICT_INSTRUCTIONS);
+      if (signal.aborted) return notChecked("stopped");
+      if ("failed" in judged) return failedCheck(judged.failed);
+      if (readJudgement(judged.reply) !== "same") return notChecked("no-evidence");
+    }
     return {
       verdict: verdict.verdict,
       evidence: decided,
@@ -2558,7 +2587,7 @@ async function confirmContradiction(
 
 /**
  * Whether the quote a window's judgement gives for what the sentence says is absent states it is
- * there: two looks, each asked that and nothing else (#1554).
+ * there: two looks, each asked that and nothing else (#1554); with `first`, only the first.
  */
 async function lookForPresence(
   request: ClaimCheckRequest,
@@ -2566,12 +2595,16 @@ async function lookForPresence(
   absent: string | null,
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
+  first = false,
 ): Promise<Presence> {
   const passage =
     session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
     quoted.quote;
   const { model } = request;
-  for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
+  const looks = first
+    ? [PRESENCE_INSTRUCTIONS]
+    : [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS];
+  for (const instructions of looks) {
     let reply: string;
     try {
       ({ text: reply } = await generateText({

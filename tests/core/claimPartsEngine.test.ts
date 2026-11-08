@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { periodCounts, statedFigure } from "../../src/core/answers/checks/calculated";
 import { readClaimParts } from "../../src/core/answers/checks/claims";
-import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
+import {
+  RECHECK_INSTRUCTIONS,
+  readEvidence,
+  readVerdict,
+} from "../../src/core/answers/checks/prompt";
 import { wholeNumberWords } from "../../src/shared/numberWords";
 import { listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
@@ -146,7 +150,7 @@ async function check(
           return {
             text:
               outcomes[target]?.again ??
-              `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
+              `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nTime: none / none, same\nCondition: none / none, same\nThe Documents establish this.\nEvidence: [1]`,
           };
         }
         if (call.system.startsWith("You checked a sentence")) {
@@ -1003,7 +1007,7 @@ describe("literal sentence parts", () => {
       result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part);
 
     const agreedRun = await run(
-      `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+      `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: none / none, same\nCondition: none / none, same\nThe Document states it.\nEvidence: [1]`,
     );
     expect(judged(agreedRun.result)?.verdict).toBe("supported");
     expect(agreedRun.looks.get(part)).toBe(1);
@@ -1069,7 +1073,8 @@ describe("literal sentence parts", () => {
         scope ?? "Scope: none, same",
         topic ?? "Topic: found",
         roles ?? `Roles: ${part} / ${part}, same`,
-        time ?? "The Document states it.",
+        time ?? "Time: none / none, same\nThe Document states it.",
+        "Condition: none / none, same",
         evidence ?? "Evidence: [1]",
       ].join("\n");
       expect(judged((await run(said)).result)?.verdict).not.toBe("supported");
@@ -1091,7 +1096,7 @@ describe("literal sentence parts", () => {
           quotes: [quote],
           reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
           judgement: "same",
-          again: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+          again: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: none / none, same\nCondition: none / none, same\nThe Document states it.\nEvidence: [1]`,
         },
         "Customer churn fell to 3.9 per cent": { quotes: [quote] },
       },
@@ -1101,6 +1106,116 @@ describe("literal sentence parts", () => {
     );
     expect(judged?.verdict).toBe("not-checked");
   });
+
+  test("the second look asks for each line a Supported second reply is read by (#2816)", () => {
+    const lines = RECHECK_INSTRUCTIONS.split("\n");
+    for (const label of [
+      "Verdict:",
+      "Absence:",
+      "Scope:",
+      "Topic:",
+      "Roles:",
+      "Time:",
+      "Condition:",
+    ]) {
+      expect(lines.filter((line) => line.startsWith(label))).toHaveLength(1);
+    }
+    expect(lines).toContain("Evidence: [1]");
+  });
+
+  test.each([
+    {
+      language: "en" as const,
+      claim: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      quote: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      quote: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ])(
+    "a second reply's Absence: no doesn't stand against the first reply's Absence: yes ($language, #2816)",
+    async ({ language, claim, first, timing, quote }) => {
+      const run = (absence: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: timing },
+          ],
+          {
+            [timing]: {
+              quotes: [quote],
+              reply: `Verdict: contradicted\n${absence}\nRoles: ${timing} / ${timing}, same\nThe Document gives another figure.\nEvidence: [1]`,
+              judgement: "same",
+              again: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${timing} / ${timing}, same\nTime: none / none, same\nCondition: none / none, same\nThe Document states it.\nEvidence: [1]`,
+            },
+            [first]: { quotes: [quote] },
+          },
+          language,
+        );
+      const judged = async (absence: string) =>
+        (await run(absence)).result.parts?.find(
+          (each) => claim.slice(each.span.start, each.span.end) === timing,
+        )?.verdict;
+
+      expect(await judged("Absence: yes")).toBe("not-checked");
+      expect(await judged("Absence: no")).toBe("supported");
+    },
+  );
+
+  test.each([
+    {
+      language: "en" as const,
+      claim: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      quote: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+      narrower: "Condition: none / in the pilot region only, differs",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      quote: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+      narrower: "Condition: none / 仅限试点地区, differs",
+    },
+  ])(
+    "a second reply's Condition line decides: differs is Unsupported, missing is Not checked ($language, #2816)",
+    async ({ language, claim, first, timing, quote, narrower }) => {
+      const judged = async (condition: string) =>
+        (
+          await check(
+            claim,
+            [
+              { kind: "fact", text: first },
+              { kind: "fact", text: timing },
+            ],
+            {
+              [timing]: {
+                quotes: [quote],
+                reply: `Verdict: contradicted\nAbsence: no\nRoles: ${timing} / ${timing}, same\nThe Document gives another figure.\nEvidence: [1]`,
+                judgement: "same",
+                again: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${timing} / ${timing}, same\nTime: none / none, same\n${condition}The Document states it.\nEvidence: [1]`,
+              },
+              [first]: { quotes: [quote] },
+            },
+            language,
+          )
+        ).result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === timing)
+          ?.verdict;
+
+      expect(await judged(`${narrower}\n`)).toBe("unsupported");
+      expect(await judged("")).toBe("not-checked");
+      expect(await judged("Condition: none / none, same\n")).toBe("supported");
+    },
+  );
 
   test("a unit problem on a contradicted part is refused before the second look (#2313)", async () => {
     const claim = "According to the covenant, the leverage was £3.1 million.";
@@ -2163,6 +2278,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
             { marker: 1, quote: north },
             { marker: 2, quote: south },
           ],
+          judgement: "same",
         },
       },
       language,
@@ -2188,6 +2304,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
           sourceQuotes: [north, south],
           reply,
           recovery: [{ marker: 2, quote: south }],
+          judgement: "same",
         },
       },
       language,
@@ -2324,6 +2441,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
             { marker: 2, quote: south },
             { marker: 3, quote: domain },
           ],
+          judgement: "same",
         },
       },
       language,

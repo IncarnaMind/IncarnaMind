@@ -71,6 +71,10 @@ const rules = (calculate = false) => [
   `- a sentence that adds a detail the Passages don't mention${calculate ? " and calculate doesn't establish" : ""}.`,
 ];
 
+/** Whether the sentence asserts an absence, as every reply that can say Supported answers it. */
+const ABSENCE_LINE =
+  'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.';
+
 /**
  * The sentence is written in the interface's language, whatever language the
  * User's sentence or the Documents are in (#701): without this, a model that
@@ -80,7 +84,7 @@ const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
-    'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
+    ABSENCE_LINE,
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -412,15 +416,18 @@ export const CONFIRM_INSTRUCTIONS = [
 export const RECHECK_INSTRUCTIONS = [
   "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
   "Check the sentence once more against the quoted words and the Passage, by those fields:",
-  "- supported: the quoted words state what the sentence says;",
-  "- contradicted or unsupported: name the field that differs (Roles, Time or Scope), or the value the quote gives instead.",
+  "- supported: the Passage states the quoted words as true, under no condition the sentence leaves out, and nothing around them says otherwise;",
+  "- contradicted or unsupported: name the field that differs (Roles, Time, Scope or Condition), or the value the quote gives instead.",
   "Reply in exactly this form, the verdict word in English:",
   "Verdict: supported, unsupported or contradicted",
+  ABSENCE_LINE,
   "Scope: the sentence's own word for the Passage's party or term, then same or wider",
   "Topic: found or not found",
   'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
   "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
-  "Then one plain sentence saying what the Document says, and Evidence: [1] naming the quote used.",
+  'Condition: the words that say in which case it holds, the sentence\'s then " / " and the Passage\'s (none when it names none), then same or differs. "differs" when the Passage says it holds only in a case the sentence leaves out ("Condition: none / for members only, differs").',
+  "Then one plain sentence saying what the Document says.",
+  "Evidence: [1]",
   "Write nothing else.",
 ].join("\n");
 
@@ -537,21 +544,9 @@ export function confirmPrompt(input: {
   ].join("\n");
 }
 
-const JUDGED = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：][\s*_"'“”`]*(conflict|same|neither)\b/i;
-
-/** The judgement in a reply to any of those requests: its last "Judgement: …" line, else its first word; null when it can't be read. */
+/** The judgement in a reply to any of those requests, read as `judgedWord` reads it. */
 export function readJudgement(reply: string): "conflict" | "same" | "neither" | null {
-  const text = reply.replace(THINKING, "");
-  const labelled = text
-    .split("\n")
-    .map((line) => line.trim())
-    .findLast((line) => JUDGED.test(line));
-  const word = (
-    labelled === undefined
-      ? /^[\s*_"'“”`-]*(conflict|same|neither)\b/i.exec(text)
-      : JUDGED.exec(labelled)
-  )?.[1];
-  return word ? (word.toLowerCase() as "conflict" | "same" | "neither") : null;
+  return judgedWord(reply, ["conflict", "same", "neither"]);
 }
 
 const PRESENCE_TASK =
@@ -603,21 +598,35 @@ export function presencePrompt(input: {
 }
 
 const JUDGEMENT = /^[\s>*_#`"'“”-]*judge?ment[\s*_]*[:：](.*)$/i;
-const PRESENCE_WORD = /^[\s*_"'“”`]*(there|elsewhere|not)[\s*_"'“”`.。]*$/i;
+const WORD_EDGES = /^[\s*_"'“”`]+|[\s*_"'“”`.。]+$/g;
 
 /**
- * The word a look at such a quote gives, read from the reply's form alone: its last "Judgement:"
- * line, else the whole reply, each nothing but that one word. A sentence that only starts with it,
- * "There is no rent review in this quote.", can't be read: null.
+ * A one-word judgement read from the reply's form alone: its one "Judgement:" line, which ends the
+ * reply, else the whole reply, each nothing but one of `words`. A reply without the label that says
+ * more ("Same subject, but 61,500 is before tax."), two labels, or a label with lines after it can't
+ * be read: null, so a judge that hedges or changes its mind is read as neither word (#2816).
+ */
+function judgedWord<T extends string>(reply: string, words: readonly T[]): T | null {
+  const lines = reply
+    .replace(THINKING, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const labelled = lines.filter((line) => JUDGEMENT_LABEL.test(line));
+  const [label] = labelled;
+  if (labelled.length > 1 || (label !== undefined && label !== lines.at(-1))) return null;
+  const said =
+    label === undefined ? (lines.length === 1 ? lines[0] : undefined) : JUDGEMENT.exec(label)?.[1];
+  const word = said?.replace(WORD_EDGES, "").toLowerCase();
+  return words.find((each) => each === word) ?? null;
+}
+
+/**
+ * The word a look at such a quote gives, read as `judgedWord` reads it: a sentence that only
+ * starts with it, "There is no rent review in this quote.", can't be read.
  */
 export function readPresence(reply: string): "there" | "elsewhere" | "not" | null {
-  const text = reply.replace(THINKING, "").trim();
-  const judged = text
-    .split("\n")
-    .map((line) => JUDGEMENT.exec(line.trim())?.[1])
-    .findLast((line) => line !== undefined);
-  const word = PRESENCE_WORD.exec(judged ?? text)?.[1];
-  return word ? (word.toLowerCase() as "there" | "elsewhere" | "not") : null;
+  return judgedWord(reply, ["there", "elsewhere", "not"]);
 }
 
 /** A record from the model's reply to that request, or null when it gives none. */
@@ -675,6 +684,8 @@ export interface ReadVerdict {
   rolesSides?: string[];
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
+  /** "differs": the Passage says it holds only in a case the sentence leaves out; absent when the reply doesn't say. */
+  condition?: "same" | "differs";
   calculations?: string[];
   evidence?: number[] | null;
   coverage?: ReadCoverage | null;
@@ -707,6 +718,7 @@ const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
 const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TIME = /^[\s>*_#`"'“”-]*(?:time|时间)[\s*_]*[:：](.*)$/i;
+const CONDITION = /^[\s>*_#`"'“”-]*(?:condition|条件)[\s*_]*[:：](.*)$/i;
 const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 export const FIGURES = /^\s*Figures:\s*(.*)$/i;
@@ -728,6 +740,7 @@ const FIELDS = [
   CHANGE,
   TO,
   TIME,
+  CONDITION,
   ABSENCE,
   CALCULATION,
   EVIDENCE,
@@ -991,10 +1004,20 @@ const rolesSidesOf = (line: string | undefined): Pick<ReadVerdict, "rolesSides">
 };
 
 /** Only a reply that gives the field says it: a reply read before it was asked for has none. */
+const sameOrDiffers = (label: RegExp, line: string | undefined): "same" | "differs" | null => {
+  const field = line === undefined ? undefined : label.exec(line)?.[1];
+  const word = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
+  return word === "same" || word === "differs" ? word : null;
+};
+
 const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
-  const field = line === undefined ? undefined : TIME.exec(line)?.[1];
-  const time = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
-  return time === "same" || time === "differs" ? { time } : {};
+  const time = sameOrDiffers(TIME, line);
+  return time ? { time } : {};
+};
+
+const conditionOf = (line: string | undefined): Pick<ReadVerdict, "condition"> => {
+  const condition = sameOrDiffers(CONDITION, line);
+  return condition ? { condition } : {};
 };
 
 const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
@@ -1214,6 +1237,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       roles: rolesOf(fields.findLast((each) => ROLES.test(each))),
       ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
+      ...conditionOf(fields.findLast((each) => CONDITION.test(each))),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {
           const value = CALCULATION.exec(line)?.[1]?.trim();
