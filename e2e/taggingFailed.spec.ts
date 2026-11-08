@@ -217,7 +217,7 @@ test("A refused key stops Tagging after one request: one line says so, Check the
   await app.close();
 });
 
-test("With Organize filing new Documents, a failure for a Document the tagger holds still has its row, and one Organize holds has only Organize's", async () => {
+test("With Organize sorting new Documents, a failure for a Document the tagger holds still has its row, and one Organize holds has only Organize's", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
   await acceptPlainTextKeys(window);
@@ -244,7 +244,7 @@ test("With Organize filing new Documents, a failure for a Document the tagger ho
   await makeTagOnDocument(window, "Invoice 71");
   await expect(item(window, "Invoice 71")).toHaveAttribute("data-tagging", "failed");
 
-  // Organize now files new Documents by itself, with the same model.
+  // Organize now sorts new Documents by itself, with the same model.
   await window.evaluate(async (providerId) => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.createLibraryGroup({ name: "Invoices", description: "Invoices" });

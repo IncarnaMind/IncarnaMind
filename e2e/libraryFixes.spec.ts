@@ -238,15 +238,21 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(details).toHaveAttribute("aria-expanded", "false");
     await expect(sends.getByTestId("library-organize-sends-list")).toHaveCount(0);
 
-    // The answer is kept: Organize runs with that model, and asks no more.
+    // The answer is kept: Organize runs with that model, and asks no more. What it proposes
+    // waits in the Review until Confirm.
     await pointAndClick(window, needs.getByTestId("library-organize-use"));
     await expect(needs).toHaveCount(0);
-    const organized = () =>
+    const organizeModel = () =>
       bridge(window, async (core) => {
-        const { assignments } = await core.getLibrary();
-        return assignments.map((each) => `${each.status} ${each.model?.id ?? ""}`);
+        const chosen = (await core.getLibrary()).settings.organizeWith;
+        return chosen?.kind === "chat" ? chosen.choice.modelId : null;
       });
-    await expect.poll(organized).toEqual(["classified example-model"]);
+    await expect.poll(organizeModel).toBe("example-model");
+    const review = window.getByTestId("organize-review");
+    await expect(review).toBeVisible({ timeout: 30_000 });
+    await expect(review.getByTestId("organize-review-name")).toHaveText(["Harbour"]);
+    await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
     await writeFile(join(library, "Tides.txt"), "Notes on the tides.\n");
     await bridge(window, async (core) => {
       const { settings } = await core.getLibrary();
@@ -258,7 +264,8 @@ for (const language of ["en", "zh-CN"] as const) {
       join(library, "Tides.txt"),
     );
     await pointAndClick(window, lib.getByTestId("library-organize"));
-    await expect.poll(organized).toEqual(["classified example-model", "classified example-model"]);
+    await expect(review).toBeVisible({ timeout: 30_000 });
+    await expect(review.getByTestId("organize-review-left-out-row")).toContainText("Tides");
     await expect(needs).toHaveCount(0);
     await app.close();
   });

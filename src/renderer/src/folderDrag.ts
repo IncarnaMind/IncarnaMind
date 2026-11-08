@@ -27,16 +27,13 @@ export const itemsOfRefs = (refs: readonly ObjectRef[]): MoveItems => ({
   documentIds: refs.flatMap((ref) => (ref.kind === "document" ? [ref.id] : [])),
 });
 
-/** Where a Document waiting in a Suggested Folder is: in none yet, so a move into that Folder accepts it. */
-const WAITING = Symbol("waiting");
-
 interface Index {
   minds: readonly Mind[];
   library: LibrarySnapshot | null;
   documents: readonly Document[];
   refs: readonly ObjectRef[];
   folderOfMind: Map<string, string | null>;
-  folderOfDocument: Map<string, string | null | typeof WAITING>;
+  folderOfDocument: Map<string, string | null>;
   documentById: Map<string, Document>;
   moves: Map<string | null, boolean>;
   tagged: Map<string, string[]>;
@@ -56,10 +53,7 @@ function indexFor(refs: readonly ObjectRef[]): Index {
       refs,
       folderOfMind: new Map(minds.map((mind) => [mind.id, mind.folderId])),
       folderOfDocument: new Map(
-        library?.assignments.map((each) => [
-          each.documentId,
-          each.suggested ? WAITING : each.groupId,
-        ]),
+        library?.assignments.map((each) => [each.documentId, each.groupId]),
       ),
       documentById: new Map(documents.map((document) => [document.id, document])),
       moves: new Map(),

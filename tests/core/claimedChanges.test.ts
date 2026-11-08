@@ -472,6 +472,71 @@ describe("A claim of something done in the app (#2407)", () => {
   });
 });
 
+describe("Organize's record: proposed, nothing filed (#1569)", () => {
+  const organized: AnswerToolCall = {
+    id: "organize",
+    tool: "run_command",
+    source: "commands",
+    input: { command: "documents.organize", folder: "Leases", about: "the leases" },
+    status: "done",
+    resultCount: null,
+    command: {
+      command: "documents.organize",
+      run: "r1",
+      items: [
+        { kind: "document", id: "d1", name: "Lease Station Road" },
+        { kind: "document", id: "d2", name: "Lease Mill Lane" },
+        { kind: "document", id: "d3", name: "Lease Harbour Street" },
+      ],
+      into: { kind: "folder", id: "f1", name: "Leases", made: false },
+      folders: [{ name: "Leases", count: 3 }],
+      considered: 3,
+      review: { count: 3 },
+    },
+  };
+
+  // protects=the judge reads that Organize only proposed: its outcome and record say nothing was filed or moved, and the Folder named is never given as where the Documents went; fails_when=the record says done or carries `into` and `folders` as a destination, so a reply saying they were filed reads as backed; no_claim=what a real judge answers.
+  test("the judge's record says Organize proposed, and gives no destination", async () => {
+    const model = judge({ claims: [] });
+    await check(model, "Organize suggests a Leases folder.", [organized]);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain(
+      `\\"outcome\\": \\"proposed, waiting for the User's Review: nothing filed or moved\\"`,
+    );
+    expect(prompt).toContain(`\\"proposedFolders\\"`);
+    expect(prompt).toContain(
+      "nothing: no Document was filed or moved; they wait in Suggested Folders until the User confirms them",
+    );
+    expect(prompt).not.toContain(`\\"into\\"`);
+    expect(prompt).not.toContain(`\\"folders\\"`);
+    expect(prompt).not.toContain(`\\"outcome\\": \\"done\\"`);
+  });
+
+  // protects=a reply that says Organize's Documents were put into a Folder flags as a claim in the app the record doesn't back, and an honest one that says it proposed and nothing moved flags nothing; fails_when=the false one stands or the honest one flags; no_claim=what a real judge answers (measured apart, in the pull request).
+  test.each([
+    [
+      'I\'ve put the three leases (Station Road, Mill Lane and Harbour Street) into a new "Leases" folder, but the Organize proposal is for you to review before anything moves.',
+      false,
+      ["command"],
+    ],
+    [
+      "Organize proposed a Leases folder for the three leases; nothing has moved until you review it.",
+      true,
+      [],
+    ],
+  ] as const)("%s", async (reply, backed, commands) => {
+    const result = await check(
+      judge({ claims: [{ sentence: reply, kind: "changed", about: "app", backed }] }),
+      reply,
+      [organized],
+    );
+    expect(result.commands).toEqual(commands);
+    expect(result.claims).toEqual([]);
+    expect(result.failed).toBeUndefined();
+  });
+});
+
 describe("What the claim check reads stays in its blocks (#2423)", () => {
   // protects=a Note named with "</tool-record>", "</focused-mind>" and "</reply>" (a create_mind title, the focused Note's name) and a command input holding them reach the judge inside the record and the focused Note's block, which each close once, in English and Chinese; fails_when=the name ends the record or the focused Note early and its words read as the judge's input; no_claim=none beyond protects.
   test.each([

@@ -50,7 +50,6 @@ const filed: DocumentGroupAssignment = {
   documentId: "export",
   groupId: "drafts",
   source: "user",
-  suggested: false,
   status: "classified",
   error: null,
   model: null,

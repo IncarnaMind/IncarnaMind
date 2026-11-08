@@ -42,10 +42,10 @@ describe("What the assistant's Organize asks, and what its Allow sends (#2252)",
   test("the details line, then the this-time-only line, in English and Chinese", () => {
     const ask = { service: "OpenAI", declined: true };
     expect(organizeAskWhy(en, enGap, ask)).toBe(
-      "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back. Sends document names and excerpts to OpenAI. Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI. You said no to this before. Allow sends them this time only.",
+      "Organize reads what each Document says and suggests the Folder that fits. Nothing moves until you confirm them. Sends document names and excerpts to OpenAI. Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI. You said no to this before. Allow sends them this time only.",
     );
     expect(organizeAskWhy(zh, zhGap, ask)).toBe(
-      "整理会读取每个文档的内容，放进合适的文件夹。可以用撤销恢复。会把文档名称和摘录发送给 OpenAI。每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
+      "整理会读取每个文档的内容，建议合适的文件夹。你确认前不会移动任何文档。会把文档名称和摘录发送给 OpenAI。每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
     );
   });
 

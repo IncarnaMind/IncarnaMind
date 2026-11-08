@@ -14,8 +14,12 @@ export interface Prepared {
   noText: boolean;
 }
 
-export async function prepare(root: string, doc: SetDocument): Promise<Prepared> {
-  const file = join(root, SET_DIRECTORY, doc.file);
+export async function prepare(
+  root: string,
+  doc: SetDocument,
+  directory = join(root, SET_DIRECTORY),
+): Promise<Prepared> {
+  const file = join(directory, doc.file);
   const result = await runJob({ task: "process", documentId: doc.id, file, kind: doc.kind });
   if (result.outcome !== "ready" && result.outcome !== "no-text")
     throw new Error(`Extraction failed for ${doc.id}: ${JSON.stringify(result)}`);

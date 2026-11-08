@@ -7,6 +7,7 @@
  */
 import type { UnitKind, UnitLabel } from "../../shared/units";
 import type { DocumentKind } from "../api";
+import type { Database } from "../storage";
 import { type DocumentExcerpt, excerptFromPassages } from "../tags/classify";
 import type { PageImageMode } from "./classifier";
 import { pdfNeedsPageImages } from "./routing";
@@ -127,4 +128,34 @@ export function organizeNeedsPageImages(
       .map((unit) => ({ page: unit.page, text: unit.text.slice(0, ROUTING_PAGE_CHARACTERS) })),
     source.pageCount,
   );
+}
+
+/** A Document as Organize reads its indexed version from the database. */
+export interface StoredDocument {
+  id: string;
+  name: string;
+  kind: DocumentKind;
+  page_count: number | null;
+  content_hash: string | null;
+}
+
+/** What Organize reads of a Document's indexed version: its first Passages and its Units. */
+export function storedOrganizeSource(db: Database, doc: StoredDocument): OrganizeSource {
+  return {
+    name: doc.name,
+    kind: doc.kind,
+    pageCount: doc.page_count,
+    passages: db
+      .all<{ text: string }>(
+        "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT ?",
+        [doc.id, BigInt(ORGANIZE_PASSAGES)],
+      )
+      .map((row) => row.text),
+    units: db
+      .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
+        "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",
+        [BigInt(ROUTING_PAGES), BigInt(ROUTING_PAGE_CHARACTERS), doc.id, doc.content_hash],
+      )
+      .map((row) => ({ ...row, label: row.label ? JSON.parse(row.label) : null })),
+  };
 }

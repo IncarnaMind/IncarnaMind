@@ -4,20 +4,16 @@
  * no bridge, so the tests import it.
  */
 
-import type { Document, DocumentGroupAssignment, LibraryGroup } from "../../core/api";
+import type { Document, DocumentGroupAssignment } from "../../core/api";
 import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { organizeStateOf } from "./organizeOutcome";
 import { type Sort, sorted } from "./sort";
 import { documentFields } from "./sortFields";
-import { reviewIds, toReviewOf } from "./toReview";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
-type Held = Pick<
-  DocumentGroupAssignment,
-  "documentId" | "status" | "groupId" | "source" | "suggested" | "error"
->;
+type Held = Pick<DocumentGroupAssignment, "documentId" | "status" | "groupId" | "source" | "error">;
 
 /** Waiting for these is a status of its own, not a Document the sidebar sends the User to. */
 const WAITING_STATUSES: ReadonlySet<string> = new Set(["rate-limit", "auth", "plan-limit"]);
@@ -37,10 +33,9 @@ export function attentionIds(
   });
 }
 
-/** The attention Documents in the order the Library shows them: To review's, then the page's. */
+/** The attention Documents in the order the Library shows them: those it couldn't sort first. */
 export function attentionOrder(
   documents: readonly Document[],
-  folders: readonly LibraryGroup[],
   assignments: readonly DocumentGroupAssignment[],
   sort: Sort | null,
   t: Translate,
@@ -53,9 +48,7 @@ export function attentionOrder(
   const notSorted = ordered.flatMap((document) =>
     organizeStateOf(document, held.get(document.id)).place === "notSorted" ? [document.id] : [],
   );
-  const first = [...reviewIds(toReviewOf(ordered, folders, assignments)), ...notSorted].filter(
-    (id) => attention.has(id),
-  );
+  const first = notSorted.filter((id) => attention.has(id));
   const seen = new Set(first);
   return [
     ...first,

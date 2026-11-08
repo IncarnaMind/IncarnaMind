@@ -65,6 +65,8 @@ export interface NewUserScores {
   folderSizes: { folder: ProposedFolder; size: number }[];
   samePairs: number;
   sameShared: number;
+  /** Same-label pairs together, counting a split by area (`splitByArea`) as together. */
+  sameTogether: number;
   differentPairs: number;
   differentShared: number;
   kinds: { tp: number; fp: number; fn: number };
@@ -80,14 +82,78 @@ export interface NewUserScores {
 
 const kindsOf = (tags: readonly string[]) => new Set(tags.flatMap((tag) => kindOf(tag) ?? []));
 
+/** The bar's allowance for a label split in two: each part this big and this much the label. */
+const SPLIT_SIZE = 3;
+const SPLIT_PURITY = 0.9;
+/** A kind carried by this share of a part's Documents is that part's kind. */
+const PART_KIND = 0.8;
+
+/**
+ * The labels whose filed Documents the proposal split by area, which the same-label bar counts as
+ * together. A label's readable Documents in a Folder lie in exactly two Folders, each holding at
+ * least `SPLIT_SIZE` readable Documents of which at least `SPLIT_PURITY` carry the label, and the
+ * split isn't by kind. It is by kind when, in each part, the kinds that at least `PART_KIND` of
+ * its Documents carry by their labels make a set that isn't empty, and the two sets differ: kind
+ * is a Tag, never a Folder.
+ */
+export function splitByArea(outcomes: readonly Outcome[]): Set<string> {
+  const readable = outcomes.filter((each) => each.readable);
+  const allowed = new Set<string>();
+  const labels = new Set(
+    readable.flatMap((each) => (each.doc.folder === null ? [] : [each.doc.folder])),
+  );
+  for (const label of labels) {
+    const parts = [
+      ...new Set(
+        readable.flatMap((each) =>
+          each.doc.folder === label && each.folder !== null ? [each.folder] : [],
+        ),
+      ),
+    ];
+    if (parts.length !== 2) continue;
+    const members = parts.map((folder) => readable.filter((each) => each.folder === folder));
+    const fits = members.every(
+      (held) =>
+        held.length >= SPLIT_SIZE &&
+        held.filter((each) => each.doc.folder === label).length >= SPLIT_PURITY * held.length,
+    );
+    if (!fits) continue;
+    const kindsOfPart = members.map((held) => {
+      const all = [...new Set(held.flatMap((each) => each.doc.tags))];
+      return all
+        .filter(
+          (kind) =>
+            held.filter((each) => each.doc.tags.includes(kind)).length >= PART_KIND * held.length,
+        )
+        .sort()
+        .join("+");
+    });
+    const [first, second] = kindsOfPart;
+    const byKind = first !== "" && second !== "" && first !== second;
+    if (!byKind) allowed.add(label);
+  }
+  return allowed;
+}
+
 /** Readable Documents with a labelled Folder, in pairs: whether they share a label, and a Folder. */
 function pairs(outcomes: readonly Outcome[]) {
   const labelled = outcomes.filter((each) => each.readable && each.doc.folder !== null);
+  const allowed = splitByArea(outcomes);
   return labelled.flatMap((a, at) =>
-    labelled.slice(at + 1).map((b) => ({
-      sameLabel: a.doc.folder === b.doc.folder,
-      shared: a.folder !== null && a.folder === b.folder,
-    })),
+    labelled.slice(at + 1).map((b) => {
+      const shared = a.folder !== null && a.folder === b.folder;
+      const sameLabel = a.doc.folder === b.doc.folder;
+      return {
+        sameLabel,
+        shared,
+        together:
+          shared ||
+          (sameLabel &&
+            a.folder !== null &&
+            b.folder !== null &&
+            allowed.has(a.doc.folder as string)),
+      };
+    }),
   );
 }
 
@@ -118,6 +184,7 @@ export function scoreNewUser(
     })),
     samePairs: same.length,
     sameShared: same.filter((pair) => pair.shared).length,
+    sameTogether: same.filter((pair) => pair.together).length,
     differentPairs: different.length,
     differentShared: different.filter((pair) => pair.shared).length,
     kinds,
@@ -154,7 +221,13 @@ export function bars(s: NewUserScores): Bar[] {
       pass: smallest !== null && smallest >= 3,
     },
     {
-      name: "Same-label pairs sharing a Folder",
+      name: "Same-label pairs together, a split by area allowed",
+      value: fraction(s.sameTogether, s.samePairs),
+      bar: "≥ 90%",
+      pass: ratio(s.sameTogether, s.samePairs) >= 0.9,
+    },
+    {
+      name: "Same-label pairs sharing one Folder, no allowance",
       value: fraction(s.sameShared, s.samePairs),
       bar: "≥ 90%",
       pass: ratio(s.sameShared, s.samePairs) >= 0.9,
@@ -244,11 +317,57 @@ export interface NewUserRun {
     output: number;
     cost: number | null;
   }[];
+  /**
+   * "plan": the Library's Organize as the Review gets it (`organizeLibrary`); "classic": Folders
+   * proposed, then each Document sorted on its own, as before the Review.
+   */
+  route: "plan" | "classic";
+  /** The plan's own counts, on its route. */
+  plan?: {
+    requests: number;
+    /** Documents asked of the model one by one, past the sample. */
+    placedByModel: number;
+    /** Each request's input tokens, as the meter counted them. */
+    inputPerRequest: number[];
+    subfolders: Subfolder[];
+  };
+}
+
+/** A proposed subfolder, with how many Documents it holds and how many share its commonest `sub` label. */
+export interface Subfolder {
+  parent: string;
+  name: string;
+  size: number;
+  sameSub: number;
 }
 
 const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 const kindList = (tags: readonly string[]) =>
   tags.map((tag) => `${tag}${kindOf(tag) ? "" : " (topic)"}`).join(", ") || "–";
+
+function planLines(plan: NonNullable<NewUserRun["plan"]>): string[] {
+  const inputs = plan.inputPerRequest;
+  const mean = inputs.length ? inputs.reduce((sum, each) => sum + each, 0) / inputs.length : 0;
+  const lines = [
+    "",
+    `The plan: ${plan.requests} requests; ${plan.placedByModel} Documents asked of the model past the sample; input tokens a request ${Math.round(mean).toLocaleString("en")} on average, ${Math.max(0, ...inputs).toLocaleString("en")} at most.`,
+  ];
+  if (plan.subfolders.length === 0) return lines;
+  const smallest = Math.min(...plan.subfolders.map((each) => each.size));
+  const same = plan.subfolders.reduce((sum, each) => sum + each.sameSub, 0);
+  const held = plan.subfolders.reduce((sum, each) => sum + each.size, 0);
+  lines.push(
+    "",
+    `Subfolders: ${plan.subfolders.length}, the smallest holding ${smallest} (bar ≥ 5); ${held ? Math.round((100 * same) / held) : 0}% of their Documents share their subfolder's commonest template. Pairs are scored by the top-level Folder.`,
+    "",
+    "| Folder › subfolder | Documents | Of its commonest template |",
+    "|---|---:|---:|",
+    ...plan.subfolders.map(
+      (each) => `| ${each.parent} › ${each.name} | ${each.size} | ${each.sameSub} |`,
+    ),
+  );
+  return lines;
+}
 
 export function newUserReport(
   run: NewUserRun,
@@ -275,7 +394,10 @@ export function newUserReport(
       (each) => `| ${each.name} | ${each.value} | ${each.bar} | ${each.pass ? "PASS" : "FAIL"} |`,
     ),
     "",
-    `Time from the press: Folders made ${seconds(run.proposedMs)}, first Document placed ${seconds(run.firstPlacementMs)}, all settled ${seconds(run.totalMs)}.`,
+    run.route === "plan"
+      ? `Time from the press to the Review: ${seconds(run.totalMs)}.`
+      : `Time from the press: Folders made ${seconds(run.proposedMs)}, first Document placed ${seconds(run.firstPlacementMs)}, all settled ${seconds(run.totalMs)}.`,
+    ...(run.plan ? planLines(run.plan) : []),
     "",
     "| Requests | Count | Input tokens | Output tokens | Cost |",
     "|---|---:|---:|---:|---:|",

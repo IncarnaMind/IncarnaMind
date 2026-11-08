@@ -34,6 +34,8 @@ export interface SetDocument {
   hard?: string[];
   pair?: string;
   note?: string;
+  /** The subfolder a person would make for it in its Folder: only the set at scale says. */
+  sub?: string;
   sha256: string;
 }
 
@@ -49,9 +51,14 @@ export const SET_DIRECTORY = "tests/fixtures/organize";
 
 const KINDS: readonly DocumentKind[] = ["pdf", "docx", "pptx", "xlsx", "csv", "markdown", "text"];
 
-/** Reads the set and checks it: known keys, both splits, and every file's bytes as labelled. */
-export async function readSet(root: string): Promise<OrganizeSet> {
-  const directory = join(root, SET_DIRECTORY);
+/**
+ * Reads the set and checks it: known keys, both splits, and every file's bytes as labelled. The
+ * labelled 80 unless `directory` names another, such as the set at scale.
+ */
+export async function readSet(
+  root: string,
+  directory = join(root, SET_DIRECTORY),
+): Promise<OrganizeSet> {
   const set = JSON.parse(await readFile(join(directory, "set.json"), "utf8")) as OrganizeSet;
   const folders = new Set<string>(libraryPresetKeys);
   const tags = new Set(PRESET_TAGS.map((tag) => tag.key));

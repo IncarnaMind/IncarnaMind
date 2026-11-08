@@ -8,6 +8,7 @@ import { documentPageImages } from "../../src/core/library/pageImages";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, sha256, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
+import { proposedFor } from "../helpers/library";
 import { buildPdf } from "../helpers/pdf";
 
 describe("Library PDF page images", () => {
@@ -79,11 +80,6 @@ describe("Library PDF page images", () => {
               id: "research",
               name: "Research",
               description: "Papers",
-              parentId: null,
-              countsOwnFiles: false,
-              keepInside: false,
-              createdAt: "",
-              updatedAt: "",
             },
           ],
           { name: "Paper", kind: "pdf", pageCount: 1, text: "Research ".repeat(1000) },
@@ -145,11 +141,10 @@ describe("Library PDF page images", () => {
     ]);
     expect(doc?.status).toBe("no-text");
     await vi.waitFor(
-      async () =>
-        expect((await core.getLibrary()).assignments[0]).toMatchObject({
-          status: "classified",
-          groupId: group.id,
-        }),
+      async () => {
+        expect((await core.getLibrary()).assignments[0]).toMatchObject({ status: "classified" });
+        expect(await proposedFor(core, doc?.id ?? "")).toBe(group.id);
+      },
       { timeout: 10_000 },
     );
     expect(server.requests[0]?.body.images).toHaveLength(1);
@@ -210,11 +205,6 @@ describe("Library PDF page images", () => {
             id: "research",
             name: "Research",
             description: "Papers",
-            parentId: null,
-            countsOwnFiles: false,
-            keepInside: false,
-            createdAt: "",
-            updatedAt: "",
           },
         ],
         { name: "Paper", kind: "pdf", pageCount: 1, text: "Research" },

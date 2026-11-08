@@ -163,12 +163,6 @@ export interface DocumentGroupAssignment {
   /** When it joined this Folder (ISO 8601, UTC), kept by Undo; absent in older clients. */
   filedAt?: string;
   source: "automatic" | "user";
-  /**
-   * `groupId` is a Suggested Folder: Organize proposed it and it waits for the
-   * User. Meanwhile it counts as the Document's Folder, in listings and in
-   * that Folder's Search scope. Always with source "automatic".
-   */
-  suggested: boolean;
   status: ClassificationStatus;
   error: ProviderError | null;
   model: ClassificationModel | null;
@@ -224,7 +218,10 @@ export interface DocumentBatch {
   read: number;
   /** How many Organize has finished with: a Folder suggested or none, and their Tags. */
   sorted: number;
-  /** How many wait in each Suggested Folder, most first. */
+  /**
+   * How many wait in Suggestions for each Folder, most first: a live Folder's id, or a proposed
+   * one's (`OrganizeReviewFolder.id`) (#1569).
+   */
   suggested: { groupId: string; count: number }[];
 }
 
@@ -255,6 +252,13 @@ export interface LibrarySnapshot {
    * for a model on this computer.
    */
   sortWaitsFor?: ExternalService;
+  /** How many Documents wait in Suggestions with something to confirm (#1569). */
+  reviewCount: number;
+  /**
+   * How many Documents an upgrade moved from their Suggested Folders into Suggestions, where they
+   * are in no Folder until confirmed: the Library's top line says so until the Review is opened.
+   */
+  reviewMoved?: number;
 }
 
 export interface LibraryGroupInput {

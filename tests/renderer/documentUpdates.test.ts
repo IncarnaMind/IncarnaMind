@@ -18,7 +18,6 @@ const assignment = (
   documentId,
   groupId: null,
   source: "automatic",
-  suggested: false,
   status,
   error: null,
   model: null,
@@ -144,6 +143,7 @@ describe("applying gathered assignments to the Library", () => {
       taggingStopped: [],
     },
     automaticDefault: false,
+    reviewCount: 0,
   };
 
   test("each changes in place, a Document without one yet gets it at the end, the rest stay", () => {

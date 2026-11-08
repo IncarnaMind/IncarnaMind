@@ -13,6 +13,7 @@ import { RETRY_WAIT_MS } from "../../src/core/tags/transient";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type Clock, heldClock } from "../helpers/heldClock";
+import { proposedFor } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
 import { type ScriptedChat, scriptedChat } from "../helpers/scriptedChat";
 import { waitForTagging } from "../helpers/tags";
@@ -246,7 +247,7 @@ describe("Tagging meets a passing error", () => {
 });
 
 describe("Organize meets a rate limit", () => {
-  test("it pauses too: one request, the rest wait, and they are organized when it ends", async () => {
+  test("it pauses too: one request, the rest wait, and their Folder is proposed when it ends", async () => {
     const { core, chat, clock } = await start();
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
@@ -271,10 +272,8 @@ describe("Organize meets a rate limit", () => {
     await vi.waitFor(async () => {
       const { assignments } = await core.getLibrary();
       for (const id of ids) {
-        expect(assignments.find((each) => each.documentId === id)).toMatchObject({
-          groupId: reports.id,
-          status: "classified",
-        });
+        expect(assignments.find((each) => each.documentId === id)?.status).toBe("classified");
+        expect(await proposedFor(core, id)).toBe(reports.id);
       }
     });
     expect(chat.calls).toHaveLength(4);

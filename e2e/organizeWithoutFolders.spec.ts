@@ -8,7 +8,9 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  leaveText,
   motionSettled,
+  organizeWithChatModel,
   paletteOffers,
   pointAndClick,
   removeDataFolder,
@@ -20,11 +22,11 @@ import {
 } from "./app";
 
 /*
- * Organize where the User is, with no Folders yet (#2308): after linking a folder, and after
- * adding ten Documents, the Library's Not in a Folder offers Organize and ⌘K lists it. Organize
- * proposes Folders from what the Documents say (the scripted model names one for each first word
- * of their names), suggests one for each in To review, and one Undo takes back the suggestions and
- * the Folders it made. In English and Chinese.
+ * Organize where the User is, with no Folders yet (#2308, #1569): after linking a folder, and
+ * after adding ten Documents, the Library's Not in a Folder offers Organize and ⌘K lists it.
+ * Organize proposes Folders from what the Documents say (the scripted model names one for each
+ * first word of their names) in the Review, and makes none of them until Confirm; one Undo takes
+ * the Confirm back, Folders and all. In English and Chinese.
  */
 
 let dataDir: string;
@@ -46,9 +48,9 @@ async function screenshot(target: Page | Locator, name: string): Promise<void> {
 const bridge = (window: Page) => ({
   folders: () =>
     window.evaluate(async () =>
-      (
-        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary()
-      ).groups.map((group) => group.name),
+      (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary()).groups
+        .map((group) => group.name)
+        .sort(),
     ),
   ready: () =>
     window.evaluate(
@@ -72,27 +74,42 @@ async function files(each: number): Promise<string[]> {
   return paths;
 }
 
-/** Organize sorts with the scripted model on this computer, as the setup's sorting step sets it. */
-async function sortWithLocalModel(window: Page): Promise<void> {
-  await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const [provider] = await core.listChatProviders();
-    if (!provider) throw new Error("No AI model was set up.");
-    const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({
-      ...settings,
-      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
-      automatic: false,
-    });
-  });
-}
-
 const loose = (window: Page) =>
   window
     .getByTestId("library")
     .locator('[data-testid="library-section"][data-section="not-in-a-folder"]');
 
-test("after linking a folder, the Library and ⌘K offer Organize, which proposes Folders and one Undo takes them back", async () => {
+/** A card of the Review, by the name of the Folder it proposes. */
+const card = (window: Page, name: string) =>
+  window.getByTestId("organize-review-card").filter({
+    has: window
+      .getByTestId("organize-review-card-name")
+      .filter({ hasText: new RegExp(`^${name}$`) }),
+  });
+
+/** The Review's line: "8 Documents will move into 2 new Folders. Nothing has moved yet." */
+const willMove = (language: "en" | "zh-CN", documents: number, folders: number) =>
+  translate(language, "organizeReview.willMove", {
+    documents: translate(language, "organizeReview.documents", { count: documents }),
+    into: translate(language, "organizeReview.into.new", { count: folders }),
+  });
+
+/** The Review proposes Kitchen and Race with `each` Documents in each, and nothing is made yet. */
+async function proposed(window: Page, language: "en" | "zh-CN", each: number): Promise<void> {
+  await expect(window.getByTestId("organize-review")).toBeVisible({ timeout: 30_000 });
+  await expect(window.getByTestId("organize-review-title")).toHaveText(
+    translate(language, "organizeReview.title"),
+  );
+  await expect(window.getByTestId("organize-review-will-move")).toHaveText(
+    willMove(language, each * 2, 2),
+  );
+  for (const name of ["Kitchen", "Race"])
+    await expect(card(window, name).getByTestId("organize-review-row")).toHaveCount(each);
+  expect(await bridge(window).folders()).toEqual([]);
+  await expect(sidebarFolder(window, "Kitchen")).toHaveCount(0);
+}
+
+test("after linking a folder, the Library and ⌘K offer Organize, which proposes Folders that Confirm makes and one Undo takes back", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await useLocalChatModel(window);
@@ -100,14 +117,15 @@ test("after linking a folder, the Library and ⌘K offer Organize, which propose
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1400, 900);
     await setLanguage(window, "en");
-    await sortWithLocalModel(window);
-    await files(2);
+    await organizeWithChatModel(window);
+    // Three of each: a new Folder needs at least three Documents.
+    await files(3);
     await window.evaluate(async (path) => {
       await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addLinkedFolder(
         path,
       );
     }, sources);
-    await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(4);
+    await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(6);
 
     await runCommand(window, "library.open", "Open the Library");
     const organize = loose(window).getByTestId("library-organize");
@@ -117,33 +135,33 @@ test("after linking a folder, the Library and ⌘K offer Organize, which propose
     expect(await paletteOffers(window, "library.organize", "Organize Documents")).toBe(1);
 
     await pointAndClick(window, organize);
-    const review = window.getByTestId("library-review");
-    await expect(review.getByTestId("library-review-summary")).toHaveText(
-      "Sorted 4 Documents: 2 → Kitchen, 2 → Race",
-      { timeout: 30_000 },
-    );
-    await expect(sidebarFolder(window, "Kitchen")).toBeVisible();
-    await expect(sidebarFolder(window, "Race")).toBeVisible();
-    expect(await bridge(window).folders()).toEqual(["Kitchen", "Race"]);
+    await proposed(window, "en", 3);
     await screenshot(window, "organize-proposed-en");
 
+    // Confirm makes the Folders and files the Documents in them.
+    await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+    await expect(window.getByTestId("organize-review")).toHaveCount(0);
+    await expect.poll(() => bridge(window).folders()).toEqual(["Kitchen", "Race"]);
+    await expect(sidebarFolder(window, "Kitchen")).toBeVisible();
+    await expect(sidebarFolder(window, "Race")).toBeVisible();
+
+    // One Undo takes the Folders back, and brings the Review back as it was.
+    await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => bridge(window).folders()).toEqual([]);
-    await expect(review).toHaveCount(0);
-    await expect(organize).toBeVisible();
+    await proposed(window, "en", 3);
 
-    // Redo brings the Folders back with their suggestions.
+    // Redo makes them again.
+    await leaveText(window);
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect.poll(() => bridge(window).folders()).toEqual(["Kitchen", "Race"]);
-    await expect(review.getByTestId("library-review-summary")).toHaveText(
-      "Sorted 4 Documents: 2 → Kitchen, 2 → Race",
-    );
+    await expect(window.getByTestId("organize-review")).toHaveCount(0);
   } finally {
     await app.close();
   }
 });
 
-test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders and suggests one for each", async () => {
+test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders for them in the Review", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await useLocalChatModel(window);
@@ -151,7 +169,7 @@ test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders a
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1100, 800);
     await setLanguage(window, "zh-CN");
-    await sortWithLocalModel(window);
+    await organizeWithChatModel(window);
     await addDocuments(window, await files(5));
     await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(10);
 
@@ -162,10 +180,7 @@ test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders a
     expect(await paletteOffers(window, "library.organize", "整理不在文件夹中")).toBe(1);
 
     await runCommand(window, "library.organize", "整理不在文件夹中的文档");
-    await expect(
-      window.getByTestId("library-review").getByTestId("library-review-summary"),
-    ).toHaveText("已整理 10 个文档：5 个 → “Kitchen”，5 个 → “Race”", { timeout: 30_000 });
-    expect(await bridge(window).folders()).toEqual(["Kitchen", "Race"]);
+    await proposed(window, "zh-CN", 5);
     await screenshot(window, "organize-proposed-zh");
   } finally {
     await app.close();
@@ -173,7 +188,7 @@ test("after adding ten Documents, in Chinese, ⌘K's Organize proposes Folders a
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the Library's one primary action sorts 8 loose Documents into Folders, in ${language} (#1942)`, async () => {
+  test(`the Library's one primary action organizes 8 loose Documents, in ${language} (#1942)`, async () => {
     test.setTimeout(180_000);
     const paths = await files(4);
     const { app, window } = await launchApp(dataDir, {
@@ -184,7 +199,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await dismissChatSetup(window);
       await setLanguage(window, language);
-      await sortWithLocalModel(window);
+      await organizeWithChatModel(window);
       await window.getByTestId("add-documents-input").setInputFiles(paths.slice(0, 7));
       await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(7);
       await runCommand(
@@ -199,7 +214,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.getByTestId("add-documents-input").setInputFiles(paths.slice(7));
       await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(8);
       await expect(button).toBeVisible();
-      await expect(button).toHaveText(translate(language, "library.sortIntoFolders"));
+      await expect(button).toHaveText(translate(language, "library.organizeCount", { count: "8" }));
 
       // It holds at the narrowest and the widest window, inside them.
       for (const width of [900, 1600]) {
@@ -214,23 +229,28 @@ for (const language of ["en", "zh-CN"] as const) {
         await screenshot(window, `sort-offer-${language}-${width}`);
       }
 
-      // One click, in place: Organize proposes the Folders from what the Documents say, and one
-      // Undo takes the suggestions and the Folders back, so the offer is there again.
+      // One click, in place: the Review proposes Folders from what the Documents say.
       await pointAndClick(window, button);
-      const review = window.getByTestId("library-review");
-      await expect(review.getByTestId("library-review-summary")).toHaveText(
-        language === "en"
-          ? "Sorted 8 Documents: 4 → Kitchen, 4 → Race"
-          : "已整理 8 个文档：4 个 → “Kitchen”，4 个 → “Race”",
-        { timeout: 30_000 },
-      );
-      expect(await bridge(window).folders()).toEqual(["Kitchen", "Race"]);
-      // With Folders there now, the offer is gone until Undo takes them back.
+      await proposed(window, language, 4);
+
+      // Confirmed, there are Folders and the offer is gone; its Undo brings the Review back.
+      await pointAndClick(window, window.getByTestId("organize-review-confirm"));
+      await expect.poll(() => bridge(window).folders()).toEqual(["Kitchen", "Race"]);
       await expect(button).toHaveCount(0);
-      await window.keyboard.press("ControlOrMeta+z");
+      const undoLine = window.getByTestId("undo-line-here");
+      await expect(undoLine.getByTestId("undo-message")).toHaveText(
+        translate(language, "organizeReview.organized", { count: 8 }),
+      );
+      await pointAndClick(window, undoLine.getByTestId("undo-action"));
       await expect.poll(() => bridge(window).folders()).toEqual([]);
+      await proposed(window, language, 4);
+
+      // Discarded, nothing waits, and the offer is there again.
+      await pointAndClick(window, window.getByTestId("organize-review-menu"));
+      await pointAndClick(window, window.getByTestId("organize-review-discard"));
+      await expect(window.getByTestId("organize-review")).toHaveCount(0);
       await expect(button).toBeVisible();
-      await expect(review).toHaveCount(0);
+      expect(await bridge(window).folders()).toEqual([]);
     } finally {
       await app.close();
     }

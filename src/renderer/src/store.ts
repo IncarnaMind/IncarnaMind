@@ -765,8 +765,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       core.listConversations(),
     ]);
     return (
-      // A Suggested Folder still in To review is Organize's, not something the User filed here.
-      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
+      library.assignments.some((each) => each.groupId === folderId) ||
       minds.some((each) => each.folderId === folderId) ||
       conversations.some((each) => each.folderId === folderId)
     );
@@ -1124,7 +1123,6 @@ export const useAppStore = create<AppState>()((set, get) => {
       const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
       const order = attentionOrder(
         own,
-        library?.groups ?? [],
         library?.assignments ?? [],
         sortOf("library:all")(useSort.getState()),
         translateNow,

@@ -295,7 +295,10 @@ function commandLine(call: AnswerToolCall): string {
       item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
     )
     .join(", ");
-  const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
+  // Organize only proposes (#1569): its Folders are what it proposed, never where it filed.
+  const organized = done.command === "documents.organize";
+  const into =
+    done.into && !organized ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
   // A Tag merge's pairs and Organize's Folders, when a call does more than one (#2252).
   const merges = done.merges?.length
     ? `; merged ${done.merges
@@ -303,9 +306,11 @@ function commandLine(call: AnswerToolCall): string {
         .join(", ")}; the merged Tags are in Recently deleted, where the User can restore them`
     : "";
   const folders = done.folders?.length
-    ? `; filed ${done.folders
-        .map((folder) => `${counted(folder.count, "item")} in the folder ${quoted(folder.name)}`)
-        .join(", ")}`
+    ? `; proposed Folders for them: ${done.folders
+        .map((folder) => `${quoted(folder.name)} for ${counted(folder.count, "item")}`)
+        .join(
+          ", ",
+        )}; they wait in Suggested Folders for the User's Review, and nothing was filed or moved`
     : "";
   const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
   const considered =

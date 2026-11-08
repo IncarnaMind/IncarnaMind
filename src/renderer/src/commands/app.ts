@@ -77,7 +77,6 @@ import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
 import { sortCommands } from "./sort";
-import { suggestionCommands } from "./suggestions";
 import "./objectMenus";
 import { annotationCommands } from "./annotations";
 import { mindSourceCommands } from "./mindSources";
@@ -193,7 +192,6 @@ const appCommands: readonly Command[] = [
   ...mindCommands,
   ...documentCommands,
   ...peekCommands,
-  ...suggestionCommands,
   ...folderCommands,
   ...mixedSelectionCommands,
   ...taggingCommands,
