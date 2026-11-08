@@ -230,7 +230,7 @@ function openYours(what: Yours): void {
       app.openSettings("privacy");
       return;
     case "spending":
-      app.openSettings("general");
+      app.openSettings("ai", "spending-cap");
       return;
     case "permanent":
       app.openLibrary(LIBRARY_DELETED);
