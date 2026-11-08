@@ -43,12 +43,7 @@ import {
   holdsTableAgain,
   keptAnalysisTables,
 } from "../../../shared/analysisTables";
-import {
-  appliesAtOnce,
-  askedFor,
-  translationRequested,
-  whyItWaits,
-} from "../../../shared/askedChanges";
+import { askedFor, translationRequested, whyItWaits } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
@@ -2413,18 +2408,15 @@ export function mindTools(options: MindToolsOptions): {
       },
       checkpoint: () => minds.checkpoint(mind.id),
     });
-    const outcome = writing.write(
-      (note) => {
-        // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
-        const written =
-          over.kind === "own"
-            ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
-            : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
-        if (written && note.doc) setOriginsOf(note.doc, request, written, options.origin);
-        return { changed: written !== null, value: written };
-      },
-      (written) => ({ applies: appliesAtOnce(written.doc, request) }),
-    );
+    const outcome = writing.write((note) => {
+      // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
+      const written =
+        over.kind === "own"
+          ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
+          : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
+      if (written && note.doc) setOriginsOf(note.doc, request, written, options.origin);
+      return { changed: written !== null, value: written };
+    });
     const ids = outcome.kind === "written" ? outcome.value : null;
     if (!ids) throw changedWhileRead(mind);
     const revision = (): MindChange => {

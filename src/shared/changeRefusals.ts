@@ -1,4 +1,4 @@
-import { type ChangeRefusalKind, changeRefusals } from "../core/api";
+import type { ChangeRefusalKind } from "../core/api";
 import type { MessageKey } from "./i18n/types";
 
 /**
@@ -42,6 +42,3 @@ export const REFUSAL_WORDS = {
   ChangeRefusalKind,
   { editor: MessageKey; card: MessageKey; agent: MessageKey; model: string }
 >;
-
-export const isChangeRefusal = (kind: string): kind is ChangeRefusalKind =>
-  changeRefusals.some((each) => each === kind);

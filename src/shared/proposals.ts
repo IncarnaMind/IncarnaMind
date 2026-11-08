@@ -366,6 +366,15 @@ export function keepRevised(
   revisions.set(request, revision);
 }
 
+/** The ids of the top-level Blocks a revision by `request` keeps for rejecting it to put back (`keepRevised`). */
+export function revisedBlockIds(blocks: Y.XmlFragment, request: string): Set<string> {
+  const kept = revisionsOf(blocks)?.get(request)?.get(REVISED_BLOCKS);
+  if (!(kept instanceof Y.Array)) return new Set();
+  return new Set(
+    kept.toArray().flatMap((each) => (each instanceof Y.XmlElement ? (idOf(each) ?? []) : [])),
+  );
+}
+
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a

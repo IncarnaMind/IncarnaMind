@@ -6,15 +6,17 @@
  *
  * - **One check, in one order** (`refusalOf`). A part refused refuses the whole change: what it
  *   wrote is taken back, it writes nothing more, and the writer is told the one reason.
- * - **Only Proposals.** A write may add Proposals and nothing else: the User's text reads as it
- *   did (`usersText`), or the change is refused as "changed".
+ * - **Only Proposals.** A write may add Proposals and nothing else: the User's text, accepted text
+ *   whoever wrote it, reads as it did (`usersText`), or the change is refused as "changed". The only
+ *   Blocks it may take out whole are those its revision keeps for rejecting it to put back.
  * - **A target on every Proposal** (`ProposalRef.target`), so one over text the User has edited
  *   since is out of date, whichever feature made it.
  * - **One record** of where it came from (`ProposalRequest`), made at `now()` and written with its
  *   Proposals, never for a write that left none.
  * - **A Checkpoint exactly when the Note's text changes.** A change that applies at once, with
- *   its Undo, saves one just before it first reaches the Note; one that waits saves none, and
- *   accepting it saves one then.
+ *   its Undo, saves one just before it first reaches the Note, whoever wrote it and however much
+ *   it takes out; one that waits for the User saves none, and accepting or applying it saves one
+ *   then.
  *
  * Most writers write a change at once (`start`): each write goes into a copy of the Note as it is,
  * then again into the Note itself, as its own client, so a refusal leaves the Note untouched and
@@ -24,7 +26,12 @@
  * they changed arrives out of date.
  */
 import * as Y from "yjs";
-import { pendingProposals, recordProposalRequest, resolveProposals } from "../../shared/proposals";
+import {
+  pendingProposals,
+  recordProposalRequest,
+  resolveProposals,
+  revisedBlockIds,
+} from "../../shared/proposals";
 import {
   type ChangeRefusalKind,
   type EditCause,
@@ -33,7 +40,7 @@ import {
   type WordChangeRequest,
 } from "../api";
 import type { MindContent } from "../mindContent";
-import { docOf, forkChanges, usersText } from "./merge";
+import { docOf, forkChanges, usersBlocks } from "./merge";
 import type { Written } from "./write";
 
 type Timeless<T> = T extends unknown ? Omit<T, "createdAt"> : never;
@@ -98,31 +105,27 @@ export interface ChangeInput {
   checkpoint?(): void;
 }
 
-export interface WriteStep {
-  /** False: this write waits, though the change applies at once (Edit with AI held back, #880). */
-  applies?: boolean;
-  /** What the window that asked for the change is told of this write (Edit with AI). */
-  cause?: EditCause;
-}
-
 export interface Change {
   readonly request: string;
   /** Some of it reached the Note. */
   readonly wrote: boolean;
   /** Why it was refused; null while it isn't. A change refused writes nothing more. */
   readonly refused: Refused | null;
-  /**
-   * Writes more of the change: `write` writes in the Blocks it is given and says what it wrote,
-   * and `step`, reading the copy it was written in, how it reaches the Note.
-   */
-  write<T>(
-    write: (blocks: Y.XmlFragment) => Wrote<T>,
-    step?: (copy: Y.XmlFragment) => WriteStep,
-  ): Outcome<T>;
+  /** Writes more of the change: `write` writes in the Blocks it is given and says what it wrote. */
+  write<T>(write: (blocks: Y.XmlFragment) => Wrote<T>): Outcome<T>;
   /** Checks the change as its writer reads it once it is all written: refused, what it wrote goes. */
   finish(report: WriteReport): Refused | null;
   /** Takes back what it wrote. */
   takeBack(): void;
+}
+
+/** A change merged from a copy of the Note (`startOn`). */
+export interface MergedChange extends Omit<Change, "write"> {
+  /**
+   * `write` as `Change` has it; `cause`, read once it is written, is what the window that asked for
+   * the change is told of it (Edit with AI).
+   */
+  write<T>(write: (blocks: Y.XmlFragment) => Wrote<T>, cause?: () => EditCause): Outcome<T>;
 }
 
 /** A Note's copy, made from `base`, its whole state as the model read it. */
@@ -143,8 +146,6 @@ export interface ChangesOptions {
   notes: Pick<MindContent, "read" | "edit">;
   now(): Date;
 }
-
-const noStep = (): WriteStep => ({});
 
 export function createChanges(options: ChangesOptions) {
   const { notes } = options;
@@ -197,12 +198,16 @@ export function createChanges(options: ChangesOptions) {
         blocks: Y.XmlFragment,
         write: (blocks: Y.XmlFragment) => Wrote<T>,
       ): Refused | { kind: "unchanged" } | { kind: "tried"; value: T } {
-        const before = usersText(blocks);
+        const before = usersBlocks(blocks);
         const wrote = writeIn(doc, blocks, write);
         const refused = refusalOf(wrote);
         if (refused) return refuse(refused);
         if (!wrote.changed) return { kind: "unchanged" };
-        if (usersText(blocks) !== before) return refuse({ kind: "changed" });
+        // What a revision keeps for its Reject to put back is the only text it may take out whole.
+        const kept = revisedBlockIds(blocks, request);
+        const read = (rows: ReturnType<typeof usersBlocks>) =>
+          JSON.stringify(rows.filter((row) => row.id === null || !kept.has(row.id)));
+        if (read(usersBlocks(blocks)) !== read(before)) return refuse({ kind: "changed" });
         const untargeted = pendingProposals(blocks).find(
           (ref) => mine(ref) && ref.target === undefined,
         );
@@ -212,14 +217,14 @@ export function createChanges(options: ChangesOptions) {
         return { kind: "tried", value: wrote.value };
       },
 
-      /** Just before a write reaches the Note: a Checkpoint, the first time one that applies at once does. */
-      reaching(step: WriteStep): void {
-        if (checkpointed || !input.checkpoint || step.applies === false) return;
+      /** Just before a write reaches the Note: a Checkpoint, the first time one of a change that applies at once does. */
+      reaching(): void {
+        if (checkpointed || !input.checkpoint) return;
         checkpointed = true;
         input.checkpoint();
       },
 
-      handle(write: Change["write"]): Change {
+      handle<W extends Change["write"] | MergedChange["write"]>(write: W) {
         return {
           request,
           get wrote() {
@@ -229,7 +234,7 @@ export function createChanges(options: ChangesOptions) {
             return state.refused;
           },
           write,
-          finish(report) {
+          finish(report: WriteReport): Refused | null {
             if (state.refused) return state.refused;
             const why = refusalOf(report);
             return why && refuse(why);
@@ -244,48 +249,40 @@ export function createChanges(options: ChangesOptions) {
   function start(input: ChangeInput): Change {
     const { mindId, request } = input;
     const change = around(input);
-    return change.handle(
-      <T>(
-        write: (blocks: Y.XmlFragment) => Wrote<T>,
-        step: (copy: Y.XmlFragment) => WriteStep = noStep,
-      ) => {
-        if (change.state.refused) return change.state.refused;
-        const copy = docOf(
-          notes.read(mindId, (blocks) => {
-            if (!blocks.doc) throw new Error(`Note ${mindId} has no document.`);
-            return Y.encodeStateAsUpdate(blocks.doc);
-          }),
-        );
-        let tried: ReturnType<typeof change.tryIn<T>>;
-        let how: WriteStep = {};
+    return change.handle(<T>(write: (blocks: Y.XmlFragment) => Wrote<T>): Outcome<T> => {
+      if (change.state.refused) return change.state.refused;
+      const copy = docOf(
+        notes.read(mindId, (blocks) => {
+          if (!blocks.doc) throw new Error(`Note ${mindId} has no document.`);
+          return Y.encodeStateAsUpdate(blocks.doc);
+        }),
+      );
+      let tried: ReturnType<typeof change.tryIn<T>>;
+      try {
+        tried = change.tryIn(copy, copy.getXmlFragment(MIND_CONTENT_FIELD), write);
+      } finally {
+        copy.destroy();
+      }
+      if (tried.kind !== "tried") return tried;
+      change.reaching();
+      const value = notes.edit(mindId, (blocks) => {
+        const doc = blocks.doc;
+        if (!doc) throw new Error(`Note ${mindId} has no document.`);
         try {
-          const blocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
-          tried = change.tryIn(copy, blocks, write);
-          if (tried.kind === "tried") how = step(blocks);
-        } finally {
-          copy.destroy();
+          return change.writeIn(doc, blocks, write).value;
+        } catch (error) {
+          // The copy took it, so only a writer that answered differently the second time gets here.
+          resolveProposals(blocks, (ref) => ref.request === request, "reject");
+          console.error(
+            `Proposals: request ${request} failed in the Note after its copy took it; its changes were rejected`,
+            error,
+          );
+          throw error;
         }
-        if (tried.kind !== "tried") return tried;
-        change.reaching(how);
-        const value = notes.edit(mindId, (blocks) => {
-          const doc = blocks.doc;
-          if (!doc) throw new Error(`Note ${mindId} has no document.`);
-          try {
-            return change.writeIn(doc, blocks, write).value;
-          } catch (error) {
-            // The copy took it, so only a writer that answered differently the second time gets here.
-            resolveProposals(blocks, (ref) => ref.request === request, "reject");
-            console.error(
-              `Proposals: request ${request} failed in the Note after its copy took it; its changes were rejected`,
-              error,
-            );
-            throw error;
-          }
-        });
-        change.state.wrote = true;
-        return { kind: "written", value };
-      },
-    );
+      });
+      change.state.wrote = true;
+      return { kind: "written", value };
+    });
   }
 
   /**
@@ -296,22 +293,18 @@ export function createChanges(options: ChangesOptions) {
     copy: NoteCopy,
     input: ChangeInput,
     merge: Pick<MindContent, "state" | "apply">,
-  ): Change {
+  ): MergedChange {
     const { mindId } = input;
     const change = around(input);
     return change.handle(
-      <T>(
-        write: (blocks: Y.XmlFragment) => Wrote<T>,
-        step: (copy: Y.XmlFragment) => WriteStep = noStep,
-      ) => {
+      <T>(write: (blocks: Y.XmlFragment) => Wrote<T>, cause?: () => EditCause): Outcome<T> => {
         if (change.state.refused) return change.state.refused;
         const tried = change.tryIn(copy.doc, copy.blocks, write);
         if (tried.kind !== "tried") return tried;
         const update = forkChanges(copy.base, copy.doc, merge.state(mindId));
         if (!update) return change.refuse({ kind: "changed" });
-        const how = step(copy.blocks);
-        change.reaching(how);
-        merge.apply(mindId, update, how.cause);
+        change.reaching();
+        merge.apply(mindId, update, cause?.());
         change.state.wrote = true;
         return { kind: "written", value: tried.value };
       },

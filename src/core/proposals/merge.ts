@@ -10,7 +10,7 @@
 import * as Y from "yjs";
 import { INLINE_NODES, NODE_CHARACTER, readProposalAttribute } from "../../shared/proposals";
 import {
-  GENERATED_MARK,
+  BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
@@ -28,22 +28,15 @@ export function docOf(state: Uint8Array): Y.Doc {
   return doc;
 }
 
-/**
- * The User's text: the Blocks' text without what Proposals add, with what they remove, and
- * without AI text they haven't made theirs (#95), Block by Block and an inline node as one
- * character. A Block with none of it reads as nothing: an empty line, or a heading the assistant
- * wrote, holds none of the User's words for a change to take.
- */
-export function usersText(parent: Y.XmlFragment | Y.XmlElement): string {
+type Child = Y.XmlElement | Y.XmlText | Y.XmlHook;
+
+/** `usersText` of these nodes, side by side. */
+function readingOf(nodes: readonly Child[]): string {
   let text = "";
-  for (const child of parent.toArray()) {
+  for (const child of nodes) {
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as Run[]) {
-        if (
-          run.attributes &&
-          (PROPOSAL_INSERT_MARK in run.attributes || GENERATED_MARK in run.attributes)
-        )
-          continue;
+        if (run.attributes && PROPOSAL_INSERT_MARK in run.attributes) continue;
         text += typeof run.insert === "string" ? run.insert : NODE_CHARACTER;
       }
     } else if (child instanceof Y.XmlElement) {
@@ -53,11 +46,29 @@ export function usersText(parent: Y.XmlFragment | Y.XmlElement): string {
         text += NODE_CHARACTER;
         continue;
       }
-      const inside = usersText(child);
+      const inside = readingOf(child.toArray());
       if (inside !== "") text += `<${child.nodeName}>${inside}</${child.nodeName}>`;
     }
   }
   return text;
+}
+
+/**
+ * The User's text: the Blocks' text without what Proposals add, which isn't in the Note yet, and
+ * with what they remove, Block by Block and an inline node as one character. Accepted text is
+ * theirs, whoever wrote it. A Block with no text reads as nothing: an empty line holds none of
+ * their words for a change to take.
+ */
+export const usersText = (parent: Y.XmlFragment | Y.XmlElement): string =>
+  readingOf(parent.toArray());
+
+/** The User's text (`usersText`) of each top-level Block that holds some, with the Block's id. */
+export function usersBlocks(blocks: Y.XmlFragment): { id: string | null; text: string }[] {
+  return blocks.toArray().flatMap((child) => {
+    const text = readingOf([child]);
+    const id = child instanceof Y.XmlElement ? child.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+    return text === "" ? [] : [{ id: typeof id === "string" ? id : null, text }];
+  });
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   proposeNamed,
 } from "../../src/core/agents/proposals";
 import { forkChanges } from "../../src/core/proposals/merge";
+import { proposeRewrite, readSelection } from "../../src/core/proposals/write";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
 import {
@@ -254,9 +255,10 @@ const WRITERS: Writer[] = [
     },
   },
   {
-    name: "edit_mind that would take out most of the User's text",
+    name: "edit_mind that takes out most of the User's text, held back",
     origin: { source: "edit-with-ai", action: "instruction", instruction: "Shorten it" },
-    applies: false,
+    // Held back for the User, it was still asked to apply at once: a restore point all the more.
+    applies: true,
     removes: true,
     async write(language) {
       const words = WORDS[language];
@@ -724,12 +726,88 @@ describe("Merged, a change may add Proposals and nothing else", () => {
   );
 
   test.each(LANGUAGES)(
-    "an empty line, or a heading the assistant wrote, holds none of the User's words (%s)",
+    "an empty line holds none of the User's words; text the AI wrote, accepted, is theirs (%s)",
     (language) => {
       expect(merged(language, (blocks) => blocks.delete(1, 1))).not.toBeNull();
-      expect(merged(language, (blocks) => blocks.delete(2, 1))).not.toBeNull();
+      expect(merged(language, (blocks) => blocks.delete(2, 1))).toBeNull();
       // Typed in since, the line is theirs.
       expect(merged(language, (blocks) => blocks.delete(1, 1), WORDS[language].added)).toBeNull();
+    },
+  );
+
+  const ACCEPTED = {
+    en: {
+      own: "Sales rose.",
+      ai: " The board approved the budget in March.",
+      cut: " in March",
+      reply: "Sales rose\nsharply.",
+    },
+    "zh-CN": {
+      own: "销售上升。",
+      ai: "董事会在三月批准了预算。",
+      cut: "在三月",
+      reply: "销售上升\n很快。",
+    },
+  } as const;
+
+  /**
+   * Edit with AI over the User's sentence, before an AI sentence they accepted, whose reply breaks
+   * the line; meanwhile, perhaps, the User cuts words from the AI sentence.
+   */
+  function rewriteBeside(language: Language, cuts: boolean) {
+    const { own, ai, cut, reply } = ACCEPTED[language];
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    blocks.insert(0, [new Y.XmlElement("paragraph")]);
+    const paragraph = blocks.get(0) as Y.XmlElement;
+    paragraph.setAttribute("id", "p1");
+    paragraph.insert(0, [new Y.XmlText()]);
+    const text = paragraph.get(0) as Y.XmlText;
+    text.insert(0, own);
+    text.insert(own.length, ai, { [GENERATED_MARK]: {} });
+    const base = Y.encodeStateAsUpdate(doc);
+
+    const fork = new Y.Doc();
+    Y.applyUpdate(fork, base);
+    const copy = fork.getXmlFragment(MIND_CONTENT_FIELD);
+    const read = readSelection(
+      copy,
+      { blockId: "p1", offset: 0 },
+      { blockId: "p1", offset: own.length },
+    );
+    if (!read.ok) throw new Error(`The sentence can't be read: ${read.reason}`);
+    let ids = 0;
+    fork.transact(() => proposeRewrite(read.selection, reply, "r-1", () => `p-${++ids}`));
+    if (cuts) text.delete((own + ai).indexOf(cut), cut.length);
+    return forkChanges(base, fork, Y.encodeStateAsUpdate(doc));
+  }
+
+  test.each(LANGUAGES)(
+    "a rewrite beside AI text the User accepted merges, but not over words they cut from it since (%s)",
+    (language) => {
+      expect(rewriteBeside(language, false)).not.toBeNull();
+      expect(rewriteBeside(language, true)).toBeNull();
+    },
+  );
+});
+
+describe("What a write may take out with no Proposal", { timeout: 60_000 }, () => {
+  test.each(LANGUAGES)(
+    "add_to_mind at the Note's end takes the empty last line, and its Blocks wait (%s)",
+    async (language) => {
+      const words = WORDS[language];
+      const model = modelOf({ tool: { tool: "add_to_mind", input: { content: words.added } } });
+      const set = await noteOf(model, [words.before, ""]);
+      expect(set.client.blocks.length).toBe(3);
+
+      const answer = await askAssistant(set.core, { text: "Add a line", mindId: set.mind.id });
+      await set.client.settled();
+
+      const request = changesIn(answer)[0]?.request ?? "";
+      expect(mine(set.client, request).length).toBeGreaterThan(0);
+      expect(readMind(set.client).child(1).textContent).toBe(words.before);
+      expect(readMind(set.client).child(2).textContent).toBe(words.added);
+      expect(readMind(set.client).childCount).toBe(3);
     },
   );
 });

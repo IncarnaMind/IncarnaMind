@@ -961,6 +961,13 @@ export function restoreChange(editor: Editor, index: number): void {
 function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
   const line = appliedLineIn(editor.state);
   if (line?.kind !== "held") return;
+  const edit = latest.get(editor);
+  const heldIn = line.asked?.mindId ?? (edit?.request === line.request ? edit.mindId : null);
+  // Applied now, a change held back is accepted: a Checkpoint first, whoever wrote it (#113).
+  // Not awaited: the core takes it before the change this sends next.
+  if (outcome === "accept" && heldIn !== null) {
+    core.saveCheckpoint(heldIn, "accept").catch(useAppStore.getState().reportError);
+  }
   if (line.asked && outcome === "accept") {
     const { mindId, requests, facts } = line.asked;
     setAppliedLine(editor, null);
@@ -969,11 +976,7 @@ function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
     }
     return;
   }
-  const edit = latest.get(editor);
   if (outcome === "accept" && edit?.request === line.request) {
-    // Held back, it waited: applied now, it is accepted, which saves a Checkpoint first (#113).
-    // Not awaited: the core takes it before the change this sends next.
-    core.saveCheckpoint(edit.mindId, "accept").catch(useAppStore.getState().reportError);
     const changed = apply(edit, line.request);
     if (changed.paragraphs + changed.tables > 0) speak(edit.mindId, appliedMessage(changed));
     return;

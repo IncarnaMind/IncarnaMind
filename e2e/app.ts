@@ -3472,6 +3472,16 @@ export async function removeDataFolder(dataDir: string): Promise<void> {
 export const coreOf = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
 
+/** How many Checkpoints the Note made last has, as its History lists them. */
+export async function checkpointsOfNewestNote(window: Page): Promise<number> {
+  return (await coreOf(window)).evaluate(async (core) => {
+    const [mind] = (await core.listMinds()).toSorted((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    return mind ? (await core.listCheckpoints(mind.id)).checkpoints.length : 0;
+  });
+}
+
 /**
  * What the core holds that a change to a Mind, Document, Folder, Tag, Linked folder or Recently
  * deleted touches, as plain data: a test compares it before and after, through the bridge and not
