@@ -48,8 +48,15 @@ const systemOf = (options: unknown): string => {
   return typeof system === "string" ? system : "";
 };
 
-/** `scripted` for everything but the batch that judges the Answer's sentences, which `real` gets. */
-function judgedByReal(scripted: MockLanguageModelV4, real: ChatModelFactory): ChatModelFactory {
+/**
+ * `scripted` for everything but the batch that judges the Answer's sentences, which `real` gets;
+ * each batch's reply lands in `heard`.
+ */
+function judgedByReal(
+  scripted: MockLanguageModelV4,
+  real: ChatModelFactory,
+  heard: string[],
+): ChatModelFactory {
   return (spec) => {
     const judge = real(spec);
     return new Proxy(scripted, {
@@ -58,7 +65,12 @@ function judgedByReal(scripted: MockLanguageModelV4, real: ChatModelFactory): Ch
           return (options: unknown) => {
             const model = systemOf(options) === SENTENCE_BATCH_INSTRUCTIONS ? judge : target;
             const method = Reflect.get(model, property) as (options: unknown) => Promise<unknown>;
-            return method.call(model, options);
+            if (model !== judge) return method.call(model, options);
+            return method.call(model, options).then((result) => {
+              const content = (result as { content?: { type: string; text?: string }[] }).content;
+              heard.push(content?.map((part) => part.text ?? "").join("") ?? "");
+              return result;
+            });
           };
         return Reflect.get(target, property, receiver);
       },
@@ -66,12 +78,16 @@ function judgedByReal(scripted: MockLanguageModelV4, real: ChatModelFactory): Ch
   };
 }
 
-async function judged(each: Case, chinese: boolean): Promise<MarkedCitation | undefined> {
+async function judged(
+  each: Case,
+  chinese: boolean,
+  heard: string[],
+): Promise<MarkedCitation | undefined> {
   const scripted = scriptedModel(answering(each), {
     generate: () => ({ text: '{"claims":[]}' }),
   });
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: judgedByReal(scripted, createChatModel),
+    createChatModel: judgedByReal(scripted, createChatModel, heard),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
@@ -104,7 +120,8 @@ describe.each(SETS)(`${MODEL}, live: %s`, (_, cases, chinese) => {
     { timeout: 300_000 },
     async (each) => {
       if (spent() >= MAX_USD) throw new Error(`Spent $${spent().toFixed(2)}, the cap.`);
-      const citation = await judged(each, chinese);
+      const heard: string[] = [];
+      const citation = await judged(each, chinese, heard);
       const states = each.states.every((words) => holds(citation?.quote ?? "", words));
       if (REPORT) {
         await appendFile(
@@ -118,6 +135,7 @@ describe.each(SETS)(`${MODEL}, live: %s`, (_, cases, chinese) => {
             states,
             quote: citation?.quote ?? null,
             verdict: citation?.verdict ?? null,
+            judged: heard.join(" "),
             spent: Number(spent().toFixed(4)),
           })}\n`,
         );
