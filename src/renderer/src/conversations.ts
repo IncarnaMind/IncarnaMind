@@ -22,6 +22,7 @@ import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
+import { forgetConversationPick, showConversationModel } from "./conversationModel";
 import { core } from "./core";
 import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
@@ -60,12 +61,6 @@ interface ConversationsState {
   stopWanted: boolean;
   /** An Answer to bring into view and flash once it shows: a link back from a Note leads there. */
   sought: string | null;
-  /**
-   * A model picked in the chip with no Note in view, for this conversation or a New chat (#2836),
-   * and its last Question then (`after`): it holds until the next Question, which keeps the model
-   * it is asked with.
-   */
-  pick: { choice: ChatModelChoice; after: string | null } | null;
 }
 
 export const useConversations = create<ConversationsState>()(() => ({
@@ -78,27 +73,17 @@ export const useConversations = create<ConversationsState>()(() => ({
   askingQuotes: [],
   stopWanted: false,
   sought: null,
-  pick: null,
 }));
 
-const lastQuestionId = (messages: readonly ConversationMessage[]): string | null =>
-  messages.findLast((message) => message.kind === "question")?.id ?? null;
-
-/**
- * The model the conversation shown goes on with: the one picked for it since its last Question,
- * else that Question's.
- */
-export const conversationModel = (state: ConversationsState): ChatModelChoice | null =>
-  state.pick && state.pick.after === lastQuestionId(state.messages)
-    ? state.pick.choice
-    : conversationModelOf(state.messages);
-
-/** A model picked for the conversation shown, with no Note in view: its next Question keeps it. */
-export function pickForConversation(choice: ChatModelChoice): void {
-  useConversations.setState((state) => ({
-    pick: { choice, after: lastQuestionId(state.messages) },
-  }));
-}
+// The chip with no Note in view reads the conversation shown, and its last Question's model (#2836).
+useConversations.subscribe((state, previous) => {
+  if (state.openId === previous.openId && state.messages === previous.messages) return;
+  const lastId = state.messages.findLast((message) => message.kind === "question")?.id ?? null;
+  showConversationModel(
+    state.openId,
+    lastId === null ? null : { id: lastId, model: conversationModelOf(state.messages) },
+  );
+});
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
 
@@ -108,9 +93,7 @@ async function load(): Promise<void> {
     const { openId } = useConversations.getState();
     // The open one was deleted, here or in another window: the assistant starts a new chat.
     const gone = openId !== null && !list.some((each) => each.id === openId);
-    useConversations.setState(
-      gone ? { list, openId: null, messages: [], sought: null, pick: null } : { list },
-    );
+    useConversations.setState(gone ? { list, openId: null, messages: [], sought: null } : { list });
   } catch (error) {
     report(error);
   }
@@ -212,7 +195,8 @@ export async function showKeptConversation(conversationId: string): Promise<void
       keepShown(openId);
       return;
     }
-    useConversations.setState({ openId: conversationId, messages, pick: null });
+    forgetConversationPick();
+    useConversations.setState({ openId: conversationId, messages });
   } catch (error) {
     if (describeError(error).wording?.key !== "error.conversation.notFound") {
       report(error);
@@ -234,13 +218,13 @@ export function followShownConversation(): void {
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
   moves += 1;
+  forgetConversationPick();
   useConversations.setState({
     openId: null,
     messages: [],
     asking: null,
     askingReads: null,
     sought: null,
-    pick: null,
   });
 }
 
@@ -256,13 +240,13 @@ export async function openConversation(
   try {
     const { messages } = await core.getConversation(conversationId);
     if (move !== moves) return false;
+    forgetConversationPick();
     useConversations.setState({
       openId: conversationId,
       messages,
       asking: null,
       askingReads: null,
       sought: answerId ?? null,
-      pick: null,
     });
     unfold();
     return true;

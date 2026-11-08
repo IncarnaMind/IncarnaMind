@@ -7,8 +7,14 @@ const made: Record<string, unknown>[] = [];
 const minds: { title: string; autoTitle: string }[] = [];
 const fill = { release: () => {}, fails: false, cleanupFails: false };
 
+/** The model the Question was asked with: the Mind made from its Answer goes on with it (#2836). */
+const ASKED_WITH = { providerId: "provider-1", modelId: "claude-sonnet-5-5" };
 vi.mock("../../src/renderer/src/conversations", () => ({
-  questionOf: () => ({ id: "q1", text: "Compare these two Documents in a table" }),
+  questionOf: () => ({
+    id: "q1",
+    text: "Compare these two Documents in a table",
+    model: ASKED_WITH,
+  }),
 }));
 
 vi.mock("../../src/renderer/src/core", () => ({
@@ -89,6 +95,7 @@ describe("Open as a table", () => {
     expect(made[0]).toEqual({
       title: "Compare these two Documents in a table",
       folderId: null,
+      model: ASKED_WITH,
     });
     await vi.waitFor(() => expect(calls).toContain("addToNote"));
     fill.release();
@@ -100,6 +107,7 @@ describe("Open as a table", () => {
     expect(made[1]).toEqual({
       title: "Compare these two Documents in a table 2",
       folderId: null,
+      model: ASKED_WITH,
     });
     await vi.waitFor(() => expect(calls.filter((call) => call === "addToNote")).toHaveLength(2));
     fill.release();

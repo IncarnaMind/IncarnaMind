@@ -8,6 +8,7 @@ import {
 } from "./api";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import { parseKind } from "./mindAccess";
+import { isChatModelChoice } from "./settings";
 import type { Database } from "./storage";
 
 /**
@@ -68,16 +69,8 @@ export function parseCreateMindInput(input: unknown): NewMind {
 /** `createMind`'s model: a choice of provider and model, or none. */
 export function parseMindModel(model: unknown): ChatModelChoice | null {
   if (model === undefined || model === null) return null;
-  if (
-    !isRecord(model) ||
-    typeof model.providerId !== "string" ||
-    model.providerId === "" ||
-    typeof model.modelId !== "string" ||
-    model.modelId === ""
-  ) {
-    throw new InvalidInputError("A Note's model must name its provider and model.");
-  }
-  return { providerId: model.providerId, modelId: model.modelId };
+  if (!isChatModelChoice(model)) throw new InvalidInputError({ key: "error.question.model" });
+  return model;
 }
 
 /** A list of ids, each once, in order. */

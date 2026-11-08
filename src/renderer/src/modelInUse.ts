@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { ChatModelChoice } from "../../core/api";
 import { mindModelOf, modelInUse, observeMindModel, setMindModel } from "../../shared/mindModel";
-import { conversationModel, pickForConversation, useConversations } from "./conversations";
+import { conversationModel, pickForConversation, useConversationModel } from "./conversationModel";
 import { isSaved, loadSavedProviders, useSavedProviders } from "./savedProviders";
 import { useAppStore } from "./store";
 
@@ -12,7 +12,7 @@ import { useAppStore } from "./store";
  */
 export function useOwnModel(doc: Y.Doc | null): ChatModelChoice | null {
   const [own, setOwn] = useState(() => (doc ? mindModelOf(doc) : null));
-  const noNote = useConversations(conversationModel);
+  const noNote = useConversationModel(conversationModel);
   useEffect(() => {
     setOwn(doc ? mindModelOf(doc) : null);
     if (!doc) return;
@@ -42,7 +42,7 @@ export function useModelInUse(doc: Y.Doc | null): ChatModelChoice | null {
 export function modelInUseOf(doc: Y.Doc | null): ChatModelChoice | null {
   return modelInUse(
     {
-      own: doc ? mindModelOf(doc) : conversationModel(useConversations.getState()),
+      own: doc ? mindModelOf(doc) : conversationModel(useConversationModel.getState()),
       fallback: useAppStore.getState().settings?.user.chatModel ?? null,
     },
     isSaved(useSavedProviders.getState().ids),
