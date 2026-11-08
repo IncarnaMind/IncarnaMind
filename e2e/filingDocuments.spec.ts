@@ -158,20 +158,28 @@ const folderOfDocument = async (window: Page, name: string): Promise<string | nu
     return library.assignments.find((each) => each.documentId === document.id)?.groupId ?? null;
   }, name);
 
-/** What the core says about a Document's Folder: the assignment's Folder, source and whether it only suggests it. */
+/** What the core says about a Document's Folder: the assignment's Folder and who chose it. */
 const assignmentOf = async (window: Page, name: string) =>
   (await coreOf(window)).evaluate(async (core: CoreBridge, documentName: string) => {
     const document = (await core.listDocuments()).find((each) => each.name === documentName);
     if (!document) return null;
     const library = await core.getLibrary();
     const assignment = library.assignments.find((each) => each.documentId === document.id);
-    return assignment
-      ? {
-          groupId: assignment.groupId,
-          source: assignment.source,
-          suggested: assignment.suggested,
-        }
-      : null;
+    return assignment ? { groupId: assignment.groupId, source: assignment.source } : null;
+  }, name);
+
+/** The Folder of the User's that waits in Suggestions for a Document, by its name; null: none. */
+const proposedFolderOf = async (window: Page, name: string): Promise<string | null> =>
+  (await coreOf(window)).evaluate(async (core: CoreBridge, documentName: string) => {
+    const [documents, review, library] = await Promise.all([
+      core.listDocuments(),
+      core.getOrganizeReview(),
+      core.getLibrary(),
+    ]);
+    const document = documents.find((each) => each.name === documentName);
+    const placement = review.items.find((each) => each.documentId === document?.id)?.placement;
+    if (placement?.kind !== "folder") return null;
+    return library.groups.find((group) => group.id === placement.folderId)?.name ?? null;
   }, name);
 
 async function folderNames(window: Page): Promise<string[]> {
@@ -1016,7 +1024,7 @@ test("a Folder takes a second Document of the same name, a drop while a filter i
   }
 });
 
-test("undoing the move of a Document Organize filed itself leaves its Folder automatic", async () => {
+test("Organize only proposes a Folder, and undoing the User's move leaves the Document in no Folder, as Organize left it", async () => {
   test.setTimeout(180_000);
   const { server } = await decisionServer((text) =>
     text.includes("invoice") ? "Finance" : "Research",
@@ -1047,15 +1055,14 @@ test("undoing the move of a Document Organize filed itself leaves its Folder aut
     );
     await expect(window.getByTestId("document-list-item")).toHaveCount(1);
     const automatic = () => assignmentOf(window, "Invoice 501");
-    // Organize answers in a moment: until then the Document waits with no Folder.
-    await expect.poll(async () => (await automatic())?.groupId, { timeout: 60_000 }).not.toBeNull();
-    const filed = await automatic();
-    // Organize made it: the Folder is not the User's choice yet.
-    expect(filed?.source).toBe("automatic");
-    if (!filed?.groupId) throw new Error("Organize didn't file the invoice.");
-    const finance = filed.groupId;
+    // Organize answers in a moment and only proposes: Finance waits in Suggestions, and the
+    // Document stays in no Folder, not the User's choice.
+    await expect
+      .poll(() => proposedFolderOf(window, "Invoice 501"), { timeout: 60_000 })
+      .toBe("Finance");
+    expect(await automatic()).toEqual({ groupId: null, source: "automatic" });
 
-    // The User moves it, then takes that back: the Folder and how it got there are the automatic ones.
+    // The User moves it, then takes that back: it is in no Folder again, as Organize left it.
     const library = await openLibrary(window);
     await libraryRow(library, "Invoice 501").locator("[data-row-main]").focus();
     await window.keyboard.press("ControlOrMeta+Shift+M");
@@ -1064,7 +1071,7 @@ test("undoing the move of a Document Organize filed itself leaves its Folder aut
     await window.keyboard.press("Enter");
     await expect.poll(automatic).toMatchObject({ groupId: research, source: "user" });
     await undo(window);
-    await expect.poll(automatic).toMatchObject({ groupId: finance, source: "automatic" });
+    await expect.poll(automatic).toEqual({ groupId: null, source: "automatic" });
   } finally {
     await app.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));

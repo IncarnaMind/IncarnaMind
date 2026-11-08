@@ -13,6 +13,14 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewFolder,
+  OrganizeReviewRow,
+} from "./organizeReview/types";
 import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
@@ -39,6 +47,20 @@ export type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+export type {
+  OrganizeReview,
+  OrganizeReviewChange,
+  OrganizeReviewConfirmation,
+  OrganizeReviewEdit,
+  OrganizeReviewFolder,
+  OrganizeReviewItem,
+  OrganizeReviewLeftOut,
+  OrganizeReviewOrigin,
+  OrganizeReviewPlacement,
+  OrganizeReviewRow,
+  OrganizeReviewTag,
+  OrganizeReviewTarget,
+} from "./organizeReview/types";
 export type { DecisionHost } from "./providers/catalog/decisions";
 
 /**
@@ -1370,7 +1392,7 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
-  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  /** Organize: the Folders it proposed for the Documents, by name, with how many each (#2252, #1569). */
   folders?: readonly { name: string; count: number }[];
   /** Organize: how many of the Documents it read it couldn't sort (#2252). */
   unsorted?: number;
@@ -1378,6 +1400,10 @@ export interface CommandDone {
   untouched?: number;
   /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
   considered?: number;
+  /** Organize: how many Documents wait in Suggestions after it, for the reply's Review button (#1569). */
+  review?: { count: number };
+  /** Organize: what else the User asked for in the request, which the reply answers (#1569). */
+  alsoAsked?: string;
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
   /** A Tag merge: how many Tags the Library held before and after (#2252). */
@@ -6500,6 +6526,50 @@ export type RunEstimate =
     }
   | { billing: "plan" | "free" };
 
+export interface OrganizeLibraryInput {
+  /** These Documents only; the Library's Documents in no Folder when left out. */
+  documentIds?: string[];
+  /** Organize This Folder: its own Documents, into subfolders inside it. */
+  folderId?: string;
+  /** The service the User allowed on the press: a run for another sends nothing (#2308). */
+  forService?: string;
+  /** The User saw the estimate and went on. */
+  costAccepted?: boolean;
+  /**
+   * Fewer Folders or More Folders in the Suggestions: plan again for fewer or more new Folders
+   * than the last plan proposed in the same place (subfolders when `folderId` is given), still
+   * 3 to 7.
+   */
+  folders?: FolderCountAim;
+}
+
+/** How many new Folders a plan made again aims at, against how many the last plan proposed. */
+export type FolderCountAim = { fewerThan: number } | { moreThan: number };
+
+export type OrganizeLibraryResult =
+  /** Estimated at more than $1: nothing was sent, and the User is asked first. */
+  | { status: "estimate"; estimate: RunEstimate }
+  | {
+      status: "done";
+      runId: string;
+      /** The Documents planned, and the rows written to the Review. */
+      documents: number;
+      proposed: number;
+      /** The Documents the model was asked about one by one, past the sample. */
+      placedByModel: number;
+      requests: number;
+    }
+  | { status: "stopped"; runId: string };
+
+/** "Organizing 12 of 40…", or the Documents still being read before it can start. */
+export interface OrganizeProgress {
+  runId: string;
+  /** Documents still being read: the plan waits for them. */
+  waiting: number;
+  done: number;
+  total: number;
+}
+
 export type ConnectionTestResult = { ok: true } | { ok: false; error: ProviderError };
 
 /** A model on a saved chat provider. */
@@ -10454,16 +10524,8 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  /**
-   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
-   * the core checked it against (null: none): it is accepted only while it waits for that one.
-   */
-  targets: { kind: CommandTarget; id: string; into?: string | null }[];
-  /**
-   * The Folder wall the core checked it behind (null: outside every wall): what it files is filed
-   * by the walls judged again when it is filed, never across this one (#2250).
-   */
-  wall: string | null;
+  /** What it acts on. */
+  targets: { kind: CommandTarget; id: string }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -11820,21 +11882,28 @@ export interface CoreApi {
   /**
    * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
    * a few Folders that would hold these Documents, named from what they say in the interface
-   * language, and makes them. `classifyDocuments` then suggests one for each. Returns the
-   * Folders made, none when no Document has text to read. Throws InvalidInputError with no
-   * model for Organize, or one that can't name Folders (a decision model), and what the
-   * provider throws; nothing is made then. With `forService`, a continuation of a press
-   * authorized for that service: Organize sending elsewhere proposes nothing.
+   * language, and proposes them in Suggestions: none is made before the User confirms (#1569).
+   * `classifyDocuments` then proposes one for each. Returns the Folders proposed, none when no
+   * Document has text to read. Throws InvalidInputError with no model for Organize, or one that
+   * can't name Folders (a decision model), and what the provider throws; nothing is proposed
+   * then. With `forService`, a continuation of a press authorized for that service: Organize
+   * sending elsewhere proposes nothing.
    */
-  proposeFolders(documentIds: string[], options?: { forService?: string }): Promise<LibraryGroup[]>;
+  proposeFolders(
+    documentIds: string[],
+    options?: { forService?: string },
+  ): Promise<OrganizeReviewFolder[]>;
   /**
-   * Queues selected documents, or all. Organize suggests a Folder for each
-   * (a Suggested Folder) and its Tags; manual assignments are preserved, and
-   * only their Tags suggested. With `forService`, a continuation of a press
-   * authorized for that service: a different destination queues and clears
-   * nothing, and a change while the run waits sends nothing there.
+   * Queues selected documents, or all. Organize proposes a Folder for each in Suggestions, where
+   * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
+   * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
+   * press authorized for that service: a different destination queues and clears nothing, and a
+   * change while the run waits sends nothing there.
    */
-  classifyDocuments(documentIds?: string[], options?: { forService?: string }): Promise<void>;
+  classifyDocuments(
+    documentIds?: string[],
+    options?: { forService?: string; folderId?: string },
+  ): Promise<void>;
   /**
    * Stops automatic Tagging with AI where the Documents waiting to be
    * tagged, or being tagged, are: each of their Folders, and Not in a Folder
@@ -11848,6 +11917,8 @@ export interface CoreApi {
   setTaggingWithAi(folderId: string | null, on: boolean): Promise<void>;
   /** Closes the Library's one-time line that automatic tagging and sorting went off (`LibrarySnapshot.automaticOffNotice`). */
   dismissAutomaticOffNotice(): Promise<void>;
+  /** The Review was opened: the Library's top line says what waits in its usual words from now on (`LibrarySnapshot.reviewMoved`). */
+  reviewMovedSeen(): Promise<void>;
   /**
    * A manual choice, including Not in a Folder (null), wins over in-flight classification.
    * Returns the change it made, its place and tagging before and after, for `restoreAssignment`.
@@ -11855,40 +11926,16 @@ export interface CoreApi {
   assignDocumentGroup(documentId: string, groupId: string | null): Promise<AssignmentChange>;
   /**
    * Puts a Document's place and tagging back as `before` had them, with who chose it, so an
-   * automatic choice stays automatic and Organize may change it again, and a Suggested Folder is
-   * a suggestion again, which also takes back its rejection: Organize may offer that Folder for
-   * the Document again. Other rejections stay. Each row goes back only while it still equals what
-   * the change left there (`after`); a later move, run or re-tag wins and that row is left alone.
-   * Returns the change it made, its real rows before and after, or null when it moved neither row.
+   * automatic choice stays automatic and Organize may propose for it again. Each row goes back
+   * only while it still equals what the change left there (`after`); a later move, run or re-tag
+   * wins and that row is left alone. Returns the change it made, its real rows before and after,
+   * or null when it moved neither row.
    */
   restoreAssignment(
     documentId: string,
     before: AssignmentState,
     after: AssignmentState,
   ): Promise<AssignmentChange | null>;
-  /**
-   * Makes these Documents' Suggested Folders the User's choices, which
-   * Organize never changes. Documents with none waiting are left alone; an
-   * unknown Document throws and changes nothing. Returns what changed.
-   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
-   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
-   * `wall` is the Folder wall the assistant checked them behind, given with `checked` (null:
-   * outside every wall): the walls are judged again here, when they are filed, so one that gained
-   * a wall since takes nothing (#2250). Without it, as To review accepts for the User, the User
-   * files anywhere.
-   */
-  acceptAssignments(
-    documentIds: string[],
-    checked?: Record<string, string | null>,
-    wall?: string | null,
-  ): Promise<AssignmentChange[]>;
-  /**
-   * Turns down these Documents' Suggested Folders: each is left Not in a
-   * Folder, and Organize doesn't suggest that Folder for it again. Documents
-   * with none waiting are left alone; an unknown Document throws and changes
-   * nothing. Returns what changed.
-   */
-  rejectAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
   /**
    * Moves Minds, Documents and conversations into a Folder, or out of every Folder
    * (null), all or none: an unknown Mind, Document, conversation or Folder changes
@@ -11898,6 +11945,65 @@ export interface CoreApi {
    * "minds.changed", "library.assignments" and "conversations.changed" follow, once each.
    */
   moveToFolder(move: FolderMoveInput): Promise<FolderMove>;
+
+  /**
+   * Suggestions (CONTEXT.md): what Organize and tagging proposed that the User hasn't confirmed,
+   * each Document's row once, with the Folders proposed by name and how many wait. Nothing in it
+   * is in the Library yet (#1569).
+   */
+  getOrganizeReview(): Promise<OrganizeReview>;
+  /**
+   * One change the User makes to the Suggestions. Returns the rows it touched, before and after,
+   * for `restoreOrganizeReview`; none when nothing changed, as for a row confirmed meanwhile.
+   */
+  editOrganizeReview(edit: OrganizeReviewEdit): Promise<OrganizeReviewChange>;
+  /**
+   * Puts rows back as `before` has them, each only while it is still as `after` left it: a later
+   * run or edit wins. Returns the change it made, or null when it made none.
+   */
+  restoreOrganizeReview(
+    before: OrganizeReviewRow[],
+    after: OrganizeReviewRow[],
+  ): Promise<OrganizeReviewChange | null>;
+  /**
+   * Confirms the rows the User saw, all or none: makes the proposed Folders that a ticked row
+   * waits in (a live Folder of the same name is used instead), files each ticked Document there
+   * as the User's own choice, and adds its Tags as the User's, skipping a Tag the User took off
+   * it. Every row given closes, unticked ones too; one added since keeps waiting. Returns what
+   * it did, or null when none of them waits any more.
+   */
+  confirmOrganizeReview(itemIds: string[]): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Takes a Confirm back: each filing and Tag still as it left them goes back, the Folders and
+   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
+   */
+  undoOrganizeReviewConfirmation(confirmationId: string): Promise<void>;
+  /** Confirms again what its Undo put back. Null when nothing of it waits. */
+  redoOrganizeReviewConfirmation(
+    confirmationId: string,
+  ): Promise<OrganizeReviewConfirmation | null>;
+  /**
+   * Sets these rows aside. What the User unticked or took off stays declined. Returns the id
+   * `restoreDiscardedOrganizeReview` takes, or null when none of them waited.
+   */
+  discardOrganizeReview(itemIds: string[]): Promise<string | null>;
+  /** Brings back what a Discard set aside, but for a Document proposed again since. */
+  restoreDiscardedOrganizeReview(discardId: string): Promise<void>;
+
+  /**
+   * Organize, planned from the whole set at any size, with the User's Organize model through the
+   * classification flow's consent: the Library's Documents in no Folder, `documentIds`, or with
+   * `folderId` Organize This Folder, which sorts that Folder's own Documents into subfolders
+   * inside it and moves nothing out. It waits for Documents still being read ("organize.progress"
+   * says how many), then proposes Folders, subfolders and each Document's place, or why it is
+   * left out, and returns once that is in the Review. A run estimated at more than $1 sends
+   * nothing and returns its estimate, until it is asked again with `costAccepted`. A new run
+   * stops the one under way. Throws InvalidInputError when Organize has no model, or a model
+   * that can't name Folders.
+   */
+  organizeLibrary(input?: OrganizeLibraryInput): Promise<OrganizeLibraryResult>;
+  /** Stops the Organize under way; nothing it planned goes into the Review. */
+  stopOrganizeLibrary(): Promise<void>;
 
   /**
    * Brings back deleted Minds with their content, conversations with their messages,
@@ -14112,8 +14218,7 @@ export interface CoreEvents {
   "library.changed": null;
   /**
    * Documents' Library assignments changed: Organize queued, started,
-   * finished or failed on them, or the User put one in a Folder, or accepted
-   * or rejected its Suggested Folder. Carries each
+   * finished or failed on them, or the User put one in a Folder. Carries each
    * one's assignment whole, as `getLibrary` lists it, so the snapshot needn't
    * be read again.
    */
@@ -14123,6 +14228,10 @@ export interface CoreEvents {
    * or sorted, or its Suggested Folders changed. Carries the batch whole.
    */
   "documents.batch": DocumentBatch;
+  /** The Suggestions changed: how many Documents wait with something to confirm. */
+  "organizeReview.changed": { count: number };
+  /** An Organize run's progress: Documents still being read, then "Organizing 12 of 40…". */
+  "organize.progress": OrganizeProgress;
   /**
    * Documents' Tags changed, or where automatic tagging is for them: the User
    * added or removed a Tag, automatic tagging started, waited, finished or
@@ -14517,11 +14626,20 @@ const methods: Record<CoreApiMethod, true> = {
   stopTagging: true,
   setTaggingWithAi: true,
   dismissAutomaticOffNotice: true,
+  reviewMovedSeen: true,
   assignDocumentGroup: true,
-  acceptAssignments: true,
-  rejectAssignments: true,
   moveToFolder: true,
   restoreAssignment: true,
+  getOrganizeReview: true,
+  editOrganizeReview: true,
+  restoreOrganizeReview: true,
+  confirmOrganizeReview: true,
+  undoOrganizeReviewConfirmation: true,
+  redoOrganizeReviewConfirmation: true,
+  discardOrganizeReview: true,
+  restoreDiscardedOrganizeReview: true,
+  organizeLibrary: true,
+  stopOrganizeLibrary: true,
   restore: true,
   deleteAgain: true,
   undoCommands: true,

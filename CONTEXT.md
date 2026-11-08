@@ -35,7 +35,7 @@ What an Answer is generated from: in a Note, every Block above its Question, exc
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. Automatic and suggested Organize filings count only once the User accepts them.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. A Document waiting in Suggestions counts in no Folder proposed for it until the User confirms it.
 _Avoid_: filter, context
 
 ### The assistant
@@ -161,19 +161,15 @@ _Avoid_: project (in the interface), group (a Folder's former name; a Group is n
 The one place for every Document and Note in no Folder. A Note there searches every Document except those inside a work wall.
 _Avoid_: Unsorted, Uncategorised, Inbox
 
-**Suggested Folder**:
-A Folder that Organize proposes for a Document, which waits for the User to accept it (it becomes the User's choice) or reject it (the Document stays Not in a Folder and that Folder isn't suggested for it again). While it waits, the Document counts as in that Folder, for listings and for the Folder's Search scope, marked as a suggestion.
-_Avoid_: automatic Folder, proposed Folder
-
-**To review**:
-The Library's view of what Organize suggested and the User hasn't accepted yet: the Documents waiting in a Suggested Folder, listed by that Folder, each to accept, move to another Folder or turn down ("Not this Folder"). It is the first section of the Library page while anything waits, with how many, and goes when nothing does.
-_Avoid_: inbox, queue, pending
+**Suggestions**:
+What Organize and tagging propose that the User hasn't confirmed yet (建议 in Chinese): for each Document, the Folder to put it in (one of the User's or a new one by name) or left out with its reason, and the Tags to add. Every run adds to the Library's one set, whoever started it, and it is kept across restarts. Nothing in it counts until the User confirms: no Document moves, no Folder is made and no Tag is added, and a waiting Document is in no Folder proposed for it, for listings, Search scope and walls. The interface shows them on the Library's page as "Suggested Folders" ("Suggested Tags" when only Tags were asked for), opened with Review from the count that says how many wait. Confirm makes the Folders, files the ticked Documents as the User's own choice and adds their Tags, in one step with one Undo; Not Now keeps them; Discard drops them, with Undo. What the User unticks or takes off isn't proposed again for that Document for 30 days, and a run in the background never proposes changing what the User filed or tagged.
+_Avoid_: Suggested Folder and To review (the earlier names), Review as a noun (Review changes is a Note's), automatic Folder, inbox, queue, pending
 
 **Source location**:
 The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists them as Folders on disk.
 
 **Tag**:
-A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind applies Tags automatically, and the User can add or remove them.
+A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind proposes Tags, which wait in Suggestions until the User confirms them, and the User can add or remove them.
 _Avoid_: category, label, class
 
 **Topic**:
@@ -181,7 +177,7 @@ The earlier design for a generated two-level subject tree. The current Library u
 _Avoid_: cluster, category, collection, group
 
 **Library**:
-The view of all of a User's Documents, organised into Folders with visible Tags. Users can search names or Tags, manage Folders, and organise Documents automatically or correct them by hand; manual choices are kept.
+The view of all of a User's Documents, organised into Folders with visible Tags. Users can search names or Tags, manage Folders, and organise Documents with Organize, whose Suggestions wait for the User to confirm, or by hand; manual choices are kept.
 _Avoid_: archive, index, vault
 
 **Peek**:
@@ -234,7 +230,7 @@ _Avoid_: default Skill, system Skill
 
 **Proposal**:
 A change to a Note, made by the AI, proposed by an outside agent or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
-_Avoid_: suggestion, edit, draft, diff
+_Avoid_: suggestion (Suggestions are what Organize and tagging propose), edit, draft, diff
 
 **AI text**:
 The words the AI wrote into a Note that the User hasn't made their own: in Answers, Answers added to a note, accepted changes and accepted suggestions. They are drawn a step softer than the User's writing. What the User types, even inside AI text, is theirs, and "Mark as mine" makes selected AI text theirs. Exports and Question context read it as any other text; a Word export can mark it with a comment.

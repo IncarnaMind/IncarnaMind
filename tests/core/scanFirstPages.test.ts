@@ -1,12 +1,13 @@
 /**
  * Dropped scans are classified from their first pages while the rest is read (#2308): every
  * dropped scan's first 12 pages are read before any scan's later pages, Organize and Tags start
- * once those pages are read, and reading the rest changes neither the Folder nor the Tags.
+ * once those pages are read, and reading the rest changes neither the Folder Organize proposes
+ * nor the Tags.
  */
 import { createCanvas } from "@napi-rs/canvas";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
-import type { AssignmentState, Core, Document, Embedder, TextRecognizer } from "../../src/core";
+import type { Core, Document, Embedder, TextRecognizer } from "../../src/core";
 import {
   type DocumentHead,
   type ReadingChannel,
@@ -17,6 +18,7 @@ import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { turnOnEmbeddings } from "../helpers/embedding";
+import { proposedFor } from "../helpers/library";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 
 /** A grey page with a few dark rows, as a scanner makes one: small, so drawing it is quick. */
@@ -233,8 +235,8 @@ async function sortingCore(
 describe("Dropped scans are classified from their first pages (#2308)", {
   timeout: 240_000,
 }, () => {
-  // protects=ten 46-page scans dropped together are each filed and tagged from their first pages before any one is read whole, while no page after the 12th has been read; fails_when=Organize waits for a scan to be read in full, or one scan's later pages are read while another's first pages wait; no_claim=how fast the real text recognition model reads a page.
-  test("ten 46-page scans are each filed before any one of them is read whole", async () => {
+  // protects=ten 46-page scans dropped together each have a Folder proposed and are tagged from their first pages before any one is read whole, while no page after the 12th has been read; fails_when=Organize waits for a scan to be read in full, or one scan's later pages are read while another's first pages wait; no_claim=how fast the real text recognition model reads a page.
+  test("ten 46-page scans each have a Folder proposed before any one of them is read whole", async () => {
     const { core, reader, folders, tag } = await sortingCore("en", 46);
     const [harbour] = folders;
     if (!harbour) throw new Error("No Folder.");
@@ -249,13 +251,10 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     expect(ids).toHaveLength(10);
     try {
       await vi.waitFor(async () => {
-        const { assignments } = await core.getLibrary();
-        const filed = assignments.filter(
-          (each) => ids.includes(each.documentId) && each.status === "classified",
-        );
-        expect(filed.map((each) => each.groupId)).toEqual(Array(10).fill(harbour.id));
+        const proposed = await Promise.all(ids.map((id) => proposedFor(core, id)));
+        expect(proposed).toEqual(Array(10).fill(harbour.id));
       }, WAIT);
-      // Still being read, every one of them, while it is filed and tagged.
+      // Still being read, every one of them, while its Folder is proposed and it is tagged.
       for (const status of await statusesOf(core, ids))
         expect(["queued", "extracting"]).toContain(status);
       const listed = (await core.listDocuments()).filter((each) => ids.includes(each.id));
@@ -270,7 +269,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     }
   });
 
-  // protects=a scan is filed in the Folder its first pages call for, in English and in Chinese, gets its Tag, and keeps both, asked once, when the rest of it is read; fails_when=reading the rest files or tags it again, or the first pages aren't what decides it; no_claim=which Folder a real model picks.
+  // protects=a scan has the Folder its first pages call for proposed, in English and in Chinese, gets its Tag, and keeps both, asked once, when the rest of it is read; fails_when=reading the rest sorts or tags it again, or the first pages aren't what decides it; no_claim=which Folder a real model picks.
   test.each(["en", "zh-CN"] as const)(
     "%s: the first pages decide the Folder, and reading the rest changes nothing",
     async (language) => {
@@ -283,19 +282,16 @@ describe("Dropped scans are classified from their first pages (#2308)", {
         ]),
       );
       const ids = added.map((each) => each.id);
-      const filedIn = async () =>
-        (await core.getLibrary()).assignments
-          .filter((each) => ids.includes(each.documentId))
-          .map((each) => [each.documentId, each.groupId, each.status]);
-      const wanted = ids.map((id, index) => [id, folders[index]?.id, "classified"]);
-      await vi.waitFor(async () => expect(await filedIn()).toEqual(wanted), WAIT);
+      const proposedIn = () => Promise.all(ids.map((id) => proposedFor(core, id)));
+      const wanted = folders.map((folder) => folder.id);
+      await vi.waitFor(async () => expect(await proposedIn()).toEqual(wanted), WAIT);
       expect(await statusesOf(core, ids)).not.toContain("ready");
       expect(model.asked.organize).toHaveLength(2);
 
       reader.release();
       await waitForProcessing(core, ids, WAIT.timeout);
       expect(await statusesOf(core, ids)).toEqual(["ready", "ready"]);
-      expect(await filedIn()).toEqual(wanted);
+      expect(await proposedIn()).toEqual(wanted);
       const listed = (await core.listDocuments()).filter((each) => ids.includes(each.id));
       expect(listed.map((each) => each.tags.map((link) => link.tagId))).toEqual([
         [tag.id],
@@ -306,19 +302,17 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     },
   );
 
-  // protects=quit while the rest of a scan is read, the next start reads on from the page it reached, keeps the Folder and Tag, and asks nothing again; fails_when=the restart reads the first pages again or files or tags the scan again; no_claim=what a crash in the middle of a page loses.
+  // protects=quit while the rest of a scan is read, the next start reads on from the page it reached, keeps the Folder and Tag, and asks nothing again; fails_when=the restart reads the first pages again or sorts or tags the scan again; no_claim=what a crash in the middle of a page loses.
   test("a restart reads on from where it was, and doesn't sort again", async () => {
     const { core, dataDir, folders, tag, model } = await sortingCore("en", 14);
     const [document] = await addFiles(core, [
       ["Quay survey.pdf", scan(LANGUAGES.en.cover("berth", 1), 14)],
     ]);
     if (!document) throw new Error("Not added.");
-    await vi.waitFor(async () => {
-      const found = (await core.getLibrary()).assignments.find(
-        (each) => each.documentId === document.id,
-      );
-      expect([found?.groupId, found?.status]).toEqual([folders[0]?.id, "classified"]);
-    }, WAIT);
+    await vi.waitFor(
+      async () => expect(await proposedFor(core, document.id)).toBe(folders[0]?.id),
+      WAIT,
+    );
     core.close();
 
     const reader = scriptedReader(LANGUAGES.en.sheet, 14);
@@ -332,41 +326,30 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     const [read] = await waitForProcessing(reopened, [document.id], WAIT.timeout);
     expect(read?.status).toBe("ready");
     expect(read?.tags.map((link) => link.tagId)).toEqual([tag.id]);
-    expect((await reopened.getLibrary()).assignments.map((each) => each.groupId)).toEqual([
-      folders[0]?.id,
-    ]);
+    expect(await proposedFor(reopened, document.id)).toBe(folders[0]?.id);
     // Only pages 13 and 14 were left to read; the first 12 were kept.
     expect([reader.asked.first, reader.asked.later]).toEqual([0, 2]);
     expect(model.asked.organize).toHaveLength(1);
   });
 
-  // protects=a sort taken back with Undo while the rest of the scan is read stays taken back once the rest is read; fails_when=reading the rest files the Document again; no_claim=the undo line's wording.
-  test("a sort taken back while the rest is read stays taken back", async () => {
+  // protects=a proposal the User discards while the rest of the scan is read stays discarded once the rest is read; fails_when=reading the rest proposes the Document again; no_claim=the Review's wording.
+  test("a proposal discarded while the rest is read stays discarded", async () => {
     const { core, reader, folders, model } = await sortingCore("en", 14);
     const [document] = await addFiles(core, [
       ["Quay survey.pdf", scan(LANGUAGES.en.cover("berth", 1), 14)],
     ]);
     if (!document) throw new Error("Not added.");
-    const filed = await vi.waitFor(async () => {
-      const found = (await core.getLibrary()).assignments.find(
-        (each) => each.documentId === document.id && each.status === "classified",
-      );
-      expect(found?.groupId).toBe(folders[0]?.id);
-      return found;
-    }, WAIT);
-    if (!filed) throw new Error("Not filed.");
-    const { documentId: _id, tagging, ...assignment } = filed;
-    const after: AssignmentState = { assignment, tagging: tagging ?? null };
-    await core.restoreAssignment(document.id, { assignment: null, tagging: null }, after);
-    expect((await core.getLibrary()).assignments.map((each) => each.documentId)).not.toContain(
-      document.id,
+    await vi.waitFor(
+      async () => expect(await proposedFor(core, document.id)).toBe(folders[0]?.id),
+      WAIT,
     );
+    const { items } = await core.getOrganizeReview();
+    await core.discardOrganizeReview(items.map((item) => item.id));
+    expect(await proposedFor(core, document.id)).toBeNull();
 
     reader.release();
     await waitForProcessing(core, [document.id], WAIT.timeout);
-    expect((await core.getLibrary()).assignments.map((each) => each.documentId)).not.toContain(
-      document.id,
-    );
+    expect(await proposedFor(core, document.id)).toBeNull();
     expect(model.asked.organize).toHaveLength(1);
   });
 
@@ -398,7 +381,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     expect(model.asked.tags).toHaveLength(1);
   });
 
-  // protects=a scan whose first 12 pages hold too little text for Organize's Passages waits to be read whole, then is filed; fails_when=it is filed from a few words on near-blank pages, or never filed; no_claim=how much text a real scan's cover has.
+  // protects=a scan whose first 12 pages hold too little text for Organize's Passages waits to be read whole, then has its Folder proposed; fails_when=it is sorted from a few words on near-blank pages, or never sorted; no_claim=how much text a real scan's cover has.
   test("near-blank first pages wait for the whole scan", async () => {
     const { core, reader, folders, model } = await sortingCore("en", 14, {
       sheet: (page) =>
@@ -420,12 +403,10 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     expect(model.asked.organize).toHaveLength(0);
     reader.release();
     await waitForProcessing(core, [document.id], WAIT.timeout);
-    await vi.waitFor(async () => {
-      const found = (await core.getLibrary()).assignments.find(
-        (each) => each.documentId === document.id,
-      );
-      expect([found?.groupId, found?.status]).toEqual([folders[0]?.id, "classified"]);
-    }, WAIT);
+    await vi.waitFor(
+      async () => expect(await proposedFor(core, document.id)).toBe(folders[0]?.id),
+      WAIT,
+    );
     expect(model.asked.organize).toHaveLength(1);
   });
 

@@ -56,7 +56,6 @@ const assignment = (documentId: string, groupId: string | null): DocumentGroupAs
   documentId,
   groupId,
   source: "automatic",
-  suggested: false,
   status: "classified",
   error: null,
   model: null,
@@ -173,6 +172,7 @@ describe("moving Minds and Documents", () => {
       taggingStopped: [],
     },
     automaticDefault: false,
+    reviewCount: 0,
   };
   const minds = [mind("shortlist", null, "Shortlist"), mind("notes", "research", "Notes")];
 

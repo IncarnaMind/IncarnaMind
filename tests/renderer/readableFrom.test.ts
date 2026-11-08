@@ -28,7 +28,6 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
   documentId,
   groupId,
   source: "user",
-  suggested: false,
   status: "classified",
   error: null,
   model: null,
@@ -90,6 +89,7 @@ describe("A Document a Note's sentence may take now", () => {
           taggingStopped: [],
         },
         automaticDefault: false,
+        reviewCount: 0,
       },
     });
     expect(readableNow("meeting", { kind: "document", id: "transcript" })).toBe(true);

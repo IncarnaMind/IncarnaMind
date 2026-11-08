@@ -91,10 +91,11 @@ export interface TaggerOptions {
   stopped(id: string): boolean;
   now: () => string;
   /**
-   * Whether this Document may go by itself to the service a prepared tagger sends to
-   * (`mayBackgroundSend` in ./held); one that may not waits for the User, "off".
+   * Whether this Document may go to the service a prepared tagger sends to: by itself
+   * (`mayBackgroundSend` in ./held), or, `pressed`, as part of an Organize the User ran. One that
+   * may not waits for the User, "off".
    */
-  maySend(id: string, service: ExternalService): boolean;
+  maySend(id: string, service: ExternalService, pressed: boolean): boolean;
   tags: TagsStore;
   /** Whether the tagger in use can take a request now. Asks the User nothing. */
   canRun(): Promise<boolean>;
@@ -162,7 +163,15 @@ export function createTagger(options: TaggerOptions) {
    */
   const requests = new Map<string, number>();
   const asked = new Set<string>();
-  const organized = (id: string) => options.organizing?.(id) === true;
+  /**
+   * The Documents an Organize run finished with (#1569): its plan proposes only Folders, so their
+   * Tags come from here, as Organize's press tagged them before, with tagging by itself Off too.
+   * Walls and a stop hold as they do for background tagging, and no clearance is kept.
+   */
+  const afterOrganizing = new Set<string>();
+  // Handed here, or asked for by the User, a Document is the tagger's even where Organize holds it.
+  const organized = (id: string) =>
+    !asked.has(id) && !afterOrganizing.has(id) && options.organizing?.(id) === true;
 
   // A Meeting's Transcript has no Tags of its own: it goes with its Note (#2528).
   const rowOf = (id: string) =>
@@ -286,7 +295,7 @@ export function createTagger(options: TaggerOptions) {
       if (modelAsked && service) {
         if (asked.has(id)) {
           askedOf = service;
-        } else if (!options.maySend(id, service)) {
+        } else if (!options.maySend(id, service, afterOrganizing.has(id))) {
           if (setState(id, "off")) announce([id]);
           return;
         }
@@ -380,7 +389,8 @@ export function createTagger(options: TaggerOptions) {
       }
       const id = queue.shift();
       if (id === undefined || organized(id)) return;
-      if ((options.stopped(id) || !automatic()) && !asked.has(id)) {
+      if ((options.stopped(id) || (!automatic() && !afterOrganizing.has(id))) && !asked.has(id)) {
+        afterOrganizing.delete(id);
         if (setState(id, automatic() ? "stopped" : "off")) announce([id]);
         return;
       }
@@ -398,6 +408,7 @@ export function createTagger(options: TaggerOptions) {
       } else if ((requests.get(id) ?? 0) === request) {
         // A Re-tag that came in meanwhile is the next turn's to answer, so its ask stays.
         asked.delete(id);
+        afterOrganizing.delete(id);
       }
     } catch (error) {
       if (lifetime.signal.aborted) return;
@@ -466,7 +477,9 @@ export function createTagger(options: TaggerOptions) {
       .filter((row) => !organized(row.id));
     // Off, nothing goes by itself: only what the User asked for is tagged. A Document that
     // failed or was stopped keeps its line and its Retry; only one waiting to go by itself is off.
-    const held = automatic() ? [] : found.filter((row) => !asked.has(row.id));
+    const held = automatic()
+      ? []
+      : found.filter((row) => !asked.has(row.id) && !afterOrganizing.has(row.id));
     setStates(
       held
         .filter(
@@ -602,6 +615,20 @@ export function createTagger(options: TaggerOptions) {
       if (changed.length > 0) announce(changed);
       if (!ready) return;
       for (const { id, row } of askedFor) if (hasText(id, row)) enqueue(id, true);
+    },
+
+    /** Tags the Documents an Organize run finished with (see `afterOrganizing`). */
+    afterOrganize(ids: readonly string[]): void {
+      const rows = [...new Set(ids)].flatMap((id) => {
+        const row = rowOf(id);
+        return row && hasText(id, row) ? [id] : [];
+      });
+      for (const id of rows) afterOrganizing.add(id);
+      const ready = options.mightBeReady();
+      const changed = rows.filter((id) => setState(id, ready ? "pending" : "waiting-for-provider"));
+      if (changed.length > 0) announce(changed);
+      if (!ready) return;
+      for (const id of rows) enqueue(id, true);
     },
 
     /** The ready Documents whose tagging, or Organize's, couldn't reach the AI model, unless stopped. */

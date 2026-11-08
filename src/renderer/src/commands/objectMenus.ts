@@ -45,8 +45,6 @@ registerMenu("document", [
   "document.startMind",
   "document.showAnnotations",
   "document.exportAnnotations",
-  "document.accept",
-  "document.reject",
   "document.moveTo",
   "folder.newWith",
   "document.tags",

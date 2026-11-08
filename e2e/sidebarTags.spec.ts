@@ -160,7 +160,8 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
     });
     await tagDocuments(window, { Attention: ["Paper", "Book", "Contract", "Report"] });
     // Library Folders, and Organize with a local decision server: Report on the report,
-    // and Invoice on the invoice, awaiting review.
+    // and Invoice on the invoice, awaiting review. Its Folders wait in Suggestions until the
+    // User confirms them, as here.
     const port = (server.address() as AddressInfo).port;
     await window.evaluate(async (url) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -171,16 +172,32 @@ test("the Tags section lists each Tag a Document carries with its colour and cou
       });
       await core.classifyDocuments();
     }, `http://127.0.0.1:${port}`);
+    const waiting = () =>
+      window.evaluate(
+        async () =>
+          (
+            await (
+              globalThis as unknown as { incarnamind: CoreBridge }
+            ).incarnamind.getOrganizeReview()
+          ).items.length,
+      );
+    await expect.poll(waiting, { timeout: 20_000 }).toBe(4);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.confirmOrganizeReview(
+        (await core.getOrganizeReview()).items.map((each) => each.id),
+      );
+    });
 
     // One tree: the Folders, then the Tags in use, under their headings.
     await expect(window.getByTestId("folders-title")).toHaveText("Folders");
     const tagsToggle = window.getByTestId("tags-toggle");
     await expect(tagsToggle).toHaveText("Tags");
     await expect(tagsToggle).toHaveAttribute("aria-expanded", "true");
-    // In the Folders, the rows show their Tags' colours too: Organize files
-    // Attention in Reports & presentations, which opens in place.
+    // In the Folders, the rows show their Tags' colours too: Attention was filed in Reports &
+    // presentations, which opens in place.
     const reports = sidebarFolder(window, "Reports & presentations");
-    await expect(reports.getByTestId("browse-count")).toHaveText("3 · 3 suggested");
+    await expect(reports.getByTestId("browse-count")).toHaveText("3");
     await slideAndClick(window, reports.getByTestId("folder-row"));
     await expect(reports).toHaveAttribute("data-expanded", "true");
     const attentionInFolders = reports

@@ -11,6 +11,7 @@ import { type Core, DATABASE_FILE, type Document } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { proposedFor } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
 import { docxOf, xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
@@ -53,15 +54,16 @@ async function add(core: Core, files: Record<string, string | Uint8Array>): Prom
 
 const assignmentsOf = async (core: Core) => (await core.getLibrary()).assignments;
 
-/** Waits until Organize has filed each Document in `folderId`. */
+/** Waits until Organize has read each Document and proposes `folderId` for it, filing none (#1569). */
 const filed = (core: Core, ids: readonly string[], folderId: string) =>
   vi.waitFor(async () => {
     const assignments = await assignmentsOf(core);
     for (const id of ids) {
       expect(assignments.find((each) => each.documentId === id)).toMatchObject({
-        groupId: folderId,
+        groupId: null,
         status: "classified",
       });
+      expect(await proposedFor(core, id)).toBe(folderId);
     }
   });
 
@@ -114,7 +116,7 @@ describe("with tagging and sorting by themselves off", () => {
     expect(chat.calls.map((call) => call.purpose)).toEqual(["organize", "organize"]);
   });
 
-  test("Undo of that Organize run leaves the Tags", async () => {
+  test("Discarding what that Organize run proposed leaves the Tags", async () => {
     const { core, chat, reports } = await start(false);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
@@ -123,18 +125,10 @@ describe("with tagging and sorting by themselves off", () => {
     await filed(core, [document.id], reports.id);
     expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
 
-    const held = (await core.getLibrary()).assignments.find(
-      (each) => each.documentId === document.id,
-    );
-    if (!held) throw new Error("No assignment.");
-    const { documentId: _id, tagging, ...assignment } = held;
-    await core.restoreAssignment(
-      document.id,
-      { assignment: null, tagging: null },
-      { assignment, tagging: tagging ?? null },
-    );
+    const { items } = await core.getOrganizeReview();
+    await core.discardOrganizeReview(items.map((item) => item.id));
 
-    expect(await assignmentsOf(core)).toEqual([]);
+    expect(await proposedFor(core, document.id)).toBeNull();
     expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
   });
 

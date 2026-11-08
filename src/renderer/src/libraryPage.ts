@@ -361,7 +361,6 @@ export function organizeState(
   if (state.run === "working") return "library.working";
   if (state.manual) return "library.manual";
   if (state.run === "waiting" || state.run === "failed") return "library.needsAttention";
-  if (state.suggested) return "library.suggested";
   if (state.run === "done" || state.run === "stopped") return "library.saved";
   return "library.notClassified";
 }

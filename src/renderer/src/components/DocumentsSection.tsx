@@ -13,6 +13,7 @@ import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
+import { useOrganizeReview } from "../organizeReview";
 import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
@@ -148,6 +149,10 @@ export function DocumentsSection() {
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
+  const counted = useOrganizeReview((state) => state.count);
+  const waitingNow = useAppStore((state) => state.library?.reviewCount ?? 0);
+  const reviewing = useOrganizeReview((state) => state.open);
+  const waiting = reviewing ? 0 : (counted ?? waitingNow);
   // ⌘A and Shift-click reach the rows in view: every Folder, Mind and Document the tree draws.
   useSelectionOrder("sidebar", () => rowsIn(tree.current));
   useSelectionFollowsShown(tree);
@@ -221,12 +226,28 @@ export function DocumentsSection() {
           >
             <DocumentLineIcon kind="text" className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
-            <span
-              data-testid="library-row-count"
-              className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
-            >
-              {formatCount(libraryDocuments.length, language)}
-            </span>
+            {waiting > 0 ? (
+              // What waits to be confirmed, as Mail counts unread (#1569).
+              <span
+                data-testid="library-row-count"
+                data-waiting="true"
+                className="min-w-[6ch] text-right text-[12px] font-bold tabular-nums text-ink"
+              >
+                <span aria-hidden="true">{formatCount(waiting, language)}</span>
+                <span className="sr-only">
+                  {t(waiting === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
+                    count: formatCount(waiting, language),
+                  })}
+                </span>
+              </span>
+            ) : (
+              <span
+                data-testid="library-row-count"
+                className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
+              >
+                {formatCount(libraryDocuments.length, language)}
+              </span>
+            )}
           </button>
           <div className={rowActionsClass}>
             <button

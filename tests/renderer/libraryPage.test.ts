@@ -270,7 +270,6 @@ describe("what Organize did, as Get info says it", () => {
     documentId: "d",
     groupId: "finance",
     source: "automatic",
-    suggested: false,
     status: "classified",
     error: null,
     model: null,
@@ -285,7 +284,6 @@ describe("what Organize did, as Get info says it", () => {
     expect(en(organizeState(item, assignment({ source: "user", status: "failed" })))).toBe(
       "Your choice",
     );
-    expect(en(organizeState(item, assignment({ suggested: true })))).toBe("Suggested");
     expect(en(organizeState(item, assignment({})))).toBe("Organized");
     expect(en(organizeState(doc({ tagging: "stopped" }), assignment({})))).toBe("Organized");
   });

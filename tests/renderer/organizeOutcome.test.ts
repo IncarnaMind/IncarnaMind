@@ -4,16 +4,15 @@ import {
   notSortedIds,
   organizeFailedIds,
   organizeStateOf,
-  suggestedIds,
 } from "../../src/renderer/src/organizeOutcome";
 
 /*
  * The cases table (#1955): one state per live Document, by what the actions left it as, and the
- * lists every line reads from it. The row's mark, the title line, To review, ⌘K, Try again,
- * Accept all, Home, the pending count and Get info all use organizeStateOf.
+ * lists every line reads from it. The row's mark, the title line, ⌘K, Try again, the pending
+ * count and Get info all use organizeStateOf.
  */
 
-type Held = Pick<DocumentGroupAssignment, "status" | "groupId" | "source" | "suggested">;
+type Held = Pick<DocumentGroupAssignment, "status" | "groupId" | "source">;
 
 const doc = (id: string, tagging: TaggingState = "tagged"): Pick<Document, "id" | "tagging"> => ({
   id,
@@ -24,7 +23,6 @@ const held = (over: Partial<Held> = {}): Held => ({
   status: "classified",
   groupId: null,
   source: "automatic",
-  suggested: false,
   ...over,
 });
 
@@ -36,7 +34,6 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(held({ status: "failed" }))).toEqual({
       run: "failed",
       place: "notSorted",
-      suggested: false,
       manual: false,
     });
     expect(stateOf(held({ status: "failed" }), "failed").place).toBe("notSorted");
@@ -46,16 +43,14 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(held())).toEqual({
       run: "done",
       place: "sorted",
-      suggested: false,
       manual: false,
     });
   });
 
-  test("one the User filed, accepted, or left unfiled by hand is theirs", () => {
+  test("one the User filed or left unfiled by hand is theirs", () => {
     expect(stateOf(held({ groupId: "finance", source: "user" }))).toEqual({
       run: "done",
       place: "sorted",
-      suggested: false,
       manual: true,
     });
     expect(stateOf(held({ source: "user" })).place).toBe("sorted");
@@ -66,38 +61,27 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(held({ source: "user", status: "failed" }))).toEqual({
       run: "failed",
       place: "sorted",
-      suggested: false,
       manual: true,
     });
   });
 
-  test("a Suggested Folder still waits, and one whose latest run failed still waits", () => {
-    expect(stateOf(held({ groupId: "finance", suggested: true }))).toEqual({
+  test("one Organize filed is sorted, and one in a Folder whose later run failed is neither", () => {
+    expect(stateOf(held({ groupId: "finance" }))).toEqual({
       run: "done",
-      place: "neither",
-      suggested: true,
+      place: "sorted",
       manual: false,
     });
-    expect(stateOf(held({ groupId: "finance", suggested: true, status: "failed" }))).toEqual({
+    expect(stateOf(held({ groupId: "finance", status: "failed" }))).toEqual({
       run: "failed",
       place: "neither",
-      suggested: true,
-      manual: false,
-    });
-    expect(stateOf(held({ groupId: "finance", suggested: true, status: "classifying" }))).toEqual({
-      run: "working",
-      place: "neither",
-      suggested: true,
       manual: false,
     });
   });
 
-  test("turning one down settles its place, while a retag the User asked for stays the tagger's", () => {
-    // A Reject writes the assignment (no Folder, classified); the tagger may still be waiting.
+  test("a settled place stands while a retag the User asked for is still the tagger's", () => {
     expect(stateOf(held(), "waiting-for-provider")).toEqual({
       run: "done",
       place: "sorted",
-      suggested: false,
       manual: false,
     });
   });
@@ -106,7 +90,6 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(held(), "stopped")).toEqual({
       run: "stopped",
       place: "neither",
-      suggested: false,
       manual: false,
     });
   });
@@ -117,7 +100,6 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(held({ status: "waiting" }), "waiting-for-provider")).toEqual({
       run: "waiting",
       place: "neither",
-      suggested: false,
       manual: false,
     });
     expect(stateOf(held({ status: "pending" })).place).toBe("neither");
@@ -127,13 +109,11 @@ describe("what Organize says of a Document", () => {
     expect(stateOf(undefined)).toEqual({
       run: "none",
       place: "neither",
-      suggested: false,
       manual: false,
     });
     expect(organizeStateOf(undefined, held())).toEqual({
       run: "none",
       place: "neither",
-      suggested: false,
       manual: false,
     });
   });
@@ -168,24 +148,11 @@ describe("the lists every line reads from the one state", () => {
         [
           { documentId: "a", ...held({ status: "failed" }) },
           { documentId: "b", ...held({ source: "user", status: "failed" }) },
-          { documentId: "c", ...held({ groupId: "finance", suggested: true, status: "failed" }) },
+          { documentId: "c", ...held({ groupId: "finance", status: "failed" }) },
           { documentId: "gone", ...held({ status: "failed" }) },
         ],
       ),
     ).toEqual(new Set(["a", "c"]));
-  });
-
-  test("Accept all and Home count the live Documents whose Suggested Folder waits", () => {
-    expect(
-      suggestedIds(
-        [doc("a"), doc("b")],
-        [
-          { documentId: "a", ...held({ groupId: "finance", suggested: true }) },
-          { documentId: "b", ...held({ groupId: "finance", suggested: true, status: "failed" }) },
-          { documentId: "gone", ...held({ groupId: "finance", suggested: true }) },
-        ],
-      ),
-    ).toEqual(["a", "b"]);
   });
 
   test("waiting, settled and stopped Documents are not Not sorted", () => {
@@ -193,7 +160,7 @@ describe("the lists every line reads from the one state", () => {
       notSortedIds(
         [doc("a"), doc("b"), doc("c", "stopped")],
         [
-          { documentId: "a", ...held({ groupId: "finance", suggested: true, status: "failed" }) },
+          { documentId: "a", ...held({ groupId: "finance", status: "failed" }) },
           { documentId: "b", ...held({ source: "user", status: "failed" }) },
           { documentId: "c", ...held() },
         ],

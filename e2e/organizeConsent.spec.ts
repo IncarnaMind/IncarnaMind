@@ -1,12 +1,14 @@
 /**
  * Dropped Documents wait for the User's Allow before a cloud service reads them (#2308): the
  * sidebar's footer says how many and names the service, its popover says what goes, the press
- * organizes them with one Undo, and turning the switch off brings the row back.
+ * organizes them into Suggestions, where they wait for the User's Confirm with nothing filed
+ * (#1569), and turning the switch off brings the row back.
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -49,7 +51,7 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: the footer asks, the press turns organizing on and organizes with one Undo, off asks again`, async () => {
+  test(`${language}: the footer asks, the press turns organizing on and proposes them for the User to confirm, off asks again`, async () => {
     test.setTimeout(120_000);
     const words = CASES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -97,6 +99,15 @@ for (const language of ["en", "zh-CN"] as const) {
               await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary()
             ).assignments.filter((each) => each.groupId !== null).length,
         );
+      const waiting = () =>
+        window.evaluate(
+          async () =>
+            (
+              await (
+                globalThis as unknown as { incarnamind: CoreBridge }
+              ).incarnamind.getOrganizeReview()
+            ).count,
+        );
       expect(await filed()).toBe(0);
 
       // What goes, readable before the press: on a click, and on the keyboard's focus.
@@ -113,9 +124,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(allow).toBeFocused();
       await window.keyboard.press("Enter");
       await expect(row).toHaveCount(0);
-      await expect.poll(filed, { timeout: 60_000 }).toBe(4);
+      // Organize proposes Harbour for the four, and they wait for the User: none is filed.
+      await expect.poll(waiting, { timeout: 60_000 }).toBe(4);
+      expect(await filed()).toBe(0);
 
-      // The press turned organizing on for that service: a Document dropped now goes by itself.
+      // The press turned organizing on there: a Document dropped now is proposed by itself.
       const add = (index: number) =>
         window.evaluate(
           async (path) => {
@@ -126,12 +139,14 @@ for (const language of ["en", "zh-CN"] as const) {
         );
       await writeFile(join(sources, "Survey 5.md"), `# Survey 5\n\n${words.text(5)}\n`);
       await add(5);
-      await expect.poll(filed, { timeout: 60_000 }).toBe(5);
-
-      // One Undo takes the press's run back; the switch stays on, so no row asks.
-      await window.keyboard.press("ControlOrMeta+z");
-      await expect.poll(filed, { timeout: 30_000 }).toBe(1);
+      await expect.poll(waiting, { timeout: 60_000 }).toBe(5);
+      expect(await filed()).toBe(0);
       await expect(row).toHaveCount(0);
+      // The Library's top says how many wait, where Review opens them.
+      await pointAndClick(window, window.getByTestId("open-library"));
+      await expect(window.getByTestId("organize-waiting")).toContainText(
+        translate(language, "organizeReview.waiting", { count: "5" }),
+      );
 
       // Off again: a Document dropped now waits, and the row asks once more.
       await window.evaluate(async () => {

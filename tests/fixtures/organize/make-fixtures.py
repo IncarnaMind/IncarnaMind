@@ -22,6 +22,11 @@ descriptions (src/core/tags/presets.ts) as written on 2026-10-09.
 
 The output is deterministic for the same library versions: fixed document
 dates, fixed ZIP timestamps, reportlab's invariant mode and seeded noise.
+
+    <venv>/bin/python -I tests/fixtures/organize/make-fixtures.py --scale 500 --seed 1 <folder>
+
+writes a larger set made from templates instead (see "A set at scale" below), labelled the
+same way, into a folder outside the repository; the new-User eval makes it at run time.
 """
 import datetime
 import hashlib
@@ -3988,6 +3993,510 @@ doc(
 
 
 # ---------------------------------------------------------------------------
+# A set at scale (--scale N): Documents made from templates, labelled like the 80
+# ---------------------------------------------------------------------------
+#
+# For Organize's plan at any size (#1569): N Documents across the five Folders and Unsorted,
+# English and Chinese, in every format but image-only scans aside, each a page or two. Each
+# is labelled with its Folder, its kinds and `sub`, the subfolder a person would make for it
+# inside its Folder. Made into a folder of its own at eval time, never committed.
+
+EN_COMPANIES = [
+    "Alder Systems", "Birchwood Logistics", "Cedar & Finch", "Dunmore Foods", "Elmstead Energy",
+    "Fernhill Media", "Glenrock Mining", "Harbourline Shipping", "Ivywood Health", "Juniper Labs",
+    "Kestrel Analytics", "Larchmont Retail", "Maplecrest Homes", "Northgate Telecom",
+    "Oakfield Pharma", "Pinecone Robotics", "Quarry Lane Studios", "Redwood Capital",
+]
+ZH_COMPANIES = [
+    "北桥科技有限公司", "东湖物流有限公司", "南山食品有限公司", "西岭能源有限公司", "青石传媒有限公司",
+    "白杨医疗有限公司", "金穗零售有限公司", "云帆航运有限公司", "长风制造有限公司", "星河数据有限公司",
+    "松涛地产有限公司", "海棠制药有限公司",
+]
+EN_PEOPLE = [
+    "Priya Raman", "Tom Becker", "Aiko Tanabe", "Lena Novak", "Marcus Hale", "Sofia Duarte",
+    "Ravi Menon", "Grace Okafor", "Daniel Price", "Mei Lin", "Olivia Grant", "Samuel Ortiz",
+]
+ZH_PEOPLE = ["王晓雨", "陈立明", "李婉清", "赵海峰", "刘佳", "张伟", "周敏", "孙浩", "吴静", "郑磊"]
+EN_CITIES = ["Northbridge", "Valeport", "Lakeside", "Eastmere", "Westholm", "Southcombe"]
+ZH_CITIES = ["上海", "杭州", "苏州", "南京", "深圳", "成都", "武汉", "西安"]
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+          "September", "October", "November", "December"]
+
+RESEARCH_TOPICS = {
+    "en": [
+        ("solid-state electrolytes", "ionic conductivity"), ("perovskite solar cells", "power conversion efficiency"),
+        ("corrosion inhibitors", "corrosion rate"), ("coral reef recovery", "coral cover"),
+        ("bird song dialects", "syllable diversity"), ("soil microbiomes", "microbial diversity"),
+        ("sleep and memory", "recall accuracy"), ("readability of health notices", "comprehension score"),
+        ("urban heat islands", "surface temperature"), ("protein folding", "folding rate"),
+    ],
+    "zh": [
+        ("固态电解质", "离子电导率"), ("钙钛矿太阳能电池", "光电转换效率"), ("缓蚀剂", "腐蚀速率"),
+        ("珊瑚礁恢复", "珊瑚覆盖率"), ("鸟鸣方言", "音节多样性"), ("土壤微生物群落", "微生物多样性"),
+        ("睡眠与记忆", "回忆准确率"), ("城市热岛效应", "地表温度"), ("蛋白质折叠", "折叠速率"),
+    ],
+}
+PRODUCTS = {
+    "en": ["smart thermostats", "electric scooters", "meal kits", "office chairs", "water filters", "e-bikes"],
+    "zh": ["智能温控器", "电动滑板车", "预制菜", "办公椅", "净水器", "电动自行车"],
+}
+
+
+class Filler:
+    """Random parts of a Document: names, numbers and dates, from one seeded generator."""
+
+    def __init__(self, rng, language):
+        self.rng = rng
+        self.language = language
+
+    def pick(self, items):
+        return self.rng.choice(items)
+
+    def company(self):
+        return self.pick(EN_COMPANIES if self.language == "en" else ZH_COMPANIES)
+
+    def person(self):
+        return self.pick(EN_PEOPLE if self.language == "en" else ZH_PEOPLE)
+
+    def city(self):
+        return self.pick(EN_CITIES if self.language == "en" else ZH_CITIES)
+
+    def num(self, low, high):
+        return self.rng.randint(low, high)
+
+    def money(self, low, high):
+        return f"{self.rng.randint(low, high) * 10:,}"
+
+    def pct(self):
+        return f"{self.rng.randint(3, 48)}.{self.rng.randint(0, 9)}%"
+
+    def month(self):
+        return self.rng.randint(1, 12)
+
+    def date(self):
+        month = self.month()
+        day = self.rng.randint(1, 28)
+        if self.language == "en":
+            return f"{day} {MONTHS[month - 1]} 2026"
+        return f"2026年{month}月{day}日"
+
+    def sentences(self, bank, count):
+        chosen = self.rng.sample(bank, min(count, len(bank)))
+        return [line.format(**self.slots) for line in chosen]
+
+
+def research(f, sub):
+    topic, measure = f.pick(RESEARCH_TOPICS[f.language])
+    f.slots = dict(topic=topic, measure=measure, n=f.num(24, 480), pct=f.pct(), city=f.city(),
+                   person=f.person(), company=f.company(), weeks=f.num(4, 52), year=f.num(2019, 2025))
+    if f.language == "en":
+        title = {
+            "papers": f"Effects of {topic.capitalize()} on {measure.capitalize()}: A Controlled Study",
+            "talks": f"{topic.capitalize()}: what we learned this year",
+            "reading notes": f"Reading notes on {topic}",
+            "technical reports": f"Technical report: {measure} in {topic}",
+        }[sub]
+        intro = [
+            "We studied {topic} in {n} samples collected near {city} over {weeks} weeks.",
+            "Earlier work on {topic} reported mixed effects on {measure}.",
+            "Our aim is to measure how {measure} changes under controlled conditions.",
+            "The study was funded by a research council grant and approved by the ethics board.",
+            "Data and code are available from the corresponding author, {person}, on request.",
+        ]
+        methods = [
+            "Samples were randomised into a treatment group and a control group.",
+            "{measure} was recorded at the start and after {weeks} weeks.",
+            "We fitted a mixed-effects model with site as a random effect.",
+            "Two reviewers coded the observations independently and resolved disagreements.",
+        ]
+        results = [
+            "{measure} improved by {pct} in the treatment group.",
+            "The effect held across sites and was strongest in the first weeks.",
+            "No adverse effects were observed in the {n} samples.",
+            "The confidence interval excluded zero in every site but one.",
+        ]
+        notes = [
+            "Key claim: {topic} changes {measure} by about {pct}.",
+            "Method looks solid, but the sample of {n} is small.",
+            "Compare with the {year} review by {person}.",
+            "Follow up: does the effect last beyond {weeks} weeks?",
+            "Possible use in our own project on {topic}.",
+        ]
+        if sub == "reading notes":
+            sections = [("Summary", f.sentences(notes, 3)), ("Questions", f.sentences(notes, 2))]
+        elif sub == "talks":
+            sections = [("Motivation", f.sentences(intro, 2)), ("Approach", f.sentences(methods, 2)),
+                        ("Findings", f.sentences(results, 2)), ("Next steps", ["Extend the study to more sites.", "Share the data set openly."])]
+        else:
+            sections = [("Abstract", f.sentences(results, 2) + f.sentences(intro, 1)), ("1. Introduction", f.sentences(intro, 3)),
+                        ("2. Methods", f.sentences(methods, 3)), ("3. Results", f.sentences(results, 3)),
+                        ("References", [f"[1] {f.person()} et al., Journal of Example Studies ({f.slots['year']})."])]
+        table = [["Group", "Samples", measure.capitalize()], ["Control", str(f.num(10, 200)), f.pct()],
+                 ["Treatment", str(f.num(10, 200)), f.pct()]]
+    else:
+        title = {
+            "papers": f"{topic}对{measure}影响的对照研究",
+            "talks": f"{topic}研究进展汇报",
+            "reading notes": f"{topic}文献阅读笔记",
+            "technical reports": f"技术报告：{topic}中的{measure}",
+        }[sub]
+        intro = [
+            "本研究在{city}附近采集了{n}个样本，持续观察{weeks}周。",
+            "已有关于{topic}的研究对{measure}的影响结论不一。",
+            "本文旨在在受控条件下测量{measure}的变化。",
+            "研究得到科研基金资助，并经伦理委员会批准。",
+            "数据和代码可向通讯作者{person}索取。",
+        ]
+        methods = [
+            "样本被随机分为实验组和对照组。",
+            "在开始时和{weeks}周后分别记录{measure}。",
+            "采用以站点为随机效应的混合效应模型进行分析。",
+            "两名研究人员独立编码观察结果并协商解决分歧。",
+        ]
+        results = [
+            "实验组的{measure}提高了{pct}。",
+            "该效应在各站点均成立，在前几周最为明显。",
+            "{n}个样本中均未观察到不良反应。",
+            "除一个站点外，各站点的置信区间均不包含零。",
+        ]
+        notes = [
+            "主要结论：{topic}使{measure}变化约{pct}。",
+            "方法较为可靠，但{n}个样本偏少。",
+            "可与{person}在{year}年的综述对照阅读。",
+            "待跟进：效应能否持续{weeks}周以上？",
+            "可用于我们自己关于{topic}的课题。",
+        ]
+        if sub == "reading notes":
+            sections = [("要点", f.sentences(notes, 3)), ("疑问", f.sentences(notes, 2))]
+        elif sub == "talks":
+            sections = [("研究背景", f.sentences(intro, 2)), ("研究方法", f.sentences(methods, 2)),
+                        ("主要发现", f.sentences(results, 2)), ("下一步", ["扩大研究站点。", "公开数据集。"])]
+        else:
+            sections = [("摘要", f.sentences(results, 2) + f.sentences(intro, 1)), ("1 引言", f.sentences(intro, 3)),
+                        ("2 方法", f.sentences(methods, 3)), ("3 结果", f.sentences(results, 3)),
+                        ("参考文献", [f"[1] {f.person()}等，示例研究学报，{f.slots['year']}年。"])]
+        table = [["组别", "样本数", measure], ["对照组", str(f.num(10, 200)), f.pct()], ["实验组", str(f.num(10, 200)), f.pct()]]
+    return title, sections, table
+
+
+def reports(f, sub):
+    product = f.pick(PRODUCTS[f.language])
+    quarter = f.num(1, 4)
+    f.slots = dict(product=product, company=f.company(), city=f.city(), pct=f.pct(), q=quarter,
+                   revenue=f.money(10_000, 900_000), units=f.num(1_000, 90_000), person=f.person(),
+                   month=f.month(), share=f.pct())
+    if f.language == "en":
+        title = {
+            "sales": f"Q{quarter} 2026 Sales Report – {product}",
+            "market": f"Market outlook 2026: {product}",
+            "operations": f"Monthly operations report – {MONTHS[f.slots['month'] - 1]}",
+            "reviews": f"Q{quarter} business review – {f.slots['city']} region",
+        }[sub]
+        bank = {
+            "sales": ["Revenue from {product} reached {revenue} in Q{q}, up {pct} on the quarter before.",
+                      "The {city} region sold {units} units, the most of any region.",
+                      "Online channels grew faster than stores for the third quarter running.",
+                      "Discounting in the last month lowered the average price by {pct}.",
+                      "Next quarter we expect demand to soften as the season ends."],
+            "market": ["The market for {product} is expected to grow by {pct} this year.",
+                       "Three suppliers hold about {share} of the market between them.",
+                       "Prices fell as new entrants competed on cost.",
+                       "Regulation in several regions will raise compliance costs.",
+                       "We forecast {units} thousand units sold by the end of the year."],
+            "operations": ["Warehouse throughput averaged {units} orders a day.",
+                           "On-time delivery was {pct} below target because of a carrier strike.",
+                           "Two production lines were stopped for planned maintenance.",
+                           "Staff turnover in the {city} site rose this month.",
+                           "Energy costs per unit were stable."],
+            "reviews": ["The region delivered {revenue} in revenue this quarter.",
+                        "Key accounts in {city} renewed, and two new ones signed.",
+                        "Margins improved by {pct} after the price change.",
+                        "Risks: supply delays and one large customer under review.",
+                        "Priorities next quarter: hiring and the {product} launch."],
+        }[sub]
+        sections = [("Summary", f.sentences(bank, 2)), ("Details", f.sentences(bank, 3)), ("Outlook", f.sentences(bank, 1))]
+        table = [["Region", "Units", "Revenue"]] + [[f.city(), str(f.num(500, 9000)), f.money(1000, 90000)] for _ in range(3)]
+    else:
+        title = {
+            "sales": f"2026年第{quarter}季度销售报告（{product}）",
+            "market": f"2026年{product}市场展望",
+            "operations": f"{f.slots['month']}月运营月报",
+            "reviews": f"{f.slots['city']}区第{quarter}季度业务回顾",
+        }[sub]
+        bank = {
+            "sales": ["第{q}季度{product}销售收入达到{revenue}元，环比增长{pct}。",
+                      "{city}区域销售{units}台，居各区域之首。",
+                      "线上渠道增速连续三个季度超过门店。",
+                      "最后一个月的促销使平均售价下降{pct}。",
+                      "预计下季度随着旺季结束需求将有所回落。"],
+            "market": ["预计今年{product}市场规模增长{pct}。",
+                       "三家供应商合计占据约{share}的市场份额。",
+                       "新进入者以成本竞争，价格有所下降。",
+                       "部分地区的监管将提高合规成本。",
+                       "预计年底销量达到{units}千台。"],
+            "operations": ["仓库日均处理订单{units}单。",
+                           "受承运商罢工影响，准时交付率低于目标{pct}。",
+                           "两条生产线进行了计划内检修。",
+                           "{city}基地本月员工流失率上升。",
+                           "单位能耗成本保持稳定。"],
+            "reviews": ["本季度区域实现收入{revenue}元。",
+                        "{city}的重点客户全部续约，并新签两家客户。",
+                        "调价后毛利率提升{pct}。",
+                        "风险：供货延迟，一家大客户正在评估中。",
+                        "下季度重点：招聘和{product}上市。"],
+        }[sub]
+        sections = [("概述", f.sentences(bank, 2)), ("详细情况", f.sentences(bank, 3)), ("展望", f.sentences(bank, 1))]
+        table = [["区域", "销量", "收入"]] + [[f.city(), str(f.num(500, 9000)), f.money(1000, 90000)] for _ in range(3)]
+    return title, sections, table
+
+
+def contracts(f, sub):
+    f.slots = dict(a=f.company(), b=f.company(), city=f.city(), date=f.date(), fee=f.money(1_000, 50_000),
+                   months=f.num(6, 36), person=f.person(), unit=f.num(1, 40), days=f.num(10, 60))
+    if f.language == "en":
+        title = {"NDAs": f"Mutual NDA – {f.slots['b']}", "leases": f"Lease agreement – unit {f.slots['unit']}, {f.slots['city']}",
+                 "services": f"Services agreement – {f.slots['b']}", "employment": f"Employment contract – {f.slots['person']}",
+                 "purchase": f"Purchase agreement – {f.slots['b']}"}[sub]
+        common = ["This agreement is made on {date} between {a} and {b}.",
+                  "It is governed by the laws of Exampleland, and the courts of {city} have jurisdiction.",
+                  "Either party may terminate it with {days} days' written notice.",
+                  "Signed for and on behalf of each party by an authorised signatory."]
+        bank = {"NDAs": ["Each party will keep the other's Confidential Information secret.",
+                         "Confidential Information excludes what is already public.",
+                         "The obligations last {months} months after disclosure."],
+                "leases": ["The landlord lets unit {unit} to the tenant for {months} months.",
+                           "Rent is {fee} a month, payable in advance.",
+                           "The tenant pays a deposit of two months' rent."],
+                "services": ["The supplier will provide the services in the statement of work.",
+                             "Fees of {fee} are invoiced monthly and payable within {days} days.",
+                             "The supplier keeps the intellectual property in its tools."],
+                "employment": ["The employee, {person}, joins as an analyst on {date}.",
+                               "The salary is {fee} a year, paid monthly.",
+                               "The probation period is {months} weeks."],
+                "purchase": ["The seller will deliver the goods to {city} within {days} days.",
+                             "The price is {fee}, payable on delivery.",
+                             "Risk passes to the buyer on delivery."]}[sub]
+        sections = [("1. Parties", f.sentences(common, 1)), ("2. Terms", f.sentences(bank, 3)),
+                    ("3. General", f.sentences(common, 2))]
+        table = None
+    else:
+        title = {"NDAs": f"保密协议（{f.slots['b']}）", "leases": f"房屋租赁合同（{f.slots['city']}{f.slots['unit']}号）",
+                 "services": f"技术服务合同（{f.slots['b']}）", "employment": f"劳动合同（{f.slots['person']}）",
+                 "purchase": f"采购合同（{f.slots['b']}）"}[sub]
+        common = ["本合同由{a}与{b}于{date}签订。",
+                  "本合同适用中华人民共和国法律，争议由{city}有管辖权的人民法院管辖。",
+                  "任何一方可提前{days}日书面通知解除本合同。",
+                  "双方授权代表签字盖章后生效。"]
+        bank = {"NDAs": ["双方应对对方的保密信息严格保密。", "已公开的信息不属于保密信息。", "保密义务在披露后{months}个月内有效。"],
+                "leases": ["出租方将{unit}号房屋出租给承租方，租期{months}个月。", "月租金为{fee}元，按月预付。", "承租方支付两个月租金作为押金。"],
+                "services": ["乙方按照工作说明书提供技术服务。", "服务费{fee}元按月结算，{days}日内付清。", "乙方保留其工具的知识产权。"],
+                "employment": ["员工{person}于{date}入职，岗位为分析师。", "年薪为{fee}元，按月发放。", "试用期为{months}周。"],
+                "purchase": ["卖方应在{days}日内将货物送至{city}。", "合同总价为{fee}元，货到付款。", "货物交付后风险转移至买方。"]}[sub]
+        sections = [("第一条 合同双方", f.sentences(common, 1)), ("第二条 主要条款", f.sentences(bank, 3)),
+                    ("第三条 其他", f.sentences(common, 2))]
+        table = None
+    return title, sections, table
+
+
+def finance(f, sub):
+    f.slots = dict(a=f.company(), b=f.company(), date=f.date(), total=f.money(100, 90_000), person=f.person(),
+                   city=f.city(), no=f.num(1000, 9999), pct=f.pct(), year=f.num(2024, 2026))
+    if f.language == "en":
+        title = {"invoices": f"Invoice INV-{f.slots['no']}", "expenses": f"Expense claim – {f.slots['person']}",
+                 "budgets": f"Budget {f.slots['year']} – {f.slots['city']} office", "statements": f"Financial statements {f.slots['year']}"}[sub]
+        bank = {"invoices": ["Invoice INV-{no} from {a} to {b}, dated {date}.", "Amount due: {total}, payable within 30 days.",
+                             "Please quote the invoice number with your payment.", "VAT is included at the standard rate."],
+                "expenses": ["Claim by {person} for travel to {city}.", "Total claimed: {total}, receipts attached.",
+                             "Approved by the line manager on {date}.", "Reimbursed in the next payroll."],
+                "budgets": ["The {year} budget for the {city} office is {total}.", "Staff costs make up most of the budget.",
+                            "Spending to date is {pct} under plan.", "Travel is capped at last year's level."],
+                "statements": ["Revenue for {year} was {total}.", "Operating profit rose by {pct}.",
+                               "Cash at the year end covered three months of costs.", "The auditors gave an unqualified opinion."]}[sub]
+        sections = [("Details", f.sentences(bank, 3)), ("Notes", f.sentences(bank, 1))]
+        table = [["Item", "Amount"]] + [[item, f.money(10, 9000)] for item in f.rng.sample(
+            ["Consulting", "Travel", "Hotel", "Licences", "Hardware", "Salaries", "Rent", "Utilities"], 4)] + [["Total", f.slots["total"]]]
+    else:
+        title = {"invoices": f"发票 第{f.slots['no']}号", "expenses": f"差旅费报销单（{f.slots['person']}）",
+                 "budgets": f"{f.slots['year']}年{f.slots['city']}分公司预算", "statements": f"{f.slots['year']}年度财务报表"}[sub]
+        bank = {"invoices": ["{a}向{b}开具发票，编号{no}，日期{date}。", "应付金额{total}元，30日内付清。", "付款时请注明发票编号。", "金额含增值税。"],
+                "expenses": ["{person}赴{city}出差的费用报销。", "报销合计{total}元，附发票。", "部门负责人于{date}审批。", "随下月工资发放。"],
+                "budgets": ["{year}年{city}分公司预算为{total}元。", "人员费用占预算的大部分。", "截至目前支出低于计划{pct}。", "差旅费不超过上年水平。"],
+                "statements": ["{year}年营业收入为{total}元。", "营业利润增长{pct}。", "年末现金可覆盖三个月的支出。", "审计师出具了无保留意见。"]}[sub]
+        sections = [("明细", f.sentences(bank, 3)), ("备注", f.sentences(bank, 1))]
+        table = [["项目", "金额"]] + [[item, f.money(10, 9000)] for item in f.rng.sample(
+            ["咨询费", "交通费", "住宿费", "软件许可", "硬件", "工资", "房租", "水电费"], 4)] + [["合计", f.slots["total"]]]
+    return title, sections, table
+
+
+def meetings(f, sub):
+    f.slots = dict(date=f.date(), person=f.person(), other=f.person(), company=f.company(), n=f.num(4, 12),
+                   city=f.city(), pct=f.pct())
+    if f.language == "en":
+        title = {"board": f"Board minutes – {f.slots['date']}", "team syncs": f"Weekly sync – {f.slots['date']}",
+                 "retros": f"Sprint retro – {f.slots['date']}", "hiring": f"Interview debrief – {f.slots['other']}"}[sub]
+        bank = {"board": ["Present: {n} directors; {person} in the chair.", "The minutes of the last meeting were approved.",
+                          "The board approved the annual budget.", "Action: {other} to report on the audit by next meeting."],
+                "team syncs": ["Attendees: {person}, {other} and the team.", "Updates: the release is on track.",
+                               "Blocker: waiting on the vendor's API keys.", "Action: {other} to follow up with {company}."],
+                "retros": ["What went well: shipped the search feature.", "What didn't: too many late changes.",
+                           "We will keep stand-ups to fifteen minutes.", "Action: {person} to set up the new board."],
+                "hiring": ["Candidate: {other}, for the senior analyst role.", "Strengths: clear on modelling, good questions.",
+                           "Concerns: little experience with stakeholders.", "Decision: proceed to the final round."]}[sub]
+        sections = [("Attendance", f.sentences(bank, 1)), ("Discussion", f.sentences(bank, 2)), ("Actions", f.sentences(bank, 1))]
+    else:
+        title = {"board": f"董事会会议纪要（{f.slots['date']}）", "team syncs": f"周例会纪要（{f.slots['date']}）",
+                 "retros": f"迭代回顾会议（{f.slots['date']}）", "hiring": f"面试评估记录（{f.slots['other']}）"}[sub]
+        bank = {"board": ["出席：{n}名董事，{person}主持。", "会议审议通过了上次会议纪要。", "董事会批准了年度预算。", "待办：{other}于下次会议前汇报审计情况。"],
+                "team syncs": ["参会人：{person}、{other}及团队成员。", "进展：版本发布按计划推进。", "阻塞：等待供应商提供接口密钥。", "待办：{other}跟进{company}。"],
+                "retros": ["做得好的：上线了搜索功能。", "不足：后期改动太多。", "站会控制在十五分钟内。", "待办：{person}搭建新的看板。"],
+                "hiring": ["候选人：{other}，应聘高级分析师。", "优势：建模思路清晰，提问到位。", "顾虑：与业务方沟通经验较少。", "结论：进入终面。"]}[sub]
+        sections = [("出席情况", f.sentences(bank, 1)), ("讨论事项", f.sentences(bank, 2)), ("待办事项", f.sentences(bank, 1))]
+    return title, sections, None
+
+
+def personal(f, sub):
+    f.slots = dict(person=f.person(), city=f.city(), n=f.num(2, 9))
+    if f.language == "en":
+        title = {"novel": f"Chapter {f.slots['n']}", "travel": f"Packing list – {f.slots['city']}",
+                 "recipes": f.pick(["Lemon cake", "Tomato soup", "Mushroom risotto", "Apple crumble"]),
+                 "garden": f"Garden plan {f.num(2025, 2027)}"}[sub]
+        bank = {"novel": ["The rain had not stopped for {n} days when {person} came back to the harbour.",
+                          "Nobody in the village spoke of the lighthouse any more.", "She opened the letter and read it twice.",
+                          "Outside, the gulls were loud over the empty boats."],
+                "travel": ["Passport, tickets and the hotel booking.", "Two jumpers: {city} is cold at night.",
+                           "Chargers and the adapter.", "Walking shoes and a rain jacket."],
+                "recipes": ["Heat the oven to 180 degrees.", "Mix the flour, sugar and butter.", "Bake for {n}0 minutes.",
+                            "Serve warm with cream."],
+                "garden": ["Tomatoes along the south fence.", "Beans and peas in the raised bed.", "Plant garlic in October.",
+                           "Water every {n} days in summer."]}[sub]
+    else:
+        title = {"novel": f"第{f.slots['n']}章", "travel": f"{f.slots['city']}旅行清单",
+                 "recipes": f.pick(["柠檬蛋糕", "番茄汤", "蘑菇烩饭", "红烧肉"]), "garden": f"{f.num(2025, 2027)}年菜园计划"}[sub]
+        bank = {"novel": ["{person}回到港口时，雨已经连下了{n}天。", "村里没有人再提起那座灯塔。", "她拆开信，读了两遍。", "窗外，海鸥在空荡的渔船上方鸣叫。"],
+                "travel": ["护照、机票和酒店预订单。", "两件毛衣：{city}夜里冷。", "充电器和转换插头。", "运动鞋和雨衣。"],
+                "recipes": ["烤箱预热至180度。", "将面粉、糖和黄油混合。", "烘烤{n}0分钟。", "趁热食用。"],
+                "garden": ["南边篱笆种番茄。", "高床里种豆角和豌豆。", "十月种大蒜。", "夏天每{n}天浇一次水。"]}[sub]
+    return title, [("", f.sentences(bank, 4))], None
+
+
+SCALE_TEMPLATES = [
+    # (Folder, sub, tags, formats, content)
+    ("research", "papers", ["paper"], ["pdf", "docx", "markdown", "text"], research),
+    ("research", "talks", ["slides"], ["pptx"], research),
+    ("research", "reading notes", ["notes"], ["markdown", "text"], research),
+    ("research", "technical reports", ["paper", "report"], ["pdf", "docx"], research),
+    ("reports", "sales", ["report"], ["docx", "pdf", "xlsx"], reports),
+    ("reports", "market", ["report"], ["pdf", "docx"], reports),
+    ("reports", "operations", ["report"], ["xlsx", "docx"], reports),
+    ("reports", "reviews", ["slides", "report"], ["pptx"], reports),
+    ("contracts", "NDAs", ["contract"], ["pdf", "docx", "markdown"], contracts),
+    ("contracts", "leases", ["contract"], ["pdf", "docx"], contracts),
+    ("contracts", "services", ["contract"], ["docx", "markdown"], contracts),
+    ("contracts", "employment", ["contract"], ["docx", "pdf"], contracts),
+    ("contracts", "purchase", ["contract"], ["pdf", "docx"], contracts),
+    ("finance", "invoices", ["invoice"], ["pdf", "text", "xlsx"], finance),
+    ("finance", "expenses", ["report", "invoice"], ["xlsx"], finance),
+    ("finance", "budgets", ["report"], ["xlsx"], finance),
+    ("finance", "statements", ["report"], ["pdf", "xlsx"], finance),
+    ("meetings", "board", ["notes"], ["pdf", "docx", "text"], meetings),
+    ("meetings", "team syncs", ["notes"], ["markdown", "docx", "pptx"], meetings),
+    ("meetings", "retros", ["notes"], ["markdown", "text"], meetings),
+    ("meetings", "hiring", ["notes"], ["docx"], meetings),
+    (None, "novel", ["book"], ["docx", "text"], personal),
+    (None, "travel", ["notes"], ["xlsx", "markdown"], personal),
+    (None, "recipes", ["notes"], ["markdown", "text"], personal),
+    (None, "garden", ["notes"], ["markdown"], personal),
+]
+SCALE_SHARES = {"research": 0.22, "reports": 0.2, "contracts": 0.15, "finance": 0.15, "meetings": 0.15, None: 0.13}
+EXTENSIONS = {"pdf": "pdf", "docx": "docx", "pptx": "pptx", "xlsx": "xlsx", "markdown": "md", "text": "txt"}
+
+
+def as_content(kind, title, sections, table, language):
+    """One Document's template parts in its format's own shape."""
+    if kind == "pptx":
+        slides = [slide(title, cover=True, subtitle="")]
+        slides += [slide(heading or title, *lines) for heading, lines in sections]
+        if table:
+            slides.append(slide(title, table=table))
+        return slides
+    if kind == "xlsx":
+        rows = [[title], []] + [[heading, line] for heading, lines in sections for line in lines]
+        return [("Summary" if language == "en" else "概要", rows)] + ([("Data" if language == "en" else "数据", table)] if table else [])
+    blocks = [H1(title)]
+    for heading, lines in sections:
+        if heading:
+            blocks.append(H2(heading))
+        blocks += [P(line) for line in lines]
+    if table:
+        blocks.append(T(*table))
+    return blocks
+
+
+def opaque_name(rng, kind, index):
+    ext = EXTENSIONS[kind]
+    return rng.choice([f"Document{index}.{ext}", f"export_{index:04d}.{ext}", f"download ({index}).{ext}",
+                       f"scan_{index:04d}.{ext}", f"untitled {index}.{ext}"])
+
+
+def scale_documents(count, seed):
+    rng = random.Random(seed)
+    folders = list(SCALE_SHARES)
+    docs = []
+    names = set()
+    for index in range(count):
+        folder = rng.choices(folders, weights=[SCALE_SHARES[each] for each in folders])[0]
+        template = rng.choice([each for each in SCALE_TEMPLATES if each[0] == folder])
+        _, sub, tags, formats, make = template
+        language = "en" if rng.random() < 0.6 else "zh"
+        kind = rng.choice(formats)
+        title, sections, table = make(Filler(rng, language), sub)
+        scanned = folder in ("contracts", "finance") and rng.random() < 0.03
+        if scanned:
+            kind = "pdf"
+        opaque = scanned or rng.random() < 0.12
+        safe = re.sub(r'[\\/:*?"<>|]+', "-", title).strip()
+        name = opaque_name(rng, kind, index + 1) if opaque else f"{safe}.{EXTENSIONS[kind]}"
+        while name in names:
+            stem, ext = name.rsplit(".", 1)
+            name = f"{stem} ({index}).{ext}"
+        names.add(name)
+        if scanned:
+            content = {"style": "page", "lines": [(title, 40)] + [line for _, lines in sections for line in lines]}
+        else:
+            content = as_content(kind, title, sections, table, language)
+        docs.append({
+            "id": f"s{index + 1:04d}-{language}-{folder or 'none'}-{sub.replace(' ', '-')}",
+            "language": language, "kind": kind, "file": name, "scanned": scanned, "folder": folder,
+            "also": None, "tags": tags, "hard": (["image-only"] if scanned else []) + (["opaque-name"] if opaque else []),
+            "pair": None, "note": f"Made from the {sub} template.", "content": content, "sub": sub,
+        })
+    return docs
+
+
+def scale_main(count, seed, out):
+    fixtures = out / "files"
+    if fixtures.exists():
+        shutil.rmtree(fixtures)
+    fixtures.mkdir(parents=True)
+    records = []
+    for index, item in enumerate(scale_documents(count, seed)):
+        path = fixtures / item["file"]
+        write(item, path, seed=seed * 100_000 + index)
+        record = {"id": item["id"], "file": f"files/{item['file']}", "language": item["language"], "kind": item["kind"]}
+        if item["scanned"]:
+            record["scanned"] = True
+        record.update({"folder": item["folder"], "sub": item["sub"], "tags": item["tags"], "split": "heldout"})
+        if item["hard"]:
+            record["hard"] = item["hard"]
+        record.update({"note": item["note"], "sha256": sha256(path)})
+        records.append(record)
+    manifest = {"version": 1, "folders": FOLDERS, "tags": TAGS, "documents": records}
+    (out / "set.json").write_text(to_json(manifest) + "\n", encoding="utf-8")
+    counts = Counter((r["folder"] or "unsorted", r["language"]) for r in records)
+    print(f"{len(records)} Documents in {out}: " + ", ".join(f"{k[0]}/{k[1]} {v}" for k, v in sorted(counts.items())))
+
+
+# ---------------------------------------------------------------------------
 # Split, writing and verification
 # ---------------------------------------------------------------------------
 
@@ -4138,6 +4647,15 @@ def verify(item, path):
 
 
 def main():
+    if "--scale" in sys.argv:
+        at = sys.argv.index("--scale")
+        count = int(sys.argv[at + 1])
+        seed = int(sys.argv[sys.argv.index("--seed") + 1]) if "--seed" in sys.argv else 1
+        rest = [arg for i, arg in enumerate(sys.argv[1:], 1) if not arg.startswith("--") and sys.argv[i - 1] not in ("--scale", "--seed")]
+        if not rest:
+            sys.exit("--scale needs a folder to write the set into, outside the repository.")
+        scale_main(count, seed, Path(rest[0]).resolve())
+        return
     out = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent
     fixtures = out / "files"
     if fixtures.exists():

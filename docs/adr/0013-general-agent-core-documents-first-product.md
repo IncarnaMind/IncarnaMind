@@ -196,3 +196,14 @@ The amendment of 2026-10-29 had a request to Organize leave its suggestions in T
 - **The Library's own Organize keeps To review** ("Sort these into Folders", #241): the User is already looking at its suggestions there, and Accept all is one click.
 
 This replaces the "Organize by content" line of the amendment of 2026-10-29 for a request in words.
+
+## Amendment, 2026-11-07: the assistant's Organize proposes, and the User confirms (#1569, #2339)
+
+The amendment of 2026-11-03 had the assistant file Documents at once. Nothing the AI sorts or tags is now kept until the User confirms it, whoever started the run (ADR-0012):
+
+- **The assistant's Organize and tagging propose.** Its run adds what it proposes to Suggestions, the Library's one set of proposals, and its reply says what it proposes and ends with a Review button that opens them. Nothing moves, no Folder is made and no Tag is added from the chat.
+- **Its Undo takes the proposals its run added back out of Suggestions.**
+- **The question above 20 Documents goes,** since nothing moves. The first-time consent for a cloud service (ADR-0022) and the cost question before a large run billed per token stay, decided in the one place that decides what asks first.
+- **Walls hold.** It never proposes moving a Document across a Folder's wall, in or out.
+
+This replaces the amendment of 2026-11-03, the Library's To review included: every run, the Library's own as well, ends in Suggestions.

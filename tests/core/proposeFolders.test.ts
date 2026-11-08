@@ -1,8 +1,8 @@
 /**
  * Organize with no Folders (#2308): Organize's chat model proposes a few Folders from what the
- * Documents say, named in the interface language, the core makes them, and Organize then
- * suggests one for each Document, waiting in To review. A decision model can't name a Folder.
- * Through the core's public interface, with a scripted model.
+ * Documents say, named in the interface language, which wait in Suggestions with none made, and
+ * Organize then proposes one of them for each Document (#1569). A decision model can't name a
+ * Folder. Through the core's public interface, with a scripted model.
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { MockLanguageModelV4 } from "ai/test";
@@ -11,6 +11,7 @@ import { type Core, InvalidInputError, type SaveChatProviderInput } from "../../
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
+import { proposedFor } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
 
 const LOCAL: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
@@ -92,33 +93,35 @@ async function addFour(core: Core) {
 }
 
 describe("Organize with no Folders", () => {
-  test("proposes Folders from what the Documents say, makes them once, and suggests one for each", async () => {
+  test("proposes Folders from what the Documents say, makes none, and proposes one for each", async () => {
     const { core, sorting } = await start();
     const documents = await addFour(core);
     const ids = documents.map((each) => each.id);
 
-    const made = await core.proposeFolders(ids);
+    const proposed = await core.proposeFolders(ids);
     await core.classifyDocuments(ids);
 
-    expect(made.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
-    expect((await core.getLibrary()).groups.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
+    expect(proposed.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
+    expect((await core.getLibrary()).groups).toEqual([]);
     expect(sorting.proposals).toHaveLength(1);
     expect(sorting.proposals[0]).toContain("Quartz countertop quote");
     expect(sorting.proposals[0]).toContain('"language":"English"');
-    const byName = new Map(made.map((each) => [each.name, each.id]));
     await vi.waitFor(async () => {
-      const { assignments } = await core.getLibrary();
-      const placed = documents.map((each) => {
-        const item = assignments.find((one) => one.documentId === each.id);
-        return [each.name, item?.groupId, item?.suggested];
-      });
+      const placed = await Promise.all(
+        documents.map(async (each) => [each.name, await proposedFor(core, each.id)]),
+      );
       expect(placed).toEqual([
-        ["Kitchen quote", byName.get("Kitchen"), true],
-        ["Kitchen tiles", byName.get("Kitchen"), true],
-        ["Race registration", byName.get("Race"), true],
-        ["Race plan", byName.get("Race"), true],
+        ["Kitchen quote", "new:Kitchen"],
+        ["Kitchen tiles", "new:Kitchen"],
+        ["Race registration", "new:Race"],
+        ["Race plan", "new:Race"],
       ]);
     });
+    expect((await core.getLibrary()).assignments.every((each) => each.groupId === null)).toBe(true);
+    expect((await core.getOrganizeReview()).folders.map((each) => each.name)).toEqual([
+      "Kitchen",
+      "Race",
+    ]);
   });
 
   test("names the Folders in the interface language", async () => {

@@ -5,7 +5,6 @@ import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
 import { isListedDocument } from "./meetingTranscript";
 import { homeReading, type NoteReading } from "./noteState";
-import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
 import { type AppState, exampleMindIds, useAppStore } from "./store";
 
@@ -148,15 +147,12 @@ export function useMindNoteStates(
   return states;
 }
 
-export function useHomeNeeds(): { reading: number; suggestions: number } {
+export function useHomeNeeds(): { reading: number } {
   const reading = useAppStore(
     (state) =>
       state.documents.filter((each) => isListedDocument(each) && isProcessing(each.status)).length,
   );
-  const suggestions = useAppStore(
-    (state) => suggestedIds(state.documents, state.library?.assignments ?? []).length,
-  );
-  return { reading, suggestions };
+  return { reading };
 }
 
 /**
