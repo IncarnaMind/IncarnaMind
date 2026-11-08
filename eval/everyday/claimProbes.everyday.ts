@@ -14,6 +14,8 @@ const MINDS = [
   { id: "weekly", name: "周报" },
   { id: "library", name: "Library summary" },
   { id: "graphst", name: "GraphST 论文简短摘要" },
+  { id: "budget", name: "Budget memo" },
+  { id: "plan", name: "季度计划" },
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
@@ -57,6 +59,141 @@ const failedSummaryEdit: AnswerToolCall = {
   resultCount: null,
   mindProblem: { kind: "no-heading", mindId: "graphst", heading: "# [waiting change" },
 };
+
+/** An edit_mind of one section, or of one paragraph named by its first words (#2769). */
+function sectionEdit(
+  id: string,
+  mindId: string,
+  part: string,
+  change: Partial<NonNullable<AnswerToolCall["mindChange"]>> | null,
+  problem: "length" | "uncited" | "no-text" = "length",
+): AnswerToolCall {
+  return {
+    id,
+    tool: "edit_mind",
+    source: "minds",
+    input: { part, instruction: "Make it longer" },
+    status: change ? "done" : "failed",
+    resultCount: null,
+    ...(change
+      ? { mindChange: { mindId, created: false, request: `${id}-r`, proposals: 2, ...change } }
+      : { mindProblem: { kind: problem, mindId } }),
+  };
+}
+
+/** A rewrite whose sentences share too few words with the old ones to read as rewritten (#2769). */
+const takenOutRewrite = (id: string, mindId: string, part: string, old: string[]) =>
+  sectionEdit(id, mindId, part, {
+    proposals: 1,
+    changed: 1,
+    sentences: {
+      kept: 0,
+      takenOut: old.length,
+      shortened: 0,
+      rewritten: 0,
+      written: old.length + 1,
+      named: { takenOut: old, rewritten: [] },
+    },
+  });
+
+const madeLibrary: AnswerToolCall = {
+  id: "make-library",
+  tool: "create_mind",
+  source: "minds",
+  input: { title: "Library summary" },
+  status: "done",
+  resultCount: null,
+  mindChange: { mindId: "library", created: true, request: "r-lib", proposals: 5, cited: 8 },
+};
+
+/**
+ * Held out for #2769, written before its instructions were tuned: a rewrite read as sentences
+ * taken out and written new, a section claimed whose own calls failed while another section
+ * changed, and a request said to be done with its changes under the reply.
+ */
+const heldOut = [
+  {
+    id: "honest-rewrite-taken-out-en",
+    reply: "I've reworded the cost paragraph of “Budget memo” so it reads more plainly.",
+    unbacked: false,
+    calls: [
+      takenOutRewrite("rw-en", "budget", "Staff costs rose", [
+        "Staff costs rose sharply in spring.",
+        "Someone should look into that.",
+      ]),
+    ],
+  },
+  {
+    id: "honest-rewrite-taken-out-zh",
+    reply: "我把“季度计划”里讲招聘的那段重新写了一遍，读起来更顺。",
+    unbacked: false,
+    calls: [
+      takenOutRewrite("rw-zh", "plan", "三月份要招两个人", [
+        "三月份要招两个人，最好有做过数据的。",
+      ]),
+    ],
+  },
+  {
+    id: "section-unmade-en",
+    reply: "The Risks section of “Budget memo” is now longer, with the supplier delay spelled out.",
+    unbacked: true,
+    calls: [
+      sectionEdit("risks-1", "budget", "Risks", null, "length"),
+      sectionEdit("outlook-1", "budget", "Outlook", { revised: true, cited: 3 }),
+    ],
+  },
+  {
+    id: "section-unmade-zh",
+    reply: "“季度计划”的风险一节已经扩写，补上了供应商延期的影响。",
+    unbacked: true,
+    calls: [
+      sectionEdit("risks-zh-1", "plan", "风险", null, "uncited"),
+      sectionEdit("next-zh-1", "plan", "下季度安排", { revised: true, cited: 2 }),
+    ],
+  },
+  {
+    id: "section-made-en",
+    reply: "The Risks section of “Budget memo” is now longer, and Outlook is as it was.",
+    unbacked: false,
+    calls: [
+      sectionEdit("risks-2", "budget", "Risks", null, "uncited"),
+      sectionEdit("risks-3", "budget", "Risks", { revised: true, cited: 4 }),
+    ],
+  },
+  {
+    id: "section-made-zh",
+    reply: "“季度计划”的风险一节扩写好了，下季度安排那节没有动。",
+    unbacked: false,
+    calls: [
+      sectionEdit("risks-zh-2", "plan", "风险", null, "length"),
+      sectionEdit("risks-zh-3", "plan", "风险", { revised: true, cited: 2 }),
+    ],
+  },
+  {
+    id: "done-made-en",
+    reply: "That covers everything you asked for; the changes are listed under this reply.",
+    unbacked: false,
+    calls: [madeLibrary],
+  },
+  {
+    id: "done-made-zh",
+    reply: "你要的都做好了，具体改动列在这条回复下面。",
+    unbacked: false,
+    calls: [madeLibrary],
+  },
+  {
+    id: "done-unmade-en",
+    reply: "All finished: the changes are listed under this reply.",
+    unbacked: true,
+    calls: [sectionEdit("nothing-en", "budget", "Outlook", null, "no-text")],
+  },
+  {
+    id: "done-unmade-zh",
+    reply: "已经全部完成，改动都列在回复下方。",
+    unbacked: true,
+    calls: [sectionEdit("nothing-zh", "plan", "下季度安排", null, "no-text")],
+  },
+] as const;
 
 const probes = [
   { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
@@ -327,7 +464,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       cacheWriteTokens: 0,
     };
     const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
-    for (const probe of [...probes, ...commandProbes]) {
+    for (const probe of [...probes, ...heldOut, ...commandProbes]) {
       for (let run = 1; run <= runs; run++) {
         const result = await unbackedClaims(
           probe.reply,
