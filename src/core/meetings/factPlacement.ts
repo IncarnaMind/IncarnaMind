@@ -41,7 +41,7 @@ const SECTION_HOMES: readonly FillSection[] = ["actions", "decisions", "question
 const TOPICS_ORDER = FILL_SECTIONS.indexOf("summary") + 0.5;
 
 /** A topic's words as two of them are compared: case, width and spacing aside. */
-export const topicKey = (title: string): string =>
+const topicKey = (title: string): string =>
   title.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 
 interface FactPlace {
