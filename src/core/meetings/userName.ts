@@ -12,9 +12,8 @@ export const USER_TOKEN = "{{me}}";
 
 // What a model writes for it besides: {{Me}}, {me}, {{ me }}, full-width braces, 我 for me.
 const WRITTEN_TOKEN = /[{｛]+\s*(?:me|我)\s*[}｝]+/giu;
-// What still reads as a token after that: the User by another word, or any word in double braces.
-const LEFTOVER = /[{｛]+\s*(?:user|用户)\s*[}｝]+|[{｛]{2,}\s*([^{}｛｝\n]{1,40}?)\s*[}｝]{2,}/giu;
-const USER_WORD = /^(?:me|user|我|用户)$/iu;
+// The User by another word, left after that: {{user}}, {{用户}}. Other braced text stays as written.
+const LEFTOVER = /[{｛]+\s*(?:user|用户)\s*[}｝]+/giu;
 
 const HAN_END = /\p{Script=Han}$/u;
 const HAN_START = /^\p{Script=Han}/u;
@@ -61,9 +60,12 @@ function replaceAcross(
   return { run: edited, count: matches.length };
 }
 
-/** `node` with each run of adjacent text nodes in it through `edit`. */
+const isCode = (node: NodeJSON) =>
+  node.type === "codeBlock" || (node.marks ?? []).some((mark) => mark.type === "code");
+
+/** `node` with each run of adjacent text nodes in it through `edit`; code is left as written. */
 function eachRun(node: NodeJSON, edit: (run: NodeJSON[]) => NodeJSON[]): NodeJSON {
-  if (!node.content) return node;
+  if (!node.content || isCode(node)) return node;
   const content: NodeJSON[] = [];
   let run: NodeJSON[] = [];
   const flush = () => {
@@ -71,7 +73,7 @@ function eachRun(node: NodeJSON, edit: (run: NodeJSON[]) => NodeJSON[]): NodeJSO
     run = [];
   };
   for (const child of node.content) {
-    if (typeof child.text === "string") run.push(child);
+    if (typeof child.text === "string" && !isCode(child)) run.push(child);
     else {
       flush();
       content.push(eachRun(child, edit));
@@ -83,7 +85,7 @@ function eachRun(node: NodeJSON, edit: (run: NodeJSON[]) => NodeJSON[]): NodeJSO
 
 /**
  * `nodes` with the User's `name` in place of every token the model wrote, as they are with none.
- * A last pass cleans what still reads as a token, so none reaches the Note: `leftovers` counts it.
+ * A last pass names the User where the model wrote them by another word: `leftovers` counts it.
  */
 export function withUserName(
   nodes: readonly NodeJSON[],
@@ -94,10 +96,7 @@ export function withUserName(
   const named = nodes.map((node) =>
     eachRun(node, (run) => {
       const tokens = replaceAcross(run, WRITTEN_TOKEN, (match, text) => nameFor(name, match, text));
-      const rest = replaceAcross(tokens.run, LEFTOVER, (match, text) => {
-        const word = match[1]?.trim();
-        return word === undefined || USER_WORD.test(word) ? nameFor(name, match, text) : word;
-      });
+      const rest = replaceAcross(tokens.run, LEFTOVER, (match, text) => nameFor(name, match, text));
       leftovers += rest.count;
       return rest.run;
     }),

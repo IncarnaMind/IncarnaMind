@@ -30,7 +30,10 @@ const CALLS = {
     named: {
       overview: "The call settled {{user}}'s glossary and {{**me**}}'s price",
       action: { topic: "{{ Me }}'s glossary", body: "{{me}} will send the glossary by Friday" },
-      decision: { topic: "price", body: "We agreed the price is 45 dollars a seat" },
+      decision: {
+        topic: "price",
+        body: "We agreed the price is 45 dollars a seat, billed to {{first_name}} at {{ }}",
+      },
       claim: { topic: "｛｛ME｝｝'s budget", body: "{me}'s team approved the budget" },
     },
     firstPerson: {
@@ -52,7 +55,10 @@ const CALLS = {
     named: {
       overview: "这次会议定下了{{user}}的术语表和{{**me**}}的价格",
       action: { topic: "{{ Me }}的术语表", body: "{{me}}周五前把术语表发过去" },
-      decision: { topic: "价格", body: "我们同意每个席位 45 美元" },
+      decision: {
+        topic: "价格",
+        body: "我们同意每个席位 45 美元，账单写给 {{first_name}}，地址 {{ }}",
+      },
       claim: { topic: "｛｛ME｝｝的预算", body: "{me}的团队批准了预算" },
     },
     firstPerson: {
@@ -74,7 +80,7 @@ function named(language: Language, name: string): string[] {
       `The call settled ${name}'s glossary and ${name}'s price`,
       `${name}'s glossary — see below`,
       `${name} will send the glossary by Friday`,
-      "We agreed the price is 45 dollars a seat",
+      "We agreed the price is 45 dollars a seat, billed to {{first_name}} at {{ }}",
       `${name}'s team approved the budget`,
       `${name}'s budget — see above`,
     ];
@@ -86,7 +92,7 @@ function named(language: Language, name: string): string[] {
     `这次会议定下了${as}的术语表和${as}的价格`,
     `${start}的术语表，详见下文`,
     `${start}周五前把术语表发过去`,
-    "我们同意每个席位 45 美元",
+    "我们同意每个席位 45 美元，账单写给 {{first_name}}，地址 {{ }}",
     `${start}的团队批准了预算`,
     `${start}的预算，详见上文`,
   ];
@@ -204,12 +210,13 @@ async function filled(language: Language, name: string | null) {
   return { core, meeting, client, before, fill, fills, checks, sent, warnings };
 }
 
-const TOKENS = /[{}｛｝]/u;
+/** A token that means the User; other braced text is the call's own. */
+const TOKENS = /[{｛]+\s*(?:me|user|我|用户)\s*[}｝]+/iu;
 
 describe("The User's own items carry the name they set, which never reaches the model (#2306)", {
   timeout: 60_000,
 }, () => {
-  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line and in the claims list), the model's near-miss tokens included, "{{user}}" and a token split by formatting cleaned by the last pass and logged, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
+  // protects=with the User's name set, the notes name them by it in every place the fill writes (a section's fact, the overview, a pointer under the typed line and in the claims list), the model's near-miss tokens included, "{{user}}" and a token split by formatting named by the last pass and logged, other braced text kept as written, the model is told the token and never the name, the claim check gets the token, Try again after Undo does the same, and Undo leaves the notes exactly as typed; fails_when=a token or a near-miss is left in the note, the name or the first-person rule reaches any request, or Undo leaves anything; no_claim=a real model's wording, which tests/live/meetingFillSections.live.test.ts measures.
   test.each([
     ["en", "Avery Lin"],
     ["zh-CN", "林安"],
@@ -226,6 +233,8 @@ describe("The User's own items carry the name they set, which never reaches the 
         for (const line of named(language, name)) expect(text).toContain(line);
       });
       expect(readMind(client).textContent).not.toMatch(TOKENS);
+      // Only the decision's own "{{first_name}}" and "{{ }}" keep their braces.
+      expect(readMind(client).textContent.match(/[{｛]/gu)).toHaveLength(4);
       expect(warnings.filter((each) => each.event === "meeting.fillTokenLeftover")).toEqual([
         { event: "meeting.fillTokenLeftover", fields: { meetingId: meeting.id, leftovers: 1 } },
       ]);
