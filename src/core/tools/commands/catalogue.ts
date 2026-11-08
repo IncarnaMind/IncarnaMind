@@ -85,7 +85,7 @@ export const CORE_COMMANDS = {
     on: "document",
     does: "app",
     takes:
-      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, proposed if there is none, or none; about: what belongs in it, in the User's words. It reads each and proposes the Folder that fits; nothing moves until the User confirms them with Review. The User allows it once, and Undo takes the proposals back",
+      "ids: the Documents to sort, or none for those in no Folder; folder: the Folder the request is about, proposed if there is none, or none; about: what belongs in it, in the User's words; alsoAsked: what else the request asks for, or empty. It reads each and proposes the Folder that fits; nothing moves until the User confirms them with Review, and IncarnaMind writes the reply about it. The User allows it once, and Undo takes the proposals back",
     check: organizeChecker,
   },
   "mind.rename": {

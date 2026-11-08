@@ -1397,6 +1397,8 @@ export interface CommandDone {
   considered?: number;
   /** Organize: how many Documents wait in Suggestions after it, for the reply's Review button (#1569). */
   review?: { count: number };
+  /** Organize: what else the User asked for in the request, which the reply answers (#1569). */
+  alsoAsked?: string;
   /** A Tag merge: what went into what, by name (#2252). */
   merges?: readonly { from: string; into: string }[];
   /** A Tag merge: how many Tags the Library held before and after (#2252). */

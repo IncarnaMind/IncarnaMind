@@ -3796,6 +3796,7 @@ export const zhCN = {
   "answer.commands.proposed.separator": "、",
   "answer.commands.proposed.wait": "还没有移动任何文档：查看并确认后才会归入文件夹。",
   "answer.commands.proposed.wait.one": "还没有移动这个文档：查看并确认后才会归入文件夹。",
+  "answer.commands.notDone": "还没有完成：“{asked}”。请再问一次。",
   "answer.commands.unsorted": "{count} 个文档未能整理。",
   "answer.commands.untouched": "{count} 个文档保持原样。",
   "answer.commands.untouched.one": "1 个文档保持原样。",

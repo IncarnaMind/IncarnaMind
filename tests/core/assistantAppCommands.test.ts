@@ -1711,7 +1711,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(commandCalls(answer).at(-1)?.approval).not.toBe("denied");
   });
 
-  // protects="把讲租金的文档归到一起" does the same in Chinese: proposals, nothing moved, one Undo takes them back, and the reply is the app's own, with no word from the model after its call (#1569); fails_when=it files a Document, asks for a small Organize, Undo leaves a proposal, or the model writes after the call; no_claim=the Folder's name.
+  // protects="把讲租金的文档归到一起" does the same in Chinese: proposals, nothing moved, one Undo takes them back, and with nothing else asked the reply is the app's own, with no word from the model after its call (#1569); fails_when=it files a Document, asks for a small Organize, Undo leaves a proposal, or the model writes after the call; no_claim=the Folder's name.
   test("Organize proposes in Chinese too, and the app writes the reply", async () => {
     let asked = 0;
     const answers = scriptedModel(
@@ -1727,7 +1727,6 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                     command: "documents.organize",
                     folder: "租赁",
                     about: "租约和租金",
-                    done: true,
                   },
                 },
               ],
@@ -2192,7 +2191,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(await tagsOf(mill.id)).toEqual(["Harbour"]);
   });
 
-  // protects=an Organize-only request, its call marked done, ends with the app's reply: the Folder by its path, its count, that nothing has moved, and no word from the model after the call (#1569); fails_when=the model is asked again or its text follows, or the Folder loses its parent; no_claim=which Folder the classifier picks.
+  // protects=an Organize call that names nothing else the User asked for ends the turn with the app's reply: the Folder by its path, its count, that nothing has moved, and no word from the model after the call (#1569); fails_when=the model is asked again or its text follows, or the Folder loses its parent; no_claim=which Folder the classifier picks.
   test("an Organize-only turn is the app's reply, a subfolder by its path", async () => {
     let asked = 0;
     const model = scriptedModel(
@@ -2208,7 +2207,6 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                     command: "documents.organize",
                     folder: "Leases",
                     about: "Lease papers",
-                    done: true,
                   },
                 },
               ],
@@ -2260,6 +2258,81 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     );
   });
 
+  // protects=an Organize call that names what else the User asked for goes on: the model answers that, then the app's text; and when the model writes nothing, it is asked once, then the app says what wasn't done (#1569); fails_when=the turn ends at the call, or ends with nothing about the rest; no_claim=how a real model fills the field.
+  test.each([
+    {
+      replies: ["Harbour Street's rent is 900 euros a month."],
+      asked: 2,
+      text: "Harbour Street's rent is 900 euros a month.\n\nProposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted.",
+    },
+    {
+      replies: ["", ""],
+      asked: 3,
+      text: "Proposed 1 Folder for 3 Documents: “Leases” (3). Nothing has moved yet: review them to file them. 1 Document couldn’t be sorted. Not done yet: “tell me the rent at Harbour Street”. Ask again to do it.",
+    },
+  ])(
+    "an Organize call naming more goes on: $asked model calls",
+    async ({ replies, asked, text }) => {
+      let calls = 0;
+      const model = scriptedModel(
+        (call) => {
+          calls++;
+          const ran = call.results.filter((each) => each.tool === "run_command");
+          return ran.length === 0
+            ? {
+                calls: [
+                  {
+                    tool: "run_command",
+                    input: {
+                      command: "documents.organize",
+                      folder: "Leases",
+                      about: "Lease papers",
+                      alsoAsked: "tell me the rent at Harbour Street",
+                    },
+                  },
+                ],
+              }
+            : { text: replies[calls - 2] ?? "" };
+        },
+        {
+          generate: ({ prompt }) => {
+            const data = JSON.parse(prompt) as {
+              groups?: { id: string; name: string }[];
+              document?: { text?: string };
+            };
+            if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+            const leases = data.groups.find((each) => each.name === "Leases");
+            const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
+            return {
+              text: JSON.stringify({
+                groupId: aboutRent && leases ? leases.id : "__unsorted__",
+                tags: [],
+              }),
+            };
+          },
+        },
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      const provider = (await core.listChatProviders())[0];
+      if (!provider) throw new Error("No provider.");
+      const settings = (await core.getLibrary()).settings;
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+        automatic: settings.automatic,
+      });
+      approvals(core, "allow-once");
+
+      const answer = await askAssistant(core, {
+        text: "Put the lease papers together and tell me the rent at Harbour Street",
+        mindId: mind.id,
+        ...FROM_WINDOW,
+      });
+
+      expect(answer.text).toBe(text);
+      expect(calls).toBe(asked);
+    },
+  );
+
   // protects=the app's count is added when the model's number only ends with its digits: "14 Documents couldn't be sorted." doesn't say "4 Documents couldn't be sorted.", in English and Chinese; fails_when=the longer number is read as the app's line and the true count is left out; no_claim=which Folder the classifier picks.
   test.each([
     {
@@ -2287,6 +2360,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                       command: "documents.organize",
                       folder: "Leases",
                       about: "Lease papers",
+                      alsoAsked: "how many couldn't be sorted",
                     },
                   },
                 ],

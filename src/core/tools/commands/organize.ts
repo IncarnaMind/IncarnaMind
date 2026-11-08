@@ -120,10 +120,16 @@ function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
 
 /**
  * What the model reads once Organize proposed (#1569): the app writes the proposals as the reply,
- * since models that narrated them wrote "filed" and "moved" of Documents that only wait.
+ * since models that narrated them wrote "filed" and "moved" of Documents that only wait. With
+ * nothing else asked the turn ends there; whenever it goes on (more asked, or another call in the
+ * same step), the model is told the same: leave organizing out.
  */
-const PROPOSALS_SHOWN =
-  "IncarnaMind has already shown the User what Organize proposed, and that nothing has moved. Your reply must not describe, repeat or summarize it.";
+const LEAVE_ORGANIZING_OUT =
+  "IncarnaMind has already shown the User what Organize proposed, in its own words. Your reply leaves organizing out entirely, as if it had not been asked: no word about Organize, Folders or where the Documents are.";
+const proposalsShown = (alsoAsked: string | null) =>
+  alsoAsked === null
+    ? `${LEAVE_ORGANIZING_OUT} If the User asked for nothing else, write nothing.`
+    : `${LEAVE_ORGANIZING_OUT} Answer the rest of the request: ${alsoAsked}`;
 
 /** What Organize proposed, as the reply says it in `language`: the app writes it, not the model. */
 export function proposedText(
@@ -347,6 +353,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             ...(untouched > 0 && { untouched }),
             considered: ids.length,
             review: { count: review.count },
+            ...(input.alsoAsked !== null && { alsoAsked: input.alsoAsked }),
           },
           step:
             placed.length === 0 && tagChanges.length === 0
@@ -365,13 +372,13 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     await revertTags(core, ids, tagChanges, "again");
                   },
                 },
-          ...(placed.length > 0 && { shown: true as const }),
+          ...(placed.length > 0 && input.alsoAsked === null && { ends: true as const }),
           said:
             placed.length === 0 && unsorted === 0 && untouched > 0
               ? `Organize stopped at “${reason ?? "a failure"}” before reading any Document; the other ${plural(untouched, "Document")} stayed as they were.`
               : placed.length === 0
                 ? `Organize proposed no Folder for any Document: ${reason ?? "no Folder fitted"}. Nothing moved.`
-                : PROPOSALS_SHOWN,
+                : proposalsShown(input.alsoAsked),
         };
       }),
       documents.length > 0 ? "organize" : null,

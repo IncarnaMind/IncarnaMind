@@ -446,6 +446,16 @@ const organizedAndMore: Check = (seen) => {
   expect(ownWords(seen).text).not.toBe("");
 };
 
+/** Organize and another app action in one request: both run, and the model's words never say anything moved. */
+const organizedAnd =
+  (other: Check): Check =>
+  (seen) => {
+    expect(organizeRuns(seen).length).toBeGreaterThan(0);
+    expect(seen.after.review).toBeGreaterThan(seen.before.review);
+    other(seen);
+    expect(ownWords(seen).text).not.toMatch(SAYS_IT_MOVED);
+  };
+
 /** Organize after a standing no: the card says it sends this time only, and the run still proposes. */
 const organizedAfterDecline: Check = (seen) => {
   organized(seen);
@@ -1102,6 +1112,153 @@ const REQUESTS: {
     id: "mixed-zh-3",
     text: "把讲房租的文档归到一起，并说说每份多久交一次租",
     check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  // Round 8's measuring set for #1569, now tuning.
+  {
+    id: "held-mixed-en",
+    text: "File the lease papers together and tell me which one has the highest rent",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-mixed-en-2",
+    text: "Sort my documents into folders, then list every amount in euros",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-mixed-en-3",
+    text: "Organize the meeting files and compare the agenda with the notes",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-mixed-zh",
+    text: "把会议文件整理好，再列出里面提到的所有时间",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-mixed-zh-2",
+    text: "整理一下租约，然后比较一下哪份租金最高",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "held-mixed-zh-3",
+    text: "帮我把文档分好文件夹，再告诉我预算给了多少钱",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  // Round 9's measuring set for #1569: written before any run of it, and never tuned on.
+  {
+    id: "measure-only-en",
+    text: "Sort my files into folders, please",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-only-zh",
+    text: "帮我按内容把文档分到文件夹里",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-en",
+    text: "Organize these files into folders and then tell me who approved the budget",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-en-2",
+    text: "Put the meeting documents in one folder, and what day is the team meeting?",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-en-3",
+    text: "Tidy my documents into folders and give me a one-line summary of the Q3 commentary",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-zh",
+    text: "把预算相关的文档放到一起，再算一下营销和差旅一共多少钱",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-zh-2",
+    text: "整理一下我的文档，另外 Q3 的收入增长了多少？",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "measure-mixed-zh-3",
+    text: "把租约归到一个文件夹，顺便告诉我哪份是按季度付租的",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  // Round 10's measuring set for #1569: written before any run of it, and never tuned on.
+  {
+    id: "r10-only-en",
+    text: "Can you put my documents into folders?",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-only-zh",
+    text: "给这些文件分一下类，放进文件夹",
+    check: routedToOrganize,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-en",
+    text: "Organize the files and tell me how much the marketing budget is",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-en-2",
+    text: "Group my documents into folders; also, when is the team meeting held?",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-en-3",
+    text: "Put the leases in a folder and tell me the total monthly rent",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-zh",
+    text: "整理一下文档，再说说董事会批准了什么",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-zh-2",
+    text: "把会议资料放在一起，顺便告诉我办公室搬迁是哪次会议的议题",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-mixed-zh-3",
+    text: "帮我分一下文件夹，然后列出所有租约的地址",
+    check: organizedAndMore,
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-pair-en",
+    text: "Organize my documents into folders and open the Board minutes beside this note",
+    check: organizedAnd(openedBeside("Board minutes")),
+    more: MORE_TO_SORT,
+  },
+  {
+    id: "r10-pair-zh",
+    text: "把文档整理到文件夹里，再把 Meeting notes 改名为 周会记录",
+    check: organizedAnd(renamed("周会记录")),
     more: MORE_TO_SORT,
   },
   { id: "held-permanent-en", text: "Permanently get rid of the Q3 memo", check: neverForGood },

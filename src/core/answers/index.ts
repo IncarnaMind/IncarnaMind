@@ -2033,6 +2033,11 @@ export function createAnswers(options: AnswersOptions) {
     const analysisCalls = new Map<string, AnalysisCall>();
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
+    /** What else the User asked for beside an Organize that ran, as its call named it. */
+    const organizedAndAsked = () =>
+      [...commandsDone.values()].find(
+        (done) => done.command === "documents.organize" && done.alsoAsked,
+      )?.alsoAsked ?? null;
     const commandProblems = new Map<string, CommandProblem>();
     /** A command's approval as it first asked, for asking again when its files changed (#2514). */
     const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
@@ -3353,6 +3358,18 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
         {
+          // The Organize call said the User asked for more: an empty reply is asked once for it.
+          name: "organize-rest",
+          check: (text) => {
+            const asked = organizedAndAsked();
+            if (text.trim() !== "" || asked === null) return null;
+            return {
+              claims: [],
+              note: `Your reply is empty. The User also asked: ${asked}. Answer that now, in the User's language, leaving organizing out.`,
+            };
+          },
+        },
+        {
           name: "claimed-fixes",
           check: (text) => {
             const unmade = minds
@@ -3633,6 +3650,11 @@ export function createAnswers(options: AnswersOptions) {
                   { count },
                 ),
               );
+            }
+            // Asked again and still nothing: the reply says what wasn't done, never nothing.
+            if (done.command === "documents.organize" && done.alsoAsked && reply.trim() === "") {
+              const asked = done.alsoAsked;
+              resultLines.push((each) => translate(each, "answer.commands.notDone", { asked }));
             }
             const merges = done.merges;
             if (

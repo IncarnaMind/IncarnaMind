@@ -3982,6 +3982,7 @@ export const en = {
   "answer.commands.proposed.separator": ", ",
   "answer.commands.proposed.wait": "Nothing has moved yet: review them to file them.",
   "answer.commands.proposed.wait.one": "Nothing has moved yet: review it to file it.",
+  "answer.commands.notDone": "Not done yet: “{asked}”. Ask again to do it.",
   "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
   "answer.commands.untouched": "{count} Documents were left as they were.",
   "answer.commands.untouched.one": "1 Document was left as it was.",

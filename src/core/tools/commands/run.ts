@@ -227,6 +227,8 @@ export interface CommandInput {
   value: string | null;
   /** A Tag merge's groups, instead of ids and tag, when more than one Tag stays (#2252). */
   merges: { ids: string[]; tag: string | null }[];
+  /** Organize: what else the User's request asks for, in their words; null when nothing (#1569). */
+  alsoAsked: string | null;
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -234,8 +236,8 @@ export interface Ran {
   done: Omit<CommandDone, "command" | "run">;
   step: CommandStep | null;
   said: string;
-  /** The app writes what it did as the reply: a call marked done ends the turn with no model reply. */
-  shown?: true;
+  /** What it did is the whole reply, which the app writes: the turn ends, whatever the done mark. */
+  ends?: true;
 }
 
 /**
@@ -310,6 +312,7 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
           isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
         )
       : [],
+    alsoAsked: text(input.alsoAsked),
   };
 }
 
