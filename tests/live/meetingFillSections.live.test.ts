@@ -10,6 +10,8 @@
  * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated), or with
  * INCARNAMIND_LIVE_DEEPSEEK_KEY and INCARNAMIND_LIVE_DEEPSEEK_MODEL=deepseek-flash in strict mode,
  * or INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
+ * INCARNAMIND_LIVE_USER_NAME sets the User's name in Settings › General, and nothing else: their
+ * own actions are then scored by that name, and no request may hold it (#2306).
  */
 import { appendFile, readFile } from "node:fs/promises";
 import { getSchema, type JSONContent } from "@tiptap/core";
@@ -44,6 +46,7 @@ const LOCAL_MODEL = process.env.INCARNAMIND_LIVE_OLLAMA_MODEL;
 const MODEL = LOCAL_MODEL ?? CLOUD.model ?? "claude-haiku-5-5";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const PICKED = process.env.INCARNAMIND_LIVE_CALLS?.split(",").map((each) => each.trim());
+const USER_NAME = process.env.INCARNAMIND_LIVE_USER_NAME?.trim() || null;
 if (
   LOADER_PREFLIGHT &&
   [
@@ -1698,6 +1701,71 @@ const matchCount = (pattern: RegExp, text: string) =>
 const occurrences = (fact: Fact, text: string) =>
   Math.min(...parts(fact).map((pattern) => matchCount(pattern, text)));
 
+/** A fact the fixtures score as the User's own action, written in the first person. */
+const OWN_ACTION = /\bin the first person\b|以第一人称/;
+
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The call scored with the User's name set in Settings (#2306): each of their own actions must
+ * name them by it, and is wrong with I, me or my (我, but not 我们 or 我方), the token in any
+ * form, "the User" (用户), or a word the fixture already turned down for it other than the name.
+ * Every other fact is scored as before.
+ */
+function namedCall(call: Call, name: string): Call {
+  const facts = call.facts.map((fact) => {
+    if (!OWN_ACTION.test(fact.name)) return fact;
+    const patterns = parts(fact);
+    const owner = patterns.findIndex((each) => /\\bI\\b|我\(/.test(each.source));
+    const firstPerson = patterns[owner];
+    if (!firstPerson) throw new Error(`${call.id}: "${fact.name}" has no first-person owner.`);
+    const turnedDown = (/^\(\?<!\\b\(\?:([^)]*)\)/.exec(firstPerson.source)?.[1]?.split("|") ?? [])
+      .filter((word) => word.toLowerCase() !== name.toLowerCase())
+      .map((word) => `\\b(?:${word})\\b`);
+    const wrong =
+      call.language === "en"
+        ? [...turnedDown, "\\bI\\b(?![./-])", "\\b(?:me|my|mine|myself)\\b", "\\bthe\\s+User\\b"]
+        : ["我(?![们方])", "用户"];
+    const named = call.language === "en" ? `\\b${literally(name)}\\b` : literally(name);
+    const owned = new RegExp(
+      `^(?![\\s\\S]*(?:${[...wrong, "[{}｛｝]"].join("|")}))[\\s\\S]*${named}`,
+      "iu",
+    );
+    return { ...fact, pattern: patterns.map((each, index) => (index === owner ? owned : each)) };
+  });
+  return { ...call, facts };
+}
+
+/**
+ * Of the requests a call made, how many held the User's `name`, and how many times it was outside
+ * words the call itself said or the model wrote back (`said`): the app's own words never carry it.
+ */
+function nameInRequests(prompts: readonly string[], name: string, said: readonly string[]) {
+  const sources = said.flatMap((text) => [text, JSON.stringify(text).slice(1, -1)]);
+  let outside = 0;
+  for (const prompt of prompts) {
+    for (let at = prompt.indexOf(name); at >= 0; at = prompt.indexOf(name, at + name.length)) {
+      const before = prompt.slice(Math.max(0, at - 12), at + name.length);
+      const after = prompt.slice(at, at + name.length + 12);
+      if (!sources.some((source) => source.includes(before) || source.includes(after))) outside++;
+    }
+  }
+  return {
+    requests: prompts.length,
+    holding: prompts.filter((prompt) => prompt.includes(name)).length,
+    outside,
+  };
+}
+
+/** Tokens, or stray braces of one, left in the AI text of the note: none may show (#2306). */
+const rawTokens = (units: readonly Unit[]) =>
+  units
+    .filter((unit) => unit.ai)
+    .reduce(
+      (sum, unit) => sum + (unit.text.match(/[{｛]+[^{}｛｝]*[}｝]+|[{}｛｝]/gu)?.length ?? 0),
+      0,
+    );
+
 test("meeting scores count repeated facts inside one paragraph, not just matching paragraphs", () => {
   const fact: Fact = {
     name: "raise the crest by 40 cm",
@@ -2968,6 +3036,120 @@ function expectCompleteFill(fill: MeetingFill): void {
   expect(fill.unfinishedParts ?? 0, "No transcript parts were left unfinished").toBe(0);
 }
 
+// protects=with a name set in Settings, the User's own actions in held-out calls m, n and o count only when they name the User by it, and fail in the first person, with the token in any form, as "the User" or with "my", while 我们 and every other fact score as before (#2306); fails_when=a first-person or token sentence passes, or a named one fails; no_claim=a real model's wording.
+test("meeting scores with a Settings name require it for the User's own actions", async () => {
+  const cases: Record<string, { name: string; right: string[]; wrong: string[] }[]> = {
+    "reserved-en-structured-m": [
+      {
+        name: "Imogen",
+        right: ["Imogen will send Pavel our latest electricity bill by September 8."],
+        wrong: [
+          "I will send our latest electricity bill by September 8.",
+          "{{me}} will send our latest electricity bill by September 8.",
+          "Imogen will send my latest electricity bill by September 8.",
+          "The User will send the electricity bill by September 8.",
+          "They will send the electricity bill by September 8.",
+        ],
+      },
+    ],
+    "reserved-en-structured-n": [
+      {
+        name: "Avery Lin",
+        right: ["Avery Lin will send the other side our glossary of product terms by November 5."],
+        wrong: [
+          "I will send our glossary of product terms by November 5.",
+          "{me} will send the glossary by November 5.",
+          "We will send the glossary by November 5.",
+        ],
+      },
+    ],
+    "reserved-en-structured-o": [
+      {
+        name: "Sunita",
+        right: ["Sunita will send Marco the final guest count by June 4."],
+        wrong: ["I will send Marco the final guest count by June 4."],
+      },
+      {
+        name: "Sunita",
+        right: ["Sunita will pay the deposit by May 21."],
+        wrong: ["｛｛ME｝｝ will pay the deposit by May 21.", "Me will pay the deposit by May 21."],
+      },
+    ],
+    "reserved-zh-structured-m": [
+      {
+        name: "梁薇",
+        right: ["梁薇在六月二十日前把各班的人数统计发给季川。"],
+        wrong: [
+          "我在六月二十日前把各班的人数统计发给季川。",
+          "{{me}}在六月二十日前把各班的人数统计发给季川。",
+          "用户在六月二十日前把各班的人数统计发给季川。",
+        ],
+      },
+    ],
+    "reserved-zh-structured-n": [
+      {
+        name: "林安",
+        right: ["林安在九月十日前把我们门店每个月的用量表发给对方。"],
+        wrong: ["我九月十日前把门店每个月的用量表发给对方。"],
+      },
+    ],
+    "reserved-zh-structured-o": [
+      {
+        name: "邱宁",
+        right: ["邱宁在十月二十日前把背板的设计稿发给傅磊。"],
+        wrong: ["我在十月二十日前把背板的设计稿发给傅磊。"],
+      },
+      {
+        name: "邱宁",
+        right: ["邱宁在十月八日前把定金付了。"],
+        wrong: ["{{me}}的定金在十月八日前付了。", "邱宁和我在十月八日前把定金付了。"],
+      },
+    ],
+  };
+  const calls = await loadReservedCalls(Object.keys(cases));
+  expect(calls.map((call) => call.id).sort()).toEqual(Object.keys(cases).sort());
+  for (const call of calls) {
+    const expected = cases[call.id] ?? [];
+    const named = namedCall(call, expected[0]?.name ?? "");
+    const own = named.facts.filter((fact) => OWN_ACTION.test(fact.name));
+    expect(own, call.id).toHaveLength(expected.length);
+    for (const [index, fact] of own.entries()) {
+      for (const text of expected[index]?.right ?? []) expect(says(fact, text), text).toBe(true);
+      for (const text of expected[index]?.wrong ?? []) expect(says(fact, text), text).toBe(false);
+    }
+    expect(named.facts.filter((fact) => !OWN_ACTION.test(fact.name))).toEqual(
+      call.facts.filter((fact) => !OWN_ACTION.test(fact.name)),
+    );
+  }
+});
+
+// protects=the named run's request check counts the User's name only where the app's own words carry it, not where the call itself said it or the model wrote it back, and counts a token left in the note (#2306); fails_when=a name the transcript carries counts against the app, or one the app added doesn't; no_claim=what a real run sends.
+test("meeting scores tell the app's own use of the name from the call's", () => {
+  const said = "Hi, this is Imogen. We're putting solar panels on our roof in Harlow.";
+  const fill = JSON.stringify([
+    { role: "user", content: `[0:02 Me] ${said}\nWrite the User as {{me}}.` },
+  ]);
+  expect(nameInRequests([fill], "Imogen", [said])).toEqual({ requests: 1, holding: 1, outside: 0 });
+  const told = JSON.stringify([
+    { role: "system", content: "The User set their name as Imogen Hart." },
+  ]);
+  expect(nameInRequests([fill, told], "Imogen", [said])).toEqual({
+    requests: 2,
+    holding: 2,
+    outside: 1,
+  });
+  const unit = (text: string, ai: boolean): Unit => ({
+    text,
+    ai,
+    section: null,
+    afterLine: null,
+    citations: [],
+  });
+  expect(rawTokens([unit("Imogen will pay {{me}} and ｛me", true), unit("{typed}", false)])).toBe(
+    2,
+  );
+});
+
 test("meeting scores reject honest partial fills even when their state is filled", () => {
   const complete: MeetingFill = {
     state: "filled",
@@ -3021,7 +3203,11 @@ async function run(call: Call, ledger: RequestLedger, observation: Observation |
     if (STRUCTURED)
       await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
     await core.updateSettings({
-      user: { language: call.language, monthlyCap: { amount: 0.25, currency: "USD" } },
+      user: {
+        language: call.language,
+        monthlyCap: { amount: 0.25, currency: "USD" },
+        ...(USER_NAME && { authorName: USER_NAME }),
+      },
     });
     if (LOCAL_MODEL) {
       await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
@@ -3139,9 +3325,9 @@ const UNTYPED = CALLS.filter((call) => call.id.startsWith("walk-")).map((call) =
 }));
 
 const reserved = !LOADER_PREFLIGHT && (KEY || LOCAL_MODEL) ? await loadReservedCalls(PICKED) : [];
-const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED, ...reserved].filter(
-  (call) => !PICKED || PICKED.includes(call.id),
-);
+const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED, ...reserved]
+  .filter((call) => !PICKED || PICKED.includes(call.id))
+  .map((call) => (USER_NAME ? namedCall(call, USER_NAME) : call));
 if (
   STRUCTURED &&
   (chosen.length !== 1 || chosen[0]?.id !== STRUCTURED.call || chosen[0]?.requireSections !== true)
@@ -3180,6 +3366,16 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           observation,
         );
         const usage = ledger.usage;
+        const named = USER_NAME
+          ? {
+              settingsName: USER_NAME,
+              ...nameInRequests(ledger.prompts, USER_NAME, [
+                ...call.turns.map((turn) => turn.text),
+                ...usage.replies.map((reply) => reply.raw),
+              ]),
+              rawTokens: rawTokens(units),
+            }
+          : null;
         const once = scored.filter((each) => each.count === 1 && each.cited).length;
         const title = (section: "summary" | "decisions" | "actions" | "questions") =>
           call.sectionHeadings?.[section] ??
@@ -3237,6 +3433,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Request settlement: ${ledger.snapshot().unsettled_requests} unsettled; amounts above are known subtotals, not free unknown usage.`,
                 `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
                 `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-v5", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+                ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,
                 "",
@@ -3339,6 +3536,10 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               expect(units.some((unit) => unit.ai && unit.section === text)).toBe(true);
             }
           });
+        }
+        if (named) {
+          expect(named.outside, "The app's own words never carry the User's name").toBe(0);
+          expect(named.rawTokens, "No token is left in the note").toBe(0);
         }
         if (STRUCTURED) ledger.assertSettled();
         assertionsPassed = true;
