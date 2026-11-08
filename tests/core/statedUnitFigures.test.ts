@@ -9,9 +9,10 @@ import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
-import { checkingModel, type Plan } from "../helpers/checks";
-import { setUpWithDocuments } from "../helpers/citations";
+import { checkingModel, type Plan, requestedFigures } from "../helpers/checks";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
+import type { ModelCall, ScriptedReply } from "../helpers/models";
 
 interface SourceFile {
   name: string;
@@ -267,6 +268,67 @@ describe("Contradicted keeps its meaning", () => {
     const result = await check(claim, document, contradicted(quote));
     expect(result.state).toBe("contradicted");
     expect(result.unsupported?.kind).toBeUndefined();
+  });
+});
+
+describe("a separator reading a thousand times away is never Supported", () => {
+  /**
+   * The judge cites the quote, then reads the figure's digits as `reading` (2: "." grouping
+   * thousands), bound to the Document's 8,214 under its unit line.
+   */
+  const readsAs =
+    (reading: number) =>
+    (call: ModelCall): ScriptedReply => {
+      const quote = "Room revenue was 8,214";
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = shownPassages(call.results.at(-1)?.text ?? "").find((each) =>
+          each.text.includes(quote),
+        );
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } },
+          ],
+        };
+      }
+      const items = requestedFigures(call).map(({ id }) => ({
+        id,
+        verdict: "supported",
+        scope: "same",
+        topic: "found",
+        roles: "same",
+        says: null,
+        reading,
+        relation: "equals",
+        source: {
+          citation: 1,
+          number: "8,214",
+          reading: 1,
+          unitQuote: "GBP thousands unless stated otherwise",
+        },
+        calculation: null,
+      }));
+      return {
+        text: `Verdict: supported\n${quote} [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+      };
+    };
+
+  // protects="8.214 thousand pounds" against 8,214 in GBP thousands (8,214,000) needs a look when the judge reads its "." as grouping thousands to make it agree, and the reading English writes stays the one shown; fails_when=that reading makes it Supported; no_claim=a Note whose separators its other numbers settle, which offers no such reading.
+  test("8.214 thousand read as 8,214 thousand needs a look", async () => {
+    const claim = "Room revenue was 8.214 thousand pounds.";
+    const result = await check(
+      claim,
+      {
+        name: "Ridgeway Hotels.txt",
+        contents:
+          "Ridgeway Hotels\nGBP thousands unless stated otherwise\nRoom revenue was 8,214.\n",
+      },
+      { reply: readsAs(2) },
+    );
+    expect(result).toMatchObject({
+      state: "unsupported",
+      unsupported: { kind: "units", reason: "Units may differ: the source gives 8,214 thousand" },
+    });
+    expect(result.figures?.[0]?.reading.value).toBe(8214);
   });
 });
 

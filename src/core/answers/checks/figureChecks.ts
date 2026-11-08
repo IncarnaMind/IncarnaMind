@@ -774,6 +774,14 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ambiguous: target.reading.ambiguous.filter((reading) => reading.kind === "range"),
         },
       };
+    // Of digits whose separators the Note doesn't settle ("8.214"), the reading listed first is the
+    // one English and Chinese write. Another, a thousand times from it, chosen because it agrees,
+    // rests on the digits' scale as a unit would: it is never Supported (#2864).
+    const [separators] = ambiguities;
+    const asWrittenFirst =
+      separators?.kind === "separator" && selected && selected !== separators.readings[0]
+        ? separators.readings[0]
+        : undefined;
     let sourceInput: FigureInput | null = null;
     let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
@@ -870,13 +878,13 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
     // Bare digits that differ from their source only by a unit need a look, never Contradicted:
     // the check can't tell which unit the sentence means. Nor are they ever Supported (#2864).
-    const unitsDiffer = (): FigureCheckResult => {
+    const unitsDiffer = (figure: CheckFigure = written): FigureCheckResult => {
       const judged = unbacked(evidence);
       const amount = sourceInput
-        ? quotedSourceText({ reading: written.reading, sourceInput })
+        ? quotedSourceText({ reading: figure.reading, sourceInput })
         : (calculation?.shown ?? null);
       return {
-        ...finding(written),
+        ...finding(figure),
         source: base.source,
         sourceInput,
         result:
@@ -999,6 +1007,15 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       differsOnlyByUnit(written.reading, compared, sourceInput?.unitStatement?.scale ?? null)
     ) {
       rows.push(unitsDiffer());
+      continue;
+    }
+    if (agrees && asWrittenFirst) {
+      rows.push(
+        unitsDiffer({
+          ...original,
+          reading: { ...original.reading, ...asWrittenFirst, ambiguous: [] },
+        }),
+      );
       continue;
     }
     const difference = target.reading.value - compared.value;
