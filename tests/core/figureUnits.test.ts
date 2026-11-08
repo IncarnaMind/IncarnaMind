@@ -15,6 +15,7 @@ import {
   checkingModel,
   checkReply,
   isCheckRun,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
@@ -478,7 +479,9 @@ describe("Checking a sentence that adds a unit", { timeout: 30_000 }, () => {
           }));
           return { calls: [{ tool: "cite", input: { citations } }] };
         }
-        return { text: "Verdict: supported\nAbsence: no\nBoth Passages say so. [^1] [^2]" };
+        return {
+          text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nBoth Passages say so. [^1] [^2]`,
+        };
       },
       { generate: checkGenerate({}) },
     );

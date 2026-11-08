@@ -8,7 +8,7 @@ import { describe, expect, test } from "vitest";
 import type { Document } from "../../src/core";
 import type { ClaimCheckAttributes } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { isCheckRun, listedSentences, sentenceOf } from "../helpers/checks";
+import { isCheckRun, listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -72,7 +72,7 @@ function checking(example: Example, call: ModelCall): ScriptedReply {
     const citations = [{ marker: 1, passage: holding.id, quote }];
     return { calls: [{ tool: "cite", input: { citations } }] };
   }
-  return { text: "Verdict: supported\nAbsence: no\nThe Document says so. [^1]" };
+  return { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe Document says so. [^1]` };
 }
 
 async function setUp(example: Example) {

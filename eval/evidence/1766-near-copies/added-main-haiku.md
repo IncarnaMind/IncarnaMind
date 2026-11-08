@@ -1,0 +1,60 @@
+# The amended file's added cases on main, Claude Haiku 5.5, 3 checks a case
+
+Commit c4ff0f379 with the check of `main` (e2dda3770) in place of the stacked one, so the check is `main`'s. Spent $0.12. Each check is the card's verdict, or the probe part's for a sentence of two parts.
+
+| Language | Case | Kind | Shape | Label | Checks |
+|---|---|---|---|---|---|
+| en | fees-paid | added-condition | whole | decoy | partly, partly, partly |
+| en | only-if-reserved-negated | changed-condition | whole | decoy | contradicted, contradicted, contradicted |
+| en | not-if-reserved | paraphrase | whole | positive | supported, supported, supported |
+| en | have-to | paraphrase | whole | positive | not-checked, not-checked, supported |
+| en | allowed-to | paraphrase | whole | positive | supported, supported, supported |
+| en | parent-on-bank | changed-condition | whole | decoy | contradicted, contradicted, contradicted |
+| en | allowed-to-take-scull | condition | whole | decoy | unsupported, partly, partly |
+| en | if-coach-first | paraphrase | whole | positive | supported, supported, supported |
+| en | invoiced-once-a-year | paraphrase | whole | positive | supported, supported, supported |
+| en | once-a-term-for-week | period | whole | decoy | contradicted, contradicted, contradicted |
+| en | weekdays-only | added-condition | whole | decoy | partly, not-checked, not-checked |
+| en | only-if-booked | changed-condition | whole | decoy | partly, contradicted, contradicted |
+| en | free-to-bring-guests | condition | whole | decoy | partly, partly, partly |
+| en | unless-first | paraphrase | whole | positive | supported, supported, supported |
+| en | online-account | added-condition | whole | decoy | partly, partly, partly |
+| en | obliged-to | paraphrase | whole | positive | supported, supported, supported |
+| en | prohibited-from | paraphrase | whole | positive | supported, supported, supported |
+| en | once-a-year-for-month | period | whole | decoy | contradicted, contradicted, contradicted |
+| en | walk-inspected-once-a-year | period | walk | decoy | contradicted, contradicted, contradicted |
+| en | council-approval | changed-condition | whole | decoy | contradicted, contradicted, contradicted |
+| en | hens-can-be-kept | condition | whole | decoy | supported, supported, supported |
+| en | need-to | paraphrase | whole | positive | supported, supported, supported |
+| en | entitled-to | paraphrase | whole | positive | supported, supported, supported |
+| en | confirmed-unless-dropped | condition | confirmed | decoy | supported, supported, supported |
+| en | book-twice | duty-elsewhere | whole | positive | supported, supported, supported |
+| en | spare-rackets | duty-elsewhere | whole | positive | supported, supported, supported |
+| en | bicycle-registered | duty-elsewhere | whole | positive | supported, supported, supported |
+| en | part-judge-churn-timing | period | walk | positive | supported, unsupported, supported |
+| en | part-judge-every-year | period | walk | positive | unsupported, unsupported, unsupported |
+| zh-CN | weekdays-only | added-condition | whole | decoy | partly, partly, partly |
+| zh-CN | fee-paid | changed-condition | whole | decoy | contradicted, contradicted, partly |
+| zh-CN | bring-a-friend | condition | whole | decoy | supported, partly, supported |
+| zh-CN | xu | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | consent-first | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | same-person-first | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | ying | paraphrase | whole | positive | not-checked, not-checked, supported |
+| zh-CN | residents-committee | changed-condition | whole | decoy | contradicted, contradicted, contradicted |
+| zh-CN | yanjin | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | card-one-year | added-condition | whole | decoy | partly, partly, partly |
+| zh-CN | only-if-reserved-negated | changed-condition | whole | decoy | partly, partly, partly |
+| zh-CN | renew-by-network | condition | whole | decoy | supported, supported, supported |
+| zh-CN | dei | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | dispatcher-consent | added-condition | whole | decoy | partly, partly, partly |
+| zh-CN | zhunxu | paraphrase | whole | positive | partly, supported, supported |
+| zh-CN | buzhun | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | can-keep-chickens | condition | whole | decoy | supported, partly, partly |
+| zh-CN | you-yiwu | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | only-if-booked | changed-condition | whole | decoy | partly, partly, partly |
+| zh-CN | when-not-booked | paraphrase | whole | positive | supported, supported, supported |
+| zh-CN | book-twice | duty-elsewhere | whole | positive | supported, supported, supported |
+| zh-CN | spare-rackets | duty-elsewhere | whole | positive | supported, supported, supported |
+| zh-CN | bicycle-registered | duty-elsewhere | whole | positive | supported, unsupported, unsupported |
+| zh-CN | part-judge-churn-timing | period | walk | positive | supported, supported, unsupported |
+| zh-CN | part-judge-every-year | period | walk | positive | unsupported, unsupported, unsupported |
