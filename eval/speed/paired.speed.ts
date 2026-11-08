@@ -252,6 +252,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       checkPaths: switches[which].checkPaths,
       notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
       helpFormJudged: switches[which].helpFormJudged,
+      helpMarksPlaced: switches[which].helpMarksPlaced,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));

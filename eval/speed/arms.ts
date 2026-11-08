@@ -37,7 +37,54 @@ export interface Arm {
   notes?: { beforeSpeakers?: boolean };
   /** Whether call help's own form may be judged the model's working, as before #2778; unset: it isn't. */
   helpFormJudged?: boolean;
+  /** Whether call help's unmarked Citations are placed and added, as before #2847; unset: they aren't. */
+  helpMarksPlaced?: boolean;
 }
+
+/** Call help's form as it was worded before #2847, each line as worded since, then as before. */
+const MARKS_BEFORE: readonly (readonly [string, string])[] = [
+  [
+    "one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote); then",
+    "one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then",
+  ],
+  [
+    "each one sentence of at most 20 words.\n",
+    "each one sentence of at most 20 words, its Citation markers at its end.\n",
+  ],
+  [
+    "\n- Put each Citation marker right after the words its quote supports, even mid-sentence: a fact from another line gets that line's own marker, right after it; what the User would promise, offer or ask gets none, and an option that only buys time has no marker.",
+    "",
+  ],
+  [
+    "★ We can extend the pilot to 60 days [^1], but Enterprise stays at list price",
+    "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
+  ],
+  [
+    "★ 我们可以把试用延长到 60 天 [^1]，但企业版价格没法低于标价",
+    "★ 企业版价格没法低于标价，但我们可以把试用延长到 60 天 [^1]",
+  ],
+];
+
+/** A request's text with call help's form worded as it was before #2847. */
+export const marksAsBefore = (text: string): string =>
+  MARKS_BEFORE.reduce((worded, [since, before]) => worded.replaceAll(since, before), text);
+
+/** Each user message's text of a request, through `reworded`. */
+const userText =
+  (reworded: (text: string) => string) =>
+  (params: LanguageModelV4CallOptions): LanguageModelV4CallOptions => ({
+    ...params,
+    prompt: params.prompt.map((message) =>
+      message.role === "user"
+        ? {
+            ...message,
+            content: message.content.map((part) =>
+              part.type === "text" ? { ...part, text: reworded(part.text) } : part,
+            ),
+          }
+        : message,
+    ),
+  });
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
 const STRETCH_TOKENS = 400;
@@ -140,19 +187,7 @@ export const ARMS: readonly Arm[] = [
   {
     id: "newest-stretch",
     label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
-    request: (params) => ({
-      ...params,
-      prompt: params.prompt.map((message) =>
-        message.role === "user"
-          ? {
-              ...message,
-              content: message.content.map((part) =>
-                part.type === "text" ? { ...part, text: newestStretch(part.text) } : part,
-              ),
-            }
-          : message,
-      ),
-    }),
+    request: userText(newestStretch),
   },
   {
     id: "help-answers-model",
@@ -174,6 +209,13 @@ export const ARMS: readonly Arm[] = [
     label:
       "call help's own options, readings and short lines judged as the model's working, as before #2778",
     helpFormJudged: true,
+  },
+  {
+    id: "help-marks-as-before",
+    label:
+      "call help's Citations placed and added by the core where the model wrote no marker, and its form's markers at each option's end, as before #2847",
+    helpMarksPlaced: true,
+    request: userText(marksAsBefore),
   },
   {
     id: "retrieve-first",
@@ -222,6 +264,7 @@ export function armSwitch() {
     checkPaths,
     notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
     helpFormJudged: () => current?.helpFormJudged,
+    helpMarksPlaced: () => current?.helpMarksPlaced,
     /** The prompts sent since it was last asked, oldest first. */
     takeSent: (): string[] => sent.splice(0),
     use(arm: Arm): void {

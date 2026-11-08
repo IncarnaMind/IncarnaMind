@@ -8,12 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
-import { newestStretch } from "../../eval/speed/arms";
+import { marksAsBefore, newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import type { CoreAdapters } from "../../src/core";
+import { meetingHelpInstructions } from "../../src/core/answers/meetingHelp";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -267,6 +268,60 @@ describe("The newest stretch of the live transcript", () => {
     const short = request(passage("P1", 20), passage("P2", 20));
     expect(newestStretch(short)).toBe(short);
   });
+});
+
+describe("Call help's form as worded before #2847, for the arm that runs it", () => {
+  const OPTION_BEFORE =
+    '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.';
+  const LINE_BEFORE =
+    '- At most three short lines, each starting with "- ", each one sentence of at most 20 words, its Citation markers at its end.';
+  const READING =
+    '- Each reading is three lines: what they want, in one sentence, as a reading of what they said and never as a fact; then the moment of the transcript it rests on: its time and a few words they said in quotation marks, with no punctuation before the closing mark, then its Citation marker; then a line starting with "→ " and the move it suggests, in at most ten words.';
+
+  test.each([
+    {
+      kind: "answer" as const,
+      call: null,
+      kept: OPTION_BEFORE,
+      example:
+        "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
+    },
+    {
+      kind: "no" as const,
+      call: "Chinese",
+      kept: OPTION_BEFORE,
+      example: "★ 企业版价格没法低于标价，但我们可以把试用延长到 60 天 [^1]",
+    },
+    {
+      kind: "sum" as const,
+      call: "Chinese",
+      kept: LINE_BEFORE,
+      example: "- 上线推迟到 11 月 18 日 [^1]",
+    },
+    {
+      kind: "want" as const,
+      call: null,
+      kept: READING,
+      example: "12:04 “our budget stops at ten thousand” [^1]",
+    },
+  ])(
+    "$kind in $call: each line as it was, and the marker rule gone",
+    ({ kind, call, kept, example }) => {
+      const now = meetingHelpInstructions(kind, {
+        found: true,
+        language: "en",
+        callLanguage: call,
+      });
+
+      const before = marksAsBefore(now);
+
+      expect(now).toContain("Put each Citation marker right after the words its quote supports");
+      expect(before).not.toContain("Put each Citation marker");
+      expect(before.split("\n")).toContain(kept);
+      expect(before.split("\n")).toContain(example);
+      expect(before.split("\n")).toHaveLength(now.split("\n").length - 1);
+    },
+  );
 });
 
 describe("The ledger", () => {

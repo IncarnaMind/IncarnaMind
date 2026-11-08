@@ -126,6 +126,8 @@ export interface LibraryOptions {
   notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
   /** Whether call help's own form may be judged the model's working, for an arm that decides it. */
   helpFormJudged?: CoreAdapters["helpFormJudged"];
+  /** Whether call help's unmarked Citations are placed and added, for an arm that decides it. */
+  helpMarksPlaced?: CoreAdapters["helpMarksPlaced"];
 }
 
 export interface EvalWebPage {
@@ -330,6 +332,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.checkPaths && { checkPaths: options.checkPaths }),
     ...(options.notesBeforeSpeakers && { notesBeforeSpeakers: options.notesBeforeSpeakers }),
     ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
+    ...(options.helpMarksPlaced && { helpMarksPlaced: options.helpMarksPlaced }),
   });
   const close = async () => {
     core.close();
