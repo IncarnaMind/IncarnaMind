@@ -1855,8 +1855,13 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
     summarySentences: (summary[0]?.text.match(SENTENCES) ?? []).length,
     summaryCited: summary.length > 0 && summary.every((item) => item.cited && !item.bullet),
     topics: topics.map((each) => each.heading),
+    // A topic that was all decisions or tasks shows in those sections, not under a heading of its own.
     topicsMissing: (call.topics ?? [])
-      .filter((topic) => !topics.some((each) => topic.pattern.test(each.heading)))
+      .filter(
+        (topic) =>
+          !topics.some((each) => topic.pattern.test(each.heading)) &&
+          !sectionItems.some((item) => topic.pattern.test(item.text)),
+      )
       .map((topic) => topic.name),
     topicItems: topicItems.length,
     topicSentences: topicItems.map((item) => (item.text.match(SENTENCES) ?? []).length),
