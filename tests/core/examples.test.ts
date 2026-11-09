@@ -192,6 +192,16 @@ describe("the example Mind", { timeout: 30_000 }, () => {
             check: "found",
             pageFrom: 1,
           }),
+          // Its card offers the fix an English Note's card does: the results' figure (#2081).
+          correction: {
+            from: "36.8%",
+            choices: [
+              {
+                wording: "38.6%",
+                evidence: expect.objectContaining({ check: "found", pageFrom: 1 }),
+              },
+            ],
+          },
           versions: expect.arrayContaining([
             expect.objectContaining({ documentId: results?.documentId }),
           ]),
@@ -718,6 +728,10 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
             quote: "集团毛利率为 38.6%，上年同期为 40.3%，主要受线上业务拖累。",
             check: "found",
           }),
+          correction: {
+            from: "36.8%",
+            choices: [{ wording: "38.6%", evidence: expect.objectContaining({ check: "found" }) }],
+          },
         }),
       },
     ]);

@@ -7184,6 +7184,8 @@ export type ClaimCheckFailure =
   | "plan-limit"
   | "out-of-credit"
   | "failed"
+  /** No reply within the check's time limit; its detail is the limit, in seconds. */
+  | "timed-out"
   | "stopped"
   | "answer-failed"
   | "too-many"
@@ -7687,7 +7689,10 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
-  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  /**
+   * The Mind being checked, whose own snapshot is never its evidence (#335), and whose record of
+   * AI use holds the check.
+   */
   mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;
@@ -9902,8 +9907,10 @@ export const aiUseKinds = [
   "comparison-table-accepted",
   /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
   "outside-agent-change-accepted",
-  /** A sentence of the Mind's checked against the Documents (#906). */
+  /** A sentence of the Mind's checked against the Documents (#906): its model gave a verdict. */
   "sentence-checked",
+  /** A sentence of the Mind's whose check a model replied to, left Not checked (#2897). */
+  "sentence-asked",
 ] as const;
 export type AiUseKind = (typeof aiUseKinds)[number];
 

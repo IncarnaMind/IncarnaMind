@@ -1308,6 +1308,7 @@ export const zhCN = {
   "claim.useFigure.done": "已改为 {figure}",
   "claim.useFigure.moved": "未做修改：这句话不在核对标记的位置了。请重新核对。",
   "claim.correction": "改为 {wording}",
+  "claim.says.correction": "文档写的是“{to}”，不是“{from}”。",
   "claim.correction.command": "改为文档的说法",
   "claim.correction.doneMany": "已按文档更正 {count} 处",
   "claim.correction.badge": "按文档更正 {count} 处",
@@ -1457,6 +1458,7 @@ export const zhCN = {
   "claim.reason.plan-limit": "已达到套餐的用量上限。",
   "claim.reason.out-of-credit": "模型服务提示余额不足。",
   "claim.reason.failed": "无法核对：{detail}",
+  "claim.reason.timed-out": "模型在 {detail} 秒内没有回复。",
   "claim.reason.stopped": "核对前已停止。",
   "claim.reason.answer-failed": "回答出错停止，这句话尚未核对。",
   "claim.reason.too-many": "尚未核对：写入时只核对前 {cap} 句带引用的话",
@@ -4784,6 +4786,7 @@ export const zhCN = {
   "aiStatement.use.search-sources": "检索公开学术资料（查找资料）",
   "aiStatement.use.search-web": "联网搜索",
   "aiStatement.use.sentence-checked": "对照文档核对句子",
+  "aiStatement.use.sentence-asked": "模型读过、结果为未核对的句子",
   "aiStatement.text.heading": "二、AI 生成文字的保留与改写（按章节）",
   "aiStatement.text.none": "这篇笔记中没有 AI 生成的文字。",
   "aiStatement.text.intro":

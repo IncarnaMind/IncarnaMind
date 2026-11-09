@@ -19,7 +19,7 @@ import type {
   Core,
   Document,
 } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../../tests/helpers/models";
@@ -217,9 +217,7 @@ function answerTurn(call: ModelCall, script: AnswerScript): ScriptedReply {
 function judgingModel(real: LanguageModelV4, script: AnswerScript): LanguageModelV4 {
   const scripted = scriptedModel((call) => answerTurn(call, script));
   const judges = (prompt: Parameters<LanguageModelV4["doGenerate"]>[0]["prompt"]) =>
-    prompt.some(
-      (message) => message.role === "system" && message.content === SENTENCE_BATCH_INSTRUCTIONS,
-    );
+    prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
   return {
     specificationVersion: real.specificationVersion,
     provider: real.provider,
@@ -239,7 +237,7 @@ function watchBatches() {
       const result = await doGenerate();
       if (
         params.prompt.some(
-          (message) => message.role === "system" && message.content === SENTENCE_BATCH_INSTRUCTIONS,
+          (message) => message.role === "system" && isSentenceBatch(message.content),
         )
       ) {
         batches.push({

@@ -61,6 +61,7 @@ import type { CheckedCitation } from "./claimCheck";
 import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
+import { checkRunOf } from "./runCheck";
 import {
   type ChecksRun,
   claimsAtOnce,
@@ -640,7 +641,12 @@ export function createMindCheck(options: MindCheckOptions) {
       signal,
     };
     const limit = slots(claimsAtOnce(ready.prepared));
-    const early = earlyChecks(options.claimCheck, run, limit);
+    const early = earlyChecks(
+      options.claimCheck,
+      run,
+      limit,
+      checkRunOf(options, ready.prepared, signal, mindId).record,
+    );
     const nowOf = (blocks: Y.XmlFragment) => {
       const current = everySentence(blocks);
       return input.figureIds === null

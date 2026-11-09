@@ -15,12 +15,14 @@ import { isRecord } from "../../shared/record";
  */
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
+import { restateInstructions } from "../../core/answers/checks/explanations";
 import {
   PRESENCE_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "../../core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../core/answers/checks/sentenceBatch";
+import { sentenceBatchInstructions } from "../../core/answers/checks/sentenceBatch";
+import { LANGUAGES } from "../../core/language";
 import { readFigures } from "../../shared/figures";
 import { SAYS_MORE } from "./answers";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
@@ -90,7 +92,11 @@ const BREAK_CLAUSE = "Either party may end this lease with 30 days' notice.";
  * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`).
  */
 export function fakeSentenceBatch(options: GenerateOptions): string | null {
-  if (systemOf(options.prompt) !== SENTENCE_BATCH_INSTRUCTIONS) return null;
+  const language = LANGUAGES.find(
+    (each) => systemOf(options.prompt) === sentenceBatchInstructions(each),
+  );
+  if (!language) return null;
+  const chinese = language === "zh-CN";
   const prompt = lastUserText(options.prompt);
   const sentences = [...prompt.matchAll(/<sentence number="(\d+)">\n([\s\S]*?)\n<\/sentence>/g)];
   return JSON.stringify({
@@ -104,11 +110,26 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
         time: beyond ? "differs" : "same",
         quoted: "states",
         says: beyond
-          ? "The Document says when it happens, not that it is already done."
-          : "The Document says so.",
+          ? chinese
+            ? "文档写的是什么时候发生，没有说已经完成。"
+            : "The Document says when it happens, not that it is already done."
+          : chinese
+            ? "文档是这样写的。"
+            : "The Document says so.",
       };
     }),
   });
+}
+
+/**
+ * A check's explanation asked for again in the interface's language (#2081): the scripted model
+ * writes no other language, so it quotes the sentence it was given inside one of its own.
+ */
+export function fakeRestate(options: GenerateOptions): string | null {
+  const language = LANGUAGES.find((each) => systemOf(options.prompt) === restateInstructions(each));
+  if (!language) return null;
+  const said = /<reply>\n([\s\S]*?)\n<\/reply>/.exec(lastUserText(options.prompt))?.[1] ?? "";
+  return language === "zh-CN" ? `文档写的是：“${said}”` : `The Document says: “${said}”`;
 }
 
 export function fakeAbsence(options: GenerateOptions): string | null {

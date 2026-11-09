@@ -9,8 +9,9 @@
 import { isNameMisheard } from "./sounds";
 
 /**
- * Qwen3-ASR holds its prompt, the audio and what it writes in 512 tokens: a stretch of 20 seconds
- * is about 265 of them and a line up to 128 more, so the words get what is left, with room to spare.
+ * Qwen3-ASR holds its prompt, the audio and what it writes in 512 tokens: a reading of at most
+ * 15 seconds (./sherpa) is about 195 of them and a line up to 128 more, so the words get what is
+ * left, with room to spare.
  */
 const CONTEXT_TOKENS = 64;
 
@@ -22,6 +23,10 @@ function tokensOf(word: string): number {
   const rest = word.replace(HAN, "").replace(/\s/gu, "").length;
   return han + Math.ceil(rest / 3) + 1;
 }
+
+/** About how many tokens the words take in the model's prompt, erring high. */
+export const toldTokens = (words: readonly string[]): number =>
+  words.reduce((sum, word) => sum + tokensOf(word), 0);
 
 /** A word as the engine compares it: case folded, with no punctuation or space. */
 const plain = (text: string) =>

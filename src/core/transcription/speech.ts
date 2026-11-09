@@ -2,7 +2,9 @@
  * Live text from VAD segments (#136): what runs beside the engine, in the
  * transcription process. Silero VAD finds where each stretch of speech starts
  * and ends; once the speaker pauses, the whole stretch is decoded, as its
- * final text. One decode runs at a time.
+ * final text. One decode runs at a time. A stretch longer than the engine
+ * reads at once is decoded in parts, each cut at its quietest moment, each a
+ * line of its own (#1031, ADR-0027).
  *
  * While a stretch lasts, its words so far are partial text. An engine with a
  * streaming model reads them as they are said (#2662, ADR-0027): each stretch
@@ -55,6 +57,11 @@ export interface SpeechEngine {
   detector(): VoiceDetector;
   recognizer: Recognizer;
   live?(stream: string): LiveReading;
+  /**
+   * The most speech one reading takes, in ms. Speech that goes on longer is cut as it goes on, and
+   * a stretch that ends longer is cut before it is read. Without it, a stretch is read whole.
+   */
+  longestMs?: number;
   close(): void;
 }
 
@@ -76,10 +83,20 @@ export const PARTIAL_EVERY_MS = 2500;
 const MIN_PARTIAL_MS = 1500;
 /** What is kept before the moment speech is detected, for partials: the detector notices it a little late. */
 const LEAD_IN_MS = 400;
-/** The most audio kept for partials: the detector ends a stretch at 20 seconds. */
+/** The most audio kept, for partials and for the parts of speech cut as it goes on (`SpeechEngine.longestMs`). */
 const KEPT_MS = 30_000;
 /** What is decoded before where the detector says speech starts: it cuts a word's first sound otherwise. */
 const PAD_MS = 250;
+/** Long speech is cut at the middle of its quietest `QUIET_MS` in the last `CUT_SEARCH_MS` it may run. */
+const CUT_SEARCH_MS = 4000;
+const QUIET_MS = 100;
+const QUIET_STEP_MS = 10;
+/**
+ * For an engine that cuts long speech, audio is looked at this much at a time, however much comes
+ * at once (a recording read back after Stop comes 20 s at a time): speech is cut from where it was
+ * first heard, so where it starts must be known to within this.
+ */
+const LOOK_MS = 100;
 /**
  * Quiet audio is raised before speech is looked for, towards this peak, by
  * at most `MAX_GAIN` (30 dB): the detector misses a quiet voice, such as a
@@ -132,6 +149,35 @@ export function createLeveler(): (samples: Float32Array) => Float32Array {
   };
 }
 
+/**
+ * Where speech as long as one reading may be is cut: the middle of its quietest `QUIET_MS` in its
+ * last `CUT_SEARCH_MS`, the latest of equals. A sample index into `samples`.
+ */
+function cutOf(samples: Float32Array): number {
+  const step = samplesOf(QUIET_STEP_MS);
+  const width = Math.round(QUIET_MS / QUIET_STEP_MS);
+  const steps = Math.floor(samples.length / step);
+  const first = Math.max(0, steps - Math.round(CUT_SEARCH_MS / QUIET_STEP_MS));
+  if (steps - first < width) return samples.length;
+  const energy: number[] = [];
+  for (let at = first; at < steps; at++) {
+    let sum = 0;
+    for (let i = at * step; i < (at + 1) * step; i++) sum += (samples[i] as number) ** 2;
+    energy.push(sum);
+  }
+  let window = 0;
+  let least = Number.POSITIVE_INFINITY;
+  let quietest = 0;
+  for (const [at, each] of energy.entries()) {
+    window += each - (at >= width ? (energy[at - width] as number) : 0);
+    if (at >= width - 1 && window <= least) {
+      least = window;
+      quietest = at - width + 1;
+    }
+  }
+  return (first + quietest) * step + samplesOf(QUIET_MS) / 2;
+}
+
 interface Job {
   stream: string;
   id: number;
@@ -150,10 +196,15 @@ interface Stream {
   kept: Float32Array[];
   keptFrom: number;
   keptLength: number;
-  /** The speech in progress: its id, and where it was first heard. */
+  /** The speech in progress: its id, and where it was first heard or last cut. */
   speech: { id: number; start: number; lastPartial: number } | null;
-  /** The streaming model's reading of the speech in progress, and its words so far. */
-  reading: { live: LiveReading; text: string } | null;
+  /**
+   * The streaming model's reading of the speech in progress, and its words so far: `heard`, for an
+   * engine that cuts long speech, the words it had at each point it heard to.
+   */
+  reading: { live: LiveReading; text: string; heard: { at: number; text: string }[] } | null;
+  /** Where the speech going on was last cut: the audio before it has gone to a final reading. */
+  cutAt: number;
   /** The live words of each stretch whose final text hasn't come, by id. */
   drafts: Map<number, { start: number; text: string }>;
   shown: string;
@@ -188,6 +239,8 @@ export function createSpeechHost(
    * no stream is open, so each Meeting starts with them.
    */
   let reads = engine.live !== undefined;
+  const longest =
+    engine.longestMs === undefined ? Number.POSITIVE_INFINITY : samplesOf(engine.longestMs);
 
   /** Nothing is open and nothing is decoded: the engine has no work until a stream comes again. */
   function idle(): boolean {
@@ -308,6 +361,7 @@ export function createSpeechHost(
       );
       return 0;
     }
+    if (Number.isFinite(longest)) reading.heard.push({ at: stream.received, text: reading.text });
     const ms = Date.now() - started;
     stream.liveWork.push({ atMs: msOf(stream.received), ms });
     if (load("liveWork") > LIVE_LOAD) stopReading("the streaming model can't keep up");
@@ -341,7 +395,9 @@ export function createSpeechHost(
     let text = "";
     let failed = false;
     try {
-      text = cleanSpeech(await engine.recognizer.decode(job.samples, job.stream, words));
+      if (job.samples.length > 0) {
+        text = cleanSpeech(await engine.recognizer.decode(job.samples, job.stream, words));
+      }
     } catch (error) {
       // A stretch the engine can't read loses its text, not the rest of the stream.
       failed = true;
@@ -379,6 +435,58 @@ export function createSpeechHost(
   }
 
   /**
+   * Queues `samples`, from `start` in the stream, for their final text: in parts no longer than the
+   * engine reads at once, the first with `id`, each a line of its own.
+   */
+  function queue(stream: Stream, id: number, start: number, samples: Float32Array): void {
+    for (let at = 0, partId = id; ; partId = stream.nextId++) {
+      const end =
+        samples.length - at > longest
+          ? at + cutOf(samples.subarray(at, at + longest))
+          : samples.length;
+      stream.unfinished.add(start + at);
+      finals.push({
+        stream: stream.name,
+        id: partId,
+        start: start + at,
+        samples: samples.slice(at, end),
+        final: true,
+        words: stream.words,
+      });
+      if (end >= samples.length) break;
+      at = end;
+    }
+  }
+
+  /**
+   * Cuts the speech going on each time it runs as long as the engine reads at once: the part
+   * before the cut is queued for its line, and the speech goes on from the cut as the next line.
+   * The streaming model's words up to the cut stay that part's until its line comes, and a new
+   * reading hears the rest from the cut. How long the streaming model took, in ms.
+   */
+  function cutSpeech(stream: Stream): number {
+    let readMs = 0;
+    for (
+      let speech = stream.speech;
+      speech && stream.received - speech.start >= longest;
+      speech = stream.speech
+    ) {
+      const samples = slice(stream, speech.start, speech.start + longest);
+      const cut = speech.start + cutOf(samples);
+      const said = stream.reading?.heard.findLast((each) => each.at <= cut)?.text;
+      if (said) stream.drafts.set(speech.id, { start: speech.start, text: said });
+      queue(stream, speech.id, speech.start, samples.subarray(0, cut - speech.start));
+      stream.cutAt = cut;
+      stream.speech = { id: stream.nextId++, start: cut, lastPartial: stream.received };
+      if (stream.reading && engine.live) {
+        stream.reading = { live: engine.live(stream.name), text: "", heard: [] };
+        readMs += hear(stream, slice(stream, cut));
+      }
+    }
+    return readMs;
+  }
+
+  /**
    * Queues the stretches of speech that have ended, and reads the one going on: `heard`, the
    * audio just taken, goes to the streaming model, or a partial is queued.
    */
@@ -386,30 +494,39 @@ export function createSpeechHost(
     let readMs = 0;
     for (let found = stream.detector.next(); found; found = stream.detector.next()) {
       const id = stream.speech?.id ?? stream.nextId++;
-      const start = Math.max(stream.keptFrom, found.start - samplesOf(PAD_MS));
+      const start = Math.max(
+        found.start - samplesOf(PAD_MS),
+        Math.min(stream.keptFrom, found.start),
+        stream.cutAt,
+      );
       endReading(stream, id, start);
       stream.speech = null;
       const before = slice(stream, start, found.start);
-      const samples = new Float32Array(before.length + found.samples.length);
+      // Empty when it was all read as it went on: its last part, after the cut, still gets its
+      // final text, which drops that part's live words.
+      const own = found.samples.subarray(
+        Math.min(found.samples.length, Math.max(0, start - found.start)),
+      );
+      const samples = new Float32Array(before.length + own.length);
       samples.set(before);
-      samples.set(found.samples, before.length);
-      stream.unfinished.add(start);
-      finals.push({ stream: stream.name, id, start, samples, final: true, words: stream.words });
+      samples.set(own, before.length);
+      queue(stream, id, start, samples);
     }
     if (stream.detector.speaking()) {
       if (!stream.speech) {
         stream.speech = {
           id: stream.nextId++,
-          start: Math.max(0, stream.received - samplesOf(LEAD_IN_MS)),
+          start: Math.max(stream.cutAt, stream.received - samplesOf(LEAD_IN_MS)),
           lastPartial: stream.received,
         };
         if (reads && engine.live) {
-          stream.reading = { live: engine.live(stream.name), text: "" };
+          stream.reading = { live: engine.live(stream.name), text: "", heard: [] };
           readMs = hear(stream, slice(stream, stream.speech.start));
         }
       } else if (heard) {
         readMs = hear(stream, heard);
       }
+      readMs += cutSpeech(stream);
       const { speech } = stream;
       if (
         !stream.reading &&
@@ -447,6 +564,7 @@ export function createSpeechHost(
         keptLength: 0,
         speech: null,
         reading: null,
+        cutAt: 0,
         drafts: new Map(),
         shown: "",
         level: createLeveler(),
@@ -477,10 +595,14 @@ export function createSpeechHost(
       const stream = streamOf(name);
       if (stream.finishing) return;
       const leveled = stream.level(samples);
-      stream.detector.accept(leveled);
-      keep(stream, leveled);
-      stream.received += leveled.length;
-      look(stream, leveled);
+      const step = Number.isFinite(longest) ? samplesOf(LOOK_MS) : leveled.length;
+      for (let at = 0; at < leveled.length; at += step) {
+        const frame = leveled.subarray(at, at + step);
+        stream.detector.accept(frame);
+        keep(stream, frame);
+        stream.received += frame.length;
+        look(stream, frame);
+      }
       settle(stream);
     },
 

@@ -854,4 +854,25 @@ for (const language of ["en", "zh-CN"] as const) {
       { check: "found", location: { kind: "time", from: 40_000, to: 60_000, speaker: second } },
     ]);
   });
+
+  // protects=a quote across a cut inside a sentence, where a line runs straight on into the same Speaker's next one, as the engine on this computer cuts a long stretch (#1031), is found and keeps the line it starts in, then and when it is checked again; fails_when=a fact quoted across a long stretch's cut is dropped as not found, or its Citation's time grows to take in the next line; no_claim=a cut between two Speakers, which no quote runs across.
+  test(`a quote across a cut inside a sentence is found, in the line it starts in, ${language}`, async () => {
+    const across =
+      language === "en" ? "ran twenty seconds and cut a sentence" : "长达二十秒，把一句话";
+    const { core, citations } = await quoteTurns([{ location: `0:40 ${second}`, quote: across }]);
+    const cited = { kind: "time", from: 40_000, to: 60_000, speaker: second };
+    expect(citations).toMatchObject([{ check: "found", location: cited }]);
+    const citation = citations[0];
+    if (!citation?.documentId) throw new Error("No Citation");
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          ...citation,
+          documentId: citation.documentId,
+          quote: across,
+          mindId: null,
+        }),
+      ),
+    ).toMatchObject({ check: "found", location: cited });
+  });
 }

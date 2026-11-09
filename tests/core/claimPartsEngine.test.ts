@@ -9,6 +9,7 @@ import {
   comparesAQuote,
   type GenerateCall,
   type ModelCall,
+  restatedAsQuoted,
   scriptedModel,
   unscripted,
 } from "../helpers/models";
@@ -154,6 +155,7 @@ async function check(
             text: outcomes[target]?.judge?.(quote) ?? outcomes[target]?.judgement ?? "neither",
           };
         }
+        if (call.question === "restate") return { text: restatedAsQuoted(call) };
         if (call.question === "recheck") {
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           looks.set(target, (looks.get(target) ?? 0) + 1);

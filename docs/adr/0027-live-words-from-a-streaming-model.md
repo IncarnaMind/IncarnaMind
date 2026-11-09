@@ -139,3 +139,16 @@ What the table shows:
   - The fake engine has an optional streaming model (`live`), and the core's tests show live words, then the line.
   - The engine check finds `OnlineRecognizer` in the real module, loaded as the built app loads it.
   - The packaged app's transcription spec waits for live words from the real model.
+
+## Amendment: a long stretch is decoded in parts (2026-11-09, #1031)
+
+Qwen3-ASR, as sherpa-onnx runs it, writes at most 128 tokens a reading. It holds its prompt, the audio (13 tokens a second) and what it writes in 512 tokens. Silero's 20 s limit doesn't end a stretch: past it, sherpa-onnx only looks harder for a pause, so in a busy room a stretch ran to 36 s. Past about 27 s the 512 tokens filled up, and the reading stopped with nothing in sherpa-onnx's log: the end of the line was lost. On the meeting set (eval/meetings), 8 lines were cut that way and only 1 was logged.
+
+- **A stretch longer than the engine reads at once is decoded in parts.** For Qwen3-ASR that is 15 s, which leaves room for all 128 tokens it may write. 12 s was tried first; its extra cuts cost context, and 15 s read better.
+  - Once speech has gone on for 15 s, it is cut at its quietest 100 ms in the last 4 s before the limit. That part is decoded for its line, and the stretch goes on from the cut as the next line.
+  - A stretch that ends longer, such as one read back after Stop 20 s at a time, is cut the same way before it is decoded.
+- **Live words stay in step.** The streaming model's words up to the cut stay that part's until its line comes, and a new reading starts at the cut.
+- **Each part is a line with its own times.** The Transcript shows the parts as one turn (#2842), and a quote runs on across a cut.
+- **The model's end-of-text token ends a line.** Qwen3-ASR sometimes writes it after a stretch's words and runs on with a passage of its own until its limit; nothing after it was said, so the line stops there.
+- **The app's log says when a reading reaches either limit,** and when the model ran on, with none of the words.
+- **Measured on the meeting set:** no line reached either limit, the longest line is 15 s instead of 36 s, and the room recording with four people talking at once has 190 lines instead of 119 (1,181 reference turns). Every language and setting's error rate held or fell, and the CPU time stayed the same.
