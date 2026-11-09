@@ -214,7 +214,7 @@ describe("The sherpa-onnx recognizer", () => {
     toldResult = null;
   });
 
-  // protects=a reading that reaches Qwen3-ASR's 128 written tokens, or its 512 in all with its prompt and audio, says so in the app's log with none of its words, since sherpa-onnx's own log says nothing at the total; the limits are the engine's own, set where it is made; a reading of 12 s, the most one takes, reaches neither; fails_when=a reading cut short at either limit goes unseen again, the log holds what was said, or the limits the log counts against aren't the ones the engine runs with; no_claim=that readings stay that short, which tests/core/longSpeech.test.ts covers.
+  // protects=a reading that reaches Qwen3-ASR's 128 written tokens, or its 512 in all with its prompt and audio, says so in the app's log with none of its words, since sherpa-onnx's own log says nothing at the total; the limits are the engine's own, set where it is made; a reading of 15 s, the most one takes, reaches neither; fails_when=a reading cut short at either limit goes unseen again, the log holds what was said, or the limits the log counts against aren't the ones the engine runs with; no_claim=that readings stay that short, which tests/core/longSpeech.test.ts covers.
   test("a reading that reaches either token limit says so in the log, with none of its words (#1031)", async () => {
     CONFIGS.length = 0;
     const engine = await createSherpaEngine(model);
@@ -240,8 +240,8 @@ describe("The sherpa-onnx recognizer", () => {
     await reading(10, 125);
     // 30 s of audio is 390 tokens: with the 15 of the prompt and 107 written, all 512.
     await reading(30, 104);
-    await reading(12, 100);
-    await reading(12, 10);
+    await reading(15, 100);
+    await reading(15, 10);
 
     const message =
       "A reading of the speech model reached its token limit; its words may be cut short.";
@@ -252,4 +252,32 @@ describe("The sherpa-onnx recognizer", () => {
     expect(JSON.stringify(warned.mock.calls)).not.toMatch(/Secret/);
     warned.mockRestore();
   });
+
+  // protects=when the model writes its end-of-text token after a stretch's words and runs on with a passage of its own until its limit, as Qwen3-ASR did on the meeting set, the line keeps the words before the token and nothing after, the log says it ran on with none of the words, and no limit is reported since no word said was cut; fails_when=the Transcript shows the passage the model ran on with, or a run-on reads in the log as words cut short; no_claim=stopping the model at the token, which sherpa-onnx doesn't offer.
+  test.each([
+    ["en", "We sign on Friday, then the board reads it."],
+    ["zh-CN", "三四个人，你人员要是扛过来的话，多派几个人也可以。"],
+  ])(
+    "a reading that runs on past its end-of-text token keeps the words before it, %s (#1031)",
+    async (_language, said) => {
+      const engine = await createSherpaEngine(model);
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const passage = "Human Rights Watch（人权观察）是美国一个非政府组织，专门关注人权问题。";
+      RESULTS.push(
+        JSON.stringify({
+          lang: "",
+          text: `${said}<|endoftext|>${passage}${passage}${passage}`,
+          tokens: [...Array(20).fill("x"), "<|endoftext|>", ...Array(104).fill("y")],
+        }),
+      );
+
+      expect(await engine.recognizer.decode(samples, "meeting:1:mic", [])).toBe(said);
+      expect(warned.mock.calls).toEqual([
+        [
+          "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
+        ],
+      ]);
+      warned.mockRestore();
+    },
+  );
 });

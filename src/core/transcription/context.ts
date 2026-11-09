@@ -10,7 +10,7 @@ import { isNameMisheard } from "./sounds";
 
 /**
  * Qwen3-ASR holds its prompt, the audio and what it writes in 512 tokens: a reading of at most
- * 12 seconds (./sherpa) is about 160 of them and a line up to 128 more, so the words get what is
+ * 15 seconds (./sherpa) is about 195 of them and a line up to 128 more, so the words get what is
  * left, with room to spare.
  */
 const CONTEXT_TOKENS = 64;

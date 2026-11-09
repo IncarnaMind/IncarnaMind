@@ -198,8 +198,8 @@ for (const [language, said] of Object.entries(LANGUAGES)) {
 
       const text = lines.map((line) => line.text).join(separator);
       expect(text).toBe(said.words.join(separator));
-      expect(lines.length).toBeGreaterThanOrEqual(5);
-      expect(Math.max(...readings)).toBeLessThanOrEqual(12);
+      expect(lines.length).toBeGreaterThanOrEqual(4);
+      expect(Math.max(...readings)).toBeLessThanOrEqual(15);
       expect(warned).not.toHaveBeenCalled();
       for (const [at, line] of lines.entries()) {
         if (at > 0) expect(line.startMs).toBe(lines[at - 1]?.endMs);

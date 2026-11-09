@@ -12,7 +12,7 @@ import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
-import { resultOf, textOfResult, wordsOnly } from "./speechText";
+import { resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
@@ -31,11 +31,12 @@ const HEADER_TOKENS = 3;
 const PROMPT_TOKENS = 15;
 const AUDIO_TOKENS_PER_SECOND = 13;
 /**
- * The most speech one reading takes, so that it reaches neither: 12 s of audio is 156 tokens,
+ * The most speech one reading takes, so that it reaches neither: 15 s of audio is 195 tokens,
  * which leaves all 128 it may write with the prompt and the words told, and the densest speech of
- * the meeting set, about 5.7 tokens a second, writes about 70 of them in it.
+ * the meeting set, about 5.7 tokens a second, writes about 86 of them in it. On that set, 15 s
+ * read better than 12 s, whose extra cuts cost context (#1031).
  */
-const LONGEST_READING_MS = 12_000;
+const LONGEST_READING_MS = 15_000;
 
 /**
  * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
@@ -216,10 +217,10 @@ async function liveReadingsOrNone(
 
 /**
  * Says in the log when a reading reached one of Qwen3-ASR's limits, its words cut short: counted
- * from the tokens it wrote and the audio it read, erring high. None of its words are logged.
+ * from the `tokens` its words took and the audio it read, erring high. None of its words are logged.
  */
-function sayIfAtLimit(samples: Float32Array, words: readonly string[], tokens: unknown): void {
-  const written = (Array.isArray(tokens) ? tokens.length : 0) + HEADER_TOKENS;
+function sayIfAtLimit(samples: Float32Array, words: readonly string[], tokens: number): void {
+  const written = tokens + HEADER_TOKENS;
   const seconds = samples.length / MEETING_SAMPLE_RATE;
   const total =
     PROMPT_TOKENS + toldTokens(words) + Math.ceil(seconds * AUDIO_TOKENS_PER_SECOND) + written;
@@ -281,8 +282,14 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
       const addon = await SHERPA_ADDON.load();
       result = resultOf(addon.getOfflineStreamResultAsJson(stream.handle));
     }
-    sayIfAtLimit(samples, words, result.tokens);
-    return writtenNumbers(wordsOnly(result.text));
+    const said = untilEndOfText(result);
+    if (said.ranOn) {
+      console.warn(
+        "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
+      );
+    }
+    sayIfAtLimit(samples, words, said.tokens);
+    return writtenNumbers(wordsOnly(said.text));
   }
 
   return {

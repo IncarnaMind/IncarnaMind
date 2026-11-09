@@ -26,6 +26,29 @@ export function resultOf(json: string): { text: string; tokens?: unknown } {
 export const textOfResult = (json: string): string => resultOf(json).text;
 
 /**
+ * Qwen3-ASR's end-of-text token, which sherpa-onnx doesn't stop at: the model sometimes writes it
+ * after a stretch's words and runs on with a passage of its own, the same one over and over
+ * ("Human Rights Watch（人权观察）是…"), until it reaches its limit (#1031). Nothing after it was said.
+ */
+const END_OF_TEXT = "<|endoftext|>";
+
+/**
+ * A result's words up to the model's end-of-text token, and how many tokens they took; `ranOn`
+ * when the model wrote more after it.
+ */
+export function untilEndOfText(result: { text: string; tokens?: unknown }): {
+  text: string;
+  tokens: number;
+  ranOn: boolean;
+} {
+  const tokens = Array.isArray(result.tokens) ? result.tokens : [];
+  const end = result.text.indexOf(END_OF_TEXT);
+  if (end < 0) return { text: result.text, tokens: tokens.length, ranOn: false };
+  const at = tokens.findIndex((token) => typeof token === "string" && token.includes(END_OF_TEXT));
+  return { text: result.text.slice(0, end), tokens: at < 0 ? tokens.length : at, ranOn: true };
+}
+
+/**
  * Qwen3-ASR's header, "language English<asr_text>", which sherpa-onnx drops before the words,
  * unless the model began with a stray token first ("提uggestion\nlanguage English<asr_text>…"):
  * then the header is in the text. Only a header at the start, with at most one such token before
