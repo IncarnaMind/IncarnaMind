@@ -445,9 +445,10 @@ export interface Core extends CoreApi, CoreEventSource {
    * Fingerprints the text of Documents stored before an older version kept fingerprints, so a
    * check can tell a copy of the file it checks by its text (#2216): one Document a turn, on
    * this thread. The host calls it once the first window is up; a check started before it is
-   * done waits for it. Calling it again while it runs does nothing.
+   * done waits for it. Settles when every Document is fingerprinted, or the fill stops on an
+   * error, which it reports. Called again while it runs, it gives the same promise.
    */
-  fillTextFingerprints(): void;
+  fillTextFingerprints(): Promise<void>;
   /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
@@ -5958,7 +5959,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return found;
     },
     upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
-    fillTextFingerprints: () => void documents.fillTextFingerprints(),
+    fillTextFingerprints: () => documents.fillTextFingerprints(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.

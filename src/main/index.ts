@@ -359,7 +359,7 @@ function finishStartup(): void {
   // off this thread (#2042), and the text fingerprints it didn't keep are filled in (#2216).
   setImmediate(() => {
     core?.upgradeKeywordIndex();
-    core?.fillTextFingerprints();
+    void core?.fillTextFingerprints();
   });
   void onReadyToUse?.().catch((error: unknown) =>
     logger.exception("app.updateStartupFailed", error),

@@ -141,6 +141,9 @@ function sampleFrom(bytes: Uint8Array): Uint32Array {
   return sample;
 }
 
+/** What one turn of the fill did: one Document fingerprinted, one passed over and why, or none left. */
+export type FillTurn = "filled" | "done" | { passedOver: unknown };
+
 export interface TextVersion {
   documentId: string;
   contentHash: string;
@@ -273,19 +276,20 @@ export function createTextCopies(db: Database, now: () => string) {
     },
 
     /**
-     * Fingerprints the next Document whose text was stored before fingerprints were; false when
-     * none is left. Throws for one it can't fingerprint, which the next call passes over.
+     * Fingerprints the next Document whose text was stored before fingerprints were. A Document
+     * it can't fingerprint is passed over, with why, until the next start. Throws only when it
+     * can't tell which Document is next.
      */
-    fillNext(): boolean {
+    fillNext(): FillTurn {
       const next = nextMissing();
-      if (!next) return false;
+      if (!next) return "done";
       try {
         record(next, unitsOf(next));
       } catch (error) {
         unfingerprinted.add(next.documentId);
-        throw error;
+        return { passedOver: error };
       }
-      return true;
+      return "filled";
     },
 
     /**

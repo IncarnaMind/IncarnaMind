@@ -600,9 +600,9 @@ describe("Fingerprinting what an older version stored", () => {
     };
     const now = () => new Date().toISOString();
     const copies = createTextCopies(breaking, now);
-    expect(() => copies.fillNext()).toThrow("The text can't be read.");
+    expect(copies.fillNext()).toEqual({ passedOver: new Error("The text can't be read.") });
     let filled = 0;
-    while (copies.fillNext()) filled++;
+    while (copies.fillNext() === "filled") filled++;
     const fingerprinted = () =>
       db
         .all<{ document_id: string }>("SELECT document_id FROM text_fingerprints")
@@ -611,9 +611,29 @@ describe("Fingerprinting what an older version stored", () => {
     expect(fingerprinted()).not.toContain(unreadable.id);
 
     const nextStart = createTextCopies(db, now);
-    expect(nextStart.fillNext()).toBe(true);
+    expect(nextStart.fillNext()).toBe("filled");
     expect(fingerprinted()).toContain(unreadable.id);
-    expect(nextStart.fillNext()).toBe(false);
+    expect(nextStart.fillNext()).toBe("done");
     db.close();
   });
+
+  test("when the fill can't tell which Document is next, it settles and says so once, and the next fill tries again", async () => {
+    const { core, dataDir } = await library("en");
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("ALTER TABLE text_fingerprints RENAME TO text_fingerprints_unreadable");
+    db.close();
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    const again = startCore(dataDir);
+    try {
+      const noTable = (call: unknown[]) => String(call[0]).includes("text_fingerprints");
+      await again.fillTextFingerprints();
+      expect(reported.mock.calls.filter(noTable)).toHaveLength(1);
+      await again.fillTextFingerprints();
+      expect(reported.mock.calls.filter(noTable)).toHaveLength(2);
+    } finally {
+      reported.mockRestore();
+      again.close();
+    }
+  }, 120_000);
 });

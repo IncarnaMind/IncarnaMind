@@ -150,7 +150,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
-import { createTextCopies } from "./textCopies";
+import { createTextCopies, type FillTurn } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
@@ -1512,19 +1512,21 @@ export function createDocuments(options: DocumentsOptions) {
     fingerprintsFilled = { done, settle };
     const next = () => {
       fingerprintTurn = null;
-      let more = false;
+      let turn: FillTurn = "done";
+      let failed = false;
       try {
-        more = !closed && textCopies.fillNext();
+        if (!closed) turn = textCopies.fillNext();
       } catch (error) {
-        // That Document is passed over until the next start, and is no copy by this rule.
+        // Not one Document's failure: the fill ends here, and the next check or start tries again.
         reportError(error);
-        more = !closed;
+        failed = true;
       }
-      if (more) {
+      if (typeof turn === "object") reportError(turn.passedOver);
+      if (turn !== "done") {
         fingerprintTurn = setTimeout(next, 0);
         return;
       }
-      fingerprintsComplete = !closed;
+      fingerprintsComplete = !closed && !failed;
       fingerprintsFilled = null;
       settle();
     };
