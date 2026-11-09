@@ -102,7 +102,7 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   const notice = card.getByTestId("copilot-notice");
   await expect(notice.getByRole("listitem")).toHaveText([
     "Answers count toward your Copilot plan’s usage limits.",
-    "Sends your questions and document text to GitHub. · Details",
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to GitHub. · Details",
   ]);
   await expect(notice.getByTestId("copilot-sign-in")).toBeFocused();
   expect(github.requests).toEqual([]);

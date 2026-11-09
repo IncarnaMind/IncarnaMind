@@ -3042,7 +3042,8 @@ export const zhCN = {
   "providers.form.test": "测试连接",
   "providers.form.testing": "正在测试…",
   "providers.form.save": "使用此服务",
-  "providers.sendsLine": "会把你的问题和文档内容发送给 {provider}。",
+  "providers.sendsLine":
+    "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 {provider}。",
   "providers.sends.chat":
     "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落",
   "providers.sends.checks":
@@ -3209,7 +3210,7 @@ export const zhCN = {
   "copilot.notice.title": "使用你的 Copilot 订阅",
   "copilot.notice.usage": "回答会计入你的 Copilot 订阅用量限额。",
   "copilot.notice.experimental": "实验性：GitHub 可能会阻止这种登录。",
-  "copilot.notice.sends": "会把你的问题和文档内容发送给 GitHub。",
+  "copilot.notice.sends": "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 GitHub。",
   "copilot.notice.sends.details":
     "你的问题、当前笔记、文档中的相关段落，以及用于打标签的文档文字，会通过你的账号发送给 GitHub。",
   "copilot.cancel": "取消",
@@ -6233,7 +6234,6 @@ export const zhCN = {
   "approvals.tools.off": "关闭",
   "approvals.settings.title": "批准",
   "approvals.settings.body": "你改过默认设置的工具和技能。",
-  "approvals.settings.empty": "没有改过默认设置。",
   "approvals.settings.revoke": "恢复默认",
   "approvals.settings.revokeLabel": "将 {name} 恢复默认",
   "approvals.settings.skillScripts": "{skill} 的脚本",

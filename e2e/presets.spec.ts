@@ -56,7 +56,7 @@ test("each preset is a tile in Add a provider; Groq's page has its key page and 
       "https://console.groq.com/keys",
     );
     await expect(form.getByTestId("provider-sends")).toContainText(
-      "Sends your questions and document text to Groq.",
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Groq.",
     );
     if (process.env.INCARNAMIND_SCREENSHOTS) {
       await settings.screenshot({
@@ -139,7 +139,7 @@ test("Amazon Bedrock asks for its region from a list, and Cloudflare for its acc
     await form.getByLabel(/^API key/).fill("bedrock-key");
     await expect(form.getByTestId("provider-use-key")).toBeEnabled();
     await expect(form.getByTestId("provider-sends")).toContainText(
-      "Sends your questions and document text to Amazon Bedrock.",
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Amazon Bedrock.",
     );
 
     await settings.getByTestId("models-back").click();
@@ -218,7 +218,7 @@ test("LM Studio and Unsloth Studio are On this computer in Add a provider, besid
     await form.getByLabel(/^API key/).focus();
     await expect(form.getByTestId("local-server")).toContainText("answers at 192.168.1.20:8888");
     await expect(form.getByTestId("provider-sends")).toContainText(
-      "Sends your questions and document text to Unsloth Studio.",
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Unsloth Studio.",
     );
     // The app's own line holds only while its server runs here; at another computer it is any server's.
     const dataUse = form.getByTestId("provider-data-use");

@@ -257,8 +257,10 @@ for (const language of LANGUAGES) {
     const answer = await askInAssistant(window, w.question);
     await pointAndClick(window, answer.getByTestId("answer-write-note"));
     await expect(frontMindName(window)).not.toHaveText(/^(Untitled|未命名)$/);
+    // The note is named from the Question that made it (#2870), as its chat is.
     const noteName = ((await frontMindName(window).textContent()) ?? "").trim();
-    expect(noteName).not.toBe("");
+    expect(noteName).toBe(withoutTrailingMarks(w.question));
+    await nameMind(window, w.note);
 
     const menu = await openPageMenu(window);
     const chat = menu.getByTestId("mind.openChat");
@@ -280,7 +282,7 @@ for (const language of LANGUAGES) {
     await expect(rows).toHaveCount(1);
     // A name taken from a Question ends on its words, without its mark.
     await expect(rows.first()).toContainText(withoutTrailingMarks(w.question));
-    await expect(rows.first()).not.toContainText(noteName);
+    await expect(rows.first()).not.toContainText(w.note);
     await window.keyboard.press("Escape");
     await app.close();
 

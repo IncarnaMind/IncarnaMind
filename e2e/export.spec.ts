@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { withoutTrailingMarks } from "../src/shared/naming";
 import { footnotesOf, paragraphsOf, part, unzip } from "../tests/helpers/docx";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -850,7 +851,7 @@ const ADD_TO_NEW_TITLE = {
 for (const language of ["en", "zh-CN"] as const) {
   const words = ADD_TO_NEW_TITLE[language];
 
-  test(`Add to note → New note takes the conversation's title when the User renamed it, never the name from its first Question (${language}) (#1174)`, async () => {
+  test(`Add to note → New note takes the conversation's title when the User renamed it, else the Question, never a sentence of the Answer (${language}) (#1174, #2870)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -872,8 +873,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await addToNew();
     await expect.poll(async () => (await minds()).length).toBe(1);
     const [first] = await minds();
-    expect(first?.title).toBe("");
-    expect(first?.autoTitle).toMatch(/^This is a scripted Answer to/);
+    expect(first?.title).toBe(withoutTrailingMarks(words.instruction));
 
     const conversationId = (await core.evaluate((each) => each.listConversations()))[0]?.id ?? "";
     await core.evaluate((each, named) => each.renameConversation(named.id, named.title), {

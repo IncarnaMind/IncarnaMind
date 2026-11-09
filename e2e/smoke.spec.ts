@@ -143,7 +143,8 @@ test("added files are processed, show as ready in the sidebar, and can be delete
     const reportItem = items.filter({ hasText: "Report" });
     await expect(notesItem).toHaveAttribute("data-status", "ready");
     await expect(reportItem).toHaveAttribute("data-status", "ready");
-    await expect(notesItem.getByTestId("document-status")).toHaveText("Ready");
+    // A ready Document says nothing of its state (#2870).
+    await expect(notesItem.getByTestId("document-status")).toHaveCount(0);
     await first.app.close();
 
     // After a restart both are still there. Deleting one (from its menu) asks nothing and removes it.
@@ -224,7 +225,7 @@ test("first run asks for no model; the first own Question waits while the setup 
   // Choosing it is the consent (ADR-0022): one line says what goes, and Details names it all.
   await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus or Pro · no key needed");
   await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
-    "Sends your questions and document text to OpenAI. · Details",
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
   );
   // The card says what the Mind's "needs an AI model" line would, so that line steps aside.
   await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
@@ -244,7 +245,7 @@ test("first run asks for no model; the first own Question waits while the setup 
   await card.getByTestId("setup-other").click();
   await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus 或 Pro · 无需密钥");
   await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
-    "会把你的问题和文档内容发送给 OpenAI。 · 详情",
+    "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 OpenAI。 · 详情",
   );
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
