@@ -915,7 +915,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     progress();
 
     const landNow = (landing: Landing, outcome: Outcome) => {
-      if (landing.sentence.inCell) {
+      // A window that writes a Block again sends its removal and its return as two changes
+      // (#2378): a verdict that comes between them waits with a table's, and an Undo that took the
+      // write away, ending the check, drops it.
+      if (landing.sentence.inCell || writeGone(mindId, shape)) {
         settled.add(landing.sentence);
         held.push({ index: sentences.indexOf(landing.sentence), landing, outcome });
       } else landAll([{ landing, outcome }]);
@@ -930,8 +933,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (quick && looked.get(sentence)?.asked)
         recordCheck(run.record, quick, "result" in outcome ? outcome.result : null);
       if (over || signal.aborted || left.has(sentence)) return;
-      // Taken away, its text may be back as it was: a verdict of the written words never lands there.
-      if (writeGone(mindId, shape)) return;
       if (!("result" in outcome)) {
         failed(sentence, outcome.reason, outcome.detail);
         return;

@@ -1066,6 +1066,56 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ).toBe(false);
   });
 
+  // protects=a verdict that comes back while the window writes the write's Block again, its removal in one change and its return in the next (#2378), lands once the Block is back, and the line counts it checked (#2830); fails_when=the verdict is dropped as if an Undo had taken the write away, so the sentence ends Not checked, stopped, and the line says it couldn't be checked; no_claim=how often a window writes a Block again.
+  test("a verdict that comes while the window writes its Block again lands once the Block is back", async () => {
+    let page: MindClient | null = null;
+    let mind = "";
+    let taken = false;
+    let back = Promise.resolve();
+    const { core, change, client } = await write(
+      {
+        content: `${MOON.slice(0, -1)} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call, started) => {
+          const connected = page;
+          if (call.results.length > 0 || !connected || taken) return null;
+          taken = true;
+          const before = readMind(connected).toJSON().content ?? [];
+          connected.doc.transact(() => connected.blocks.delete(connected.blocks.length - 1, 1));
+          const removed = connected.settled();
+          // The Block comes back only once its sentence's verdict is in, while it is still gone.
+          back = removed
+            .then(() =>
+              vi.waitFor(
+                async () => {
+                  const used = await started.listAiUse(mind);
+                  expect(used.map((each) => each.kind)).toContain("sentence-checked");
+                },
+                { timeout: 20_000, interval: 5 },
+              ),
+            )
+            .then(() => {
+              editMind(connected, () => before);
+              return connected.settled();
+            });
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: removed } };
+        },
+      },
+      ({ client: connected, mindId }) => {
+        page = connected;
+        mind = mindId;
+      },
+    );
+
+    await back;
+    expect(taken).toBe(true);
+    expect(
+      (await marksIn(core, client)).map(({ sentence, check }) => [sentence, check.state]),
+    ).toEqual([["Spring tides come at new and full moon .", "supported"]]);
+    expect(change?.selfCheck).toMatchObject({ checkable: 1, checked: 1, failed: 0 });
+  });
+
   // protects=Stop on the Note's badge ends a write's check: the marks that landed stay, the sentences it hadn't checked land not checked, and nothing more is sent (#2830); fails_when=a stopped sentence stays shown as being checked, lands a verdict, or the check goes on; no_claim=what the badge looks like.
   test("Stop on the Note's badge ends the check, keeping the marks that landed", async () => {
     let stop: (() => Promise<void>) | null = null;
