@@ -16,7 +16,7 @@ import { appendFile } from "node:fs/promises";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { MarkedCitation } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import type { ChatModelFactory } from "../../src/core/providers/models";
 import { answerEnded, answerJudged } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -63,7 +63,7 @@ function judgedByReal(
       get(target, property, receiver) {
         if (property === "doGenerate" || property === "doStream")
           return (options: unknown) => {
-            const model = systemOf(options) === SENTENCE_BATCH_INSTRUCTIONS ? judge : target;
+            const model = isSentenceBatch(systemOf(options)) ? judge : target;
             const method = Reflect.get(model, property) as (options: unknown) => Promise<unknown>;
             if (model !== judge) return method.call(model, options);
             return method.call(model, options).then((result) => {
