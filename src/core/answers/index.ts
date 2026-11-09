@@ -97,7 +97,12 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { chartsPlacedIn, withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import {
+  chartsPlacedIn,
+  figuresLeftOut,
+  withAnalysisResults,
+  withEveryChartPlaced,
+} from "../analysis/markers";
 import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
@@ -2965,11 +2970,15 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
+                // A marker no figure was recorded for stays in the text, and the change says so.
+                const unwritten = new Set<number>();
                 const uncited = calculating
-                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                      id: answerId,
-                      analyses,
-                    })
+                  ? withCalculatedFigures(
+                      cited,
+                      (marker) => figures.figure(marker),
+                      { id: answerId, analyses },
+                      (marker) => unwritten.add(marker),
+                    )
                   : cited;
                 // An Analysis's own table names the rows and files it read, so content that gives one isn't uncited.
                 const bound = withAnalysisTables(uncited, markerRuns);
@@ -2984,6 +2993,8 @@ export function createAnswers(options: AnswersOptions) {
                   droppedSources: sourced.dropped,
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
+                  figuresLeftOut:
+                    unwritten.size > 0 ? figuresLeftOut(unwritten.size, analyses) : undefined,
                   searchTalk: written.left,
                   analysisTables: analysisTablesOf(markerRuns),
                   chartsPlaced: chartsPlacedIn(written.markdown, markerAnalyses),

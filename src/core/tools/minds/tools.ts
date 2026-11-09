@@ -98,6 +98,7 @@ import {
   type EditAction,
   type EditWithAiResult,
   type Effect,
+  type FiguresLeftOut,
   type MindChange,
   type MindProblem,
   PROPOSAL_ATTRIBUTE,
@@ -322,6 +323,8 @@ export interface MindToolsOptions {
     unlinkedSources: number;
     /** Cells beyond its tables' columns, their text kept in the row's last cell. */
     extraCells: number;
+    /** Figure markers no figure was recorded for, kept in the text as written (#2577). */
+    figuresLeftOut?: FiguresLeftOut;
     searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
     analysisTables: readonly AnalysisTableMatch[];
@@ -859,14 +862,17 @@ const someTableNotes = ({
   unlinkedSources = 0,
   droppedSources = 0,
   extraCells,
+  figuresLeftOut,
 }: {
   unlinkedSources?: number;
   droppedSources?: number;
   extraCells: number;
+  figuresLeftOut?: FiguresLeftOut;
 }) => ({
   ...(unlinkedSources > 0 && { unlinkedSources }),
   ...(droppedSources > 0 && { droppedSources }),
   ...(extraCells > 0 && { extraCells }),
+  ...(figuresLeftOut && { figuresLeftOut }),
 });
 
 function noTableMessage(name: string, said: string, text: string | null): string {

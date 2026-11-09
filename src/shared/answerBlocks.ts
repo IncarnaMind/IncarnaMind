@@ -75,9 +75,10 @@ export function withCalculatedFigures(
   blocks: readonly NodeJSON[],
   figureOf: (marker: number) => CalculatedFigure | null,
   answer: { id?: string; analyses?: readonly AnswerAnalysis[] },
+  keep?: (marker: number) => void,
 ): NodeJSON[] {
   let occurrence = 0;
-  return withFigures(blocks, figureOf, (figure, marker, written) => {
+  const show = (figure: CalculatedFigure, marker: number, written: string | null) => {
     const analysis = figure.analysis
       ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
       : undefined;
@@ -90,7 +91,8 @@ export function withCalculatedFigures(
       `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
       backed ? figureRunId(answer.id ?? "preview", backed) : null,
     );
-  });
+  };
+  return withFigures(blocks, figureOf, show, keep);
 }
 
 function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {

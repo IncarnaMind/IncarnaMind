@@ -303,6 +303,39 @@ describe("The Minds an Answer changed", () => {
     expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, droppedSources: 1, extraCells: 3 });
   });
 
+  // protects=the figures a Note's text kept as markers add up across an Answer's calls, naming each figure once, and the card says so in English and Chinese; fails_when=a later call's markers replace an earlier call's, a name shows twice, or the line is missing; no_claim=how the card lays it out.
+  test("figure markers kept in the text add up across calls, each figure named once (#2577)", () => {
+    const [row] = changedMinds({
+      toolCalls: [
+        call("create_mind", {
+          mindId: "a",
+          created: true,
+          request: "r1",
+          proposals: 1,
+          figuresLeftOut: { count: 1, labels: ["Average monthly loan growth"] },
+        }),
+        call("add_to_mind", {
+          mindId: "a",
+          created: false,
+          request: "r2",
+          proposals: 1,
+          figuresLeftOut: { count: 2, labels: ["Average monthly loan growth", "Total loans"] },
+        }),
+      ],
+    });
+    expect(row?.figuresLeftOut).toEqual({
+      count: 3,
+      labels: ["Average monthly loan growth", "Total loans"],
+    });
+    if (!row) return;
+    expect(keptText(t("en"), row)).toBe(
+      "· 3 figures couldn’t be written, so their markers stay in the text: “Average monthly loan growth”, “Total loans”",
+    );
+    expect(keptText(t("zh-CN"), row)).toBe(
+      "· 有 3 个数字未能写入，其标记仍留在文中：“Average monthly loan growth”、“Total loans”",
+    );
+  });
+
   // protects=a "No chart" line describes the Note as it is now: a chart a later call drew there answers an earlier call's, while a later refusal still says why; fails_when=the card keeps "No chart" beside a chart the Answer drew, or loses the latest reason; no_claim=how the card lays it out.
   test.each(["en", "zh-CN"] as const)(
     "%s: a chart a later call drew in the Note clears an earlier call's No chart",

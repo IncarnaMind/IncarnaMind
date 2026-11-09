@@ -1546,6 +1546,12 @@ export interface RemovedParagraphs {
   start: string;
 }
 
+/** Figure markers a Note's text kept as written, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
+export interface FiguresLeftOut {
+  count: number;
+  labels: string[];
+}
+
 /**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
@@ -1582,6 +1588,8 @@ export interface MindChange {
   droppedSources?: number;
   /** Cells beyond its tables' columns, their text kept in their row's last cell. Absent: none. */
   extraCells?: number;
+  /** Figure markers its text kept as written because no figure was recorded for them (#2577). Absent: none. */
+  figuresLeftOut?: FiguresLeftOut;
   /**
    * It revised the assistant's own changes still waiting there: they
    * are gone, and its request holds the new text and the rest of them.

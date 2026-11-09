@@ -6,7 +6,7 @@ import {
 } from "../../shared/analysis";
 import { figureCellText, rawColumn } from "../../shared/figures";
 import { translate } from "../../shared/i18n";
-import type { AnswerAnalysis } from "../api";
+import type { AnswerAnalysis, FiguresLeftOut } from "../api";
 import type { Language } from "../language";
 
 const MARKER = /\[=(table|chart|picture) (\d+)\]/g;
@@ -137,4 +137,24 @@ export function chartsPlacedIn(
     }
   }
   return placed;
+}
+
+/** How many labels of figures with no marker a change names. */
+const LEFT_OUT_NAMED = 3;
+
+/**
+ * What a Note's change says of `count` figure markers its text kept because no figure was recorded
+ * for them (#2577): the Analyses' figures that got no marker, as IncarnaMind couldn't work them
+ * out again from their rows.
+ */
+export function figuresLeftOut(count: number, analyses: readonly AnswerAnalysis[]): FiguresLeftOut {
+  const labels = analyses.flatMap((analysis) =>
+    analysis.output.results.flatMap((result) =>
+      result.kind === "figure" &&
+      !analysis.markers.figures.some((each) => each.result === result.name)
+        ? [result.label]
+        : [],
+    ),
+  );
+  return { count, labels: [...new Set(labels)].slice(0, LEFT_OUT_NAMED) };
 }
