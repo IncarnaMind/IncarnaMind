@@ -574,6 +574,14 @@ function chineseAgreement(deal: Deal, rewritten: readonly string[] = []): Agreem
 export const agreement = (language: Language): Agreement =>
   language === "en" ? englishAgreement(ENGLISH_A) : chineseAgreement(CHINESE_A);
 
+/** The agreement up to its first numbered clauses, as a shorter file. */
+export function firstClauses(document: Agreement, clauses: number): Agreement {
+  const numbered = document.paragraphs.flatMap((each, index) =>
+    each.heading && /^(\d+\.|第.+条)/u.test(each.text) ? [index] : [],
+  );
+  return { ...document, paragraphs: document.paragraphs.slice(0, numbered[clauses]) };
+}
+
 /** A draft of it with one clause rewritten, or with a third of its clauses rewritten. */
 export const draft = (language: Language, changed: "one clause" | "a third"): Agreement =>
   language === "en"

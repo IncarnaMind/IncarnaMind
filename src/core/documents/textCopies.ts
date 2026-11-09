@@ -24,14 +24,18 @@ import type { Database } from "../storage";
 /** #2216's measured pairs: copies hold 94.7% of the checked text and more, other Documents 84.7% and less. */
 export const SAME_TEXT_SHARE = 0.9;
 
-/** In shingles. A shorter text is matched by its bytes only: a reply quoting two of its paragraphs can hold most of it. */
-export const SAME_TEXT_SHORTEST = 400;
+/**
+ * In shingles, about as many words or Chinese characters. A shorter text is matched by its bytes
+ * only: below it, #2216's reply quoting two paragraphs held up to 83% of the file, and one
+ * rewritten sentence took a copy under the bar.
+ */
+export const SAME_TEXT_SHORTEST = 200;
 
 const SHINGLE_TOKENS = 5;
 const SAMPLE_MASK = 0b111;
 
-/** Far enough under the bar that the sample of a text at the shortest length, about 50 hashes, never misses a copy. */
-const SAMPLE_SHARE = SAME_TEXT_SHARE - 0.2;
+/** Far enough under the bar that the sample of a text at the shortest length, about 25 hashes, doesn't miss a copy. */
+const SAMPLE_SHARE = 0.6;
 
 /** Whole shingle sets kept between checks: a check's searches and the watch ask about the same few many times. */
 const KEPT_TEXTS = 8;
