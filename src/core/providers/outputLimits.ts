@@ -67,6 +67,8 @@ export const OUTPUT_LIMITS = {
   "quick-check": { most: 2_048 },
   // One word for each part of a step's text: whether it is the Answer's or the model's working (#2371).
   "working-text": { most: 256 },
+  // One sentence of a check's card written again in the interface's language (#2081).
+  restate: { most: 400 },
 } as const satisfies Record<string, { most: number; each?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;

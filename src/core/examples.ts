@@ -415,6 +415,12 @@ export function createExamples(options: ExamplesOptions) {
         text: check.sentence,
         evidence,
         says: check.says,
+        ...(check.correction && {
+          correction: {
+            from: check.correction.from,
+            choices: [{ wording: check.correction.to, evidence }],
+          },
+        }),
         unsupported: null,
         calculation: null,
         citedCaseUnchecked: false,

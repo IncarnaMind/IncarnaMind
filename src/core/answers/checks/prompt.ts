@@ -105,6 +105,9 @@ const CONDITION_LINE =
  * User's sentence or the Documents are in (#701): without this, a model that
  * read Documents in another language wrote its sentence in that one.
  */
+const explanationLine = (language: Language) =>
+  `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the deciding checked quotes at its end; for contradicted, name the thing, and give the Document's value and the sentence's. For unsupported, say what the Documents don't say.`;
+
 const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
@@ -121,8 +124,9 @@ const reply = (language: Language, calculate: boolean) =>
     'Time: whether it has already happened or is still to happen, with the words that say so copied as written (such as 已, 将, already, will, scheduled; none when it says neither), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Time: already signed / to be signed on 3 May, differs"; "Time: 已于 3 月完成 / completed in March, same"; "Time: none / none, same"). "differs" only when one says it has happened and the other that it is still to happen. Anything else is "same": a date only one of them gives, or a side that says neither.',
     DUTY_LINE,
     CONDITION_LINE,
-    `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
-    `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
+    // Unlabelled, the sentence was the first line after the verdict that held no field: Claude
+    // Haiku 5.5 put an English note, a label of its own or its Citation's record there (#2081).
+    explanationLine(language),
     // Asked for "the old words", Claude Haiku 5.5 named the whole sentence for a lease's base rent
     // and a parking fee (#1481): a correction rewrites only the words that differ.
     'For contradicted only, add on lines of their own "Change 1: " and only the words of the sentence that the Document gives another value for, copied exactly (the figure, date, name or the few words that differ, never the whole sentence), then "To 1: " and the Document\'s exact words for that same thing, as they would read in their place, with the marker of the checked quote that holds them at its end. When two Documents conflict, add "Change 2: " with the same old words and "To 2: " with the second Document\'s words and its own quote\'s marker. Never add Change or To lines for supported or unsupported.',
@@ -170,20 +174,21 @@ const calculationInstructions = (figures: boolean) =>
     "- A figure stated directly in a Passage needs no calculation, even when the quote is identical to the sentence. The Passage itself is evidence; it need not cite a second source.",
   ].join("\n");
 
-const FIGURE_INSTRUCTIONS = [
-  "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
-  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":{"sentence":"revenue","quote":"Revenue","match":"same"},"says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}. The item of an occurrence with analysis is {"id":"its exact requested id","names":"same","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":null,"says":null,"reading":null,"relation":"equals","source":null,"calculation":null}, with names and verdict as below.',
-  'Give every requested id exactly once, and no other id. The item of an occurrence with analysis always has "names": "same", "other" or "unclear", as below; without it the figure stays unchecked. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.',
-  'measure says what the number measures: a short name of a few words copied exactly, never the number itself, a clause or a whole sentence. sentence: the fewest words of the sentence, its paragraph or the occurrence\'s label that name what that occurrence measures ("operating margin", "月工资"). quote: the fewest words of its source quote that name what the quote\'s number measures; for a table\'s cell or row that leaves them out, its row label or column heading copied from the Passage; null only when the Passage names nothing. match: same when the two name the same measure, in any wording or language ("revenue" and "营业收入"); differs when they name different ones ("revenue" and "operating margin"). Leave the period, unit and parties to the other fields. An equal number that measures something else neither supports nor contradicts the occurrence: its verdict is unsupported. measure is null only for an occurrence with no source.',
-  "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider, roles differs or roles other when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
-  "A requested occurrence in a table is its cell, whose own words are its row label, its column heading and the section row above it (收入：, Cost:): judge the cell with them as the table's reader does. A row labelled 合计 or Total states that section's figure, whether or not the Document writes a total row of its own, and a cell's bare number is not left undecided because its label names what it measures rather than its own words.",
-  'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
-  'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
-  "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
-  'An occurrence with analysis is a number the User\'s own Analysis worked out, and IncarnaMind has worked its value out again: never look for it in the Passages, and never work it out yourself. Its evidence is its analysis: label, what the Analysis called it; unit, its unit (null for a plain number); heading, the heading above the sentence, when there is one; rule, the input, columns, rows and how it was worked out (sum, mean, min, max or count; null when the code alone says); and code. Judge whether the sentence states exactly that figure, as a reader takes it from the sentence, its paragraph, the heading and, for a table cell, its row and column headings. names is same only when they state it as it is: the label\'s measure, group and period, over all of the rule\'s rows and worked out the rule\'s way, as its own value in its own unit and scale, with nothing more. It is other when they make it anything else: another group, measure, period or way of working it out ("average" for a sum); a part of its rows, one item\'s share or a rate per item; a target, a limit or a bound rather than its value; a sign, a percent or a comparison symbol (-, +, %, <, ≥, ≠) it does not have; or a unit, currency or scale its unit does not have, wherever they state it. It is unclear when they name it only in part, or deny or compare it ("not", "below", "more than"). For same, give verdict supported, relation equals, topic found, roles same and scope same; for other or unclear, verdict unsupported: IncarnaMind reads names, and leaves an unclear one unchecked. source and calculation are null. The words that name it are the figure\'s, not a remainder; everything else the sentence asserts is the remainder.',
-  "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
-  'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
-].join("\n");
+const figureInstructions = (language: Language) =>
+  [
+    "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
+    'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":{"sentence":"revenue","quote":"Revenue","match":"same"},"says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}. The item of an occurrence with analysis is {"id":"its exact requested id","names":"same","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":null,"says":null,"reading":null,"relation":"equals","source":null,"calculation":null}, with names and verdict as below.',
+    `Give every requested id exactly once, and no other id. The item of an occurrence with analysis always has "names": "same", "other" or "unclear", as below; without it the figure stays unchecked. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence in ${LANGUAGE_NAMES[language]} or null. Covered and uncovered may name short parts, or be null.`,
+    'measure says what the number measures: a short name of a few words copied exactly, never the number itself, a clause or a whole sentence. sentence: the fewest words of the sentence, its paragraph or the occurrence\'s label that name what that occurrence measures ("operating margin", "月工资"). quote: the fewest words of its source quote that name what the quote\'s number measures; for a table\'s cell or row that leaves them out, its row label or column heading copied from the Passage; null only when the Passage names nothing. match: same when the two name the same measure, in any wording or language ("revenue" and "营业收入"); differs when they name different ones ("revenue" and "operating margin"). Leave the period, unit and parties to the other fields. An equal number that measures something else neither supports nor contradicts the occurrence: its verdict is unsupported. measure is null only for an occurrence with no source.',
+    "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider, roles differs or roles other when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
+    "A requested occurrence in a table is its cell, whose own words are its row label, its column heading and the section row above it (收入：, Cost:): judge the cell with them as the table's reader does. A row labelled 合计 or Total states that section's figure, whether or not the Document writes a total row of its own, and a cell's bare number is not left undecided because its label names what it measures rather than its own words.",
+    'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
+    'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
+    "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
+    'An occurrence with analysis is a number the User\'s own Analysis worked out, and IncarnaMind has worked its value out again: never look for it in the Passages, and never work it out yourself. Its evidence is its analysis: label, what the Analysis called it; unit, its unit (null for a plain number); heading, the heading above the sentence, when there is one; rule, the input, columns, rows and how it was worked out (sum, mean, min, max or count; null when the code alone says); and code. Judge whether the sentence states exactly that figure, as a reader takes it from the sentence, its paragraph, the heading and, for a table cell, its row and column headings. names is same only when they state it as it is: the label\'s measure, group and period, over all of the rule\'s rows and worked out the rule\'s way, as its own value in its own unit and scale, with nothing more. It is other when they make it anything else: another group, measure, period or way of working it out ("average" for a sum); a part of its rows, one item\'s share or a rate per item; a target, a limit or a bound rather than its value; a sign, a percent or a comparison symbol (-, +, %, <, ≥, ≠) it does not have; or a unit, currency or scale its unit does not have, wherever they state it. It is unclear when they name it only in part, or deny or compare it ("not", "below", "more than"). For same, give verdict supported, relation equals, topic found, roles same and scope same; for other or unclear, verdict unsupported: IncarnaMind reads names, and leaves an unclear one unchecked. source and calculation are null. The words that name it are the figure\'s, not a remainder; everything else the sentence asserts is the remainder.',
+    "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
+    'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
+  ].join("\n");
 
 /**
  * A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs
@@ -217,7 +222,7 @@ export function checkInstructions(
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
     reply(language, mode === "tools" && calculate && !figures) +
-    (figures ? `\n\n${FIGURE_INSTRUCTIONS}` : "");
+    (figures ? `\n\n${figureInstructions(language)}` : "");
   switch (mode) {
     case "tools":
       return [
@@ -460,22 +465,24 @@ export const CONFIRM_INSTRUCTIONS = [
  * The fields-only reply of a check that disagreed with itself, asked once more (#2313): only a
  * field that differs, its Duty and Condition among them, is read from it (#1766, #2816).
  */
-export const RECHECK_INSTRUCTIONS = [
-  "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
-  "Check the sentence once more against the quoted words and the Passage, by those fields:",
-  "- supported: the quoted words state what the sentence says;",
-  "- contradicted or unsupported: name the field that differs (Roles, Time, Duty, Condition or Scope), or the value the quote gives instead.",
-  "Reply in exactly this form, the verdict word in English:",
-  "Verdict: supported, unsupported or contradicted",
-  "Scope: the sentence's own word for the Passage's party or term, then same or wider",
-  "Topic: found or not found",
-  'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
-  "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
-  DUTY_LINE,
-  CONDITION_LINE,
-  "Then one plain sentence saying what the Document says, and Evidence: [1] naming the quote used.",
-  "Write nothing else.",
-].join("\n");
+export const recheckInstructions = (language: Language): string =>
+  [
+    "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
+    "Check the sentence once more against the quoted words and the Passage, by those fields:",
+    "- supported: the quoted words state what the sentence says;",
+    "- contradicted or unsupported: name the field that differs (Roles, Time, Duty, Condition or Scope), or the value the quote gives instead.",
+    "Reply in exactly this form, the verdict word in English:",
+    "Verdict: supported, unsupported or contradicted",
+    "Scope: the sentence's own word for the Passage's party or term, then same or wider",
+    "Topic: found or not found",
+    'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
+    "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
+    DUTY_LINE,
+    CONDITION_LINE,
+    `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Document says.`,
+    "Evidence: [1] naming the quote used.",
+    "Write nothing else.",
+  ].join("\n");
 
 /**
  * What a model is asked about the exact Passage a record cite names (#1709). It may reason
@@ -776,6 +783,10 @@ const EVIDENCE = /^[\s>*_#`'"“”-]*(?:evidence|证据)[\s*_]*[:：][\s*_]*(.*
 const COVERAGE = /^[\s>*_#`'"“”-]*(?:coverage|覆盖情况)[\s*_]*[:：][\s*_]*(.*)$/i;
 const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
+/** Any Reason kind line, "Reason kind: none" too: never the sentence a card shows (#2081). */
+const REASON_KIND_LINE = /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：]/i;
+/** "Explanation: …", the one plain sentence on what the Documents say, on a line of its own. */
+const EXPLANATION = /^[\s>*_#`'"“”-]*(?:explanation|说明|解释)[\s*_]*[:：][\s*_]*(.*)$/i;
 /** "Property: modified", the file properties a sentence states (./fileProperties), on a line of its own. */
 export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
 /** "Library: documents", the Library's facts a sentence states (./libraryFacts), on a line of its own. */
@@ -796,7 +807,8 @@ const FIELDS = [
   CALCULATION,
   EVIDENCE,
   COVERAGE,
-  REASON_KIND,
+  REASON_KIND_LINE,
+  EXPLANATION,
   PROPERTY,
   LIBRARY_LINE_FIELD,
   FIGURES,
@@ -1435,12 +1447,13 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const field = (label: RegExp) => fields.find((each) => label.test(each));
     const phrase = (label: RegExp) => phraseOf(label.exec(field(label) ?? "")?.[1]);
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
+    const explained = EXPLANATION.exec(field(EXPLANATION) ?? "")?.[1]?.trim();
     const correction = readCorrection(verdict, fields, reply);
     return withShortReason({
       verdict,
       ...(correction && { correction }),
       ...answered(absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? []))),
-      says: cleanSays(rest || (next ?? "")),
+      says: cleanSays(explained || rest || (next ?? "")),
       ...(() => {
         const evidence = EVIDENCE.exec(field(EVIDENCE) ?? "")?.[1];
         const coverage = COVERAGE.exec(field(COVERAGE) ?? "")?.[1];
@@ -1477,7 +1490,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
 }
 
 /**
- * A reply to `RECHECK_INSTRUCTIONS`: its verdict and every field line the request's form asks
+ * A reply to `recheckInstructions`: its verdict and every field line the request's form asks
  * for, Scope, Topic, Roles, Time, Duty and Condition, each given once; null when one is missing
  * or given twice with two values (#2817).
  */

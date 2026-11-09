@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange, CoreAdapters } from "../../src/core";
+import { restateInstructions } from "../../src/core/answers/checks/explanations";
 import { type JudgeQuestion, questionOf } from "../../src/core/answers/judge";
 import { listedSentences } from "./claimSentences";
 
@@ -17,7 +18,8 @@ export const UNSCRIPTED: string[] = [];
  * A judge for a test of something else, which names it rather than leave a judge's question
  * unscripted: it sorts each sentence as one fact, as a model with no script does, claims no change,
  * judges none of an Answer's sentences, and finds no nearest line different. Any other request is
- * refused, as a model that only streams refuses it.
+ * refused, as a model that only streams refuses it. An explanation asked for again in the
+ * interface's language comes back quoted inside one of that language's.
  */
 export function judgesNothing(call: GenerateCall): GeneratedReply {
   switch (call.question) {
@@ -34,11 +36,24 @@ export function judgesNothing(call: GenerateCall): GeneratedReply {
       return { text: "neither" };
     case "claimed-changes":
       return { text: JSON.stringify({ claims: [] }) };
+    case "restate":
+      return { text: restatedAsQuoted(call) };
     case undefined:
       throw new Error("This scripted model only streams.");
     default:
       return unscripted(call.question, call.system);
   }
+}
+
+/**
+ * A check's explanation asked for again in the interface's language (#2081), as a scripted model
+ * writes it with no plan for it: the sentence it was given, quoted inside one of that language's.
+ */
+export function restatedAsQuoted(call: Pick<GenerateCall, "prompt" | "system">): string {
+  const said = /<reply>\n([\s\S]*?)\n<\/reply>/.exec(call.prompt)?.[1] ?? "";
+  return call.system === restateInstructions("zh-CN")
+    ? `文档写的是：“${said}”`
+    : `The Document says: “${said}”`;
 }
 
 /** A judge's question that compares a sentence with one quote and its Passage. */

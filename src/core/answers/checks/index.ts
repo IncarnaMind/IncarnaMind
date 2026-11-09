@@ -1694,6 +1694,7 @@ export function createChecks(options: ChecksOptions) {
   }
 
   const answerCheck = createAnswerCheck({
+    language: options.language,
     prepare: answeringModel,
     scope: (mindId, documentIds) => options.evidence.scope(mindId, documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
