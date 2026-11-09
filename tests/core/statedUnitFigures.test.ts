@@ -539,7 +539,14 @@ describe("a Note's unit line wherever its figure can read it", () => {
     en: "The board met in the period and reviewed the plan with the auditors. ".repeat(37),
     "zh-CN": "董事会在本期内召开会议，并与审计师一同审阅了经营计划。".repeat(95),
   };
-  const CASES = {
+  interface UnitCase {
+    claim: string;
+    document: SourceFile;
+    plan: Plan;
+    unit: string;
+    below: string;
+  }
+  const CASES: Record<"en" | "zh-CN", UnitCase> = {
     en: {
       claim: "Revenue for the six months: 668.3",
       document: HALF_YEAR,
@@ -557,31 +564,34 @@ describe("a Note's unit line wherever its figure can read it", () => {
       unit: "以下数字单位为千元。",
       below: "以上数字单位均为千元。",
     },
-  } as const;
+  };
 
   // protects=a unit the Note states that isn't the Document's is read wherever it is in the figure's section or the Note's opening lines, whole: past 2,500 characters of other text, at the start of a long opening paragraph, and below the figure, in English and Chinese; fails_when=a long Note or a line below hides the unit and equal digits read Supported; no_claim=a unit in another section, which isn't the figure's.
-  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+  const LAYOUTS = {
+    "past the old bound": (each: UnitCase, filler: string) => ({
+      above: [line(each.unit), line(filler, "filler")],
+      below: [],
+    }),
+    "a long opening paragraph": (each: UnitCase, filler: string) => ({
+      above: [line(`${each.unit}${filler}`)],
+      below: [],
+    }),
+    "a unit line below the figure": (each: UnitCase) => ({
+      above: [],
+      below: [line(each.below)],
+    }),
+  };
+  test.each(
+    (["en", "zh-CN"] as const).flatMap((language) =>
+      (Object.keys(LAYOUTS) as (keyof typeof LAYOUTS)[]).map((layout) => ({ language, layout })),
+    ),
+  )("$layout, in $language", async ({ language, layout }) => {
     const each = CASES[language];
     const filler = FILLER[language];
     expect(filler.length).toBeGreaterThan(2_200);
-    for (const [above, below] of [
-      [[line(each.unit), line(filler, "filler")], []],
-      [[line(`${each.unit}${filler}`)], []],
-      [[], [line(each.below)]],
-    ] as const) {
-      const result = await check(
-        each.claim,
-        each.document,
-        each.plan,
-        language,
-        [...above],
-        [...below],
-      );
-      expect(result, JSON.stringify(above.length)).toMatchObject({
-        state: "unsupported",
-        unsupported: { kind: "units" },
-      });
-    }
+    const { above, below } = LAYOUTS[layout](each, filler);
+    const result = await check(each.claim, each.document, each.plan, language, above, below);
+    expect(result).toMatchObject({ state: "unsupported", unsupported: { kind: "units" } });
   });
 });
 
