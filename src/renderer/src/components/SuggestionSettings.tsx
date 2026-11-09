@@ -8,8 +8,9 @@ import { SettingsGroup, SettingsSection, SettingsSwitchRow } from "./settings/Se
 /**
  * Settings → General → Writing: the switch for suggestions as the User
  * writes (#282), off by default, what it does, today's counts once there is
- * a suggestion (#2870), and why suggestions that are on can't be made now. Turning it on asks for consent
- * first when the chat model sends to a service (the core asks, naming it).
+ * a suggestion (#2870), and why suggestions that are on can't be made now.
+ * Turning it on asks for consent first when the chat model sends to a service
+ * (the core asks, naming it).
  */
 export function SuggestionSettings() {
   const t = useT();

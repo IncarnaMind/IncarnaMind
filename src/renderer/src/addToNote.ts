@@ -235,10 +235,7 @@ const openBeside = (mindId: string) =>
     where: { in: "place" },
   });
 
-/**
- * A new Mind for an Answer, in the conversation's Folder, called `title` (see `titleForAnswer`).
- * It goes on with the model its Question was asked with (#2836).
- */
+/** A new Mind for an Answer, in the conversation's Folder, on the model its Question was asked with (#2836). */
 const newMindFor = (added: AddedAnswer, title: string) =>
   core.createMind({
     title,
@@ -246,12 +243,8 @@ const newMindFor = (added: AddedAnswer, title: string) =>
     model: questionOf(added.answer)?.model ?? null,
   });
 
-/**
- * What a Mind made from an Answer is called: the name the User gave the conversation, else the
- * Answer's first heading, else its Question (#2870), numbered when another Mind has the name.
- * Never the first line of the Answer, which can be a sentence from the middle of it.
- */
 function titleForAnswer(added: AddedAnswer, taken: readonly string[]): string {
+  // Not the Answer's first line, which can be a sentence from the middle of it (#2870).
   const named =
     added.conversation?.title || nameFromAnswer(added.blocks, questionOf(added.answer)?.text ?? "");
   return numberedName(named, taken) ?? named;
