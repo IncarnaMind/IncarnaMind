@@ -51,7 +51,6 @@ const wordsOf = (tokens: readonly Token[]) =>
 export function createSonioxStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
   const words = heldWords(options.words ?? []);
-  let heardTokens = false;
   let line: Line | null = null;
   let nextId = 1;
   let finalMs = 0;
@@ -125,15 +124,14 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     },
     heard(message, link) {
       if (typeof message.error_code === "number") {
-        // A context the service won't take is a bad request, answered before any text.
-        if (message.error_code === 400 && !heardTokens && link.retryWithoutWords()) return;
+        // A context it won't take is a bad request, its first answer.
+        if (message.error_code === 400 && link.retryWithoutWords()) return;
         link.lose(lossOf(message.error_code));
         return;
       }
       const tokens = (Array.isArray(message.tokens) ? message.tokens : [])
         .map(tokenOf)
         .filter((token) => token !== null);
-      if (tokens.length > 0) heardTokens = true;
       for (const token of tokens) {
         if (!token.final) continue;
         if (isMarker(token.text)) close();

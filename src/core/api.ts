@@ -3608,6 +3608,12 @@ export interface TranscriptionServiceStatus {
   recipient: Localized;
   model: string;
   perHour: Money;
+  /**
+   * What an hour costs while the meeting's words to know go with the audio, as the monthly cap
+   * counts it (#1031): Deepgram's and ElevenLabs' key terms are priced besides. Null where they
+   * cost nothing more.
+   */
+  perHourWithWords: Money | null;
   /** The region the key is for, named as in Settings › Models. */
   region: Localized | null;
   dataUse: { summary: Localized; url: Localized } | null;

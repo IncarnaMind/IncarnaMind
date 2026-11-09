@@ -196,7 +196,9 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
     },
     auth: ELEVENLABS_AUTH,
     words,
-    opened() {},
+    opened() {
+      said = null;
+    },
     heard(message, link) {
       const type = typeof message.message_type === "string" ? message.message_type : "";
       switch (type) {

@@ -194,12 +194,19 @@ test("A route chosen before the words were sent says so under Words to know and 
   try {
     await setWindowSize(app, window, 1440, 900);
     let settings = await openSettings(window, "meetings");
+    // While the words wait, the route's line says the audio goes alone, and the list is said once.
+    const routeLine = settings.getByTestId("meetings-route-line");
+    await expect(routeLine).toContainText("Audio goes to Soniox while you record.");
+    await expect(routeLine).not.toContainText("your name");
     const waiting = settings.getByTestId("meeting-words-waiting");
     await expect(waiting).toContainText(
-      "Soniox gets the audio but not these words: you chose it before they were sent. Send them, and it also gets your name, the names in each meeting’s note, calendar event and folder, and your Words to know.",
+      "Soniox gets the audio but not these words: you chose it before they were sent. Send them, and it also gets your name, the names in each meeting’s note, calendar event and folder’s documents, and your Words to know.",
     );
     await expect(settings.getByTestId("meeting-words")).toContainText(
-      "Each meeting adds your name and the names in its note, calendar event and folder. A cloud service you transcribe with gets them with the audio.",
+      "Each meeting adds your name and the names in its note, calendar event and folder’s documents.",
+    );
+    await expect(settings.getByTestId("meeting-words")).not.toContainText(
+      "A cloud service you transcribe with",
     );
     await waiting.scrollIntoViewIfNeeded();
     await shot(window, "words-waiting-en-1440");
@@ -208,8 +215,10 @@ test("A route chosen before the words were sent says so under Words to know and 
     await shot(window, "words-waiting-en-900");
 
     await setLanguage(window, "zh-CN");
+    await expect(routeLine).toContainText("录音期间，音频会发送给 Soniox。");
+    await expect(routeLine).not.toContainText("你的名字");
     await expect(waiting).toContainText(
-      "Soniox 目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，它还会收到你的名字，每场会议的笔记、日历事件和所在文件夹里的名字，以及你的要识别的词。",
+      "Soniox 目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，它还会收到你的名字，每场会议的笔记、日历事件和所在文件夹的文档里的名字，以及要识别的词。",
     );
     await expect(waiting.getByTestId("meeting-words-send")).toHaveText("发送给 Soniox");
     await waiting.scrollIntoViewIfNeeded();
@@ -218,19 +227,19 @@ test("A route chosen before the words were sent says so under Words to know and 
     await waiting.scrollIntoViewIfNeeded();
     await shot(window, "words-waiting-zh-CN-1440");
 
-    // The Privacy row says it asks again, and what it sends now that wasn't allowed.
+    // The Privacy row says what isn't sent until the User allows it.
     settings = await showSettingsPage(window, "privacy");
     const row = settings.locator(
       '[data-testid="data-service"][data-service-id="https://stt-rt.soniox.com"]',
     );
     await expect(row.getByTestId("data-service-decision")).toContainText(
-      "会再次询问。现在还会发送：你的名字，每场会议的笔记、日历事件和所在文件夹里的名字，以及你的要识别的词",
+      "允许之后才会发送：你的名字，每场会议的笔记、日历事件和所在文件夹的文档里的名字，以及要识别的词",
     );
     await row.scrollIntoViewIfNeeded();
     await shot(window, "privacy-sends-more-zh-CN-1440");
     await setLanguage(window, "en");
     await expect(row.getByTestId("data-service-decision")).toContainText(
-      "Asks again. Now it also sends: Your name and the names in each meeting’s note, calendar event and folder, with your Words to know",
+      "Not sent until you allow it: Your name and the names in each meeting’s note, calendar event and folder’s documents, with your Words to know",
     );
     await row.scrollIntoViewIfNeeded();
     await shot(window, "privacy-sends-more-en-1440");
@@ -246,6 +255,12 @@ test("A route chosen before the words were sent says so under Words to know and 
     await pointAndClick(window, send);
     await expect(settings.getByTestId("meeting-words-waiting")).toHaveCount(0);
     await expect(settings.getByTestId("meeting-words-field")).toBeFocused();
+    await expect(routeLine).toContainText(
+      "Audio goes to Soniox while you record, with your name, the names in the meeting’s note, calendar event and folder’s documents, and your Words to know.",
+    );
+    await expect(settings.getByTestId("meeting-words")).toContainText(
+      "A cloud service you transcribe with gets them with the audio.",
+    );
     await shot(window, "words-sent-en-1440");
     const after = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -256,6 +271,15 @@ test("A route chosen before the words were sent says so under Words to know and 
       consent: "accepted",
       flow: { sends: ["meeting-audio", "meeting-words"] },
     });
+
+    // Deepgram's price with its key terms, as the cap counts it while the words go.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.setTranscriptionKey({ route: "deepgram", apiKey: "deepgram-test-key" });
+      await bridge.updateSettings({ device: { transcriptionRoute: "deepgram" } });
+    });
+    await expect(routeLine).toContainText("About $0.75 an hour");
+    await shot(window, "words-deepgram-price-en-1440");
   } finally {
     await app.close();
   }

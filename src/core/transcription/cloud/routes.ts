@@ -34,6 +34,7 @@ import { readApiKey } from "../../providers/apiKey";
 import { billingUrlOf, catalogProvider, endpointOf } from "../../providers/catalog/providers";
 import {
   deepgramServer,
+  perHourWithWords,
   qwenRegion,
   TRANSCRIPTION_SERVICES,
   type TranscriptionDataUse,
@@ -389,6 +390,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           recipient: where.recipient,
           model: service.model,
           perHour: where.perHour,
+          perHourWithWords: perHourWithWords(where.perHour, where.wordsCost),
           region: key ? where.region : null,
           dataUse: where.dataUse,
           key: service.key,
@@ -656,7 +658,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       }
       const told = wordsAllowed(route) ? cloudWords(route, words) : [];
       const cost = told.length > 0 ? where.wordsCost : null;
-      const perHour = { ...where.perHour, amount: where.perHour.amount + (cost?.perHour ?? 0) };
+      const perHour = perHourWithWords(where.perHour, cost) ?? where.perHour;
       const audio = meter.audio({ providerId: key.providerId, modelId: service.model, perHour });
       if (!audio.add(0)) return { route, refused: "cap" };
       const tokens = told.reduce((sum, word) => sum + tokensOf(word), 0);

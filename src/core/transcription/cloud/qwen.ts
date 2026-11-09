@@ -55,7 +55,6 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   const { stream, report } = options;
   const words = heldWords(options.words ?? []);
   let taskId = crypto.randomUUID();
-  let started = false;
   const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
   let received = 0;
   let answeredMs = 0;
@@ -98,7 +97,6 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
     words,
     opened(link) {
       taskId = crypto.randomUUID();
-      started = false;
       link.setup(
         JSON.stringify({
           header: header("run-task"),
@@ -131,7 +129,6 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
       const event = isRecord(message.header) ? message.header : {};
       switch (event.event) {
         case "task-started":
-          started = true;
           link.ready();
           return;
         case "result-generated": {
@@ -154,7 +151,7 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
           return;
         case "task-failed": {
           const loss = lossOf(String(event.error_code));
-          if (loss === "dropped" && !started && link.retryWithoutWords()) return;
+          if (loss === "dropped" && link.retryWithoutWords()) return;
           link.lose(loss);
           return;
         }

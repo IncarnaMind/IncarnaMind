@@ -137,9 +137,16 @@ export function useAudioKeptKey(): MessageKey {
   return cloud ? "meetings.audio.keptCloud" : "meetings.audio.kept";
 }
 
+/**
+ * What an hour on the route costs as the monthly cap counts it: with the words to know's own
+ * price while they go with the audio, the audio's alone while they wait (#1031).
+ */
+export const shownPerHour = (service: TranscriptionServiceStatus) =>
+  (!service.wordsWaiting && service.perHourWithWords) || service.perHour;
+
 /** "gpt-live-transcribe · about $1.02 an hour · uses your OpenAI key". */
 export function serviceMeta(service: TranscriptionServiceStatus, t: Translate, language: Language) {
-  const price = formatMoney(service.perHour, language);
+  const price = formatMoney(shownPerHour(service), language);
   const named = service.key === "provider";
   return joinMeta([
     named ? service.model : "",

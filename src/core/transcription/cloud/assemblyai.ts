@@ -145,7 +145,9 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
     },
     auth: ASSEMBLYAI_AUTH,
     words,
-    opened() {},
+    opened() {
+      said = null;
+    },
     heard(message, link) {
       switch (message.type) {
         case "Begin":

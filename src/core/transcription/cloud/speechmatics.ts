@@ -168,6 +168,7 @@ export function createSpeechmaticsStream(options: CloudStreamOptions): CloudStre
     url: SPEECHMATICS_URL,
     words,
     opened(link) {
+      said = null;
       link.setup(start());
     },
     heard(message, link) {

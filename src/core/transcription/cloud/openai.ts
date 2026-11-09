@@ -87,7 +87,6 @@ export function createOpenAiStream(
 ): CloudStreamHandle {
   const { stream, report, detector } = options;
   const words = heldWords(options.words ?? []);
-  let sessionReady = false;
   const level = createLeveler();
   let received = 0;
   /** The latest audio, for the lead-in: `kept` starts at sample `keptFrom`. */
@@ -150,7 +149,6 @@ export function createOpenAiStream(
   function heard(event: ServerEvent, link: LiveLink): void {
     switch (event.type) {
       case "session.updated":
-        sessionReady = true;
         link.ready();
         return;
       case "input_audio_buffer.committed": {
@@ -207,7 +205,7 @@ export function createOpenAiStream(
         // The service may keep the socket open after it, transcribing nothing.
         if (loss) link.lose(loss);
         // A session update it won't take, for a keyword it refuses, is an error and no session.
-        else if (!sessionReady) link.retryWithoutWords();
+        else link.retryWithoutWords();
         return;
       }
     }
@@ -278,7 +276,6 @@ export function createOpenAiStream(
     url: OPENAI_TRANSCRIPTION_URL,
     words,
     opened(link) {
-      sessionReady = false;
       link.setup(
         JSON.stringify({
           type: "session.update",

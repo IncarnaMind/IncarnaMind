@@ -52,6 +52,12 @@ export interface WordsCost {
   perMillionTokens?: number;
 }
 
+/** An hour's price with the words to know, where they are priced by the hour; else null. */
+export const perHourWithWords = (
+  perHour: Money,
+  cost: WordsCost | null | undefined,
+): Money | null => (cost?.perHour ? { ...perHour, amount: perHour.amount + cost.perHour } : null);
+
 export interface TranscriptionService {
   route: CloudTranscriptionRoute;
   name: string;

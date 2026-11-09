@@ -16,7 +16,9 @@ export const SERVICES_UNDO_PLACE = "settings:privacy:services";
 /** A flow allowed before it sent more asks again, naming what it sends now that wasn't allowed. */
 function sendsMoreLine(t: ReturnType<typeof useT>, added: readonly DataKind[]): string {
   if (added.length === 0) return t("consent.settings.status.sendsMore");
-  const what = added.map((kind) => t(`consent.data.${kind}`)).join("; ");
+  const what = added
+    .map((kind) => t(`consent.data.${kind}`))
+    .join(t("consent.settings.status.sendsMoreWhat.separator"));
   return t("consent.settings.status.sendsMoreWhat", { what });
 }
 

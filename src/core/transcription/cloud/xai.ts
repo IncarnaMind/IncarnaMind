@@ -169,7 +169,9 @@ export function createXaiStream(options: CloudStreamOptions): CloudStreamHandle 
       return xaiUrl(options.model, words.now);
     },
     words,
-    opened() {},
+    opened() {
+      said = null;
+    },
     heard(message, link) {
       switch (message.type) {
         case "transcript.created":
