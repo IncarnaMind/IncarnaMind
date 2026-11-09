@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
-import { checkGenerate } from "../helpers/checks";
+import { checkGenerate, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -136,6 +136,7 @@ async function fixture({
           `Verdict: ${verdict}`,
           "Absence: no",
           `Topic: ${topic}`,
+          SAME_DETAIL,
           ...(says ? [says] : []),
           ...(required?.map((number) => `Calculation: ${number}`) ?? []),
         ].join("\n"),

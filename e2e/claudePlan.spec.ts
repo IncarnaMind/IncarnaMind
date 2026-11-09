@@ -10,7 +10,6 @@ import {
   acceptPlainTextKeys,
   assistantAnswers,
   closeSettings,
-  continueSetup,
   createDataFolder,
   interceptOpenExternal,
   launchApp,
@@ -150,7 +149,6 @@ test("first run: the row follows the plan, says the usage limits first before an
     await field.fill(code);
     await waiting.getByTestId("claude-paste-continue").click();
 
-    await continueSetup(window);
     const answer = assistantAnswers(window).first();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(answer).toContainText(ANSWER);
@@ -310,7 +308,7 @@ test("⌘K: Sign in with Claude opens the words in Settings › Models, before a
   }
 });
 
-test("in Chinese: the row follows the plan and comes before a model on this computer, with the usage limits first", async () => {
+test("in Chinese: the row waits under Other ways after a model on this computer, and follows the plan with the usage limits first", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
@@ -318,15 +316,17 @@ test("in Chinese: the row follows the plan and comes before a model on this comp
     await setLanguage(window, "zh-CN");
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
+    // The plan can't be bought in mainland China, so it waits under Other ways (#2865).
+    await expect(card.getByTestId("way-claude")).toBeHidden();
     await card.getByTestId("setup-other").click();
     const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
-    // Every plan comes before a model on this computer.
-    await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
-    await expect(ways.last()).toHaveAttribute("data-testid", "way-local");
+    await expect(ways.first()).toHaveAttribute("data-testid", "way-local");
+    await expect(ways.last()).toHaveAttribute("data-testid", "way-claude");
 
     const row = card.getByTestId("way-claude");
     await expect(row).toContainText("使用我的 Claude 订阅");
-    await expect(row).toContainText("Pro、Max 或 Team（中国大陆不可用）");
+    await expect(row).toContainText("Pro、Max 或 Team");
+    await expect(row).not.toContainText("中国大陆不可用");
     await row.getByTestId("way-claude-open").click();
     const notice = row.getByTestId("claude-plan-notice");
     const usage = notice.getByTestId("claude-plan-usage");

@@ -176,28 +176,35 @@ function mindLine(call: AnswerToolCall, names: MindNames, states?: ChangeStates)
   const mind = mindOf(call, names);
   const change = call.mindChange;
   const section = field(call, "part") ? ` (section ${quoted(field(call, "part"))})` : "";
-  if (call.status !== "done") {
+  const cut =
+    call.status !== "done" &&
+    change !== undefined &&
+    (change.proposals > 0 || change.revised === true || change.created);
+  if (call.status !== "done" && !cut) {
     const verb = call.tool === "read_mind" ? "couldn't read it" : "nothing changed";
     return `${call.tool} ${mind}${section}: ${verb}: ${whyNot(call.mindProblem)}`;
   }
+  // A write the Answer's stop cut short keeps what it wrote: the next turn is told its changes
+  // and their fate, as of a write that finished, and that it didn't finish (#2834).
   const fate = change ? fateOf(change.proposals, states?.(change) ?? null) : "";
   const proposed = change
     ? `proposed ${counted(change.proposals, "change")}, ${fate}${detailsOf(change)}`
     : "";
+  const unfinished = cut ? ", and it didn't finish" : "";
   switch (call.tool) {
     case "read_mind":
       return `read_mind ${mind}: read it`;
     case "create_mind":
       return change && change.proposals > 0
-        ? `create_mind: made the Note ${mind} and ${proposed}`
-        : `create_mind: made the Note ${mind}, empty`;
+        ? `create_mind: made the Note ${mind} and ${proposed}${unfinished}`
+        : `create_mind: made the Note ${mind}, empty${unfinished}`;
     case "add_to_mind":
-      return `add_to_mind ${mind}: proposed ${counted(change?.proposals ?? 0, "new Block")}, ${fate}${change ? detailsOf(change) : ""}`;
+      return `add_to_mind ${mind}: proposed ${counted(change?.proposals ?? 0, "new Block")}, ${fate}${change ? detailsOf(change) : ""}${unfinished}`;
     default:
       if (!change) return `${call.tool} ${mind}${section}: no change was needed`;
       return change.revised
-        ? `${call.tool} ${mind}${section}: revised your own waiting text in place, and ${proposed}`
-        : `${call.tool} ${mind}${section}: ${proposed}`;
+        ? `${call.tool} ${mind}${section}: revised your own waiting text in place, and ${proposed}${unfinished}`
+        : `${call.tool} ${mind}${section}: ${proposed}${unfinished}`;
   }
 }
 

@@ -115,7 +115,6 @@ describe("Settings", () => {
         callOffersOff: [],
         motion: "system",
         appearance: "system",
-        lastChatModel: null,
       },
       language: "en",
       scriptSandbox: "none",
@@ -248,7 +247,6 @@ describe("Settings", () => {
       callOffersOff: [],
       motion: "system",
       appearance: "system",
-      lastChatModel: null,
     });
   });
 
@@ -541,7 +539,6 @@ describe("Settings", () => {
       callOffersOff: ["zoom"],
       motion: "reduced" as const,
       appearance: "dark" as const,
-      lastChatModel: null,
     };
     await before.updateSettings({
       user: {
@@ -697,8 +694,8 @@ describe("Settings", () => {
       patch: { user: { chatModel: { providerId: "x" } } },
     },
     {
-      name: "a last chosen model without a model",
-      patch: { device: { lastChatModel: { providerId: "x" } } },
+      name: "the last chosen model a composer once kept",
+      patch: { device: { lastChatModel: { providerId: "x", modelId: "gpt-5.4-mini" } } },
     },
     {
       name: "a default model on a provider that doesn't exist",

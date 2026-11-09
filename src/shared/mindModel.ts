@@ -3,11 +3,11 @@
  * remembered for that Mind (DESIGN.md, Composer › Model). It lives in the
  * Mind's Yjs document (`MIND_SETTINGS_FIELD`), not in its Blocks, so it goes
  * wherever the Mind goes and the Blocks stay as they are. Only a model the
- * User picked in the Mind is stored; a Mind with none follows the one last
- * chosen on the device, else the Answers default (`modelInUse`).
+ * User picked in the Mind is stored; a Mind with none follows the Answers
+ * default (`modelInUse`).
  */
 import type * as Y from "yjs";
-import { type ChatModelChoice, MIND_SETTINGS_FIELD } from "../core/api";
+import { type ChatModelChoice, type ConversationMessage, MIND_SETTINGS_FIELD } from "../core/api";
 
 const MODEL_KEY = "model";
 
@@ -41,23 +41,27 @@ export function setMindModel(doc: Y.Doc, choice: ChatModelChoice | null): void {
 }
 
 /**
- * The model a request is asked with: the Mind's own pick, else the one last chosen on the device
- * (`DeviceSettings.lastChatModel`), else the Answers default (`UserSettings.chatModel`). A pick
- * or last choice on a provider that is no longer `saved` is skipped. Null with no default.
+ * The model a request is asked with: the Mind's own pick, else the Answers default
+ * (`UserSettings.chatModel`). A pick on a provider that is no longer `saved` is skipped. Null with
+ * no default.
  */
 export function modelInUse(
-  models: {
-    own: ChatModelChoice | null;
-    last: ChatModelChoice | null;
-    fallback: ChatModelChoice | null;
-  },
+  models: { own: ChatModelChoice | null; fallback: ChatModelChoice | null },
   saved: (providerId: string) => boolean,
 ): ChatModelChoice | null {
-  const { own, last, fallback } = models;
-  for (const choice of [own, last]) {
-    if (choice !== null && saved(choice.providerId)) return choice;
-  }
-  return fallback;
+  const { own, fallback } = models;
+  return own !== null && saved(own.providerId) ? own : fallback;
+}
+
+/**
+ * The model a Conversation goes on with: its last Question's, as it was asked (#2836). Null for a
+ * New chat, or when that Question was asked on the Answers default.
+ */
+export function conversationModelOf(
+  messages: readonly ConversationMessage[],
+): ChatModelChoice | null {
+  const last = messages.findLast((message) => message.kind === "question");
+  return last?.kind === "question" ? last.model : null;
 }
 
 /** Calls `listener` whenever the Mind's choice may have changed, here or from elsewhere. Returns how to stop. */

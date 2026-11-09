@@ -207,8 +207,8 @@ for (const [name, locale] of [
 
     await pointAndClick(window, use);
     await expect.poll(() => localOnly(window)).toBe(true);
-    // The model works: the composer is back, and the steps left wait as a line above it (#2310).
-    await expect(window.getByTestId("assistant-setup-line")).toBeVisible();
+    // The model works: the composer is back (#2310).
+    await expect(window.getByTestId("composer-input")).toBeVisible();
     const undo = window.getByTestId("undo-line");
     const said = zh
       ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
@@ -312,7 +312,7 @@ for (const [name, locale] of [
     // A model works, so the setup closes itself and the composer takes the cursor (#2310): the
     // words are not in it, and ⌘Z goes to the app's changes.
     await expect(setup).toHaveCount(0);
-    await expect(window.getByTestId("assistant-setup-line")).toBeVisible();
+    await expect(window.getByTestId("composer-input")).toBeVisible();
     await leaveText(window);
 
     const undo = window.getByTestId("undo-line");

@@ -6,7 +6,7 @@ import { ProblemLine } from "./ProblemLine";
 /**
  * Where a read the screen depends on failed: one line in place, with Try again. Try again takes
  * the focus when it was on the control the problem replaced (now on the page) or inside the
- * failed part (its step, its row), and again after a retry that fails again, since a retry
+ * failed part (its row), and again after a retry that fails again, since a retry
  * disables its own button. Anywhere else the focus stays where the User put it. The error's own
  * words are on hover.
  */

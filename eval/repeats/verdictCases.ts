@@ -28,6 +28,7 @@ const sentencesOf =
     list.map(([key, text]) => ({ key, kind, expected, text }));
 
 const conflicts = sentencesOf("conflict", "contradicted");
+const eitherWay = sentencesOf("near-miss", "not-contradicted");
 const nearMisses = sentencesOf("near-miss", "unsupported");
 const faithful = sentencesOf("paraphrase", "supported");
 
@@ -166,12 +167,18 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["reporting-line", "The Studio Manager reports damaged equipment to the Licensee."],
       ["period", "In 2026 the Licensee may use Studio B for 20 hours a week."],
       ["duty", "The Licensee has to store instruments in Studio B overnight."],
-      ["permission", "The Licensee is free to give 30 days' written notice to end this licence."],
       ["should", "The Licensee should store instruments in Studio B overnight."],
       ["guests", "The Licensee may bring up to four guests to each session."],
       ["notice-days", "The Licensee must give 60 days' written notice to end this licence."],
       ["room", "The Licensee may store instruments in Studio A overnight."],
-    ]),
+    ]).concat(
+      // Moved on 2026-11-04 under the principle on #1708 (a sentence is Unsupported only when it
+      // claims more than its Document grants): the permission word sits on the notice the clause
+      // makes the condition of ending, so it is no force swap on the ending itself.
+      eitherWay([
+        ["permission", "The Licensee is free to give 30 days' written notice to end this licence."],
+      ]),
+    ),
   },
   {
     id: "en-licence-near-misses",
@@ -189,7 +196,10 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
     mind: "Licence in other words",
     sentences: faithful([
       ["receives", "The Licensor receives a fee of 2,400 a year from the Licensee."],
-      ["passive", "Damaged equipment is reported by the Licensee to the Studio Manager."],
+      [
+        "passive",
+        "Damaged equipment is reported by the Licensee to the Studio Manager within 48 hours.",
+      ],
       ["allowed", "The Licensee is allowed to bring up to two guests to each session."],
       ["obliged", "The Licensee is obliged to give 30 days' written notice to end this licence."],
       ["period-covered", "In 2026 the Licensee may use Studio B for 12 hours a week."],
@@ -205,12 +215,11 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["reporting-line", "场地主管向乙方报告设备损坏情况。"],
       ["period", "2026年乙方每周可使用B号排练室20小时。"],
       ["duty", "乙方有义务将乐器存放在B号排练室过夜。"],
-      ["permission", "乙方解除本协议，获准提前30日书面通知甲方。"],
       ["should", "乙方应该将乐器存放在B号排练室过夜。"],
       ["guests", "乙方每次排练可带不超过四名访客。"],
       ["notice-days", "乙方解除本协议，须提前60日书面通知甲方。"],
       ["room", "乙方可将乐器存放在A号排练室过夜。"],
-    ]),
+    ]).concat(eitherWay([["permission", "乙方解除本协议，获准提前30日书面通知甲方。"]])),
   },
   {
     id: "zh-licence-near-misses",

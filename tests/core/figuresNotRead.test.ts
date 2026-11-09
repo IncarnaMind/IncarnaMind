@@ -17,6 +17,7 @@ import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { reasonText } from "../../src/renderer/src/cost";
 import { readFigures } from "../../src/shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { SAME_DETAIL } from "../helpers/checks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 vi.mock(import("../../src/shared/figures"), async (importOriginal) => {
@@ -54,7 +55,7 @@ const target = (shown: string, offset: number): CheckFigure => {
   };
 };
 
-const FIGURES_REPLY = `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
+const FIGURES_REPLY = `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({
   items: [
     {
       id: "F1",

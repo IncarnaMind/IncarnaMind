@@ -8,6 +8,7 @@ import type {
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { core } from "../../core";
 import { useGap, useLanguage, useT } from "../../i18n";
+import { setAnswersModel } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
@@ -60,7 +61,7 @@ export function useModelRoles(groups: readonly ChatModelGroup[]): ModelRoles | n
 const popUpWidth = "max-w-64";
 
 /**
- * Settings › Models: the same three rows as first run (#1922), each editable in place — your AI,
+ * Settings › Models: three rows, each editable in place — your AI,
  * where meetings are transcribed, and what sorts Documents and names meeting hints. Quick tasks
  * and reading images follow your AI model, with no row of their own. `services`: the page's one
  * read of the transcription services, which its row, the line under the list and Your providers'
@@ -222,7 +223,6 @@ function SortingRow({ id }: { id: string }) {
         // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
         <JevSortingSetUp
           jev={jevSettings}
-          choosing={false}
           choose={async () => {
             const chosen = await choose({ classifier: { kind: "jev" } });
             reread();
@@ -236,7 +236,6 @@ function SortingRow({ id }: { id: string }) {
         <DecisionSortingSetUp
           key={host.host}
           host={host}
-          choosing={false}
           choose={async () => {
             const chosen = await choose({ classifier: firstModelOf(host) });
             reread();
@@ -434,17 +433,12 @@ export function RoleSelect({
     const choice = choiceOf(next);
     if (job === "chatModel" && !choice) return;
     setValue(next);
-    void updateSettings(
-      job === "chatModel"
-        ? // Quick tasks and reading images are automatic, with no row of their own (#1922).
-          {
-            user: { chatModel: choice, quickTasksModel: null, imageModel: null },
-            device: { lastChatModel: choice },
-          }
-        : {
-            user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
-          },
-    );
+    if (job === "chatModel" && choice) void setAnswersModel(choice);
+    else {
+      void updateSettings({
+        user: job === "quickTasksModel" ? { quickTasksModel: choice } : { imageModel: choice },
+      });
+    }
     onChosen?.();
   };
 

@@ -79,6 +79,13 @@ export function keyProviderName(id: string, t: Translate, language: Language): s
   return t(`providers.kind.${kindOfCatalogId(id)}`);
 }
 
+/** A provider's name where room is short: a chip, a form's title, the key field's question. */
+export function shortProviderName(id: string, t: Translate, language: Language): string {
+  return id === "qwen" || id === "deepseek" || id === "kimi"
+    ? t(`providers.kind.short.${id}`)
+    : keyProviderName(id, t, language);
+}
+
 /** "OpenAI","OpenAI-compatible server · api.deepseek.com", "Ollama · on this computer". */
 export function providerLabel(provider: ChatProvider, t: Translate, language: Language): string {
   if (provider.kind === "chatgpt") return t("chatgpt.title");
@@ -136,9 +143,12 @@ function hostOf(baseUrl: string): string | null {
 
 /**
  * An API key field that keeps a key only for the provider and server it was
- * typed for, so it is never sent to another: choosing another provider clears
- * it, and so does leaving the address field pointing at another host. `text`
- * is the key as it is sent, and `stray` the character in it that keys don't use.
+ * typed for, so it is never sent to another: the form clears it when another
+ * provider is chosen, and so does leaving the address field pointing at another
+ * host. The form keeps it across providers only while it was typed for none
+ * (first run hands such a key over) or its check holds it back as another
+ * service's, and still sends it only when the User does. `text` is the key as it
+ * is sent, and `stray` the character in it that keys don't use.
  */
 export function useProviderKey(initial = "") {
   const [apiKey, setApiKey] = useState(initial);
@@ -154,7 +164,7 @@ export function useProviderKey(initial = "") {
       setApiKey(value);
       typedFor.current = hostOf(baseUrl);
     },
-    /** Another provider was chosen, or the key was saved. */
+    /** Another provider was chosen for a key typed for this one, or the key was saved. */
     clear() {
       setApiKey("");
       typedFor.current = null;
