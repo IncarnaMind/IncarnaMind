@@ -33,7 +33,6 @@ import type {
 } from "../adapters";
 import { ONNX_RUNTIME, TOKENIZERS } from "../engineModules";
 import { isRecord } from "../errors";
-import { type SessionInUse, sessionInUse } from "../sessionInUse";
 import { withoutHostCopies } from "./hostCopies";
 
 type Tokenizer = import("@huggingface/tokenizers").Tokenizer;
@@ -92,7 +91,6 @@ interface Scorer {
 interface Loaded extends Scorer {
   key: string;
   device: RerankingDevice;
-  inUse: SessionInUse;
 }
 
 /** A query keeps at most this share of the tokens a pair may have; the text gets the rest. */
@@ -461,7 +459,6 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
       return {
         ...base,
         session,
-        inUse: sessionInUse(() => session.release()),
         padId,
         batchSize: GPU_BATCH_SIZE,
         device: { device: "gpu", ...copy },
@@ -471,7 +468,6 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     return {
       ...base,
       session,
-      inUse: sessionInUse(() => session.release()),
       batchSize: 1,
       padId: 0,
       device: { device: "cpu", ...(gpu && { fallback: gpu.fallback }), ...copy },
@@ -486,7 +482,7 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
         loading = undefined;
       });
       const next = await loading;
-      if (loaded && loaded !== next) loaded.inUse.release();
+      if (loaded && loaded !== next) void loaded.session.release();
       loaded = next;
       return next.device;
     },
@@ -494,11 +490,11 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
     async score(query, texts) {
       const model = loaded;
       if (!model) throw new Error("The reranking model isn't loaded.");
-      return model.inUse.use(() => scoreTexts(model, query, texts));
+      return scoreTexts(model, query, texts);
     },
 
     close() {
-      loaded?.inUse.release();
+      void loaded?.session.release();
       loaded = undefined;
     },
   };
