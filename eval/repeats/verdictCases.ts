@@ -19,6 +19,11 @@
  *   Supported; a wrong cover, a missed floor and a wrong ratio, Contradicted.
  *
  * `en-limits` and `zh-limits` are #1908's own Document and sentences, checked as a Note is.
+ *
+ * The allotment sets (#2184) were written before any change to a contradiction's confirmation:
+ * the parties the other way round, may for must and must for may (可 for 须 or 应, 须 for 可),
+ * each expected Contradicted; and near misses that must never be Contradicted: a plain statement
+ * of fact where the tenancy gives a permission, and the same duty of another party or group.
  */
 import type { LibraryDocument, RepeatSentence, RepeatSet } from "./cases";
 
@@ -35,6 +40,11 @@ const faithful = sentencesOf("paraphrase", "supported");
 const LICENCE_SETS = {
   en: ["en-licence-conflicts", "en-licence-near-misses", "en-licence-faithful"],
   zh: ["zh-licence-conflicts", "zh-licence-near-misses", "zh-licence-faithful"],
+} as const;
+
+const ALLOTMENT_SETS = {
+  en: ["en-allotment-conflicts", "en-allotment-near-misses"],
+  zh: ["zh-allotment-conflicts", "zh-allotment-near-misses"],
 } as const;
 
 export const VERDICT_DOCUMENTS: readonly LibraryDocument[] = [
@@ -76,6 +86,50 @@ export const VERDICT_DOCUMENTS: readonly LibraryDocument[] = [
           "第二条　使用费：乙方每年向甲方支付使用费人民币九千六百元，于每年一月一次付清。",
           "第三条　设备：乙方发现设备损坏，应在48小时内报告场地主管。",
           "第四条　解除：乙方解除本协议，须提前30日书面通知甲方。",
+        ],
+      },
+    ],
+  },
+  {
+    language: "en",
+    file: "Allotment Tenancy - R. Lindqvist.pdf",
+    onlyFor: ALLOTMENT_SETS.en,
+    pages: [
+      {
+        lines: [
+          "ALLOTMENT TENANCY",
+          "This tenancy is made between Fernhill Parish Council (the Council) and Rosa Lindqvist (the Tenant).",
+          "1. The plot",
+          "The Council lets plot 27 at Fernhill Allotments to the Tenant.",
+          "2. Rent",
+          "The Tenant pays the Council a rent of 85 per year, due each October.",
+          "3. Water",
+          "The Council supplies water to the plot from April to September.",
+          "4. Use of the plot",
+          "The Tenant may keep up to six hens on the plot.",
+          "The Tenant must keep the plot free of weeds.",
+          "The Tenant may build one shed of up to 6 square metres.",
+          "5. Inspection",
+          "The Council may inspect the plot after giving 7 days' notice.",
+        ],
+      },
+    ],
+  },
+  {
+    language: "zh-CN",
+    file: "地块租用协议 - 周岚.pdf",
+    onlyFor: ALLOTMENT_SETS.zh,
+    pages: [
+      {
+        chineseLines: [
+          "菜园地块租用协议",
+          "甲方：枫林社区居委会　乙方：周岚",
+          "第一条　地块：甲方将枫林菜园27号地块出租给乙方。",
+          "第二条　租金：乙方每年向甲方支付租金人民币八百五十元，于每年十月付清。",
+          "第三条　供水：每年四月至九月由甲方向地块供水。",
+          "第四条　使用：乙方可在地块上饲养不超过六只鸡。乙方须保持地块无杂草。",
+          "乙方应每月清理地块内的垃圾。乙方可搭建一间不超过6平方米的工具棚。",
+          "第五条　检查：甲方可提前7日通知乙方后检查地块。",
         ],
       },
     ],
@@ -241,6 +295,54 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["allowed", "乙方每次排练最多可以带两名访客。"],
       ["obliged", "乙方解除本协议，必须提前30日书面通知甲方。"],
       ["period-covered", "2026年乙方每周可使用B号排练室12小时。"],
+    ]),
+  },
+  {
+    id: "en-allotment-conflicts",
+    language: "en",
+    mind: "Allotment points",
+    sentences: conflicts([
+      ["payer", "The Council pays the Tenant a rent of 85 per year."],
+      ["supplier", "The Tenant supplies water to the plot from April to September."],
+      ["inspector", "The Tenant may inspect the plot after giving 7 days' notice."],
+      ["may-for-must", "The Tenant may keep the plot free of weeds."],
+      ["must-for-may", "The Tenant must keep up to six hens on the plot."],
+      ["must-for-may-shed", "The Tenant must build one shed of up to 6 square metres."],
+    ]),
+  },
+  {
+    id: "en-allotment-near-misses",
+    language: "en",
+    mind: "Allotment notes",
+    sentences: nearMisses([
+      ["fact-for-permission", "The Tenant keeps six hens on the plot."],
+      ["fact-for-permission-shed", "The Tenant has built a shed on the plot."],
+      ["same-duty-other-party", "The Council must keep the plot free of weeds."],
+      ["same-duty-other-group", "Other tenants at Fernhill must keep their plots free of weeds."],
+    ]),
+  },
+  {
+    id: "zh-allotment-conflicts",
+    language: "zh-CN",
+    mind: "地块要点",
+    sentences: conflicts([
+      ["payer", "甲方每年向乙方支付租金人民币八百五十元。"],
+      ["supplier", "每年四月至九月由乙方向地块供水。"],
+      ["inspector", "乙方可提前7日通知甲方后检查地块。"],
+      ["ke-for-xu", "乙方可保持地块无杂草。"],
+      ["ke-for-ying", "乙方可每月清理地块内的垃圾。"],
+      ["xu-for-ke", "乙方须搭建一间不超过6平方米的工具棚。"],
+    ]),
+  },
+  {
+    id: "zh-allotment-near-misses",
+    language: "zh-CN",
+    mind: "地块笔记",
+    sentences: nearMisses([
+      ["fact-for-permission", "乙方在地块上饲养了六只鸡。"],
+      ["fact-for-permission-shed", "乙方已在地块上搭建了一间工具棚。"],
+      ["same-duty-other-party", "甲方须保持地块无杂草。"],
+      ["same-duty-other-group", "枫林菜园的其他租户须保持各自地块无杂草。"],
     ]),
   },
   {
