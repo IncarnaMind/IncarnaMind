@@ -70,12 +70,12 @@ function response(streamed: boolean, usage: Record<string, unknown>) {
   );
 }
 
-test("the replacement gate registers eight once-only DeepSeek observations, not two tiers", () => {
+test("the replacement gate registers eighteen once-only DeepSeek observations, not two tiers", () => {
   expect(gate).toMatchObject({
     schemaVersion: 1,
     provider: "deepseek",
     model: "deepseek-flash",
-    label: "DeepSeek V4.1 Flash 1108",
+    label: "DeepSeek V4.1 Flash 1109",
     repliesPerCall: 1,
     perObservationCapUsd: 0.25,
     independentRawAuditAfterEach: true,
@@ -85,11 +85,19 @@ test("the replacement gate registers eight once-only DeepSeek observations, not 
     releasePriorReserves: false,
   });
   expect(gate.callIds).toEqual(
-    ["interview", "client", "team", "named"].flatMap((call) =>
-      ["en", "zh"].map((language) => `reserved-${language}-structured-${call}`),
-    ),
+    [
+      "decide",
+      "speaker",
+      "typed",
+      "noname",
+      "restate",
+      "interview",
+      "client",
+      "team",
+      "named",
+    ].flatMap((call) => ["en", "zh"].map((language) => `reserved-${language}-structured-${call}`)),
   );
-  expect(new Set(gate.callIds).size).toBe(8);
+  expect(new Set(gate.callIds).size).toBe(18);
   expect(structuredControls(controls)).toMatchObject({ provider: "deepseek", model: gate.model });
 });
 

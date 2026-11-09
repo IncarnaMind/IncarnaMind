@@ -37,7 +37,7 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
     "Write the User, who reads these notes, in the first person (I, my; 我 in Chinese), even when the call gave their name",
   );
   expect(prompt).toContain(
-    "Name everyone else as they introduced themselves or were named in the call, on either side: a named person is never the other side, 对方 or they",
+    "Name everyone else as they introduced themselves or were named in the call or in the User's notes, on either side: a named person is never the other side, 对方 or they",
   );
   expect(prompt).toContain("as we or our (我们) where they spoke for their side");
   expect(prompt).toContain(
@@ -69,6 +69,29 @@ test.each([
     expect(prompt).toContain("A fact is one short point, a single sentence");
     expect(prompt).toContain("never the figures, dates or owners the notes below give");
     expect(prompt).not.toContain('\\"summary\\" for other figures');
+  },
+);
+
+// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named other side is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; and a decision is written once, not also as its proposal or inside another decision (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+test.each([
+  ["no notes", []],
+  ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
+] as const)(
+  "with %s, the prompt says what a decision is, who is named, and that a decision is said once",
+  (_, lines) => {
+    const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+    expect(prompt).toContain(
+      "a figure, price, term or fact one side stated is never a decision, even when nobody objects, and takes no section",
+    );
+    expect(prompt).toContain(
+      "When one person speaks as Them and their name is known, that name is Them on every line",
+    );
+    expect(prompt).toContain(
+      "A name the User typed is written as they typed it, even when the transcript heard it differently. Never invent a name.",
+    );
+    expect(prompt).toContain(
+      "A proposal agreed as it stood is not a fact of its own, and a decision names only its own choice, never another decision's terms.",
+    );
   },
 );
 

@@ -4350,5 +4350,862 @@
     ],
     "userName": "林晓棠",
     "named": { "kept": ["我们(?:的)?(?:团队|小组)"], "possessive": ["林晓棠 ?的(?:访谈)?草稿"] }
+  },
+  {
+    "id": "reserved-en-structured-decide",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for jumping on, Dan. I've got your quote open and I mainly want to go through the printed cake boxes for the two new shops."
+      },
+      {
+        "side": "them",
+        "text": "Sure. The ten-inch printed box with lid is $0.42 a box at 5,000 units, and it drops to $0.36 a box once you go to 20,000."
+      },
+      { "side": "me", "text": "Okay. Is there anything on top of that for a first order?" },
+      {
+        "side": "them",
+        "text": "There's a one-off plate fee of $180 for the print plates, and we only charge that the first time. Lead time is 15 working days from when you approve the proof."
+      },
+      {
+        "side": "me",
+        "text": "Got it. On the board itself, we've been going back and forth between the white gloss and the brown kraft."
+      },
+      {
+        "side": "them",
+        "text": "Most of our bakery customers moved to kraft this year. It hides grease marks better and it's the same price as white."
+      },
+      { "side": "me", "text": "That settles it for me. Let's go with kraft for all of them." },
+      {
+        "side": "them",
+        "text": "Great, kraft it is. Do you want them delivered to each shop, or to one place?"
+      },
+      {
+        "side": "me",
+        "text": "One delivery to our central kitchen on Dock Street, please. We'll take them out to the shops ourselves."
+      },
+      {
+        "side": "them",
+        "text": "No problem, I'll put the kitchen down as the only delivery address. I'll send you a printed kraft sample by Wednesday the 18th, so you can see how your logo comes out on the brown board."
+      },
+      { "side": "me", "text": "Perfect, thanks Dan. Let's speak once the sample's arrived." },
+      { "side": "them", "text": "Sounds good. Have a good afternoon." }
+    ],
+    "facts": [
+      {
+        "name": "Price at 5,000 units",
+        "kind": "figure",
+        "pattern": ["0\\.42|\\b(42) ?(cents|c)\\b", "5,?000|\\b(5)k\\b|five thousand"],
+        "said": [1],
+        "stated": true
+      },
+      {
+        "name": "Price at 20,000 units",
+        "kind": "figure",
+        "pattern": ["0\\.36|\\b(36) ?(cents|c)\\b", "20,?000|\\b(20)k\\b|twenty thousand"],
+        "said": [1],
+        "stated": true
+      },
+      {
+        "name": "Plate fee",
+        "kind": "figure",
+        "pattern": ["plate|set-?up", "\\b(180)\\b"],
+        "said": [3],
+        "stated": true
+      },
+      {
+        "name": "Lead time",
+        "kind": "figure",
+        "pattern": ["\\b(15|fifteen)\\b", "working days?|business days?|lead time"],
+        "said": [3],
+        "stated": true
+      },
+      {
+        "name": "Kraft board",
+        "kind": "decision",
+        "pattern": ["kraft"],
+        "subject": ["board|material|finish|stock|box"],
+        "said": [5, 6, 7]
+      },
+      {
+        "name": "One delivery to the central kitchen",
+        "kind": "decision",
+        "pattern": ["kitchen|Dock Street"],
+        "subject": ["deliver"],
+        "said": [8, 9]
+      },
+      {
+        "name": "Kraft sample",
+        "kind": "action",
+        "pattern": ["sample", "Dan|Harbour|supplier|the other side", "Wed|\\b(18)(th)?\\b"],
+        "subject": ["sample"],
+        "said": [9]
+      }
+    ],
+    "topics": [
+      { "name": "Pricing", "pattern": "pric|cost|quote|fee" },
+      { "name": "Board", "pattern": "board|kraft|material|finish" },
+      { "name": "Delivery", "pattern": "deliver|shipping|logistics" }
+    ],
+    "documents": [
+      {
+        "name": "harbour-print-quote.md",
+        "text": "# Harbour Print: quote for printed cake boxes\n\nPrepared for: Crumb and Co, two new shops\nDate: 3 November 2026\n\nItem: ten-inch printed cake box with lid, one-colour logo\nBoard: white gloss or brown kraft, same price\n\nPrice per box\n- 5,000 units: $0.42\n- 10,000 units: $0.39\n- 20,000 units: $0.36\n\nPayment terms: 30 days from invoice\nPrices exclude sales tax\nQuote valid until 31 December 2026\n"
+      }
+    ],
+    "claims": {
+      "listed": ["Plate fee", "Lead time"],
+      "kept": ["Price at 5,000 units", "Price at 20,000 units"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-decide",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "刘经理您好，上周在展会上跟您聊过禾丰仓配的服务。我们明年想把网店的发货外包出去，今天想先了解一下你们怎么收费。"
+      },
+      {
+        "side": "them",
+        "text": "好的。仓储费是按托盘算的，每个托盘每月35元。货进仓的时候收入库费，每箱1.2元。"
+      },
+      { "side": "me", "text": "那发货呢？我们基本都是一单一两盒茶叶的小件。" },
+      {
+        "side": "them",
+        "text": "发货操作费是每单2.5元，包含拣货和打包，快递费另外算。另外我们有最低月费，当月费用不满3000元的按3000元收。"
+      },
+      { "side": "me", "text": "明白。货放在你们仓里，保险怎么算？" },
+      { "side": "them", "text": "保险按货值的0.3%收，每个月按月底的库存货值结一次。" },
+      {
+        "side": "me",
+        "text": "好的。你们现在有嘉兴和广州两个仓，我们的客户大部分在江浙沪，你建议放哪边？"
+      },
+      {
+        "side": "them",
+        "text": "江浙沪为主的话肯定是嘉兴仓，次日达的比例高很多。广州仓更适合发华南的单子。"
+      },
+      { "side": "me", "text": "那就定嘉兴仓吧，货全部放嘉兴，广州那边暂时不用。" },
+      {
+        "side": "them",
+        "text": "好的，那我按嘉兴仓给您出合同。我会在这周五，也就是13号之前，把合同草稿发到您邮箱。"
+      },
+      { "side": "me", "text": "行，收到合同我们内部过一下。" },
+      { "side": "them", "text": "好的，有问题随时微信找我。" }
+    ],
+    "facts": [
+      {
+        "name": "仓储费",
+        "kind": "figure",
+        "pattern": ["仓储|托盘|每托", "\\b(35)\\b|三十五"],
+        "said": [1],
+        "stated": true
+      },
+      {
+        "name": "入库费",
+        "kind": "figure",
+        "pattern": ["入库", "1\\.2|一块二"],
+        "said": [1],
+        "stated": true
+      },
+      {
+        "name": "发货操作费",
+        "kind": "figure",
+        "pattern": ["发货|操作|拣货|打包", "2\\.5|两块五"],
+        "said": [3],
+        "stated": true
+      },
+      {
+        "name": "最低月费",
+        "kind": "figure",
+        "pattern": ["最低|保底|不满|不足", "3,?000|3千|三千"],
+        "said": [3],
+        "stated": true
+      },
+      {
+        "name": "保险费率",
+        "kind": "figure",
+        "pattern": ["保险", "0\\.3 ?[%％]|千分之三"],
+        "said": [5],
+        "stated": true
+      },
+      {
+        "name": "选嘉兴仓",
+        "kind": "decision",
+        "pattern": ["嘉兴"],
+        "subject": ["仓|存放"],
+        "said": [7, 8, 9]
+      },
+      {
+        "name": "合同草稿",
+        "kind": "action",
+        "pattern": ["合同", "刘|禾丰|对方", "周五|星期五|礼拜五|\\b(13) ?[号日]"],
+        "subject": ["合同"],
+        "said": [9]
+      }
+    ],
+    "topics": [
+      { "name": "收费", "pattern": "收费|费用|报价|价格" },
+      { "name": "仓库选择", "pattern": "仓库|选仓|嘉兴" }
+    ],
+    "documents": [
+      {
+        "name": "禾丰仓配报价单.md",
+        "text": "# 禾丰仓配 电商仓储报价单\n\n客户：山间茶事\n报价日期：2026年11月2日\n可选仓库：嘉兴仓、广州仓（价格相同）\n\n收费项目\n- 仓储费：每托盘每月35元\n- 入库费：每箱1.2元\n- 退货处理费：每件3元\n- 最低月费：3000元（当月费用不足时按此收取）\n\n结算方式：月结，次月10日前付款\n报价有效期至2026年12月31日\n"
+      }
+    ],
+    "claims": { "listed": ["发货操作费", "保险费率"], "kept": ["仓储费", "入库费", "最低月费"] }
+  },
+  {
+    "id": "reserved-en-structured-speaker",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, thanks for calling back. I wanted to sort out renewing my desk for next year."
+      },
+      {
+        "side": "them",
+        "text": "Of course. This is Marta Okafor, I look after memberships at Northgate Studios. I've got your account open in front of me."
+      },
+      {
+        "side": "me",
+        "text": "Great. I've been on the fixed desk by the window since March. What changes in January?"
+      },
+      {
+        "side": "them",
+        "text": "The fixed desk rate goes up to £310 a month from January, up from £285 this year. The meeting room is still included, free for up to four hours a month."
+      },
+      {
+        "side": "me",
+        "text": "Okay. If I'm paying more, I'd like to move to the corner desk. It's much quieter back there."
+      },
+      {
+        "side": "them",
+        "text": "The corner desk is free from January, so that works. Shall I put you down for it?"
+      },
+      { "side": "me", "text": "Yes, let's do that. Corner desk from January." },
+      {
+        "side": "them",
+        "text": "Done. I'll email you the revised agreement with the corner desk on it by the 20th of November, and you can sign it online."
+      },
+      { "side": "me", "text": "Perfect. Anything else I should know before the holidays?" },
+      {
+        "side": "them",
+        "text": "The building is closed from the 24th of December to the 2nd of January. And I'm on leave myself from the 15th of December, so if anything comes up after that, please write to the front desk."
+      },
+      { "side": "me", "text": "Good to know. Thanks for your help." },
+      { "side": "them", "text": "You're welcome, speak soon." }
+    ],
+    "facts": [
+      {
+        "name": "Revised agreement",
+        "kind": "action",
+        "pattern": [
+          "agreement|contract|lease",
+          "Marta|Okafor",
+          "\\b(20)(th)? (of )?Nov|Nov(ember)? (20)(th)?\\b|20/11|11/20"
+        ],
+        "subject": ["agreement|contract|lease"],
+        "said": [7],
+        "owner": "Marta|Okafor",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "On leave from 15 December",
+        "kind": "figure",
+        "pattern": [
+          "leave|away|off|holiday|out of office",
+          "\\b(15)(th)? (of )?Dec|Dec(ember)? (15)(th)?\\b|15/12|12/15"
+        ],
+        "said": [9],
+        "owner": "Marta|Okafor",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Desk rate from January",
+        "kind": "figure",
+        "pattern": ["\\b(310)\\b", "Jan"],
+        "said": [3]
+      },
+      {
+        "name": "Meeting room hours",
+        "kind": "figure",
+        "pattern": ["meeting room", "\\b(4|four) ?(hours?|hrs?|h)\\b"],
+        "said": [3]
+      },
+      {
+        "name": "Holiday closure",
+        "kind": "figure",
+        "pattern": ["clos", "\\b(24)(th)?\\b", "\\b(2)(nd)? (of )?Jan|Jan(uary)? (2)(nd)?\\b"],
+        "said": [9]
+      },
+      {
+        "name": "Corner desk",
+        "kind": "decision",
+        "pattern": ["corner"],
+        "subject": ["desk|move|switch"],
+        "said": [4, 5, 6, 7]
+      }
+    ],
+    "topics": [
+      { "name": "Renewal and price", "pattern": "renew|price|pricing|rate|cost|membership|desk" },
+      { "name": "Holidays", "pattern": "holiday|closure|christmas|leave|closed|break" }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-speaker",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [{ "type": "paragraph", "content": [{ "type": "text", "text": "续租的事" }] }],
+    "turns": [
+      {
+        "side": "me",
+        "text": "喂，您好，我是1202的租客，前两天给您发过微信，想跟您聊一下续租的事。"
+      },
+      {
+        "side": "them",
+        "text": "哦对，你好你好。我是房东陈晓梅，你的消息我看到了，正好我也想跟你说说明年的安排。"
+      },
+      { "side": "me", "text": "好的。我这边是想再续一年，就是不知道房租会不会变。" },
+      {
+        "side": "them",
+        "text": "房租从明年1月开始涨到每个月5800，现在是5500，周边的房子基本都涨了。押金不变，还是按原来的交，不用补差价。"
+      },
+      { "side": "me", "text": "涨300我能接受，那就再续一年。物业费还是您那边交吗？" },
+      { "side": "them", "text": "物业费还是我来交，这个不变。" },
+      { "side": "me", "text": "那太好了。还有就是卫生间的热水器最近老是打不着火。" },
+      {
+        "side": "them",
+        "text": "这个我知道了，我这周六上午找师傅过去给你换个新的，你那天在家吗？"
+      },
+      { "side": "me", "text": "周六上午我在家，没问题。" },
+      {
+        "side": "them",
+        "text": "那行。续租合同我会在11月20号之前发到你微信上，你看没问题就签字拍照发我。"
+      },
+      { "side": "me", "text": "好的，收到合同我尽快签。谢谢您。" },
+      { "side": "them", "text": "不客气，有事随时找我。" }
+    ],
+    "facts": [
+      {
+        "name": "续租合同",
+        "kind": "action",
+        "pattern": ["合同", "陈晓梅|晓梅|陈女士", "11 ?月 ?20|\\b(20) ?[号日]"],
+        "subject": ["合同"],
+        "said": [9],
+        "owner": "陈晓梅|晓梅|陈女士",
+        "forbid": "对方"
+      },
+      {
+        "name": "物业费",
+        "kind": "figure",
+        "pattern": ["物业费", "交|承担|负责|付|不变"],
+        "said": [5],
+        "owner": "陈晓梅|晓梅|陈女士",
+        "forbid": "对方"
+      },
+      {
+        "name": "换热水器",
+        "kind": "action",
+        "pattern": ["热水器", "陈晓梅|晓梅|陈女士", "周六|星期六|礼拜六"],
+        "subject": ["热水器"],
+        "said": [6, 7, 8],
+        "owner": "陈晓梅|晓梅|陈女士",
+        "forbid": "对方"
+      },
+      {
+        "name": "新房租",
+        "kind": "figure",
+        "pattern": ["5,?800|五千八", "1 ?月|一月|明年"],
+        "said": [3]
+      },
+      {
+        "name": "押金",
+        "kind": "figure",
+        "pattern": ["押金", "不变|不用补|无需补|不补"],
+        "said": [3]
+      },
+      {
+        "name": "续租一年",
+        "kind": "decision",
+        "pattern": ["一年|1年|12个月|十二个月"],
+        "subject": ["续租|续约|租约"],
+        "said": [2, 4]
+      }
+    ],
+    "topics": [
+      { "name": "续租与房租", "pattern": "续租|房租|租金|续约" },
+      { "name": "热水器维修", "pattern": "热水器|维修|报修" }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-typed",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Call with Priya Shah" }] }
+    ],
+    "turns": [
+      { "side": "me", "text": "Hi, thanks for getting back to me so quickly." },
+      {
+        "side": "them",
+        "text": "No problem at all. It's Priya Shaw from Fernhill Recruitment, we spoke briefly last month about your data analyst role."
+      },
+      { "side": "me", "text": "Yes, that's right. Where are you with candidates?" },
+      {
+        "side": "them",
+        "text": "I've spoken to five people so far, and three of them look really strong on SQL and dashboards. Two of those have a one-month notice period, and one can start straight away."
+      },
+      { "side": "me", "text": "That's encouraging. Remind me how your fee works?" },
+      {
+        "side": "them",
+        "text": "It's 18% of the first-year base salary, invoiced when the person starts. If they leave within the first 12 weeks, we find a replacement at no extra cost."
+      },
+      { "side": "me", "text": "Okay. On salary, we're still at 55 to 60 thousand." },
+      {
+        "side": "them",
+        "text": "That's in line with what all three are asking. I'll send you their CVs with my notes by the 12th of November, so you can pick who to interview."
+      },
+      { "side": "me", "text": "Great. Ideally we'd interview the week after." },
+      { "side": "them", "text": "That should be fine, all three told me they're free that week." },
+      { "side": "me", "text": "Perfect. Thanks, talk soon." },
+      { "side": "them", "text": "Thanks, bye for now." }
+    ],
+    "facts": [
+      {
+        "name": "Shortlist CVs",
+        "kind": "action",
+        "pattern": [
+          "CVs?|résumés?|resumes?|profiles?",
+          "Priya|\\bShah\\b",
+          "\\b(12)(th)? (of )?Nov|Nov(ember)? (12)(th)?\\b|12/11|11/12"
+        ],
+        "subject": ["CV|résumé|resume|profile|shortlist"],
+        "said": [7],
+        "owner": "Priya|\\bShah\\b",
+        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Candidates spoken to",
+        "kind": "figure",
+        "pattern": ["\\b(5|five)\\b", "candidates?|people|spoken|screened|talked"],
+        "said": [3],
+        "owner": "Priya|\\bShah\\b",
+        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Fee",
+        "kind": "figure",
+        "pattern": ["\\b(18) ?(%|percent|per cent)|eighteen per ?cent", "salary"],
+        "said": [5]
+      },
+      {
+        "name": "Replacement guarantee",
+        "kind": "figure",
+        "pattern": ["\\b(12|twelve)[ -]weeks?", "replac|guarantee|free|no (extra )?cost"],
+        "said": [5]
+      },
+      { "name": "Notice periods", "kind": "figure", "pattern": ["notice", "month"], "said": [3] }
+    ],
+    "topics": [
+      { "name": "Candidates", "pattern": "candidate|shortlist|pipeline|CV|talent" },
+      { "name": "Fees and terms", "pattern": "fee|terms|cost|guarantee|pricing|commercial" }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-typed",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [{ "type": "paragraph", "content": [{ "type": "text", "text": "和王磊通话" }] }],
+    "turns": [
+      { "side": "me", "text": "喂，你好，我是滨江花园那套房子的业主，前两天加过你微信。" },
+      { "side": "them", "text": "你好你好，我是设计师王雷，你家的资料我这边都有。" },
+      { "side": "me", "text": "好的。你们上次说要去现场再看一下，去了吗？" },
+      {
+        "side": "them",
+        "text": "去了，我上周六去现场量了一遍，厨房实际比图纸窄了20公分，所以橱柜方案得改一下。"
+      },
+      { "side": "me", "text": "那影响大吗？我们挺想要一个岛台的。" },
+      {
+        "side": "them",
+        "text": "岛台还是能放，就是要做小一点。设计费按每平米120块算，你家95平，签合同的时候先付30%。"
+      },
+      { "side": "me", "text": "嗯，那整个装修下来要多久？" },
+      { "side": "them", "text": "按现在的方案，工期大概75天，如果1月中旬开工，3月底能完工。" },
+      { "side": "me", "text": "明白。那我什么时候能看到效果图？" },
+      {
+        "side": "them",
+        "text": "我会在12月5号之前把效果图和改过的橱柜方案一起发你微信，你先看看喜不喜欢。"
+      },
+      { "side": "me", "text": "好的，那我等你的图。" },
+      { "side": "them", "text": "好嘞，有问题随时打我电话。" }
+    ],
+    "facts": [
+      {
+        "name": "效果图",
+        "kind": "action",
+        "pattern": ["效果图", "王磊", "12 ?月 ?5|\\b(5) ?[号日]"],
+        "subject": ["效果图"],
+        "said": [9],
+        "owner": "王磊",
+        "forbid": "王雷|对方"
+      },
+      {
+        "name": "厨房尺寸",
+        "kind": "figure",
+        "pattern": ["厨房", "\\b(20) ?(公分|厘米|cm)|二十公分|0\\.2 ?米"],
+        "said": [3],
+        "owner": "王磊",
+        "forbid": "王雷|对方"
+      },
+      {
+        "name": "设计费",
+        "kind": "figure",
+        "pattern": ["设计费", "\\b(120)\\b|一百二"],
+        "said": [5]
+      },
+      {
+        "name": "首付比例",
+        "kind": "figure",
+        "pattern": ["\\b(30) ?[%％]|三成|百分之三十", "付|定金|预付|签合同"],
+        "said": [5]
+      },
+      {
+        "name": "工期",
+        "kind": "figure",
+        "pattern": ["工期|完工|施工", "\\b(75) ?天|七十五天"],
+        "said": [7]
+      },
+      { "name": "岛台缩小", "kind": "figure", "pattern": ["岛台", "小|缩"], "said": [4, 5] }
+    ],
+    "topics": [
+      { "name": "厨房方案", "pattern": "厨房|橱柜|岛台|量房|方案" },
+      { "name": "费用与工期", "pattern": "费用|设计费|工期|付款|报价|时间" }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-noname",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, I'm calling to report water damage. A pipe burst under our kitchen sink on Saturday night."
+      },
+      {
+        "side": "them",
+        "text": "I'm sorry to hear that. You're through to the claims line. Can you tell me what's been damaged so far?"
+      },
+      {
+        "side": "me",
+        "text": "The kitchen floor is soaked and the cupboard under the sink has warped. A plumber fixed the pipe on Sunday morning."
+      },
+      {
+        "side": "them",
+        "text": "Okay, that comes under escape of water on your policy, so it's covered. The excess for this kind of claim is £250."
+      },
+      { "side": "me", "text": "Right. Should I start pulling up the floor so it can dry out?" },
+      {
+        "side": "them",
+        "text": "Please don't throw anything away yet. Keep the damaged flooring and the plumber's invoice until the adjuster has seen them, and take photos of everything today."
+      },
+      { "side": "me", "text": "Understood. How soon can someone come out?" },
+      {
+        "side": "them",
+        "text": "I'll book a loss adjuster to visit your home by the 18th of November, and you'll get a text with the time slot. If the floor needs professional drying, that's covered too, up to £1,500."
+      },
+      { "side": "me", "text": "That's a relief. Do I need to send you anything else?" },
+      {
+        "side": "them",
+        "text": "Just the photos and the plumber's invoice, which you can upload in the app. That's everything for now."
+      },
+      { "side": "me", "text": "Great, thank you for your help." }
+    ],
+    "facts": [
+      {
+        "name": "Adjuster visit",
+        "kind": "action",
+        "pattern": [
+          "adjuster|visit|inspection",
+          "the other side|\\bthey\\b",
+          "\\b(18)(th)? (of )?Nov|Nov(ember)? (18)(th)?\\b|18/11|11/18"
+        ],
+        "subject": ["adjuster|visit|inspection"],
+        "said": [7],
+        "owner": "the other side|\\bthey\\b|对方",
+        "forbid": "(?-i:\\b[A-Z][a-z]+ [A-Z][a-z]+\\b)"
+      },
+      { "name": "Excess", "kind": "figure", "pattern": ["excess", "\\b(250)\\b"], "said": [3] },
+      {
+        "name": "Escape of water cover",
+        "kind": "figure",
+        "pattern": ["escape of water"],
+        "said": [3]
+      },
+      {
+        "name": "Keep damaged items",
+        "kind": "figure",
+        "pattern": [
+          "keep|don't throw|do not throw|not (to )?throw|hold on to|retain",
+          "floor|invoice"
+        ],
+        "said": [5]
+      },
+      { "name": "Drying cover", "kind": "figure", "pattern": ["dry", "1,?500"], "said": [7] },
+      {
+        "name": "Upload photos and invoice",
+        "kind": "figure",
+        "pattern": ["photo", "upload|app"],
+        "said": [5, 9]
+      }
+    ],
+    "topics": [
+      { "name": "Damage", "pattern": "damage|leak|pipe|water|incident|what happened" },
+      { "name": "Cover", "pattern": "cover|policy|excess|claim" }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-noname",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      { "side": "me", "text": "喂，你好，我是8栋1单元302的业主，我家卫生间天花板在往下滴水。" },
+      { "side": "them", "text": "您好，这里是物业服务中心。请问滴水是从什么时候开始的？" },
+      { "side": "me", "text": "昨天晚上发现的，今天早上滴得更厉害了，吊顶已经有一块发黄了。" },
+      {
+        "side": "them",
+        "text": "那多半是楼上402卫生间的防水或者管道出了问题。您先把天花板的水渍拍几张照片留底，后面定责任要用。"
+      },
+      { "side": "me", "text": "好的，我等下就拍。那维修费谁出？" },
+      {
+        "side": "them",
+        "text": "如果确认是楼上管道或者防水的问题，维修费和您家吊顶的修复费用都由楼上业主承担。"
+      },
+      { "side": "me", "text": "明白。那什么时候能有人来看？" },
+      {
+        "side": "them",
+        "text": "我今天先联系楼上业主，最晚11月12号之前安排维修师傅上门，把两家都查一遍。"
+      },
+      { "side": "me", "text": "上门检查要收费吗？" },
+      {
+        "side": "them",
+        "text": "检查是免费的，如果需要换配件，会按物业的价目表收费，师傅会先跟您确认。"
+      },
+      { "side": "me", "text": "好的，谢谢你，那我等你们通知。" }
+    ],
+    "facts": [
+      {
+        "name": "安排上门检查",
+        "kind": "action",
+        "pattern": ["师傅|上门|维修|检查|查看", "对方", "11 ?月 ?12|\\b(12) ?[号日]"],
+        "subject": ["师傅|上门|维修|检查|查看"],
+        "said": [7],
+        "owner": "the other side|\\bthey\\b|对方",
+        "forbid": "先生|女士|经理"
+      },
+      {
+        "name": "拍照留底",
+        "kind": "figure",
+        "pattern": ["拍照|照片|拍", "水渍|天花板|吊顶|留底|留证|证据"],
+        "said": [3]
+      },
+      {
+        "name": "楼上承担费用",
+        "kind": "figure",
+        "pattern": ["楼上", "承担|负责|出", "费"],
+        "said": [5]
+      },
+      {
+        "name": "检查免费",
+        "kind": "figure",
+        "pattern": ["检查|上门", "免费|不收费|不收钱"],
+        "said": [9]
+      },
+      {
+        "name": "配件按价目表收费",
+        "kind": "figure",
+        "pattern": ["配件", "价目表|收费|按价"],
+        "said": [9]
+      }
+    ],
+    "topics": [
+      { "name": "漏水情况", "pattern": "漏水|滴水|渗水|情况|原因" },
+      { "name": "费用与责任", "pattern": "费用|收费|维修费|责任|承担" }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-restate",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Workshop date" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "How many places?" }] }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Right, let's start. Two things to settle today for the customer workshop: the date, and how many people we take."
+      },
+      {
+        "side": "them",
+        "text": "I've checked the calendar. What about the 11th of March? It's two weeks after the spring release and before the Easter holidays."
+      },
+      { "side": "them", "text": "That works on my side, Lena. Nothing else is booked that week." },
+      { "side": "me", "text": "Fine, let's do that." },
+      {
+        "side": "them",
+        "text": "Then numbers. The big room at the Mill seats 60, but last year it felt crowded with 55 people in it."
+      },
+      {
+        "side": "me",
+        "text": "I'd keep it smaller so people actually talk to each other. Let's cap it at 40."
+      },
+      {
+        "side": "them",
+        "text": "Agreed, 40 feels right. Everyone gets a seat at a table that way."
+      },
+      {
+        "side": "them",
+        "text": "One thing from last year's survey: the main complaint was that the afternoon sessions ran too long."
+      },
+      {
+        "side": "me",
+        "text": "That's useful, thanks Tom. So it's the 11th of March, with a cap of 40 people."
+      },
+      { "side": "them", "text": "Yes, that's it." },
+      { "side": "me", "text": "Sam, can you book the big room at the Mill?" },
+      {
+        "side": "them",
+        "text": "Sure, I'll book it by the 20th of November and send the confirmation round to everyone."
+      },
+      { "side": "me", "text": "Great, thanks all." }
+    ],
+    "facts": [
+      {
+        "name": "Workshop on 11 March",
+        "kind": "decision",
+        "pattern": ["\\b(11)(th)? (of )?Mar(ch)?\\b|Mar(ch)? (11)(th)?\\b"],
+        "subject": ["workshop|date|event|hold|held|run"],
+        "said": [1, 3, 8],
+        "underLine": "Workshop date"
+      },
+      {
+        "name": "Cap of 40",
+        "kind": "decision",
+        "pattern": ["\\b(40|forty)\\b"],
+        "subject": ["cap|people|attendees?|places|seats|capacity|limit|max"],
+        "said": [5, 6, 8],
+        "underLine": "How many places?"
+      },
+      {
+        "name": "Book the room",
+        "kind": "action",
+        "pattern": [
+          "book|reserv",
+          "Sam",
+          "\\b(20)(th)? (of )?Nov|Nov(ember)? (20)(th)?\\b|20/11|11/20"
+        ],
+        "subject": ["book|reserv|room|venue"],
+        "said": [10, 11]
+      },
+      {
+        "name": "Room size",
+        "kind": "figure",
+        "pattern": ["\\b(60)\\b", "room|seat|hold|capacity"],
+        "said": [4]
+      },
+      { "name": "Survey feedback", "kind": "figure", "pattern": ["afternoon", "long"], "said": [7] }
+    ],
+    "topics": [
+      { "name": "Date", "pattern": "date|when|timing|schedul" },
+      { "name": "Numbers", "pattern": "number|capacit|size|people|places|attend|seat" }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-restate",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "首印数量" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "定价" }] }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我们开始吧。今天主要把《城市里的鸟》的首印和定价定下来，印厂那边在等我们回复。"
+      },
+      { "side": "them", "text": "我看了预售和同类书的数据，建议首印8000册。" },
+      { "side": "them", "text": "8000我觉得稳。上一本同类的书首印6000，一个月就加印了。" },
+      { "side": "me", "text": "行，那就这么定。" },
+      { "side": "them", "text": "定价的话，四色印刷加精装，成本摊下来每本大概19块。" },
+      { "side": "them", "text": "同类精装书现在基本在65到78块之间，我建议定68，好卖一些。" },
+      { "side": "me", "text": "68可以，就定68元。" },
+      {
+        "side": "them",
+        "text": "顺便说一下，作者3月份会在北京和上海各做一场签售，书店那边已经约好了。"
+      },
+      { "side": "me", "text": "好的。那确认一下，就是首印8000册，定价68元。" },
+      { "side": "them", "text": "对，没问题。" },
+      { "side": "me", "text": "小林，你跟印厂把排期确认一下？" },
+      { "side": "them", "text": "好，我12月3号之前把首印数量和定价发给印厂，把排期定下来。" },
+      { "side": "me", "text": "好，那今天就到这儿。" }
+    ],
+    "facts": [
+      {
+        "name": "首印8000册",
+        "kind": "decision",
+        "pattern": ["\\b(8),?000\\b|8千|八千|0\\.8 ?万"],
+        "subject": ["首印|印数|印量|印刷数量"],
+        "said": [1, 2, 3, 8],
+        "underLine": "首印数量"
+      },
+      {
+        "name": "定价68元",
+        "kind": "decision",
+        "pattern": ["\\b(68)\\b|六十八"],
+        "subject": ["定价|价格|售价"],
+        "said": [5, 6, 8],
+        "underLine": "定价"
+      },
+      {
+        "name": "印厂排期",
+        "kind": "action",
+        "pattern": ["印厂|排期", "小林", "12 ?月 ?3|\\b(3) ?[号日]"],
+        "subject": ["印厂|排期"],
+        "said": [10, 11]
+      },
+      { "name": "单本成本", "kind": "figure", "pattern": ["成本", "\\b(19)\\b|十九"], "said": [4] },
+      { "name": "签售", "kind": "figure", "pattern": ["签售", "北京", "上海"], "said": [7] },
+      {
+        "name": "上一本加印",
+        "kind": "figure",
+        "pattern": ["\\b(6),?000\\b|6千|六千", "加印"],
+        "said": [2]
+      }
+    ],
+    "topics": [
+      { "name": "首印", "pattern": "首印|印数|印量" },
+      { "name": "定价", "pattern": "定价|价格|售价" }
+    ]
   }
 ]

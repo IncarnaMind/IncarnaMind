@@ -76,6 +76,11 @@ interface Fact {
   /** The turns that say it, counted from 0: a Citation of any of them is right. */
   said: number[];
   underLine?: string;
+  /** A figure one side only stated: never a decision (#2306). */
+  stated?: boolean;
+  /** Who it belongs to, as the notes must name them, and the ways they mustn't (#2306). */
+  owner?: RegExp;
+  forbid?: RegExp;
 }
 
 interface Call {
@@ -1468,6 +1473,9 @@ interface ReservedFactInput {
   said: number[];
   underLine?: string;
   subject?: string | string[];
+  stated?: true;
+  owner?: string;
+  forbid?: string;
 }
 
 interface ReservedCallInput {
@@ -1504,7 +1512,17 @@ const isRegexSource = (value: unknown): value is string | string[] =>
 function isReservedFact(value: unknown): value is ReservedFactInput {
   return (
     isRecord(value) &&
-    onlyKeys(value, ["name", "kind", "pattern", "said", "underLine", "subject"]) &&
+    onlyKeys(value, [
+      "name",
+      "kind",
+      "pattern",
+      "said",
+      "underLine",
+      "subject",
+      "stated",
+      "owner",
+      "forbid",
+    ]) &&
     typeof value.name === "string" &&
     (value.kind === "decision" || value.kind === "action" || value.kind === "figure") &&
     isRegexSource(value.pattern) &&
@@ -1514,7 +1532,10 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
       (index) => typeof index === "number" && Number.isInteger(index) && index >= 0,
     ) &&
     (value.underLine === undefined || typeof value.underLine === "string") &&
-    (value.subject === undefined || isRegexSource(value.subject))
+    (value.subject === undefined || isRegexSource(value.subject)) &&
+    (value.stated === undefined || (value.stated === true && value.kind === "figure")) &&
+    (value.owner === undefined || (typeof value.owner === "string" && value.owner !== "")) &&
+    (value.forbid === undefined || (typeof value.forbid === "string" && value.owner !== undefined))
   );
 }
 
@@ -1667,10 +1688,12 @@ async function loadReservedCalls(
     .filter((call) => selected.includes(call.id))
     .map(({ topics, named, ...call }) => ({
       ...call,
-      facts: call.facts.map(({ pattern, subject, ...fact }) => ({
+      facts: call.facts.map(({ pattern, subject, owner, forbid, ...fact }) => ({
         ...fact,
         pattern: reservedRegex(pattern),
         ...(subject !== undefined && { subject: reservedRegex(subject) }),
+        ...(owner !== undefined && { owner: new RegExp(owner, "iu") }),
+        ...(forbid !== undefined && { forbid: new RegExp(forbid, "iu") }),
       })),
       ...(topics && {
         topics: topics.map((topic) => ({
@@ -3754,6 +3777,44 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           omitted: fill.omitted ?? 0,
           unfinishedParts: fill.unfinishedParts ?? 0,
         };
+        // The fill's slips (#2306), each beside the positive it mustn't cost.
+        const related = (fact: Fact, text: string) =>
+          fact.subject
+            ? namesSubject(fact, text)
+            : parts(fact).some(
+                (pattern) => pattern.source !== fact.owner?.source && pattern.test(text),
+              );
+        const owned = call.facts.filter((fact) => fact.owner);
+        const slips = {
+          statedAsDecisions: call.facts.filter(
+            (fact) => fact.stated && decisions.some((unit) => says(fact, unit.text)),
+          ).length,
+          stated: call.facts.filter((fact) => fact.stated).length,
+          decisionsInSection: counts.decisionsInSection,
+          decisions: call.facts.filter((fact) => fact.kind === "decision").length,
+          unnamed: owned.filter((fact) =>
+            units.some(
+              (unit) =>
+                unit.ai &&
+                related(fact, unit.text) &&
+                fact.forbid?.test(unit.text) === true &&
+                fact.owner?.test(unit.text) === false,
+            ),
+          ).length,
+          named: owned.filter((fact) =>
+            units.some(
+              (unit) =>
+                unit.ai &&
+                says(fact, unit.text) &&
+                fact.owner?.test(unit.text) === true &&
+                fact.forbid?.test(unit.text) !== true,
+            ),
+          ).length,
+          owned: owned.length,
+          restated: scored
+            .filter((each) => each.fact.kind === "decision")
+            .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+        };
         if (REPORT) {
           const rows = scored
             .map(
@@ -3773,6 +3834,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
                 `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, claimChecks, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
                 `Structure (#2306): ${JSON.stringify(structure)}`,
+                `Slips (#2306): ${JSON.stringify(slips)}`,
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,
@@ -3877,6 +3939,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             }
           });
           check("structure", () => {
+            expect(slips.statedAsDecisions, "A stated figure is never a decision").toBe(0);
             expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
             expect(structure.summaryParts, "Summary is one overview").toBe(1);
             expect(structure.summaryCited, "The overview is a cited paragraph").toBe(true);
