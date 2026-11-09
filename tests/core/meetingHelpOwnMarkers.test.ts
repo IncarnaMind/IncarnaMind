@@ -41,6 +41,23 @@ const structured = (reply: string, quotes: readonly string[]) => (calls: ModelCa
     return { text: JSON.stringify({ answer: reply, citations: records(call, quotes) }) };
   });
 
+/**
+ * A model that writes `reply` with no Citation, as Claude Haiku 5.5 often does, and, asked for the
+ * Citations it left out, gives `quotes` for the reply's first line.
+ */
+const askedLater = (reply: string, quotes: readonly string[]) => (calls: ModelCall[]) =>
+  scriptedModel((call) => {
+    calls.push(call);
+    if (!call.json) return { text: reply };
+    const shown = shownPassages(call.prompt);
+    const citations = quotes.map((quote) => ({
+      sentence: reply.split("\n")[0],
+      passage: shown.find((each) => each.text.includes(quote))?.id ?? "P1",
+      quote,
+    }));
+    return { text: JSON.stringify({ citations }) };
+  });
+
 /** A call with these lines on each side, the button pressed once it has four, and its Answer. */
 async function pressed(
   call: { lines: readonly string[]; theirLines: readonly string[] },
@@ -210,6 +227,21 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
       expect(cited(answer)).toEqual([
         { marker: 1, quote: quotes[0], check: "found" },
         { marker: 2, quote: quotes[1], check: "found" },
+      ]);
+      expect(answer.text).toBe(placed);
+    },
+  );
+
+  // protects=a reply the model left uncited is asked once for its Citations, and what the model gives goes right after the words its quote holds, so Haiku's uncited replies keep their Citations; fails_when=nothing is asked, or the Citations go at the line's end or on words they don't hold; no_claim=how a real model answers the ask (#2847).
+  test.each(HELD)(
+    "a reply left uncited is asked for its Citations, placed after the words they hold: $language",
+    async ({ call, reply, placed, quotes }) => {
+      const { answer, calls } = await pressed(call, askedLater(reply, quotes), "sum");
+
+      expect(calls.filter((each) => each.json)).toHaveLength(1);
+      expect(cited(answer).map(({ quote, check }) => ({ quote, check }))).toEqual([
+        { quote: quotes[0], check: "found" },
+        { quote: quotes[1], check: "found" },
       ]);
       expect(answer.text).toBe(placed);
     },

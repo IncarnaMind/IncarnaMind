@@ -17,9 +17,7 @@
  * and before its closing mark. A record that fits no such words shows nowhere.
  */
 import { MARKER } from "../../shared/answerSentences";
-import type { AnswerEngineEvent, AnswerTools } from "./engine";
 import { type MarkerRecord, type PlacedMarker, STOP_WORDS, wordsWorth } from "./markerPlacement";
-import { textEdits } from "./unmarkedQuotes";
 
 /** A span of the reply, by offset. */
 export interface Span {
@@ -231,23 +229,4 @@ export function withHeldMarkers(
     text = `${text.slice(0, at)}[^${marker}]${text.slice(at)}`;
   }
   return { text, placed };
-}
-
-/** Where the engine places a finished reply's unmarked records, only after words they hold: the edits, and the text. */
-export function* heldMarkerEvents(
-  text: string,
-  records: readonly MarkerRecord[],
-  tools: Pick<AnswerTools, "hasRecord">,
-  spansIn: (text: string) => readonly Span[],
-): Generator<AnswerEngineEvent, string> {
-  const { text: placed, placed: markers } = withHeldMarkers(
-    text,
-    records,
-    (marker) => tools.hasRecord?.(marker) ?? false,
-    spansIn(text),
-  );
-  if (markers.length === 0) return text;
-  yield* textEdits(text, placed);
-  yield { type: "markers-placed", count: markers.length };
-  return placed;
 }

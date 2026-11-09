@@ -121,7 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
-import { heldMarkerEvents, type Span } from "./heldMarkers";
+import type { Span } from "./heldMarkers";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -142,7 +142,7 @@ import {
   settleReply,
   type TurnCheck,
 } from "./turnChecks";
-import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
+import { citeUnmarked, heldMarkerEvents, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 import { wroteWorking } from "./workingText";
 
@@ -470,9 +470,9 @@ export interface AnswerRequest {
   meetingFacts?: true;
   /**
    * For call help, whose found Citations show as checked with no judgement of their sentences
-   * (#2847): the spans of the reply a Citation may go in. A record the model left unmarked is
-   * placed in them only after words its quote holds (./heldMarkers), and a sentence it left
-   * uncited gets no Citation.
+   * (#2847): the spans of the reply a Citation may go in. A record the model left unmarked, or
+   * gave when asked for the Citations a reply left out, is placed in them only after words its
+   * quote holds (./heldMarkers); the core matches no quotation or sentence itself.
    */
   heldMarkersIn?(text: string): readonly Span[];
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
@@ -2160,7 +2160,20 @@ async function* toolLoop(
         yield* textEdits(keptText, figured);
         keptText = figured;
         if (request.heldMarkersIn) {
-          yield* heldMarkerEvents(keptText, cited, request.documents, request.heldMarkersIn);
+          const placed = yield* heldMarkerEvents(
+            keptText,
+            cited,
+            request.documents,
+            request.heldMarkersIn,
+          );
+          yield* citeUnmarked(
+            request,
+            placed,
+            temperature,
+            budget,
+            () => nudges.take("unmarked-quotes"),
+            request.heldMarkersIn,
+          );
         } else if (!request.meetingFacts) {
           const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
           yield* citeUnmarked(request, placed, temperature, budget, () =>
@@ -2633,9 +2646,14 @@ async function* structured(
         : yield* missingMarkerEvents(emitted, records, request.documents);
       if (budget) yield* retryQuotes(request, marked, temperature, budget);
       if (signal.aborted) return;
-      placed = request.heldMarkersIn
-        ? marked
-        : yield* citeUnmarked(request, marked, temperature, budget);
+      placed = yield* citeUnmarked(
+        request,
+        marked,
+        temperature,
+        budget,
+        undefined,
+        request.heldMarkersIn,
+      );
     }
     if (signal.aborted) return;
     // Worked out once the quotes are as good as they will be, since figures read their numbers there.

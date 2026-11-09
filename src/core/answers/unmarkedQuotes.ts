@@ -42,6 +42,7 @@ import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
+import { type Span, withHeldMarkers } from "./heldMarkers";
 import {
   answerTableUnits,
   likeness,
@@ -77,6 +78,25 @@ export function* missingMarkerEvents(
     text,
     records,
     (marker) => tools.hasRecord?.(marker) ?? false,
+  );
+  if (markers.length === 0) return text;
+  yield* textEdits(text, placed);
+  yield { type: "markers-placed", count: markers.length };
+  return placed;
+}
+
+/** Where the engine places a finished reply's unmarked records, only after words they hold: the edits, and the text. */
+export function* heldMarkerEvents(
+  text: string,
+  records: readonly MarkerRecord[],
+  tools: Pick<AnswerTools, "hasRecord">,
+  spansIn: (text: string) => readonly Span[],
+): Generator<AnswerEngineEvent, string> {
+  const { text: placed, placed: markers } = withHeldMarkers(
+    text,
+    records,
+    (marker) => tools.hasRecord?.(marker) ?? false,
+    spansIn(text),
   );
   if (markers.length === 0) return text;
   yield* textEdits(text, placed);
@@ -520,6 +540,11 @@ export async function* citeUnmarked(
   temperature: number | undefined,
   budget?: WindowBudget | null,
   mayAsk: () => boolean = () => true,
+  /**
+   * Call help's spans a Citation may go in (#2847): the core matches nothing itself, and what the
+   * model gives when asked goes only after words its quote holds (./heldMarkers).
+   */
+  heldIn?: (text: string) => readonly Span[],
 ): AsyncGenerator<AnswerEngineEvent, string> {
   const { documents, signal } = request;
   if (!documents.shownPassages || !documents.quoteFound || !documents.hasRecord) return answer;
@@ -528,7 +553,7 @@ export async function* citeUnmarked(
   const found = (passage: string, quote: string) => documents.quoteFound?.(passage, quote) ?? false;
 
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
-  let matches = matchUnmarked(answer, passages, found, recorded);
+  let matches = heldIn ? [] : matchUnmarked(answer, passages, found, recorded);
   let asked = false;
   const cited = [...answer.matchAll(MARKER)].some((each) => recorded(Number(each[1])));
   const matchedMarkers = new Set(matches.map((match) => match.marker));
@@ -545,7 +570,8 @@ export async function* citeUnmarked(
       const given = await askForCitations(request, answer, toAsk, temperature);
       if (signal.aborted) return answer;
       const asking = given.filter((each) => found(each.passage, each.quote));
-      matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
+      const taken: Found[] = heldIn ? asking : takingMarkers(asking, answer, recorded, matches);
+      matches = capped([...matches, ...taken]);
     }
   }
   if (matches.length === 0) {
@@ -573,11 +599,10 @@ export async function* citeUnmarked(
     );
     return answer;
   }
-  const { text } = withMissingMarkers(
-    settleOrphans(answer, records),
-    records,
-    (marker) => documents.hasRecord?.(marker) ?? false,
-  );
+  const accepted = (marker: number) => documents.hasRecord?.(marker) ?? false;
+  const { text } = heldIn
+    ? withHeldMarkers(answer, records, accepted, heldIn(answer))
+    : withMissingMarkers(settleOrphans(answer, records), records, accepted);
   yield* textEdits(answer, text);
   // The Citations the Answer shows: a record whose marker didn't go in is dropped.
   const shown = new Set([...text.matchAll(MARKER)].map((each) => Number(each[1])));
