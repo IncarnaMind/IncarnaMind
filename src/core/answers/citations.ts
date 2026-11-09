@@ -1764,6 +1764,11 @@ interface Accepted {
   quotedWordsFound?: string[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
+  /**
+   * Who's who in the Transcript it cites as its model had just read it, when it was taken
+   * (#2839): the same Passage shown again after the speaker pass is marked anew.
+   */
+  speakers?: TranscriptSpeakers | null;
 }
 
 /** A record as `take` read it: accepted, with its Passage's Units; or why not. */
@@ -1848,6 +1853,8 @@ export function createCitationSession(
   const handleOf = new Map<string, string>();
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
+  /** Who's who each Transcript Passage was marked with, by its handle, as `shownTexts` keeps its text. */
+  const shownSpeakers = new Map<string, TranscriptSpeakers | null>();
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
@@ -1914,9 +1921,24 @@ export function createCitationSession(
     return matching;
   };
 
-  /** Who's who in a Transcript a record cites (#138): the names its model read. */
-  const speakersFor = (source: Pick<CitationSource, "documentId" | "documentKind">) =>
-    source.documentKind === "transcript" ? (documents.speakers?.(source.documentId) ?? null) : null;
+  /** Who's who in the Transcript a Passage is from, as it was last shown to the model, else as it is. */
+  const lastShown = (
+    handle: string,
+    source: Pick<CitationSource, "documentId" | "documentKind">,
+  ) => {
+    if (source.documentKind !== "transcript") return null;
+    const shown = shownSpeakers.get(handle);
+    return shown !== undefined ? shown : (documents.speakers?.(source.documentId) ?? null);
+  };
+
+  /**
+   * Who's who in a Transcript a record cites (#138): the names its model read in the Passage it
+   * names, kept with the record. The speaker pass may change who's who while a reply is out, or
+   * before the Passage is shown again (#2839); a Citation stores its line's own label, so it
+   * shows who's who as it is now.
+   */
+  const speakersFor = (record: Pick<Accepted, "handle" | "source" | "speakers">) =>
+    record.speakers !== undefined ? record.speakers : lastShown(record.handle, record.source);
 
   /** The stored text of the Units a record cites, of the version its Passage was built from. */
   const citedText = (record: Pick<Accepted, "source" | "range">) =>
@@ -1965,7 +1987,7 @@ export function createCitationSession(
         record.quote,
         record.time,
         matchingFor(record.source),
-        speakersFor(record.source),
+        speakersFor(record),
       )
       ? NOT_ON_PAGES
       : result;
@@ -1982,7 +2004,7 @@ export function createCitationSession(
       matching,
       find: (words) =>
         record.time
-          ? quoteInCues(units, words, record.time, matching, speakersFor(record.source))
+          ? quoteInCues(units, words, record.time, matching, speakersFor(record))
           : quoteInUnits(units, words, matching),
       documentName: record.source.documentName,
       throughNextUnit: () =>
@@ -2064,7 +2086,7 @@ export function createCitationSession(
               record.quote,
               record.time,
               matchingFor(record.source),
-              speakersFor(record.source),
+              speakersFor(record),
             )
           : quoteInUnits(usable, record.quote, matchingFor(record.source))
         : null,
@@ -2101,7 +2123,11 @@ export function createCitationSession(
   };
 
   /** Reads a record: the Passage it names, the Units it cites and its quote; or why it can't be taken. */
-  function take(input: CitationRecordInput, options: CiteOptions): Taken {
+  function take(
+    input: CitationRecordInput,
+    options: CiteOptions,
+    read?: TranscriptSpeakers | null,
+  ): Taken {
     const marker = input.marker;
     const given = String(input.passage ?? "").slice(0, 200);
     if (!Number.isInteger(marker) || marker < 1) {
@@ -2115,7 +2141,7 @@ export function createCitationSession(
         problem: `A record needs a marker number (1, 2, …) that is in the Answer as [^n].`,
       };
     }
-    const taken = takeQuote(input, marker, options);
+    const taken = takeQuote(input, marker, options, true, read);
     if (taken.ok && !taken.record.kept) {
       const problem =
         quotePlaceProblem(
@@ -2123,7 +2149,7 @@ export function createCitationSession(
           citedText(taken.record),
           matchingFor(taken.source),
           taken.record.time,
-          speakersFor(taken.source),
+          speakersFor(taken.record),
         ) ??
         (!taken.record.time && check(taken.record).check === "not-found"
           ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
@@ -2151,6 +2177,8 @@ export function createCitationSession(
     marker: number,
     options: CiteOptions,
     relocate = true,
+    /** Who's who as its model read the Passage, where an earlier record of it says. */
+    read?: TranscriptSpeakers | null,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
@@ -2204,6 +2232,7 @@ export function createCitationSession(
       unresolved,
       quote,
       result: null,
+      speakers: read !== undefined ? read : lastShown(found.handle, source),
     };
     let record: Accepted = { ...taken, location: locationFor(taken) };
     // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
@@ -2475,19 +2504,23 @@ export function createCitationSession(
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
+      const speakers = units.some((unit) => unit.kind === "cues")
+        ? (documents.speakers?.(passage.documentId) ?? null)
+        : null;
       const plain = foldRadicals(
         withCueMarks(
           withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
           units,
-          units.some((unit) => unit.kind === "cues")
-            ? (documents.speakers?.(passage.documentId) ?? null)
-            : null,
+          speakers,
         ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
-      if (!notCited && !measuring) shownTexts.set(id, plain);
+      if (!notCited && !measuring) {
+        shownTexts.set(id, plain);
+        shownSpeakers.set(id, speakers);
+      }
       if (!measuring) {
         read.push({
           documentId: passage.documentId,
@@ -2740,6 +2773,7 @@ export function createCitationSession(
       const taken = take(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
+        earlier.speakers,
       );
       if (!taken.ok || !taken.record.quote || !located(check(taken.record))) return false;
       records.set(marker, taken.record);
@@ -3030,13 +3064,20 @@ export function withoutFootnoteDefinitions(markdown: string): string {
   return markdown.replace(/^ {0,3}\[\^\d{1,4}\]:.*(?:\n|$)/gm, "");
 }
 
+/** Whether the marker at `at` starts a footnote definition line ("[^2]: …"), as `withoutFootnoteDefinitions` reads one. */
+const definesFootnote = (markdown: string, at: number, end: number) =>
+  markdown.charAt(end) === ":" && /(?:^|\n) {0,3}$/.test(markdown.slice(0, at));
+
 export function withoutDeadMarkers(markdown: string, backed: (marker: number) => boolean): string {
-  const found = [...markdown.matchAll(/([ \t]*)\[\^(\d{1,4})\](?!:)/g)].map((each) => ({
-    from: each.index,
-    space: (each[1] ?? "").length,
-    end: each.index + each[0].length,
-    marker: Number(each[2]),
-  }));
+  // A marker before a colon mid-line ("width d[^2]:") is a marker, not a definition (#2769).
+  const found = [...markdown.matchAll(/([ \t]*)\[\^(\d{1,4})\]/g)]
+    .map((each) => ({
+      from: each.index,
+      space: (each[1] ?? "").length,
+      end: each.index + each[0].length,
+      marker: Number(each[2]),
+    }))
+    .filter((each) => !definesFootnote(markdown, each.from + each.space, each.end));
   const shown = shownRanges(
     markdown,
     found.map((each) => ({ start: each.from + each.space, end: each.end })),

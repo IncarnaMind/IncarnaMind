@@ -240,7 +240,6 @@ export function createWholeRead(options: WholeReadOptions) {
     const searches = (model.support ?? "tools") === "tools";
     const step = outputTokens("check-step");
     const judging = outputTokens("absence-read");
-    const comparing = outputTokens("comparison");
     const likely: EstimatedRequest[] = [];
     const most: EstimatedRequest[] = [];
     const verdicts: number[] = [];
@@ -274,15 +273,18 @@ export function createWholeRead(options: WholeReadOptions) {
         const compared =
           estimateTokens(STRICT_INSTRUCTIONS) + estimateTokens(confirmPrompt(quoted));
         for (let each = 0; each < after.comparisons; each++) {
-          most.push({ inputTokens: compared, outputTokens: comparing });
+          most.push({ inputTokens: compared, outputTokens: after.comparing });
         }
         const looked = estimateTokens(
           presencePrompt({ ...quoted, absent: check.claim, document: window.document }),
         );
-        for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
+        for (const [instructions, look] of [
+          [PRESENCE_INSTRUCTIONS, "presence"],
+          [STRICT_PRESENCE_INSTRUCTIONS, "strict-presence"],
+        ] as const) {
           most.push({
             inputTokens: estimateTokens(instructions) + looked,
-            outputTokens: comparing,
+            outputTokens: outputTokens(look),
           });
         }
       }

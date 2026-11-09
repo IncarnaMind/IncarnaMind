@@ -216,11 +216,7 @@ test("no title row of the system's: the traffic lights sit in the sidebar's head
   expect(secondBox).toMatchObject({ y: 8, height: 36 });
   const secondPlus = await boxOf(second.getByTestId("new-tab"));
   expect(await regionAt(window, secondPlus.x + secondPlus.width + 20, 22)).toBe("drag");
-  for (const control of [
-    second.getByRole("tab"),
-    second.getByTestId("tab-close"),
-    second.getByTestId("group-menu"),
-  ]) {
+  for (const control of [second.getByRole("tab"), second.getByTestId("tab-close")]) {
     expect(await regionOf(window, control)).toBe("no-drag");
   }
   await screenshot(window, "title-bar-groups");

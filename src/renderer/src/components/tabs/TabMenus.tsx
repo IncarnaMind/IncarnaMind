@@ -66,29 +66,51 @@ function MenuItems({
   });
 }
 
+/**
+ * What applies to a group, in its strip's ⋯ menu; a group of one Note has it in the page's ⋯
+ * instead, so a pane shows one ⋯ (#2868).
+ */
+export function GroupMenuItems({
+  groupId,
+  merged,
+  close,
+}: {
+  groupId: string;
+  merged: boolean;
+  close(): void;
+}) {
+  const t = useT();
+  const layout = useAppStore((state) => state.layout);
+  const group = layout?.groups.find((each) => each.id === groupId);
+  const full = (layout?.groups.length ?? 0) >= MAX_TAB_GROUPS;
+  if (!group) return null;
+  const items: (Item | false)[] = [
+    {
+      id: "split",
+      command: "tab.split",
+      label: t("tabs.menu.split"),
+      disabled: merged || full,
+    },
+    { id: "equal", command: "group.equalize", label: t("tabs.menu.equal") },
+    "rule",
+    { id: "reopen", command: "tab.reopen", label: t("tabs.menu.reopen") },
+    { id: "close-others", command: "tab.closeOthers", label: t("tabs.menu.closeOthers") },
+    { id: "close-group", command: "group.close", label: t("tabs.menu.closeGroup") },
+  ];
+  return (
+    <MenuItems
+      items={items}
+      // An empty group has no tab to act on.
+      ctx={onTab(group.activeTabId ?? undefined)}
+      close={close}
+    />
+  );
+}
+
 /** The ⋯ at a group strip's end: what applies to the group. */
 export function GroupMenu({ groupId, merged }: { groupId: string; merged: boolean }) {
   const t = useT();
   const menu = usePopoverMenu();
-  const layout = useAppStore((state) => state.layout);
-  const group = layout?.groups.find((each) => each.id === groupId);
-  const full = (layout?.groups.length ?? 0) >= MAX_TAB_GROUPS;
-  const items: (Item | false)[] =
-    menu.open && group
-      ? [
-          {
-            id: "split",
-            command: "tab.split",
-            label: t("tabs.menu.split"),
-            disabled: merged || full,
-          },
-          { id: "equal", command: "group.equalize", label: t("tabs.menu.equal") },
-          "rule",
-          { id: "reopen", command: "tab.reopen", label: t("tabs.menu.reopen") },
-          { id: "close-others", command: "tab.closeOthers", label: t("tabs.menu.closeOthers") },
-          { id: "close-group", command: "group.close", label: t("tabs.menu.closeGroup") },
-        ]
-      : [];
   return (
     <>
       <button
@@ -108,12 +130,7 @@ export function GroupMenu({ groupId, merged }: { groupId: string; merged: boolea
         data-testid="group-menu-items"
         className={menuClass}
       >
-        <MenuItems
-          items={items}
-          // An empty group has no tab to act on.
-          ctx={onTab(group?.activeTabId ?? undefined)}
-          close={menu.close}
-        />
+        {menu.open && <GroupMenuItems groupId={groupId} merged={merged} close={menu.close} />}
       </div>
     </>
   );

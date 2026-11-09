@@ -9,6 +9,7 @@ import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpe
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -97,46 +98,49 @@ function summaryModel(
 ) {
   const lease = LEASES[language];
   let tries = 0;
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, {});
-    const { results } = call;
-    const search = results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: lease.query } }] };
-    const [passage] = shownPassages(search.text);
-    const cite = {
-      tool: "cite",
-      input: {
-        citations: lease.quotes.map((quote, index) => ({
-          marker: index + 1,
-          passage: passage?.id,
-          quote,
-        })),
-      },
-    };
-    if (lastAsked(call).includes("Write a summary of the lease")) {
-      if (results.some((result) => result.tool === "add_to_mind")) return { text: "Wrote it." };
-      return { calls: [cite, { tool: "add_to_mind", input: { content: lease.first } }] };
-    }
-    const edits = results.filter((result) => result.tool === "edit_mind");
-    const next = longer[tries];
-    if (edits.length === tries && next) {
-      tries++;
-      return {
-        calls: [
-          ...(tries === 1 ? [cite] : []),
-          {
-            tool: "edit_mind",
-            input: {
-              part: language === "English" ? "Summary" : "摘要",
-              content: next.content,
-              ...(next.times !== undefined && { times_as_long: next.times }),
-            },
-          },
-        ],
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const { results } = call;
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: lease.query } }] };
+      const [passage] = shownPassages(search.text);
+      const cite = {
+        tool: "cite",
+        input: {
+          citations: lease.quotes.map((quote, index) => ({
+            marker: index + 1,
+            passage: passage?.id,
+            quote,
+          })),
+        },
       };
-    }
-    return { text: reply };
-  });
+      if (lastAsked(call).includes("Write a summary of the lease")) {
+        if (results.some((result) => result.tool === "add_to_mind")) return { text: "Wrote it." };
+        return { calls: [cite, { tool: "add_to_mind", input: { content: lease.first } }] };
+      }
+      const edits = results.filter((result) => result.tool === "edit_mind");
+      const next = longer[tries];
+      if (edits.length === tries && next) {
+        tries++;
+        return {
+          calls: [
+            ...(tries === 1 ? [cite] : []),
+            {
+              tool: "edit_mind",
+              input: {
+                part: language === "English" ? "Summary" : "摘要",
+                content: next.content,
+                ...(next.times !== undefined && { times_as_long: next.times }),
+              },
+            },
+          ],
+        };
+      }
+      return { text: reply };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 async function askBoth(model: MockLanguageModelV4, language: Language, second: string) {
@@ -335,28 +339,31 @@ describe("A rewrite asked for a length", { timeout: 30_000 }, () => {
   test("is told the sizes to write at", async () => {
     const prompts: string[] = [];
     let asking = "";
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
-        prompts.push(call.prompt);
-        return {
-          text: "¶2 The quarter was very good, and sales were really strong all year.\n<why>Longer.</why>",
-        };
-      }
-      return call.results.length === 0
-        ? {
-            calls: [
-              {
-                tool: "edit_mind",
-                input: {
-                  part: "Summary",
-                  instruction: asking,
-                  ...(asking.includes("bit") && { times_as_long: 1.5 }),
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if ([EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)) {
+          prompts.push(call.prompt);
+          return {
+            text: "¶2 The quarter was very good, and sales were really strong all year.\n<why>Longer.</why>",
+          };
+        }
+        return call.results.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: {
+                    part: "Summary",
+                    instruction: asking,
+                    ...(asking.includes("bit") && { times_as_long: 1.5 }),
+                  },
                 },
-              },
-            ],
-          }
-        : { text: "Done." };
-    });
+              ],
+            }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(model).createChatModel,
     });

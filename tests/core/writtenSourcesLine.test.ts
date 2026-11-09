@@ -17,7 +17,12 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { shownWithChanges } from "../helpers/minds";
-import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/models";
+import {
+  judgesNothing,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -129,30 +134,33 @@ type Walk = (typeof WALKS)[keyof typeof WALKS];
  * says, so the write can be stopped there.
  */
 function writingModel(walk: Walk, hold?: Promise<void>) {
-  return scriptedModel((call): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, {});
-    const search = call.results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: walk.query } }] };
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const shown = shownPassages(search.text);
-      const citations = walk.asked.map(({ quote }, at) => {
-        const passage = shown.find((each) => each.text.includes(quote));
-        if (!passage) throw new Error(`The search didn't find “${quote}”.`);
-        return { marker: at + 1, passage: passage.id, quote };
-      });
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
-    if (!call.results.some((result) => result.tool === "add_to_mind")) {
-      const input = { content: walk.content };
-      // Into the second heading: the first section's paragraph is whole, so it is in the Note.
-      const after = JSON.stringify(input).indexOf(walk.secondHeading) + walk.secondHeading.length;
-      return {
-        calls: [{ tool: "add_to_mind", input, streamInput: true }],
-        ...(hold && { pause: { after, until: hold } }),
-      };
-    }
-    return { text: walk.reply };
-  });
+  return scriptedModel(
+    (call): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: walk.query } }] };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const shown = shownPassages(search.text);
+        const citations = walk.asked.map(({ quote }, at) => {
+          const passage = shown.find((each) => each.text.includes(quote));
+          if (!passage) throw new Error(`The search didn't find “${quote}”.`);
+          return { marker: at + 1, passage: passage.id, quote };
+        });
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      if (!call.results.some((result) => result.tool === "add_to_mind")) {
+        const input = { content: walk.content };
+        // Into the second heading: the first section's paragraph is whole, so it is in the Note.
+        const after = JSON.stringify(input).indexOf(walk.secondHeading) + walk.secondHeading.length;
+        return {
+          calls: [{ tool: "add_to_mind", input, streamInput: true }],
+          ...(hold && { pause: { after, until: hold } }),
+        };
+      }
+      return { text: walk.reply };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 async function addLibrary(core: Core, walk: Walk) {
@@ -324,28 +332,31 @@ for (const language of ["en", "zh-CN"] as const) {
   }, () => {
     // protects=when a name fits several Documents, "I read X" names the one the Note's text cites, not the first its searches found; fails_when=it names "Harbour lease 2023", whose Passage only came first; no_claim=a request that names its Documents, held above.
     test("“I read” names the Document the Note cites", async () => {
-      const model = scriptedModel((call): ScriptedReply => {
-        if (isCheckRun(call)) return checkReply(call, {});
-        const searches = call.results.filter((result) => result.tool === "search_documents");
-        if (searches.length === 0) {
-          return { calls: [{ tool: "search_documents", input: { query: lease.first.query } }] };
-        }
-        if (searches.length === 1) {
-          return { calls: [{ tool: "search_documents", input: { query: lease.cited.query } }] };
-        }
-        if (!call.results.some((result) => result.tool === "cite")) {
-          const passage = shownPassages(searches[1]?.text ?? "").find((each) =>
-            each.text.includes(lease.cited.text),
-          );
-          if (!passage) throw new Error(`The search didn't find “${lease.cited.text}”.`);
-          const citations = [{ marker: 1, passage: passage.id, quote: lease.cited.text }];
-          return { calls: [{ tool: "cite", input: { citations } }] };
-        }
-        if (!call.results.some((result) => result.tool === "add_to_mind")) {
-          return { calls: [{ tool: "add_to_mind", input: { content: lease.content } }] };
-        }
-        return { text: lease.reply };
-      });
+      const model = scriptedModel(
+        (call): ScriptedReply => {
+          if (isCheckRun(call)) return checkReply(call, {});
+          const searches = call.results.filter((result) => result.tool === "search_documents");
+          if (searches.length === 0) {
+            return { calls: [{ tool: "search_documents", input: { query: lease.first.query } }] };
+          }
+          if (searches.length === 1) {
+            return { calls: [{ tool: "search_documents", input: { query: lease.cited.query } }] };
+          }
+          if (!call.results.some((result) => result.tool === "cite")) {
+            const passage = shownPassages(searches[1]?.text ?? "").find((each) =>
+              each.text.includes(lease.cited.text),
+            );
+            if (!passage) throw new Error(`The search didn't find “${lease.cited.text}”.`);
+            const citations = [{ marker: 1, passage: passage.id, quote: lease.cited.text }];
+            return { calls: [{ tool: "cite", input: { citations } }] };
+          }
+          if (!call.results.some((result) => result.tool === "add_to_mind")) {
+            return { calls: [{ tool: "add_to_mind", input: { content: lease.content } }] };
+          }
+          return { text: lease.reply };
+        },
+        { generate: judgesNothing },
+      );
       const core = startCore(await createTempDataFolder(), {
         createChatModel: scriptedModels(model).createChatModel,
       });
@@ -392,16 +403,19 @@ describe("a streamed write taken back as a second copy, then stopped", { timeout
   test("claims nothing it took back", async () => {
     const content = `${RISKS}\n\nThe courier is late too.`;
     const after = JSON.stringify({ content }).indexOf("The courier is late too") + 3;
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.some((each) => each.tool === "add_to_mind")) return { text: "Done." };
-      const more = call.prompt.includes("write more about the risks");
-      return {
-        calls: [
-          { tool: "add_to_mind", input: { content: more ? content : RISKS }, streamInput: true },
-        ],
-        ...(more && { pause: { after, until: new Promise<void>(() => undefined) } }),
-      };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.results.some((each) => each.tool === "add_to_mind")) return { text: "Done." };
+        const more = call.prompt.includes("write more about the risks");
+        return {
+          calls: [
+            { tool: "add_to_mind", input: { content: more ? content : RISKS }, streamInput: true },
+          ],
+          ...(more && { pause: { after, until: new Promise<void>(() => undefined) } }),
+        };
+      },
+      { generate: judgesNothing },
+    );
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(model).createChatModel,
     });

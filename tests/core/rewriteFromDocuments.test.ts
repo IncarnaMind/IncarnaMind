@@ -998,7 +998,7 @@ async function noteWithCheck(
   const model = scriptedModel(() => ({ text: "" }), {
     generate: (call) => {
       // Automatic tagging asks too, in the background: only the rewrite's requests count.
-      if (call.system === REWRITE_INSTRUCTIONS) calls.push(call);
+      if (call.question === "rewrite") calls.push(call);
       return generate(call);
     },
   });

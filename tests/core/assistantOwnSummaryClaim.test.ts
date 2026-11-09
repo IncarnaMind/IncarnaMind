@@ -49,7 +49,7 @@ async function wroteThenLonger(
     },
     {
       generate: (call: GenerateCall) => {
-        if (!call.system.includes(CLAIM_CHECK_INSTRUCTIONS)) return { text: "" };
+        if (call.question !== "claimed-changes") return { text: "" };
         record = call.prompt;
         return claimCheckReply(
           call,

@@ -4,7 +4,7 @@
  * nothing: it must never put a false "nothing was written" line under an
  * honest Answer.
  */
-import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
+import { jsonSchema } from "ai";
 import { sameWords } from "../../shared/commands";
 import {
   type AnswerToolCall,
@@ -14,14 +14,13 @@ import {
   type CommandDone,
   type MindProblem,
 } from "../api";
-import { isRecord } from "../errors";
-import { asData, type PromptTag, tagged } from "../promptData";
+import { asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
-import { outputTokens } from "../providers/outputLimits";
-import { tokenUsageOf } from "../providers/promptCache";
 import type { TokenUsage } from "../runs/engine";
+import { sentencesDone } from "../tools/minds/sentencesSaid";
+import type { BlockSpan } from "../tools/minds/tools";
 import type { UnmadeFixes } from "./claimedFixes";
-import { replyJson } from "./quoteRetry";
+import { fieldsOf, judge, list, structured, text, truth, word } from "./judge";
 import { type ChangeStates, type MindNames, toolRecordLines } from "./toolRecord";
 
 /**
@@ -142,7 +141,79 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Told only beside a record that names a part no change reached: sent with every record, it moved the check's verdicts on the others (#2769). */
+export const UNCHANGED_PART_RULE =
+  "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。";
+
+const DONE_BY_COMMAND =
+  "is backed when the record shows a command done and names nothing that call didn’t do.";
+
+/** What backs a request said to be done when every call that changes something did it. */
+export const DONE_BY_NOTE_CHANGE =
+  "is backed when the record shows a change to a Note applied or a command done, and names nothing those calls didn’t do.";
+
+const NOTE_WRITES: ReadonlySet<string> = new Set(["add_to_mind", "edit_mind", "create_mind"]);
+
+function firstLineOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return (
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line !== "") ?? null
+  );
+}
+
+/**
+ * The Tool, Note and target a write aimed at: a new Note's title, the part or place it named, or
+ * else its first line or instruction. Null when it names none, so nothing is taken for its retry.
+ */
+function aimOf(call: AnswerToolCall): string | null {
+  const field = (name: string) => firstLineOf(call.input[name]);
+  const target =
+    call.tool === "create_mind"
+      ? field("title")
+      : call.tool === "add_to_mind"
+        ? (field("after") ?? field("content"))
+        : (field("part") ?? field("instruction"));
+  if (target === null) return null;
+  const problem = call.mindProblem;
+  const mindId = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : "");
+  // A failed create_mind leaves no Note, so its retry has another id: it is matched by title.
+  const note = call.tool === "create_mind" ? "" : mindId;
+  return `${call.tool}\n${note}\n${sameWords(target).toLocaleLowerCase()}`;
+}
+
+/**
+ * Whether a request said to be done may be backed by a change to a Note: one applied, and every
+ * call that changes something did what it set out to. A failed, stopped or denied call, or a
+ * change still waiting for the User, keeps it from counting unless a later call of the same Tool
+ * applied a change with the same Note and target, each such call retrying one failure (#2769).
+ */
+function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeStates): boolean {
+  const applied = (call: AnswerToolCall) => {
+    const change = call.mindChange;
+    return (
+      call.status === "done" &&
+      change !== undefined &&
+      (change.proposals > 0 || change.revised === true) &&
+      states?.(change)?.applied === true
+    );
+  };
+  if (!calls.some(applied)) return false;
+  const undone: (string | null)[] = [];
+  for (const call of calls) {
+    if (call.source === "commands") {
+      if (!["done", "started"].includes(outcomeOf(call))) return false;
+      continue;
+    }
+    if (call.source !== "minds" || !NOTE_WRITES.has(call.tool)) continue;
+    const aim = aimOf(call);
+    if (!applied(call)) undone.push(aim);
+    else if (aim !== null && undone.includes(aim)) undone.splice(undone.indexOf(aim), 1);
+  }
+  return undone.length === 0;
+}
 
 function targetOf(call: AnswerToolCall, names: MindNames) {
   const problem: MindProblem | undefined = call.mindProblem;
@@ -188,6 +259,75 @@ function outcomeOf(call: AnswerToolCall): string {
   return "done";
 }
 
+function partOf(call: AnswerToolCall): string | null {
+  const part = call.source === "minds" ? call.input.part : undefined;
+  return typeof part === "string" && part.trim() !== "" ? part.trim() : null;
+}
+
+/** Where a part of a Note is now, as edit_mind finds it; null when that can't be told. */
+export type PartSpans = (mindId: string, part: string) => BlockSpan | null;
+
+/** Failures that found the part they were given, then refused its new text: nothing there changed. */
+const FAILED_THERE: ReadonlySet<MindProblem["kind"]> = new Set([
+  "length",
+  "uncited",
+  "too-long",
+  "no-text",
+  "content-not-own",
+  "unplaced",
+  "misnamed",
+  "typed-tag",
+  "not-placed",
+  "copy",
+  "new-version",
+  "changed",
+]);
+
+const overlap = (one: BlockSpan, other: BlockSpan) => one.from < other.to && other.from < one.to;
+
+/**
+ * The calls, by id, that failed on a part of a Note no change of this Answer reached, read in
+ * the Note as it is now: without them a part whose every edit failed reads as changed when
+ * another part of that Note changed (#2769). A change to the whole Note, or to a part not found
+ * now, may have reached any part, so then none is named.
+ */
+function unchangedParts(calls: readonly AnswerToolCall[], spans?: PartSpans): Set<string> {
+  const unchanged = new Set<string>();
+  if (!spans) return unchanged;
+  const notes = new Map<
+    string,
+    { failed: { id: string; span: BlockSpan }[]; changed: (BlockSpan | null)[] }
+  >();
+  const noteOf = (mindId: string) => {
+    const found = notes.get(mindId) ?? { failed: [], changed: [] };
+    notes.set(mindId, found);
+    return found;
+  };
+  for (const call of calls) {
+    if (call.source !== "minds") continue;
+    const part = partOf(call);
+    const change = call.mindChange;
+    if (change && (change.proposals > 0 || change.revised)) {
+      noteOf(change.mindId).changed.push(part === null ? null : spans(change.mindId, part));
+      continue;
+    }
+    const problem = call.mindProblem;
+    if (call.status !== "failed" || part === null || !problem || !FAILED_THERE.has(problem.kind))
+      continue;
+    if (!("mindId" in problem)) continue;
+    const span = spans(problem.mindId, part);
+    if (span) noteOf(problem.mindId).failed.push({ id: call.id, span });
+  }
+  for (const { failed, changed } of notes.values()) {
+    const reached = changed.filter((span): span is BlockSpan => span !== null);
+    if (reached.length === 0 || reached.length < changed.length) continue;
+    for (const { id, span } of failed) {
+      if (!reached.some((each) => overlap(each, span))) unchanged.add(id);
+    }
+  }
+  return unchanged;
+}
+
 /**
  * Organize only proposes (#1569): its record names the Folders it proposed and says nothing was
  * filed or moved, and never gives the Folder the request named as where Documents went.
@@ -203,10 +343,21 @@ function commandRecordOf(done: CommandDone) {
   };
 }
 
-function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: ChangeStates) {
+function recordOf(
+  calls: readonly AnswerToolCall[],
+  names: MindNames,
+  focused: string | null,
+  states?: ChangeStates,
+  spans?: PartSpans,
+) {
+  const unchanged = unchangedParts(calls, spans);
   return calls.map((call) => {
     const change = call.mindChange;
     const state = change ? states?.(change) : null;
+    const part = partOf(call);
+    // In the record's own words: as counts, "rewritten: 0" beside a sentence taken out and new
+    // ones written reads as no rewrite (#2769).
+    const sentences = change?.sentences ? sentencesDone(change.sentences) : null;
     return {
       tool: call.tool,
       status: call.status,
@@ -214,6 +365,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
       ...(call.approval && { approval: call.approval }),
       resultCount: call.resultCount,
       target: targetOf(call, names),
+      ...(part !== null && unchanged.has(call.id) && { nothingChangedIn: part }),
       ...(call.mindProblem && { problem: call.mindProblem.kind }),
       ...(call.tool === "run_command" && {
         input: call.input,
@@ -234,7 +386,8 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
           charts: change.charts ?? 0,
           ...(change.chartNotDrawn && { chartNotDrawn: change.chartNotDrawn }),
           revised: change.revised === true,
-          ...(change.sentences && { sentences: change.sentences }),
+          ...(change.created && focused !== null && { opens: "beside the Note the User is in" }),
+          ...(sentences && { sentences }),
           state,
         },
       }),
@@ -242,35 +395,29 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
   });
 }
 
-/**
- * The values that keep a claim from counting: a missing or unknown one counts as a Mind's, since
- * a provider may ignore the schema.
- */
-const NOT_COUNTED: readonly string[] = ["reply", "document", "offer_or_question", "negation"];
+/** What a claim is about that keeps it from counting. */
+const NOT_COUNTED: readonly ClaimAbout[] = ["reply", "document", "offer_or_question", "negation"];
 
-function inTheApp(about: unknown): ClaimedCommand | undefined {
-  const known = CLAIM_ABOUT.find((each) => each === about);
-  return known && IN_THE_APP[known];
-}
+/** Every field of a claim the judge returns: none is filled in when it's left out (#2817). */
+const CLAIM = {
+  sentence: text,
+  kind: word(...CLAIMED_CHANGES),
+  about: word(...CLAIM_ABOUT),
+  backed: truth,
+};
 
 interface Unbacked {
   claims: ClaimedChange[];
   commands: ClaimedCommand[];
 }
 
-/** A verdict's backing, also written as a word in any case, as a provider may send it; null for anything else. */
-function backingOf(backed: unknown): boolean | null {
-  if (typeof backed === "boolean") return backed;
-  const word = typeof backed === "string" ? backed.trim().toLowerCase() : null;
-  return word === "true" ? true : word === "false" ? false : null;
-}
-
 /**
- * `unsure`: an item the check can't hold to the reply: an unbacked claim whose sentence isn't in it,
- * whose backing can't be read, or that neither what it is about nor its kind places.
+ * `unsure`: an item the check can't hold to the reply: an unbacked claim with a field missing or
+ * not one of its words, or whose sentence isn't in it.
  */
 function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean }) | null {
-  if (!isRecord(value) || !Array.isArray(value.claims)) return null;
+  const verdict = fieldsOf(value, { claims: list });
+  if (!verdict) return null;
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
   // The judge read the reply with its prompts' tags written as data, and may copy them so.
@@ -278,31 +425,25 @@ function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean
   const replies = [reply, asData(reply, JUDGED_TAGS)].map(comparable);
   const inReply = (sentence: string) => replies.some((each) => each.includes(comparable(sentence)));
   let unsure = false;
-  for (const item of value.claims) {
-    if (!isRecord(item)) continue;
-    const { sentence, kind, about, backed } = item;
-    const backing = backingOf(backed);
-    if (backing === true || (typeof about === "string" && NOT_COUNTED.includes(about))) continue;
-    if (
-      backing === null ||
-      typeof sentence !== "string" ||
-      !sentence.trim() ||
-      !inReply(sentence)
-    ) {
+  for (const item of verdict.claims) {
+    const claim = fieldsOf(item, CLAIM);
+    if (claim?.backed === true || (claim && NOT_COUNTED.includes(claim.about))) continue;
+    if (!claim?.sentence.trim() || !inReply(claim.sentence)) {
       unsure = true;
       continue;
     }
     // A claim in the app counts whatever kind the judge gave it: none of the Notes' kinds fits
-    // "opened" or "turned on", and a provider may not hold the schema's enum.
-    const command = inTheApp(about);
-    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
+    // "opened" or "turned on".
+    const command = IN_THE_APP[claim.about];
     if (command) commands.add(command);
-    else if (claimed) claims.add(claimed);
-    else if (about === "mind") claims.add("changed");
-    else unsure = true;
+    else claims.add(claim.kind);
   }
   return { claims: [...claims], commands: [...commands], unsure };
 }
+
+/** The judge's reply about `reply`, in structured output. */
+export const claimsReply = (reply: string) =>
+  structured(verdictSchema, "change-claims", (value) => verdictOf(value, reply));
 
 export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
@@ -323,75 +464,61 @@ export async function unbackedClaims(
     model,
     names,
     states,
+    parts,
     signal,
   }: {
     model: ChatLanguageModel;
     names: MindNames;
     states?: ChangeStates;
+    /** Where each part a call named is in its Note now; without it, no part is named unchanged. */
+    parts?: PartSpans;
     signal: AbortSignal;
   },
 ): Promise<ClaimCheckResult> {
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
-  const prompt = [
-    tagged("tool-record", JSON.stringify(recordOf(calls, named, states), null, 2), "", JUDGED_TAGS),
-    tagged(
-      "focused-mind",
-      focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
-      "",
-      JUDGED_TAGS,
-    ),
-    tagged("reply", reply, "", JUDGED_TAGS),
-  ].join("\n");
-  let value: unknown;
-  let usage: TokenUsage | null = null;
-  try {
-    const result = await generateText({
-      model,
-      instructions: CLAIM_CHECK_INSTRUCTIONS,
-      prompt,
-      output: Output.object({ schema: verdictSchema, name: "change-claims" }),
-      maxOutputTokens: outputTokens("claimed-changes"),
-      maxRetries: 0,
-      abortSignal: signal,
-    });
-    value = result.output;
-    usage = tokenUsageOf(result.usage);
-  } catch (error) {
-    if (NoObjectGeneratedError.isInstance(error) && error.text) {
-      try {
-        value = await replyJson(error.text);
-      } catch {
-        value = null;
-      }
-    } else {
-      if (!signal.aborted) {
-        console.error(`The reply's change claims couldn't be checked: ${messageOf(error)}`);
-      }
-      return {
-        claims: [],
-        commands: [],
-        usage: null,
-        durationMs: Date.now() - started,
-        failed: true,
-      };
+  const record = recordOf(calls, named, focused, states, parts);
+  const judged = await judge({
+    model,
+    question: {
+      id: "claimed-changes",
+      instructions: [
+        doneByNoteChange(calls, states)
+          ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
+          : CLAIM_CHECK_INSTRUCTIONS,
+        ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
+      ].join("\n"),
+    },
+    parts: [
+      { tag: "tool-record", text: JSON.stringify(record, null, 2) },
+      {
+        tag: "focused-mind",
+        text: focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+      },
+      { tag: "reply", text: reply },
+    ],
+    data: JUDGED_TAGS,
+    reply: claimsReply(reply),
+    retries: 0,
+    signal,
+  });
+  const { usage } = judged;
+  const durationMs = Date.now() - started;
+  if (!judged.ok) {
+    if (judged.reason !== "stopped") {
+      console.error(
+        judged.error
+          ? `The reply's change claims couldn't be checked: ${judged.error.message}`
+          : "The reply's change-claim check returned no readable verdict.",
+      );
     }
+    return { claims: [], commands: [], usage, durationMs, failed: true };
   }
-  const verdict = verdictOf(value, reply);
-  if (verdict === null) {
-    console.error("The reply's change-claim check returned no readable verdict.");
-    return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
-  }
-  const { unsure, ...unbacked } = verdict;
+  const { unsure, ...unbacked } = judged.value;
   if (unsure)
     console.error("The reply's change-claim check gave a claim it couldn't hold to the reply.");
-  return {
-    ...unbacked,
-    usage,
-    durationMs: Date.now() - started,
-    ...(unsure && { failed: true as const }),
-  };
+  return { ...unbacked, usage, durationMs, ...(unsure && { failed: true as const }) };
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {

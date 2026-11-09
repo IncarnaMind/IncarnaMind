@@ -1254,7 +1254,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",
@@ -1800,7 +1800,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",
@@ -2379,7 +2379,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",
@@ -2920,7 +2920,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",
@@ -3490,7 +3490,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",
@@ -4093,7 +4093,7 @@
       "properties": {
        "title": {
         "type": "string",
-        "description": "A short title, from the User's words, in their language."
+        "description": "A short title, from the User's words, in English, the language of their request, whatever language the Documents are in. A name the User gives is kept as they wrote it."
        },
        "chart": {
         "type": "object",

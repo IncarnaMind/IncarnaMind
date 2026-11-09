@@ -13,6 +13,9 @@ const NODE_WORKER = "?nodeWorker";
  */
 export const HOME_GUARD = join(root, "tests/setup/home.ts");
 
+/** Fails a test whose scripted model was asked a judge's question it had no reply for. */
+const UNSCRIPTED_JUDGES = join(root, "tests/setup/judges.ts");
+
 /**
  * electron-vite builds `import start from "./worker?nodeWorker"` into a separate
  * chunk and a function that starts it on a worker thread. Vitest can't run a
@@ -70,7 +73,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
-    setupFiles: [HOME_GUARD],
+    setupFiles: [HOME_GUARD, UNSCRIPTED_JUDGES],
     // Tests wait for states, not times: a limit only catches a hang. Vitest's 5 s default failed
     // tests that were merely slow on a loaded CI runner.
     testTimeout: 30_000,

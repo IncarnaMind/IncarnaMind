@@ -4334,7 +4334,10 @@ export interface Document {
    * Document, a .vtt the User added among them.
    */
   meetingMindId: string | null;
-  /** Who's who in a Meeting's Transcript (#138); null until the User names or moves a Speaker. */
+  /**
+   * Who's who in a Meeting's Transcript (#138); null until the speaker pass tells its voices
+   * apart (#2839), or the User names or moves a Speaker.
+   */
   speakers: TranscriptSpeakers | null;
   /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
@@ -4348,13 +4351,15 @@ export interface Document {
 }
 
 /**
- * Who's who in a Meeting's Transcript (#138), kept apart from its file, which a name never
- * rewrites: so no Citation of it is checked again, and every one shows the names as they are now.
+ * Who's who in a Meeting's Transcript (#138), kept apart from its file, which neither a name nor
+ * the speaker pass rewrites (#2839): so no Citation of it is checked again, and every one shows
+ * who said its line as it is now.
  * A line is known by its start and the label its file gives it ("Me", "Them", "Speaker ?",
  * "Speaker 2"), which is what a Citation of it stores.
  * - `labels`: the name the User gave a Speaker, by label. "Me" is the User and has none.
- * - `lines`: a line the User gave to another Speaker, by `lineKey` of the line as its file has it:
- *   that Speaker's label, "Me", one the file gives, or a "Speaker N" made for a new Speaker.
+ * - `lines`: a line given to another Speaker, by the speaker pass or the User, by `lineKey` of the
+ *   line as its file has it: that Speaker's label, "Me", one the file gives, or a "Speaker N" made
+ *   for a new Speaker.
  */
 export interface TranscriptSpeakers {
   labels: Record<string, string>;
@@ -7181,8 +7186,11 @@ export type ClaimCheckFailure =
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
-  /** "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378). */
-  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name";
+  /**
+   * "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378).
+   * "units": a figure written as bare digits differs from its source only by a unit (#2864).
+   */
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -7463,6 +7471,12 @@ export interface CheckFigure {
   context?: string;
   label?: string;
   /**
+   * Every line of the Note that states a scale, currency or percent its digits may be in, each
+   * whole (#2864): its section's, above and below it, the headings it is under and the Note's
+   * opening lines. Sent with a check, never kept with its result.
+   */
+  unitLines?: string;
+  /**
    * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
    * again to the same number, and what the Analysis read. A check decides it from this alone.
    */
@@ -7491,6 +7505,11 @@ export interface CheckFigure {
 export interface FigureFinding extends CheckFigure {
   /** An Analysis's figure the claim judge read its sentence as naming, as its label and rule say (#2378). */
   named?: true;
+  /**
+   * The unit its source's Document states, as the Document writes it ("GBP million"), that a
+   * figure written as bare digits was read in (#2864); absent when it wasn't.
+   */
+  statedUnit?: string;
   sourceInput: FigureInput | null;
   source?: Citation | null;
   roundedFrom: number | null;
@@ -7516,7 +7535,8 @@ export type FigureScheduleReason =
   | "quote-not-found"
   | "needs-recheck"
   | "doesnt-add-up"
-  | "differs-from-analysis";
+  | "differs-from-analysis"
+  | "units-may-differ";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
@@ -11430,9 +11450,10 @@ export interface Meeting {
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
  * the Transcript's times; the User's own text never changes.
- * - "waiting": for the Transcript to be finished and saved. A call's notes may already be under
- *   way while its speakers are told apart; they are written once that ends (#2773);
- * - "filling": the model is writing;
+ * - "waiting": for the Transcript to be finished and saved, and in a room, or with a model on
+ *   this computer, for its speakers to be told apart;
+ * - "filling": the model is writing, then its claims are checked (`checking`). A call's notes
+ *   are filled in while its speakers are told apart, and written once ready (#2773, #2839);
  * - "filled": written, and one Undo takes it all back;
  * - "undone": taken back;
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
@@ -11458,6 +11479,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
+  checking?: number;
   /** Blocks inserted by this fill, for status placement without changing the Note. */
   addedBlockIds?: string[];
 }

@@ -12,8 +12,10 @@ import {
   givenToMindsOf,
   guardLosses,
   guardTook,
+  namedIn,
   pointersIn,
   type RequestOutcome,
+  readsLonger,
   requestFailures,
   rewrittenLater,
   takenOut,
@@ -193,6 +195,63 @@ describe("The everyday request guards", () => {
     expect(failures(false)).toEqual(["not-longer"]);
     expect(failures(true)).toEqual([]);
     expect(failureLine({ kind: "not-longer" })).toBe("changed the text but did not make it longer");
+  });
+
+  // protects=an edit that makes the summary longer by inserting paragraphs among it reads longer, while one that takes text out, or adds a paragraph past the User's other text, reads shorter, headings left out (#2769); fails_when=the inserted Blocks aren't counted, or a heading or a Block outside the summary is; no_claim=what counts as the summary.
+  test("a summary made longer with inserted paragraphs reads longer", () => {
+    const before = new Map([
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["p2", "It is tested on crime, traffic and house prices."],
+    ]);
+    const summary = new Set(["h", "p1", "p2"]);
+    const headings = new Set(["h", "h2"]);
+    const inserted = new Map([
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["n1", "Its graph augmentation is learned rather than set by hand."],
+      ["p2", "It is tested."],
+    ]);
+    expect(readsLonger(before, inserted, summary, headings)).toBe(true);
+    const cut = new Map([
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["h2", "A much longer heading that adds nothing to the summary's text at all"],
+    ]);
+    expect(readsLonger(before, cut, summary, headings)).toBe(false);
+    const elsewhere = new Map([
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["p2", "It is tested."],
+      ["o", "Other notes the User keeps."],
+      ["n2", "A long paragraph the edit put after the User's own notes, not in the summary."],
+    ]);
+    const withOther = new Map([...before, ["o", "Other notes the User keeps."]]);
+    expect(readsLonger(withOther, elsewhere, summary, headings)).toBe(false);
+  });
+
+  // protects=a Note made for an English request is named without Chinese, and one for a Chinese request with it, and the request fails naming the Note otherwise (#2770); fails_when=the mixed name of the report passes, or a Chinese name with a Latin product name fails; no_claim=the Note's text.
+  test("a new Note named outside the request's language fails", () => {
+    expect(namedIn("Harbour Logistics 文档笔记", "en")).toBe(false);
+    expect(namedIn("Notes on the Harbour Logistics documents", "en")).toBe(true);
+    expect(namedIn("GraphST 论文总结", "zh-CN")).toBe(true);
+    expect(namedIn("Harbour Logistics notes", "zh-CN")).toBe(false);
+    const failures = (names: string[]) =>
+      requestFailures(
+        outcome({
+          expected: { write: true, cite: false, coverAll: false },
+          answer: { text: "", citations: [], toolCalls: [created], steps: null },
+          made: { language: "en", names },
+        }),
+      );
+    expect(failures(["Notes on the documents"])).toEqual([]);
+    const misnamed = failures(["Harbour Logistics 文档笔记"]);
+    expect(misnamed).toEqual([
+      { kind: "name-language", wanted: "en", names: ["Harbour Logistics 文档笔记"] },
+    ]);
+    expect(misnamed[0] && failureLine(misnamed[0])).toBe(
+      "names a Note it made outside the request's language (en): “Harbour Logistics 文档笔记”",
+    );
   });
 
   // protects=a translation written into a Mind must use the field's term for a thing, here 大潮 for "spring tides", and fails on the near one, 春潮 (#1635); fails_when=either passes unnoticed; no_claim=other terms.

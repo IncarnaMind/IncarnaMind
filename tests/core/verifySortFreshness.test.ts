@@ -37,7 +37,7 @@ async function setUp(example: (typeof CASES)[number]) {
     },
     {
       generate(call) {
-        if (!call.system.startsWith("You sort the sentences")) return checkGenerate(plans)(call);
+        if (call.question !== "find-claims") return checkGenerate(plans)(call);
         const sentences = listedSentences(call.prompt);
         if (sentences.some(({ text }) => text === otherRow)) {
           tableSorts.push(sentences.map(({ text }) => text));
@@ -198,7 +198,7 @@ test("Verify loads the reranker before it asks for the claims", async () => {
   const sentence = "The harbour wall was finished in the spring.";
   const model = scriptedModel((call) => checkReply(call, {}), {
     generate(call) {
-      if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+      if (call.question !== "find-claims") return checkGenerate({})(call);
       events.push("claims asked");
       const sentences = listedSentences(call.prompt);
       return {
