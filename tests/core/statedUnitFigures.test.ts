@@ -22,8 +22,8 @@ interface SourceFile {
 }
 
 /**
- * Checks `claim` as a sentence of a Note, as the Note's Check does, and gives its check. `above`:
- * the Note's Blocks before it, such as a heading that states its unit.
+ * Checks `claim` as a sentence of a Note, as the Note's Check does, and gives its check. `above`
+ * and `below`: the Note's Blocks before and after it, such as a heading that states its unit.
  */
 async function check(
   claim: string,
@@ -31,14 +31,25 @@ async function check(
   plan: Plan,
   language: "en" | "zh-CN" = "en",
   above: JSONContent[] = [],
+  below: JSONContent[] = [],
 ): Promise<ClaimCheckAttributes> {
   const { core, mind, client } = await setUpWithDocuments(checkingModel({ [claim]: plan }), [
     document,
   ]);
+  // A model offered calculate: the local one isn't.
+  if (plan.calculation) {
+    core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "synthetic-test-key",
+      modelId: "claude-haiku-5-5",
+    });
+  }
   if (language !== "en") await core.updateSettings({ user: { language } });
   writeMind(client, [
     ...above,
     { type: "paragraph", attrs: { id: "line" }, content: [{ type: "text", text: claim }] },
+    ...below,
   ]);
   await client.settled();
   await core.checkSentences({
@@ -432,9 +443,9 @@ const heading = (text: string): JSONContent => ({
   attrs: { id: "unit-heading", level: 2 },
   content: [{ type: "text", text }],
 });
-const line = (text: string): JSONContent => ({
+const line = (text: string, id = "unit-line"): JSONContent => ({
   type: "paragraph",
-  attrs: { id: "unit-line" },
+  attrs: { id },
   content: [{ type: "text", text }],
 });
 
@@ -519,5 +530,103 @@ describe("a unit softens only the figure it explains", () => {
     );
     expect(result.state).toBe("contradicted");
     expect(result.unsupported?.kind).toBeUndefined();
+  });
+});
+
+describe("a Note's unit line wherever its figure can read it", () => {
+  // About 2,500 characters with no unit, figure or heading: past where lines above were once read.
+  const FILLER = {
+    en: "The board met in the period and reviewed the plan with the auditors. ".repeat(37),
+    "zh-CN": "董事会在本期内召开会议，并与审计师一同审阅了经营计划。".repeat(95),
+  };
+  const CASES = {
+    en: {
+      claim: "Revenue for the six months: 668.3",
+      document: HALF_YEAR,
+      plan: supported(
+        "Revenue for the six months was 668.3",
+        "GBP million unless stated otherwise",
+      ),
+      unit: "Figures are in GBP thousands.",
+      below: "All figures above are in GBP thousands.",
+    },
+    "zh-CN": {
+      claim: "营业收入：2025年全年为187.3。",
+      document: MILLIONS_ZH,
+      plan: supported("2025年全年营业收入为187.3", "单位：人民币百万元"),
+      unit: "以下数字单位为千元。",
+      below: "以上数字单位均为千元。",
+    },
+  } as const;
+
+  // protects=a unit the Note states that isn't the Document's is read wherever it is in the figure's section or the Note's opening lines, whole: past 2,500 characters of other text, at the start of a long opening paragraph, and below the figure, in English and Chinese; fails_when=a long Note or a line below hides the unit and equal digits read Supported; no_claim=a unit in another section, which isn't the figure's.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const each = CASES[language];
+    const filler = FILLER[language];
+    expect(filler.length).toBeGreaterThan(2_200);
+    for (const [above, below] of [
+      [[line(each.unit), line(filler, "filler")], []],
+      [[line(`${each.unit}${filler}`)], []],
+      [[], [line(each.below)]],
+    ] as const) {
+      const result = await check(
+        each.claim,
+        each.document,
+        each.plan,
+        language,
+        [...above],
+        [...below],
+      );
+      expect(result, JSON.stringify(above.length)).toMatchObject({
+        state: "unsupported",
+        unsupported: { kind: "units" },
+      });
+    }
+  });
+});
+
+describe("a calculation under the Note's unit", () => {
+  // protects=a bare figure the judge worked out by calculate, under a line of the Note that states the calculation's own unit, keeps the judge's Supported; fails_when=a matching unit line makes it need a look; no_claim=none beyond protects.
+  test("700.4 under GBP million, worked out from 668.3 and 32.1", async () => {
+    const result = await check(
+      "Revenue and other income for the six months: 700.4",
+      {
+        name: "Harbourline income.txt",
+        contents: [
+          "Harbourline Foods plc half-year update",
+          "GBP million unless stated otherwise",
+          "Revenue for the six months was 668.3.",
+          "Other income for the six months was 32.1.",
+          "",
+        ].join("\n"),
+      },
+      {
+        verdict: "supported",
+        says: "Revenue and other income add up to 700.4 in GBP million",
+        calculation: {
+          inputs: [
+            {
+              name: "revenue",
+              label: "Revenue",
+              quote: "Revenue for the six months was 668.3",
+              number: "668.3",
+              unitQuote: "GBP million unless stated otherwise",
+            },
+            {
+              name: "other",
+              label: "Other income",
+              quote: "Other income for the six months was 32.1",
+              number: "32.1",
+              unitQuote: "GBP million unless stated otherwise",
+            },
+          ],
+          formula: "revenue + other",
+          stated: "700.4",
+        },
+      },
+      "en",
+      [line("Figures are in GBP million.")],
+    );
+    expect(result.state).toBe("supported");
   });
 });

@@ -7458,11 +7458,11 @@ export interface CheckFigure {
   context?: string;
   label?: string;
   /**
-   * The lines above its sentence in its section and every heading it is under, nearest first,
-   * that state a scale, currency or percent (#2864): a unit the Note states for its digits. Sent
-   * with a check, never kept with its result.
+   * Every line of the Note that states a scale, currency or percent its digits may be in, each
+   * whole (#2864): its section's, above and below it, the headings it is under and the Note's
+   * opening lines. Sent with a check, never kept with its result.
    */
-  above?: string;
+  unitLines?: string;
   /**
    * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
    * again to the same number, and what the Analysis read. A check decides it from this alone.

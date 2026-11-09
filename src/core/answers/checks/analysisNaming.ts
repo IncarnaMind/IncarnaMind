@@ -478,9 +478,9 @@ const backedBy = (frame: Frame, own: readonly Frame[]) =>
   own.some((each) => sameFrame(frame, each));
 
 /**
- * Whether the nearest of `lines` (nearest first) that says a scale, currency or percent says the
- * one a number of `scale` and `unit` is in (#2864). A line that names no scale says units, and a
- * scale it may mean ("in K") is none it says. Null when no line says one.
+ * Whether every one of `lines` that says a scale, currency or percent says the one a number of
+ * `scale` and `unit` is in (#2864). A line that names no scale says units, and a scale it may mean
+ * ("in K") is none it says. Null when no line says one.
  */
 export function linesSayFrame(
   lines: readonly string[],
@@ -491,13 +491,13 @@ export function linesSayFrame(
     { kind: "scale", exponent: Math.round(Math.log10(scale)) },
     ...unitFrames(unit),
   ];
-  for (const line of lines) {
-    const said = framesIn(line);
-    if (said.length === 0) continue;
-    const scaled = said.some((frame) => frame.kind === "scale");
-    return (scaled || scale === 1) && said.every((frame) => backedBy(frame, own));
-  }
-  return null;
+  const saying = lines.map(framesIn).filter((said) => said.length > 0);
+  if (saying.length === 0) return null;
+  return saying.every(
+    (said) =>
+      (scale === 1 || said.some((frame) => frame.kind === "scale")) &&
+      said.every((frame) => backedBy(frame, own)),
+  );
 }
 
 /** What of `clause` no label word, word of the Analysis's or linking word accounts for. */

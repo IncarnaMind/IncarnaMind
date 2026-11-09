@@ -227,7 +227,7 @@ export function readFigureReply(
 type Facts = Pick<ClaimJudgment, "versions" | "excluded">;
 type CaseFlags = { citedCaseUnchecked: boolean; citedCaseFound: boolean };
 
-function finding({ above: _above, ...figure }: CheckFigure) {
+function finding({ unitLines: _unitLines, ...figure }: CheckFigure) {
   return {
     ...figure,
     source: null,
@@ -628,6 +628,26 @@ function readAt(
   };
 }
 
+/**
+ * The scale and unit a figure's source is in: its number's, or a calculation's own, at the scale
+ * its inputs share. Null for a ratio, a rate or a yes or no, which no unit line is said of.
+ */
+function sourceFrame(
+  source: FigureInput | null,
+  calculation: CalculatedFigure | null,
+): { scale: number; unit: FigureUnit } | null {
+  if (source) {
+    const { unit, scale } = source.number;
+    return unit.kind === "rate" ? null : { scale, unit };
+  }
+  if (!calculation) return null;
+  const { unit } = calculation;
+  if (unit.kind === "ratio" || unit.kind === "rate" || unit.kind === "yes-no") return null;
+  const scales = new Set(calculation.inputs.map((input) => input.number.scale));
+  const [scale] = scales;
+  return { scale: scales.size === 1 && scale !== undefined ? scale : 1, unit };
+}
+
 /** The unit a scale line states, as its Document writes it: "GBP million", "人民币百万元". */
 function statedUnitWords(statement: NonNullable<FigureInput["unitStatement"]>): string {
   const line = statement.citation.quote;
@@ -861,21 +881,18 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       !isPropertyPassage(sourceInput?.citation.passageId) &&
       writtenBare(original.reading) &&
       writtenBare(written.reading);
-    // A unit the Note states above them is the digits' own: one its source isn't in is never
-    // Supported, whatever the digits (#2864).
+    // A unit the Note states for them is the digits' own: one its source isn't in is never
+    // Supported, whatever the digits (#2864). A ratio or a rate is in none.
+    const frame = sourceFrame(sourceInput, calculation);
     const noteSays =
-      bareDigits && target.above
-        ? sourceInput && sourceInput.number.unit.kind !== "rate"
-          ? linesSayFrame(
-              target.above.split("\n"),
-              sourceInput.number.scale,
-              sourceInput.number.unit,
-            )
-          : false
+      bareDigits && target.unitLines && frame
+        ? linesSayFrame(target.unitLines.split("\n"), frame.scale, frame.unit)
         : null;
     const stated =
       bareDigits && noteSays !== false ? inStatedUnit(target, sourceInput, options.claim) : null;
     if (stated) target = stated.target;
+    else if (noteSays && frame)
+      target = { ...target, reading: readAt(target.reading, frame.scale, null, frame.unit) };
     const base = {
       ...finding(target),
       ...(stated && { statedUnit: stated.unit }),
