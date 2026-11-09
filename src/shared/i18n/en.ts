@@ -7419,6 +7419,7 @@ export const en = {
   "meetings.help.decisions": "Decisions and owners so far",
   "meetings.help.disagree": "Where we disagree",
   "meetings.help.button": "{name} ({shortcut})",
+  "meetings.help.more": "More…",
   "meetings.help.setUp": "Choose an AI model to get help during the call",
   "meetings.help.failed": "No help this time: {message}",
   "meetings.help.nothing": "the Answer had nothing to suggest",

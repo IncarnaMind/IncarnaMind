@@ -7036,6 +7036,7 @@ export const zhCN = {
   "meetings.help.decisions": "目前的决定和负责人",
   "meetings.help.disagree": "分歧在哪里",
   "meetings.help.button": "{name}（{shortcut}）",
+  "meetings.help.more": "更多…",
   "meetings.help.setUp": "选择 AI 模型后，就能在通话中获得帮助",
   "meetings.help.textBehind": "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
   "meetings.help.textBehind.some": "实时转写跟不上，以下只依据已转写的内容。",
