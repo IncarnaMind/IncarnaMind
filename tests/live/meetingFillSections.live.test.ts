@@ -3800,6 +3800,20 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 (pattern) => pattern.source !== fact.owner?.source && pattern.test(text),
               );
         const owned = call.facts.filter((fact) => fact.owner);
+        const theirTurns = (fact: Fact): Fact => ({
+          ...fact,
+          said: fact.said.filter((index) => call.turns[index]?.side === "them"),
+        });
+        // A part that states the unnamed person's fact, or cites their turn, and carries the name.
+        const misattributed = call.facts.flatMap((fact) => {
+          const unit = units.find(
+            (unit) =>
+              unit.ai &&
+              fact.notBy?.test(unit.text) === true &&
+              (says(fact, unit.text) || citesRightly(unit, theirTurns(fact), call, cues)),
+          );
+          return unit ? [{ fact: fact.name, text: unit.text }] : [];
+        });
         const slips = {
           statedAsDecisions: call.facts.filter(
             (fact) => fact.stated && decisions.some((unit) => says(fact, unit.text)),
@@ -3829,12 +3843,9 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             (unit) => unit.ai && call.facts.some((fact) => fact.misheard?.test(unit.text) === true),
           ).length,
           owned: owned.length,
-          misattributed: call.facts.filter((fact) =>
-            units.some(
-              (unit) => unit.ai && related(fact, unit.text) && fact.notBy?.test(unit.text) === true,
-            ),
-          ).length,
+          misattributed: misattributed.length,
           unowned: call.facts.filter((fact) => fact.notBy).length,
+          unownedWritten: scored.filter((each) => each.fact.notBy && each.count > 0).length,
           restated: scored
             .filter((each) => each.fact.kind === "decision")
             .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
@@ -3859,6 +3870,9 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, claimChecks, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
                 `Structure (#2306): ${JSON.stringify(structure)}`,
                 `Slips (#2306): ${JSON.stringify(slips)}`,
+                ...(misattributed.length > 0
+                  ? [`Misattributed (#2306): ${JSON.stringify(misattributed)}`]
+                  : []),
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,

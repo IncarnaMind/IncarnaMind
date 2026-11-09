@@ -70,7 +70,7 @@ function response(streamed: boolean, usage: Record<string, unknown>) {
   );
 }
 
-test("the replacement gate registers eighteen once-only DeepSeek observations, not two tiers", () => {
+test("the replacement gate registers twenty once-only DeepSeek observations, not two tiers", () => {
   expect(gate).toMatchObject({
     schemaVersion: 1,
     provider: "deepseek",
@@ -95,9 +95,10 @@ test("the replacement gate registers eighteen once-only DeepSeek observations, n
       "client",
       "team",
       "named",
+      "group",
     ].flatMap((call) => ["en", "zh"].map((language) => `reserved-${language}-structured-${call}`)),
   );
-  expect(new Set(gate.callIds).size).toBe(18);
+  expect(new Set(gate.callIds).size).toBe(20);
   expect(structuredControls(controls)).toMatchObject({ provider: "deepseek", model: gate.model });
 });
 

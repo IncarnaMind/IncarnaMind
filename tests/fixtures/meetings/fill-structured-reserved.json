@@ -5214,5 +5214,222 @@
       { "name": "首印", "pattern": "首印|印数|印量" },
       { "name": "定价", "pattern": "定价|价格|售价" }
     ]
+  },
+  {
+    "id": "reserved-en-structured-group",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Annual report print run" }] }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi all, thanks for making the time. This is about the annual report print run. Who have I got on the line?"
+      },
+      {
+        "side": "them",
+        "text": "Hannah here, I'm your account manager. I've got our paper buyer and our press scheduler on the call too. Just so we start from the same numbers, the quote you have right now is £3,950 for 1,200 copies, all on the coated stock."
+      },
+      {
+        "side": "me",
+        "text": "Great. A question for the paper side, then: what does the coated stock do to the weight? Our mailing house priced the postage for anything under 250 grams a copy."
+      },
+      {
+        "side": "them",
+        "text": "On the coated stock, each copy comes out at about 340 grams. I weighed a blank dummy this morning."
+      },
+      {
+        "side": "me",
+        "text": "Ah, that's well over. So what would you swap it for? I don't want it looking cheap."
+      },
+      {
+        "side": "them",
+        "text": "I'd go with a lighter uncoated paper for the inside pages and keep the coated just for the cover. That brings it to roughly 230 grams, and we've got the uncoated in stock, so your press date doesn't move."
+      },
+      {
+        "side": "me",
+        "text": "That sounds right. Let's go with uncoated inside and coated for the cover. Hannah, can you redo the quote on that basis?"
+      },
+      {
+        "side": "them",
+        "text": "Sure, it should come down a little. I'll send you the revised quote by Wednesday the 11th."
+      },
+      { "side": "me", "text": "Lovely. And the hard proof, is that coming from scheduling?" },
+      {
+        "side": "them",
+        "text": "Yes, that's me. I'll courier a hard proof to your office by Monday the 16th."
+      },
+      {
+        "side": "me",
+        "text": "Perfect. On our end, I'll get the board to sign off the proof and send you the approval by Thursday the 19th."
+      },
+      {
+        "side": "them",
+        "text": "Hannah again. That timing works for us, so we'll keep your press slot as it is."
+      },
+      { "side": "me", "text": "Brilliant. Thanks, all three of you." },
+      { "side": "them", "text": "Thanks, speak soon." }
+    ],
+    "facts": [
+      {
+        "name": "Current quote",
+        "kind": "figure",
+        "pattern": ["3[,.]?950|3\\.95 ?k", "1[,.]?200|1\\.2 ?k"],
+        "said": [1],
+        "owner": "Hannah",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Revised quote",
+        "kind": "action",
+        "pattern": ["Hannah", "quot(e|ation)|pric", "\\b11(th)?\\b|Wednesday|\\bWed\\b"],
+        "said": [7],
+        "owner": "Hannah",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Weight on coated stock",
+        "kind": "figure",
+        "pattern": ["340", "grams?|\\d ?g\\b|weigh"],
+        "said": [3],
+        "notBy": "Hannah"
+      },
+      {
+        "name": "Uncoated inside pages",
+        "kind": "decision",
+        "pattern": [
+          "uncoated|non-coated",
+          "agreed|decided|settled|go(?:ing)? with|went with|chose|chosen|opted|confirmed|switch(ed|ing)?"
+        ],
+        "said": [5, 6],
+        "notBy": "Hannah"
+      },
+      {
+        "name": "Hard proof",
+        "kind": "action",
+        "pattern": ["proof", "\\b16(th)?\\b|Monday|\\bMon\\b"],
+        "said": [9],
+        "notBy": "Hannah"
+      },
+      {
+        "name": "Board sign-off",
+        "kind": "action",
+        "pattern": ["sign(s|ed)?[- ]?off|approv", "\\b19(th)?\\b|Thursday|\\bThu\\b"],
+        "said": [10]
+      }
+    ],
+    "topics": [
+      { "name": "Paper and weight", "pattern": "paper|stock|weight|postage|mailing" },
+      { "name": "Quote", "pattern": "quot(e|ation)|pric|cost|budget" },
+      {
+        "name": "Proof and sign-off",
+        "pattern": "proof|sign[- ]?off|approv|schedul|timeline|dates"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-group",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [{ "type": "paragraph", "content": [{ "type": "text", "text": "年底员工体检" }] }],
+    "turns": [
+      {
+        "side": "me",
+        "text": "喂，大家好。今天主要是把我们公司年底体检的事儿对一下，你们那边人都到齐了吧？"
+      },
+      {
+        "side": "them",
+        "text": "到齐了到齐了。我是孙悦，你们这单一直是我在跟。我把排期的同事和我们体检科的同事也拉进来了。先把数对一下哈，按 120 个人算，基础套餐一个人 560。"
+      },
+      {
+        "side": "me",
+        "text": "好的。那我先问下体检科这边，我们好多同事想加个甲状腺彩超，单加的话大概多少钱？"
+      },
+      { "side": "them", "text": "可以加的，甲状腺彩超单加一个人多 150。" },
+      {
+        "side": "me",
+        "text": "嗯，这个还能接受。还有个事儿，上回我们去的那家，一大早排了快俩小时的队，大家意见特别大。排期这边有没有什么办法？"
+      },
+      {
+        "side": "them",
+        "text": "这个好办。我建议你们分两天来，每天上午来六十个人左右，基本就不用怎么排队了。"
+      },
+      {
+        "side": "me",
+        "text": "行，这个好，那就分两天来。孙经理，加了甲状腺这项，合同是不是得重新出一版？"
+      },
+      { "side": "them", "text": "对，我这边改一下，周三，就是 11 号之前，把新合同发您。" },
+      { "side": "me", "text": "好嘞。那预约链接是排期这边发是吧？" },
+      {
+        "side": "them",
+        "text": "对，我来发。周五 13 号之前我把两天的预约链接发给您，您转给同事让他们自己选时间就行。"
+      },
+      {
+        "side": "me",
+        "text": "OK。那我这边下周二，17 号之前，把参加体检的员工名单整理好发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "我孙悦再补一句啊，名单里麻烦把性别和身份证号都带上，我们得提前录系统。"
+      },
+      { "side": "me", "text": "好，没问题，我一块儿整理。那今天就先这样，辛苦各位了。" },
+      { "side": "them", "text": "好的好的，拜拜。" }
+    ],
+    "facts": [
+      {
+        "name": "基础套餐报价",
+        "kind": "figure",
+        "pattern": ["560", "套餐|每人|每位|一人|人均|/人|单价|报价"],
+        "said": [1],
+        "owner": "孙悦|孙经理|小孙",
+        "forbid": "对方"
+      },
+      {
+        "name": "新合同",
+        "kind": "action",
+        "pattern": ["孙悦|孙经理|小孙", "合同", "11 ?[号日]|周三|星期三"],
+        "said": [7],
+        "owner": "孙悦|孙经理|小孙",
+        "forbid": "对方"
+      },
+      {
+        "name": "甲状腺彩超加项",
+        "kind": "figure",
+        "pattern": ["150", "甲状腺|彩超"],
+        "said": [3],
+        "notBy": "孙悦|孙经理|小孙"
+      },
+      {
+        "name": "分两天体检",
+        "kind": "decision",
+        "pattern": [
+          "两(天|批|个上午)|2 ?天",
+          "定|决定|同意|就用|选|就这么|确定|确认|采用|商定|敲定|拍板|一致"
+        ],
+        "said": [5, 6],
+        "notBy": "孙悦|孙经理|小孙"
+      },
+      {
+        "name": "预约链接",
+        "kind": "action",
+        "pattern": ["链接|预约", "13 ?[号日]|周五|星期五"],
+        "said": [9],
+        "notBy": "孙悦|孙经理|小孙"
+      },
+      {
+        "name": "员工名单",
+        "kind": "action",
+        "pattern": ["名单", "17 ?[号日]|周二|星期二"],
+        "said": [10]
+      }
+    ],
+    "topics": [
+      { "name": "套餐与费用", "pattern": "套餐|费用|价格|报价|加项|甲状腺|彩超" },
+      { "name": "排期", "pattern": "排期|排队|分两天|日程|时间|预约|安排" },
+      { "name": "合同与名单", "pattern": "合同|名单|资料" }
+    ]
   }
 ]

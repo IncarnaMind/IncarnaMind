@@ -21,7 +21,9 @@
     "reserved-en-structured-team",
     "reserved-zh-structured-team",
     "reserved-en-structured-named",
-    "reserved-zh-structured-named"
+    "reserved-zh-structured-named",
+    "reserved-en-structured-group",
+    "reserved-zh-structured-group"
   ],
   "repliesPerCall": 1,
   "perObservationCapUsd": 0.25,
