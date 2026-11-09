@@ -34,7 +34,8 @@ interface SearchChoice {
   value: string;
   input: SaveEmbeddingProviderInput;
   label: string;
-  where: "keys" | "local";
+  /** Who runs it: the User's keys, this computer, or another computer, named by its address. */
+  where: "keys" | "local" | { host: string };
 }
 
 /** The account a hosted search model takes its key from: the User's saved chat provider of that company. */
@@ -104,7 +105,12 @@ export function DocumentSearchRows({
           : {}),
       },
       label: `${t(`embeddingProviders.kind.${kind}`)} · ${modelId}`,
-      where: kind === "ollama" ? "local" : "keys",
+      where:
+        kind !== "ollama"
+          ? "keys"
+          : provider.kind === "ollama" && provider.service
+            ? { host: provider.service.name }
+            : "local",
     };
   }
   // A server of the User's own stays shown as it is, under its own name.
@@ -126,6 +132,9 @@ export function DocumentSearchRows({
   const asked = asking === null || asking === "off" ? null : asking;
   const keys = offered.filter((each) => each.where === "keys");
   const local = offered.filter((each) => each.where === "local");
+  const elsewhere = offered.flatMap((each) =>
+    typeof each.where === "object" ? [{ host: each.where.host, choice: each }] : [],
+  );
 
   return (
     <>
@@ -148,6 +157,11 @@ export function DocumentSearchRows({
                   done: rebuild.done,
                   total: rebuild.total,
                 })}
+              </span>
+            )}
+            {rebuild?.reason === "key-removed" && (
+              <span data-testid="embedding-rebuild-reason" className="block">
+                {t("embeddingProviders.rebuild.keyRemoved")}
               </span>
             )}
             {error && (
@@ -209,6 +223,11 @@ export function DocumentSearchRows({
                     ))}
                   </optgroup>
                 )}
+                {elsewhere.map(({ host, choice }) => (
+                  <optgroup key={host} label={host}>
+                    <option value={choice.value}>{choice.label}</option>
+                  </optgroup>
+                ))}
                 <optgroup label={t("ai.payer.local")}>
                   {local.map((each) => (
                     <option key={each.value} value={each.value}>
@@ -274,13 +293,17 @@ function RerankRow({
   const id = useId();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [settingUp, setSettingUp] = useState<RerankServiceKind | null>(null);
+  // A service already set up asks first too: its line says what goes before Use this sends it.
+  const [confirming, setConfirming] = useState<RerankServiceKind | null>(null);
   if (!rerank) return null;
   const service = rerank.kind && rerank.kind !== "built-in" ? rerank.kind : null;
   const value = settingUp
     ? `${SET_UP}${settingUp}`
-    : !rerank.enabled
-      ? OFF
-      : (rerank.kind ?? BUILT_IN);
+    : confirming
+      ? confirming
+      : !rerank.enabled
+        ? OFF
+        : (rerank.kind ?? BUILT_IN);
   const run = async (action: () => Promise<RerankSettings>) => {
     try {
       setRerank(await action());
@@ -295,6 +318,7 @@ function RerankRow({
   const offers = localOnly ? [] : SERVICES.filter((each) => !ready.includes(each));
   const close = () => {
     setSettingUp(null);
+    setConfirming(null);
     document.getElementById(id)?.focus();
   };
   const notices = rerank.enabled
@@ -320,6 +344,11 @@ function RerankRow({
           {rerank.enabled && rerank.kind === "built-in" && rerank.runsOn && (
             <span data-testid="rerank-runs-on" className="block">
               {t("rerank.settings.runsOn", { device: rerank.runsOn === "gpu" ? "GPU" : "CPU" })}
+            </span>
+          )}
+          {rerank.enabled && service && !confirming && (
+            <span data-testid="rerank-sent-to" className="block">
+              {t("rerank.settings.sentTo", { service: t(`rerank.kind.${service}`) })}
             </span>
           )}
         </>
@@ -349,12 +378,13 @@ function RerankRow({
                 return;
               }
               setSettingUp(null);
+              setConfirming(null);
               if (next === OFF) void run(() => core.removeRerankSettings());
               else if (next === BUILT_IN)
                 void run(() => core.saveRerankSettings({ kind: "built-in" }));
               else {
                 const chosen = ready.find((each) => each === next);
-                if (chosen) void run(() => core.saveRerankSettings({ kind: chosen }));
+                if (chosen && chosen !== service) setConfirming(chosen);
               }
             }}
           >
@@ -386,7 +416,17 @@ function RerankRow({
         </>
       }
     >
-      {settingUp ? (
+      {confirming ? (
+        <RerankConfirm
+          kind={confirming}
+          onUse={() => {
+            const kind = confirming;
+            close();
+            void run(() => core.saveRerankSettings({ kind }));
+          }}
+          onCancel={close}
+        />
+      ) : settingUp ? (
         <RerankKeyForm
           kind={settingUp}
           current={rerank}
@@ -408,5 +448,58 @@ function RerankRow({
         )
       )}
     </SettingsRow>
+  );
+}
+
+/**
+ * Choosing a reranking service the User's account already reaches: what each search sends, and to
+ * whom, above Use this, which is the consent (ADR-0022). Esc or Cancel keeps what was chosen.
+ */
+function RerankConfirm({
+  kind,
+  onUse,
+  onCancel,
+}: {
+  kind: RerankServiceKind;
+  onUse(): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: Esc closes what the choice opened, as elsewhere in Settings.
+    <div
+      data-testid="rerank-confirm"
+      className="flex flex-col gap-2"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }}
+    >
+      <p data-testid="rerank-confirm-sends" className="text-[12px] leading-5 text-ink-meta">
+        {t("rerank.settings.sends", { service: t(`rerank.kind.${kind}`) })}
+      </p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          data-testid="rerank-confirm-use"
+          // biome-ignore lint/a11y/noAutofocus: the choice was just made; Use this is its next step.
+          autoFocus
+          onClick={onUse}
+          className={buttonStyle("primary", "sm")}
+        >
+          {t("setup.step.useThis")}
+        </button>
+        <button
+          type="button"
+          data-testid="rerank-confirm-cancel"
+          onClick={onCancel}
+          className="text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
+        >
+          {t("library.cancel")}
+        </button>
+      </div>
+    </div>
   );
 }

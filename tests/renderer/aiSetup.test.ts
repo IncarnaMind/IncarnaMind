@@ -230,6 +230,16 @@ describe("Accounts and keys: what each row is used for (#2835)", () => {
     expect(uses.has("rerank:cohere")).toBe(false);
   });
 
+  // protects=an Ollama on another computer is never credited to this computer's Ollama row; fails_when=a remote search reads as local; no_claim=how the remote server is named.
+  test("search on an Ollama at another address isn't this computer's Ollama row", () => {
+    const remote = { ...embeddingOf("ollama"), baseUrl: "http://192.168.1.20:11434" };
+    const uses = accountUses({ ...none, embedding: remote });
+    expect(uses.has(`provider:${ollama.id}`)).toBe(false);
+    expect(
+      accountUses({ ...none, embedding: embeddingOf("ollama") }).get(`provider:${ollama.id}`),
+    ).toEqual(["search"]);
+  });
+
   test("a search key kept from before, with no account of that company, keeps a row of its own", () => {
     const uses = accountUses({ ...none, providers: [plan], embedding: embeddingOf("openai") });
     expect(uses.get("search:openai")).toEqual(["search"]);

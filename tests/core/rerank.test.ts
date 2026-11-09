@@ -117,6 +117,30 @@ describe("One key per company (#2835)", { timeout: 30_000 }, () => {
     });
     expect([...keychain.secrets.keys()].some((name) => name.startsWith("rerank"))).toBe(false);
   });
+
+  // protects=removing the Cohere account's last key sends reranking on it back to the built-in model, and an older reranking key that differs from the account's is named until the User gives it up; fails_when=reranking stays on Cohere with no key, a later key resumes it, or the older key stays used after Use this account's key; no_claim=the order either model gives.
+  test("Cohere's account removed: back to the built-in model; an older key is named until given up", async () => {
+    const { core, rerankers, ask } = await setUp();
+    const cohere = {
+      kind: "openai-compatible",
+      catalogId: "cohere",
+      apiKey: "cohere-account-key",
+      modelId: "command-a-03-2025",
+      keepDefault: true,
+    } as const;
+    const account = await core.saveChatProvider(cohere);
+    await core.saveRerankSettings({ kind: "cohere", apiKey: "cohere-older-key" });
+    expect(await core.getOlderKeys()).toEqual(["rerank"]);
+    await core.switchToAccountKey("rerank");
+    expect(await core.getOlderKeys()).toEqual([]);
+    await ask();
+    expect(rerankers.calls.at(-1)?.spec).toMatchObject({ apiKey: "cohere-account-key" });
+
+    await core.deleteChatProvider(account.id);
+    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in" });
+    await core.saveChatProvider(cohere);
+    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in" });
+  });
 });
 
 describe("Rerank", { timeout: 30_000 }, () => {

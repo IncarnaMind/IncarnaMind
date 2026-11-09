@@ -116,7 +116,7 @@ export function TranscriptionRouteSelect({
       {grouped ? (
         <>
           {offered.some((each) => each !== "local") && (
-            <optgroup label={t("ai.payer.keys")}>
+            <optgroup label={t("ai.jobs.transcription.cloud")}>
               {offered
                 .filter((each) => each !== "local")
                 .map((each) => (

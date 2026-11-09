@@ -284,11 +284,14 @@ function OrganizeOptions({
     }
   };
   const resolved = option && !option.unresolved ? option : null;
+  // In Local mode nothing goes to a cloud model, so the line says that rather than where it would.
   const sends = !resolved
     ? null
-    : resolved.provider
-      ? t("setup.sorting.sendsWhenOn", { service: resolved.provider })
-      : t("tagging.automatic.local");
+    : !resolved.provider
+      ? t("tagging.automatic.local")
+      : models?.localMode
+        ? t("tagging.localMode")
+        : t("setup.sorting.sendsWhenOn", { service: resolved.provider });
   const stopped = stoppedPlaces(library);
   return (
     <>

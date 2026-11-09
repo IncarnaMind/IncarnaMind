@@ -2788,12 +2788,14 @@ export const en = {
   "embeddingProviders.rebuild.title": "Reading Documents for search: {done} of {total}",
   "embeddingProviders.rebuild.localMode":
     "Search uses the built-in model: “Keep everything on this computer” is on.",
+  "embeddingProviders.rebuild.keyRemoved": "Uses the built-in model now: its key was removed.",
   "embeddingProviders.rebuild.note":
     "Search finds passages by their words until each Document is done.",
   "embeddingProviders.error.notice": "Search can’t use {provider}. {reason}",
 
   "rerank.settings.title": "Best results first",
-  "rerank.settings.body": "Puts the most relevant passages first.",
+  "rerank.settings.body": "Puts the most relevant passages first",
+  "rerank.settings.sentTo": "Sent to {service}",
   "rerank.settings.sends":
     "Each search and the passages it found, each with its Document’s name, are sent to {service}.",
   "rerank.settings.runsOn": "On this computer · {device}",
@@ -3836,7 +3838,8 @@ export const en = {
     "This computer may not keep up live; a cloud service keeps live text smooth.",
   "meetings.route.slowNoKey": "Live text may fall behind on this computer.",
   "meetings.route.settingsLink": "Settings › AI",
-  "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
+  "meetings.route.consent":
+    "Once you choose a cloud service, it gets the meeting’s audio while you record.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
   "meetings.route.chooseAgain":
     "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
@@ -3903,9 +3906,13 @@ export const en = {
   "ai.jobs.search.server": "Another server…",
   "ai.jobs.web": "Search the web in Answers",
   "ai.jobs.web.line": "With the Answers model’s own search",
-  "ai.jobs.foot": "Chosen only here. The composer can change one note’s model.",
   "ai.payer.plan": "Included in your {plan}",
   "ai.payer.keys": "Your keys · billed to the key",
+  "ai.jobs.transcription.cloud": "Your keys · gets the meeting’s audio while you record",
+  "ai.accounts.olderKey.embeddings": "Document search uses an older key",
+  "ai.accounts.olderKey.embeddings.refused": "Document search’s older key was refused",
+  "ai.accounts.olderKey.rerank": "Best results first uses an older key",
+  "ai.accounts.useAccountKey": "Use this account’s key",
   "ai.payer.local": "On this computer · free",
   "ai.organize.automatic": "Sort and tag new Documents as they arrive",
   "ai.organize.automatic.line": "What it proposes waits for you to confirm",
@@ -4472,7 +4479,8 @@ export const en = {
   "cost.estimate.tokens": "{tokens} tokens",
   "cost.estimate.month": "{spent} of {cap} used this month",
   "cost.cap.title": "Monthly spending cap",
-  "cost.cap.tip": "Pay-per-use models stop at this cap. Plans keep their own limits.",
+  "cost.cap.tip":
+    "Counts what chat models on your keys spend: Answers and writing, quick tasks, reading images, and Organize and Tags on a chat model. Meeting transcription, Document search and Best results first aren’t counted. Plans keep their own limits.",
   "cost.cap.spent": "Spent this month: {spent} on your keys.",
   "cost.cap.spentOf": "Spent this month: {spent} of {cap} on your keys.",
   "cost.cap.nothing": "Nothing spent on your keys this month.",

@@ -523,9 +523,14 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
         ),
       )
       .toEqual(["Soniox", "On this computer"]);
-    // Choosing a cloud route is the consent, so its line is on screen first, and nothing is chosen.
+    // Choosing a cloud route is the consent, so its group says what goes before it is chosen,
+    // and nothing is chosen yet.
+    await expect(route.locator("optgroup").first()).toHaveAttribute(
+      "label",
+      "Your keys · gets the meeting’s audio while you record",
+    );
     const consent = settings.getByTestId("meetings-route-consent");
-    await expect(consent).toHaveText("A cloud service gets the meeting’s audio while you record.");
+    await expect(consent).toHaveCount(0);
     expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
 
     await route.selectOption("soniox");

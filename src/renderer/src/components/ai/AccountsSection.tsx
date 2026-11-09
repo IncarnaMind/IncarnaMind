@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, Fragment, useEffect, useMemo, useState } from "react";
 import type {
   ChatModelGroup,
   ChatProvider,
   DecisionHostStatus,
   JevSettings,
+  OlderKeyJob,
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
@@ -154,6 +155,8 @@ export function AccountsSection({
   onHosts,
   onJev,
   onRerank,
+  olderKeys,
+  onUseAccountKey,
   onOpen,
   onAdd,
 }: {
@@ -167,6 +170,9 @@ export function AccountsSection({
   onHosts(hosts: DecisionHostStatus[]): void;
   onJev(jev: JevSettings): void;
   onRerank(rerank: RerankSettings): void;
+  /** The jobs that still send with a key typed for them before keys were one per company. */
+  olderKeys: readonly OlderKeyJob[];
+  onUseAccountKey(job: OlderKeyJob): void;
   onOpen(provider: ChatProvider): void;
   onAdd(): void;
 }) {
@@ -210,18 +216,31 @@ export function AccountsSection({
     rerank?.kind && rerank.kind !== "built-in" && usesOf(`rerank:${rerank.kind}`).length > 0
       ? rerank.kind
       : null;
-  const providerRow = (provider: ChatProvider) => (
-    <ProviderRow
-      key={provider.id}
-      provider={provider}
-      providers={providers}
-      groups={groups}
-      jobs={usesOf(`provider:${provider.id}`)}
-      line={line}
-      running={ollamaRunning[provider.id]}
-      onOpen={() => onOpen(provider)}
-    />
-  );
+  const providerRow = (provider: ChatProvider) => {
+    const jobs = usesOf(`provider:${provider.id}`);
+    const older = olderKeys.filter(
+      (job) =>
+        (job === "embeddings" && jobs.includes("search")) ||
+        (job === "rerank" && jobs.includes("rerank")),
+    );
+    return (
+      <Fragment key={provider.id}>
+        <ProviderRow
+          provider={provider}
+          providers={providers}
+          groups={groups}
+          jobs={jobs}
+          line={line}
+          running={ollamaRunning[provider.id]}
+          olderSearchKey={older.includes("embeddings")}
+          onOpen={() => onOpen(provider)}
+        />
+        {older.map((job) => (
+          <OlderKeyRow key={job} job={job} onUseAccountKey={() => onUseAccountKey(job)} />
+        ))}
+      </Fragment>
+    );
+  };
   return (
     <SettingsSection title={t("ai.accounts.title")} testId="your-providers">
       <SettingsGroup role="list">
@@ -254,7 +273,8 @@ export function AccountsSection({
             onHosts={onHosts}
           />
         ))}
-        {jev?.enabled && jev.hasApiKey && (
+        {/* A hosted Jev whose key this computer can't read still has its row, to remove it. */}
+        {jev?.enabled && (jev.hasApiKey || jev.service !== null) && (
           <KeyRow
             testId="sorting-key"
             id="jev"
@@ -262,7 +282,10 @@ export function AccountsSection({
             logo={null}
             status={line(jev.service === null ? "local" : "key", usesOf("jev"), ["organize"])}
             state={
-              (jev.service !== null && paused) || { label: t("ai.state.keyWorks"), tone: "good" }
+              (jev.service !== null && paused) ||
+              (jev.hasApiKey
+                ? { label: t("ai.state.keyWorks"), tone: "good" }
+                : { label: t("ai.state.unreadable"), tone: "problem" })
             }
             change={t("models.providers.changeKey")}
             remove={t("models.providers.removeKey")}
@@ -343,6 +366,7 @@ function ProviderRow({
   jobs,
   line,
   running,
+  olderSearchKey,
   onOpen,
 }: {
   provider: ChatProvider;
@@ -351,6 +375,8 @@ function ProviderRow({
   jobs: readonly AccountJob[];
   line: ReturnType<typeof useUsesLine>;
   running: boolean | undefined;
+  /** Document search sends with an older key of its own, so its refusal isn't this key's. */
+  olderSearchKey: boolean;
   onOpen(): void;
 }) {
   const t = useT();
@@ -363,7 +389,7 @@ function ProviderRow({
     catalog && catalog.endpoints.length > 1
       ? endpointOf(catalog, provider.endpoint)?.label[language === "zh-CN" ? "zh" : "en"]
       : undefined;
-  const state = useProviderState(provider, running);
+  const state = useProviderState(provider, running, olderSearchKey);
   const plan = isPlan(provider);
   const where = plan ? "plan" : provider.service === null ? "local" : "key";
   const can = catalog ? jobsOf({ kind: "provider", provider: catalog }) : ["answers" as const];
@@ -407,7 +433,7 @@ function ProviderRow({
         </span>
       }
       detail={
-        <span data-testid="provider-row-status" className="block truncate" title={detail}>
+        <span data-testid="provider-row-status" className="block [overflow-wrap:anywhere]">
           {detail}
         </span>
       }
@@ -426,7 +452,11 @@ function ProviderRow({
  * Whether a saved provider works, as far as IncarnaMind knows without asking it: a plan signed in
  * or out, a key refused or out of credit by the last Answer it wrote, an Ollama server that answers.
  */
-function useProviderState(provider: ChatProvider, running: boolean | undefined): RowState | null {
+function useProviderState(
+  provider: ChatProvider,
+  running: boolean | undefined,
+  olderSearchKey: boolean,
+): RowState | null {
   const t = useT();
   const paused = usePaused();
   const failure = useModelHealth((state) => state.failures[provider.id]);
@@ -435,6 +465,7 @@ function useProviderState(provider: ChatProvider, running: boolean | undefined):
   const copilot = useCopilotStatus();
   const embeddingRefused = useAppStore(
     (state) =>
+      !olderSearchKey &&
       state.embedding?.error?.kind === "auth" &&
       (state.embedding.provider.kind === provider.catalogId ||
         state.embedding.provider.kind === provider.kind),
@@ -688,6 +719,48 @@ function BuiltInRow({ line }: { line: string }) {
         <span data-testid="built-in-row-status" className="block truncate" title={line}>
           {line}
         </span>
+      }
+    />
+  );
+}
+
+/**
+ * Under a company's row: a job that still sends with a key typed for it before keys were one per
+ * company, which the row's key isn't, and the way to give it up for the account's key.
+ */
+function OlderKeyRow({ job, onUseAccountKey }: { job: OlderKeyJob; onUseAccountKey(): void }) {
+  const t = useT();
+  const refused = useAppStore(
+    (state) => job === "embeddings" && state.embedding?.error?.kind === "auth",
+  );
+  return (
+    <SettingsRow
+      role="listitem"
+      data-testid="older-key-row"
+      data-job={job}
+      className="pl-6"
+      style={{ "--row-inset": "40px" } as CSSProperties}
+      label={undefined}
+      detail={
+        <span data-testid="older-key-line" className="block">
+          {t(
+            refused
+              ? "ai.accounts.olderKey.embeddings.refused"
+              : job === "embeddings"
+                ? "ai.accounts.olderKey.embeddings"
+                : "ai.accounts.olderKey.rerank",
+          )}
+        </span>
+      }
+      control={
+        <button
+          type="button"
+          data-testid="older-key-use-account"
+          onClick={onUseAccountKey}
+          className={buttonStyle("secondary", "sm")}
+        >
+          {t("ai.accounts.useAccountKey")}
+        </button>
       }
     />
   );

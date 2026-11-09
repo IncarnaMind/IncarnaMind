@@ -141,6 +141,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OlderKeyJob,
   type OpenAtLogin,
   type OrganizeStart,
   type OwnFileKind,
@@ -1311,6 +1312,14 @@ export function createCore(adapters: CoreAdapters): Core {
     if (!lifetime.signal.aborted) events.emit("rerank.changed", status);
     return status;
   };
+  // A key typed for search or reranking before keys were one per company (#2835) that is the
+  // account's key too changes nothing when it goes; one that differs stays, and its row says so.
+  void (async () => {
+    if ((await embedding.olderKey()) === "same") await embedding.forgetOlderKey();
+    if ((await rerank.olderKey()) === "same") await rerank.forgetOlderKey();
+  })().catch((error: unknown) => {
+    if (!lifetime.signal.aborted) console.error("Couldn't tidy the older search keys:", error);
+  });
   reportRerank = () => {
     if (!rerank.usesBuiltIn()) return;
     rerankChanged().catch((error: unknown) => {
@@ -4346,7 +4355,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return hosts;
   };
   /**
-   * Before a key, workspace or chat provider goes, sorting, and Organize's kept model, stop
+   * Before a key, workspace or chat provider goes, sorting stops
    * naming what it reached (#1907, #2693): back to Automatic, which starts no host and turns
    * nothing on. The app never picks another host in its place, so nothing goes anywhere the User
    * hasn't allowed.
@@ -6399,6 +6408,19 @@ export function createCore(adapters: CoreAdapters): Core {
       await rerank.remove();
       return rerankChanged();
     },
+    getOlderKeys: async () => {
+      const jobs: OlderKeyJob[] = [];
+      if ((await embedding.olderKey()) === "other") jobs.push("embeddings");
+      if ((await rerank.olderKey()) === "other") jobs.push("rerank");
+      return jobs;
+    },
+    switchToAccountKey: async (job) => {
+      if (job === "embeddings") await embedding.forgetOlderKey();
+      else if (job === "rerank") {
+        await rerank.forgetOlderKey();
+        await rerankChanged();
+      } else throw new InvalidInputError("switchToAccountKey expects embeddings or rerank.");
+    },
     testRerankConnection: (input) => loggingTest("rerank")(rerank.test(input)),
 
     listChatProviders: () => chat.list(),
@@ -6421,7 +6443,17 @@ export function createCore(adapters: CoreAdapters): Core {
           (classifier.kind === "decision" && riding.includes(classifier.host)) ||
           (classifier.kind === "chat" && classifier.choice.providerId === id),
       );
+      const gone = (await chat.list()).find((each) => each.id === id);
       await chat.delete(id);
+      // As sorting does: search and reranking on that company's account go back to built-in.
+      const company = gone ? (gone.catalogId ?? gone.kind) : null;
+      if (company) {
+        if (await embedding.accountGone(company)) await dataFlowsChanged();
+        if (await rerank.accountGone(company)) {
+          await rerankChanged();
+          await dataFlowsChanged();
+        }
+      }
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       else if (forgot) await taggingChanged();
       // A transcription route that used this provider's key has none now.

@@ -351,6 +351,37 @@ export function createRerank(options: {
       return status();
     },
 
+    /**
+     * The User's last key with a company went: its reranking service, with no key of reranking's
+     * own, goes back to the built-in model. Returns whether it went back.
+     */
+    async accountGone(kind: string): Promise<boolean> {
+      const saved = stored();
+      if (!saved || !isService(saved.kind) || saved.kind !== kind) return false;
+      if ((await keyOf(saved.kind, true)) !== null) return false;
+      settings.writeDeviceValue(SETTINGS_VALUE, {
+        kind: "built-in",
+        modelId: null,
+      } satisfies StoredRerank);
+      builtIn.retry();
+      return true;
+    },
+
+    /** As the embedding's: an older key typed for reranking itself, the same as the account's or not. */
+    async olderKey(): Promise<"same" | "other" | null> {
+      const saved = stored();
+      if (!saved || !isService(saved.kind)) return null;
+      const own = await secrets.tryGet(KEY_NAME);
+      const account = options.accountKey ? await options.accountKey(saved.kind) : null;
+      if (own === null || account === null) return null;
+      return own === account ? "same" : "other";
+    },
+
+    /** Forgets reranking's older key: the account's key is used from now on. */
+    async forgetOlderKey(): Promise<void> {
+      await secrets.delete(KEY_NAME);
+    },
+
     /** Forgets rerank on this device: its settings, then its key. The built-in model stops. */
     async remove(): Promise<RerankSettings> {
       settings.writeDeviceValue(SETTINGS_VALUE, null);

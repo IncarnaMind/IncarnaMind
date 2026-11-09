@@ -20,7 +20,6 @@ import type { useSorting } from "../providers/SortingChoice";
 import { providerLabel } from "../providers/shared";
 import {
   SettingsGroup,
-  SettingsHelp,
   SettingsRow,
   SettingsSection,
   SettingsSwitch,
@@ -95,10 +94,6 @@ export function JobsSection({
         />
         <WebSearchRow id={`${id}-web`} />
       </SettingsGroup>
-      <SettingsHelp className="flex flex-col gap-1">
-        <TranscriptionRouteConsent read={services} />
-        <p data-testid="ai-jobs-foot">{t("ai.jobs.foot")}</p>
-      </SettingsHelp>
     </SettingsSection>
   );
 }
@@ -165,6 +160,7 @@ const TRANSCRIPTION: readonly SettingsTarget[] = ["transcription"];
 function TranscriptionRow({ id, services }: { id: string; services: ServicesView }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   const setUp = useTranscriptionSetUp(id, services);
   const reached = useSettingsTarget<HTMLDivElement>(TRANSCRIPTION, true, () =>
     document.getElementById(id)?.focus(),
@@ -176,7 +172,15 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
       data-read-host
       label={t("ai.jobs.transcription")}
       htmlFor={id}
-      detail={t("ai.jobs.transcription.line")}
+      detail={
+        <>
+          <span className="block">{t("ai.jobs.transcription.line")}</span>
+          {/* Where the audio goes while a cloud service is chosen, or why the services can't be read. */}
+          {(route !== "local" || services.state === "failed") && (
+            <TranscriptionRouteConsent read={services} />
+          )}
+        </>
+      }
       control={
         <TranscriptionRouteSelect
           id={id}

@@ -113,12 +113,15 @@ export function OtherModelForm({
             value={where}
             onChange={(event) => setWhere(event.target.value)}
           >
-            {providers.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.service?.name ?? (provider.kind === "ollama" ? "Ollama" : provider.kind)}
-                {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
-              </option>
-            ))}
+            {providers
+              .filter((provider) => !localMode || provider.service === null)
+              .map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.service?.name ??
+                    (provider.kind === "ollama" ? "Ollama" : provider.kind)}
+                  {provider.baseUrl ? ` · ${provider.baseUrl}` : ""}
+                </option>
+              ))}
             {hosts.map((each) => (
               <option key={each.host} value={`decision:${each.host}`}>
                 {each.name[language === "zh-CN" ? "zh" : "en"]}

@@ -5731,12 +5731,16 @@ export type EmbeddingConnectionTestResult =
  * its Passages, but vector search doesn't: vectors from different models are
  * never compared. Turning embeddings off ends it: nothing is embedded.
  */
+/** A job with a key of its own from before keys were one per company (#2835). */
+export type OlderKeyJob = "embeddings" | "rerank";
+
 export interface EmbeddingRebuild {
   /**
    * "provider-changed": the User turned embeddings on, or chose another embedding model.
    * "local-mode": local mode switched a cloud provider back to the built-in model.
+   * "key-removed": the User removed the last key of the company whose model it was.
    */
-  reason: "provider-changed" | "local-mode";
+  reason: "provider-changed" | "local-mode" | "key-removed";
   /** Documents with Passages to search. */
   total: number;
   /** Of those, the ones whose Passages are all embedded with the current model. */
@@ -13192,6 +13196,14 @@ export interface CoreApi {
   /** Turns reranking off on this device and removes a service's key: search keeps its own order. The built-in model's files are kept. */
   removeRerankSettings(): Promise<RerankSettings>;
   /**
+   * The jobs that still send with a key typed for them before keys were one per company (#2835),
+   * where it isn't the account's key: Document search ("embeddings") and Best results first
+   * ("rerank").
+   */
+  getOlderKeys(): Promise<OlderKeyJob[]>;
+  /** Deletes `job`'s older key, so it uses the company's account key from now on. */
+  switchToAccountKey(job: OlderKeyJob): Promise<void>;
+  /**
    * Reranks two fixed texts against a fixed query, nothing of the User's,
    * with the given service settings or the saved ones. The "rerank" flow
    * needs consent first. Not for the built-in model.
@@ -14808,6 +14820,8 @@ const methods: Record<CoreApiMethod, true> = {
   downloadRerankingModel: true,
   saveRerankSettings: true,
   removeRerankSettings: true,
+  getOlderKeys: true,
+  switchToAccountKey: true,
   testRerankConnection: true,
   listChatProviders: true,
   saveChatProvider: true,

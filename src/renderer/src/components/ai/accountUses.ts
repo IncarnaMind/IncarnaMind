@@ -92,8 +92,13 @@ export function accountUses({
     choice && providers.some((each) => each.id === choice.providerId)
       ? `provider:${choice.providerId}`
       : null;
-  const ollama = () => {
-    const found = providers.find((each) => each.kind === "ollama");
+  // The Ollama at that address, when one is given: one on another computer is never this
+  // computer's row.
+  const ollama = (baseUrl?: string | null) => {
+    const found = providers.find(
+      (each) =>
+        each.kind === "ollama" && (baseUrl === undefined || (each.baseUrl ?? null) === baseUrl),
+    );
     return found ? (`provider:${found.id}` as const) : null;
   };
 
@@ -145,7 +150,7 @@ export function accountUses({
       add(accountRow(providers, embedding.kind) ?? `search:${embedding.kind}`, "search");
       break;
     case "ollama":
-      add(ollama(), "search");
+      add(ollama(embedding.baseUrl ?? null), "search");
       break;
   }
 

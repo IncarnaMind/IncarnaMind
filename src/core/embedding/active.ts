@@ -169,7 +169,7 @@ function parseStored(value: unknown): StoredProvider | null {
 }
 
 const isRebuildReason = (value: unknown): value is EmbeddingRebuild["reason"] =>
-  value === "provider-changed" || value === "local-mode";
+  value === "provider-changed" || value === "local-mode" || value === "key-removed";
 
 /** L2-normalised, as float32s. Throws for an empty or all-zero vector. */
 function normalised(vector: readonly number[]): Float32Array {
@@ -682,6 +682,42 @@ export function createActiveEmbedding(options: {
       await secrets.delete(KEY_NAME);
       switchTo(builtInModel, "local-mode");
       return true;
+    },
+
+    /**
+     * The User's last key with a company went: a model of that company's own API that has no key
+     * of its own goes back to the built-in model, so a key added later doesn't start sending on
+     * the old choice. Returns whether it went back.
+     */
+    async accountGone(kind: string): Promise<boolean> {
+      const provider = stored();
+      if (!enabled() || !provider || provider.kind !== kind || provider.baseUrl !== null) {
+        return false;
+      }
+      if ((await ownKey()) !== null || (await accountKeyOf(provider.kind)) !== null) return false;
+      settings.writeDeviceValue(PROVIDER_VALUE, null);
+      switchTo(builtInModel, "key-removed");
+      return true;
+    },
+
+    /**
+     * A key typed for the embedding model before keys were one per company (#2835): "same" when
+     * it is the account's key too, "other" when it differs, null when there is none or no account.
+     */
+    async olderKey(): Promise<"same" | "other" | null> {
+      const provider = stored();
+      const own = await ownKey();
+      if (!provider || own === null) return null;
+      const account = await accountKeyOf(provider.kind);
+      if (account === null) return null;
+      return account === own ? "same" : "other";
+    },
+
+    /** Forgets the older key of the embedding's own: the account's key is used from now on. */
+    async forgetOlderKey(): Promise<void> {
+      await secrets.delete(KEY_NAME);
+      if (error !== null) setError(null);
+      options.onChange();
     },
   };
 }

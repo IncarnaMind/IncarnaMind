@@ -535,3 +535,72 @@ test("Esc closes the add sheet and leaves Settings open", async () => {
   await openDirectoryEntry(settings, "plan:chatgpt");
   await expect(settings.getByTestId("ai-entry-page").getByTestId("chatgpt-settings")).toBeVisible();
 });
+
+// protects=choosing Cohere for Best results first on the User's Cohere account shows what each search sends, and to whom, before anything is chosen or allowed, and the row says where it sends once chosen; fails_when=the choice is saved or allowed with no line on screen, or the row reads as on this computer; no_claim=the order Cohere gives.
+test("Best results first on a Cohere account says what goes before Use this, then where it sends", async () => {
+  const window = await launch();
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "openai-compatible",
+      catalogId: "cohere",
+      apiKey: "cohere-a-made-up-key",
+      modelId: "command-a-03-2025",
+    });
+  });
+  const rerankKind = () =>
+    window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.getRerankSettings()).kind;
+    });
+  const settings = await openSettings(window, "ai");
+  const row = settings.getByTestId("rerank-settings");
+  const picker = row.getByTestId("rerank-choice");
+
+  await picker.selectOption("cohere");
+  const confirm = row.getByTestId("rerank-confirm");
+  await expect(confirm.getByTestId("rerank-confirm-sends")).toHaveText(
+    "Each search and the passages it found, each with its Document’s name, are sent to Cohere.",
+  );
+  expect(await rerankKind()).toBe("built-in");
+  await confirm.getByTestId("rerank-confirm-cancel").click();
+  await expect(confirm).toHaveCount(0);
+  await expect(picker).toHaveValue("built-in");
+  expect(await rerankKind()).toBe("built-in");
+
+  await picker.selectOption("cohere");
+  await row.getByTestId("rerank-confirm-use").click();
+  await expect.poll(rerankKind).toBe("cohere");
+  await expect(row.getByTestId("rerank-sent-to")).toHaveText("Sent to Cohere");
+  await setLanguage(window, "zh-CN");
+  await expect(row.getByTestId("rerank-sent-to")).toHaveText("发送到 Cohere");
+});
+
+// protects=a key typed for Document search before keys were one per company, which differs from the account's, is named under the company's row until the User gives it up for the account's key; fails_when=the older key is used with nothing saying so, or the button leaves it in use; no_claim=which key the company row shows.
+test("an older Document search key is named under its company's row, and the account's key replaces it", async () => {
+  const window = await launch();
+  await twoKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: "sk-proj-an-older-search-key",
+      modelId: "text-embedding-3-small",
+    });
+  });
+  const settings = await openSettings(window, "ai");
+  const older = settings.getByTestId("older-key-row");
+  await expect(older).toHaveAttribute("data-job", "embeddings");
+  await expect(older.getByTestId("older-key-line")).toHaveText("Document search uses an older key");
+  await setLanguage(window, "zh-CN");
+  await expect(older.getByTestId("older-key-line")).toHaveText("文档搜索使用之前的密钥");
+  await expect(older.getByTestId("older-key-use-account")).toHaveText("改用这个账户的密钥");
+  await setLanguage(window, "en");
+  await older.getByTestId("older-key-use-account").click();
+  await expect(older).toHaveCount(0);
+  const left = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return bridge.getOlderKeys();
+  });
+  expect(left).toEqual([]);
+});

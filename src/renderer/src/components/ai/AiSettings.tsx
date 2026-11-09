@@ -3,6 +3,7 @@ import type {
   ChatModelGroup,
   ChatProvider,
   DecisionHostStatus,
+  OlderKeyJob,
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
@@ -103,6 +104,15 @@ export function AiSettings() {
     }
   }, [readiness, refresh, loadModels]);
   useEffect(() => () => useKeyRefusals.getState().done(), []);
+  const embedding = useAppStore((state) => state.embedding);
+  const [olderKeys, setOlderKeys] = useState<OlderKeyJob[]>([]);
+  const readOlderKeys = useCallback(() => {
+    core.getOlderKeys().then(setOlderKeys, (failure: unknown) => {
+      console.error("Couldn't read which jobs use an older key:", failure);
+    });
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever a key may have changed.
+  useEffect(readOlderKeys, [readOlderKeys, providers, embedding?.provider, rerank]);
 
   // "Check the key" on a refused Answer: that provider's page, its key field focused.
   useEffect(() => {
@@ -287,6 +297,12 @@ export function AiSettings() {
             onHosts={setHosts}
             onJev={setJev}
             onRerank={setRerank}
+            olderKeys={olderKeys}
+            onUseAccountKey={(job) => {
+              core.switchToAccountKey(job).then(readOlderKeys, (failure: unknown) => {
+                useAppStore.getState().reportError(failure);
+              });
+            }}
             onOpen={(provider) =>
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }

@@ -401,6 +401,60 @@ describe("One key per company (#2835)", { timeout: 30_000 }, () => {
 
     expect(embeddings.calls.at(-1)?.spec.apiKey).toBe("sk-search-own");
   });
+
+  // protects=removing a company's last key sends Document search on its account back to the built-in model, saying why, so a key added later starts nothing; fails_when=search stays on the company, or a later key resumes it on the old choice; no_claim=how long the rebuild takes.
+  test("removing the account's last key sends search back to the built-in model", async () => {
+    const { core, embeddings } = await setUp();
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-account",
+      modelId: "gpt-6-luna",
+    });
+    const onOpenAi = rebuildFinished(core);
+    await core.saveEmbeddingProvider({ kind: "openai", modelId: "text-embedding-3-small" });
+    await onOpenAi;
+    const reasons: (string | undefined)[] = [];
+    core.on("embedding.changed", (settings) => reasons.push(settings.rebuild?.reason));
+
+    await core.deleteChatProvider(openai.id);
+
+    expect((await core.getEmbeddingSettings()).provider.kind).toBe("built-in");
+    expect(reasons).toContain("key-removed");
+    const sent = embeddings.calls.length;
+    await core.saveChatProvider({ kind: "openai", apiKey: "sk-again", modelId: "gpt-6-luna" });
+    await core.searchPassages("light", { mode: "vector" });
+    expect(embeddings.calls).toHaveLength(sent);
+    expect((await core.getEmbeddingSettings()).provider.kind).toBe("built-in");
+  });
+
+  // protects=an older search key that is the account's key too is deleted at start, and one that differs is named and can be given up for the account's; fails_when=a duplicate stays, a different one is used without a word, or Use this account's key leaves it; no_claim=the words Settings shows.
+  test("an older search key: deleted at start when it is the account's, named until given up when not", async () => {
+    const { core, keychain, start, embeddings } = await setUp();
+    await core.saveChatProvider({ kind: "openai", apiKey: "sk-same", modelId: "gpt-6-luna" });
+    const finished = rebuildFinished(core);
+    await core.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: "sk-same",
+      modelId: "text-embedding-3-small",
+    });
+    await finished;
+    expect(await core.getOlderKeys()).toEqual([]);
+    core.close();
+    const again = start();
+    await vi.waitFor(() => expect(keychain.secrets.has("embedding-provider:api-key")).toBe(false));
+    expect(await again.getOlderKeys()).toEqual([]);
+
+    await again.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: "sk-older",
+      modelId: "text-embedding-3-small",
+    });
+    expect(await again.getOlderKeys()).toEqual(["embeddings"]);
+    await again.switchToAccountKey("embeddings");
+    expect(await again.getOlderKeys()).toEqual([]);
+    await again.searchPassages("light", { mode: "vector" });
+    expect(embeddings.calls.at(-1)?.spec.apiKey).toBe("sk-same");
+  });
 });
 
 describe("Consent for cloud embeddings", { timeout: 30_000 }, () => {

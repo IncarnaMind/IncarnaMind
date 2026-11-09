@@ -228,12 +228,12 @@ for (const [language, width] of [
         ? {
             state: "Finds passages by meaning · 135 MB, on this computer",
             turnOn: "Turn on…",
-            rerank: "Puts the most relevant passages first.",
+            rerank: "Puts the most relevant passages first",
           }
         : {
             state: "按含义查找段落 · 135 MB，在这台电脑上",
             turnOn: "开启…",
-            rerank: "把最相关的段落排在前面。",
+            rerank: "把最相关的段落排在前面",
           };
     const row = settings.getByTestId("ai-document-search");
     await expect(row.getByTestId("embedding-state")).toHaveText(words.state);

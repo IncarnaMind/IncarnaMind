@@ -80,7 +80,11 @@ export function KeyRow({
         </span>
       }
       detail={
-        <span data-testid={`${testId}-status`} className="block truncate" title={status}>
+        <span
+          data-testid={`${testId}-status`}
+          className="block [overflow-wrap:anywhere]"
+          title={status}
+        >
           {status}
         </span>
       }
