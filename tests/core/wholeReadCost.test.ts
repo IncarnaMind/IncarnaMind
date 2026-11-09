@@ -307,7 +307,7 @@ describe("A whole read held to the most it may spend", () => {
         generate(call) {
           const reply = checkGenerate(plans)(call);
           // The first sentence's parts are sorted after its Run: that request spends the budget.
-          if (!spend || !call.system.startsWith("You sort the sentences") || !("text" in reply)) {
+          if (!spend || call.question !== "find-claims" || !("text" in reply)) {
             return reply;
           }
           spend = false;
@@ -448,7 +448,7 @@ describe("What is left of a read its budget stopped", () => {
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You sort the sentences")) return checkGenerate(plans)(call);
+          if (call.question !== "find-claims") return checkGenerate(plans)(call);
           const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
             number,
             parts: (said === SENTENCE ? PARTS : [said]).map((words) => ({
@@ -692,7 +692,7 @@ describe("What is left of a read its budget stopped", () => {
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You sort the sentences")) return checkGenerate(both)(call);
+          if (call.question !== "find-claims") return checkGenerate(both)(call);
           const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
             number,
             parts: (said === TWO ? [OPEN, REFUSED] : [said]).map((words) => ({

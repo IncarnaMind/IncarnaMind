@@ -218,7 +218,7 @@ function writingModel(
     },
     {
       generate: (call: GenerateCall) => {
-        if (call.system.startsWith("You sort the sentences")) {
+        if (call.question === "find-claims") {
           const listed = listedSentences(call.prompt);
           sent.push(...listed.map((each) => each.text));
           return {
@@ -1419,7 +1419,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       null,
       (sentence) =>
         sentence.includes(claim)
-          ? { remainder: { text: claim, verdict: "unsupported" } }
+          ? { verdict: "unsupported", remainder: { text: claim, verdict: "unsupported" } }
           : undefined,
     );
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });

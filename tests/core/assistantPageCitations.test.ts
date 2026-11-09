@@ -10,6 +10,7 @@ import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpe
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, shownWithChanges } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -59,22 +60,26 @@ async function setUp(model: MockLanguageModelV4) {
 
 /** A model that searches, then calls `create_mind` and `cite` in one step, in the order `order` gives. */
 function oneStep(order: "cite-first" | "write-first") {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, {});
-    const { results } = call;
-    const search = results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-    if (results.some((result) => result.tool === "create_mind")) return { text: REPORT };
-    const [passage] = shownPassages(search.text);
-    const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
-    const cite = { tool: "cite", input: { citations: [record] } };
-    const write = {
-      tool: "create_mind",
-      input: { title: "Tide notes", content: CONTENT },
-      streamInput: true,
-    };
-    return { calls: order === "cite-first" ? [cite, write] : [write, cite] };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const { results } = call;
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      if (results.some((result) => result.tool === "create_mind")) return { text: REPORT };
+      const [passage] = shownPassages(search.text);
+      const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+      const cite = { tool: "cite", input: { citations: [record] } };
+      const write = {
+        tool: "create_mind",
+        input: { title: "Tide notes", content: CONTENT },
+        streamInput: true,
+      };
+      return { calls: order === "cite-first" ? [cite, write] : [write, cite] };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, () => {
@@ -115,28 +120,31 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     const LONGER =
       "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";
     let turn = 0;
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      const { results, prompt } = call;
-      const second = prompt.includes("make it longer");
-      const search = results.find((result) => result.tool === "search_documents");
-      if (!search)
-        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-      if (results.some((result) => result.tool === (second ? "edit_mind" : "create_mind"))) {
-        return { text: second ? "It says more now." : REPORT };
-      }
-      turn++;
-      const [passage] = shownPassages(search.text);
-      const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
-      const cite = { tool: "cite", input: { citations: [record] } };
-      const write = second
-        ? {
-            tool: "edit_mind",
-            input: { mind: "Tide notes", part: "Tides", content: LONGER },
-          }
-        : { tool: "create_mind", input: { title: "Tide notes", content: CONTENT } };
-      return { calls: order === "cite-first" ? [cite, write] : [write, cite] };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const { results, prompt } = call;
+        const second = prompt.includes("make it longer");
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        if (results.some((result) => result.tool === (second ? "edit_mind" : "create_mind"))) {
+          return { text: second ? "It says more now." : REPORT };
+        }
+        turn++;
+        const [passage] = shownPassages(search.text);
+        const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+        const cite = { tool: "cite", input: { citations: [record] } };
+        const write = second
+          ? {
+              tool: "edit_mind",
+              input: { mind: "Tide notes", part: "Tides", content: LONGER },
+            }
+          : { tool: "create_mind", input: { title: "Tide notes", content: CONTENT } };
+        return { calls: order === "cite-first" ? [cite, write] : [write, cite] };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, scope } = await setUp(model);
     const first = await askAssistant(core, {
       text: "Summarise these Documents into a new note",
@@ -171,34 +179,37 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
   test("a revision written before its cite, in the step after, is checked once its Citation goes in", async () => {
     const LONGER =
       "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between them.";
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      const { results, prompt } = call;
-      const second = prompt.includes("make it longer");
-      const search = results.find((result) => result.tool === "search_documents");
-      if (!search)
-        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-      const [passage] = shownPassages(search.text);
-      const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
-      const cite = { tool: "cite", input: { citations: [record] } };
-      const cited = results.some((result) => result.tool === "cite");
-      if (!second) {
-        if (!cited) return { calls: [cite] };
-        if (!results.some((result) => result.tool === "create_mind"))
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const { results, prompt } = call;
+        const second = prompt.includes("make it longer");
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        const [passage] = shownPassages(search.text);
+        const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+        const cite = { tool: "cite", input: { citations: [record] } };
+        const cited = results.some((result) => result.tool === "cite");
+        if (!second) {
+          if (!cited) return { calls: [cite] };
+          if (!results.some((result) => result.tool === "create_mind"))
+            return {
+              calls: [{ tool: "create_mind", input: { title: "Tide notes", content: CONTENT } }],
+            };
+          return { text: REPORT };
+        }
+        if (!results.some((result) => result.tool === "edit_mind"))
           return {
-            calls: [{ tool: "create_mind", input: { title: "Tide notes", content: CONTENT } }],
+            calls: [
+              { tool: "edit_mind", input: { mind: "Tide notes", part: "Tides", content: LONGER } },
+            ],
           };
-        return { text: REPORT };
-      }
-      if (!results.some((result) => result.tool === "edit_mind"))
-        return {
-          calls: [
-            { tool: "edit_mind", input: { mind: "Tide notes", part: "Tides", content: LONGER } },
-          ],
-        };
-      if (!cited) return { calls: [cite] };
-      return { text: "It says more now." };
-    });
+        if (!cited) return { calls: [cite] };
+        return { text: "It says more now." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, scope } = await setUp(model);
     const first = await askAssistant(core, {
       text: "Summarise these Documents into a new note",

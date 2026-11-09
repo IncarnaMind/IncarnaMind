@@ -863,6 +863,19 @@ export function ClaimCard({
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
+  // A figure written as bare digits names the unit its Document states, which it was read in (#2864).
+  const statedUnits =
+    state === "supported"
+      ? (check.figures ?? []).flatMap(({ id, state: figureState, statedUnit, reading }) =>
+          figureState === "supported" && statedUnit
+            ? [
+                <p key={id} data-testid="claim-stated-unit" className="citation-card-note">
+                  {t("figures.card.statedUnit", { figure: reading.chars, unit: statedUnit })}
+                </p>,
+              ]
+            : [],
+        )
+      : [];
   const figureSources = mismatched.map((figure) => {
     const cited = figure.sourceInput?.citation;
     const at = cited ? citationLocation(cited) : null;
@@ -957,6 +970,7 @@ export function ClaimCard({
             )}
           </div>
           {figureSources}
+          {statedUnits}
           <ChangedCitations cited={cited} />
           <ClaimPartRows
             editor={editor}
@@ -1009,6 +1023,7 @@ export function ClaimCard({
               </p>
             )}
             {figureSources}
+            {statedUnits}
             {sole && <CorrectionConflict correction={sole.correction} />}
             {differs && (
               <p data-testid="claim-differs" className="claim-card-says">

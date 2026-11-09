@@ -176,7 +176,7 @@ describe("Verify a document", () => {
     const model = scriptedModel((call) => checkReply(call, PLANS), {
       generate: (call) => {
         const reply = checkGenerate(PLANS)(call);
-        if (!call.system.startsWith("You sort the sentences") || !("text" in reply)) return reply;
+        if (call.question !== "find-claims" || !("text" in reply)) return reply;
         sorts.push(call.prompt);
         const decisions = JSON.parse(reply.text) as { sentences: { number: number }[] };
         const missing = new Set(

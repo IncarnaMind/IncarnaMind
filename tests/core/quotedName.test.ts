@@ -6,7 +6,6 @@
  */
 import { describe, expect, test } from "vitest";
 import { outcomeOf } from "../../eval/lib/citations";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { parseQuotedWords } from "../../src/shared/citations";
 import {
   answerEnded,
@@ -18,7 +17,7 @@ import {
   type SourceFile,
   setUpWithDocuments,
 } from "../helpers/citations";
-import { promptText } from "../helpers/models";
+import { promptText, questionOf } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 interface Case {
@@ -320,11 +319,7 @@ async function judgedCitation(language: Language, which: "whole" | "part", quote
   const [citation] = answer?.kind === "answer" ? answer.citations : [];
   if (!citation) throw new Error("No Citation.");
   const judged = model.doGenerateCalls
-    .filter((call) =>
-      call.prompt.some(
-        (message) => message.role === "system" && message.content === SENTENCE_BATCH_INSTRUCTIONS,
-      ),
-    )
+    .filter((call) => questionOf(call) === "sentence-batch")
     .map((call) => promptText(call.prompt))
     .join("\n");
   const pages = [{ page: 1, text: text.page.join("\n") }];

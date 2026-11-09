@@ -36,12 +36,13 @@
  * Question, a greeting or a question back doesn't pay for it. In the Tool
  * loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
-import { jsonSchema, Output, streamText } from "ai";
+import { jsonSchema } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
+import { fieldsOf, judge, list, structured } from "./judge";
 import {
   answerTableUnits,
   likeness,
@@ -49,8 +50,7 @@ import {
   withMissingMarkers,
   wordsOf,
 } from "./markerPlacement";
-import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
-import { replyJson } from "./quoteRetry";
+import { CITE_RETRY_INSTRUCTIONS, citeRetryParts, citeRetryPrompt, RETRY_TAGS } from "./prompt";
 import { smallCallModel } from "./smallCalls";
 import type { WindowBudget } from "./window";
 
@@ -439,6 +439,11 @@ const askedSchema = jsonSchema<{ citations: unknown }>({
   required: ["citations"],
 });
 
+/** The one request's reply, in structured output: its list of Citations, each item whole. */
+export const CITED_REPLY = structured(askedSchema, "citations", (value) =>
+  fieldsOf(value, { citations: list }) ? parseAsked(value) : null,
+);
+
 /** The Passages the one request holds: within the window's room when there is one. */
 function passagesToAsk(
   answer: string,
@@ -476,34 +481,33 @@ async function askForCitations(
   temperature: number | undefined,
 ): Promise<Omit<Match, "marker">[]> {
   const { signal } = request;
-  let raw = "";
+  let small: Awaited<ReturnType<typeof smallCallModel>>;
   try {
-    const small = await smallCallModel(request, temperature);
-    const result = streamText({
-      model: small.model,
-      instructions: CITE_RETRY_INSTRUCTIONS,
-      prompt: citeRetryPrompt(answer, passages),
-      temperature: small.temperature,
-      maxOutputTokens: outputTokens("unmarked-quotes", markedUnits(answer).length),
-      output: Output.object({ schema: askedSchema, name: "citations" }),
-      // One request, never more.
-      maxRetries: 0,
-      abortSignal: signal,
-      onError: () => undefined,
-    });
-    for await (const part of result.fullStream) {
-      if (signal.aborted || part.type === "abort") return [];
-      if (part.type === "text-delta") raw += part.text;
-      else if (part.type === "error") throw part.error;
-    }
+    small = await smallCallModel(request, temperature);
   } catch (error) {
-    if (signal.aborted) return [];
-    console.error(
-      `The Answer's Citations couldn't be asked for: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    if (!signal.aborted) {
+      console.error(
+        `The Answer's Citations couldn't be asked for: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     return [];
   }
-  return parseAsked(await replyJson(raw));
+  const judged = await judge({
+    model: small.model,
+    question: { id: "unmarked-quotes", instructions: CITE_RETRY_INSTRUCTIONS },
+    parts: citeRetryParts(answer, passages),
+    data: RETRY_TAGS,
+    reply: CITED_REPLY,
+    items: markedUnits(answer).length,
+    // One request, never more.
+    retries: 0,
+    signal,
+    temperature: small.temperature,
+    stream: true,
+  });
+  if (!judged.ok && judged.error)
+    console.error(`The Answer's Citations couldn't be asked for: ${judged.error.message}`);
+  return judged.ok ? judged.value : [];
 }
 
 /**

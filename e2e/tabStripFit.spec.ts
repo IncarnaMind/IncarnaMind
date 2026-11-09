@@ -513,9 +513,11 @@ for (const language of LANGUAGES) {
     expect(fit.step).toBe("cut");
     await window.keyboard.press("ControlOrMeta+Alt+Backslash");
     await expect(window.getByTestId("tab-group")).toHaveCount(3);
-    // Back to two groups, through the third's own menu.
-    await window.getByTestId("group-menu").last().click();
-    await window.getByTestId("tab-menu-close-group").click();
+    // Back to two groups, through the pane's ⋯, which its page's menu holds (#2868).
+    // The new pane is the last, and alone in its group, so its page's ⋯ holds the group's items.
+    await pointAndClick(window, window.locator('[data-testid="page-menu"]:visible').last());
+    const closeGroup = window.locator('[data-testid="page-actions"]:visible');
+    await closeGroup.getByTestId("tab-menu-close-group").click();
     await expect(window.getByTestId("tab-group")).toHaveCount(2);
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();

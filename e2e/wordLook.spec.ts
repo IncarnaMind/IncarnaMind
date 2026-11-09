@@ -68,12 +68,9 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-contract.png") });
   }
 
-  // Look is the Note's, beside Style in its ⋯ menu; the group's ⋯ is about the group.
-  await pointAndClick(window, window.getByTestId("group-menu"));
-  await expect(window.getByTestId("group-menu-items").getByRole("menuitem").first()).toBeVisible();
-  await expect(window.getByTestId("look-word")).toHaveCount(0);
-  await window.keyboard.press("Escape");
   const menu = await openPageMenu(window);
+  // The Note's group has no ⋯ of its own: the page's takes the group's items (#2868).
+  await expect(menu.getByTestId("tab-menu-split")).toBeVisible();
   const style = menu.getByTestId("page-style");
   const word = menu.getByTestId("look-word");
   await expect(word).toHaveAttribute("aria-checked", "true");
@@ -499,12 +496,6 @@ test("a Mind written in the app, beside a Word Mind, keeps the app's look and ha
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-beside-native.png") });
   }
 
-  await pointAndClick(window, second.getByTestId("group-menu"));
-  const groupMenu = second.getByTestId("group-menu-items");
-  await expect(groupMenu.getByRole("menuitem").first()).toBeVisible();
-  await expect(window.getByTestId("look-word")).toHaveCount(0);
-  await window.keyboard.press("Escape");
-  await expect(groupMenu).toBeHidden();
   const nativeTab = second.getByRole("tab", { selected: true });
   await pointAndClick(window, nativeTab, { button: "right" });
   const nativeMenu = nativeTab.getByTestId("tab-actions");

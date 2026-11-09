@@ -22,7 +22,7 @@ import {
 } from "../helpers/citations";
 import { editingModel, wholeParagraph } from "../helpers/editing";
 import { resolveChanges, writeMind } from "../helpers/minds";
-import { scriptedModel } from "../helpers/models";
+import { judgesNothing, scriptedModel } from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { para, pptxOf, sp } from "../helpers/pptx";
@@ -150,32 +150,36 @@ for (const language of ["en", "zh-CN"] as const) {
   }
   test(`one ambiguity request lets the model give a uniquely placed quote, ${language}`, async () => {
     let repairs = 0;
-    const model = scriptedModel((call) => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      const search = call.results.find((result) => result.tool === "search_documents");
-      if (!search) return { calls: [{ tool: "search_documents", input: { query: "Revisions" } }] };
-      const cited = call.results.filter((result) => result.tool === "cite");
-      const passage = shownPassages(search.text)[0]?.id;
-      if (cited.length === 0)
-        return {
-          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: row }] } }],
-        };
-      if (
-        cited.length === 1 &&
-        cited[0]?.text.includes("quote enough surrounding words to identify one place")
-      ) {
-        repairs++;
-        return {
-          calls: [
-            {
-              tool: "cite",
-              input: { citations: [{ marker: 1, passage, quote: `${current}\n${row}` }] },
-            },
-          ],
-        };
-      }
-      return { text: "The current row[^1]." };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const search = call.results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "Revisions" } }] };
+        const cited = call.results.filter((result) => result.tool === "cite");
+        const passage = shownPassages(search.text)[0]?.id;
+        if (cited.length === 0)
+          return {
+            calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: row }] } }],
+          };
+        if (
+          cited.length === 1 &&
+          cited[0]?.text.includes("quote enough surrounding words to identify one place")
+        ) {
+          repairs++;
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage, quote: `${current}\n${row}` }] },
+              },
+            ],
+          };
+        }
+        return { text: "The current row[^1]." };
+      },
+      { generate: judgesNothing },
+    );
     const { core } = await setUpWithDocuments(model, [
       { name: "Revisions.md", contents: `# Revisions\n\n${lines.join("\n\n")}` },
     ]);
@@ -712,25 +716,27 @@ for (const language of ["en", "zh-CN"] as const) {
 
 for (const passage of ["1", "P1 (p. 1)"]) {
   test(`a structured calculation keeps main's Passage naming: ${passage}`, async () => {
-    const model = scriptedModel((call) =>
-      call.tools.length > 0
-        ? { error: { status: 400, message: "This model does not support tools" } }
-        : {
-            text: JSON.stringify({
-              answer: "The amount is [=1].",
-              citations: [],
-              calculations: [
-                {
-                  marker: 1,
-                  label: "Revenue",
-                  formula: "r",
-                  inputs: [
-                    { name: "r", passage, location: "p. 1", quote: "Revenue 120", number: "120" },
-                  ],
-                },
-              ],
-            }),
-          },
+    const model = scriptedModel(
+      (call) =>
+        call.tools.length > 0
+          ? { error: { status: 400, message: "This model does not support tools" } }
+          : {
+              text: JSON.stringify({
+                answer: "The amount is [=1].",
+                citations: [],
+                calculations: [
+                  {
+                    marker: 1,
+                    label: "Revenue",
+                    formula: "r",
+                    inputs: [
+                      { name: "r", passage, location: "p. 1", quote: "Revenue 120", number: "120" },
+                    ],
+                  },
+                ],
+              }),
+            },
+      { generate: judgesNothing },
     );
     const { core } = await setUpWithDocuments(model, [
       { name: "Revenue.pdf", contents: buildPdf([{ lines: ["Revenue 120"] }]) },

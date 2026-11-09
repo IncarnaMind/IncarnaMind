@@ -15,7 +15,6 @@
  * Document in the check's scope also holds (an amendment, another edition), which today's check
  * searches for.
  */
-import { generateText } from "ai";
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { SCALES, TENS, UNITS } from "../../../shared/numberWords";
 import { normaliseText } from "../../../shared/text";
@@ -23,11 +22,12 @@ import type { UnitText } from "../../../shared/units";
 import type { Citation, CitationAttributes, ClaimCheckResult } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
+import type { PromptTag } from "../../promptData";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { inStep } from "../../timing/flows";
 import { answerTemperature } from "../engine";
+import { type JudgePart, judge, judgePrompt, lines } from "../judge";
 
 const NUMBER_WORDS = [...UNITS.keys(), ...TENS.keys(), ...SCALES.keys(), "hundred"];
 const ORDINALS =
@@ -81,25 +81,40 @@ export interface QuickCheck {
   quote: string;
 }
 
-const escaped = (text: string) =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+/** The quick look's tags: none of them may be opened or closed by what they hold (#2423). */
+const QUICK_TAGS: readonly PromptTag[] = ["heading", "paragraph", "sentence", "passage", "quote"];
 
-export function quickCheckPrompt(asked: QuickCheck): string {
+function quickCheckParts(asked: QuickCheck): JudgePart[] {
   return [
-    ...(asked.heading ? [`<heading>${escaped(asked.heading)}</heading>`] : []),
-    `<paragraph>${escaped(asked.paragraph)}</paragraph>`,
-    `<sentence>${escaped(asked.sentence)}</sentence>`,
-    `<document name="${escaped(asked.documentName).replaceAll('"', "&quot;")}">`,
-    `<passage>${escaped(asked.passage)}</passage>`,
-    `<quote>${escaped(asked.quote)}</quote>`,
-    "</document>",
+    ...(asked.heading
+      ? [{ tag: "heading" as const, text: asked.heading, inline: true as const }]
+      : []),
+    { tag: "paragraph", text: asked.paragraph, inline: true },
+    { tag: "sentence", text: asked.sentence, inline: true },
+    {
+      tag: "passage",
+      text: asked.passage,
+      attributes: { document: asked.documentName },
+      inline: true,
+    },
+    { tag: "quote", text: asked.quote, inline: true },
     "Does the quote, read in its Passage, state everything the sentence says? Reply yes or no.",
-  ].join("\n");
+  ];
 }
 
+export const quickCheckPrompt = (asked: QuickCheck): string =>
+  judgePrompt(quickCheckParts(asked), QUICK_TAGS);
+
+/** The quick model's word, yes or no, alone but for a stop after it. */
+export const QUICK_REPLY = lines((reply): "yes" | "no" | null => {
+  const said = /^(yes|no)[.!]?$/iu.exec(reply)?.[1]?.toLowerCase();
+  return said === "yes" || said === "no" ? said : null;
+});
+
 /**
- * The quick model's reply: "yes" only for a plain yes, "no" for any other reply, "failed" when
- * none came (a failure, or none within `signal`). Anything but "yes" goes to today's check.
+ * The quick model's reply: "yes" only for a plain yes; "no" for a plain no, or a reply that can't
+ * be read or declines; "failed" when none came (a failure, or none within `signal`). Anything but
+ * "yes" goes to today's check.
  */
 export async function quickLook(
   prepared: PreparedChatModel,
@@ -107,33 +122,33 @@ export async function quickLook(
   signal: AbortSignal,
 ): Promise<"yes" | "no" | "failed"> {
   // A reply that never comes, even once aborted, is given up on all the same.
-  const givenUp = new Promise<never>((_, reject) => {
-    const stop = () => reject(new Error("The quick model's first look took too long."));
+  const givenUp = new Promise<"failed">((resolve) => {
+    const stop = () => {
+      console.warn("The quick model's first look took too long, so its check reads the sentence.");
+      resolve("failed");
+    };
     if (signal.aborted) stop();
     else signal.addEventListener("abort", stop, { once: true });
   });
-  try {
-    const { text } = await Promise.race([
-      inStep("written-quick-check", () =>
-        generateText({
-          model: prepared.model,
-          instructions: QUICK_CHECK_INSTRUCTIONS,
-          prompt: quickCheckPrompt(asked),
-          temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: outputTokens("quick-check"),
-          maxRetries: 1,
-          abortSignal: signal,
-        }),
-      ),
-      givenUp,
-    ]);
-    return /^yes[.!]?$/iu.test(text.trim()) ? "yes" : "no";
-  } catch (error) {
+  const looked = inStep("written-quick-check", async () => {
+    const judged = await judge({
+      model: prepared.model,
+      question: { id: "quick-check", instructions: QUICK_CHECK_INSTRUCTIONS },
+      parts: quickCheckParts(asked),
+      data: QUICK_TAGS,
+      reply: QUICK_REPLY,
+      retries: 1,
+      signal,
+      temperature: answerTemperature(prepared.capabilities.facts.temperature),
+    });
+    if (judged.ok) return judged.value;
+    if (judged.reason === "unreadable" || judged.reason === "refused") return "no";
     console.warn(
-      `The quick model's first look at a written sentence failed, so its check reads it: ${error instanceof Error ? error.message : String(error)}`,
+      `The quick model's first look at a written sentence failed, so its check reads it: ${judged.error?.message ?? judged.reason}`,
     );
     return "failed";
-  }
+  });
+  return Promise.race([looked, givenUp]);
 }
 
 /** A Supported sentence's result from its own Citation, as today's check gives a one-fact sentence's. */

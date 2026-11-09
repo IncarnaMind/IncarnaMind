@@ -6,8 +6,18 @@
  */
 
 import { isRecord } from "../../../shared/record";
-import { asAttribute, asData, type PromptTag, tagged } from "../../promptData";
-import { replyJson } from "../quoteRetry";
+import type { PromptTag } from "../../promptData";
+import {
+  byKey,
+  fieldsOf,
+  type JudgePart,
+  judgePrompt,
+  list,
+  replyJson,
+  textOrNull,
+  whole,
+  word,
+} from "../judge";
 
 /** The most sentences one request judges. */
 export const BATCH_SENTENCES = 8;
@@ -61,20 +71,10 @@ export const SENTENCE_BATCH_INSTRUCTIONS = [
 ].join("\n");
 
 /** The batch's tags: none of them may be opened or closed by what they hold (#2423). */
-const BATCH_TAGS: readonly PromptTag[] = ["passage", "sentence"];
-
-const passageTag = (passage: BatchPassage, number: number) =>
-  tagged(
-    "passage",
-    passage.text,
-    ` id="P${number}" document="${asAttribute(passage.documentName, BATCH_TAGS)}"${
-      passage.location ? ` location="${asAttribute(passage.location, BATCH_TAGS)}"` : ""
-    }`,
-    BATCH_TAGS,
-  );
+export const BATCH_TAGS: readonly PromptTag[] = ["passage", "sentence"];
 
 /** A batch's request: its Passages, each once, then its sentences, numbered, with what each cites. */
-export function batchPrompt(sentences: readonly BatchSentence[]): string {
+export function batchParts(sentences: readonly BatchSentence[]): JudgePart[] {
   const passages = new Map<string, { passage: BatchPassage; number: number }>();
   for (const passage of sentences.flatMap((each) => each.passages)) {
     if (!passages.has(passage.passageId)) {
@@ -83,72 +83,64 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
   }
   return [
     "The Passages the sentences' Citations quote:",
-    ...[...passages.values()].map(({ passage, number }) => passageTag(passage, number)),
+    ...[...passages.values()].map(({ passage, number }) => ({
+      tag: "passage" as const,
+      text: passage.text,
+      attributes: {
+        id: `P${number}`,
+        document: passage.documentName,
+        ...(passage.location && { location: passage.location }),
+      },
+    })),
     "",
     "The sentences to check:",
-    ...sentences.flatMap((each, index) => [
-      tagged("sentence", each.sentence.trim(), ` number="${index + 1}"`, BATCH_TAGS),
+    ...sentences.flatMap((each, index): JudgePart[] => [
+      { tag: "sentence", text: each.sentence.trim(), attributes: { number: `${index + 1}` } },
       ...(each.context.trim() && each.context.trim() !== each.sentence.trim()
-        ? [asData(`Its paragraph: ${each.context.trim()}`, BATCH_TAGS)]
+        ? [{ text: `Its paragraph: ${each.context.trim()}` }]
         : []),
-      ...each.quotes.map((quote) =>
-        asData(`It cites ${quote.documentName}: “${quote.quote}”`, BATCH_TAGS),
-      ),
+      ...each.quotes.map((quote) => ({ text: `It cites ${quote.documentName}: “${quote.quote}”` })),
       "",
     ]),
-  ].join("\n");
+  ];
 }
 
-const oneOf = <T extends string>(value: unknown, words: readonly T[]): T | null =>
-  words.find((word) => word === value) ?? null;
+export const batchPrompt = (sentences: readonly BatchSentence[]): string =>
+  judgePrompt(batchParts(sentences), BATCH_TAGS);
 
-/** A reply's sentence number, written as a number or as digits; null for anything else. */
-function sentenceNumber(value: unknown): number | null {
-  const number = typeof value === "string" && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
-  return typeof number === "number" && Number.isInteger(number) ? number : null;
-}
+/** Every field of a sentence's entry, each one of its words: none is filled in when it's left out. */
+const ENTRY = {
+  kind: word("fact", "opinion"),
+  verdict: word("supported", "unsupported", "contradicted"),
+  roles: word("same", "differs"),
+  time: word("same", "differs"),
+  says: textOrNull,
+};
 
 /**
- * A batch's reply, by the sentence's number from 1. A sentence it gave nothing readable for is
- * missing, and so is one it gave two entries for, or one whose kind, verdict, roles or time is
- * missing or not one of its words (#2816); when an entry's number can't be read as a whole number,
- * every sentence is.
+ * A batch's reply, by the sentence's number from 1; null when it holds no list of sentences, or an
+ * entry whose number can't be read as a whole number, which might be any of them. A sentence it gave
+ * nothing readable for is missing, and so is one it gave two entries for, or one with any of its
+ * fields missing or not one of its words (#2816, #2817).
  */
-export async function readBatchReply(
-  reply: string,
-  count: number,
-): Promise<Map<number, BatchVerdict>> {
-  const value = await replyJson(reply);
+export function readBatch(value: unknown, count: number): Map<number, BatchVerdict> | null {
+  const reply = fieldsOf(value, { sentences: list });
+  if (!reply) return null;
+  const entries = reply.sentences.filter(isRecord);
+  // An entry whose sentence can't be told might be any of them: none of the batch is judged.
+  if (entries.some((entry) => whole(entry.number) === undefined)) return null;
   const read = new Map<number, BatchVerdict>();
-  const seen = new Set<number>();
-  /** Numbers the reply gave twice, readably or not: which entry is the sentence's can't be told. */
-  const twice = new Set<number>();
-  const entries = isRecord(value) && Array.isArray(value.sentences) ? value.sentences : [];
-  for (const entry of entries) {
-    if (!isRecord(entry)) continue;
-    const number = sentenceNumber(entry.number);
-    // An entry whose sentence can't be told might be any of them: none of the batch is judged.
-    if (number === null) return new Map();
-    if (number < 1 || number > count) continue;
-    if (seen.has(number)) twice.add(number);
-    seen.add(number);
-    const kind = oneOf(entry.kind, ["fact", "opinion"] as const);
-    const verdict = oneOf(entry.verdict, ["supported", "unsupported", "contradicted"] as const);
-    const roles = oneOf(entry.roles, ["same", "differs"] as const);
-    const time = oneOf(entry.time, ["same", "differs"] as const);
-    if (!kind || !verdict || !roles || !time) continue;
-    const { says } = entry;
-    read.set(number, {
-      kind,
-      verdict,
-      roles,
-      time,
-      says: typeof says === "string" && says.trim() ? says.trim() : null,
-    });
+  for (const [number, entry] of byKey(entries, (each) => whole(each.number))) {
+    const fields = fieldsOf(entry, ENTRY);
+    if (number < 1 || number > count || !fields) continue;
+    read.set(number, { ...fields, says: fields.says?.trim() || null });
   }
-  for (const number of twice) read.delete(number);
   return read;
 }
+
+/** A batch's reply as the Answer check reads it: no sentence of one it can't read is judged. */
+export const readBatchReply = (reply: string, count: number): Map<number, BatchVerdict> =>
+  readBatch(replyJson(reply), count) ?? new Map();
 
 /**
  * Sentences in batches, in their order: a batch closes at `BATCH_SENTENCES` sentences, or before a

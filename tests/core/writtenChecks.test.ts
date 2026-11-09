@@ -30,6 +30,7 @@ import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from 
 import {
   type GenerateCall,
   type GeneratedReply,
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -198,7 +199,7 @@ function writingModel(
             return generate?.(call) ?? checkGenerate(PLANS)(call);
           },
         }
-      : undefined,
+      : { generate: judgesNothing },
   );
 }
 
@@ -869,19 +870,9 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(lastResult(model)).not.toContain("Untitled");
   });
 
-  const isSort = (call: GenerateCall) => call.system.startsWith("You sort the sentences");
+  const isSort = (call: GenerateCall) => call.question === "find-claims";
   /** The sort of the write's two sentences with no Citation, asked again of the second, not the one a sentence's own check asks. */
   const writeSorted = (call: GenerateCall) => isSort(call) && call.prompt.includes('"number":2');
-  /** A sort's reply that names every sentence a fact, as the scripted model's own does. */
-  const allFacts = (call: GenerateCall): GeneratedReply => {
-    const asked = call.prompt.slice(call.prompt.indexOf("{"), call.prompt.lastIndexOf("}") + 1);
-    const { sentences } = JSON.parse(asked) as { sentences: { number: number; text: string }[] };
-    const parts = sentences.map(({ number, text }) => ({
-      number,
-      parts: [{ kind: "fact", text }],
-    }));
-    return { text: JSON.stringify({ sentences: parts }) };
-  };
 
   // protects=a sentence the claims sort says nothing of, asked twice, is checked as a claim, as Check this Note keeps it, never left out as an opinion (#2830); fails_when=it loses its checking dot, leaves the total and gets no mark, while the line says every sentence was checked; no_claim=how often a real model leaves one out.
   test("a sentence the claims sort leaves undecided is checked as a claim", async () => {
@@ -891,7 +882,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       {
         content: "## Tides\n\nThe harbour is quiet in winter. The quay is busy in summer.",
         generate: (call) => {
-          if (!writeSorted(call)) return isSort(call) ? allFacts(call) : null;
+          if (!writeSorted(call)) return isSort(call) ? judgesNothing(call) : null;
           sorted.push(call.prompt);
           const parts = [{ kind: "fact", text: "The harbour is quiet in winter." }];
           return { text: JSON.stringify({ sentences: [{ number: 1, parts }] }) };
@@ -925,7 +916,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           content: "## Tides\n\nThe harbour is quiet in winter. The quay is busy in summer.",
           sortTimeLimit: () => limit.signal,
           generate: (call) => {
-            if (!writeSorted(call)) return isSort(call) ? allFacts(call) : null;
+            if (!writeSorted(call)) return isSort(call) ? judgesNothing(call) : null;
             // Asked, the sort never replies: its limit is what ends it.
             limit.abort();
             return { text: "", until: new Promise<void>(() => undefined) };
@@ -1916,35 +1907,38 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     try {
       let harbourClient: MindClient | null = null;
       const calls: ModelCall[] = [];
-      const model = scriptedModel((call): ScriptedReply => {
-        calls.push(call);
-        if (isCheckRun(call)) return checkReply(call, PLANS);
-        const { results } = call;
-        const search = results.find((result) => result.tool === "search_documents");
-        if (!search) {
-          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-        }
-        if (!results.some((result) => result.tool === "create_mind")) {
-          const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
-          return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
-        }
-        if (!results.some((result) => result.tool === "add_to_mind")) {
-          return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
-        }
-        if (!results.some((result) => result.tool === "cite")) {
-          // A newer version writes the Note in front: its Citations can't go in after the Run.
-          harbourClient?.doc
-            .getMap(MIND_SETTINGS_FIELD)
-            .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
-          const [passage] = shownPassages(search.text);
-          const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
-          return {
-            calls: [{ tool: "cite", input: { citations } }],
-            pause: { after: 0, until: harbourClient?.settled() ?? Promise.resolve() },
-          };
-        }
-        return { text: "Wrote it from your Documents." };
-      });
+      const model = scriptedModel(
+        (call): ScriptedReply => {
+          calls.push(call);
+          if (isCheckRun(call)) return checkReply(call, PLANS);
+          const { results } = call;
+          const search = results.find((result) => result.tool === "search_documents");
+          if (!search) {
+            return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+          }
+          if (!results.some((result) => result.tool === "create_mind")) {
+            const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+            return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+          }
+          if (!results.some((result) => result.tool === "add_to_mind")) {
+            return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
+          }
+          if (!results.some((result) => result.tool === "cite")) {
+            // A newer version writes the Note in front: its Citations can't go in after the Run.
+            harbourClient?.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            const [passage] = shownPassages(search.text);
+            const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+            return {
+              calls: [{ tool: "cite", input: { citations } }],
+              pause: { after: 0, until: harbourClient?.settled() ?? Promise.resolve() },
+            };
+          }
+          return { text: "Wrote it from your Documents." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
       harbourClient = client;
 
