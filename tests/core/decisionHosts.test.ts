@@ -13,7 +13,7 @@ import { LocalModeError } from "../../src/core/errors";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, taggingModel, waitForTagging } from "../helpers/tags";
 
 /*
  * Decision models on the hosts other than TypeSafe (#1907), through the core as Settings ›
@@ -182,7 +182,7 @@ async function startFakeHosts() {
 async function startWithHosts() {
   const hosts = await startFakeHosts();
   const keychain = createMemoryKeychain();
-  const tagging = taggingModel(["Notes"]);
+  const tagging = taggingModel(["Letter"]);
   const origins = Object.fromEntries(
     (["openrouter", "perplexity", "liquid", "cloudflare", "openai", "alibaba"] as const).map(
       (host) => [host, hosts.url],
@@ -280,7 +280,8 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper", "Report"]);
+    // One kind a Document: the likelier.
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     expect(tagging.requests).toEqual([]);
     expect(asked).toEqual([]);
     const [sent] = hosts.tagging();
@@ -313,7 +314,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     });
     const paper = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [paper.id]);
-    expect(await tagNamesOf(core, paper.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, paper.id)).toEqual(["Paper"]);
     expect(hosts.tagging().at(-1)?.body.model).toBe("newco/decide-9");
 
     await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
@@ -366,7 +367,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     const [sent] = hosts.tagging();
     expect(sent).toMatchObject({
       path: "/api/v1/systemone",
@@ -386,7 +387,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     const [sent] = hosts.tagging();
     expect(sent?.path).toBe("/v1/decisions");
     expect(sent?.body).toMatchObject({
@@ -417,7 +418,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     expect(hosts.tagging()[0]).toMatchObject({
       path: `/client/v4/accounts/${ACCOUNT}/ai/run/@cf/cloudflare/clef`,
       body: { model: "clef" },
@@ -435,9 +436,8 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
       service: { id: `https://${WORKSPACE}.cn-beijing.maas.aliyuncs.com` },
     });
 
-    for (let at = 0; at < 14; at++) await core.createTag({ name: `Matter ${at}` });
-    const tags = (await core.listTags()).length;
-    expect(tags).toBeGreaterThan(16);
+    // 14 Tags of the User's the Document is about, beside the 9 kinds: 23 questions.
+    for (let at = 0; at < 14; at++) await core.createTag({ name: `Attention ${at}` });
     hosts.answer({ Paper: 0.91 });
     await chooseAndTurnOn(core, {
       kind: "decision",
@@ -447,9 +447,10 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     const sent = hosts.tagging();
-    expect(sent.length).toBe(Math.ceil(tags / 16));
+    expect(sent.length).toBe(2);
+    expect(sent.map((each) => Object.keys(each.body.questions as object).length)).toEqual([16, 7]);
     for (const each of sent) {
       expect(each.path).toBe("/compatible-mode/v1/systemone");
       expect(Object.keys(each.body.questions as object).length).toBeLessThanOrEqual(16);
@@ -538,7 +539,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
    */
   async function liquidInUse(allowed: boolean) {
     const hosts = await startFakeHosts();
-    const tagging = taggingModel(["Notes"]);
+    const tagging = taggingModel(["Letter"]);
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(tagging.model).createChatModel,
       keychain: createMemoryKeychain(),
@@ -580,7 +581,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     const [sorted] = await waitForTagging(core, [document.id]);
     expect(sorted?.tagging).toBe("tagged");
-    expect(await tagNamesOf(core, document.id)).toEqual(["Notes"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Letter"]);
     expect(tagging.requests.length).toBeGreaterThan(0);
     expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
     expect(hosts.tagging()).toEqual([]);
@@ -588,7 +589,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
   /** Decider through OpenRouter chosen with its Use this, beside Anthropic as the User's AI. */
   async function deciderInUse() {
     const hosts = await startFakeHosts();
-    const tagging = taggingModel(["Notes"]);
+    const tagging = taggingModel(["Letter"]);
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(tagging.model).createChatModel,
       keychain: createMemoryKeychain(),
@@ -631,7 +632,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
   test("deleting a chat provider leaves a host's choice, and removing the host's key goes back to Automatic", async () => {
     const hosts = await startFakeHosts();
     const core = startCore(await createTempDataFolder(), {
-      createChatModel: scriptedModels(taggingModel(["Notes"]).model).createChatModel,
+      createChatModel: scriptedModels(taggingModel(["Letter"]).model).createChatModel,
       keychain: createMemoryKeychain(),
       decisionOrigins: { liquid: hosts.url },
     });

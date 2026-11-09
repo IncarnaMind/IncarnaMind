@@ -78,7 +78,6 @@ export function JevForm({
   const [endpoint, setEndpoint] = useState(current.endpoint ?? "");
   const [model, setModel] = useState(current.model === JEV_DEFAULT_MODEL ? "" : current.model);
   const [low, setLow] = useState(toPercent(current.reviewBand.low));
-  const [high, setHigh] = useState(toPercent(current.reviewBand.high));
   const [busy, setBusy] = useState<"testing" | "saving" | null>(null);
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +106,9 @@ export function JevForm({
 
   const hasKey = key.text !== "" || current.hasApiKey;
   const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
-  const bandValid = low > 0 && low <= high && high <= 100;
+  // Nothing is marked for review any more (#2339): what Jev gives from `low` waits in the Review.
+  const high = Math.max(low, toPercent(current.reviewBand.high));
+  const bandValid = low > 0 && low <= 100;
 
   const input = (): SaveJevSettingsInput => ({
     ...(key.text ? { apiKey: key.text } : {}),
@@ -235,11 +236,8 @@ export function JevForm({
             />
           </label>
           <div>
-            <div className="flex gap-2">
-              {percentInput(low, setLow, t("jev.form.reviewFrom"))}
-              {percentInput(high, setHigh, t("jev.form.reviewTo"))}
-            </div>
-            <span className={hintClass}>{t("jev.form.reviewHint")}</span>
+            {percentInput(low, setLow, t("jev.form.suggestFrom"))}
+            <span className={hintClass}>{t("jev.form.suggestHint")}</span>
           </div>
         </div>
       </details>

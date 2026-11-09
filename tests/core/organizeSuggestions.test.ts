@@ -18,6 +18,7 @@ import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, sha256, writeSourceFile } from "../helpers/documents";
 import { proposedFor } from "../helpers/library";
+import { proposedTagNamesOf } from "../helpers/tags";
 
 type Rule = (name: string, choices: string[]) => { groupId: string; tags?: string[] };
 
@@ -388,8 +389,10 @@ describe("Organize suggests a Folder and waits for the User", () => {
 
   test("Documents added to a Folder are filed there as the User's choice, with only their Tags suggested", async () => {
     const { core, fake, finance, thesis, sources } = await setUp();
-    const urgent = await core.createTag({ name: "Urgent", description: "Needs doing soon" });
-    fake.sort(() => ({ groupId: finance.id, tags: [urgent.id] }));
+    fake.sort((name) => ({
+      groupId: finance.id,
+      tags: [name === "Invoice 1" ? "kind:invoice" : "kind:paper"],
+    }));
     const paths = await Promise.all([
       writeSourceFile(sources, "Invoice 1.txt", "Invoice 1: GBP 100."),
       writeSourceFile(sources, "Chapter 1.txt", "Chapter 1: urban heat."),
@@ -419,12 +422,17 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect(last).toMatchObject({ groupId: thesis.id, read: 3, suggested: [] });
     await allFiled();
     expect(assigned.every((each) => each.groupId === thesis.id)).toBe(true);
-    const tagsOf = Object.fromEntries(
-      (await core.listDocuments()).map((each) => [each.name, each.tags.map((tag) => tag.tagId)]),
+    // Their Tags wait in the Review, none applied before the User confirms them.
+    const listed = await core.listDocuments();
+    expect(listed.flatMap((each) => each.tags)).toEqual([]);
+    const proposed = Object.fromEntries(
+      await Promise.all(
+        listed.map(async (each) => [each.name, await proposedTagNamesOf(core, each.id)] as const),
+      ),
     );
-    expect(tagsOf).toEqual({
-      "Invoice 1": [urgent.id],
-      "Chapter 1": [urgent.id],
+    expect(proposed).toEqual({
+      "Invoice 1": ["Invoice"],
+      "Chapter 1": ["Paper"],
       Blank: [],
     });
   });

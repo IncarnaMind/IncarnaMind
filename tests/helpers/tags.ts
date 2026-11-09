@@ -1,5 +1,6 @@
 import { MockLanguageModelV4 } from "ai/test";
 import type { Core, Document, Tag } from "../../src/core";
+import { isTagKind, kindName, kindOfName } from "../../src/core/tags/kinds";
 
 type CallOptions = Parameters<MockLanguageModelV4["doGenerate"]>[0];
 
@@ -39,6 +40,26 @@ const USAGE = {
   outputTokens: { total: 1, text: 1, reasoning: undefined },
 };
 
+/** A tagging request's data (src/core/tags/classify.ts `tagRequest`). */
+interface TagRequestData {
+  kinds?: { code: string }[];
+  tags?: { id: string; name: string }[];
+  documents?: { ref: string; tags?: string[] }[];
+}
+
+const dataOf = (options: CallOptions): TagRequestData => {
+  const user = options.prompt.find((message) => message.role === "user");
+  const text =
+    user && typeof user.content !== "string"
+      ? user.content.map((part) => ("text" in part ? part.text : "")).join("")
+      : "";
+  try {
+    return JSON.parse(text) as TagRequestData;
+  } catch {
+    return {};
+  }
+};
+
 function describe(options: CallOptions): TaggingRequest {
   const text = options.prompt
     .map((message) =>
@@ -48,16 +69,44 @@ function describe(options: CallOptions): TaggingRequest {
     )
     .join("\n");
   const format = options.responseFormat;
-  const schema = format?.type === "json" ? format.schema : undefined;
-  const tags = (schema?.properties?.tags ?? undefined) as
-    | { items?: { enum?: unknown[] } }
-    | boolean
-    | undefined;
-  const names =
-    typeof tags === "object" && Array.isArray(tags.items?.enum)
-      ? tags.items.enum.filter((name): name is string => typeof name === "string")
-      : [];
+  const data = dataOf(options);
+  const names = [
+    ...(data.kinds ?? []).flatMap(({ code }) => (isTagKind(code) ? [kindName(code, "en")] : [])),
+    ...(data.tags ?? []).map((tag) => tag.name),
+  ];
   return { text, names, json: format?.type === "json" };
+}
+
+/**
+ * The reply to a tagging request, Document by Document, each asked of `choose` and `name` as a
+ * request of its own (its name and text, with the names offered): the first kind among what it
+ * chooses (by its name in either language), the User's Tags among them offered to it, and the
+ * first Tag it names as its topic.
+ */
+function answer(
+  options: CallOptions,
+  request: TaggingRequest,
+  choose: (request: TaggingRequest) => string[],
+  name: (request: TaggingRequest) => { name: string; description: string }[],
+) {
+  const data = dataOf(options);
+  return {
+    tagged: (data.documents ?? []).map((document) => {
+      const one: TaggingRequest = {
+        ...request,
+        text: (data.documents?.length ?? 0) > 1 ? JSON.stringify(document) : request.text,
+      };
+      const chosen = choose(one);
+      return {
+        ref: document.ref,
+        kind: chosen.map(kindOfName).find((each) => each !== null) ?? "none",
+        tags: (data.tags ?? [])
+          .filter((tag) => chosen.includes(tag.name) && document.tags?.includes(tag.id))
+          .map((tag) => tag.id),
+        topic: name(one)[0] ?? { name: "", description: "" },
+      };
+    }),
+  };
 }
 
 /**
@@ -84,7 +133,7 @@ export function taggingModel(initial: readonly string[] = []): TaggingModel {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ tags: choose(request), newTags: naming(request) }),
+            text: JSON.stringify(answer(options, request, choose, naming)),
           },
         ],
         finishReason: { unified: "stop", raw: undefined },
@@ -167,6 +216,14 @@ export async function tagNamed(core: Core, name: string): Promise<Tag> {
   const tag = (await core.listTags()).find((each) => each.name === name);
   if (!tag) throw new Error(`There is no Tag named ${name}.`);
   return tag;
+}
+
+/** The names of the Tags waiting in the Review for a Document, as the Review shows them (#2339). */
+export async function proposedTagNamesOf(core: Core, documentId: string): Promise<string[]> {
+  const review = await core.getOrganizeReview();
+  return (
+    review.items.find((item) => item.documentId === documentId)?.tags.map((tag) => tag.name) ?? []
+  );
 }
 
 /** The names of a Document's Tags, as the core lists them now. */

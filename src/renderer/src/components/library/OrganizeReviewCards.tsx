@@ -14,7 +14,7 @@ import { formatCount } from "../../linkedFolders";
 import { move } from "../../motion";
 import { nameKeyAction } from "../../nameKeys";
 import { editReview, showAllRows, useOrganizeReview } from "../../organizeReview";
-import { CARD_ROWS, cardPath, type ReviewCard } from "../../organizeReviewView";
+import { CARD_ROWS, cardPath, NOT_IN_A_FOLDER, type ReviewCard } from "../../organizeReviewView";
 import { peekRowProps, togglePeek } from "../../peek";
 import { useAppStore } from "../../store";
 import { useRename } from "../../useRename";
@@ -23,6 +23,7 @@ import {
   CloseLineIcon,
   DocumentLineIcon,
   FolderLineIcon,
+  LooseDocumentsLineIcon,
   MoreLineIcon,
   PlusLineIcon,
 } from "../lineIcons";
@@ -59,7 +60,7 @@ export function newTagColours(
   for (const item of items) {
     for (const tag of item.tags) {
       const key = tag.name.toLocaleLowerCase();
-      if (tag.tagId !== null || colours.has(key)) continue;
+      if (tag.tagId !== null || tag.colour !== null || colours.has(key)) continue;
       const colour = nextTagColour(used);
       colours.set(key, colour);
       used.push(colour);
@@ -72,8 +73,10 @@ export interface CardContext {
   documents: ReadonlyMap<string, Document>;
   tags: readonly Tag[];
   newColours: ReadonlyMap<string, TagColour>;
-  /** Every card in the Review, to Move to or Merge into. */
+  /** Every card in the Review a row can go into, to Move to or Merge into. */
   cards: readonly ReviewCard[];
+  /** Only Tags were asked for: a row has no ⋯ and doesn't drag, for it goes nowhere. */
+  onlyTags: boolean;
   /** The Library's Folders, in the sidebar's order, for Move to. */
   folders: readonly LibraryGroup[];
   /** Moves rows to another card, sliding them there. */
@@ -105,7 +108,7 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
   const ids = new Set(card.items.map((item) => item.documentId));
   const drop = useDropTarget(`organize-review:${card.id}`, {
     accepts: (dragged) => {
-      if (dragged.kind !== "objects") return null;
+      if (dragged.kind !== "objects" || card.stays) return null;
       const { review } = useOrganizeReview.getState();
       const waiting = new Set(review?.items.map((item) => item.documentId));
       const ok =
@@ -135,6 +138,7 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
       data-testid="organize-review-card"
       data-card-id={card.id}
       data-proposed={card.proposed ? "" : undefined}
+      data-stays={card.stays ? "" : undefined}
       {...drop.props}
       className={`overflow-hidden rounded-xl border bg-sheet ${
         drop.over ? "border-accent ring-1 ring-accent" : "border-rule"
@@ -158,7 +162,14 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
             className="m-0 size-4 shrink-0 accent-accent"
           />
         )}
-        <FolderLineIcon aria-hidden="true" className="size-[18px] shrink-0 text-ink-secondary" />
+        {card.stays && card.id === NOT_IN_A_FOLDER ? (
+          <LooseDocumentsLineIcon
+            aria-hidden="true"
+            className="size-[18px] shrink-0 text-ink-secondary"
+          />
+        ) : (
+          <FolderLineIcon aria-hidden="true" className="size-[18px] shrink-0 text-ink-secondary" />
+        )}
         {rename.renaming ? (
           <InlineName
             value={card.name}
@@ -321,8 +332,10 @@ function OrganizeReviewRow({
 }) {
   const doc = context.documents.get(item.documentId);
   const name = doc?.name ?? "";
+  // In a Review of Tags only a row goes nowhere: it has neither ⋯ nor a drag.
+  const moves = !(card.stays && context.onlyTags);
   const drag = useDragSource(() =>
-    doc ? { refs: [{ kind: "document", id: doc.id }], name: doc.name } : null,
+    doc && moves ? { refs: [{ kind: "document", id: doc.id }], name: doc.name } : null,
   );
   return (
     <div
@@ -365,7 +378,7 @@ function OrganizeReviewRow({
         {name}
       </button>
       <RowChips item={item} context={context} name={name} />
-      <RowMenu item={item} card={card} context={context} name={name} />
+      {moves && <RowMenu item={item} card={card} context={context} name={name} />}
     </div>
   );
 }
@@ -462,9 +475,10 @@ function ReviewChip({
 }) {
   const t = useT();
   const live = tag.tagId === null ? undefined : context.tags.find((each) => each.id === tag.tagId);
+  // A new kind's Tag shows in its kind's colour; a new Tag of a name in the one it will get.
   const colour = live
     ? tagChipColour(live.colour)
-    : `bg-transparent ring-1 ring-inset ${OUTLINE[context.newColours.get(tag.name.toLocaleLowerCase()) ?? "gray"]}`;
+    : `bg-transparent ring-1 ring-inset ${OUTLINE[tag.colour ?? context.newColours.get(tag.name.toLocaleLowerCase()) ?? "gray"]}`;
   return (
     <span
       data-tag-chip=""
@@ -505,7 +519,10 @@ function RowMenu({
   const menu = usePopoverMenu({ align: "end", focus: "first" });
   const inReview = context.cards.filter((each) => each.id !== card.id);
   const carded = new Set(context.cards.map((each) => each.id));
-  const yours = context.folders.filter((folder) => !carded.has(folder.id));
+  // A row of Tags only is in its card's Folder already.
+  const yours = context.folders.filter(
+    (folder) => !carded.has(folder.id) && !(card.stays && folder.id === card.id),
+  );
   const moveTo = (to: Exclude<OrganizeReviewTarget, { kind: "leftOut" }>) => {
     menu.close();
     context.moveRows([item.id], to);

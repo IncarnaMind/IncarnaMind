@@ -97,8 +97,6 @@ interface Stage {
  */
 const NO_UNDO_YET: Record<string, string> = {
   "answer.regenerate": "an AI change is taken back from History (#113), not by the note's ⌘Z",
-  "folder.organize":
-    "its Folders wait in the Review, but the Tags the tagger gives after it come at once, until they wait there too (#2339)",
 };
 
 /** Commands that add what the system's open sheet gives: the stub answers each with a new file. */

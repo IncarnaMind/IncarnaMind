@@ -295,8 +295,8 @@ function taggable(refs: readonly ObjectRef[], tagId: string): string[] {
     ? []
     : refs.flatMap((ref) => {
         const link = known.documentById.get(ref.id)?.tags.find((each) => each.tagId === tagId);
-        // An automatic Tag, or one awaiting review, becomes the User's own.
-        return link?.source !== "user" || link.needsReview ? [ref.id] : [];
+        // An automatic Tag becomes the User's own.
+        return link?.source !== "user" ? [ref.id] : [];
       });
   known.tagged.set(tagId, ids);
   return ids;

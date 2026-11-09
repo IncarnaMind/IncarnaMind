@@ -4,12 +4,14 @@ import { expect, test } from "@playwright/test";
 import {
   addDocuments,
   closeSettings,
+  confirmSuggestions,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   makeTagOnDocument,
   motionSettled,
   openDocumentTags,
+  pointAndClick,
   removeDataFolder,
   setWindowSize,
   useLocalChatModel,
@@ -27,7 +29,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("a new Document is tagged automatically, and a Tag the User removes stays removed after a re-tag", async () => {
+test("a new Document's Tag waits in the Review until confirmed, and a Tag the User removes isn't proposed again by a re-tag", async () => {
   const summary = join(sources, "Q3 summary.txt");
   await writeFile(summary, "Quarterly report for the sales team. Revenue grew in every region.\n");
 
@@ -37,13 +39,17 @@ test("a new Document is tagged automatically, and a Tag the User removes stays r
   await useLocalChatModel(window);
   await addDocuments(window, [summary]);
 
-  // The scripted model applies every Tag whose name is a word in the Document: "Report".
-  // Its row stays one line; its Tags menu shows its Tags.
+  // The scripted model proposes the first kind its Document names: "Report". It waits in the
+  // Review, and the Document has no Tag until the User confirms it (#2339).
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "tagged");
   let tags = await openDocumentTags(item);
+  await expect(tags).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await confirmSuggestions(window);
+  tags = await openDocumentTags(item);
   await expect(tags).toHaveText(["Report"]);
-  await expect(tags).toHaveAttribute("data-source", "automatic");
+  await expect(tags).toHaveAttribute("data-source", "user");
 
   // The User takes it off, and adds another, in the same picker.
   await item.getByRole("option", { name: "Report", exact: true }).click();
@@ -61,19 +67,23 @@ test("a new Document is tagged automatically, and a Tag the User removes stays r
   await openDocumentTags(item);
   await item.getByTestId("open-tags-dialog").click();
   const dialog = window.getByTestId("tags-dialog");
-  await expect(dialog.getByTestId("tag-row")).toHaveCount(7);
+  await expect(dialog.getByTestId("tag-row")).toHaveCount(9);
   await dialog.getByTestId("tag-name-input").fill("Quarterly");
   await dialog.getByTestId("tag-description-input").fill("Covers one quarter of a year.");
   await dialog.getByTestId("save-tag").click();
-  await expect(dialog.getByTestId("tag-row")).toHaveCount(8);
+  await expect(dialog.getByTestId("tag-row")).toHaveCount(10);
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(dialog).toBeHidden();
 
-  // Re-tagging the Document applies the new Tag; the removed one stays off, the added one on.
+  // Re-tagging the Document proposes the new Tag in the Review, which opens over the Library
+  // when it ends: not the one the User took off, and not Invoice, which it has.
   await item.hover();
   await item.getByTestId("document-tags-menu").click();
   await window.getByTestId("retag-document").click();
-  await expect(item).toHaveAttribute("data-tagging", "tagged");
+  const review = window.getByTestId("organize-review");
+  await expect(review.getByTestId("organize-review-chip")).toHaveText(["Quarterly"]);
+  await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+  await expect(review).toBeHidden();
   tags = await openDocumentTags(item);
   await expect(tags).toHaveText(["Invoice", "Quarterly"]);
   await window.keyboard.press("Escape");

@@ -5,6 +5,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
 import { classifierModel, proposedFor } from "../helpers/library";
+import { proposedTagNamesOf } from "../helpers/tags";
 
 /** An assignment as a change carries it: its fields and the Document's tagging row. */
 const stateOf = (item: DocumentGroupAssignment): AssignmentState => {
@@ -139,20 +140,24 @@ describe("Library groups", () => {
     expect(fake.calls).toHaveLength(2);
   });
 
-  test("Organize saves folder and tags together, respects manual tags, and uses no other tagger", async () => {
+  test("Organize proposes folder and tags together, keeps manual tags, and uses no other tagger", async () => {
     const { core, fake, group, specs } = await setup();
-    const relevant = await core.createTag({ name: "Membrane", description: "Membrane science" });
+    const relevant = await core.createTag({ name: "Membranes", description: "Membrane science" });
     const manual = await core.createTag({ name: "My project", description: "My own label" });
     const doc = await add(core);
     fake.tag([relevant.id]);
     await core.addDocumentTag(doc.id, manual.id);
     await core.classifyDocuments([doc.id]);
     await settled(core, doc.id);
+    // The User's Tag stays; the one Organize chose waits in the Review with the Folder.
+    expect((await core.listDocuments())[0]?.tags.map((t) => t.tagId)).toEqual([manual.id]);
+    expect(await proposedTagNamesOf(core, doc.id)).toEqual(["Membranes"]);
+    expect(await proposedFor(core, doc.id)).toBe(group.id);
+    expect(specs).not.toContain("main-model");
+    await core.confirmOrganizeReview((await core.getOrganizeReview()).items.map((item) => item.id));
     expect((await core.listDocuments())[0]?.tags.map((t) => t.tagId).sort()).toEqual(
       [relevant.id, manual.id].sort(),
     );
-    expect(await proposedFor(core, doc.id)).toBe(group.id);
-    expect(specs).not.toContain("main-model");
     await core.removeDocumentTag(doc.id, relevant.id);
     await core.assignDocumentGroup(doc.id, null);
     await core.retagDocuments([doc.id]);
@@ -296,14 +301,14 @@ describe("Library groups", () => {
     await core.classifyDocuments([doc.id]);
     await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
     const tag = await core.createTag({
-      name: "New topic",
+      name: "Water filtration",
       description: "A new classification criterion",
     });
     fake.tag([tag.id]);
     fake.release();
     await settled(core, doc.id);
     expect(fake.calls).toHaveLength(2);
-    expect((await core.listDocuments())[0]?.tags.map((t) => t.tagId)).toContain(tag.id);
+    expect(await proposedTagNamesOf(core, doc.id)).toEqual(["Water filtration"]);
   });
 
   test("unknown tag output fails without saving a partial folder assignment", async () => {

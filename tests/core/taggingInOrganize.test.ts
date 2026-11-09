@@ -1,7 +1,8 @@
 /**
- * Organize's plan proposes Folders only, so the Documents it finishes with are handed to the
- * tagger (#1569). The hand-off goes no wider than an Organize press did: it keeps no clearance,
- * walls and stops hold, and with tagging by itself Off it still tags. Through the core's public
+ * Organize's run tags the Documents it plans before its Review opens, so the Review opens with
+ * their Tags (#2339). It goes no wider than an Organize press did: through the tagging flow's
+ * consent, keeping no clearance, with walls and stops holding, and with tagging by itself Off it
+ * still tags. Nothing is put on a Document before the User confirms. Through the core's public
  * interface, with a scripted model on a cloud service: no network.
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
@@ -11,7 +12,7 @@ import type { Core, Document, SaveChatProviderInput } from "../../src/core";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
-import { tagNamesOf, waitForTagging } from "../helpers/tags";
+import { tagNamesOf } from "../helpers/tags";
 
 const ANTHROPIC: SaveChatProviderInput = {
   kind: "anthropic",
@@ -29,7 +30,7 @@ const userText = (options: LanguageModelV4CallOptions) =>
     )
     .join("\n");
 
-/** A model that proposes one new Folder for every Document and tags each one "Report". */
+/** A model that proposes one new Folder for every Document and tags each a Report. */
 function planAndTagModel() {
   const tagging: string[] = [];
   const reply = (value: unknown) => ({
@@ -47,25 +48,30 @@ function planAndTagModel() {
         call.responseFormat?.type === "json" ? call.responseFormat.schema : undefined
       ) as { properties?: Record<string, unknown> } | undefined;
       const text = userText(call);
-      if (schema?.properties?.folders) {
-        const { documents } = JSON.parse(text) as { documents: { ref: string }[] };
+      const { documents } = JSON.parse(text) as { documents: { ref: string }[] };
+      if (schema?.properties?.folders)
         return reply({
           folders: [{ key: "N1", name: "Leases", description: "Leases" }],
           documents: documents.map((doc) => ({ ref: doc.ref, folder: "N1" })),
         });
-      }
-      if (schema?.properties?.placements) {
-        const { documents } = JSON.parse(text) as { documents: { ref: string }[] };
+      if (schema?.properties?.placements)
         return reply({ placements: documents.map((doc) => ({ ref: doc.ref, folder: "none" })) });
-      }
       tagging.push(text);
-      return reply({ tags: ["Report"], newTags: [] });
+      return reply({
+        tagged: documents.map((doc) => ({
+          ref: doc.ref,
+          kind: "report",
+          tags: [],
+          topic: { name: "", description: "" },
+        })),
+      });
     },
   });
   return {
     model,
     /** How many tagging requests carried this text. */
     taggedFor: (words: string) => tagging.filter((text) => text.includes(words)).length,
+    requests: () => tagging.length,
   };
 }
 
@@ -94,7 +100,7 @@ async function start() {
     if (!document) throw new Error(`Nothing was added for ${name}.`);
     return document;
   };
-  return { core, dataDir, add, taggedFor: scripted.taggedFor };
+  return { core, dataDir, add, ...scripted };
 }
 
 const clearedFor = (dataDir: string, id: string) =>
@@ -104,35 +110,32 @@ const clearedFor = (dataDir: string, id: string) =>
     [id],
   ).map((row) => row.service_id);
 
-/** Every tagging state each Document showed, in order, from now on. */
-function taggingStates(core: Core) {
-  const seen = new Map<string, string[]>();
-  const record = (document: Document) =>
-    seen.set(document.id, [...(seen.get(document.id) ?? []), document.tagging]);
-  core.on("documents.tagged", (documents) => {
-    for (const document of documents) record(document);
-  });
-  core.on("document.status", record);
-  return (id: string) => seen.get(id) ?? [];
-}
+/** The names of the Tags waiting in the Review for each of these Documents. */
+const proposedFor = async (core: Core, ids: readonly string[]) => {
+  const review = await core.getOrganizeReview();
+  return ids.map(
+    (id) => review.items.find((item) => item.documentId === id)?.tags.map((tag) => tag.name) ?? [],
+  );
+};
 
-describe("Tags after Organize's plan, on a cloud service (#1569)", () => {
-  test("with tagging by itself Off, the Documents the plan finished with are still tagged", async () => {
-    const { core, add, taggedFor } = await start();
+describe("Tags in Organize's run, on a cloud service (#2339)", () => {
+  test("with tagging by itself Off, the Documents it plans are tagged in one request, and their Tags wait in the Review", async () => {
+    const { core, add, taggedFor, requests } = await start();
     const first = await add("Lease 1.txt", "First lease, of unit one.");
     const second = await add("Lease 2.txt", "Second lease, of unit two.");
     expect(first.tagging).toBe("off");
 
     expect(await core.organizeLibrary()).toMatchObject({ status: "done", documents: 2 });
 
-    await waitForTagging(core, [first.id, second.id]);
-    expect(await tagNamesOf(core, first.id)).toEqual(["Report"]);
-    expect(await tagNamesOf(core, second.id)).toEqual(["Report"]);
+    expect(await proposedFor(core, [first.id, second.id])).toEqual([["Report"], ["Report"]]);
+    expect(await tagNamesOf(core, first.id)).toEqual([]);
+    expect(await tagNamesOf(core, second.id)).toEqual([]);
+    expect(requests()).toBe(1);
     expect(taggedFor("First lease")).toBe(1);
     expect(taggedFor("Second lease")).toBe(1);
   });
 
-  test("with tagging by itself On, Documents from before it was turned on are tagged after the User's Organize, as its press tagged them", async () => {
+  test("with tagging by itself On, Documents from before it was turned on are tagged in the User's Organize, as its press tagged them", async () => {
     const { core, add, taggedFor } = await start();
     const first = await add("Lease 1.txt", "First lease, of unit one.");
     const second = await add("Lease 2.txt", "Second lease, of unit two.");
@@ -152,21 +155,18 @@ describe("Tags after Organize's plan, on a cloud service (#1569)", () => {
 
     expect(await core.organizeLibrary()).toMatchObject({ status: "done", documents: 2 });
 
-    await waitForTagging(core, [first.id, second.id]);
-    expect(await tagNamesOf(core, first.id)).toEqual(["Report"]);
-    expect(await tagNamesOf(core, second.id)).toEqual(["Report"]);
+    expect(await proposedFor(core, [first.id, second.id])).toEqual([["Report"], ["Report"]]);
     expect(taggedFor("First lease")).toBe(1);
   });
 
-  test("tagging a Document after the plan keeps no clearance for that service", async () => {
+  test("tagging a Document in Organize's run keeps no clearance for that service", async () => {
     const { core, dataDir, add } = await start();
     const lease = await add("Lease 1.txt", "First lease, of unit one.");
     await add("Lease 2.txt", "Second lease, of unit two.");
 
     await core.organizeLibrary();
 
-    await waitForTagging(core, [lease.id]);
-    expect(await tagNamesOf(core, lease.id)).toEqual(["Report"]);
+    expect(await proposedFor(core, [lease.id])).toEqual([["Report"]]);
     expect(clearedFor(dataDir, lease.id)).toEqual([]);
   });
 
@@ -187,7 +187,6 @@ describe("Tags after Organize's plan, on a cloud service (#1569)", () => {
     await core.assignDocumentGroup(walled.id, matters.id);
     await core.assignDocumentGroup(stopped.id, archive.id);
     await core.assignDocumentGroup(open.id, current.id);
-    const statesOf = taggingStates(core);
 
     for (const folder of [matters, archive, current])
       expect(await core.organizeLibrary({ folderId: folder.id })).toMatchObject({
@@ -195,18 +194,9 @@ describe("Tags after Organize's plan, on a cloud service (#1569)", () => {
         documents: 1,
       });
 
-    await waitForTagging(core, [open.id]);
     expect(taggedFor("Current lease")).toBe(1);
-    await vi.waitFor(() => {
-      for (const id of [walled.id, stopped.id]) {
-        const states = statesOf(id);
-        expect(states).toContain("pending");
-        expect(states.at(-1)).toBe("off");
-      }
-    });
     expect(taggedFor("Walled lease")).toBe(0);
     expect(taggedFor("Archived lease")).toBe(0);
-    expect(await tagNamesOf(core, walled.id)).toEqual([]);
-    expect(await tagNamesOf(core, stopped.id)).toEqual([]);
+    expect(await proposedFor(core, [walled.id, stopped.id, open.id])).toEqual([[], [], ["Report"]]);
   });
 });

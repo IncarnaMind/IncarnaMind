@@ -112,7 +112,13 @@ describe("Requests to OpenAI say not to store", () => {
 
   test("automatic tagging and Organize", async () => {
     const requests = stubOpenAI([
-      { text: JSON.stringify({ tags: ["Report"] }) },
+      {
+        text: JSON.stringify({
+          tagged: [
+            { ref: "d1", kind: "none", tags: ["t-report"], topic: { name: "", description: "" } },
+          ],
+        }),
+      },
       { text: JSON.stringify({ groupId: "g-reports", tags: ["t-report"] }) },
     ]);
     const tags = [{ id: "t-report", name: "Report", description: "A report of findings" }];

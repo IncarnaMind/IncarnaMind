@@ -96,15 +96,16 @@ function noneFailed(states: readonly string[], what: string): void {
 export const LIBRARY_FLOWS: readonly Flow[] = [
   {
     id: "library-grouping",
-    label: "Organize with no Folders yet: Folders proposed for five Documents",
+    label: "Organize with no Folders yet: Folders and Tags proposed for five Documents",
     async run(context) {
       const { core } = context;
       const ids = sortedIds(context);
-      // Proposed Folders wait in Suggestions and none is made, so there is nothing to clear (#1569).
+      // What Organize proposes waits in Suggestions and none is made, so there is nothing to clear (#1569).
       return sorting(core, () =>
         timedInLibrary(context, async () => {
-          const proposed = await core.proposeFolders(ids);
-          if (proposed.length === 0) throw new Error("No Folder was proposed.");
+          const result = await core.organizeLibrary({ documentIds: ids, costAccepted: true });
+          if (result.status !== "done" || result.proposed === 0)
+            throw new Error("Organize proposed nothing.");
         }, ["organizeReview.changed"]),
       );
     },

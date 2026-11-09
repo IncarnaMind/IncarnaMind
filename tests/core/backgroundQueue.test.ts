@@ -11,6 +11,7 @@ import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { createTags } from "../../src/core/tags";
 import type { TagClassifier } from "../../src/core/tags/classify";
+import { TAG_KINDS } from "../../src/core/tags/kinds";
 import { createTagger } from "../../src/core/tags/tagger";
 import { type FlowTag, flowNow, inFlow } from "../../src/core/timing/flows";
 import {
@@ -24,7 +25,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { question, writeMind } from "../helpers/minds";
 import { controlledModel, scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, taggingModel, waitForTagging } from "../helpers/tags";
 
 /** Lets every promise chain started so far run to its end. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -283,8 +284,7 @@ describe("Automatic tagging in the background queue", () => {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
-    const tags = createTags(db, now);
-    tags.seedPresets("en");
+    createTags(db, now).seedPresets();
     for (const name of ["A", "B", "C"]) {
       db.run(
         `INSERT INTO documents (id, content_hash, name, kind, size, status, created_at, updated_at)
@@ -315,7 +315,10 @@ describe("Automatic tagging in the background queue", () => {
     const tagger = createTagger({
       db,
       now,
-      tags,
+      offered: () => [],
+      kinds: () => TAG_KINDS,
+      language: () => "en",
+      propose: () => {},
       background,
       maySend: () => true,
       stopped: () => false,
@@ -486,7 +489,7 @@ describe("Background work gives way to Answers", { timeout: 30_000 }, () => {
     await finishAnswer();
     await waitForTagging(core, [document.id]);
     expect(fake.tagging.requests).toHaveLength(1);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test.each([
@@ -513,7 +516,7 @@ describe("Background work gives way to Answers", { timeout: 30_000 }, () => {
       await fake.tagging.requested(2);
       fake.tagging.release();
       await waitForTagging(core, [document.id]);
-      expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+      expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
       expect(fake.tagging.requests).toHaveLength(2);
       expect(fake.aborted).toBe(1);
     },
@@ -539,7 +542,7 @@ describe("Background work gives way to Answers", { timeout: 30_000 }, () => {
     await fake.tagging.requested(2);
     fake.tagging.release();
     await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test("on a cloud provider, the tagging call in flight finishes while the Answer is written", async () => {
@@ -553,7 +556,7 @@ describe("Background work gives way to Answers", { timeout: 30_000 }, () => {
     await waitForTagging(core, [document.id]);
     expect(fake.aborted).toBe(0);
     expect(fake.tagging.requests).toHaveLength(1);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
 
     await finishAnswer();
   });

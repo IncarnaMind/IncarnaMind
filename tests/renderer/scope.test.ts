@@ -17,6 +17,7 @@ const tag = (id: string, name: string): Tag => ({
   name,
   description: "",
   preset: false,
+  kind: null,
   madeByUser: true,
   colour: "gray",
   createdAt: "",

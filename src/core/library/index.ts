@@ -16,7 +16,6 @@ import type {
   FolderDeletion,
   MovedDocument,
   ProviderError,
-  TagLinkChange,
 } from "../api";
 import type { BackgroundQueue } from "../backgroundQueue";
 import {
@@ -28,7 +27,6 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
-import type { Language } from "../language";
 import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
 import type { OrganizeReviewFolder } from "../organizeReview/types";
 import { isDecisionHost, isDecisionModelId } from "../providers/catalog/decisions";
@@ -39,11 +37,12 @@ import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import type { TagsStore } from "../tags";
-import { documentType, excerptFromPassages } from "../tags/classify";
+import { offeredKinds, offeredTags, ownTags } from "../tags/about";
+import { kindDefinitions } from "../tags/classify";
 import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
+import { proposedTags } from "../tags/proposals";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
-import { fallbackLine } from "../tags/suggest";
-import type { FolderChoice, FolderSample, GroupClassifier } from "./classifier";
+import type { FolderChoice, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -328,13 +327,8 @@ function parseAssignmentState(input: unknown): AssignmentState {
  */
 export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"] as const;
 
-/** How many Documents a Folder proposal reads the start of, how much of each, and how many more by name. */
-const SAMPLED = 60;
-
 /** What the Library keeps as Organize's own model: nothing, since #2835. */
 const NOT_KEPT: TaggingClassifier | null = null;
-const SAMPLE_TOKENS = 120;
-const NAMED = 240;
 
 /** Up to 3 page images of a PDF with no text, to a model that reads images. */
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
@@ -407,9 +401,6 @@ export function createLibrary(options: {
   /** Suggestions (../organizeReview): where Organize's choices go. */
   review: {
     propose(run: OrganizeReviewRun, proposals: readonly OrganizeReviewProposal[]): number;
-    proposeFolders(
-      folders: readonly { name: string; description: string; parentId?: string | null }[],
-    ): OrganizeReviewFolder[];
     offeredFolders(): OrganizeReviewFolder[];
   };
 }) {
@@ -1041,8 +1032,6 @@ export function createLibrary(options: {
       runsLocally(): void;
       /** What stopped it, once the Document's state says why. */
       failed?(error: unknown): void;
-      /** The links automatic tagging changed, before and after (#2252). */
-      applied?(id: string, links: readonly TagLinkChange[]): void;
       /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
       allowedGroups?: ReadonlySet<string>;
       /** Whether it may choose a Folder proposed by name, which a walled run may not. */
@@ -1077,7 +1066,7 @@ export function createLibrary(options: {
         return;
       }
       const definitions = choicesOf(call.allowedGroups, call.newFolders);
-      const tagDefinitions = options.tags.list();
+      const own = ownTags(db);
       if (definitions.length === 0) {
         state(id, "waiting");
         return;
@@ -1132,10 +1121,17 @@ export function createLibrary(options: {
         stopForDestination();
         return;
       }
+      const excerpt = organizeExcerpt(read);
+      // The kinds and the User's own Tags it is about, never every Tag made so far (#2339),
+      // judged on what is read of it: a scan's first pages while the rest is read.
+      const tagDefinitions = [
+        ...kindDefinitions(offeredKinds(db)),
+        ...(offeredTags(db, [id], own, new Map([[id, excerpt.text]])).get(id) ?? []),
+      ];
       const result = await classifier.organize(
         definitions,
         tagDefinitions,
-        organizeExcerpt(read),
+        excerpt,
         signal,
         images,
       );
@@ -1148,14 +1144,18 @@ export function createLibrary(options: {
         return;
       }
       // Definition changes make the complete result stale, including tags.
-      if (JSON.stringify(tagDefinitions) !== JSON.stringify(options.tags.list())) {
+      if (JSON.stringify(own) !== JSON.stringify(ownTags(db))) {
         state(id, "pending");
         return;
       }
       const { groupId } = result;
       const choice = groupId === null ? null : definitions.find((item) => item.id === groupId);
       if (choice === undefined) throw new Error("The classifier returned an unknown group.");
-      if (result.fallback) console.info(fallbackLine(id));
+      // One Document is no run: its topic is never proposed as a new Tag.
+      const tags =
+        proposedTags(
+          new Map([[id, { decisions: result.tags, newTags: result.newTags ?? [] }]]),
+        ).get(id) ?? [];
       const proposedFolder =
         choice && !groups().some((group) => group.id === choice.id)
           ? options.review.offeredFolders().find((folder) => folder.id === choice.id)
@@ -1171,8 +1171,8 @@ export function createLibrary(options: {
                 parentId: proposedFolder.parentId,
               }
             : { kind: "folder", folderId: choice.id };
-      const { made, links } = db.transaction(() => {
-        // The Document stays where it is: its place waits in Suggestions for the User (#1569).
+      db.transaction(() => {
+        // The Document stays where it is: its place and Tags wait in Suggestions for the User (#1569).
         write(
           latest,
           initial.group_id,
@@ -1183,9 +1183,8 @@ export function createLibrary(options: {
             : null,
         );
         options.review.propose(request?.run ?? BACKGROUND, [
-          { documentId: id, contentHash: latest.content_hash, placement, tags: [] },
+          { documentId: id, contentHash: latest.content_hash, placement, tags },
         ]);
-        const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
         tagState(id, "classified");
         const current = asked.get(id);
         // A clearance goes only to the service this attempt's own request was authorized for.
@@ -1196,10 +1195,7 @@ export function createLibrary(options: {
         ) {
           clearForService(db, id, services, now());
         }
-        return applied;
       });
-      if (made > 0) options.tagsMade?.();
-      if (links.length > 0) call.applied?.(id, links);
       options.tagged([id]);
       announce([id]);
     } catch (error) {
@@ -1378,16 +1374,6 @@ export function createLibrary(options: {
    * What a proposal reads: the first `SAMPLED` Documents with the start of their text, the rest
    * up to `NAMED` by name and type only, so a Linked folder of thousands stays one request.
    */
-  const samplesOf = (docs: readonly DocumentRow[]): FolderSample[] =>
-    docs.slice(0, SAMPLED + NAMED).map((doc, at) => {
-      const excerpt = organizeExcerpt(source(doc, at < SAMPLED));
-      return {
-        name: doc.name,
-        type: documentType(excerpt),
-        text: at < SAMPLED ? excerptFromPassages([excerpt.text], SAMPLE_TOKENS) : "",
-      };
-    });
-
   /**
    * A Document Organize may not send by itself (`mayBackgroundSend`) waits for the User, "off":
    * one it hadn't filed has no assignment, as if it was never sorted; one it had stays filed.
@@ -2008,43 +1994,6 @@ export function createLibrary(options: {
       changed();
       resume();
     },
-    /**
-     * Proposes Folders for these Documents (the User's own, live ones with text), names them in
-     * `language` and makes them; Organize then sorts the Documents into them (`classify`).
-     * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
-     */
-    async propose(
-      input: unknown,
-      language: Language,
-      permit?: CloudReadPermit,
-      forService?: string,
-    ): Promise<OrganizeReviewFolder[]> {
-      const settings = getSettings();
-      if (!organizeModelOf(settings))
-        throw new InvalidInputError({ key: "error.library.noClassifier" });
-      // A continuation proposes only to the service its press was authorized for (#2308).
-      if (forService !== undefined && options.organizeService(settings)?.id !== forService)
-        return [];
-      const docs = documentIdsOf(input)
-        .filter((id) => !leftAlone(id))
-        .map(document)
-        .filter(hasContent);
-      if (docs.length === 0) return [];
-      const classifier = await options.prepare(settings, permit);
-      if (!classifier.proposeFolders)
-        throw new InvalidInputError({ key: "error.library.cantPropose" });
-      // The top level's names, the User's and those proposed, where the new ones are made (#2425).
-      const existing = [...groups(), ...options.review.offeredFolders()]
-        .filter((each) => each.parentId === null)
-        .map((each) => each.name);
-      const proposed = await classifier.proposeFolders(
-        samplesOf(docs),
-        existing,
-        language,
-        lifetime.signal,
-      );
-      return options.review.proposeFolders(proposed.slice(0, Math.max(0, 100 - groups().length)));
-    },
     classify(input: unknown, forService?: string, run: OrganizeReviewRun = { origin: "library" }) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -2074,7 +2023,7 @@ export function createLibrary(options: {
       allowedGroups?: ReadonlySet<string>,
       permit?: CloudReadPermit,
       run: OrganizeReviewRun & { newFolders?: boolean } = { origin: "assistant" },
-    ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
+    ): Promise<{ failed: unknown | null; untouched: number }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (nothingToChoose()) throw new InvalidInputError({ key: "error.library.noFolders" });
@@ -2092,7 +2041,6 @@ export function createLibrary(options: {
       queueClassification(ids, proposing);
       let failure: unknown | null = null;
       const reached = new Set<string>();
-      const tagChanges: TagLinkChange[] = [];
       for (const id of ids) {
         if (signal.aborted) break;
         let stopped: unknown = null;
@@ -2102,7 +2050,6 @@ export function createLibrary(options: {
           failed: (error) => {
             stopped = error;
           },
-          applied: (_id, links) => tagChanges.push(...links),
           allowedGroups,
           newFolders,
           permit,
@@ -2129,7 +2076,7 @@ export function createLibrary(options: {
           enqueue(id);
         }
       }
-      return { failed: failure, untouched: untouched.length, tagChanges };
+      return { failed: failure, untouched: untouched.length };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = fileable(id);

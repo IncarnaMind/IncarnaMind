@@ -809,6 +809,18 @@ export async function tagDocument(window: Page, documentName: string, tagName: s
 }
 
 /**
+ * Confirms everything waiting in the Library's Review, from its waiting line, as the User would:
+ * the Tags tagging proposes are on a Document only then (#2339).
+ */
+export async function confirmSuggestions(window: Page): Promise<void> {
+  await runCommand(window, "library.open", "Open the Library");
+  await pointAndClick(window, window.getByTestId("organize-waiting-review"));
+  const review = window.getByTestId("organize-review");
+  await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+  await expect(review).toBeHidden();
+}
+
+/**
  * Makes a Tag and puts it on a Document of the User's own (the first one, or one by name): the
  * footer names Tags only once one exists (#1942).
  */
@@ -1256,7 +1268,7 @@ export async function openDocumentMenu(item: Locator): Promise<void> {
 
 /**
  * Opens a Document's Tags menu in the sidebar and returns the Tags it has
- * (each a checked item, with `data-source` and, if unsure, `data-needs-review`).
+ * (each a checked item, with `data-source`).
  * Esc closes the menu again.
  */
 export async function openDocumentTags(item: Locator): Promise<Locator> {
@@ -3679,8 +3691,8 @@ export const DECISION_FAILURE = "The model stopped answering";
 
 /**
  * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
- * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
- * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
+ * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice less sure
+ * for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
  * `delayMs` holds each answer back, for a test that does something else while Organize works;
  * `failFor` refuses those Documents, as a model that stops answering does.
  */

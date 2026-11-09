@@ -23,7 +23,13 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { heldClock } from "../helpers/heldClock";
 import { type FakeJev, JEV_KEY, startFakeJev } from "../helpers/jev";
 import { scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
+import {
+  proposedTagNamesOf,
+  taggingModel,
+  tagNamed,
+  tagNamesOf,
+  waitForTagging,
+} from "../helpers/tags";
 
 const PAPER_TEXT = `Attention Is All You Need
 
@@ -39,7 +45,7 @@ const TAGGING_SENDS = ["tags", "document-excerpts"];
  * A core with a local chat model ready to tag (it would choose `chatChoice`)
  * and a fake Jev server. Requests to TypeSafe's hosted Jev go to the fake.
  */
-async function startWithJev(overrides: Partial<CoreAdapters> = {}, chatChoice = ["Notes"]) {
+async function startWithJev(overrides: Partial<CoreAdapters> = {}, chatChoice = ["Report"]) {
   const jev = await startFakeJev();
   const tagging = taggingModel(chatChoice);
   const keychain = createMemoryKeychain();
@@ -70,7 +76,7 @@ async function retag(core: Core, documentIds: string[]): Promise<Document[]> {
   return waitForTagging(core, documentIds);
 }
 
-/** The Document's Tags as `name: source confidence needsReview`, e.g. "Paper: automatic 0.92". */
+/** The Document's Tags as `name: source confidence`, e.g. "Paper: user". */
 async function linksOf(core: Core, documentId: string): Promise<string[]> {
   const [tags, documents] = await Promise.all([core.listTags(), core.listDocuments()]);
   const document = documents.find((each) => each.id === documentId);
@@ -78,7 +84,7 @@ async function linksOf(core: Core, documentId: string): Promise<string[]> {
   return document.tags.map((link) => {
     const name = tags.find((tag) => tag.id === link.tagId)?.name ?? "?";
     const confidence = link.confidence === null ? "" : ` ${link.confidence}`;
-    return `${name}: ${link.source}${confidence}${link.needsReview ? " needs review" : ""}`;
+    return `${name}: ${link.source}${confidence}`;
   });
 }
 
@@ -97,14 +103,9 @@ describe("Jev settings", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     const [tagged] = await waitForTagging(core, [document.id]);
 
-    expect(tagged?.tags).toEqual([
-      {
-        tagId: (await tagNamed(core, "Paper")).id,
-        source: "automatic",
-        confidence: null,
-        needsReview: false,
-      },
-    ]);
+    // Its Tag waits in the Review, applied only when the User confirms it.
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(tagged?.tags).toEqual([]);
     expect(tagging.requests).toHaveLength(1);
     expect(jev.requests).toEqual([]);
   });
@@ -182,7 +183,7 @@ describe("Jev settings", { timeout: 30_000 }, () => {
     });
   });
 
-  test("probabilities become decisions by the review band", () => {
+  test("probabilities from the review band's low end up become decisions, with their probability", () => {
     const tags = ["sure", "unsure", "unlikely", "edge-low", "edge-high", "unanswered"].map(
       (id) => ({ id, name: id, description: "" }),
     );
@@ -193,34 +194,31 @@ describe("Jev settings", { timeout: 30_000 }, () => {
         JEV_DEFAULT_REVIEW_BAND,
       ),
     ).toEqual([
-      { tagId: "sure", confidence: 0.9, needsReview: false },
-      { tagId: "unsure", confidence: 0.5, needsReview: true },
-      { tagId: "edge-low", confidence: 0.35, needsReview: true },
-      { tagId: "edge-high", confidence: 0.65, needsReview: false },
+      { tagId: "sure", confidence: 0.9 },
+      { tagId: "unsure", confidence: 0.5 },
+      { tagId: "edge-low", confidence: 0.35 },
+      { tagId: "edge-high", confidence: 0.65 },
     ]);
   });
 });
 
 describe("Tagging with Jev", { timeout: 30_000 }, () => {
-  test("with a Jev key, Jev decides each Tag with a probability, instead of the chat model", async () => {
+  test("with a Jev key, Jev decides each kind with a probability, instead of the chat model", async () => {
     const { core, jev, tagging } = await startWithJev();
-    jev.answer({ Paper: 0.92, Report: 0.5, Notes: 0.2 });
+    jev.answer({ Paper: 0.92, Report: 0.5, Letter: 0.2 });
     await useLocalJev(core, jev);
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
 
-    // Paper is sure; Report is in the band, applied and marked; Notes is unlikely.
-    expect(await linksOf(core, document.id)).toEqual([
-      "Paper: automatic 0.92",
-      "Report: automatic 0.5 needs review",
-    ]);
+    // One kind, the likeliest, waits in the Review; nothing is applied before the User confirms it.
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await tagNamesOf(core, document.id)).toEqual([]);
     expect(tagging.requests).toEqual([]);
 
-    // One request, as TypeSafe's API documents it: a Noul question per Tag, keyed by its id.
+    // One request, as TypeSafe's API documents it: a Noul question per kind, keyed by its code.
     expect(jev.requests).toHaveLength(1);
     const [request] = jev.requests;
-    const tags = await core.listTags();
     expect(request).toMatchObject({
       method: "POST",
       path: "/v1/systemone",
@@ -235,12 +233,21 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
       },
     });
     const questions = request?.body.questions ?? {};
-    expect(Object.keys(questions).sort()).toEqual(tags.map((tag) => tag.id).sort());
-    const paper = await tagNamed(core, "Paper");
-    expect(questions[paper.id]).toEqual({
+    expect(Object.keys(questions).sort()).toEqual([
+      "kind:book",
+      "kind:contract",
+      "kind:invoice",
+      "kind:letter",
+      "kind:meeting-notes",
+      "kind:paper",
+      "kind:report",
+      "kind:slides",
+      "kind:statement",
+    ]);
+    expect(questions["kind:paper"]).toEqual({
       type: "noul",
       instructions: "Does the Tag “Paper” fit this Document as a whole?",
-      criteria: { true: paper.description },
+      criteria: { true: expect.stringContaining("research or academic paper") },
     });
   });
 
@@ -259,70 +266,50 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
     ]);
     jev.release();
     await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
-  test("confirming a Tag marked for review makes it the User's; removing one keeps it off", async () => {
+  test("the Tag the User confirms is theirs; one they take off isn't proposed again, whatever Jev says", async () => {
     const { core, jev } = await startWithJev();
-    jev.answer({ Paper: 0.5, Report: 0.4, Book: 0.9 });
+    jev.answer({ Paper: 0.9 });
     await useLocalJev(core, jev);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
-    expect(await linksOf(core, document.id)).toEqual([
-      "Book: automatic 0.9",
-      "Paper: automatic 0.5 needs review",
-      "Report: automatic 0.4 needs review",
-    ]);
-    const [paper, report] = await Promise.all([tagNamed(core, "Paper"), tagNamed(core, "Report")]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
 
-    const confirmed = await core.addDocumentTag(document.id, paper.id);
-    expect(confirmed.tags.find((link) => link.tagId === paper.id)).toEqual({
-      tagId: paper.id,
-      source: "user",
-      confidence: null,
-      needsReview: false,
-    });
-    await core.removeDocumentTag(document.id, report.id);
+    await core.confirmOrganizeReview((await core.getOrganizeReview()).items.map((item) => item.id));
+    expect(await linksOf(core, document.id)).toEqual(["Paper: user"]);
+    await core.removeDocumentTag(document.id, (await tagNamed(core, "Paper")).id);
 
-    // Jev changing its mind changes neither.
-    jev.answer({ Paper: 0.01, Report: 0.99, Book: 0.9 });
+    jev.answer({ Paper: 0.99 });
     await retag(core, [document.id]);
-    expect(await linksOf(core, document.id)).toEqual(["Book: automatic 0.9", "Paper: user"]);
+    expect(await linksOf(core, document.id)).toEqual([]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+    expect(jev.requests).toHaveLength(2);
   });
 
-  test("re-tagging recomputes only automatic Tags: probabilities move, and unlikely Tags come off", async () => {
+  test("a re-tag proposes Jev's likeliest kind now; below the review band, none, until the band is lowered", async () => {
     const { core, jev } = await startWithJev();
-    jev.answer({ Paper: 0.92, Report: 0.8, Slides: 0.1 });
+    jev.answer({ Paper: 0.92, Report: 0.8 });
     await useLocalJev(core, jev);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
-    await core.addDocumentTag(document.id, (await tagNamed(core, "Notes")).id);
-    expect(await linksOf(core, document.id)).toEqual([
-      "Notes: user",
-      "Paper: automatic 0.92",
-      "Report: automatic 0.8",
-    ]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
 
-    jev.answer({ Paper: 0.6, Report: 0.1, Slides: 0.7, Notes: 0.01 });
+    jev.answer({ Paper: 0.6, Slides: 0.7 });
     await retag(core, [document.id]);
-    expect(await linksOf(core, document.id)).toEqual([
-      "Notes: user",
-      "Paper: automatic 0.6 needs review",
-      "Slides: automatic 0.7",
-    ]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Slides"]);
 
-    // A narrower band, then a re-tag of everything: Paper is sure enough now.
-    await core.saveJevSettings({ reviewBand: { low: 0.5, high: 0.55 } });
-    await core.retagDocuments();
-    await waitForTagging(core, [document.id], (each) =>
-      each.tags.some((link) => link.needsReview === false && link.confidence === 0.6),
-    );
-    expect(await linksOf(core, document.id)).toEqual([
-      "Notes: user",
-      "Paper: automatic 0.6",
-      "Slides: automatic 0.7",
-    ]);
-    expect(jev.requests).toHaveLength(3);
+    jev.answer({ Paper: 0.3 });
+    await retag(core, [document.id]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+
+    // A lower band, then a re-tag of everything: Paper is likely enough now.
+    await core.saveJevSettings({ reviewBand: { low: 0.2, high: 0.55 } });
+    await retag(core, [document.id]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await tagNamesOf(core, document.id)).toEqual([]);
+    expect(jev.requests).toHaveLength(4);
   });
 
   test("removing Jev while sorting names it gives sorting back to Automatic (#1907)", async () => {
@@ -337,17 +324,17 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
   });
 
   test("removing Jev goes back to the chat model", async () => {
-    const { core, jev, tagging } = await startWithJev({}, ["Notes"]);
+    const { core, jev, tagging } = await startWithJev({}, ["Report"]);
     jev.answer({ Paper: 0.9 });
     await useLocalJev(core, jev);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
 
     await core.removeJevSettings();
     await retag(core, [document.id]);
 
-    expect(await linksOf(core, document.id)).toEqual(["Notes: automatic"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Report"]);
     expect(tagging.requests).toHaveLength(1);
     expect(jev.requests).toHaveLength(1);
   });
@@ -369,7 +356,7 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
 
     jev.fail(null);
     await retag(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test("a Jev rate limit is handed to Tagging's pause after one request, not retried", async () => {
@@ -410,7 +397,7 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
     jev.answer({ Paper: 0.9 });
     await core.saveJevSettings({ apiKey: JEV_KEY });
     await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 });
 
@@ -430,7 +417,7 @@ describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
     await waitForTagging(core, [document.id]);
 
     expect(requests).toEqual([]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     expect(jev.requests).toHaveLength(1);
     expect(tagging.requests).toEqual([]);
     expect(await core.listDataFlows()).toContainEqual({

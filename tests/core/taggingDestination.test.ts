@@ -41,7 +41,7 @@ import {
   writeSourceFile,
 } from "../helpers/documents";
 import { buildPdf } from "../helpers/pdf";
-import { tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, waitForTagging } from "../helpers/tags";
 
 const OLLAMA: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
 const ANTHROPIC: SaveChatProviderInput = {
@@ -51,10 +51,8 @@ const ANTHROPIC: SaveChatProviderInput = {
 };
 const OPENAI: SaveChatProviderInput = { kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" };
 
-const NAMED = [{ name: "Quarterly reports", description: "Reports for a quarter." }];
-
 /**
- * A scripted model for each provider, counting its own requests: it names one Tag, and Organize
+ * A scripted model for each provider, counting its own requests: it gives each Document the Report kind, and Organize
  * gets no Folder. `fail` makes one provider's answers fail.
  */
 function perProvider() {
@@ -70,9 +68,22 @@ function perProvider() {
         if (failing.has(kind)) throw new Error("The service is down.");
         const format = options.responseFormat;
         const organizes = format?.type === "json" && !!format.schema?.properties?.groupId;
+        const user = options.prompt.find((message) => message.role === "user");
+        const data = JSON.parse(
+          user && typeof user.content !== "string"
+            ? user.content.map((part) => ("text" in part ? part.text : "")).join("")
+            : "{}",
+        ) as { documents?: { ref: string }[] };
         const answer = organizes
-          ? { groupId: "__unsorted__", tags: [], newTags: NAMED }
-          : { tags: [], newTags: NAMED };
+          ? { groupId: "__unsorted__", tags: ["kind:report"] }
+          : {
+              tagged: (data.documents ?? []).map((document) => ({
+                ref: document.ref,
+                kind: "report",
+                tags: [],
+                topic: { name: "", description: "" },
+              })),
+            };
         return {
           content: [{ type: "text", text: JSON.stringify(answer) }],
           finishReason: { unified: "stop", raw: undefined },
@@ -168,7 +179,7 @@ describe("Tagging new Documents is turned on for where it sends", () => {
     await waitForTagging(core, [sent.id]);
 
     expect(providers.sent("anthropic")).toBe(1);
-    expect(await tagNamesOf(core, sent.id)).toEqual(["Quarterly reports"]);
+    expect(await proposedTagNamesOf(core, sent.id)).toEqual(["Report"]);
     expect(await taggingAccepted(core, "https://api.anthropic.com")).toBe(true);
   });
 
@@ -298,7 +309,7 @@ describe("A Document held off stays off, for every sender", () => {
       await core.classifyDocuments(ids);
       await waitForTagging(core, ids);
       expect(providers.sent("anthropic")).toBe(5);
-      expect(await tagNamesOf(core, ids[0] ?? "")).toEqual(["Quarterly reports"]);
+      expect(await proposedTagNamesOf(core, ids[0] ?? "")).toEqual(["Report"]);
       core.close();
     },
   );
@@ -824,6 +835,7 @@ describe("Everything is per service: a turn-on and a clearance", () => {
   });
 });
 
+// Through Re-tag all's own path, the Tags dialog's: a run with no ids (#2339).
 describe("Re-tagging all goes only as tagging by itself would", () => {
   test("with tagging turned off, Re-tag all sends nothing and leaves the Document as it was; re-tagging it sends it", async () => {
     const providers = perProvider();
@@ -838,14 +850,13 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     const { settings } = await core.getLibrary();
     await core.saveLibrarySettings({ ...settings, automatic: false });
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     const after = await add(core, "Added after.txt");
     await waitForTagging(core, [after.id], (each) => each.tagging === "off");
     expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
-    await core.retagDocuments([report.id]);
-    await waitForTagging(core, [report.id]);
+    await core.tagDocuments({ documentIds: [report.id] });
     expect(providers.sent("anthropic")).toBe(2);
   });
 
@@ -861,12 +872,11 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     expect(providers.sent("anthropic")).toBe(1);
     await core.setTaggingWithAi(null, false);
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
-    await core.retagDocuments([report.id]);
-    await waitForTagging(core, [report.id]);
+    await core.tagDocuments({ documentIds: [report.id] });
     expect(providers.sent("anthropic")).toBe(2);
   });
 });
@@ -885,7 +895,7 @@ describe("A Re-tag all that sends nothing changes nothing", () => {
     await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
     expect((await core.getLibrary()).settings.automatic).toBe(false);
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     const after = await add(core, "Added after.txt");
     await waitForTagging(core, [after.id], (each) => each.tagging === "off");
 

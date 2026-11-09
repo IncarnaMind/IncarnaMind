@@ -23,7 +23,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { note, question, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
-import { waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, waitForTagging } from "../helpers/tags";
 
 const ANTHROPIC = "https://api.anthropic.com";
 const OPENROUTER = "https://openrouter.ai";
@@ -67,7 +67,7 @@ function scriptedProviders({ thinks = false, refusesTools = false } = {}) {
             options.responseFormat?.type === "json" ? options.responseFormat.schema : undefined;
           const purpose: SmallCall["purpose"] = schema?.properties?.groupId
             ? "organize"
-            : schema?.properties?.tags
+            : schema?.properties?.tagged
               ? "tags"
               : system.startsWith("You turn a Question")
                 ? "rewrite"
@@ -84,7 +84,7 @@ function scriptedProviders({ thinks = false, refusesTools = false } = {}) {
           }
           const text = {
             organize: JSON.stringify({ groupId: "__unsorted__", tags: [] }),
-            tags: JSON.stringify({ tags: [] }),
+            tags: JSON.stringify({ tagged: [] }),
             rewrite: "urban heat islands at night",
             translate: "城市热岛 夜间",
             other: "OK",
@@ -255,7 +255,7 @@ describe("Automatic picks the model that tags", () => {
     });
   });
 
-  test("3. with no Folders, a local decision model tags each Tag with how sure it is", async () => {
+  test("3. with no Folders, a local decision model asks of each kind how sure it is, and proposes the likeliest", async () => {
     const jev = await startFakeJev({ apiKey: "ollama", ollamaModels: ["tev1:0.8b"] });
     jev.answer({ Paper: 0.92, Report: 0.55 });
     const { core, calls } = await start({ localModels: installedOllamaModels });
@@ -266,17 +266,13 @@ describe("Automatic picks the model that tags", () => {
     const [tagged] = await waitForTagging(core, [document.id]);
 
     expect(jev.requests.map((each) => each.body.model)).toEqual(["tev1:0.8b"]);
-    // Each Tag is a yes or no, with no Folder to choose.
+    // Each kind is a yes or no, with no Folder to choose.
     expect(Object.values(jev.requests[0]?.body.questions ?? {}).map((q) => q.type)).not.toContain(
       "choice",
     );
-    const names = Object.fromEntries((await core.listTags()).map((tag) => [tag.id, tag.name]));
-    expect(tagged?.tags.map((tag) => [names[tag.tagId], tag.confidence, tag.needsReview])).toEqual(
-      expect.arrayContaining([
-        ["Paper", 0.92, false],
-        ["Report", 0.55, true],
-      ]),
-    );
+    // One kind waits in the Review; nothing is applied before the User confirms it.
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(tagged?.tags).toEqual([]);
     expect(calls).toEqual([]);
   });
 

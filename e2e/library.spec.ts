@@ -900,9 +900,18 @@ test("organized folders remain separate from source locations and follow changes
     const path = join(sources, "Membrane separation.txt");
     const revised = "Research report: membrane invoice for laboratory services. Total GBP 250.";
     await writeFile(path, revised);
-    await expect(row.getByTestId("document-tags")).toContainText("Invoice", {
-      timeout: 15_000,
-    });
+    // Organize reads it again: the Folder the User chose stays, and the Tag it proposes waits in
+    // the Review until it is confirmed (#2339).
+    const review = window.getByTestId("organize-review");
+    const proposed = review
+      .getByTestId("organize-review-row")
+      .filter({ hasText: "Membrane separation" })
+      .getByTestId("organize-review-chip");
+    await pointAndClick(window, library.getByTestId("organize-waiting-review"));
+    await expect(proposed.filter({ hasText: "Invoice" })).toHaveCount(1, { timeout: 15_000 });
+    await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(review).toBeHidden();
+    await expect(row.getByTestId("document-tags")).toContainText("Invoice");
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
     expect(await readFile(path, "utf8")).toBe(revised);
     await expect(window.getByTestId("sidebar-status")).not.toContainText("Tags need an AI model");
@@ -988,7 +997,7 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
         ["Research paper", "Paper"],
         ["Research report", "Report"],
         ["Finance invoice", "Invoice"],
-        ["Meetings notes", "Notes"],
+        ["Meetings notes", "Meeting notes"],
       ]) {
         const tag = tags.find((each) => each.name === tagName);
         if (!tag) throw new Error(`No ${tagName} Tag.`);
@@ -1048,7 +1057,13 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
     });
     expect(saved).toEqual({
       folders: { Research: 80, Finance: 40, Meetings: 40, "Not in a Folder": 40 },
-      byTag: expect.objectContaining({ Paper: 40, Report: 40, Invoice: 40, Notes: 40, Book: 0 }),
+      byTag: expect.objectContaining({
+        Paper: 40,
+        Report: 40,
+        Invoice: 40,
+        "Meeting notes": 40,
+        Book: 0,
+      }),
     });
 
     // The Library's sections and the sidebar's Folders: the same counts.
@@ -1120,7 +1135,7 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
         .filter({
           has: window.locator(':scope > div [data-testid="row-text"]', { hasText: name }),
         });
-    for (const name of ["Paper", "Report", "Invoice", "Notes"])
+    for (const name of ["Paper", "Report", "Invoice", "Meeting notes"])
       await expect(tagRow(name).getByTestId("browse-count")).toHaveText(String(saved.byTag[name]));
     await expect(tagRow("Book")).toHaveCount(0);
     await tagRow("Invoice")
