@@ -402,9 +402,12 @@ function finishStartup(): void {
     return;
   instanceReady = true;
   if (instance.kind === "owner") instance.owner.ready(secondLaunch);
-  // The keyword index an older version built is rewritten in the background, off this
-  // thread, once the window has been shown (#2042).
-  setImmediate(() => core?.upgradeKeywordIndex());
+  // Once the window has been shown: the keyword index an older version built is rewritten
+  // off this thread (#2042), and the text fingerprints it didn't keep are filled in (#2216).
+  setImmediate(() => {
+    core?.upgradeKeywordIndex();
+    core?.fillTextFingerprints();
+  });
   void onReadyToUse?.().catch((error: unknown) =>
     logger.exception("app.updateStartupFailed", error),
   );

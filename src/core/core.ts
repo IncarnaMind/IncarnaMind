@@ -440,6 +440,13 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   upgradeKeywordIndex(): void;
   /**
+   * Fingerprints the text of Documents stored before an older version kept fingerprints, so a
+   * check can tell a copy of the file it checks by its text (#2216): one Document a turn, on
+   * this thread. The host calls it once the first window is up; a check fingerprints the
+   * Documents it meets first itself. Calling it again while it runs does nothing.
+   */
+  fillTextFingerprints(): void;
+  /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
    * current version; null when it shows its number plainly, isn't a number,
@@ -2043,6 +2050,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // files and the document being checked. Answers themselves search everything, as before.
   const evidence = createEvidence({
     db,
+    textCopies: documents.textCopies,
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
       documents.searchTool(query, {
@@ -5913,6 +5921,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return found;
     },
     upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
+    fillTextFingerprints: () => documents.fillTextFingerprints(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.

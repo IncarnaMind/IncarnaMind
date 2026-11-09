@@ -150,6 +150,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
+import { createTextCopies } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
@@ -976,6 +977,8 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const textCopies = createTextCopies(db, now);
+
   const reading = createReadingMeter({
     ...options.readingSpeed,
     clock: () => performance.now(),
@@ -1357,12 +1360,15 @@ export function createDocuments(options: DocumentsOptions) {
          WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL`,
         [at, at, job.documentId, result.contentHash],
       );
+      const version = { documentId: job.documentId, contentHash: result.contentHash };
+      textCopies.forget(version);
       let status: DocumentStatus;
       if (result.outcome === "ready") {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
         insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
+        textCopies.record(version, result.pages);
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -1485,6 +1491,28 @@ export function createDocuments(options: DocumentsOptions) {
     };
     keywordUpgradeNext = next;
     next();
+  }
+
+  let fingerprintFill: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Fingerprints the text of the Documents stored before fingerprints were (#2216), one a
+   * turn, so the window never waits; a check fingerprints any it meets first itself.
+   */
+  function fillTextFingerprints(): void {
+    if (closed || fingerprintFill) return;
+    const next = () => {
+      fingerprintFill = null;
+      if (closed) return;
+      try {
+        if (!textCopies.fillNext()) return;
+      } catch (error) {
+        reportError(error);
+        return;
+      }
+      fingerprintFill = setTimeout(next, 0);
+    };
+    fingerprintFill = setTimeout(next, 0);
   }
 
   /** Writes one Document's upgraded keyword rows, or drops a result it is too late for. */
@@ -3262,6 +3290,8 @@ export function createDocuments(options: DocumentsOptions) {
     ids,
     hasDocumentOutside,
     upgradeKeywordIndex,
+    fillTextFingerprints,
+    textCopies,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
@@ -3809,6 +3839,7 @@ export function createDocuments(options: DocumentsOptions) {
             documentId,
             contentHash,
           ]);
+          if (contentHash !== null) textCopies.forget({ documentId, contentHash });
           db.run(
             `DELETE FROM passages
              WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL`,
@@ -3846,6 +3877,7 @@ export function createDocuments(options: DocumentsOptions) {
           db.run("DELETE FROM document_pages WHERE document_id = ? AND deleted_at IS NOT NULL", [
             id,
           ]);
+          textCopies.forgetDocument(id);
         }
       });
       options.emitKept?.(keptCitationTexts());
@@ -3900,6 +3932,7 @@ export function createDocuments(options: DocumentsOptions) {
 
     close(): void {
       closed = true;
+      if (fingerprintFill) clearTimeout(fingerprintFill);
       library.close();
       embedding.close();
       processor.close();

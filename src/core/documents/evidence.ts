@@ -11,7 +11,8 @@
  * - A Mind's own snapshot (`Document.yourNote`, #335): a note can't support
  *   itself. Always, in a check of that Mind.
  * - The document being checked, its earlier versions, and copies of either:
- *   any Document with one of its content fingerprints, at any path. Always.
+ *   any Document with one of its content fingerprints, at any path, and any
+ *   that holds nearly all of the text of one of them (./textCopies). Always.
  *
  * Transcripts and saved web pages are sources and count. Ordinary Answers
  * search as they always did: nothing here is in their way.
@@ -29,6 +30,7 @@ import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { WindowedPassage } from "./search";
 import type { SearchToolOptions, SearchToolParameters } from "./searchTool";
+import type { TextCopies, TextVersion } from "./textCopies";
 
 /**
  * How much a search looks at the Documents left out, to say where they
@@ -72,6 +74,7 @@ export interface EvidenceSearch {
 
 export interface EvidenceDependencies {
   db: Database;
+  textCopies: Pick<TextCopies, "holding">;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
   /** The search Tool, reranked as Answers are (see ./searchTool). */
@@ -144,6 +147,23 @@ export function createEvidence(deps: EvidenceDependencies) {
     ];
   };
 
+  /**
+   * The checked versions whose text is stored: of the checked Documents, and of any Document
+   * with one of their fingerprints, so a file that isn't a Document is compared by its copy's
+   * text. Once each, as the same bytes give the same text.
+   */
+  const checkedTexts = (fingerprints: readonly string[], ids: readonly string[]): TextVersion[] =>
+    db
+      .all<{ document_id: string; content_hash: string }>(
+        `SELECT MIN(p.document_id) AS document_id, p.content_hash FROM document_pages p
+         JOIN documents d ON d.id = p.document_id
+         WHERE p.deleted_at IS NULL AND d.deleted_at IS NULL AND p.content_hash IS NOT NULL
+           AND (${inList("p.document_id")} OR ${inList("p.content_hash")})
+         GROUP BY p.content_hash`,
+        [JSON.stringify(ids), JSON.stringify(fingerprints)],
+      )
+      .map((row) => ({ documentId: row.document_id, contentHash: row.content_hash }));
+
   return {
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,
@@ -210,8 +230,14 @@ export function createEvidence(deps: EvidenceDependencies) {
              ${scoped}`,
           [JSON.stringify(fingerprints), JSON.stringify(checkedIds), ...scopeParams],
         );
-        // Never evidence for this check, counted or not: the reason that can't be undone wins.
+        // Never evidence for this check, counted or not: the reasons that can't be undone win.
         for (const row of copies) excluded.set(row.id, "checked-document");
+        const sameText = deps.textCopies.holding(
+          checkedTexts(fingerprints, checkedIds),
+          documentIds,
+          new Set(copies.map((row) => row.id)),
+        );
+        for (const id of sameText) excluded.set(id, "same-text");
       }
 
       if (excluded.size === 0) {
