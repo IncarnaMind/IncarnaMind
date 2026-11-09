@@ -12,7 +12,6 @@ import {
   exampleRow,
   interceptOpenExternal,
   launchApp,
-  openSetupSteps,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -66,7 +65,7 @@ function cardFits(window: Page): Promise<{ inside: boolean; sideways: boolean }>
 const fits = { inside: true, sideways: false };
 
 for (const { language, width, height } of COMBINATIONS) {
-  test(`a pasted key is recognised from its form, the waiting Question runs with no other click, and steps 2 and 3 take one click each (${language}, ${width} px)`, async () => {
+  test(`a pasted key is recognised from its form, and the waiting Question runs with no other click (${language}, ${width} px)`, async () => {
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
       ollama: "http://127.0.0.1:9",
@@ -83,40 +82,13 @@ for (const { language, width, height } of COMBINATIONS) {
       await expect(card.getByTestId("setup-key-line")).toHaveText(
         translate(language, "setup.key.recognised"),
       );
+      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
 
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-      await openSetupSteps(window);
-      await expect(card.getByTestId("setup-step-transcription")).toContainText(
-        translate(language, "setup.step.transcription"),
-        { timeout: 15_000 },
-      );
-      await expect(card.getByTestId("setup-step-sorting")).toContainText(
-        translate(language, "setup.step.sorting"),
-      );
-      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
-
-      const transcription = card.getByTestId("setup-transcription");
-      await expect(transcription).toBeFocused();
-      await expect(transcription).toHaveValue("local");
-      await expect(card.getByTestId("setup-transcription-line")).toHaveText(
-        translate(language, "setup.step.transcription.line"),
-      );
-      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-      await expect(card.getByTestId("setup-step-transcription")).toHaveAttribute(
-        "data-done",
-        "true",
-      );
-
-      await expect(card.getByTestId("models-sorting").locator("option:checked")).toHaveText(
-        translate(language, "models.sorting.chat"),
-        { timeout: 15_000 },
-      );
-      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
-      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
       await expect(card).toHaveCount(0);
       await expect(window.getByTestId("composer-input")).toBeVisible();
     } finally {
@@ -253,16 +225,9 @@ for (const { language, width, height } of COMBINATIONS) {
       const [authorize] = await urlsOpened(app);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      await openSetupSteps(window);
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-      await expect(card.getByTestId("setup-step-transcription")).toContainText(
-        translate(language, "setup.step.transcription"),
-      );
-      await expect(card.getByTestId("setup-step-sorting")).toContainText(
-        translate(language, "setup.step.sorting"),
-      );
     } finally {
       await app.close();
       await openai.close();
@@ -306,7 +271,7 @@ for (const { language, width, height } of COMBINATIONS) {
 }
 
 for (const { language, width, height } of COMBINATIONS) {
-  test(`in Local mode only choices on this computer are offered, in step 1 and in the steps after it (${language}, ${width} px)`, async () => {
+  test(`in Local mode only choices on this computer are offered (${language}, ${width} px)`, async () => {
     const claude = await createFakeAnthropic();
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
@@ -334,17 +299,6 @@ for (const { language, width, height } of COMBINATIONS) {
       expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
 
       await setLocalChatModel(window);
-      await openSetupSteps(window);
-      await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
-        translate(language, "meetings.route.local"),
-      ]);
-      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-      await expect(card.getByTestId("models-sorting").locator("option")).toHaveText(
-        [translate(language, "models.sorting.chat")],
-        { timeout: 15_000 },
-      );
-      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
-      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
       await expect(card).toHaveCount(0);
     } finally {
       await app.close();

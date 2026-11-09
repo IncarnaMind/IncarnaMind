@@ -2,7 +2,6 @@ import { type ElectronApplication, expect, type Locator, test } from "@playwrigh
 import { createFakeOpenAI, type FakeOpenAIServer } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -154,7 +153,6 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await button.click();
     await expect(window.getByTestId("chatgpt-welcome")).toContainText("你正在使用 ChatGPT 订阅");
     await window.getByTestId("chatgpt-welcome-ok").click();
-    await continueSetup(window);
     expect(exchanges()).toHaveLength(1);
   } finally {
     await app.close();

@@ -434,16 +434,15 @@ function focusComposerUnlessTyping(): void {
 
 core.on("chatReadiness.changed", (readiness) => {
   if (!readiness.ready) {
-    // The model that worked is gone: the card asks for one again. A step the User had open stays
-    // open across a check that comes back ready (#2310).
+    // The model that worked is gone: the card asks for one again (#2310).
     useModelSetup.setState({ ready: false });
     return;
   }
   const { wanted, waiting, ready } = useModelSetup.getState();
   if (!wanted && !waiting) return;
   // Only the readiness that brings the first working model in moves the cursor and gives the
-  // composer the panel: a later one (the key checked again, another model saved) leaves it, and
-  // the steps, where the User has them (#2310).
+  // composer the panel: a later one (the key checked again, another model saved) leaves it
+  // (#2310).
   if (ready) return;
   useModelSetup.setState({ ready: true, wanted: true });
   focusComposerUnlessTyping();
