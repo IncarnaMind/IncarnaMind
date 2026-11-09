@@ -172,5 +172,3 @@ export function createExportLedger({ outputs, folderOf }: ExportLedgerOptions) {
     },
   };
 }
-
-export type ExportLedger = ReturnType<typeof createExportLedger>;

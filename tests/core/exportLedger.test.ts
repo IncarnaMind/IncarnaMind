@@ -62,7 +62,7 @@ async function ledgerIn() {
   return { ledger, folder, save, holds, ownFiles };
 }
 
-const notWindowsOrRoot = process.platform === "win32" || process.getuid?.() === 0;
+const windowsOrRoot = process.platform === "win32" || process.getuid?.() === 0;
 
 describe("An export written again (#110, #2927)", () => {
   // protects=a Change writes the same file while it holds what IncarnaMind wrote, and the next Change knows the new bytes; fails_when=the file is left and a copy made, or the second Change takes the first's bytes for the User's; no_claim=what the bytes are.
@@ -103,7 +103,7 @@ describe("An export written again (#110, #2927)", () => {
   });
 
   // protects=a file the User made read-only is left as it is too; fails_when=it is written over, or the Change fails with nothing saved; no_claim=Windows, where the mode means something else.
-  test.skipIf(notWindowsOrRoot)(
+  test.skipIf(windowsOrRoot)(
     "a read-only file is left as it is, with a copy beside it",
     async () => {
       const { ledger, folder, save, holds } = await ledgerIn();
@@ -117,6 +117,27 @@ describe("An export written again (#110, #2927)", () => {
       expect(await holds(saved.path)).toBe("first");
     },
   );
+
+  // protects=a copy that can't be saved leaves the record as it was: the export is still the file IncarnaMind wrote, and no copy is known; fails_when=the record takes the bytes for written, or a copy that isn't there is known; no_claim=Windows, where the mode means something else.
+  test.skipIf(windowsOrRoot)("a copy that can't be saved changes no record", async () => {
+    const { ledger, folder, save, holds } = await ledgerIn();
+    const saved = await save("first");
+    await writeFile(saved.path, "the User's own words");
+    await chmod(folder, 0o555);
+
+    const refused = ledger
+      .rewrite(saved.known(), bytes("second"), null)
+      .finally(() => chmod(folder, 0o755));
+    await expect(refused).rejects.toMatchObject({
+      wording: { key: "error.export.rewrite.locked", values: { name: "Tides.docx" } },
+    });
+
+    expect(await holds(saved.path)).toBe("the User's own words");
+    expect(saved.known().wrote).toBe(sha256("first"));
+    expect(() => ledger.known(join(folder, "Tides 2.docx"), "note-1", "docx")).toThrow(
+      InvalidInputError,
+    );
+  });
 
   // protects=a Change is only for the export this Note saved at that path in that format; fails_when=another Note's export, another format's, or a path IncarnaMind never saved is taken; no_claim=what the window then shows.
   test("only this Note's export, in this format, is known at a path", async () => {
@@ -148,6 +169,11 @@ describe("An export written again (#110, #2927)", () => {
     const pack = await save("first", "note-1", "source-pack");
     await ledger.rewrite(pack.known(), bytes("second"), null);
     expect(ownFiles.at(-1)).toEqual({ text: "second", kind: "source-pack", folderId: "folder-1" });
+
+    await writeFile(pack.path, "the User's own words");
+    const beside = await ledger.rewrite(pack.known(), bytes("third"), null);
+    expect(beside.changedFile).toBe("Tides.docx");
+    expect(ownFiles.at(-1)).toEqual({ text: "third", kind: "source-pack", folderId: "folder-1" });
 
     const other = await ledgerIn();
     const word = await other.save("first", "note-2", "docx");
@@ -256,10 +282,11 @@ describe("A Change of an export taken back (#110, #2927)", () => {
     await expect(ledger.restore(copy.file.path, copy.step)).rejects.toMatchObject({
       wording: { key: "error.export.restore.nothing", values: { name: "Tides 2.docx" } },
     });
+    expect(() => ledger.known(copy.file.path, "note-1", "docx")).toThrow(InvalidInputError);
   });
 
   // protects=Undo of a file made read-only since writes nothing and says it is locked, and the step waits until it can be written; fails_when=the step is lost or the file replaced; no_claim=Windows, where the mode means something else.
-  test.skipIf(notWindowsOrRoot)(
+  test.skipIf(windowsOrRoot)(
     "Undo of a read-only file says it is locked, and its step waits",
     async () => {
       const { ledger, save, holds } = await ledgerIn();
