@@ -190,17 +190,14 @@ export function DecisionKeyForm({
 /**
  * A host chosen from the sorting picker's foot (#1907): what its best model is, then its key and
  * account, with what choosing it sends above Use this, which keeps them and makes it what sorts.
- * `choosing`: the setup card's step, where choosing it turns tagging on, as its line says.
  */
 export function DecisionSortingSetUp({
   host,
-  choosing,
   choose,
   onChosen,
   onCancel,
 }: {
   host: DecisionHostStatus;
-  choosing: boolean;
   choose(): Promise<boolean>;
   onChosen(): void;
   onCancel(): void;
@@ -231,7 +228,7 @@ export function DecisionSortingSetUp({
                 provider: name,
                 decisionModel: true,
               }}
-              choosing={choosing}
+              choosing={false}
             />
           ),
           choose,

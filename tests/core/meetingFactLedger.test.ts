@@ -5,6 +5,7 @@ import type { FactReply, MeetingFact } from "../../src/core/meetings/factProtoco
 const fact = (id: string, text = id, supersedes: string[] = []): MeetingFact => ({
   id,
   topic: "draft",
+  heading: "Draft",
   lines: [],
   sections: ["actions"],
   claim: false,

@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import { withJsonFencesClosed } from "./jsonFences";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -2142,6 +2143,11 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    if (request.meetingFacts) {
+      const fenced = withJsonFencesClosed(keptText);
+      yield* textEdits(keptText, fenced);
+      keptText = fenced;
+    }
     const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
     yield* textEdits(keptText, worded);
     keptText = worded;

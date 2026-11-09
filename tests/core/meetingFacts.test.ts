@@ -224,8 +224,11 @@ for (const language of ["en", "zh-CN"] as const) {
       try {
         expect(fill).toMatchObject({ state: "filled", omitted: 0 });
         const items: string[] = [];
-        readMind(client).descendants((node) => {
-          if (node.type.name === "listItem") items.push(node.textContent);
+        readMind(client).forEach((block) => {
+          if (block.type.name !== "bulletList" || !block.textContent.includes(words.line)) return;
+          block.forEach((item) => {
+            items.push(item.textContent);
+          });
         });
         expect(items).toHaveLength(1);
         for (const topic of words.topics) {
@@ -254,7 +257,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const text = readMind(client).textContent;
         const blocks = readMind(client);
         const action = blocks.child(1);
-        expect(action.type.name).toBe("paragraph");
+        expect(action.type.name).toBe("bulletList");
         expect(action.textContent).toContain(words.first);
         expect(text.split(words.first)).toHaveLength(2);
         const children: string[] = [];
