@@ -81,7 +81,7 @@ test.each([
   (_, lines) => {
     const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
     expect(prompt).toContain(
-      "a figure, price, term or fact one side stated is never a decision, even when nobody objects, and takes no section",
+      "for what the people in the call agreed to do, a choice they made together, never a figure, price or term one side stated, even when nobody objects",
     );
     expect(prompt).toContain(
       "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one person speaks as Them and their name is known, every Them line is theirs, written with their name. When several do, name who speaks only where the line, or the line before it, makes clear who it is; otherwise write what was said without a speaker.",
