@@ -23,10 +23,12 @@ import {
   mindCitations,
   onlyCitation,
   type ShownPassage,
+  shownPassages,
 } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 import {
   fakeSeparator,
   recordedCall,
@@ -324,6 +326,86 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     });
     core.close();
   });
+
+  // protects=a record taken from a Transcript Passage keeps who's who as its model read it there: when the Answer searches again after the speaker pass and is shown the same Passage marked anew, the earlier record is still found when the Answer is checked, with or without a rename, and shows who said it now (#2839); fails_when=the earlier record is checked against the later showing's who's who and shows its quote as not found; no_claim=a real model's wording.
+  test.each([
+    ["renames its line", undefined],
+    ["renames no one", () => 0],
+  ] as const)(
+    "a record made before the pass %s is found when the Answer shows its Passage again",
+    async (_, voiceOf) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let passEnded = () => {};
+      const ended = new Promise<void>((resolve) => {
+        passEnded = resolve;
+      });
+      let line: Cue | null = null;
+      let cited = false;
+      let shownAgain = false;
+      const model = scriptedModel(
+        (call: ModelCall) => {
+          if (!call.tools.includes("search_documents")) return { text: "No Tools were offered." };
+          const said = line?.text ?? "";
+          const searches = call.results.filter((result) => result.tool === "search_documents");
+          if (searches.length === 0) {
+            return { calls: [{ tool: "search_documents", input: { query: said } }] };
+          }
+          if (!call.results.some((result) => result.tool === "cite")) {
+            cited = true;
+            const passage = shownPassages(searches[0]?.text ?? "").find((each) =>
+              each.text.includes(said),
+            );
+            const location = `${clockTime(line?.startMs ?? 0)} Them`;
+            const citations = [{ marker: 1, passage: passage?.id, location, quote: said }];
+            return { calls: [{ tool: "cite", input: { citations } }] };
+          }
+          if (searches.length === 1) {
+            // Other words, so it isn't the same search, for the same line's Passage.
+            const again = said.split(" ").slice(0, 4).join(" ");
+            return {
+              calls: [{ tool: "search_documents", input: { query: again } }],
+              pause: { after: 0, until: ended },
+            };
+          }
+          shownAgain = shownPassages(searches[1]?.text ?? "").some((each) =>
+            each.text.includes(said),
+          );
+          return { text: "They said so [^1]." };
+        },
+        { judgesItsAnswers: true },
+      );
+      const { separator } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      const dataDir = await createTempDataFolder();
+      const { core, meeting } = await recordedCall(dataDir, { speakerSeparator: separator, model });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      const cues = readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+      await transcriptRead(core, dataDir, meeting.id, (await transcriptOf(core, meeting.id)).id);
+      line = lineBy(cues, "Them");
+      const mind = await core.createMind({ title: "Who said it" });
+      const client = await connectToMind(core, mind.id);
+      const asked = askAndFinish(core, client, mind.id, "What did they say?");
+      await vi.waitFor(() => expect(cited).toBe(true));
+      release();
+      const now = (await toldCues(core, meeting.id))[cues.indexOf(line)]?.speaker;
+      expect(now).toEqual(voiceOf ? "Them" : expect.stringMatching(/^Speaker \d$/));
+      passEnded();
+      const { answerId } = await asked;
+      expect(shownAgain).toBe(true);
+      expect(onlyCitation(client, answerId)).toMatchObject({
+        location: { kind: "time", from: line.startMs, speaker: "Them" },
+        check: "found",
+      });
+      core.close();
+    },
+  );
 
   // protects=a quote the model copies with the longest mark a name can make loses the whole mark; fails_when=the mark's end stays in the quote, so the quote isn't found; no_claim=marks of other Units.
   test("a quote copied with the longest name's mark loses the mark", () => {

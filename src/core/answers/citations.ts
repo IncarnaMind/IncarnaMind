@@ -1622,6 +1622,11 @@ interface Accepted {
   quotedWordsFound?: string[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
+  /**
+   * Who's who in the Transcript it cites as its model had just read it, when it was taken
+   * (#2839): the same Passage shown again after the speaker pass is marked anew.
+   */
+  speakers?: TranscriptSpeakers | null;
 }
 
 /** A record as `take` read it: accepted, with its Passage's Units; or why not. */
@@ -1763,16 +1768,24 @@ export function createCitationSession(
     return matching;
   };
 
+  /** Who's who in the Transcript a Passage is from, as it was last shown to the model, else as it is. */
+  const lastShown = (
+    handle: string,
+    source: Pick<CitationSource, "documentId" | "documentKind">,
+  ) => {
+    if (source.documentKind !== "transcript") return null;
+    const shown = shownSpeakers.get(handle);
+    return shown !== undefined ? shown : (documents.speakers?.(source.documentId) ?? null);
+  };
+
   /**
    * Who's who in a Transcript a record cites (#138): the names its model read in the Passage it
-   * names. The speaker pass may change who's who while a reply is out (#2839); a Citation stores
-   * its line's own label, so it shows who's who as it is now.
+   * names, kept with the record. The speaker pass may change who's who while a reply is out, or
+   * before the Passage is shown again (#2839); a Citation stores its line's own label, so it
+   * shows who's who as it is now.
    */
-  const speakersFor = (record: Pick<Accepted, "handle" | "source">) => {
-    if (record.source.documentKind !== "transcript") return null;
-    const shown = shownSpeakers.get(record.handle);
-    return shown !== undefined ? shown : (documents.speakers?.(record.source.documentId) ?? null);
-  };
+  const speakersFor = (record: Pick<Accepted, "handle" | "source" | "speakers">) =>
+    record.speakers !== undefined ? record.speakers : lastShown(record.handle, record.source);
 
   /** The stored text of the Units a record cites, of the version its Passage was built from. */
   const citedText = (record: Pick<Accepted, "source" | "range">) =>
@@ -1957,7 +1970,11 @@ export function createCitationSession(
   };
 
   /** Reads a record: the Passage it names, the Units it cites and its quote; or why it can't be taken. */
-  function take(input: CitationRecordInput, options: CiteOptions): Taken {
+  function take(
+    input: CitationRecordInput,
+    options: CiteOptions,
+    read?: TranscriptSpeakers | null,
+  ): Taken {
     const marker = input.marker;
     const given = String(input.passage ?? "").slice(0, 200);
     if (!Number.isInteger(marker) || marker < 1) {
@@ -1971,7 +1988,7 @@ export function createCitationSession(
         problem: `A record needs a marker number (1, 2, …) that is in the Answer as [^n].`,
       };
     }
-    const taken = takeQuote(input, marker, options);
+    const taken = takeQuote(input, marker, options, true, read);
     if (taken.ok && !taken.record.kept) {
       const problem =
         quotePlaceProblem(
@@ -2007,6 +2024,8 @@ export function createCitationSession(
     marker: number,
     options: CiteOptions,
     relocate = true,
+    /** Who's who as its model read the Passage, where an earlier record of it says. */
+    read?: TranscriptSpeakers | null,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
@@ -2060,6 +2079,7 @@ export function createCitationSession(
       unresolved,
       quote,
       result: null,
+      speakers: read !== undefined ? read : lastShown(found.handle, source),
     };
     let record: Accepted = { ...taken, location: locationFor(taken) };
     // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
@@ -2557,6 +2577,7 @@ export function createCitationSession(
       const taken = take(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
+        earlier.speakers,
       );
       if (!taken.ok || !taken.record.quote || !located(check(taken.record))) return false;
       records.set(marker, taken.record);

@@ -183,6 +183,60 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     }
   });
 
+  // protects=the pass says who's who changed only when it wrote it: once for a pass that gives lines to Speakers, never for one that renames no one, and never when the User's own who's who, set while the Note was in Recently deleted, kept the pass's result out (#2839); fails_when=an event says who's who changed when nothing was written, or none comes after a write; no_claim=the event's listeners in the window.
+  test.each([
+    ["gives lines to Speakers", undefined, false, 1],
+    ["renames no one", () => 0, false, 0],
+    ["meets the User's own who's who", undefined, true, 0],
+  ] as const)(
+    "a pass that %s says who's who changed only when it wrote it",
+    async (_, voiceOf, named, events) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { separator: told } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      let answered = false;
+      const separator: SpeakerSeparator = {
+        async separate(request) {
+          const turns = await told.separate(request);
+          answered = true;
+          return turns;
+        },
+      };
+      const { core, meeting } = await recordedCall(await createTempDataFolder(), {
+        speakerSeparator: separator,
+      });
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      const theirs = { labels: { Them: "Dana" }, lines: {} };
+      if (named) {
+        await core.setTranscriptSpeakers({
+          documentId: saved.documentId as string,
+          speakers: theirs,
+        });
+        await core.deleteMind(meeting.mindId);
+      }
+      const changed: string[] = [];
+      core.on("documents.speakersChanged", (documents) => {
+        for (const document of documents) changed.push(document.id);
+      });
+      release();
+      await vi.waitFor(() => expect(answered).toBe(true));
+      // The pass ends in the promise turns after its answer: the next task sees it ended.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (named) await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      await toldCues(core, meeting.id);
+      expect(changed).toEqual(Array.from({ length: events }, () => saved.documentId));
+      const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+      if (named) expect(document?.speakers).toEqual(theirs);
+      core.close();
+    },
+  );
+
   // protects=one voice on the other side keeps "Them", in a call; fails_when=it becomes "Speaker 1"; no_claim=a real recording's one voice, which the eval covers.
   test('with one voice on the other side, its lines stay "Them"', async () => {
     const dataDir = await createTempDataFolder();
