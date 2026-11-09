@@ -11,6 +11,12 @@ import type { ClusteredVoices, VoiceTurn } from "../adapters";
 export const SAME_PERSON = 0.6;
 /** A voice with less of the speech than this is someone else's stray stretch: it joins the voice most like it. */
 const STRAY_SHARE = 0.02;
+/**
+ * The engine clusters at most this much audio at once; a longer recording is cut into windows
+ * whose voices are then joined by voiceprint. Its clustering compares every stretch with every
+ * other, so its memory grows with the square of the length: 2.1 GB for two hours at once.
+ */
+export const WINDOW_SECONDS = 60 * 60;
 
 const cosine = (a: Float32Array, b: Float32Array) => {
   let dot = 0;

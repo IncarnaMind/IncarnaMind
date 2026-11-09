@@ -945,11 +945,10 @@ export interface ClusteredVoices {
  * Stop (#2839). Rejects if the models can't load, the audio can't be read, or `signal` aborts.
  */
 export interface SpeakerSeparator {
-  cluster(request: {
-    parts: readonly { path: string; offsetMs: number }[];
-    model: SpeakerModelFiles;
-    signal?: AbortSignal;
-  }): Promise<ClusteredVoices>;
+  cluster(
+    request: { parts: readonly { path: string; offsetMs: number }[]; model: SpeakerModelFiles },
+    signal?: AbortSignal,
+  ): Promise<ClusteredVoices>;
 }
 
 /**

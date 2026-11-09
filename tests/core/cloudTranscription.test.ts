@@ -250,7 +250,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     second.core.close();
   });
 
-  // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are; fails_when=one voice is numbered, or the pass runs over the cloud's labels; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
+  // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are, during the call and after; fails_when=one voice is numbered, or the pass runs over the cloud's labels or clusters them during the call; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
   test('with one voice on the other side, its lines say "Them", and the speaker pass leaves the service\'s voices', async () => {
     const dataDir = await createTempDataFolder();
     const pass = fakeSeparator();
@@ -262,8 +262,10 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id });
     await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
-    record(9 * SECOND);
-    await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+    for (let at = 1; at <= 7; at++) {
+      record(10 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 4 * at);
+    }
     await core.stopMeeting(meeting.id);
     const saved = await until(
       core,

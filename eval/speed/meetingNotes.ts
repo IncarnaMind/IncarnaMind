@@ -201,7 +201,7 @@ const partSeconds = (path: string) => Math.max(0, statSync(path).size - 44) / 2 
  */
 function standInSpeakerPass(perAudioSecond: number): SpeakerSeparator {
   return {
-    async cluster({ parts, signal }) {
+    async cluster({ parts }, signal) {
       const seconds = parts.reduce((sum, part) => sum + partSeconds(part.path), 0);
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, seconds * perAudioSecond * 1000);

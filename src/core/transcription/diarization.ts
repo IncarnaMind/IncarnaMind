@@ -14,19 +14,13 @@ import {
   type VoiceTurn,
 } from "../adapters";
 import { SHERPA } from "./sherpa";
-import { joinedTurns, SAME_PERSON } from "./voiceprints";
+import { joinedTurns, SAME_PERSON, WINDOW_SECONDS } from "./voiceprints";
 
 /** Voiceprints closer than this are one voice: set on the first 15 minutes of the English cases of eval/meetings (eval/speakers/README.md). */
 export const CLUSTER_THRESHOLD = 1.05;
 
 /** A voiceprint is taken from a voice's longest stretches, up to this much of them. */
 const PRINT_SECONDS = 30;
-/**
- * The engine clusters at most this much audio at once; a longer recording is cut into even
- * windows whose voices are then joined by voiceprint. Its clustering compares every stretch with
- * every other, so its memory grows with the square of the length: 2.1 GB for two hours at once.
- */
-export const WINDOW_SECONDS = 60 * 60;
 
 const WAV_HEADER_BYTES = 44;
 const SAMPLES_PER_MS = MEETING_SAMPLE_RATE / 1000;

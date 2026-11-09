@@ -74,11 +74,11 @@ export function fakeSeparator({
   holdOf?: (request: Parameters<SpeakerSeparator["cluster"]>[0]) => Promise<void> | undefined;
   fails?: string;
 } = {}) {
-  const requests: Parameters<SpeakerSeparator["cluster"]>[0][] = [];
+  /** Each request, with the signal it was given. */
+  const requests: (Parameters<SpeakerSeparator["cluster"]>[0] & { signal?: AbortSignal })[] = [];
   const separator: SpeakerSeparator = {
-    async cluster(request) {
-      requests.push(request);
-      const { signal } = request;
+    async cluster(request, signal) {
+      requests.push({ ...request, ...(signal && { signal }) });
       const aborted = new Promise<void>((_, reject) =>
         signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
       );

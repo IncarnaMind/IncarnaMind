@@ -1396,6 +1396,7 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   async function save(state: State): Promise<void> {
     if (state.cues.length === 0) {
+      options.speakers?.forget(state.meetingId);
       state.state = "empty";
       options.saved?.(state.meetingId);
       return;
@@ -1736,12 +1737,9 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (!state?.live) return;
       feed(state, state.live.tracks.add(source, samples, atMs));
       if (state.live?.callSound()) heardCall(state);
-      if (
-        !state.memo &&
-        source === sourceToSeparate(state.callHeard === true) &&
-        !toldApart(state, source)
-      ) {
-        options.speakers?.recording(meetingId, source, atMs + samples.length / SAMPLE_RATE_MS);
+      if (!state.memo && source === sourceToSeparate(state.callHeard === true)) {
+        if (toldApart(state, source)) options.speakers?.forget(meetingId);
+        else options.speakers?.recording(meetingId, source, atMs + samples.length / SAMPLE_RATE_MS);
       }
     },
 
@@ -1816,7 +1814,8 @@ export function createTranscripts(options: TranscriptsOptions) {
       }
       state.state = "finishing";
       state.finishing = (state.ending ?? Promise.resolve()).then(() => finish(state));
-      options.speakers?.stopped(meetingId);
+      if (toldApart(state)) options.speakers?.forget(meetingId);
+      else options.speakers?.stopped(meetingId);
       options.changed();
     },
 

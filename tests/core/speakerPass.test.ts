@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
-import { labelled } from "../../src/core/meetings/speakerPass";
+import { labelled, nextRun } from "../../src/core/meetings/speakerPass";
 import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
@@ -143,8 +143,8 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       const { separator: told } = fakeSeparator({ holds });
       let answered = false;
       const separator: SpeakerSeparator = {
-        async cluster(request) {
-          const clustered = await told.cluster(request);
+        async cluster(request, signal) {
+          const clustered = await told.cluster(request, signal);
           answered = true;
           return clustered;
         },
@@ -199,8 +199,8 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       const { separator: told } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
       let answered = false;
       const separator: SpeakerSeparator = {
-        async cluster(request) {
-          const clustered = await told.cluster(request);
+        async cluster(request, signal) {
+          const clustered = await told.cluster(request, signal);
           answered = true;
           return clustered;
         },
@@ -281,10 +281,10 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     const working = fakeSeparator();
     let failed = 0;
     const separator: SpeakerSeparator = {
-      cluster: (request) =>
+      cluster: (request, signal) =>
         failed++ === 0
           ? Promise.reject(new Error("The speaker process stopped."))
-          : working.separator.cluster(request),
+          : working.separator.cluster(request, signal),
     };
     const { core, meeting } = await recordedCall(await createTempDataFolder(), {
       speakerSeparator: separator,
@@ -382,6 +382,42 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
   });
 });
 
+/** The system parts of a call `seconds` long, ten seconds each. */
+const partsUpTo = (seconds: number) =>
+  Array.from({ length: seconds / 10 }, (_, at) => ({
+    source: "system" as const,
+    offsetMs: at * 10 * SECOND,
+    durationMs: 10 * SECOND,
+    path: `system-${at}.wav`,
+  }));
+
+const stretchOf = (parts: readonly { path: string }[]) => ({
+  parts: new Set(parts.map((part) => part.path)),
+  clustered: { turns: [], voices: [] },
+});
+
+describe("What the speaker pass clusters next during a call (#2839)", () => {
+  // protects=a long call is clustered during it a window of an hour at a time, as the engine clusters a long recording, so no run holds more than an hour of audio; the next run goes on after the window; fails_when=a run over everything is given more than an hour past the windows, or reaches back into one; no_claim=the window's memory, which src/main/speakerSeparator.ts states.
+  test("past an hour, a run over everything takes at most an hour, and the next goes on after it", () => {
+    const soFar = { windows: [], done: null, tail: null, doneMs: 0, tailMs: 0 };
+    expect(nextRun(soFar, partsUpTo(50))).toEqual({ waitMs: 10 * SECOND });
+    expect(nextRun(soFar, partsUpTo(60))).toEqual({ whole: true, parts: partsUpTo(60) });
+
+    const third = partsUpTo(3000);
+    const longCall = { ...soFar, done: stretchOf(third), doneMs: 3000 * SECOND };
+    const next = nextRun(longCall, partsUpTo(3800));
+    expect("parts" in next && next.parts.length).toBe(360);
+
+    const hour = partsUpTo(3600);
+    const after = nextRun({ ...soFar, windows: [stretchOf(hour)] }, partsUpTo(3700));
+    expect("parts" in after && after.parts.map((part) => part.offsetMs)).toEqual(
+      partsUpTo(3700)
+        .slice(360)
+        .map((part) => part.offsetMs),
+    );
+  });
+});
+
 /** A fake separator whose requests answer only when the test lets each go, by its place. */
 function heldSeparator(voiceOf: (index: number) => number) {
   const lets: (() => void)[] = [];
@@ -394,9 +430,10 @@ function heldSeparator(voiceOf: (index: number) => number) {
       }),
   });
   const separator: SpeakerSeparator = {
-    async cluster(request) {
-      const clustered = await fake.separator.cluster(request);
-      answered.push(fake.requests.indexOf(request));
+    async cluster(request, signal) {
+      const at = fake.requests.length;
+      const clustered = await fake.separator.cluster(request, signal);
+      answered.push(at);
       return clustered;
     },
   };
@@ -458,7 +495,7 @@ describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => 
     core.close();
   });
 
-  // protects=Stop stops a run under way, and only what was saved after the last finished runs (of everything, and of the tail after it) is clustered then, the stretches' voices joined by voiceprint: a voice heard before keeps its Speaker, a new one gets the next, across a pause; Stop pressed again clusters nothing more; fails_when=the run under way goes on, what is clustered at Stop reaches back into a finished run, a voice heard before gets a new Speaker, a new voice takes an old one's, or a second Stop runs another pass; no_claim=the engine's own voiceprints, which the gate's label runs measure.
+  // protects=Stop stops a run under way, and only what was saved after the last finished runs (of everything, and of the tail after it) is clustered then, the stretches' voices joined by voiceprint: a voice heard before keeps its Speaker, a new one gets the next, across a pause; Stop pressed again is refused and clusters nothing more; fails_when=the run under way goes on, what is clustered at Stop reaches back into a finished run, a voice heard before gets a new Speaker, a new voice takes an old one's, or a second Stop is taken or clusters again; no_claim=the engine's own voiceprints, which the gate's label runs measure.
   test("Stop stops a run under way and clusters only what came after the finished runs, joining their voices", async () => {
     const voices = [0, 1, 0, 1, 0, 1, 1, 0, 2, 2, 0, 1, 2, 2];
     const voiceOf = (index: number) => voices[index] ?? 0;
@@ -581,6 +618,21 @@ describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => 
     core.close();
   });
 
+  // protects=a voice memo's voices are never clustered, during it or after: its lines name no one; fails_when=a run starts during a long memo; no_claim=the memo's own flow, which tests/core/voiceMemo.test.ts covers.
+  test("a voice memo is never clustered during it", async () => {
+    const { separator, requests } = fakeSeparator();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      speakerSeparator: separator,
+    });
+    const memo = await core.recordMemo();
+    record(65 * SECOND, ["microphone"]);
+    await core.stopMeeting(memo.id);
+    await until(core, memo.id, (transcript) => transcript.state === "saved");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(requests).toHaveLength(0);
+    core.close();
+  });
+
   // protects=what was clustered during a call is in memory only: a quit mid-call leaves nothing half written, and the whole call is clustered at its Stop after the next start; fails_when=the restart uses a result from before the quit, clusters only part of the call, or the quit leaves a label in the file; no_claim=a quit during the pass after Stop, which the test above covers.
   test("a quit mid-call keeps nothing of what was clustered, so the whole call is clustered at Stop", async () => {
     const dataDir = await createTempDataFolder();
@@ -607,6 +659,84 @@ describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => 
     after.core.close();
   });
 
+  // protects=a pass after Stop comes first: one asked for while another Meeting records, as Try again on an earlier call does, stops that Meeting's run under way, which starts again once the pass is done; fails_when=the two run at once, or the call's runs never start again; no_claim=a pass queued before the call's run starts, which the test below covers.
+  test("a pass after Stop stops a run under way during another Meeting's call", async () => {
+    const requests: { meeting: string; signal?: AbortSignal }[] = [];
+    let failing = true;
+    const separator: SpeakerSeparator = {
+      async cluster(request, signal) {
+        const meeting = request.parts[0]?.path.split("/").at(-2) ?? "";
+        requests.push({ meeting, ...(signal && { signal }) });
+        if (failing) {
+          failing = false;
+          throw new Error("The speaker process stopped.");
+        }
+        if (signal) {
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+          );
+        }
+        return fakeSeparator().separator.cluster(request);
+      },
+    };
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      speakerSeparator: separator,
+    });
+    const earlier = await core.createMeeting();
+    await core.startMeeting({ meetingId: earlier.id, systemAudio: true });
+    record(25 * SECOND);
+    await until(core, earlier.id, (transcript) => transcript.lines >= 8);
+    await core.stopMeeting(earlier.id);
+    await until(core, earlier.id, (transcript) => transcript.problem?.kind === "speakers");
+
+    const later = await core.createMeeting();
+    await core.startMeeting({ meetingId: later.id, systemAudio: true });
+    record(65 * SECOND);
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]?.meeting).toBe(later.id);
+    await core.retryTranscript(earlier.id);
+    expect(requests[1]?.signal?.aborted).toBe(true);
+    const cues = await toldCues(core, earlier.id);
+    expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
+      new Set(["Me", "Speaker 1", "Speaker 2"]),
+    );
+    expect(requests[2]?.meeting).toBe(earlier.id);
+    record(1 * SECOND);
+    await vi.waitFor(() => expect(requests).toHaveLength(4));
+    expect(requests[3]?.meeting).toBe(later.id);
+    core.close();
+  });
+
+  // protects=when clustering what was left at Stop fails, the whole call is clustered instead, so a failed tail never costs the speakers; fails_when=the pass fails, or keeps only what was clustered during the call; no_claim=a whole pass that fails too, which the failing-pass tests cover.
+  test("when what was left at Stop can't be clustered, the whole call is", async () => {
+    const fake = fakeSeparator();
+    const requests: number[][] = [];
+    const separator: SpeakerSeparator = {
+      cluster(request, signal) {
+        const at = request.parts.map((part) => part.offsetMs);
+        requests.push(at);
+        if (requests.length === 2) return Promise.reject(new Error("The speaker process stopped."));
+        return fake.separator.cluster(request, signal);
+      },
+    };
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      speakerSeparator: separator,
+    });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(65 * SECOND);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await new Promise((resolve) => setImmediate(resolve));
+    await core.stopMeeting(meeting.id);
+    const cues = await toldCues(core, meeting.id);
+    expect(requests.map((at) => at[0])).toEqual([0, 60 * SECOND, 0]);
+    expect(requests[2]?.at(-1)).toBe(60 * SECOND);
+    expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
+      new Set(["Me", "Speaker 1", "Speaker 2"]),
+    );
+    core.close();
+  });
+
   // protects=one pass at a time: a run during a call waits while a pass after Stop is under way, and starts once it ends; fails_when=the two run at once, or the call's runs never start again; no_claim=two Meetings recording at once, which can't happen.
   test("a run during a call waits for another Meeting's pass after Stop", async () => {
     let letGo = () => {};
@@ -627,7 +757,7 @@ describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => 
     const later = await core.createMeeting();
     await core.startMeeting({ meetingId: later.id, systemAudio: true });
     record(65 * SECOND);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(requests).toHaveLength(1);
     letGo();
     await toldCues(core, earlier.id);

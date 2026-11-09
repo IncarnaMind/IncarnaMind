@@ -16,7 +16,7 @@ import type { ClusteredVoices, Logger, SpeakerSeparator, VoiceTurn } from "../ad
 import type { AudioSource } from "../api";
 import type { Cue } from "../documents/formats/vtt";
 import type { SpeakerModel } from "../transcription/speakerModel";
-import { joinedTurns } from "../transcription/voiceprints";
+import { joinedTurns, WINDOW_SECONDS } from "../transcription/voiceprints";
 import type { AudioPart } from "./audioFiles";
 
 /** Less of the lines' speech than this in a voice, and the pass is taken as having failed. */
@@ -109,20 +109,58 @@ interface Stretch {
   clustered: ClusteredVoices;
 }
 
-interface DuringCall {
-  source: AudioSource;
-  /** The last finished run over everything saved. */
+/** What was clustered of a call so far, during it. */
+export interface ClusteredSoFar {
+  /**
+   * Whole windows of `WINDOW_SECONDS`, as the engine clusters a long recording: each is kept as
+   * it is, and runs go on after it.
+   */
+  windows: Stretch[];
+  /** The last finished run over everything saved after the windows. */
   done: Stretch | null;
   /** The last finished run over what was saved after `done`'s parts. */
   tail: Stretch | null;
   /** How much audio the last run over everything, and over the tail, was given, finished or not. */
   doneMs: number;
   tailMs: number;
+}
+
+interface DuringCall extends ClusteredSoFar {
+  source: AudioSource;
   /** When to look at the saved parts again, in the Meeting's time. */
   nextMs: number;
   running: AbortController | null;
   /** From Stop: the stretches the pass joins, in time order. */
   stretches: Promise<ClusteredVoices[] | null> | null;
+}
+
+const outside = (stretches: readonly (Stretch | null)[], parts: readonly AudioPart[]) =>
+  parts.filter((part) => !stretches.some((stretch) => stretch?.parts.has(part.path)));
+
+/**
+ * What to cluster next during a call, given the parts saved so far: a run over everything after
+ * the windows, at most a window of it, or over the tail after `done`; else how much more audio
+ * to wait for.
+ */
+export function nextRun(
+  clustered: ClusteredSoFar,
+  parts: readonly AudioPart[],
+): { whole: boolean; parts: AudioPart[] } | { waitMs: number } {
+  const open = outside(clustered.windows, parts);
+  const short = dueAfter(clustered.doneMs) - lengthOf(open);
+  if (short <= 0) {
+    let length = 0;
+    const window = open.filter((part) => {
+      length += part.durationMs;
+      return length - part.durationMs < WINDOW_SECONDS * 1000;
+    });
+    return { whole: true, parts: window };
+  }
+  if (!clustered.done) return { waitMs: short };
+  const after = outside([clustered.done], open);
+  const tailShort = tailDueAfter(clustered.tailMs) - lengthOf(after);
+  if (tailShort <= 0) return { whole: false, parts: after };
+  return { waitMs: Math.min(short, tailShort) };
 }
 
 export interface SpeakerPassOptions {
@@ -147,11 +185,7 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
   async function clustered(parts: readonly AudioPart[], signal?: AbortSignal) {
     const files = await model.files();
     signal?.throwIfAborted();
-    return separator.cluster({
-      parts: requestParts(parts),
-      model: files,
-      ...(signal && { signal }),
-    });
+    return separator.cluster({ parts: requestParts(parts), model: files }, signal);
   }
 
   function queued<T>(work: () => Promise<T>): Promise<T> {
@@ -178,9 +212,15 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
       if (whole) {
         call.doneMs = audioMs;
         if (!stretch) return;
-        call.done = stretch;
         call.tail = null;
         call.tailMs = 0;
+        if (audioMs < WINDOW_SECONDS * 1000) {
+          call.done = stretch;
+          return;
+        }
+        call.windows.push(stretch);
+        call.done = null;
+        call.doneMs = 0;
       } else {
         call.tailMs = audioMs;
         if (stretch) call.tail = stretch;
@@ -256,6 +296,7 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
         call?.running?.abort();
         call = {
           source,
+          windows: [],
           done: null,
           tail: null,
           doneMs: 0,
@@ -267,23 +308,14 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
         calls.set(meetingId, call);
       }
       if (call.running || afterStop > 0 || atMs < call.nextMs) return;
-      const parts = sourceParts(meetingId, source);
-      const short = dueAfter(call.doneMs) - lengthOf(parts);
-      if (short <= 0) {
-        call.nextMs = 0;
-        runDuring(meetingId, call, parts, true);
+      const next = nextRun(call, sourceParts(meetingId, source));
+      if ("waitMs" in next) {
+        // Audio is saved no faster than the Meeting's time goes.
+        call.nextMs = atMs + Math.max(LOOK_AGAIN_MS, next.waitMs);
         return;
       }
-      const done = call.done;
-      const after = done ? parts.filter((part) => !done.parts.has(part.path)) : [];
-      const tailShort = done ? tailDueAfter(call.tailMs) - lengthOf(after) : short;
-      if (tailShort <= 0) {
-        call.nextMs = 0;
-        runDuring(meetingId, call, after, false);
-        return;
-      }
-      // Audio is saved no faster than the Meeting's time goes.
-      call.nextMs = atMs + Math.max(LOOK_AGAIN_MS, Math.min(short, tailShort));
+      call.nextMs = 0;
+      runDuring(meetingId, call, next.parts, next.whole);
     },
     /**
      * The Meeting stopped: a run under way stops, and what was saved after the last finished
@@ -295,17 +327,17 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
       if (!call || call.stretches) return;
       call.running?.abort();
       call.running = null;
-      const done = call.done;
-      if (!done) {
+      const finished = [...call.windows, call.done, call.tail].flatMap((each) =>
+        each ? [each] : [],
+      );
+      if (finished.length === 0) {
         calls.delete(meetingId);
         return;
       }
-      const tail = call.tail;
       call.stretches = queued(async () => {
-        const kept = [done.clustered, ...(tail ? [tail.clustered] : [])];
-        const rest = sourceParts(meetingId, call.source).filter(
-          (part) => !done.parts.has(part.path) && !tail?.parts.has(part.path),
-        );
+        if (closed || calls.get(meetingId) !== call) return null;
+        const kept = finished.map((stretch) => stretch.clustered);
+        const rest = outside(finished, sourceParts(meetingId, call.source));
         if (rest.length === 0) return kept;
         const started = Date.now();
         const clusteredRest = await clustered(rest);

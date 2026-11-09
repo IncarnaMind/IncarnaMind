@@ -521,10 +521,10 @@ describe("Who's who in a Transcript (#138)", { timeout: 60_000 }, () => {
     let failed = 0;
     const { core, meeting } = await recordedCall(await createTempDataFolder(), {
       speakerSeparator: {
-        cluster: (request) =>
+        cluster: (request, signal) =>
           failed++ === 0
             ? Promise.reject(new Error("The speaker process stopped."))
-            : working.separator.cluster(request),
+            : working.separator.cluster(request, signal),
       },
     });
     const cues = await savedCues(core, meeting.id);
