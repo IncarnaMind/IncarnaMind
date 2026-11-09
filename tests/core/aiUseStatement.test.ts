@@ -1003,4 +1003,78 @@ describe("Checks in the statement", () => {
       [MOON, "有依据", "local-model", formatDate(NOW, "zh-CN")],
     ]);
   });
+
+  // protects=a check a model replied to that ended Not checked is a use of that model, on a row of its own that never says checked, and it counts as no verdict: the result table and the list say Not checked, with no model or date, in English and Chinese (#2897); fails_when=it is counted with the sentences checked, given a verdict, or left out of the uses; no_claim=the wording of the row beyond its key.
+  test.each([
+    {
+      language: "en" as const,
+      uses: [
+        ["Use", "Model", "Times"],
+        ["Sentences checked against the Documents", "local-model", "1"],
+        ["Sentences a model read to check, left Not checked", "local-model", "1"],
+      ],
+      results: [
+        ["Result", "Sentences"],
+        ["Supported", "1"],
+        ["Not checked", "1"],
+      ],
+      list: [
+        ["Sentence", "Result", "Model", "Checked"],
+        [MOON, "Supported", "local-model", on],
+        [PENGUINS, "Not checked", "", ""],
+      ],
+    },
+    {
+      language: "zh-CN" as const,
+      uses: [
+        ["用途", "模型", "次数"],
+        ["对照文档核对句子", "local-model", "1"],
+        ["模型读过、结果为未核对的句子", "local-model", "1"],
+      ],
+      results: [
+        ["核对结果", "说法（条）"],
+        ["有依据", "1"],
+        ["未核对", "1"],
+      ],
+      list: [
+        ["句子", "核对结果", "模型", "核对日期"],
+        [MOON, "有依据", "local-model", formatDate(NOW, "zh-CN")],
+        [PENGUINS, "未核对", "", ""],
+      ],
+    },
+  ])(
+    "a sentence a model was sent but left Not checked is a use of it, never a check with a result ($language)",
+    async (each) => {
+      const unreadable: Record<string, Plan> = {
+        ...PLANS,
+        [PENGUINS]: { reply: { text: "It reads well to me." } },
+      };
+      const setup = await setUpWithDocuments(checkingModel(unreadable), [TIDES, OFFICE], {
+        now: manualClock(NOW).now,
+      });
+      const { core, client, mind } = setup;
+      await core.updateSettings({ user: { language: each.language } });
+      const block = sentencesBlock(MOON, PENGUINS);
+      writeMind(client, [block]);
+      await client.settled();
+
+      await core.checkSentences({
+        requestId: randomUUID(),
+        mindId: mind.id,
+        action: "check-against-documents",
+        from: { blockId: block.attrs?.id, offset: 0 },
+        to: { blockId: block.attrs?.id, offset: MOON.length + 1 + PENGUINS.length },
+      });
+      const { parts } = await statementOf(core, mind.id);
+
+      expect((await core.listAiUse(mind.id)).map((entry) => entry.kind)).toEqual([
+        "sentence-checked",
+        "sentence-asked",
+      ]);
+      const [uses, results, list] = tablesOf(parts);
+      expect(uses).toEqual(each.uses);
+      expect(results).toEqual(each.results);
+      expect(list).toEqual(each.list);
+    },
+  );
 });

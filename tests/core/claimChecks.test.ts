@@ -1,7 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
-import type { ClaimCheckAction, ClaimCheckAttributes, Core, Document } from "../../src/core";
+import type {
+  ClaimCheckAction,
+  ClaimCheckAttributes,
+  Core,
+  CoreAdapters,
+  Document,
+} from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { claimCheckShown } from "../../src/shared/claimChecks";
@@ -24,6 +30,7 @@ import {
 } from "../helpers/citations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, sha256, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { checkClock } from "../helpers/heldClock";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import {
@@ -143,8 +150,9 @@ async function mindWith(
   sentences: readonly string[],
   model = checkingModel(),
   others: readonly SourceFile[] = [],
+  overrides: Partial<CoreAdapters> = {},
 ) {
-  const setup = await setUpWithDocuments(model, [TIDES, ...others]);
+  const setup = await setUpWithDocuments(model, [TIDES, ...others], overrides);
   const body = sentences.join(" ");
   const block = paragraph(text(body));
   writeMind(setup.client, [block]);
@@ -469,7 +477,10 @@ describe("One claim check", () => {
             ? { error: { status: 429, message: "Too many requests." } }
             : checkGenerate(plans)(call),
       });
-      const { core } = await setUpWithDocuments(model, [TIDES]);
+      // The rate limit is waited out and sent again (#2897): its pauses end at once here.
+      const { core } = await setUpWithDocuments(model, [TIDES], {
+        paceTimers: checkClock().timers,
+      });
 
       expect(await core.checkClaim({ claim })).toMatchObject({
         verdict: "not-checked",
@@ -2766,9 +2777,12 @@ describe("When the model can't check a sentence", () => {
   ])(
     "$reason: the sentence says “not checked” with why, never supported",
     async ({ reason, plan }) => {
+      // A rate limit is waited out and sent again (#2897): its pauses end at once here.
       const { core, client, check } = await mindWith(
         [SUPPORTED],
         checkingModel({ [SUPPORTED]: plan }),
+        [],
+        { paceTimers: checkClock().timers },
       );
 
       expect(await check()).toEqual({

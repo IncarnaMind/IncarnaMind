@@ -76,7 +76,8 @@ import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
-import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
+import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
+import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
   locateQuote,
@@ -3144,9 +3145,10 @@ export function createCore(adapters: CoreAdapters): Core {
       background,
       runCost: (runId) => meter.taskCost(runId),
       delayMs: adapters.contradictionWatch?.delayMs ?? AFTER_NEW_VERSION_MS,
-      claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
       log: adapters.log ?? silentLogger,
     },
+    claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
+    timers: paceTimers,
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,

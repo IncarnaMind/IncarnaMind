@@ -137,7 +137,7 @@ const coverageOf = (passages: ToRead["passages"], received: ReadonlySet<string>)
     .length;
 };
 
-const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode", "read-budget"]);
+const ENDS_READ = new Set(["failed", "timed-out", "consent-revoked", "local-mode", "read-budget"]);
 
 /** The Documents the windows of a read read whole, each once with every Location read. */
 function readDocumentsOf(results: readonly AtomicClaimCheckResult[]): ClaimReadDocument[] {

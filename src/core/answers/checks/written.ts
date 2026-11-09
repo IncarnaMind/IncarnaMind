@@ -66,31 +66,33 @@ import {
   type ClaimCheckResult,
   type ClaimPartPlan,
   type EditAction,
-  type RecordAiUseInput,
   type RunStop,
 } from "../../api";
 import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
-import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
+import { type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
-import {
-  type CheckedCitation,
-  type ClaimCheckRequest,
-  recordJudged,
-  runFailureOf,
-} from "./claimCheck";
+import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
+import {
+  type CheckOutcome,
+  type CheckRuns,
+  checkOnce,
+  checkRunOf,
+  recordCheck,
+  runClaimChecks,
+} from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
-export interface WrittenCheckOptions {
+export interface WrittenCheckOptions extends CheckRuns {
   /**
    * The Answer's model prepared for the checks flow, whose consent each request then checks
    * as it is sent (ADR-0022); null when that flow may not send to it now. Never asks.
@@ -114,7 +116,6 @@ export interface WrittenCheckOptions {
   /** Reads the Mind's content, where what the assistant wrote already is. */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   retainEvidence(mindId: string): void;
-  recordAiUse(inputs: RecordAiUseInput[]): void;
   /** Edit with AI's new text for a passage not in a Mind (../../edits, `editText`). */
   editText(
     prepared: PreparedChatModel,
@@ -125,9 +126,6 @@ export interface WrittenCheckOptions {
   /** The quick model that looks first at a write's sentences under the checks' model (./fastPaths); null: none. */
   quickModel(prepared: PreparedChatModel): Promise<PreparedChatModel | null>;
   firstLook(look: FirstLook): Promise<FirstLookResult>;
-  /** How long one check may take, as contradiction watch gives one claim: a reply may never come. */
-  claimTimeLimitMs: number;
-  now(): Date;
 }
 
 export interface CheckWrittenInput {
@@ -506,14 +504,14 @@ function cutNodes(
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
-/** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
+/**
+ * A sentence's check besides its result: `by`, the model whose verdict it is, the quick model's or
+ * the checks' own. None kept: the checks' own, and no cut.
+ */
 interface Checked {
-  result: ClaimCheckResult;
   uncovered: string | null;
   nodes: NodeJSON[] | null;
   by: PreparedChatModel;
-  /** The quick model that read the sentence first and passed it on to its check. */
-  passedOn: PreparedChatModel | null;
 }
 
 /**
@@ -740,21 +738,23 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     });
     const { projection } = projectedContent(nodes);
     const claim = projection.text;
-    const checked = await checkWithin(
-      { ...sentence, text: claim, cited, projection },
-      { claim, context: sentence.context, projection },
-      mindId,
-      scope,
-      prepared,
-      limit,
-      signal,
+    const checked = await checkOnce(
+      options.claimCheck,
+      requestOf(
+        { ...sentence, text: claim, cited, projection },
+        { claim, context: sentence.context, projection },
+        mindId,
+        scope,
+        prepared,
+        limit,
+        signal,
+      ),
+      checkRunOf(options, prepared, signal, mindId),
     );
-    recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
     return checked.verdict === "supported" ? nodes : null;
   }
 
-  /** One sentence's check, given up on once it takes longer than the time limit. */
-  async function checkWithin(
+  function requestOf(
     sentence: Sentence,
     read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
     mindId: string,
@@ -762,36 +762,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     limit: Slots,
     signal: AbortSignal,
-  ): Promise<ClaimCheckResult> {
-    const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
-    const ended = AbortSignal.any([signal, timedOut]);
-    // A reply that never comes, even once aborted, is given up on all the same.
-    const givenUp = new Promise<null>((resolve) =>
-      ended.addEventListener("abort", () => resolve(null), { once: true }),
-    );
-    const replied = await Promise.race([
-      options.claimCheck({
-        ...read,
-        cited: options.citedNow(sentence.cited),
-        scope: scope.scope,
-        searched: scope.wanted,
-        model: prepared,
-        mindId,
-        recordClaim: sentence.rawText,
-        cacheKey: mindId,
-        opinionsLeftOut: true,
-        slots: limit,
-        signal: ended,
-      }),
-      givenUp,
-    ]);
-    if (replied !== null && !timedOut.aborted) return replied;
+  ): ClaimCheckRequest {
     return {
-      verdict: "not-checked",
-      reason: "failed",
-      detail: `No reply within ${Math.round(options.claimTimeLimitMs / 1000)} seconds.`,
-      versions: [],
-      excluded: [],
+      ...read,
+      cited: options.citedNow(sentence.cited),
+      scope: scope.scope,
+      searched: scope.wanted,
+      model: prepared,
+      mindId,
+      recordClaim: sentence.rawText,
+      cacheKey: mindId,
+      opinionsLeftOut: true,
+      slots: limit,
+      signal,
     };
   }
 
@@ -947,22 +930,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         mark: () => notChecked(markOf(sentence), reason, detail, at),
       });
     };
-    const landed = (sentence: Sentence, outcome: ItemOutcome<Checked>) => {
-      if (signal.aborted || outcome.status === "stopped") return;
-      if (outcome.status === "not-checked") {
-        failed(sentence, outcome.stop.reason, null);
+    const run = checkRunOf(options, prepared, signal, mindId);
+    const checks = new Map<Sentence, Checked>();
+    const landed = (sentence: Sentence, outcome: CheckOutcome) => {
+      // A quick model that said no read the sentence too: a use of AI, whatever its check came to.
+      if (quick && looked.get(sentence)?.asked)
+        recordCheck(run.record, quick, "result" in outcome ? outcome.result : null);
+      if (signal.aborted) return;
+      if (!("result" in outcome)) {
+        failed(sentence, outcome.reason, outcome.detail);
         return;
       }
-      if (outcome.status === "failed") {
-        const rateLimited = outcome.error.kind === "rate-limit";
-        failed(
-          sentence,
-          rateLimited ? "rate-limit" : "failed",
-          rateLimited ? null : outcome.error.message,
-        );
-        return;
-      }
-      const { result, uncovered, nodes, by, passedOn } = outcome.value;
+      const { result } = outcome;
+      const { uncovered = null, nodes = null, by = prepared } = checks.get(sentence) ?? {};
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landNow({
           sentence,
@@ -971,9 +951,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       const at = options.now().toISOString();
-      recordJudged(options.recordAiUse, mindId, by, result, at);
-      // A quick model that said no read the sentence too: a use of AI once the sentence is checked.
-      if (passedOn) recordJudged(options.recordAiUse, mindId, passedOn, result, at);
       if (result.verdict === "not-checked") {
         failed(sentence, result.reason, result.detail);
         return;
@@ -1000,9 +977,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       done[result.verdict]++;
       landNow({ sentence, nodes: null, mark });
     };
-    const { stop, outcomeError } = await runItems(
+    const { stop, outcomeError } = await runClaimChecks(
       holding ? [] : sending,
-      (sentence): Promise<Checked> =>
+      (sentence, attempt) =>
         asCheckWork(async () => {
           const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
           const first =
@@ -1022,22 +999,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
                 ask: (asked, until) => quickLook(quick, asked, until),
                 signal: AbortSignal.any([
                   signal,
-                  AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+                  AbortSignal.timeout(run.timeLimitMs * FIRST_LOOK_SHARE),
                 ]),
               })));
           if (quick && first?.result) {
-            return {
-              result: first.result,
-              uncovered: null,
-              nodes: null,
-              by: quick,
-              passedOn: null,
-            };
+            recordCheck(run.record, quick, first.result);
+            checks.set(sentence, { uncovered: null, nodes: null, by: quick });
+            return first.result;
           }
           if (first) looked.set(sentence, first);
-          const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
-          const failure = runFailureOf(result);
-          if (failure) throw new RunItemError(failure);
+          const result = await attempt(
+            options.claimCheck,
+            requestOf(sentence, read, mindId, scope, prepared, limit, signal),
+          );
           // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
           const uncovered =
             result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
@@ -1046,11 +1020,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           const nodes = uncovered
             ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
             : null;
-          return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
+          checks.set(sentence, { uncovered, nodes, by: prepared });
+          return result;
         }),
       {
+        ...run,
         concurrency: claimsAtOnce(prepared),
-        signal,
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure; the check fails after the marks that can land have, so none counts
         // as checked. Refusing stays here: once one edit is refused the rest aren't tried.
