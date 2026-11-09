@@ -21,8 +21,65 @@ describe("English numbers in a transcript", () => {
     ["five dollars and fifty cents", "5 dollars and 50 cents"],
     ["in twenty twenty-five and nineteen ninety-nine", "in 2025 and 1999"],
     ["two million", "2 million"],
+    ["two point seven million pounds", "2.7 million pounds"],
+    ["fifty to sixty percent", "50 to 60%"],
+    ["one hundred and fifty dollars", "150 dollars"],
+    ["ten or fifteen percent", "10 or 15%"],
+    ["between twenty and thirty people", "between 20 and 30 people"],
+    ["from twenty nineteen to twenty twenty-one", "from 2019 to 2021"],
+    ["between twenty nineteen and twenty twenty-one", "between 2019 and 2021"],
+    ["the first to the thirtieth of November", "the 1st to the 30th of November"],
+    ["November the first to the thirtieth", "November the 1st to the 30th"],
+    ["three hundred four thousand five hundred", "304,500"],
+    ["twenty seconds", "20 seconds"],
   ])("%s is %s", (said, written) => {
     expect(writtenNumbers(said)).toBe(written);
+  });
+
+  // protects=a number is written whole or left as said, and a range at both ends or at neither (#1031); fails_when=a hundred and fifty dollars becomes a hundred and 50 dollars, one to ten becomes one to 10, twenty third becomes 20 third, or three hundred and four hundred becomes 30,400; no_claim=that these could not be written whole one day.
+  test.each([
+    "a hundred and fifty dollars",
+    "a thousand two hundred pounds",
+    "point five percent",
+    "twelve and a half euros",
+    "on a scale of one to ten",
+    "a million dollars",
+    "one and a half million",
+    "a hundred and ten percent",
+    "3 hundred and fifty",
+    "five to ten percent",
+    "one to two dollars",
+    "five to six hundred dollars",
+    "a hundred to two hundred dollars",
+    "five hundred to a thousand pounds",
+    "one and a half to two million",
+    "ten to twelve and a half percent",
+    "the odds are twenty to one",
+    "nine courses, one or ten, or something",
+    "two or three hundred",
+    "between five and ten percent",
+    "due on twenty third February",
+    "thirty fives and unders",
+    "between three hundred and four hundred people",
+    "two thousand and three thousand dollars",
+    "up to twenty twenty-five people",
+  ])("%s is left as said", (said) => {
+    expect(writtenNumbers(said)).toBe(said);
+  });
+
+  test("an empty line, a line that is only a number, and a number at each end of a line", () => {
+    expect(writtenNumbers("")).toBe("");
+    expect(writtenNumbers("twelve")).toBe("12");
+    expect(writtenNumbers("five")).toBe("five");
+    expect(writtenNumbers("Twelve people came and we sold fifteen")).toBe(
+      "12 people came and we sold 15",
+    );
+  });
+
+  test("beside a number the engine wrote in digits, a spoken one is written by its own rule", () => {
+    expect(writtenNumbers("5 to ten percent")).toBe("5 to 10%");
+    expect(writtenNumbers("from 2019 to twenty twenty-one")).toBe("from 2019 to 2021");
+    expect(writtenNumbers("$5 million and fifteen percent")).toBe("$5 million and fifteen percent");
   });
 
   // protects=text the engine got right isn't rewritten: a scale word after digits, "a few million", "several hundred"; fails_when=$18.4 million becomes $18.4 1 million, or several hundred becomes several 100; no_claim=what else may be written as digits.
@@ -84,8 +141,60 @@ describe("Chinese numbers in a transcript", () => {
     ["五元", "5元"],
     ["三百块", "300块"],
     ["两块钱", "2块钱"],
+    ["二百七十万英镑", "270万英镑"],
+    ["两万四千英镑", "24,000英镑"],
+    ["百分之十二点五", "12.5%"],
+    ["十一月二十日", "11月20日"],
+    ["一天工作十二到十四个小时", "一天工作12到14个小时"],
+    ["二十一到五十五岁", "21到55岁"],
+    ["二十到三十个", "20到30个"],
+    ["二十或三十个", "20或30个"],
+    ["一百到两百块钱", "100到200块钱"],
+    ["百分之二十到百分之三十", "20%到30%"],
+    ["十一月二十日到三十日", "11月20日到30日"],
+    ["五十块一个", "50块一个"],
+    ["三千块一个月", "3,000块一个月"],
+    ["最多到五十个", "最多到50个"],
+    ["比去年多二十个", "比去年多20个"],
+    ["一周三十个小时", "一周30个小时"],
   ])("%s is %s", (said, written) => {
     expect(writtenNumbers(said)).toBe(written);
+  });
+
+  // protects=a number is written whole or left as said, and a range at both ends or at neither (#1031); fails_when=十几二十个 becomes 十几20个, 两块五 becomes 2块五, 百分之二十到三十 becomes 20%到三十, 一到十二月就下雪 becomes 1到12月就下雪, or 周六日 becomes 周6日; no_claim=that these could not be written whole one day.
+  test.each([
+    "至少有十几二十个吧",
+    "百分之二十到三十",
+    "两块五",
+    "四十五厘米",
+    "一亿二千万",
+    "三万五到四万",
+    "十几万",
+    "两三百万",
+    "二十几到三十个",
+    "一百多到两百个",
+    "五到十五个",
+    "二十个到三十",
+    "一到十二月就下雪",
+    "礼拜六到二十号",
+    "周六日的话大家有没有时间",
+    "下周二十号",
+    "两块五一个",
+    "十二块五",
+    "三元五角",
+    "两块五十个",
+    "增长百分之二十到三十五万",
+    "百分之二十到三分之一",
+  ])("%s is left as said", (said) => {
+    expect(writtenNumbers(said)).toBe(said);
+  });
+
+  test("a line that is only a number, a number at each end of a line, and both languages in one line", () => {
+    expect(writtenNumbers("百分之三十")).toBe("30%");
+    expect(writtenNumbers("十二")).toBe("十二");
+    expect(writtenNumbers("三十个人来了，卖了五十件")).toBe("30个人来了，卖了50件");
+    expect(writtenNumbers("我们卖了 twenty units 和三十个")).toBe("我们卖了 20 units 和30个");
+    expect(writtenNumbers("营收3万元，增长百分之二十")).toBe("营收3万元，增长20%");
   });
 
   // protects=text the engine got right isn't rewritten: digits with 万 or 亿 after them, and the words and idioms with 一, 万 or 千 in them, even at the end of the text, stay as they are; fails_when=3万 grows to 30万, 之一 becomes 之1, or 千万不要 loses its characters; no_claim=what else may be written as digits.
