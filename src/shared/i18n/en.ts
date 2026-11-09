@@ -7670,6 +7670,7 @@ export const en = {
   "mindCall.creating.new": "Making a new note…",
   "selfCheck.checking": "Checking: {count} of {total} sentences done",
   "selfCheck.checking.one": "Checking: {count} of 1 sentence done",
+  "selfCheck.waiting": "Waiting to check",
   "selfCheck.look": "{count} need a look",
   "selfCheck.look.one": "1 needs a look",
   "selfCheck.show": "Show",

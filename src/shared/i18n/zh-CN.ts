@@ -7279,6 +7279,7 @@ export const zhCN = {
   "mindCall.creating.new": "正在新建笔记…",
   "selfCheck.checking": "正在核对：已完成 {count}/{total} 句",
   "selfCheck.checking.one": "正在核对：已完成 {count}/1 句",
+  "selfCheck.waiting": "等待核对",
   "selfCheck.look": "{count} 句需要留意",
   "selfCheck.look.one": "1 句需要留意",
   "selfCheck.show": "查看",

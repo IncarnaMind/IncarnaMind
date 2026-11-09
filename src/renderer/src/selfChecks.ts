@@ -79,15 +79,19 @@ export interface SelfCheckLine {
 export interface SelfCheckProgress {
   done: number;
   total: number;
+  /** Waiting for another write's check to end: one runs at a time. */
+  waiting?: boolean;
 }
 
 // It counts the sentences done, as the Note's badge does, not the one being checked: several are
 // checked at once.
-function checkingLine(t: Translate, { done, total }: SelfCheckProgress): SelfCheckLine {
+function checkingLine(t: Translate, { done, total, waiting }: SelfCheckProgress): SelfCheckLine {
   return {
     kind: "checking",
-    text:
-      total === 1
+    // A count that stands still while another write is checked would read as stuck (#2830).
+    text: waiting
+      ? t("selfCheck.waiting")
+      : total === 1
         ? t("selfCheck.checking.one", { count: done })
         : t("selfCheck.checking", { count: done, total }),
     details: [],

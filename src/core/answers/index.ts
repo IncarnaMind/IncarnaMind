@@ -3000,7 +3000,7 @@ export function createAnswers(options: AnswersOptions) {
                   writeSoon();
                 }
               },
-              checkEnded: (toolCallId, change) => {
+              checkRecorded: (toolCallId, change) => {
                 if (mindChanges.has(toolCallId)) mindChanges.set(toolCallId, change);
                 const call = toolCalls.find((each) => each.id === toolCallId);
                 // A call whose change was taken back has no card to say it on.

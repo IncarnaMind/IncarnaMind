@@ -93,6 +93,33 @@ describe("How a write's check goes, and what it left to do", () => {
     expect(selfCheckLines(running, say("en"), "en")).toEqual([]);
   });
 
+  // protects=a write whose check waits for another write's says it is waiting, never a count that stands still, in English and Chinese, and counts once its turn comes (#2830, one write's check at a time); fails_when=it shows "0 of 40" while another write is checked; no_claim=how long it waits.
+  test("a write waiting for another write's check says so, then counts once its turn comes", () => {
+    const running = {
+      mindId: "mind-1",
+      request: "w",
+      checkable: 40,
+      cited: 40,
+      sent: 40,
+      checked: 0,
+      failed: 0,
+      running: true as const,
+    };
+    const line = (language: "en" | "zh-CN", waiting: boolean) =>
+      selfCheckLines(running, say(language), language, new Date(), null, true, {
+        done: 0,
+        total: 40,
+        waiting,
+      }).map(({ kind, text, action }) => ({ kind, text, action }));
+
+    expect(line("en", true)).toEqual([
+      { kind: "checking", text: "Waiting to check", action: null },
+    ]);
+    expect(line("zh-CN", true)).toEqual([{ kind: "checking", text: "等待核对", action: null }]);
+    expect(line("en", false)[0]?.text).toBe("Checking: 0 of 40 sentences done");
+    expect(line("zh-CN", false)[0]?.text).toBe("正在核对：已完成 0/40 句");
+  });
+
   // protects=once over, the line says how many it checked and how many need a look, with Show, one noun a line, live from the Note where it is open (#2830's acceptance: "Checked 40 sentences · 1 needs a look · Show"); fails_when=sentences and claims share a line, Show is offered with nothing to show, or a sentence the User settled since still counts; no_claim=where Show goes.
   test("once over, the line says how many it checked and how many need a look, with Show", () => {
     const ended = {

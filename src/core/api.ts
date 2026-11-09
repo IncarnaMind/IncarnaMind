@@ -1643,7 +1643,8 @@ export interface MindChange {
 /**
  * How far the check of what the assistant wrote into a Mind is (#2830), as its marks land and
  * once more as it ends: `done` of `total` sentences have their mark (a verdict or Not checked);
- * `total` leaves out those found to state only an opinion, which take none.
+ * `total` leaves out those found to state only an opinion, which take none. `waiting` while it
+ * waits for another write's check to end: one runs at a time.
  */
 export interface WrittenCheckProgress {
   mindId: string;
@@ -1651,6 +1652,7 @@ export interface WrittenCheckProgress {
   done: number;
   total: number;
   running: boolean;
+  waiting: boolean;
 }
 
 /** What a call of `read_web_page` came to (see `AnswerToolCall.webPage`). */

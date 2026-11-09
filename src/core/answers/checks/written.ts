@@ -166,6 +166,11 @@ export interface CheckWrittenInput {
   edit(change: (blocks: Y.XmlFragment) => void): void;
   /** Hears the check once it is over, when `checkWritten` resolved with it still running; a short one may end first. */
   ended?(check: WrittenCheck): void;
+  /**
+   * Hears its counts as each mark lands, so what is recorded of it says what the Note shows
+   * even when IncarnaMind stops before the check ends.
+   */
+  progressed?(check: WrittenCheck): void;
 }
 
 /**
@@ -576,6 +581,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   const undone = new Map<string, UndoneCheck[]>();
   /** The Minds a check's write looked gone from, waiting a moment to see if it stays gone. */
   const confirming = new Set<string>();
+  // One write's check at a time, each at most `claimsAtOnce` requests at once: two side by side
+  // missed the first-verdict bar the limit was set by (#1635, #2532). Ends once the last one ends.
+  let turn: Promise<void> = Promise.resolve();
+  /** The checks begun and not ended, the one whose turn it is among them. */
+  let begunChecks = 0;
 
   function requestOf(
     sentence: Sentence,
@@ -632,7 +642,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     for (const older of [...live.values()]) {
       if (older.mindId === mindId) older.leave(input.ids);
     }
-    if (judgesUnreliably(input.prepared) || input.signal.aborted) return null;
+    if (judgesUnreliably(input.prepared)) return null;
     const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
     // Read as the write lands, before anything is awaited: a reject meanwhile leaves no Proposal to
@@ -666,7 +676,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
       if (writeGone(mindId, shape)) return null;
     }
-    if (!holding && input.signal.aborted) return null;
+    // The write landed before the Stop: its sentences say they were stopped, as a Stop mid-check
+    // leaves them (#2710), rather than no mark, which reads as checked.
+    const stopped = !holding && input.signal.aborted;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
     const reads = options.read(mindId, (note) => {
@@ -695,7 +707,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       blocked: null,
       unsupported: 0,
       contradicted: 0,
-      running: !holding,
+      running: !holding && !stopped,
       undone: false,
     };
     const snapshot = (): WrittenCheck => ({
@@ -771,7 +783,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           outcomes++;
         } else left.add(landing.sentence);
       }
-      if (outcomes > 0) options.retainEvidence(mindId);
+      if (outcomes === 0) return;
+      options.retainEvidence(mindId);
+      input.progressed?.(snapshot());
     };
     const blockedBy = (reason: ClaimCheckFailure) => {
       if (reason !== "consent-revoked" && reason !== "local-mode" && reason !== "consent-widened")
@@ -794,10 +808,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       return { sentence, mark: () => notChecked(markOf(sentence), reason, detail, at) };
     };
 
-    if (holding) {
+    if (holding || stopped) {
+      const reason = waiting ? "consent-widened" : stopped ? "stopped" : "answer-failed";
       landAll(
         sentences.map((sentence) => ({
-          landing: failedLanding(sentence, waiting ? "consent-widened" : "answer-failed", null),
+          landing: failedLanding(sentence, reason, null),
           outcome: "failed" as const,
         })),
       );
@@ -845,6 +860,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // footed against each other as they land (a total against its cells). The count moves as
     // each check ends all the same.
     const held: { index: number; landing: Landing; outcome: Outcome }[] = [];
+    let waitingTurn = begunChecks > 0;
+    begunChecks++;
+    let turnOver: () => void = () => undefined;
+    const ours = new Promise<void>((resolve) => {
+      turnOver = resolve;
+    });
+    const before = turn;
+    turn = before.then(() => ours);
     const progress = () => {
       const heldOpinions = held.filter(({ outcome }) => outcome === "opinion").length;
       options.progress({
@@ -853,6 +876,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         done: done.checked + done.failed + held.length - heldOpinions,
         total: sentences.length - done.leftOut - heldOpinions - left.size,
         running: done.running,
+        waiting: done.running && waitingTurn,
       });
     };
     const landHeld = () => {
@@ -897,6 +921,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       done.failed = done.checkable - done.leftOut - done.checked;
       done.running = false;
       held.length = 0;
+      begunChecks--;
+      turnOver();
       progress();
       input.ended?.(snapshot());
     };
@@ -925,11 +951,30 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     live.set(request, { mindId, shape, end, leave, back });
     progress();
 
+    const blockAway = (sentence: Sentence) => {
+      const id = input.ids[sentence.path[0] ?? -1];
+      try {
+        return options.read(
+          mindId,
+          (note) =>
+            writeGoneFrom(note, shape) ||
+            !topLevelBlocks(note).some((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === id),
+        );
+      } catch (error) {
+        console.warn(
+          `What the assistant wrote in Mind ${mindId} couldn't be read, so it is taken as gone:`,
+          error,
+        );
+        return true;
+      }
+    };
     const landNow = (landing: Landing, outcome: Outcome) => {
+      // The claims sort lands its opinions here too, after a newer write may have taken them over.
+      if (over || signal.aborted || left.has(landing.sentence)) return;
       // A window that writes a Block again sends its removal and its return as two changes
       // (#2378): a verdict that comes between them waits with a table's, and an Undo that took the
       // write away, ending the check, drops it.
-      if (landing.sentence.inCell || writeGone(mindId, shape)) {
+      if (landing.sentence.inCell || blockAway(landing.sentence)) {
         settled.add(landing.sentence);
         held.push({ index: sentences.indexOf(landing.sentence), landing, outcome });
       } else landAll([{ landing, outcome }]);
@@ -975,21 +1020,36 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : "checked",
       );
     };
+    // Every request the check sends waits for one of these, the first looks and the sort's too;
+    // and as many sentences at once, cited or not, as main's check had (#2532).
     const limit = slots(claimsAtOnce(prepared));
+    const sentencesAtOnce = slots(claimsAtOnce(prepared));
     // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
+    const takenOver = (): ClaimCheckResult => ({
+      verdict: "not-checked",
+      reason: "stopped",
+      detail: null,
+      versions: [],
+      excluded: [],
+    });
     const checkOne = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
+      sentencesAtOnce.run(() => checkSentence(sentence, attempt));
+    const checkSentence = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
       asCheckWork(async () => {
         const own = new AbortController();
         stops.set(sentence, own);
         if (left.has(sentence)) own.abort();
         const ended = AbortSignal.any([signal, own.signal]);
-        ended.throwIfAborted();
+        // A newer write took it over before its check began: nothing was sent, nothing failed.
+        if (own.signal.aborted) return takenOver();
+        signal.throwIfAborted();
         // A write that looks gone may be undone: nothing more is sent until `mindChanged` knows.
         if (writeGone(mindId, shape)) {
           await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
-          ended.throwIfAborted();
+          if (own.signal.aborted) return takenOver();
+          signal.throwIfAborted();
         }
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
@@ -1006,7 +1066,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               paragraph: sentence.context,
               citations: sentence.citations,
               scope: scope.scope,
-              ask: (asked, until) => quickLook(quick, asked, until),
+              ask: (asked, until) => limit.run(() => quickLook(quick, asked, until)),
               signal: AbortSignal.any([
                 ended,
                 AbortSignal.timeout(run.timeLimitMs * FIRST_LOOK_SHARE),
@@ -1088,6 +1148,20 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const checkThem = async () => {
       try {
+        // Its turn, or a Stop, an Undo, a reject or quitting first, which ends it with nothing sent.
+        if (!signal.aborted) {
+          await Promise.race([
+            before,
+            new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => resolve(), { once: true }),
+            ),
+          ]);
+        }
+        if (signal.aborted) return;
+        if (waitingTurn) {
+          waitingTurn = false;
+          progress();
+        }
         // The cited sentences go at once; those with none, once the sort has named the claims.
         const [cited, uncited] = await Promise.all([
           checkAll(sentences.filter((sentence) => sentence.cited.length > 0)),
@@ -1099,8 +1173,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       } catch (error) {
         console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
       } finally {
-        // Its last checks may end as an Undo takes the write away, before `mindChanged` knows.
-        if (!over && writeGone(mindId, shape)) {
+        // Its last checks may end as an Undo takes the write away, before `mindChanged` knows, or
+        // as a window writes a held verdict's Block again.
+        if (
+          !over &&
+          (writeGone(mindId, shape) || held.some(({ landing }) => blockAway(landing.sentence)))
+        ) {
           await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
         }
         const check = live.get(request);

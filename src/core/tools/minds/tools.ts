@@ -333,8 +333,11 @@ export interface MindToolsOptions {
   };
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
-  /** The check of what a call wrote ended, after the call and maybe after the Answer: its card says so then. */
-  checkEnded(toolCallId: string, change: MindChange): void;
+  /**
+   * The check of what a call wrote landed marks or ended, after the call and maybe after the
+   * Answer: its card says so then, and what is stored of it says what the Note shows.
+   */
+  checkRecorded(toolCallId: string, change: MindChange): void;
   /** A call changed nothing, and whatever it wrote as its input came was taken back. */
   failed(toolCallId: string, problem: MindProblem): void;
   /** The Answer's: once it aborts, calls still writing stop. */
@@ -2075,8 +2078,14 @@ export function mindTools(options: MindToolsOptions): {
       written.change = { ...written.change, selfCheck: selfCheckOf(check) };
     };
     let checked: WrittenCheck | null = null;
-    // A short check can end before the call goes on: its end is then what the card says.
+    // A short check can end, or land marks, before the call goes on: the card then says that.
     let ended: WrittenCheck | null = null;
+    let latest: WrittenCheck | null = null;
+    const heard = (check: WrittenCheck) => {
+      latest = check;
+      recorded(check);
+      options.checkRecorded(toolCallId, written.change);
+    };
     try {
       checked = await minds.checkWritten({
         mindId,
@@ -2087,10 +2096,10 @@ export function mindTools(options: MindToolsOptions): {
         signal,
         ...(answerFailed && { answerFailed }),
         edit: (change) => minds.edit(mindId, change),
+        progressed: heard,
         ended: (check) => {
           ended = check;
-          recorded(check);
-          options.checkEnded(toolCallId, written.change);
+          heard(check);
         },
       });
     } catch (error) {
@@ -2098,10 +2107,10 @@ export function mindTools(options: MindToolsOptions): {
       console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
     }
     if (checked && !ended) {
-      recorded(checked);
+      recorded(latest ?? checked);
       options.changed(toolCallId, written.change);
     }
-    return ended ?? checked;
+    return ended ?? latest ?? checked;
   };
 
   /** By call: text written with markers `cite` hadn't recorded yet. */
