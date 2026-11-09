@@ -58,6 +58,7 @@ Needs Ollama on `http://127.0.0.1:11434` with `tev1:4b`, `tev1:0.8b` and `clef-f
 | `INCARNAMIND_ORGANIZE_OLLAMA` | `http://127.0.0.1:11434` | |
 | `INCARNAMIND_ORGANIZE_PREPARE_ONLY` | off | `1` extracts and writes the excerpts, with no model. |
 | `INCARNAMIND_ORGANIZE_SHOW_HELDOUT` | off | `1` lists the held-out half's mistakes too. |
+| `INCARNAMIND_ORGANIZE_SET` | the labelled 80 | The new-User mode on another set: a folder with its own `set.json` and files, from the repository's root or absolute. A `set.json` of version 2 is labelled with the app's kind codes (`src/core/tags/kinds.ts`), none, one, or two where either fits, each counted wherever the Document is filed. |
 | `INCARNAMIND_ORGANIZE_BATCH` | `10` | A local route stops its models after this many Documents, then loads them again. |
 | `INCARNAMIND_EVAL_JEV_KEY`, `_MODEL`, `_URL` | none, `jev-1.13.0`, TypeSafe's | The `jev` route's key (setting it is the consent to send the excerpts), model and server. |
 | `INCARNAMIND_EVAL_DECISIONS_KEY`, `_MODEL` | none, `gpt-6-luna` | The `decisions` route's OpenAI key and model. |

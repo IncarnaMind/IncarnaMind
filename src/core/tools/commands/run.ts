@@ -137,6 +137,8 @@ export interface CommandsHost {
     permit: CloudReadPermit | undefined,
     runId: string,
   ): Promise<OrganizeLibraryResult | null>;
+  /** Tagging is on for this Document: the Tagging switch, and not stopped where it is (#2308). */
+  taggingOn(id: string): boolean;
   /**
    * Tags these Documents as the Library's Re-tag does, through the tagging flow, and proposes
    * their Tags into Suggestions under `runId` (#2339). Throws what keeps tagging from running.

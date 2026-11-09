@@ -38,7 +38,7 @@ async function screenshot(window: Page, name: string): Promise<void> {
 const SENDS_EN = {
   lead: "Sends your questions and document text to OpenAI. · Details",
   onRequest:
-    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document and your own Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, your own Tags’ names and descriptions and your interface language, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
     "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
@@ -143,7 +143,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document and your own Tags’ and your Folders’ names and descriptions, to OpenAI. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
   );
   await closeSettings(window);
 

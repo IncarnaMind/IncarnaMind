@@ -123,6 +123,8 @@ export const en = {
   "organizeReview.tagged.one": "Tagged 1 Document",
   "organizeReview.running": "Organizing {done} of {total}…",
   "organizeReview.failed.model": "Couldn’t reach the AI model",
+  "organizeReview.taggingFailed":
+    "Organize couldn’t suggest Tags this time. Its Folders are suggested without them, and the next run tries the Tags again",
   "organizeReview.stop": "Stop",
   "organizeReview.stopped": "Stopped after reading {count}. Nothing has moved.",
   "organizeReview.estimate": "Organizing {count} Documents: {cost}",
@@ -2595,9 +2597,9 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
   "status.sends":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language for a chat model.",
   "status.sends.onThisComputer":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   "status.sends.organize":
     "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.onThisComputer":
@@ -2961,6 +2963,7 @@ export const en = {
   "tags.dialog.retag.hint":
     "Suggests Tags for every Document again. They wait in Suggested Tags until you confirm them, and Tags you set stay.",
   "tags.dialog.retag.started": "Re-tagging has started.",
+  "tags.dialog.retag.none": "Nothing to re-tag: Tagging is off, or stopped where every Document is",
   "tags.dialog.done": "Done",
 
   "jev.waiting.notice": "Tags come once you choose an AI model.",
@@ -3168,9 +3171,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document and your own Tags’ and your Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.sendsWhenOn":
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document and your own Tags’ and your Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
   "models.sorting.off": "Tagging new Documents is off",
   "models.sorting.turnOn": "Turn on…",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
@@ -3260,7 +3263,7 @@ export const en = {
   "providers.sends.edits":
     "the text you ask the assistant to change, the paragraphs it is in and, when the change rewrites or removes cited text, that Citation’s quote",
   "providers.sends.onRequest":
-    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document and your own Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, your own Tags’ names and descriptions and your interface language, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
   "providers.form.moreShort": "More…",
   "providers.form.whereKey": "Where do I find it?",

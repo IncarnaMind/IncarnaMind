@@ -83,6 +83,7 @@ const COLUMNS: Record<Table, Record<string, Column>> = {
     description: "text",
     added_by_user: "int",
     made: "int",
+    took_over: "int",
     link_before: "text?",
     created_at: "text",
     deleted_at: "text?",
@@ -137,6 +138,8 @@ export interface TagRow {
   description: string;
   added_by_user: number;
   made: number;
+  /** Its Confirm made a Tag of the User's own the kind's Tag (`TagsStore.kindTag`). */
+  took_over: number;
   link_before: string | null;
 }
 
@@ -865,6 +868,7 @@ export function createOrganizeReviewStore(
         description: tag.description,
         added_by_user: 0,
         made: 0,
+        took_over: 0,
         link_before: null,
       });
     }
@@ -1217,6 +1221,7 @@ export function createOrganizeReviewStore(
               description: tag.description,
               added_by_user: 1,
               made: 0,
+              took_over: 0,
               link_before: null,
             });
             undecline(item.document_id, {

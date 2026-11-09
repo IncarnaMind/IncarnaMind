@@ -15,6 +15,7 @@ export interface Labelled {
   folder: string | null;
   alsoFolder?: string;
   tags: readonly string[];
+  kindLabels?: boolean;
 }
 
 export interface PredictedTag {

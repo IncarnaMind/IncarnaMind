@@ -307,11 +307,13 @@ function planAndTag({
   kindOf = (_name: string) => "contract",
   planHeld = Promise.resolve(),
   planRefused = false,
+  tagsRefused = false,
 }: {
   folders?: boolean;
   kindOf?: (name: string) => string;
   planHeld?: Promise<void>;
   planRefused?: boolean;
+  tagsRefused?: boolean;
 } = {}) {
   let tagRequests = 0;
   const isPlan = (call: LanguageModelV4CallOptions) =>
@@ -347,18 +349,23 @@ function planAndTag({
       })),
     };
   };
+  const refused = () =>
+    new APICallError({
+      message: "Invalid API key.",
+      url: "https://api.anthropic.com/v1/messages",
+      requestBodyValues: {},
+      statusCode: 401,
+      isRetryable: false,
+    });
   const model = new MockLanguageModelV4({
     doGenerate: async (call) => {
+      const schema = (
+        call.responseFormat?.type === "json" ? call.responseFormat.schema : undefined
+      ) as { properties?: Record<string, unknown> } | undefined;
+      if (tagsRefused && schema?.properties?.tagged) throw refused();
       if (isPlan(call)) {
         await planHeld;
-        if (planRefused)
-          throw new APICallError({
-            message: "Invalid API key.",
-            url: "https://api.anthropic.com/v1/messages",
-            requestBodyValues: {},
-            statusCode: 401,
-            isRetryable: false,
-          });
+        if (planRefused) throw refused();
       }
       return reply(answer(call));
     },
@@ -376,10 +383,18 @@ describe("With no Folder existing or proposed (#2339)", () => {
     {
       planHeld,
       planRefused,
+      tagsRefused,
+      folders = false,
       assistant = false,
-    }: { planHeld?: Promise<void>; planRefused?: boolean; assistant?: boolean } = {},
+    }: {
+      planHeld?: Promise<void>;
+      planRefused?: boolean;
+      tagsRefused?: boolean;
+      folders?: boolean;
+      assistant?: boolean;
+    } = {},
   ) {
-    const scripted = planAndTag({ folders: false, kindOf, planHeld, planRefused });
+    const scripted = planAndTag({ folders, kindOf, planHeld, planRefused, tagsRefused });
     const model = assistant
       ? scriptedModel(
           (call) =>
@@ -487,6 +502,21 @@ describe("With no Folder existing or proposed (#2339)", () => {
     await expect(run).rejects.toThrow();
     expect(await taggingOf(core)).toEqual(before);
     expect((await core.getOrganizeReview()).items).toEqual([]);
+  });
+
+  // protects=a tagging step that fails inside Organize reaches the User in the run's result, its Folders still proposed and its Documents left untagged for the next run; fails_when=the failure is only logged, or its Documents read tagged with no Tags waiting; no_claim=the words the line shows.
+  test("a tagging step that fails says so, proposes the Folders, and marks no Document tagged", async () => {
+    const { core } = await apart(() => "contract", { folders: true, tagsRefused: true });
+    const before = await taggingOf(core);
+    expect(Object.values(before)).not.toContain("tagged");
+
+    const result = await core.organizeLibrary();
+
+    expect(result).toMatchObject({ status: "done", taggingFailed: "Invalid API key." });
+    expect(await taggingOf(core)).toEqual(before);
+    const review = await core.getOrganizeReview();
+    expect(review.folders.map((folder) => folder.name)).toEqual(["Leases"]);
+    expect(review.items.flatMap((item) => item.tags)).toEqual([]);
   });
 
   // protects=the assistant's Organize that proposes Tags and no Folder has an Undo that takes its Tags back out of the Review; fails_when=its Undo is missing and the Tags stay; no_claim=the reply's words.
@@ -627,9 +657,11 @@ describe("A tagging run that meets a refused key (#2339)", () => {
       (_, at) =>
         [`Report ${at + 1}.txt`, `Quarterly report ${at + 1} on sales.`] as [string, string],
     );
-    const { core } = await cloudCore(model, files);
+    const { core, documents } = await cloudCore(model, files);
 
-    await expect(core.tagDocuments()).rejects.toThrow();
+    await expect(
+      core.tagDocuments({ documentIds: documents.map((each) => each.id) }),
+    ).rejects.toThrow();
     expect(sent).toBe(3);
     release();
     await vi.waitFor(() => expect(answered).toBe(2));

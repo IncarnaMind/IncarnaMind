@@ -327,16 +327,16 @@ export function createTags(db: Database, now: () => string, language: () => Lang
 
     /**
      * A kind's Tag: the live one, or one made for it, as Confirm adds a kind (#2339). `made`: it
-     * was made now.
+     * was made now; `tookOver`: a Tag of the User's own, named as the kind, became it now.
      */
-    kindTag(kind: TagKind): { tag: Tag; made: boolean } {
+    kindTag(kind: TagKind): { tag: Tag; made: boolean; tookOver: boolean } {
       return db.transaction(() => {
         const live = db.get<TagRow>(
           `SELECT ${COLUMNS} FROM tags WHERE kind = ? AND deleted_at IS NULL
            ORDER BY created_at, rowid LIMIT 1`,
           [kind],
         );
-        if (live) return { tag: shown(live), made: false };
+        if (live) return { tag: shown(live), made: false, tookOver: false };
         // In a Library from before the kinds, the User's own "Letter" is the kind's Tag: Confirm
         // makes no second one of that name.
         const named = LANGUAGES.map((each) => holderOf(kindName(kind, each))).find(
@@ -344,11 +344,31 @@ export function createTags(db: Database, now: () => string, language: () => Lang
         );
         if (named) {
           db.run("UPDATE tags SET kind = ?, updated_at = ? WHERE id = ?", [kind, now(), named.id]);
-          return { tag: get(named.id), made: false };
+          return { tag: get(named.id), made: false, tookOver: true };
         }
         const id = insertTag("", "", KIND_COLOURS[kind], now(), false, kind);
-        return { tag: get(id), made: true };
+        return { tag: get(id), made: true, tookOver: false };
       });
+    },
+
+    /** Undoing the Confirm that made it the kind's Tag: the User's own Tag is no kind again. */
+    giveBackKind(id: string): void {
+      db.run("UPDATE tags SET kind = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL", [
+        now(),
+        id,
+      ]);
+    },
+
+    /**
+     * Undoing the Confirm that made this kind's Tag, which holds nothing: it goes with no trace in
+     * Recently deleted, and the kind is still proposed, as the User didn't delete it.
+     */
+    dropMadeKindTag(id: string, at: string): void {
+      db.run(
+        `UPDATE tags SET kind = NULL, deleted_at = ?, purged_at = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+        [at, at, at, id],
+      );
     },
 
     /** Makes a Tag; one the User did not make (Research's) leaves madeByUser false. */

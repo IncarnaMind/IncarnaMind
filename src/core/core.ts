@@ -2106,6 +2106,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw error;
       }
     },
+    taggingOn: (id) => library.settings().automatic && !library.taggingStoppedFor(id),
     tagByRun: (ids, signal, runId) =>
       libraryOrganizer.tag(
         { documentIds: [...ids] },
@@ -4222,6 +4223,7 @@ export function createCore(adapters: CoreAdapters): Core {
     settings: () => library.settings(),
     language: () => settings.get().language,
     isExampleDocument: (id) => isExampleDocument(id),
+    taggingOn: (id) => library.settings().automatic && !library.taggingStoppedFor(id),
     wallOf: (folderId) => library.wallOf(folderId),
     embedding: embedding.model,
     organizeService: (chosen) => {

@@ -10,6 +10,7 @@ import type { DocumentKind } from "../../../src/core/api";
 import type { Language } from "../../../src/core/language";
 import type { LibraryGroup } from "../../../src/core/library/types";
 import { kindDefinitions, type TagDefinition } from "../../../src/core/tags/classify";
+import { TAG_KINDS } from "../../../src/core/tags/kinds";
 import { PRESET_TAGS } from "../../../src/core/tags/presets";
 import { translate } from "../../../src/shared/i18n";
 import { libraryPresetKeys } from "../../../src/shared/libraryPresets";
@@ -28,8 +29,13 @@ export interface SetDocument {
   folder: string | null;
   /** A second Folder that fits as well (a two-Folder case); strict accuracy ignores it. */
   alsoFolder?: string;
-  /** Preset Tag keys: every Tag whose description fits the Document as a whole. */
+  /**
+   * Preset Tag keys: every Tag whose description fits the Document as a whole. In a set of version
+   * 2 (`kindLabels`), the app's kind codes instead: none, one, or two where either fits.
+   */
   tags: string[];
+  /** The labels are kind codes, each counted wherever the Document is filed. */
+  kindLabels?: boolean;
   split: Split;
   hard?: string[];
   pair?: string;
@@ -53,7 +59,9 @@ const KINDS: readonly DocumentKind[] = ["pdf", "docx", "pptx", "xlsx", "csv", "m
 
 /**
  * Reads the set and checks it: known keys, both splits, and every file's bytes as labelled. The
- * labelled 80 unless `directory` names another, such as the set at scale.
+ * labelled 80 unless `directory` names another, such as the set at scale or a fresh held-out set.
+ * A set of version 2 is labelled with the app's kind codes; Meeting notes is read as the "notes"
+ * the scorer maps it to.
  */
 export async function readSet(
   root: string,
@@ -61,7 +69,8 @@ export async function readSet(
 ): Promise<OrganizeSet> {
   const set = JSON.parse(await readFile(join(directory, "set.json"), "utf8")) as OrganizeSet;
   const folders = new Set<string>(libraryPresetKeys);
-  const tags = new Set(PRESET_TAGS.map((tag) => tag.key));
+  const byKind = set.version === 2;
+  const tags = new Set<string>(byKind ? TAG_KINDS : PRESET_TAGS.map((tag) => tag.key));
   const ids = new Set<string>();
   for (const doc of set.documents) {
     const where = `set.json, ${doc.id}`;
@@ -73,6 +82,11 @@ export async function readSet(
     if (doc.alsoFolder !== undefined && !folders.has(doc.alsoFolder))
       throw new Error(`${where}: unknown Folder ${doc.alsoFolder}.`);
     if (doc.tags.some((tag) => !tags.has(tag))) throw new Error(`${where}: unknown Tag.`);
+    if (byKind) {
+      if (doc.tags.length > 2) throw new Error(`${where}: at most two kinds.`);
+      doc.tags = doc.tags.map((kind) => (kind === "meeting-notes" ? "notes" : kind));
+      doc.kindLabels = true;
+    }
     if (doc.split !== "tune" && doc.split !== "heldout")
       throw new Error(`${where}: split must be "tune" or "heldout".`);
     const bytes = await readFile(join(directory, doc.file));

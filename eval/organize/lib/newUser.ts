@@ -24,9 +24,14 @@ export function kindOf(tagName: string): string | null {
   return NOTES.has(normal(tagName)) ? "notes" : null;
 }
 
-/** The gold kinds that are in the app's kind list: "notes" only for a meeting's (2026-11-08). */
-export const listedKinds = (doc: Pick<Labelled, "folder" | "tags">): string[] =>
-  doc.tags.filter((kind) => kind !== "notes" || doc.folder === "meetings");
+/**
+ * The gold kinds that are in the app's kind list: "notes" only for a meeting's (2026-11-08), and
+ * every one of a set labelled with the kinds themselves.
+ */
+export const listedKinds = (doc: Pick<Labelled, "folder" | "tags" | "kindLabels">): string[] =>
+  doc.kindLabels
+    ? [...doc.tags]
+    : doc.tags.filter((kind) => kind !== "notes" || doc.folder === "meetings");
 
 /**
  * Which kind Tag F1 gates (`INCARNAMIND_ORGANIZE_KIND_SCORE`): "one-kind", the rule settled on

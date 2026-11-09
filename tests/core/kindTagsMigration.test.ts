@@ -38,7 +38,13 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     const doc = { lease: id(), q1: id(), q2: id(), quote: id() };
     const tags: [string, string, string, string | null, number][] = [
       // id, name, description, preset, made_by_user
-      [tag.report, "Report", "A report of findings.", "report", 0],
+      [
+        tag.report,
+        "Report",
+        "A report of findings, analysis or progress, such as a business, technical, financial or government report.",
+        "report",
+        0,
+      ],
       [tag.contract, "Agreements", "Signed agreements.", "contract", 1],
       [tag.notes, "Notes", "Informal notes.", "notes", 0],
       [tag.reports, "Reports", "Made by tagging.", null, 0],
@@ -86,8 +92,8 @@ describe("Migration 140: kinds and uncertain Tags", () => {
 
     // A preset no one changed is its kind, named in the interface's language.
     expect(named(tag.report)).toMatchObject({ kind: "report", name: "Report" });
-    // One the User changed keeps their words, and is its kind.
-    expect(named(tag.contract)).toMatchObject({ kind: "contract", name: "Agreements" });
+    // One the User renamed stays an ordinary Tag of theirs: it is given no kind's Documents.
+    expect(named(tag.contract)).toMatchObject({ kind: null, name: "Agreements" });
     // Notes is no kind: it stays a Tag as it was.
     expect(named(tag.notes)).toMatchObject({ kind: null, name: "Notes" });
     // Tags tagging made under a kind's name are merged into it, and wait in no Recently deleted.
@@ -124,15 +130,21 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     );
     const id = () => randomUUID();
     const tag = { report: id(), reports: id(), chineseReport: id() };
-    for (const [tagId, name, preset, at] of [
-      [tag.report, "Report", "report", AT],
-      [tag.reports, "Reports", null, AT],
-      [tag.chineseReport, "报告", null, "2026-11-02T09:00:00.000Z"],
+    for (const [tagId, name, description, preset, at] of [
+      [
+        tag.report,
+        "Report",
+        "A report of findings, analysis or progress, such as a business, technical, financial or government report.",
+        "report",
+        AT,
+      ],
+      [tag.reports, "Reports", "", null, AT],
+      [tag.chineseReport, "报告", "", null, "2026-11-02T09:00:00.000Z"],
     ] as const)
       db.run(
         `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
-         VALUES (?, ?, '', ?, 0, 'blue', ?, ?)`,
-        [tagId, name, preset, at, at],
+         VALUES (?, ?, ?, ?, 0, 'blue', ?, ?)`,
+        [tagId, name, description, preset, at, at],
       );
     const doc = { both: id(), mine: id(), off: id() };
     for (const [docId, name] of [
@@ -174,44 +186,181 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     expect((await core.listTags()).filter((each) => each.kind === "report")).toHaveLength(1);
   });
 
-  // protects=in a Library from before the kinds, a kind that has no Tag yet is the User's own Tag of its name on Confirm, so the Library never holds two "Letter" Tags; fails_when=Confirm makes a second Tag named as the User's; no_claim=which kind the model picks.
-  test("Confirm uses the User's own Tag named as a kind that has no Tag yet", async () => {
+  /**
+   * A Library from before the kinds, so no kind but those of its presets has a Tag: one Tag of
+   * the User's, Kitchen, keeps it from being seeded as a new one is.
+   */
+  async function updated(chosen: readonly string[]) {
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     migrate(
       db,
       migrations.filter((each) => each.version <= 139),
     );
-    const letter = randomUUID();
     db.run(
       `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
-       VALUES (?, 'Letter', 'Letters I keep.', NULL, 1, 'green', ?, ?)`,
-      [letter, AT, AT],
+       VALUES (?, 'Kitchen', '', NULL, 1, 'green', ?, ?)`,
+      [randomUUID(), AT, AT],
     );
     db.close();
-    const tagging = taggingModel(["Letter"]);
+    const tagging = taggingModel(chosen);
     const core = startCore(dataDir, {
       createChatModel: scriptedModels(tagging.model).createChatModel,
     });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const sources = await createSourceFolder();
-    const [document] = await addAndProcess(core, [
-      await writeSourceFile(
-        sources,
-        "To the council.txt",
-        "Dear councillor, I write about the bins.",
-      ),
-    ]);
-    if (!document) throw new Error("Nothing was added.");
-    await waitForTagging(core, [document.id]);
+    const add = async (name: string, text: string) => {
+      const [document] = await addAndProcess(core, [await writeSourceFile(sources, name, text)]);
+      if (!document) throw new Error(`Nothing was added for ${name}.`);
+      await waitForTagging(core, [document.id]);
+      return document;
+    };
+    const confirm = async () => {
+      const review = await core.getOrganizeReview();
+      const confirmation = await core.confirmOrganizeReview(review.items.map((item) => item.id));
+      if (!confirmation) throw new Error("Nothing was confirmed.");
+      return confirmation.id;
+    };
+    return { core, tagging, add, confirm };
+  }
+
+  // protects=a kind with no Tag yet goes, on Confirm, to the User's own Tag of its name, so the Library never holds two "Letter" Tags; its Undo gives that Tag back as it was, and Redo takes it again; fails_when=Confirm makes a second Tag of the User's name, or the Undo leaves their Tag a kind's; no_claim=which kind the model picks.
+  test("Confirm uses the User's own Tag named as a kind with no Tag, and its Undo gives it back", async () => {
+    const { core, add, confirm } = await updated(["Letter"]);
+    const letter = await core.createTag({ name: "Letter", description: "Letters I keep." });
+    const document = await add("To the council.txt", "Dear councillor, I write about the bins.");
     const review = await core.getOrganizeReview();
     expect(review.items.flatMap((item) => item.tags.map((tag) => tag.name))).toEqual(["Letter"]);
 
-    await core.confirmOrganizeReview(review.items.map((item) => item.id));
-
+    const confirmed = await confirm();
     const named = (await core.listTags()).filter((tag) => tag.name === "Letter");
-    expect(named).toHaveLength(1);
-    expect(named[0]).toMatchObject({ id: letter, kind: "letter", description: "Letters I keep." });
+    expect(named).toEqual([
+      expect.objectContaining({ id: letter.id, kind: "letter", description: "Letters I keep." }),
+    ]);
     expect(await tagNamesOf(core, document.id)).toEqual(["Letter"]);
+
+    await core.undoOrganizeReviewConfirmation(confirmed);
+    expect((await core.listTags()).find((tag) => tag.id === letter.id)).toMatchObject({
+      kind: null,
+      name: "Letter",
+    });
+    expect(await tagNamesOf(core, document.id)).toEqual([]);
+
+    await core.redoOrganizeReviewConfirmation(confirmed);
+    expect((await core.listTags()).filter((tag) => tag.name === "Letter")).toEqual([
+      expect.objectContaining({ id: letter.id, kind: "letter" }),
+    ]);
+  });
+
+  // protects=the Undo of a Confirm that made a kind's Tag takes it away without the User having deleted the kind, so the kind is still proposed and Redo makes it again; fails_when=the Undo leaves the kind's Tag in Recently deleted, and the kind is no longer offered; no_claim=the kind's words.
+  test("the Undo of a Confirm that made a kind's Tag leaves the kind proposed", async () => {
+    const { core, tagging, add, confirm } = await updated(["Letter"]);
+    await add("To the council.txt", "Dear councillor, I write about the bins.");
+    const confirmed = await confirm();
+    expect((await core.listTags()).filter((tag) => tag.kind === "letter")).toHaveLength(1);
+
+    await core.undoOrganizeReviewConfirmation(confirmed);
+    expect((await core.listTags()).filter((tag) => tag.kind === "letter")).toEqual([]);
+    expect((await core.listDeleted()).filter((each) => each.kind === "tag")).toEqual([]);
+
+    const asked = tagging.requests.length;
+    await add("To the school.txt", "Dear head teacher, I write about the trip.");
+    expect(tagging.requests.slice(asked).flatMap((request) => request.names)).toContain("Letter");
+    await core.redoOrganizeReviewConfirmation(confirmed);
+    expect((await core.listTags()).filter((tag) => tag.kind === "letter")).toEqual([
+      expect.objectContaining({ name: "Letter" }),
+    ]);
+  });
+
+  // protects=a Document deleted before the update comes back from Recently deleted with one link to each kind's Tag, its tagging's included, and none to a merged Tag; fails_when=its restore fails on two links to one kind's Tag, or brings back a link to a merged Tag; no_claim=which Tags count as a kind's.
+  test("a Document deleted before the update comes back with one link to the kind's Tag", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(
+      db,
+      migrations.filter((each) => each.version <= 139),
+    );
+    const id = () => randomUUID();
+    const tag = { report: id(), reports: id(), chineseReport: id() };
+    for (const [tagId, name, description, preset] of [
+      [
+        tag.report,
+        "Report",
+        "A report of findings, analysis or progress, such as a business, technical, financial or government report.",
+        "report",
+      ],
+      [tag.reports, "Reports", "", null],
+      [tag.chineseReport, "报告", "", null],
+    ] as const)
+      db.run(
+        `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 0, 'blue', ?, ?)`,
+        [tagId, name, description, preset, AT, AT],
+      );
+    const deletedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const doc = { mine: id(), tagged: id() };
+    for (const [docId, name] of [
+      [doc.mine, "Q1 report"],
+      [doc.tagged, "Q2 report"],
+    ] as const)
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, tagging_status, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, 'markdown', 10, 'ready', 'tagged', ?, ?, ?)`,
+        [docId, `hash-${name}`, name, AT, deletedAt, deletedAt],
+      );
+    for (const [documentId, tagId, source] of [
+      [doc.mine, tag.reports, "user"],
+      [doc.mine, tag.chineseReport, "user"],
+      [doc.tagged, tag.reports, "automatic"],
+    ] as const)
+      db.run(
+        `INSERT INTO document_tags (id, document_id, tag_id, source, needs_review, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+        [randomUUID(), documentId, tagId, source, AT, deletedAt, deletedAt],
+      );
+    db.close();
+
+    const core = startCore(dataDir);
+    await core.restore([
+      { kind: "document", id: doc.mine },
+      { kind: "document", id: doc.tagged },
+    ]);
+
+    const linksOf = async (documentId: string) =>
+      (await core.listDocuments())
+        .find((each) => each.id === documentId)
+        ?.tags.map((link) => [link.tagId, link.source]);
+    expect(await linksOf(doc.mine)).toEqual([[tag.report, "user"]]);
+    expect(await linksOf(doc.tagged)).toEqual([[tag.report, "automatic"]]);
+  });
+
+  // protects=the User's own Tag named as a kind becomes that kind's Tag, keeping their words, and what tagging made under the kind's name merges into it, so the Library never shows two Tags of that name; fails_when=tagging's Tag becomes the kind's and the User's stays beside it; no_claim=the kinds' words.
+  test("the User's own Tag named as a kind is the kind's Tag, and tagging's merges into it", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(
+      db,
+      migrations.filter((each) => each.version <= 139),
+    );
+    const mine = randomUUID();
+    const made = randomUUID();
+    for (const [tagId, name, description, byUser, at] of [
+      [made, "letters", "Made by tagging.", 0, AT],
+      [mine, "Letter", "Letters I keep.", 1, "2026-11-02T09:00:00.000Z"],
+    ] as const)
+      db.run(
+        `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, ?, 'green', ?, ?)`,
+        [tagId, name, description, byUser, at, at],
+      );
+    db.close();
+
+    const core = startCore(dataDir);
+    const listed = await core.listTags();
+
+    expect(listed.filter((each) => each.kind === "letter")).toEqual([
+      expect.objectContaining({ id: mine, name: "Letter", description: "Letters I keep." }),
+    ]);
+    expect(listed.find((each) => each.id === made)).toBeUndefined();
   });
 });

@@ -51,7 +51,10 @@ export function createOrganizeReview(options: {
     move(ids: readonly string[], groupId: string | null): MovedDocument[];
     restoreAssignment(id: unknown, before: unknown, after: unknown): AssignmentChange | null;
   };
-  tags: Pick<TagsStore, "create" | "kindTag" | "addToDocument" | "revert" | "owned">;
+  tags: Pick<
+    TagsStore,
+    "create" | "kindTag" | "giveBackKind" | "dropMadeKindTag" | "addToDocument" | "revert" | "owned"
+  >;
   /** The interface's language, which a kind's Tag is named in. */
   language(): Language;
   /** Sends a Folder to Recently deleted, as deleting it does. */
@@ -146,25 +149,25 @@ export function createOrganizeReview(options: {
       description: string;
       made: number;
     }) => {
-      if (row.tag_id !== null && !deletedTag(row.tag_id))
-        return { tagId: row.tag_id, made: row.made };
-      if (row.tag_id !== null && row.made === 0) return null;
+      // A Tag of the Library's the User deleted since stays deleted.
+      if (row.tag_id !== null && row.made === 0 && deletedTag(row.tag_id)) return null;
       const kind = isTagKind(row.kind) ? row.kind : null;
-      if (kind && row.tag_id === null) {
-        const { tag, made } = tags.kindTag(kind);
+      // A kind goes to its Tag as it is now: done again after an Undo, as at first (#2339).
+      if (kind) {
+        const { tag, made, tookOver } = tags.kindTag(kind);
         if (made) {
           madeTagIds.push(tag.id);
           tagsMade = true;
         }
-        return { tagId: tag.id, made: made ? 1 : 0 };
+        return { tagId: tag.id, made: made ? 1 : 0, tookOver: tookOver ? 1 : 0 };
       }
-      const key = kind ? `kind:${kind}` : tagKey(row.name);
-      const named = store
-        .liveTags()
-        .find((tag) => (kind ? tag.kind === kind : tagKey(tag.name) === key));
-      if (named) return { tagId: named.id, made: 0 };
+      if (row.tag_id !== null && !deletedTag(row.tag_id))
+        return { tagId: row.tag_id, made: row.made, tookOver: 0 };
+      const key = tagKey(row.name);
+      const named = store.liveTags().find((tag) => tagKey(tag.name) === key);
+      if (named) return { tagId: named.id, made: 0, tookOver: 0 };
       const earlier = madeTags.get(key);
-      if (earlier) return { tagId: earlier, made: 1 };
+      if (earlier) return { tagId: earlier, made: 1, tookOver: 0 };
       let tagId: string;
       if (row.tag_id !== null) {
         options.restoreDeleted([{ kind: "tag", id: row.tag_id }]);
@@ -175,7 +178,7 @@ export function createOrganizeReview(options: {
       madeTags.set(key, tagId);
       madeTagIds.push(tagId);
       tagsMade = true;
-      return { tagId, made: 1 };
+      return { tagId, made: 1, tookOver: 0 };
     };
 
     for (const item of items) {
@@ -223,6 +226,7 @@ export function createOrganizeReview(options: {
           store.update("tags", row.id, {
             tag_id: tag.tagId,
             made: tag.made,
+            took_over: tag.tookOver,
             link_before: adds ? JSON.stringify(link) : null,
           });
         }
@@ -360,10 +364,13 @@ export function createOrganizeReview(options: {
           library.restoreAssignment(item.document_id, change.before, change.after);
         }
         const madeTags = new Set<string>();
+        const madeKinds = new Set<string>();
+        const tookOver = new Set<string>();
         for (const item of items) {
           for (const row of store.tagRowsOf(item.id)) {
             if (row.tag_id === null) continue;
-            if (row.made === 1) madeTags.add(row.tag_id);
+            if (row.made === 1) (isTagKind(row.kind) ? madeKinds : madeTags).add(row.tag_id);
+            if (row.took_over === 1) tookOver.add(row.tag_id);
             if (row.link_before === null) continue;
             const link = linkOf(item.document_id, row.tag_id);
             const asLeft = link?.source === "user" && link.confidence === null && !link.needsReview;
@@ -408,14 +415,15 @@ export function createOrganizeReview(options: {
               });
           }
         }
-        for (const tagId of madeTags) {
-          if (deletedTag(tagId)) continue;
-          const holds = db.get(
-            "SELECT 1 FROM document_tags WHERE tag_id = ? AND deleted_at IS NULL LIMIT 1",
-            [tagId],
-          );
-          if (!holds) options.removeTag(tagId, at);
-        }
+        const holds = (tagId: string) =>
+          !!db.get("SELECT 1 FROM document_tags WHERE tag_id = ? AND deleted_at IS NULL LIMIT 1", [
+            tagId,
+          ]);
+        for (const tagId of madeTags)
+          if (!deletedTag(tagId) && !holds(tagId)) options.removeTag(tagId, at);
+        for (const tagId of madeKinds)
+          if (!deletedTag(tagId) && !holds(tagId)) tags.dropMadeKindTag(tagId, at);
+        for (const tagId of tookOver) tags.giveBackKind(tagId);
         db.run(
           "UPDATE organize_review_confirmations SET undone_at = ?, updated_at = ? WHERE id = ?",
           [at, at, id],

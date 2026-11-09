@@ -24,16 +24,16 @@ const say = (
 
 test("a service is named, a model on this computer says so, and nothing is said otherwise", () => {
   expect(say(ANTHROPIC, "en")).toBe(
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic, with your interface language for a chat model.",
   );
   expect(say(ANTHROPIC, "zh-CN")).toBe(
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic；使用聊天模型时，还有你的界面语言。",
   );
   expect(say(LOCAL, "en")).toBe(
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   );
   expect(say(LOCAL, "zh-CN")).toBe(
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
   );
   expect(say(UNKNOWN, "en")).toBeNull();
   expect(say(NONE, "zh-CN")).toBeNull();
@@ -66,7 +66,7 @@ test("a server named by its address is spaced from the Chinese around it", () =>
     service: { id: "https://api.deepseek.com", name: "api.deepseek.com" },
   };
   expect(say(route, "zh-CN")).toBe(
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 api.deepseek.com。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 api.deepseek.com；使用聊天模型时，还有你的界面语言。",
   );
 });
 

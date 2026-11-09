@@ -203,6 +203,26 @@ describe("an Organize run", () => {
     expect(useNotices.getState().confirmation).toBeNull();
   });
 
+  test("whose tagging failed keeps its line, with the provider's words, until dismissed", async () => {
+    method("organizeLibrary").mockResolvedValue({
+      ...planned(2),
+      taggingFailed: "Invalid API key.",
+    });
+
+    await flow.organize({});
+    expect(state().taggingFailed).toEqual({ details: "Invalid API key." });
+    flow.dismissTaggingFailed();
+    expect(state().taggingFailed).toBeNull();
+  });
+
+  test("with nothing to re-tag says why, not that no Tag fits", async () => {
+    method("tagDocuments").mockResolvedValue({ ...planned(0), documents: 0 });
+
+    await flow.tagDocuments();
+    expect(useNotices.getState().confirmation?.message).toBe("tags.dialog.retag.none");
+    expect(state().apart).toBeNull();
+  });
+
   test("that proposes nothing with Folders there says no Folder fits, as a notice", async () => {
     method("getLibrary").mockResolvedValue({
       ...planning,

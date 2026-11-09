@@ -6,6 +6,7 @@ import {
   acceptEstimate,
   dismissEstimate,
   dismissFailed,
+  dismissTaggingFailed,
   LIBRARY_UNDO_PLACE,
   openReview,
   retryFailed,
@@ -173,7 +174,53 @@ export function OrganizeLines() {
         </>
       )}
       {!run && <FailedLine />}
+      {!run && <TaggingFailedLine />}
     </>
+  );
+}
+
+/**
+ * The last Organize proposed its Folders but its tagging failed (#2339): one line says so, with
+ * the provider's sentence under Details, until dismissed. The next run tries the Tags again.
+ */
+function TaggingFailedLine() {
+  const t = useT();
+  const failed = useOrganizeReview((state) => state.taggingFailed);
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  if (!failed) return null;
+  return (
+    <ProblemLine
+      role="alert"
+      testId="organize-tagging-failed"
+      className="mt-2"
+      action={{
+        label: t("organizeReview.dismiss"),
+        testId: "organize-tagging-failed-dismiss",
+        onClick: dismissTaggingFailed,
+      }}
+      disclosure={{
+        toggle: (
+          <button
+            type="button"
+            data-testid="organize-tagging-failed-details"
+            aria-expanded={open}
+            aria-controls={panel}
+            onClick={() => setOpen(!open)}
+            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          >
+            {t("error.details")}
+          </button>
+        ),
+        panel: open ? (
+          <p id={panel} className="mt-1 break-words text-ink-secondary">
+            {failed.details}
+          </p>
+        ) : null,
+      }}
+    >
+      {t("organizeReview.taggingFailed")}
+    </ProblemLine>
   );
 }
 

@@ -432,17 +432,17 @@ const LINES = {
     cloud: /^Tagging \d+ Documents? with Anthropic…$/,
     local: /^Tagging \d+ Documents?…$/,
     cloudSends:
-      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic.",
+      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic, with your interface language for a chat model.",
     localSends:
-      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer.",
+      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   },
   "zh-CN": {
     cloud: /^正在用 Anthropic 为 \d+ 个文档打标签…$/,
     local: /^正在为 \d+ 个文档打标签…$/,
     cloudSends:
-      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic。",
+      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic；使用聊天模型时，还有你的界面语言。",
     localSends:
-      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上。",
+      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
   },
 } as const;
 

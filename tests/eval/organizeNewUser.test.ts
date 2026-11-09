@@ -1,4 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, onTestFinished, test } from "vitest";
 import {
   bars,
   kindOf,
@@ -8,6 +12,7 @@ import {
   splitByArea,
   type TopicVerdict,
 } from "../../eval/organize/lib/newUser";
+import { readSet } from "../../eval/organize/lib/set";
 
 const outcome = (
   id: string,
@@ -137,6 +142,52 @@ describe("the Organize benchmark's new-User scores", () => {
           outcome("n", "meetings", ["slides", "notes"], "f1", ["会议记录"]),
         ).oneKind,
       ).toEqual({ tp: 2, fp: 0, fn: 0 });
+    });
+  });
+
+  describe("a fresh set labelled with the app's kind codes (version 2)", () => {
+    /** Writes a version-2 set of one text file labelled `tags` into a folder of its own. */
+    async function fresh(tags: string[]) {
+      const directory = await mkdtemp(join(tmpdir(), "organize-fresh-"));
+      onTestFinished(() => rm(directory, { recursive: true, force: true }));
+      const text = "Some words.";
+      await mkdir(join(directory, "files"));
+      await writeFile(join(directory, "files", "a.txt"), text);
+      const set = {
+        version: 2,
+        folders: ["finance"],
+        tags: ["statement", "meeting-notes"],
+        documents: [
+          {
+            id: "a",
+            file: "files/a.txt",
+            language: "en",
+            kind: "text",
+            folder: "finance",
+            tags,
+            split: "heldout",
+            sha256: createHash("sha256").update(text).digest("hex"),
+          },
+        ],
+      };
+      await writeFile(join(directory, "set.json"), JSON.stringify(set));
+      return readSet(process.cwd(), directory);
+    }
+
+    test("reads kind codes as they are, Meeting notes as the scorer's notes, wherever it is filed", async () => {
+      const [doc] = (await fresh(["meeting-notes", "statement"])).documents;
+      if (!doc) throw new Error("The set has no Document.");
+      expect(doc.tags).toEqual(["notes", "statement"]);
+      const scored = (tags: string[]) =>
+        scoreNewUser([{ ...outcome("a", "finance", [], "f1", tags), doc }], folders, []).oneKind;
+      expect(scored(["Meeting notes"])).toEqual({ tp: 1, fp: 0, fn: 0 });
+      expect(scored(["Statement"])).toEqual({ tp: 1, fp: 0, fn: 0 });
+      expect(scored(["Report"])).toEqual({ tp: 0, fp: 1, fn: 1 });
+    });
+
+    test("refuses a preset key that is no kind, and more than two kinds", async () => {
+      await expect(fresh(["notes"])).rejects.toThrow("unknown Tag");
+      await expect(fresh(["report", "paper", "book"])).rejects.toThrow("at most two kinds");
     });
   });
 

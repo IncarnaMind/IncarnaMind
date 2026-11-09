@@ -8,7 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { generateText } from "ai";
 import { test } from "vitest";
 import { createAiSdkChatModel, type Document, type OrganizeReviewItem } from "../../src/core";
@@ -125,7 +125,15 @@ test("Organize as a new User meets it", async () => {
   const scale = Number(process.env.INCARNAMIND_ORGANIZE_SCALE ?? 0);
   if (!Number.isInteger(scale) || scale < 0)
     throw new Error("INCARNAMIND_ORGANIZE_SCALE must be a number of Documents.");
-  const directory = scale > 0 ? await scaleSet(scale) : join(root, SET_DIRECTORY);
+  const named = process.env.INCARNAMIND_ORGANIZE_SET?.trim();
+  if (named && scale > 0)
+    throw new Error("INCARNAMIND_ORGANIZE_SET and INCARNAMIND_ORGANIZE_SCALE can't both be set.");
+  // The core keeps each file by its resolved path, which the set's own paths are matched against.
+  const directory = named
+    ? await realpath(resolve(root, named))
+    : scale > 0
+      ? await scaleSet(scale)
+      : join(root, SET_DIRECTORY);
   const set = await readSet(root, directory);
   const config = readConfig(root);
   const options = runOptions(process.env, "heldout");

@@ -2904,6 +2904,9 @@ export const migrations: readonly Migration[] = [
       -- in the interface's language; one the User renamed or rewrote keeps theirs.
       ALTER TABLE tags ADD COLUMN kind TEXT;
       ALTER TABLE organize_review_tags ADD COLUMN kind TEXT;
+      -- took_over: its Confirm made a Tag of the User's own, named as the kind, that kind's Tag;
+      -- the Confirm's Undo gives it back as it was.
+      ALTER TABLE organize_review_tags ADD COLUMN took_over INTEGER NOT NULL DEFAULT 0;
 
       -- The names a Tag of each kind went by, as the preset Tags and tagging named them.
       CREATE TEMP TABLE kind_names (name TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL);
@@ -2928,10 +2931,11 @@ export const migrations: readonly Migration[] = [
         ('纪要', 'meeting-notes'),
         ('letter', 'letter'), ('letters', 'letter'), ('信函', 'letter'), ('信件', 'letter');
 
-      -- A preset Tag of a kind becomes that kind, deleted ones too so they come back as it. Its
-      -- name and description as they were seeded, in either language, give way to the kind's in
-      -- the interface's language; any the User changed stay, also from before made_by_user was
-      -- kept for presets. The Notes preset is no kind: it stays a Tag as it is.
+      -- A preset Tag of a kind becomes that kind while its name and description are still the
+      -- seeded ones, in either language, deleted ones too so they come back as it; they give way
+      -- to the kind's words in the interface's language. One the User renamed or rewrote, also
+      -- from before made_by_user was kept for presets, stays an ordinary Tag of theirs, and so
+      -- does the Notes preset.
       CREATE TEMP TABLE preset_words (kind TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL);
       INSERT INTO preset_words (kind, name, description) VALUES
         ('paper', 'Paper', 'A research or academic paper, such as a journal article, conference paper, preprint or thesis.'),
@@ -2946,17 +2950,36 @@ export const migrations: readonly Migration[] = [
         ('invoice', '发票', '就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单、报名表，以及没有提供商品或服务的捐赠或赠与收据，都不算。'),
         ('slides', 'Slides', 'A presentation deck saved as a document, with a title and a few short points on each slide.'),
         ('slides', '幻灯片', '保存为文档的演示文稿，每页有一个标题和几条简短要点。');
-      UPDATE tags SET kind = preset,
-          name = CASE WHEN made_by_user = 0 AND EXISTS (
-              SELECT 1 FROM preset_words w WHERE w.kind = tags.preset AND w.name = tags.name)
-            THEN '' ELSE name END,
-          description = CASE WHEN made_by_user = 0 AND EXISTS (
-              SELECT 1 FROM preset_words w
-              WHERE w.kind = tags.preset AND w.description = tags.description)
-            THEN '' ELSE description END,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE preset IN ('contract', 'invoice', 'report', 'paper', 'book', 'slides');
+      UPDATE tags SET kind = preset, name = '', description = '', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE preset IN ('contract', 'invoice', 'report', 'paper', 'book', 'slides')
+          AND EXISTS (SELECT 1 FROM preset_words w WHERE w.kind = tags.preset AND w.name = tags.name)
+          AND EXISTS (
+            SELECT 1 FROM preset_words w
+            WHERE w.kind = tags.preset AND w.description = tags.description);
       DROP TABLE preset_words;
+
+      -- The User's own Tag named as a kind, in either language, is that kind's Tag where it has
+      -- none yet, keeping their words: the oldest, before any Tag tagging made.
+      CREATE TEMP TABLE kind_own_names (name TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL);
+      INSERT INTO kind_own_names (name, kind) VALUES
+        ('contract', 'contract'), ('合同', 'contract'), ('invoice', 'invoice'), ('发票', 'invoice'),
+        ('statement', 'statement'), ('对账单', 'statement'), ('report', 'report'), ('报告', 'report'),
+        ('paper', 'paper'), ('论文', 'paper'), ('book', 'book'), ('书籍', 'book'),
+        ('slides', 'slides'), ('幻灯片', 'slides'), ('meeting notes', 'meeting-notes'),
+        ('会议记录', 'meeting-notes'), ('letter', 'letter'), ('信函', 'letter');
+      CREATE TEMP TABLE kind_own (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, place INTEGER NOT NULL);
+      INSERT INTO kind_own (id, kind, place)
+        SELECT t.id, o.kind, ROW_NUMBER() OVER (PARTITION BY o.kind ORDER BY t.created_at, t.rowid)
+        FROM tags t JOIN kind_own_names o ON o.name = lower(trim(t.name))
+        WHERE t.deleted_at IS NULL AND t.kind IS NULL AND (t.made_by_user = 1 OR EXISTS (
+          SELECT 1 FROM document_tags l
+          WHERE l.tag_id = t.id AND l.source = 'user' AND l.deleted_at IS NULL));
+      UPDATE tags SET kind = (SELECT o.kind FROM kind_own o WHERE o.id = tags.id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id IN (
+          SELECT o.id FROM kind_own o WHERE o.place = 1 AND NOT EXISTS (
+            SELECT 1 FROM tags k WHERE k.kind = o.kind AND k.deleted_at IS NULL));
+      DROP TABLE kind_own;
+      DROP TABLE kind_own_names;
 
       -- A Tag tagging made under a kind's name, with no one's changes, is that kind: the oldest
       -- becomes the kind's Tag where it has none yet, and the others are merged into it.
@@ -2983,38 +3006,48 @@ export const migrations: readonly Migration[] = [
           SELECT 1 FROM kind_merges m JOIN document_tags other ON other.tag_id = m.from_id
           WHERE m.into_id = document_tags.tag_id AND other.document_id = document_tags.document_id
             AND other.deleted_at IS NULL AND other.source = 'user');
-      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE deleted_at IS NULL AND tag_id IN (SELECT from_id FROM kind_merges) AND EXISTS (
-          SELECT 1 FROM kind_merges m JOIN document_tags kept ON kept.tag_id = m.into_id
-          WHERE m.from_id = document_tags.tag_id AND kept.document_id = document_tags.document_id
+      -- The links of a merged Tag move to the kind's Tag, deleted ones too, but those dropped
+      -- here, which stay behind.
+      CREATE TEMP TABLE kind_links_dropped (id TEXT PRIMARY KEY NOT NULL);
+      -- One on a Document that has the kind's Tag already.
+      INSERT INTO kind_links_dropped (id)
+        SELECT l.id FROM document_tags l JOIN kind_merges m ON m.from_id = l.tag_id
+        WHERE l.deleted_at IS NULL AND EXISTS (
+          SELECT 1 FROM document_tags kept
+          WHERE kept.tag_id = m.into_id AND kept.document_id = l.document_id
             AND kept.deleted_at IS NULL);
-      -- Where the User took the kept Tag off a Document, what tagging gave it under another
-      -- name doesn't put it back, as a merge in the app never does.
-      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE deleted_at IS NULL AND source = 'automatic'
-          AND tag_id IN (SELECT from_id FROM kind_merges) AND EXISTS (
-            SELECT 1 FROM kind_merges m JOIN document_tags decided ON decided.tag_id = m.into_id
-            WHERE m.from_id = document_tags.tag_id AND decided.document_id = document_tags.document_id
-              AND decided.source = 'user');
-      -- Two merged into one kind on a Document leave one link to it: the User's, else the oldest.
-      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE deleted_at IS NULL AND tag_id IN (SELECT from_id FROM kind_merges) AND EXISTS (
+      -- Where the User took the kind's Tag off a Document, tagging's link under another name
+      -- doesn't put it back, as a merge in the app never does.
+      INSERT OR IGNORE INTO kind_links_dropped (id)
+        SELECT l.id FROM document_tags l JOIN kind_merges m ON m.from_id = l.tag_id
+        WHERE l.deleted_at IS NULL AND l.source = 'automatic' AND EXISTS (
+          SELECT 1 FROM document_tags decided
+          WHERE decided.tag_id = m.into_id AND decided.document_id = l.document_id
+            AND decided.source = 'user');
+      -- Two that would be one link to the kind's Tag leave one: the kind's Tag's own, else the
+      -- User's, else the oldest. Deleted ones pair up by when they were deleted, as restoring a
+      -- Document brings back what was deleted with it.
+      INSERT OR IGNORE INTO kind_links_dropped (id)
+        SELECT l.id FROM document_tags l JOIN kind_merges m ON m.from_id = l.tag_id
+        WHERE EXISTS (
           SELECT 1 FROM document_tags other
-          JOIN kind_merges mine ON mine.from_id = document_tags.tag_id
-          JOIN kind_merges theirs ON theirs.from_id = other.tag_id AND theirs.into_id = mine.into_id
-          WHERE other.document_id = document_tags.document_id AND other.deleted_at IS NULL
-            AND other.rowid <> document_tags.rowid
-            AND ((other.source = 'user') > (document_tags.source = 'user')
-              OR ((other.source = 'user') = (document_tags.source = 'user')
-                AND (other.created_at, other.rowid) < (document_tags.created_at, document_tags.rowid))));
+          WHERE other.document_id = l.document_id AND other.id <> l.id
+            AND other.deleted_at IS l.deleted_at
+            AND (other.tag_id = m.into_id OR (
+              other.tag_id IN (SELECT n.from_id FROM kind_merges n WHERE n.into_id = m.into_id)
+              AND ((other.source = 'user') > (l.source = 'user')
+                OR ((other.source = 'user') = (l.source = 'user')
+                  AND (other.created_at, other.rowid) < (l.created_at, l.rowid))))));
+      -- A dropped link is off its Document from now: one deleted with its Document no longer
+      -- comes back with it.
+      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id IN (SELECT id FROM kind_links_dropped);
       UPDATE document_tags
         SET tag_id = (SELECT m.into_id FROM kind_merges m WHERE m.from_id = document_tags.tag_id),
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE tag_id IN (SELECT from_id FROM kind_merges)
-          AND (deleted_at IS NULL OR source = 'user');
+          AND id NOT IN (SELECT id FROM kind_links_dropped);
+      DROP TABLE kind_links_dropped;
       UPDATE organize_review_tags
         SET tag_id = (SELECT m.into_id FROM kind_merges m WHERE m.from_id = organize_review_tags.tag_id),
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

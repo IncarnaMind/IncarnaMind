@@ -77,6 +77,8 @@ export function createLibraryOrganizer(options: {
   settings(): LibrarySettings;
   language(): Language;
   isExampleDocument(id: string): boolean;
+  /** Tagging is on for this Document: the Tagging switch, and not stopped where it is (#2308). */
+  taggingOn(id: string): boolean;
   /** The Folder keeping its work inside it that this one is in, or is; null outside walls. */
   wallOf(folderId: string): string | null;
   embedding: { enabled(): boolean; readonly id: string };
@@ -236,7 +238,7 @@ export function createLibraryOrganizer(options: {
     asked: boolean,
     signal: AbortSignal,
     progress: (done: number) => void,
-  ): Promise<TaggedRun | null> => {
+  ): Promise<TaggedRun | { failed: string } | null> => {
     try {
       const prepared = await options.prepareTagging(asked);
       if (!prepared || signal.aborted) return null;
@@ -270,7 +272,7 @@ export function createLibraryOrganizer(options: {
     } catch (error) {
       if (asked || signal.aborted) throw error;
       console.error("Organize couldn't tag its Documents; it proposes their Folders only.", error);
-      return null;
+      return { failed: error instanceof Error ? error.message : String(error) };
     }
   };
 
@@ -376,7 +378,7 @@ export function createLibraryOrganizer(options: {
         }
 
         let plan: LibraryPlan | null = null;
-        let tags: TaggedRun | null = null;
+        let tagRun: TaggedRun | { failed: string } | null = null;
         if (readable.length > 0) {
           const classifier = await options.prepare(settings, own?.permit);
           if (!classifier.plan) throw new InvalidInputError({ key: "error.library.cantPropose" });
@@ -404,7 +406,7 @@ export function createLibraryOrganizer(options: {
               report();
             },
           );
-          [plan, tags] = await Promise.all([
+          [plan, tagRun] = await Promise.all([
             finishPlan(local, {
               model,
               signal,
@@ -423,6 +425,7 @@ export function createLibraryOrganizer(options: {
           ]);
         }
         if (signal.aborted) return { status: "stopped", runId };
+        const tags = tagRun && "failed" in tagRun ? null : tagRun;
 
         const service = options.organizeService(settings)?.name ?? "";
         const fitsNone: OrganizeReviewLeftOut =
@@ -492,6 +495,7 @@ export function createLibraryOrganizer(options: {
           proposed,
           placedByModel: plan?.placedByModel ?? 0,
           requests: plan?.requests ?? 0,
+          ...(tagRun && "failed" in tagRun && { taggingFailed: tagRun.failed }),
         };
       } catch (error) {
         if (signal.aborted) return { status: "stopped", runId };
@@ -527,7 +531,13 @@ export function createLibraryOrganizer(options: {
                ORDER BY d.created_at, d.rowid`,
               documentIds ? [JSON.stringify(documentIds)] : [],
             )
-            .filter((row) => documentIds !== null || !options.isExampleDocument(row.id));
+            // Every Document is the User's request for each where tagging is on and not
+            // stopped; only those they name are a request for each of them (#2308).
+            .filter(
+              (row) =>
+                documentIds !== null ||
+                (!options.isExampleDocument(row.id) && options.taggingOn(row.id)),
+            );
         let subjects = read();
         for (;;) {
           const waiting = subjects.filter(waitsToBeRead).length;
@@ -537,6 +547,16 @@ export function createLibraryOrganizer(options: {
           if (signal.aborted) return { status: "stopped", runId };
           subjects = read();
         }
+        // Nothing to tag asks for nothing, not even the service's consent.
+        if (subjects.length === 0)
+          return {
+            status: "done",
+            runId,
+            documents: 0,
+            proposed: 0,
+            placedByModel: 0,
+            requests: 0,
+          };
         const readable = subjects.filter((each) => READABLE.has(each.status) && hasText(each.id));
         progress(0, 0, subjects.length);
         const result = await runTags(
@@ -547,7 +567,8 @@ export function createLibraryOrganizer(options: {
           (done) => progress(0, done, subjects.length),
         );
         if (signal.aborted) return { status: "stopped", runId };
-        if (!result) throw new TaggingNotReadyError({ key: "error.tagging.noModel" });
+        if (!result || "failed" in result)
+          throw new TaggingNotReadyError({ key: "error.tagging.noModel" });
         const service = result.service?.name ?? "";
         const proposals = subjects.map((subject): TagsProposal => {
           const tags = result.proposed.get(subject.id) ?? [];

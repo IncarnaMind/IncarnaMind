@@ -119,6 +119,7 @@ export const zhCN = {
   "organizeReview.tagged.one": "已为 1 个文档添加标签",
   "organizeReview.running": "正在整理 {done}/{total}…",
   "organizeReview.failed.model": "无法连接 AI 模型",
+  "organizeReview.taggingFailed": "这次整理未能建议标签。文件夹照常建议，下次整理时会再试一次标签",
   "organizeReview.stop": "停止",
   "organizeReview.stopped": "读了 {count} 个后已停止，还没有移动任何文档。",
   "organizeReview.estimate": "整理 {count} 个文档：{cost}",
@@ -2490,9 +2491,9 @@ export const zhCN = {
   "status.taggingWith.one": "正在用 {service} 为 1 个文档打标签…",
   "status.taggingWith.other": "正在用 {service} 为 {count} 个文档打标签…",
   "status.sends":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}；使用聊天模型时，还有你的界面语言。",
   "status.sends.onThisComputer":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
   "status.sends.organize":
     "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。",
   "status.sends.organize.onThisComputer":
@@ -2823,6 +2824,8 @@ export const zhCN = {
   "tags.dialog.retag.hint":
     "重新为每个文档建议标签。确认前，建议的标签不会添加；你自己设置的标签保持不变。",
   "tags.dialog.retag.started": "已开始重新打标签。",
+  "tags.dialog.retag.none":
+    "没有可重新打标签的文档：打标签已关闭，或所有文档所在的位置都已停止打标签",
   "tags.dialog.done": "完成",
 
   "jev.waiting.notice": "选择 AI 模型后会自动打标签。",
@@ -3022,9 +3025,9 @@ export const zhCN = {
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
   "setup.sorting.sends":
-    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（使用聊天模型时还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "setup.sorting.sendsWhenOn":
-    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（使用聊天模型时还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "models.sorting.off": "自动给新文档打标签已关闭",
   "models.sorting.turnOn": "开启…",
   "command.tagging.turnOn": "开启自动给新文档打标签…",
@@ -3113,7 +3116,7 @@ export const zhCN = {
   "providers.sends.edits":
     "你让助手修改的文字及其所在段落；修改会改写或删除带引用的文字时，还有该引用的引文",
   "providers.sends.onRequest":
-    "给文档打标签和整理，会发送每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹的名称和描述、文档类别以及你自己的标签的名称和描述；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
+    "给文档打标签和整理，会发送每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹的名称和描述、文档类别、你自己的标签的名称和描述以及你的界面语言；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   "providers.form.saving": "正在保存…",
   "providers.form.moreShort": "更多…",
   "providers.form.whereKey": "在哪里找到密钥？",

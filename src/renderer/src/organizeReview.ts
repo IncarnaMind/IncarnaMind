@@ -60,6 +60,11 @@ interface ReviewState {
    * offers Try again, with the provider's own sentence under Details, until dismissed.
    */
   failed: { input: OrganizeLibraryInput; details: string } | null;
+  /**
+   * The last Organize proposed its Folders but couldn't tag: one line says so where the run is,
+   * with the provider's sentence under Details, until dismissed (#2339).
+   */
+  taggingFailed: { details: string } | null;
   /** A run over $1 that sent nothing yet: its cost shows first. */
   estimate: { estimate: RunEstimate; input: OrganizeLibraryInput; count: number } | null;
   /** The cards showing every row ("Show all"), by Folder id. */
@@ -75,6 +80,7 @@ export const useOrganizeReview = create<ReviewState>()(() => ({
   stoppedTagging: false,
   apart: null,
   failed: null,
+  taggingFailed: null,
   estimate: null,
   shownAll: new Set(),
 }));
@@ -208,6 +214,7 @@ async function runInReview(
     stoppedTagging: false,
     apart: null,
     failed: null,
+    taggingFailed: null,
     estimate: null,
     open: false,
   });
@@ -234,7 +241,12 @@ async function runInReview(
       return result;
     }
     const [review] = await Promise.all([refreshReview(), useAppStore.getState().refreshLibrary()]);
-    if (result.proposed === 0 || review.items.length === 0) {
+    if (result.taggingFailed !== undefined)
+      useOrganizeReview.setState({ taggingFailed: { details: result.taggingFailed } });
+    if (tags && result.documents === 0) {
+      // Re-tag all takes only Documents where tagging is on and not stopped (#2308).
+      useNotices.getState().confirm("tags.dialog.retag.none");
+    } else if (result.proposed === 0 || review.items.length === 0) {
       // "Too different to group yet" is true only with no Folder to file into (#2339).
       const noFolders = (useAppStore.getState().library?.groups.length ?? 0) === 0;
       if (tags || noFolders)
@@ -319,6 +331,10 @@ export function retryFailed(): void {
 
 export function dismissFailed(): void {
   useOrganizeReview.setState({ failed: null });
+}
+
+export function dismissTaggingFailed(): void {
+  useOrganizeReview.setState({ taggingFailed: null });
 }
 
 /** Stop: the plan under way goes, and nothing it planned is kept. */

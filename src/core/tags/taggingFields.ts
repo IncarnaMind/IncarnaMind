@@ -1,10 +1,12 @@
 import type { TAGGING_FLOW_SENDS } from "./tagger";
 
 /**
- * What a field can hold: what the tagging flow says it sends (`TAGGING_FLOW_SENDS`), or the app's
- * own, which says nothing of the User's: a reference such as "d1", an id, the kinds' fixed words.
+ * What a field can hold: what the tagging flow says it sends (`TAGGING_FLOW_SENDS`), the language
+ * the User has IncarnaMind in, which its words name for a chat model as Organize's do, or the
+ * app's own, which says nothing of the User's: a reference such as "d1", an id, the kinds' fixed
+ * words.
  */
-export type TaggingFieldKind = (typeof TAGGING_FLOW_SENDS)[number] | "app";
+export type TaggingFieldKind = (typeof TAGGING_FLOW_SENDS)[number] | "language" | "app";
 
 /**
  * Every field each tagging request carries, by request and path ("[]" for each item of a list,
@@ -15,7 +17,7 @@ export type TaggingFieldKind = (typeof TAGGING_FLOW_SENDS)[number] | "app";
  */
 export const TAGGING_FIELDS: Readonly<Record<string, readonly TaggingFieldKind[]>> = {
   // A chat model, for one Document or several (./classify, `tagRequest`).
-  "chat.language": ["app"],
+  "chat.language": ["language"],
   "chat.kinds[].code": ["app"],
   "chat.kinds[].is": ["app"],
   // The User's own Tags the Documents are about (./about).
@@ -37,4 +39,11 @@ export const TAGGING_FIELDS: Readonly<Record<string, readonly TaggingFieldKind[]
   "decision.questions.*.criteria.true": ["app", "tags"],
   // What a no means, for a host that takes a question only with both (./jev, `tagQuestions`).
   "decision.questions.*.criteria.false": ["app"],
+  // OpenAI's Decisions API: the same in a body of its own (../providers/jev, `postDecision`), the
+  // Document as one text and each question's meaning in its instructions.
+  "openai.model": ["app"],
+  "openai.input": ["document-excerpts"],
+  "openai.questions[].type": ["app"],
+  "openai.questions[].name": ["app"],
+  "openai.questions[].instructions": ["app", "tags"],
 };

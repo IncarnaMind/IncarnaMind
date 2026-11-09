@@ -835,6 +835,7 @@ describe("Everything is per service: a turn-on and a clearance", () => {
   });
 });
 
+// Through Re-tag all's own path, the Tags dialog's: a run with no ids (#2339).
 describe("Re-tagging all goes only as tagging by itself would", () => {
   test("with tagging turned off, Re-tag all sends nothing and leaves the Document as it was; re-tagging it sends it", async () => {
     const providers = perProvider();
@@ -849,14 +850,13 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     const { settings } = await core.getLibrary();
     await core.saveLibrarySettings({ ...settings, automatic: false });
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     const after = await add(core, "Added after.txt");
     await waitForTagging(core, [after.id], (each) => each.tagging === "off");
     expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
-    await core.retagDocuments([report.id]);
-    await waitForTagging(core, [report.id]);
+    await core.tagDocuments({ documentIds: [report.id] });
     expect(providers.sent("anthropic")).toBe(2);
   });
 
@@ -872,12 +872,11 @@ describe("Re-tagging all goes only as tagging by itself would", () => {
     expect(providers.sent("anthropic")).toBe(1);
     await core.setTaggingWithAi(null, false);
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     expect(await taggingOf(core, report.id)).toBe("tagged");
     expect(providers.sent("anthropic")).toBe(1);
 
-    await core.retagDocuments([report.id]);
-    await waitForTagging(core, [report.id]);
+    await core.tagDocuments({ documentIds: [report.id] });
     expect(providers.sent("anthropic")).toBe(2);
   });
 });
@@ -896,7 +895,7 @@ describe("A Re-tag all that sends nothing changes nothing", () => {
     await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
     expect((await core.getLibrary()).settings.automatic).toBe(false);
 
-    await core.retagDocuments();
+    await core.tagDocuments({});
     const after = await add(core, "Added after.txt");
     await waitForTagging(core, [after.id], (each) => each.tagging === "off");
 

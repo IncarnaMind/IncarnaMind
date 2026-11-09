@@ -6659,6 +6659,11 @@ export type OrganizeLibraryResult =
       /** The Documents the model was asked about one by one, past the sample. */
       placedByModel: number;
       requests: number;
+      /**
+       * Organize's tagging failed, in the provider's words: its Folders are proposed without
+       * Tags, and its Documents stay untagged for the next run (#2339).
+       */
+      taggingFailed?: string;
     }
   | { status: "stopped"; runId: string };
 
@@ -12186,7 +12191,9 @@ export interface CoreApi {
   confirmOrganizeReview(itemIds: string[]): Promise<OrganizeReviewConfirmation | null>;
   /**
    * Takes a Confirm back: each filing and Tag still as it left them goes back, the Folders and
-   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
+   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again. A kind's
+   * Tag it made goes without a trace, the kind still proposed, and a Tag of the User's it made a
+   * kind's is theirs again as it was (#2339).
    */
   undoOrganizeReviewConfirmation(confirmationId: string): Promise<void>;
   /** Confirms again what its Undo put back. Null when nothing of it waits. */

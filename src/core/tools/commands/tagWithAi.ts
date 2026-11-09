@@ -8,7 +8,7 @@
 import { translate } from "../../../shared/i18n";
 import type { OrganizeReviewChange } from "../../api";
 import type { Language } from "../../language";
-import { type Checker, documentItem, documentsOf, inApp } from "./run";
+import { type Checker, documentItem, documentsOf, inApp, plural } from "./run";
 
 /** What the model reads once the Tags were proposed: the app has said so, so it leaves tagging out. */
 const LEAVE_TAGGING_OUT =
@@ -46,20 +46,23 @@ export function proposedTagsText(
   return language === "zh-CN" ? `${proposed}${wait}` : `${proposed} ${wait}`;
 }
 
-export const tagWithAiChecker: Checker = async (input, host) => {
+export const tagWithAiChecker: Checker = async (input, host, place) => {
   const { core } = host;
-  const documents =
-    input.ids.length > 0
-      ? await documentsOf(core, input.ids)
-      : (
-          await Promise.all(
-            (
-              await core.listDocuments()
-            ).map(async (each) =>
-              each.meetingMindId === null && !(await core.isExampleDocument(each.id)) ? [each] : [],
-            ),
-          )
-        ).flat();
+  // With none named, it takes what the turn may see, its wall's or those outside every wall, and
+  // of those only where tagging is on and not stopped, as Re-tag all does (#2308).
+  const everyOne = input.ids.length === 0;
+  const seen = everyOne
+    ? (
+        await Promise.all(
+          (
+            await place.findable()
+          ).documents.map(async (each) =>
+            each.meetingMindId === null && !(await core.isExampleDocument(each.id)) ? [each] : [],
+          ),
+        )
+      ).flat()
+    : await documentsOf(core, input.ids);
+  const documents = everyOne ? seen.filter((each) => host.taggingOn(each.id)) : seen;
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
   return {
@@ -69,7 +72,14 @@ export const tagWithAiChecker: Checker = async (input, host) => {
       null,
       async (_asking, signal) => {
         if (ids.length === 0)
-          return { done: { items: [] }, step: null, said: "There is no Document to tag." };
+          return {
+            done: { items: [] },
+            step: null,
+            said:
+              seen.length === 0
+                ? "There is no Document to tag."
+                : "Tagging is off, or the User stopped it where these Documents are: nothing was sent, and nothing changed.",
+          };
         const runId = crypto.randomUUID();
         const before = new Set((await core.getOrganizeReview()).items.map((item) => item.id));
         const result = await host.tagByRun(ids, signal, runId);
@@ -81,9 +91,14 @@ export const tagWithAiChecker: Checker = async (input, host) => {
           };
         const review = await core.getOrganizeReview();
         const wanted = new Set(ids);
-        const tagged = review.items.filter(
-          (item) => wanted.has(item.documentId) && !before.has(item.id) && item.tags.length > 0,
+        const fresh = review.items.filter(
+          (item) => wanted.has(item.documentId) && !before.has(item.id),
         );
+        const tagged = fresh.filter((item) => item.tags.length > 0);
+        const unreached = fresh.flatMap(({ placement }) => {
+          const leftOut = placement.kind === "leftOut" ? placement.leftOut : null;
+          return leftOut?.reason === "unreachable" ? [leftOut.service] : [];
+        });
         const counts = new Map<string, { name: string; count: number }>();
         for (const item of tagged)
           for (const tag of item.tags) {
@@ -105,7 +120,7 @@ export const tagWithAiChecker: Checker = async (input, host) => {
             ...(input.alsoAsked !== null && { alsoAsked: input.alsoAsked }),
           },
           step:
-            tagged.length === 0
+            fresh.length === 0
               ? null
               : {
                   undo: async () => {
@@ -121,9 +136,11 @@ export const tagWithAiChecker: Checker = async (input, host) => {
                 },
           ...(tagged.length > 0 && input.alsoAsked === null && { ends: true as const }),
           said:
-            tagged.length === 0
-              ? "Tag with AI proposed no Tag for any Document. Nothing changed."
-              : tagsShown(input.alsoAsked),
+            tagged.length > 0
+              ? tagsShown(input.alsoAsked)
+              : unreached.length > 0
+                ? `Tag with AI couldn't reach ${unreached[0]} for ${plural(unreached.length, "Document")}, so it proposed no Tag for them. They wait in Left out to be tried again. No Tag was added.`
+                : "Tag with AI proposed no Tag for any Document. Nothing changed.",
         };
       },
       documents.length > 0 ? "organize" : null,

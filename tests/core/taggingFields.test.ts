@@ -7,13 +7,14 @@
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
+import { askJev, type DecisionEndpoint } from "../../src/core/providers/jev";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import {
   chatClassifier,
   type DocumentExcerpt,
   kindDefinitions,
 } from "../../src/core/tags/classify";
-import { decisionModelTagger, tagQuestions } from "../../src/core/tags/jev";
+import { decisionModelTagger, jevState, tagQuestions } from "../../src/core/tags/jev";
 import { TAG_KINDS } from "../../src/core/tags/kinds";
 import { TAGGING_FLOW_SENDS } from "../../src/core/tags/tagger";
 import { TAGGING_FIELDS } from "../../src/core/tags/taggingFields";
@@ -135,17 +136,43 @@ describe("Every request tagging builds carries only what the tagging flow says i
       signal,
     });
     const fields = chat.fields;
-    for (const request of jev.requests) fieldsOf("decision", request.body, fields);
-    // A host that takes a question only with what a no means too.
-    fieldsOf("decision", { questions: tagQuestions([osprey], true) }, fields);
+    for (const request of [...jev.requests]) fieldsOf("decision", request.body, fields);
+    // The sorting hosts' requests as they are sent: OpenRouter's question carries what a no
+    // means too, and OpenAI's Decisions API takes a body of its own.
+    const hostSends = async (endpoint: DecisionEndpoint) => {
+      const from = jev.requests.length;
+      await askJev({
+        baseUrl: endpoint.url,
+        endpoint,
+        apiKey: "ollama",
+        model: "host-model",
+        state: jevState(excerpt("Zephyr berth review")),
+        questions: tagQuestions([...kindDefinitions(), osprey], endpoint.bothCriteria === true),
+        signal,
+        retries: 0,
+        timeoutMs: 5_000,
+      }).catch(() => undefined);
+      return jev.requests.slice(from);
+    };
+    const openRouter = await hostSends({
+      url: `${jev.url}/v1/systemone`,
+      protocol: "systemone",
+      bothCriteria: true,
+    });
+    const openAi = await hostSends({ url: `${jev.url}/v1/decisions`, protocol: "openai" });
+    expect(openRouter).toHaveLength(1);
+    expect(openAi).toHaveLength(1);
+    for (const request of openRouter) fieldsOf("decision", request.body, fields);
+    for (const request of openAi) fieldsOf("openai", request.body, fields);
 
     expect(unlisted(fields)).toEqual([]);
     expect(Object.keys(TAGGING_FIELDS).filter((path) => !fields.has(path))).toEqual([]);
     expect(leaked(fields)).toEqual([]);
     expect(theirsIn(chat.instructions)).toEqual([]);
     const kinds = new Set(Object.values(TAGGING_FIELDS).flat());
+    // The language is named in the tagging flow's words, as Organize's are.
     expect([...kinds].filter((kind) => kind !== "app").sort()).toEqual(
-      [...TAGGING_FLOW_SENDS].sort(),
+      [...TAGGING_FLOW_SENDS, "language"].sort(),
     );
   });
 
