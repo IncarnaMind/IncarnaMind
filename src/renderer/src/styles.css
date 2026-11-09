@@ -2387,6 +2387,7 @@
   }
   /* Long pastes: chips above the text. */
   .composer-pastes {
+    order: -2;
     display: flex;
     flex: 1 1 100%;
     flex-wrap: wrap;
@@ -2521,6 +2522,91 @@
     max-width: 100%;
     height: 28px;
     margin-left: auto;
+  }
+  /*
+   * The + (#2924) is the row's first item, level with Ask; once the text takes the full width it
+   * goes to the row under it, at the left, with the controls at the right.
+   */
+  .composer-plus {
+    order: -1;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-end;
+    width: 24px;
+    height: 24px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    color: var(--color-ink-meta);
+
+    &:hover,
+    &[aria-expanded="true"] {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .composer-row[data-stacked] > .composer-plus {
+    order: 1;
+  }
+  .composer-row[data-stacked] > .composer-controls {
+    order: 2;
+    max-width: calc(100% - 32px);
+  }
+  .composer-row:has(.composer-controls [data-stand-in]) > .composer-plus {
+    align-self: center;
+  }
+  /*
+   * When the controls don't fit, a Folder's name on the Search scope chip is cut at its end
+   * first, down to about six characters (its tooltip has the name whole); then the model's name
+   * gives way (see `.composer-model-anchor`), which tells the User nothing once it is cut short.
+   * Several chips each go down to an icon, a few letters and the ×. "All Documents" is never cut.
+   */
+  .composer-controls > .composer-scope {
+    flex-shrink: 100;
+    min-width: 0;
+  }
+  .composer-scope > li {
+    min-width: 0;
+  }
+  .composer-scope .scope-chip {
+    overflow: hidden;
+  }
+  .composer-scope li.scope-chip,
+  .composer-scope > .scope-chips-back {
+    min-width: 3.25rem;
+  }
+  .composer-scope li.scope-chip:only-child {
+    min-width: 5.25rem;
+  }
+  /*
+   * What its items keep as they shrink, so the list never gives up room they can't: a chip, two
+   * chips or a chip and "+N more", then three items, then four.
+   */
+  .composer-scope:has(> li:only-child) {
+    min-width: 5.25rem;
+  }
+  /* About six characters, which are 12px wide each in Chinese. */
+  :root:lang(zh) .composer-scope:has(> li:only-child),
+  :root:lang(zh) .composer-scope li.scope-chip:only-child {
+    min-width: 6.5rem;
+  }
+  .composer-scope:has(> li:nth-child(2)) {
+    min-width: 7.5rem;
+  }
+  .composer-scope:has(> li:nth-child(3)) {
+    min-width: 11rem;
+  }
+  .composer-scope:has(> li:nth-child(4)) {
+    min-width: 14.5rem;
+  }
+  .composer-scope .scope-chip-empty {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .composer-scope > .scope-chips-more {
+    flex: none;
   }
   /*
    * Starting a meeting, inline in its Mind under the title (the canvas board
@@ -2881,7 +2967,7 @@
   }
   .composer-model-anchor {
     display: flex;
-    min-width: 0;
+    min-width: 2rem;
   }
   .composer-model-chevron {
     width: 10px;

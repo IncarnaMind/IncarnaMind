@@ -47,6 +47,7 @@ export function ScopeChips({
   ownFolderId = null,
   onRemove,
   back,
+  hideBackChip = false,
   onChange,
   shown: most,
   className,
@@ -58,6 +59,8 @@ export function ScopeChips({
   onRemove(kind: ScopeKind, id: string): void;
   /** `label` names the scope it goes back to. */
   back?: { label: string; onBack(): void };
+  /** The last chip that says where `back` goes is left out, for a row with no room: each chip's × still goes back. */
+  hideBackChip?: boolean;
   /** Opens the picker from a chip's name, as "@" does. */
   onChange?(): void;
   /** Beyond this many chips (the Documents a Library filter showed, say), the rest fold behind "+N more". */
@@ -188,7 +191,7 @@ export function ScopeChips({
         );
       })}
       {long && (
-        <li>
+        <li className="scope-chips-more">
           <button
             type="button"
             data-testid="scope-chips-more"
@@ -203,8 +206,8 @@ export function ScopeChips({
           </button>
         </li>
       )}
-      {back && chips.length > 1 && (
-        <li>
+      {back && chips.length > 1 && !hideBackChip && (
+        <li className="scope-chips-back">
           <button
             type="button"
             data-testid="scope-chips-back"

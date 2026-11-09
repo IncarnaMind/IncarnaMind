@@ -3808,6 +3808,9 @@ export const en = {
   "composer.scope.backAll": "Back to All Documents",
   "composer.skills.label": "Skills",
   "composer.skills.manage": "Manage Skills…",
+  "composer.plus": "Add files and more",
+  "composer.plus.files": "Add files…",
+  "composer.plus.note": "Add a note or Document",
   "composer.expand": "Expand the composer",
   "composer.collapse": "Shrink the composer (Esc)",
   "composer.paste.name": "Pasted text",
@@ -6327,6 +6330,8 @@ export const en = {
   "command.group.close": "Close Group",
   "command.group.equalize": "Make Groups Equal Width",
   "command.composer.focus": "Ask a Question",
+  "command.composer.addFiles": "Add files to the chat…",
+  "command.composer.addFiles.keywords": "attach upload documents PDF plus Question chat",
   "command.sources.find": "Find Sources…",
   "command.sources.find.keywords":
     "papers articles literature research search OpenAlex arXiv PubMed DOI",

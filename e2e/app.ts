@@ -1491,15 +1491,19 @@ export async function pasteText(app: ElectronApplication, window: Page, text: st
 
 /**
  * Test hook for the system's open dialog: from now on the main process
- * answers it with `path` instead of showing it, e.g. the folder to link.
+ * answers it with `path` instead of showing it, e.g. the folder to link; with several paths, as
+ * if all were chosen.
  */
-export async function interceptOpenDialog(app: ElectronApplication, path: string) {
-  await app.evaluate(({ dialog }, picked) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: [picked],
-    })) as unknown as typeof dialog.showOpenDialog;
-  }, path);
+export async function interceptOpenDialog(app: ElectronApplication, path: string | string[]) {
+  await app.evaluate(
+    ({ dialog }, picked) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: picked,
+      })) as unknown as typeof dialog.showOpenDialog;
+    },
+    Array.isArray(path) ? path : [path],
+  );
 }
 
 /** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */

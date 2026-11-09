@@ -6,6 +6,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -23,10 +24,12 @@ import {
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
 import { queueAsk } from "../askQueue";
+import { composerHandle, useHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { SearchIcon, StopIcon } from "../components/icons";
 import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
+import { SkippedFilesLine } from "../components/SkippedFilesLine";
 import { answerAskFrom } from "../components/TaskTray";
 import { TypingTextarea } from "../components/TypingTextarea";
 import {
@@ -83,6 +86,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { AskQueued } from "./AskQueued";
+import { ComposerPlus } from "./ComposerPlus";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
 import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
@@ -97,6 +101,7 @@ import { type ChoiceListHandle, ScopeChoiceList } from "./ScopePicker";
 import { SkillChoiceList } from "./SkillChoiceList";
 import { SuggestionOffer } from "./SuggestionOffer";
 import { TaskTargetChip } from "./TaskTargetChip";
+import { useAddFilesToChat } from "./useAddFilesToChat";
 import { useQueuedAsk } from "./useQueuedAsk";
 
 /** In the composer, a long Search scope shows this many chips, then "+N more". */
@@ -104,6 +109,9 @@ const CHIPS_SHOWN = 3;
 
 /** From this many lines, the composer offers Expand (DESIGN.md, Composer › Height). */
 const EXPAND_FROM_LINES = 4;
+
+/** The least room `.composer-input` keeps beside the controls, in rem, as styles.css has it. */
+const MIN_FIELD_REM = 8;
 
 let measuring: CanvasRenderingContext2D | null = null;
 
@@ -250,6 +258,14 @@ export function Composer({
   const controls = useRef<HTMLDivElement>(null);
   /** The text runs past one line: it takes the full width and the controls go under it. */
   const [stacked, setStacked] = useState(false);
+  /** How many Search scope chips the controls hold: fewer, folded into "+N more", while they overflow. */
+  const chipsKey = [
+    ...resolvedScope.folderIds,
+    ...resolvedScope.tagIds,
+    ...resolvedScope.documentIds,
+  ].join("\n");
+  const [fold, setFold] = useState({ key: chipsKey, most: CHIPS_SHOWN });
+  const chipsMost = fold.key === chipsKey ? fold.most : CHIPS_SHOWN;
   /** How many lines the text takes, for Expand. */
   const [lines, setLines] = useState(1);
   const [expanded, setExpanded] = useState(false);
@@ -323,15 +339,21 @@ export function Composer({
       (width, chip) => width + chip.offsetWidth + gap,
       0,
     );
+    const plus = rowElement.querySelector<HTMLElement>(".composer-plus");
     const room =
       rowElement.clientWidth -
       Number.parseFloat(style.paddingLeft) -
       Number.parseFloat(style.paddingRight) -
       chips -
+      (plus ? plus.offsetWidth + gap : 0) -
       (controls.current?.offsetWidth ?? 0) -
       gap -
       Number.parseFloat(fieldStyle.paddingLeft);
-    const runsPast = draft.text.includes("\n") || widthOf(draft.text, element) > room - 2;
+    // The controls wrap under a field with less room than this, so + goes with them.
+    const floor =
+      MIN_FIELD_REM * Number.parseFloat(getComputedStyle(document.documentElement).fontSize) + 2;
+    const runsPast =
+      draft.text.includes("\n") || widthOf(draft.text, element) > room - 2 || room < floor;
     const lineHeight = Number.parseFloat(fieldStyle.lineHeight) || 20;
     const padding =
       Number.parseFloat(fieldStyle.paddingTop) + Number.parseFloat(fieldStyle.paddingBottom);
@@ -342,10 +364,23 @@ export function Composer({
   measure.current = measureLayout;
   // After every drawing: the text, a Skill or the controls may have changed its width.
   useLayoutEffect(measureLayout);
+  // The controls stay inside the row: another chip folds away until they do, so Ask is never pushed out.
+  useLayoutEffect(() => {
+    const element = controls.current;
+    const chips = element?.querySelector<HTMLElement>(".composer-scope");
+    const overflows = (box: HTMLElement | null | undefined) =>
+      box != null && box.scrollWidth > box.clientWidth + 1;
+    if ((overflows(element) || overflows(chips)) && chipsMost > 1) {
+      setFold({ key: chipsKey, most: chipsMost - 1 });
+    }
+  });
   useEffect(() => {
     const element = row.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => measure.current());
+    const observer = new ResizeObserver(() => {
+      measure.current();
+      setFold((now) => ({ ...now, most: CHIPS_SHOWN }));
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -455,6 +490,16 @@ export function Composer({
     },
   });
 
+  const { addFiles, skipped } = useAddFilesToChat({
+    wallFolderId: typeof wallId === "string" ? wallId : null,
+    join(ids) {
+      const have = scopeIds(scope, "document");
+      addDocuments([...new Set(ids)].filter((id) => !have.includes(id)));
+    },
+  });
+  const composerAbilities = useMemo(() => ({ addFiles: () => void addFiles() }), [addFiles]);
+  useHandle(composerHandle, composerAbilities);
+
   /** Research…: what is typed next is a topic (#130). */
   const chooseResearch = () => {
     update({
@@ -467,6 +512,8 @@ export function Composer({
     setPicking(null);
     field.current?.focus();
   };
+
+  const manageSkills = () => useAppStore.getState().openSettings("skills");
 
   const chooseSkill = (name: string) => {
     update({ skill: name, research: false, ...(picking && { text: withoutTyped(picking) }) });
@@ -892,6 +939,13 @@ export function Composer({
           {tellProblem}
         </ProblemLine>
       )}
+      {skipped.length > 0 && (
+        <SkippedFilesLine
+          files={skipped}
+          testId="composer-skipped-files"
+          className="composer-problem"
+        />
+      )}
       {saveProblem && (
         <ProblemLine
           testId="composer-paste-save-failed"
@@ -1090,6 +1144,16 @@ export function Composer({
           }}
           className="composer-input"
         />
+        <ComposerPlus
+          skills={enabledSkills}
+          researchHint={researchHint}
+          onFiles={() => void addFiles()}
+          onNote={openScopePicker}
+          onResearch={chooseResearch}
+          onSkill={chooseSkill}
+          onManageSkills={manageSkills}
+          onOpen={() => setPicking(null)}
+        />
         <div ref={controls} className="composer-controls">
           <ModelChip
             doc={mind?.doc ?? null}
@@ -1115,7 +1179,8 @@ export function Composer({
               {...(scopeDraft.scope !== null &&
                 hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
               onChange={walled || libraryWalled ? undefined : openScopePicker}
-              shown={CHIPS_SHOWN}
+              shown={chipsMost}
+              hideBackChip={chipsMost < CHIPS_SHOWN}
               className="composer-scope"
               testId="composer-scope"
             />
@@ -1228,7 +1293,7 @@ export function Composer({
               describe={(each) => skillDescription(each, t)}
               query={picking.query}
               onChoose={chooseSkill}
-              onManage={() => useAppStore.getState().openSettings("skills")}
+              onManage={manageSkills}
               onSelect={setOption}
             />
           )}
