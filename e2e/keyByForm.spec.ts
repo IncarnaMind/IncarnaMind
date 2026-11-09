@@ -95,7 +95,7 @@ for (const { key, name, service, presses } of [
         "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
       );
       await expect(card.getByTestId("setup-key-sends")).toHaveText(
-        "你的问题，以及回答所需的文档内容，会发送到密钥所属的服务。",
+        "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
       );
 
       // 4: the key, pasted.
@@ -154,7 +154,7 @@ test("in English, a key typed and sent with Enter, then another pasted, asks eac
     await field.fill(SHARED_KEY);
     await field.press("Enter");
     await expect(card.getByTestId("setup-key-sends")).toHaveText(
-      "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+      "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
     );
     const ask = card.getByTestId("setup-key-ask");
     await expect(ask).toHaveText("DeepSeek? · Use this key · Another service");

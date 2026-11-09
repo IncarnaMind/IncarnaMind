@@ -189,19 +189,19 @@ test("a GLM key asks about the language's platform by name, and Use this key sen
 test("says what a key sends under the field before a paste, and keeps it under the question (#2883)", async () => {
   await open("en");
   expect(find("setup-key-sends")?.textContent).toBe(
-    "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+    "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
   );
   await paste(SHARED_KEY);
   expect(find("setup-key-ask")).not.toBeNull();
   // Nothing goes before the User's Use: the line changes no request.
   expect(carrying(SHARED_KEY)).toEqual([]);
   expect(find("setup-key-sends")?.textContent).toBe(
-    "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+    "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
   );
 
   await open("zh-CN");
   expect(find("setup-key-sends")?.textContent).toBe(
-    "你的问题，以及回答所需的文档内容，会发送到密钥所属的服务。",
+    "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
   );
 });
 

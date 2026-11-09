@@ -1080,14 +1080,14 @@ for (const { value, line, sends, chips, titles } of [
     value: "en",
     line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
     sends:
-      "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+      "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
     chips: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi", "Qwen"],
     titles: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi"],
   },
   {
     value: "zh-CN",
     line: "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
-    sends: "你的问题，以及回答所需的文档内容，会发送到密钥所属的服务。",
+    sends: "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
     chips: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM", "Anthropic", "OpenAI", "Google"],
     titles: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM"],
   },
