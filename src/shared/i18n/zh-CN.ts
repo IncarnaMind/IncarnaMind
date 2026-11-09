@@ -2991,6 +2991,7 @@ export const zhCN = {
   "setup.key.placeholder": "粘贴 API 密钥",
   "setup.key.checking": "正在检查密钥…",
   "setup.key.recognised": "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
+  "setup.key.sends": "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
   "setup.key.unrecognised": "无法识别这个密钥所属的服务",
   "setup.key.chooseService": "选择服务",
   "setup.key.ask": "是{provider}吗？",
