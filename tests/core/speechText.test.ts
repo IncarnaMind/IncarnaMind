@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { cleanSpeech, textOfResult, wordsOnly } from "../../src/core/transcription/speechText";
+import {
+  cleanSpeech,
+  onlyPromptWord,
+  textOfResult,
+  wordsOnly,
+} from "../../src/core/transcription/speechText";
 
 /** A result as sherpa-onnx writes it: its text goes in as it is, apart from quotes and backslashes. */
 const resultOf = (text: string, tokens: string[] = []) =>
@@ -84,5 +89,21 @@ describe("The words after the model's header (#981)", () => {
   test("words with no header are as they are", () => {
     expect(wordsOnly("Local authorities are warning.")).toBe("Local authorities are warning.");
     expect(wordsOnly("")).toBe("");
+  });
+
+  // protects=a header with no words after it, cut short or whole, is nothing said, while "system" alone stays words here, as only the engine knows whether the call is English and someone may have said it (#1031); fails_when="language Chinese" reaches the Transcript, or a one-word "System." is dropped from every call; no_claim=when the engine leaves "system" out, which tests/core/shortSpeech.test.ts covers.
+  test('a header alone is no words; the word "system" alone is, and is told apart', () => {
+    for (const header of ["language Chinese", "language None", "language English ", "<asr_text>"]) {
+      expect(wordsOnly(header)).toBe("");
+    }
+    expect(wordsOnly("System.")).toBe("System.");
+    expect(wordsOnly("<asr_text>system")).toBe("system");
+
+    for (const alone of ["system", "System.", " system。 "]) {
+      expect(onlyPromptWord(alone)).toBe(true);
+    }
+    for (const said of ["The system is down.", "Systems.", "System one.", "", "。"]) {
+      expect(onlyPromptWord(said)).toBe(false);
+    }
   });
 });
