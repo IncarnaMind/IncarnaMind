@@ -152,6 +152,8 @@ The Copilot plan's sign-in through IncarnaMind's own GitHub app (#876) is also t
 
 Use a temporary data folder and test Documents, never your own files. Say in the pull request which models you used and what you checked with each: that the Answer cites, the quotes are found, the feature reads well in Chinese, and it copes with a slow or failing model.
 
+**A walk that judges figures, names or what was decided uses recorded human speech,** from a public set whose licence allows it, named in the evaluation's README; never a real private call and never an employer's data. This computer's voices are for walking the flow only, and never its novelty voices.
+
 ### Outside agents before a release
 
 Settings → Agents sets IncarnaMind up in a few first-class agents (`src/core/agents/clients.ts`). Before a release, try each by hand with a temporary HOME and a test Folder: connect it, ask it something the Folder answers, and check the answer carries Citations that IncarnaMind finds. Disconnect afterwards.
