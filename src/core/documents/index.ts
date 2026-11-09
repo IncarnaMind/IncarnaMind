@@ -1495,15 +1495,15 @@ export function createDocuments(options: DocumentsOptions) {
 
   let fingerprintTurn: ReturnType<typeof setTimeout> | null = null;
   let fingerprintsFilled: { done: Promise<void>; settle(): void } | null = null;
-  let fingerprintsComplete = false;
 
   /**
-   * Fingerprints the text of the Documents stored before fingerprints were (#2216), one a
-   * turn, so nothing holds this thread for long: settles once every one is, or the core closes.
-   * Text stored after that is fingerprinted as it is stored.
+   * Fingerprints every live Document whose text has none yet (#2216), one a turn, so nothing
+   * holds this thread for long: settles once none is left, or the core closes. Each call asks
+   * again, so a Document restored, or one an ended fill didn't reach, is fingerprinted before
+   * the check that waits on it goes on.
    */
   function fillTextFingerprints(): Promise<void> {
-    if (closed || fingerprintsComplete) return Promise.resolve();
+    if (closed) return Promise.resolve();
     if (fingerprintsFilled) return fingerprintsFilled.done;
     let settle = () => {};
     const done = new Promise<void>((resolve) => {
@@ -1513,20 +1513,17 @@ export function createDocuments(options: DocumentsOptions) {
     const next = () => {
       fingerprintTurn = null;
       let turn: FillTurn = "done";
-      let failed = false;
       try {
         if (!closed) turn = textCopies.fillNext();
       } catch (error) {
-        // Not one Document's failure: the fill ends here, and the next check or start tries again.
+        // Not one Document's failure: the fill ends here, and the next check tries again.
         reportError(error);
-        failed = true;
       }
       if (typeof turn === "object") reportError(turn.passedOver);
       if (turn !== "done") {
         fingerprintTurn = setTimeout(next, 0);
         return;
       }
-      fingerprintsComplete = !closed && !failed;
       fingerprintsFilled = null;
       settle();
     };

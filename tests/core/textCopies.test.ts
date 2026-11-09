@@ -617,12 +617,20 @@ describe("Fingerprinting what an older version stored", () => {
     db.close();
   });
 
-  test("when the fill can't tell which Document is next, it settles and says so once, and the next fill tries again", async () => {
-    const { core, dataDir } = await library("en");
+  test("when the fill can't tell which Document is next, it settles and says so once; the next check fills what is left and leaves the copy out", async () => {
+    const { core, dataDir, named, reply } = await library("en");
+    const word = named("Services Agreement.docx");
+    const pdf = named("Services Agreement.pdf");
     core.close();
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    db.run("ALTER TABLE text_fingerprints RENAME TO text_fingerprints_unreadable");
-    db.close();
+    const rename = (from: string, to: string) => {
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      db.run(`ALTER TABLE ${from} RENAME TO ${to}`);
+      db.close();
+    };
+    const cleared = openDatabase(join(dataDir, DATABASE_FILE));
+    cleared.run("DELETE FROM text_fingerprints");
+    cleared.close();
+    rename("text_fingerprints", "text_fingerprints_unreadable");
     const reported = vi.spyOn(console, "error").mockImplementation(() => {});
     const again = startCore(dataDir);
     try {
@@ -631,8 +639,35 @@ describe("Fingerprinting what an older version stored", () => {
       expect(reported.mock.calls.filter(noTable)).toHaveLength(1);
       await again.fillTextFingerprints();
       expect(reported.mock.calls.filter(noTable)).toHaveLength(2);
+
+      rename("text_fingerprints_unreadable", "text_fingerprints");
+      const found = await checkOf(again, QUERIES.en.clause, word, [pdf, reply]);
+      expect(found.leftOut).toEqual([["Services Agreement", "same-text"]]);
+      expect(found.evidence).toEqual(new Set([reply.id]));
     } finally {
       reported.mockRestore();
+      again.close();
+    }
+  }, 120_000);
+
+  test("a copy in Recently deleted while the fill ran, restored after it, is left out of the next check and named; the reply is still evidence", async () => {
+    const { core, dataDir, named, reply } = await library("en");
+    const word = named("Services Agreement.docx");
+    const pdf = named("Services Agreement.pdf");
+    await core.deleteDocument(pdf.id);
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("DELETE FROM text_fingerprints");
+    db.close();
+
+    const again = startCore(dataDir);
+    try {
+      await again.fillTextFingerprints();
+      await again.restore([{ kind: "document", id: pdf.id }]);
+      const found = await checkOf(again, QUERIES.en.clause, word, [pdf, reply]);
+      expect(found.leftOut).toEqual([["Services Agreement", "same-text"]]);
+      expect(found.evidence).toEqual(new Set([reply.id]));
+    } finally {
       again.close();
     }
   }, 120_000);

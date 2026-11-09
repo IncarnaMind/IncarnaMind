@@ -169,8 +169,9 @@ export function createEvidence(deps: EvidenceDependencies) {
   return {
     /**
      * Settles once `scope` can tell every copy of a checked file by its text. A check waits for
-     * it before taking its scope: after an upgrade, the Documents an older version stored are
-     * fingerprinted one a turn rather than all at once on this thread (#2216).
+     * it before taking its scope: Documents without a fingerprint (those an older version
+     * stored, one restored since) are fingerprinted one a turn, not all at once on this thread
+     * (#2216).
      */
     ready: (): Promise<void> => deps.textFingerprinted(),
 
