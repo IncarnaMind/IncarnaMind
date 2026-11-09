@@ -1,3 +1,10 @@
 # Fake keys, shaped like Anthropic's, for the setup card's refused and no-credit lines.
 sk-ant-a-key-that-is-refused
 sk-ant-a-key-with-no-credit
+# Made-up keys in the forms first run reads a key by (#2865): one per form, none a real key.
+sk-ant-api03-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3a
+sk-ant-api03-a-made-up-key-for-this-test
+sk-proj-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3
+sk-0123456789abcdef0123456789abcdef
+sk-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv
+sk-aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3aZ3

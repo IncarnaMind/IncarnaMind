@@ -1,3 +1,4 @@
+import { useCallHelpOffer } from "../callHelpOffer";
 import { showOutputLocationSetting } from "../outputFiles";
 import { offeredSettingsPages, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
@@ -48,6 +49,39 @@ export const settingsPageCommands: readonly Command[] = [
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSettings("meetings", "meeting-words"),
+  },
+  {
+    id: "settings.callHelpModel",
+    label: "command.settings.callHelpModel",
+    keywords: [
+      "settings.title",
+      "settings.pages.meetings",
+      "meetings.callHelp",
+      "command.settings.callHelpModel.keywords",
+    ],
+    group: "open",
+    when: () => {
+      if (useCallHelpOffer.getState().fastest !== null) return true;
+      const settings = useAppStore.getState().settings;
+      // Kept while Fastest is chosen, so it can be undone, where there is a model for its row.
+      return settings?.user.callHelpModel === "fastest" && settings.user.chatModel !== null;
+    },
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("meetings", "call-help-model"),
+  },
+  {
+    // Where a transcription service's key is added, and where the meeting audio goes is chosen.
+    id: "settings.transcription",
+    assistant: { never: "keys" },
+    label: "command.settings.transcription",
+    keywords: [
+      "settings.title",
+      "settings.pages.models",
+      "command.settings.transcription.keywords",
+    ],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSettings("models", "transcription"),
   },
   {
     id: "settings.background",

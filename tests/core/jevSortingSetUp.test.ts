@@ -10,8 +10,8 @@ import { taggingModel } from "../helpers/tags";
 /*
  * "Use TypeSafe Jev…" in the sorting picker (#2615), through the core as the picker drives it:
  * what it reads while the key is typed, then Use this, which tries the key, saves it and makes Jev
- * what sorts, with tagging turned on as the setup card's step does. Requests to TypeSafe's hosted
- * Jev go to a fake.
+ * what sorts; tagging stays off until Settings › Models' Turn on… turns it on. Requests to
+ * TypeSafe's hosted Jev go to a fake.
  */
 
 const LOCAL: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
@@ -37,15 +37,10 @@ async function readAsThePickerDoes(core: Core) {
   await core.getSecretStorage();
 }
 
-/** The setup card's Use this, as `useSorting().choose` saves it with its line on screen. */
-const chooseJevAndTurnOn = (core: Core) => async () => {
+/** What the sorting row's Use this saves: the choice alone, as the picker does. */
+const chooseJev = (core: Core) => async () => {
   const { settings } = await core.getLibrary();
-  await core.saveLibrarySettings({
-    ...settings,
-    classifier: { kind: "jev" },
-    automatic: true,
-    turnOn: true,
-  });
+  await core.saveLibrarySettings({ ...settings, classifier: { kind: "jev" } });
   return true;
 };
 
@@ -53,7 +48,7 @@ const useThis = (core: Core, apiKey: string) =>
   setUpJevForSorting(
     core,
     { apiKey, endpoint: null, model: null, reviewBand: { low: 0.35, high: 0.65 } },
-    chooseJevAndTurnOn(core),
+    chooseJev(core),
   );
 
 const typeSafeFlows = async (core: Core) =>
@@ -87,8 +82,10 @@ describe("Jev set up from the sorting picker (#2615)", { timeout: 30_000 }, () =
     expect(keychain.secrets.get("jev:api-key")).toBe(JEV_KEY);
     const { settings } = await core.getLibrary();
     expect(settings.classifier).toEqual({ kind: "jev" });
-    expect(settings.automatic).toBe(true);
-    // Its Use this, under the line naming what goes, is the consent: nothing else asks.
+    // Choosing Jev for sorting never turns tagging on: Turn on… does, with its line on screen.
+    expect(settings.automatic).toBe(false);
+    // Its Use this, under the line naming what goes, is the consent for sorting and Organize: nothing
+    // else asks.
     expect(await typeSafeFlows(core)).toEqual(["classification: accepted", "tagging: accepted"]);
     expect(asked).toEqual([]);
     // Jev is what the picker lists first now.
@@ -155,7 +152,7 @@ describe("Jev set up from the sorting picker (#2615)", { timeout: 30_000 }, () =
     const here = await setUpJevForSorting(
       core,
       { apiKey: JEV_KEY, endpoint: jev.url, model: null, reviewBand: { low: 0.35, high: 0.65 } },
-      chooseJevAndTurnOn(core),
+      chooseJev(core),
     );
     expect(here).toMatchObject({ kind: "saved", saved: { service: null }, chosen: true });
     expect(jev.requests).toHaveLength(1);

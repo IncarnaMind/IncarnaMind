@@ -906,7 +906,7 @@ describe("Speechmatics' real-time transcription, in the messages its spec shows"
     expect(service.audioBytes()).toHaveLength(10);
   });
 
-  test("a partial, then final words with their times and speaker; the end of the utterance ends the line; EndOfStream names the last chunk", async () => {
+  test("a partial, then final words with their times and speaker; the sentence's end ends the line, before the utterance's; EndOfStream names the last chunk", async () => {
     const { service, heard, stream } = connect();
     service.open();
     service.say({ message: "RecognitionStarted", id: "s1" });
@@ -927,10 +927,7 @@ describe("Speechmatics' real-time transcription, in the messages its spec shows"
         mark(".", 1.9),
       ]),
     );
-    expect(heard.finals()).toEqual([]);
-    service.say({ message: "EndOfUtterance", metadata: { start_time: 2.9, end_time: 2.9 } });
-    expect(heard.segments[0]).toMatchObject({ text: "The review", final: false, speaker: "1" });
-    expect(heard.finals()).toEqual([
+    const line = [
       expect.objectContaining({
         id: heard.segments[0]?.id,
         text: "The review moves to Thursday.",
@@ -938,7 +935,11 @@ describe("Speechmatics' real-time transcription, in the messages its spec shows"
         endMs: 1900,
         speaker: "1",
       }),
-    ]);
+    ];
+    expect(heard.finals()).toEqual(line);
+    service.say({ message: "EndOfUtterance", metadata: { start_time: 2.9, end_time: 2.9 } });
+    expect(heard.segments[0]).toMatchObject({ text: "The review", final: false, speaker: "1" });
+    expect(heard.finals()).toEqual(line);
     const finished = stream.finish();
     expect(service.json().at(-1)).toEqual({ message: "EndOfStream", last_seq_no: 30 });
     service.say({ message: "EndOfTranscript" });

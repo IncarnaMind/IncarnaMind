@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
@@ -604,7 +605,9 @@ test("the Welcome card keeps one height through every step, so the page's text n
     await expectExampleIn(window, language);
     for (const width of [900, 1100, 1440, 1600]) {
       await setWindowSize(app, window, width, 900);
-      await expect(window.getByTestId("first-open-next").first()).toBeVisible();
+      await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText(
+        translate(language, "firstOpen.done.title"),
+      );
       expect(await measure(window), `${language} at ${width} px, all done, set up`).toEqual(
         heights.get(`${language} ${width}`),
       );

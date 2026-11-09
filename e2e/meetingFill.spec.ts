@@ -4,6 +4,8 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
+import { INTERVIEW } from "../src/main/fakeChat/meetingInterview";
+import { translate } from "../src/shared/i18n";
 import {
   closeFirstFillPopover,
   createDataFolder,
@@ -108,8 +110,9 @@ const MACHINE_CONTROLS = /HEADINGS:|FACT P\d+_F|END OVERVIEW|"citations":|"super
 
 const documentBlocks = (notes: Locator) => notes.locator(":scope > [data-id]");
 
-const paragraphsIn = (notes: Locator) =>
-  notes.locator(":scope > p[data-id]").evaluateAll((all) =>
+/** The Note's lines in order: its paragraphs and the items of its bullet lists. */
+const linesIn = (notes: Locator) =>
+  notes.locator(":scope > p[data-id], :scope > ul > li").evaluateAll((all) =>
     all.map((each) => ({
       text: each.textContent,
       generated: each.querySelector(".generated-text") !== null,
@@ -284,7 +287,7 @@ async function ownTranscriptRoundTrip(
     const cue = viewer.getByTestId("transcript-line").first();
     await expect(cue).toBeVisible();
     await expect(cue).toHaveAttribute("data-start", /^\d+$/);
-    expect(speech).toContain((await cue.locator(".transcript-text").innerText()).trim());
+    expect(speech).toContain((await cue.innerText()).trim());
     await expect(notes).toBeHidden();
     expect(await retained.evaluate(({ element }) => element.isConnected)).toBe(true);
     await expect(noteTab).toHaveAttribute("aria-selected", "true");
@@ -338,7 +341,7 @@ async function ownTranscriptRoundTrip(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, the call's action is written whole under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
+  // protects=after Stop, the call's action is written whole, as a bullet, under the typed Action items heading and each typed line gets a pointer to it, all cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
   test(`after Stop, typed lines and an Action items heading are filled in place, sections follow, and one Undo restores them (${language})`, async () => {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -387,12 +390,12 @@ for (const language of ["en", "zh-CN"] as const) {
       LINES.en.decisions,
     ]);
     await expect(heading).toHaveText(words.actions);
-    const actions = notes.locator("h2:not(:has(.generated-text)) + p");
+    const actions = notes.locator("h2:not(:has(.generated-text)) + ul > li");
     await expect(actions).toHaveCount(1);
     await expect(actions.locator(".generated-text")).not.toHaveCount(0);
     await expect(actions.getByTestId("citation")).toHaveCount(1);
     await shot(window, `meeting-fill-sections-${language}`);
-    const paragraphs = await paragraphsIn(notes);
+    const paragraphs = await linesIn(notes);
     for (const text of words.notes) {
       const userAt = paragraphs.findIndex((each) => each.text === text);
       expect(userAt).toBeGreaterThanOrEqual(0);
@@ -506,7 +509,7 @@ for (const language of ["en", "zh-CN"] as const) {
           if (!addedBlockIds?.length)
             throw new Error("Expected the retained fill's added Block IDs");
           await expectFillPlace(notes, addedBlockIds);
-          const paragraphs = await paragraphsIn(notes);
+          const paragraphs = await linesIn(notes);
           for (const text of [control, ...words.notes]) {
             expect(paragraphs.filter((paragraph) => paragraph.text === text)).toEqual([
               { text, generated: false, prose: "", citations: 0 },
@@ -518,7 +521,7 @@ for (const language of ["en", "zh-CN"] as const) {
           );
           expect(canonical).toHaveLength(1);
           expect(canonical[0]?.citations).toBe(1);
-          const action = notes.locator("h2:not(:has(.generated-text)) + p");
+          const action = notes.locator("h2:not(:has(.generated-text)) + ul > li");
           await expect(action).toHaveCount(1);
           await expect(action.getByTestId("citation")).toHaveAttribute("data-check", "found");
           expect((await action.locator(".generated-text").allTextContents()).join("")).toBe(
@@ -621,4 +624,87 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
   }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=after Stop, an interview with nothing typed reads as a Summary paragraph, then one heading per topic in the call's order, each with its answers as cited bullets, and no Decisions, Action items, Open questions or claims list, with no pointers; one Undo takes it all out (#2306); fails_when=the facts are paragraphs under Summary, a topic repeats or is missing, an empty section or the claims list shows without Documents, or Undo leaves an addition; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+  test(`after Stop, an interview with no notes is a Summary and a heading per topic with cited bullets, and one Undo takes it out (${language})`, async () => {
+    // The other side's stream says each answer in turn before Stop, about a minute of speech.
+    test.setTimeout(150_000);
+    const words = LINES[language];
+    const call = INTERVIEW[language];
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      transcriber: { lines: call.questions, theirLines: call.answers.map((answer) => answer.said) },
+    });
+    try {
+      await setWindowSize(app, window, language === "en" ? 1440 : 900, 900);
+      await recordOnClose(app, window, `meeting-fill-topics-${language}`);
+      await dismissChatSetup(window);
+      await selectLocalChatModel(window);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      // Every answer is heard before Stop: the other side's stream says them in turn.
+      await expect
+        .poll(
+          () =>
+            window.evaluate(async () => {
+              const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+              const meeting = (await core.listMeetings()).find((each) => each.status !== "stopped");
+              return meeting?.transcript?.lines ?? 0;
+            }),
+          { timeout: 90_000 },
+        )
+        .toBeGreaterThanOrEqual(call.answers.length * 2);
+      await window.evaluate(async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ user: { language: chosen } });
+      }, language);
+      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      const line = window.getByTestId("meeting-fill-line");
+      await expect(line).toContainText(words.filled, { timeout: 30_000 });
+      await closeFirstFillPopover(window);
+      const notes = window.getByTestId("mind-editor");
+      const topics = [...new Set(call.answers.map((answer) => answer.heading))];
+      await expect(notes.locator("h2")).toHaveText([words.summary, ...topics]);
+      const summary = notes.locator("h2").first().locator("xpath=following-sibling::*[1]");
+      await expect(summary).toHaveJSProperty("tagName", "P");
+      await expect(summary.locator(".generated-text")).not.toHaveCount(0);
+      await expect(summary.getByTestId("citation")).toHaveCount(2);
+      for (const [index, topic] of topics.entries()) {
+        const bullets = notes
+          .locator("h2")
+          .nth(index + 1)
+          .locator("xpath=following-sibling::*[1][self::ul]/li");
+        const answers = call.answers.filter((answer) => answer.heading === topic);
+        await expect(bullets).toHaveCount(answers.length);
+        for (const [at, answer] of answers.entries()) {
+          await expect(bullets.nth(at)).toContainText(answer.written.replace(/[.。]$/u, ""));
+          await expect(bullets.nth(at).getByTestId("citation")).toHaveCount(1);
+          await expect(bullets.nth(at).locator(".generated-text")).not.toHaveCount(0);
+        }
+      }
+      for (const key of ["decisions", "actions", "questions", "claims"] as const) {
+        await expect(notes).not.toContainText(translate(language, `meetings.fill.section.${key}`));
+      }
+      for (const direction of ["above", "below"] as const) {
+        const pointer = translate(language, `meetings.fill.reference.${direction}`, { topic: "" });
+        await expect(notes).not.toContainText(pointer.trim());
+      }
+      await expect(notes).not.toContainText(MACHINE_CONTROLS);
+      await expect(notes.locator('[data-testid="citation"]:not([data-check="found"])')).toHaveCount(
+        0,
+      );
+      await shot(window, `meeting-fill-topics-${language}`);
+      await notes.locator("h2").last().scrollIntoViewIfNeeded();
+      await shot(window, `meeting-fill-topics-${language}-end`);
+
+      await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
+      await expect(notes.locator(".generated-text")).toHaveCount(0);
+      await expect(notes.getByTestId("citation")).toHaveCount(0);
+      await expect(notes.locator("h2, ul")).toHaveCount(0);
+      await expect(line).toContainText(words.undone);
+    } finally {
+      await app.close();
+    }
+  });
 }

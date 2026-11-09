@@ -31,7 +31,7 @@ import {
   citationStyleIn,
   setCitationStyle,
 } from "../shared/mindCitationStyle";
-import { mindModelOf } from "../shared/mindModel";
+import { mindModelOf, sameModel, setMindModel } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
 import { fingerprintOfBlocks } from "../shared/mindState";
 import {
@@ -287,6 +287,7 @@ import {
   parseFolderChoice,
   parseIds,
   parseMindId,
+  parseMindModel,
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
@@ -306,7 +307,8 @@ import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
-import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import { withoutDateSuffix } from "./providers/catalog";
+import { offersQuickHelp, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
   DECISION_HOSTS,
@@ -320,6 +322,7 @@ import { createCopilotAccount } from "./providers/copilot/account";
 import { COPILOT_PROFILES } from "./providers/copilot/config";
 import { createAiSdkEmbeddingModel } from "./providers/embeddings";
 import { defaultOllamaUrl, ollamaBaseUrl } from "./providers/kinds";
+import { keepLastPickInNotes } from "./providers/lastPick";
 import { createLocalServers } from "./providers/localServers";
 import { createAiSdkChatModel } from "./providers/models";
 import {
@@ -335,6 +338,7 @@ import {
 import { isCloudModelName } from "./providers/ollamaCloud";
 import { createOllamaModels } from "./providers/ollamaModels";
 import { outputTokens } from "./providers/outputLimits";
+import { classifyProviderError } from "./providers/providerErrors";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
@@ -1621,10 +1625,16 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
+  /** Whether a scope names Folders inside `wallId` only: a Note behind a wall reads such a scope itself (#2427). */
+  const scopeInsideWall = (scope: SearchScope, wallId: string): boolean =>
+    scope.tagIds.length === 0 &&
+    scope.documentIds.length === 0 &&
+    scope.folderIds.length > 0 &&
+    scope.folderIds.every((id) => library.wallOf(id) === wallId);
   const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    if (ownWall !== null) return folderScope(ownWall);
+    if (ownWall !== null) return scopeInsideWall(scope, ownWall) ? scope : folderScope(ownWall);
     return { ...scope, folderIds: scope.folderIds.filter((id) => library.wallOf(id) === null) };
   };
   const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
@@ -1878,7 +1888,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const wall = walledFolderId(folderId);
-    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
@@ -1889,7 +1898,11 @@ export function createCore(adapters: CoreAdapters): Core {
       folderId,
       holds,
     );
-    return hasSearchScope(searched) ? searched : null;
+    // A Note behind a wall reads its own Folder or a Folder inside the wall, never one beside it;
+    // with nothing of its own to search, the wall stands for every Document (#2427).
+    if (hasSearchScope(searched))
+      return wall === null ? searched : constrainedScope(searched, mindId);
+    return wall === null ? null : folderScope(wall);
   };
   // A scope's Folder is a Library Folder, or one of a Linked folder's (the "@" picker offers both).
   const scopeItemName = (kind: ScopeKind, id: string): string | null =>
@@ -2203,6 +2216,38 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
+  /**
+   * Call help's models their provider refused, by provider and model (#2526), until the provider
+   * is saved again, so each press doesn't wait on the refusal first.
+   */
+  const refusedHelp = new Set<string>();
+  const helpKey = ({ providerId, modelId }: ChatModelChoice) => `${providerId}\n${modelId}`;
+  /**
+   * The quick model call help may be set to answer on under `answers`, where the list beside the
+   * catalog offers one for its provider (#2526); null where none is, or the provider refused it.
+   */
+  const offeredHelp = (answers: ChatModelChoice | null): ChatModelChoice | null => {
+    const fastest = chat.fastestHelpModel(answers);
+    if (
+      !answers ||
+      !fastest ||
+      (fastest.providerId === answers.providerId &&
+        withoutDateSuffix(fastest.modelId) === withoutDateSuffix(answers.modelId)) ||
+      refusedHelp.has(helpKey(fastest))
+    ) {
+      return null;
+    }
+    const asked = chat.describeModel(answers);
+    const quick = chat.describeModel(fastest);
+    return asked &&
+      quick &&
+      offersQuickHelp(
+        { catalogId: asked.catalogId, modelId: answers.modelId },
+        { catalogId: quick.catalogId, modelId: fastest.modelId },
+      )
+      ? fastest
+      : null;
+  };
   const answers = createAnswers({
     content,
     changes,
@@ -2223,6 +2268,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2230,6 +2276,21 @@ export function createCore(adapters: CoreAdapters): Core {
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    helpModel(answers) {
+      if (settings.get().user.callHelpModel !== "fastest") return null;
+      return offeredHelp(answers);
+    },
+    helpModelGaveWay(model, answers, error, why) {
+      const { kind, status } = classifyProviderError(error);
+      (adapters.log ?? silentLogger).warn("callHelp.modelGaveWay", {
+        model: model.modelId,
+        answeredOn: answers.modelId,
+        why,
+        kind,
+        status,
+      });
+    },
+    helpModelRefused: (model) => void refusedHelp.add(helpKey(model)),
     writesThenCites: ({ provider, modelId }, flow) =>
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
@@ -2382,8 +2443,8 @@ export function createCore(adapters: CoreAdapters): Core {
         checkpoints.save(mindId, "accept");
       },
       now: () => adapters.now?.() ?? new Date(),
-      create: (title, folderId, headed) => {
-        const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed });
+      create: (title, folderId, headed, model) => {
+        const mind = makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { headed, model });
         return { id: mind.id, name: mindName(mind) || title };
       },
       discard: (mindId) => {
@@ -2602,7 +2663,8 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderId,
     filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
-    createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
+    createMind: (title, folderId, model) =>
+      makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { model }).id,
     moveMind: (mindId, folderId) => {
       if (minds.move([mindId], folderId).some((item) => item.from !== folderId)) mindsChanged();
     },
@@ -2898,7 +2960,10 @@ export function createCore(adapters: CoreAdapters): Core {
    * empty line under it: a page has no title field (#908), and a Mind made with
    * its name reads as it did with one.
    */
-  const makeMind = (input: NewMind, { headed = false } = {}): Mind => {
+  const makeMind = (
+    input: NewMind,
+    { headed = false, model = null }: { headed?: boolean; model?: ChatModelChoice | null } = {},
+  ): Mind => {
     if (input.folderId !== null) library.folder(input.folderId);
     const mind = minds.create(input);
     if (headed) {
@@ -2921,6 +2986,16 @@ export function createCore(adapters: CoreAdapters): Core {
     const style = input.folderId === null ? null : library.citationStyle(input.folderId);
     if (style !== null) {
       content.editSettings(mind.id, (mindSettings) => setCitationStyle(mindSettings, style));
+    }
+    // A Note the assistant makes from a conversation goes on with its model (#2836).
+    if (
+      model !== null &&
+      chat.exists(model.providerId) &&
+      !sameModel(model, settings.get().user.chatModel)
+    ) {
+      content.editSettings(mind.id, (mindSettings) => {
+        if (mindSettings.doc) setMindModel(mindSettings.doc, model);
+      });
     }
     startInWritingStyle(mind.id);
     mindsChanged();
@@ -5074,6 +5149,11 @@ export function createCore(adapters: CoreAdapters): Core {
   const extracted = (documentId: string, ms: number) => settled(documentId, ms);
   /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
   const processed = (documentId: string) => settled(documentId, null);
+  /** Where a Meeting's claims are checked: its Note's Folder, or every Document for one in none. */
+  const claimScope = (mindId: string): SearchScope | null => {
+    const { folderId } = minds.get(mindId);
+    return folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null;
+  };
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,
@@ -5118,12 +5198,17 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
+    checkable({ mindId, transcriptId }) {
+      const scope = evidence.scope(mindId, scopeDocuments(claimScope(mindId)), {
+        documentIds: [transcriptId],
+      });
+      return documents.searchableCount(scope.documentIds ?? undefined) > 0;
+    },
     async supports({ claim, mindId, transcriptId, model, signal }) {
-      const { folderId } = minds.get(mindId);
       const result = await checks.checkClaim(
         {
           claim,
-          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          scope: claimScope(mindId),
           mindId,
           checked: { documentIds: [transcriptId] },
           model,
@@ -5462,6 +5547,13 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return { converted: converted.bytes, name: converted.name };
   };
+  keepLastPickInNotes({
+    db,
+    settings,
+    content,
+    saved: (providerId) => chat.exists(providerId),
+    log: adapters.log ?? silentLogger,
+  });
   mindIndex.start();
 
   // Everything a Task needs is up: those a quit or a crash left go on, or wait for the User.
@@ -5486,7 +5578,10 @@ export function createCore(adapters: CoreAdapters): Core {
   // Async on purpose: the renderer reaches these over IPC, and a future hosted core may be remote.
   api = {
     createMind: async (input) =>
-      makeMind(parseCreateMindInput(input), { headed: isRecord(input) && input.headed === true }),
+      makeMind(parseCreateMindInput(input), {
+        headed: isRecord(input) && input.headed === true,
+        model: isRecord(input) ? parseMindModel(input.model) : null,
+      }),
     duplicateMind: async (mindId) => {
       const source = minds.get(mindId);
       const name = mindName(source) || translate(settings.get().language, "mind.untitled");
@@ -5785,16 +5880,10 @@ export function createCore(adapters: CoreAdapters): Core {
     getLayout: async (windowId) => layouts.get(windowId),
     changeLayout: async (windowId, change) => layouts.change(windowId, change),
     updateSettings: async (patch) => {
-      // Each chat model chosen (default, last, quick tasks, images) must be on a saved provider.
+      // Each chat model chosen (default, quick tasks, images) must be on a saved provider.
       const user = isRecord(patch) && isRecord(patch.user) ? patch.user : {};
-      const device = isRecord(patch) && isRecord(patch.device) ? patch.device : {};
       const chatModel = user.chatModel;
-      for (const choice of [
-        chatModel,
-        user.quickTasksModel,
-        user.imageModel,
-        device.lastChatModel,
-      ]) {
+      for (const choice of [chatModel, user.quickTasksModel, user.imageModel]) {
         if (isChatModelChoice(choice) && !chat.exists(choice.providerId)) {
           throw new InvalidInputError("That chat provider doesn't exist.");
         }
@@ -6294,6 +6383,10 @@ export function createCore(adapters: CoreAdapters): Core {
     listChatProviders: () => chat.list(),
     saveChatProvider: async (input) => {
       const provider = await chat.save(input);
+      // A new key or plan may reach the quick model it refused before.
+      for (const key of refusedHelp) {
+        if (key.startsWith(`${provider.id}\n`)) refusedHelp.delete(key);
+      }
       await cloudTranscription.refreshKeys(provider.catalogId);
       transcriptionGateChanged();
       settingsChanged();
@@ -6319,7 +6412,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     testChatConnection: (input) => loggingTest("chat")(chat.test(input)),
     testChatProvider: (providerId) => loggingTest("chat")(chat.testProvider(providerId)),
-    getModelRoles: async () => ({ quickTasks: chat.quickTasksModel(), images: chat.imageModel() }),
+    getModelRoles: async () => ({
+      quickTasks: chat.quickTasksModel(),
+      images: chat.imageModel(),
+      callHelp: offeredHelp(chat.modelInUse(null)),
+    }),
     getChatReadiness: () => chat.readiness(),
     listChatModels: () => chat.listModels(),
     setChatModelInMenu: async (input) => chat.setInMenu(input),

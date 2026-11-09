@@ -45,6 +45,10 @@ export const SET_IDS = [
   "cells",
   "written",
   "call-help",
+  "call-help-held-out",
+  "call-help-fresh",
+  "call-help-documents",
+  "call-help-checks",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -594,8 +598,8 @@ export function everydaySet(root: string, cacheDir: string): PairedGroup[] {
   }));
 }
 
-/** What a Document states, all of it or for its own term: Supported is right for these. */
-const STATED = new Set(["supported", "partly"]);
+/** What a Document states, all of it or for its own term, or what may read either way: Supported is right for these. */
+const STATED = new Set(["supported", "partly", "not-contradicted"]);
 const FINISHED = new Set(["ready", "failed", "no-text"]);
 
 export function checksSet(root: string): PairedGroup[] {

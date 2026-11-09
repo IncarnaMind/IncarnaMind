@@ -444,6 +444,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     const yours = (id: string) => (isCommandId(id) ? registry.commands.get(id)?.assistant : null);
     for (const id of [
       "settings.addProvider",
+      "settings.transcription",
       "chatgpt.continue",
       "claude.signIn",
       "answer.useAnotherKey",

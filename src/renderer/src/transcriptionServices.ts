@@ -9,8 +9,6 @@ import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { formatMoney, joinMeta } from "./cost";
-import { errorMessage } from "./errors";
-import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
@@ -21,9 +19,9 @@ interface TranscriptionServicesState {
   revision: number;
   /** Reads the list and resolves with what is held after it; rejects when the core can't answer. */
   load(): Promise<TranscriptionServiceStatus[]>;
-  /** Keeps a service's own key, with Deepgram's server, once it accepts it; what went wrong, in words, otherwise. */
-  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<string | null>;
-  removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
+  /** Keeps a service's own key, with Deepgram's server, once it accepts it; rejects with why it didn't. */
+  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<void>;
+  removeKey(route: CloudTranscriptionRoute): Promise<void>;
 }
 
 /**
@@ -36,14 +34,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   const take = ({ revision, services }: TranscriptionServices) => {
     if (revision >= get().revision) set({ services, revision });
   };
-  const change = async (action: () => Promise<TranscriptionServices>) => {
-    try {
-      take(await action());
-      return null;
-    } catch (error) {
-      return errorMessage(error, translateNow);
-    }
-  };
+  const change = async (action: () => Promise<TranscriptionServices>) => take(await action());
   return {
     services: null,
     revision: 0,
@@ -66,23 +57,17 @@ export type ServicesView = Read<TranscriptionServiceStatus[]>;
  * The services as one view of them: loading, ready or failed. The view reads the list when it
  * mounts, as a key may have come or gone, and owns that read: its failure stays, with Try again,
  * until the User retries, whatever other views' reads do; only the data is shared, and live. A
- * view that isn't failed shows the data held while its own read goes on, unless `fresh`, which
- * waits for its own read. A view makes this one read for everything it shows and hands the result
- * to its children, which never read for themselves; its Try again reads again for all of them.
- * `reads` false waits for the model to work (the setup card).
+ * view that isn't failed shows the data held while its own read goes on. A view makes this one
+ * read for everything it shows and hands the result to its children, which never read for
+ * themselves; its Try again reads again for all of them.
  */
-export function useTranscriptionServicesRead(reads = true, fresh = false): ServicesView {
-  const own = useRead(
-    "The transcription services",
-    () => useTranscriptionServices.getState().load(),
-    [],
-    reads,
+export function useTranscriptionServicesRead(): ServicesView {
+  const own = useRead("The transcription services", () =>
+    useTranscriptionServices.getState().load(),
   );
   const held = useTranscriptionServices((state) => state.services);
   if (own.state === "failed") return own;
-  if (own.state === "ready" || (!fresh && held !== null)) {
-    return { state: "ready", data: held ?? [] };
-  }
+  if (own.state === "ready" || held !== null) return { state: "ready", data: held ?? [] };
   return { state: "loading" };
 }
 
@@ -108,16 +93,20 @@ async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
   return services ?? load();
 }
 
-/** Where a route's key is changed: its own in Settings › Meetings, a provider's in Settings › Models. */
+/**
+ * Where a route's key is changed, in Settings › Models: a key of its own on its row in Your
+ * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
+ * provider's key in Your providers.
+ */
 export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Promise<void> {
   const { openSettings } = useAppStore.getState();
   try {
     const service = (await servicesNow()).find((each) => each.route === route);
-    openSettings(service?.key === "own" ? "meetings" : "models");
+    if (service?.key !== "own") openSettings("models");
+    else openSettings("models", service.hasKey ? `transcription-key:${route}` : "transcription");
   } catch (error) {
-    // Settings › Meetings lists every route, so the key is found from there.
     console.error("The transcription services couldn't be read.", error);
-    openSettings("meetings");
+    openSettings("models");
   }
 }
 

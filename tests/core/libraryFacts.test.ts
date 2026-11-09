@@ -36,6 +36,7 @@ import {
   isCheckRun,
   listedSentences,
   requestedFigures,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -128,6 +129,7 @@ function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory
         ...(line === null ? [] : [`Library: ${line}`]),
         "Absence: no",
         "Topic: found",
+        SAME_DETAIL,
         ...(plan.says ? [`${plan.says}${quote ? " [^1]" : ""}`] : []),
         ...(plan.change ? [`Change 1: ${plan.change[0]}`, `To 1: ${plan.change[1]} [^1]`] : []),
       ];

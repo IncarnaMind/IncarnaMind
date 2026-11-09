@@ -943,28 +943,6 @@ export async function busyOllama() {
 }
 
 /**
- * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): they wait as one quiet
- * line above the composer (#2310), opened from there; each is one click above the composer, and
- * both the card and its line go when both are done.
- */
-export async function continueSetup(window: Page): Promise<void> {
-  const card = await openSetupSteps(window);
-  const step = card
-    .getByTestId("setup-step-transcription")
-    .or(card.getByTestId("setup-step-sorting"))
-    .first();
-  await expect(step).toBeVisible({ timeout: 15_000 });
-  const transcription = card.getByTestId("setup-transcription-use");
-  if (await transcription.isVisible()) await pointAndClick(window, transcription);
-  const sorting = card.getByTestId("setup-sorting-use");
-  await expect(sorting).toBeVisible();
-  await expect(sorting).toBeEnabled();
-  await pointAndClick(window, sorting);
-  await expect(card).toBeHidden();
-  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
-}
-
-/**
  * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
  * place (#1922). It waits for the card and gives it back.
  */
@@ -979,32 +957,18 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   return card;
 }
 
-/**
- * Opens steps 2 and 3, still to do after a model works, from their quiet line above the composer
- * (#2310). Does nothing when a step is already open above the composer; the composer stays below.
- */
-export async function openSetupSteps(window: Page): Promise<Locator> {
-  const card = window.getByTestId("model-setup");
-  const line = window.getByTestId("assistant-setup-line");
-  // The line waits once a model works; step 1's card alone means the key is still being checked.
-  // A step already open keeps its card above the line.
-  await expect(line).toBeVisible({ timeout: 15_000 });
-  if (!(await card.isVisible())) await pointAndClick(window, line);
-  await expect(card).toBeVisible({ timeout: 15_000 });
-  return card;
-}
-
 /** A key as a real one is shaped, for a stand-in provider: never a real key. */
 export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
 
 /**
  * Opens the key form where a key's own form names no service we list (#1922): the field says so,
- * and its way on picks the service.
+ * and its way on picks the service. The key has no sk-, which DeepSeek's and others' share and
+ * would be asked about instead (#2865).
  */
 export async function openServiceList(
   window: Page,
   card: Locator,
-  key = "sk-unknown",
+  key = "a-key-no-service-issues",
 ): Promise<void> {
   const field = card.getByTestId("setup-key");
   await field.fill(key);
@@ -1014,6 +978,19 @@ export async function openServiceList(
   await expect(form).toBeVisible();
   // The key only reached the list: the form starts as it would from Settings.
   await form.locator('input[type="password"]').fill("");
+}
+
+/**
+ * The setup card's way in with this test id, in view: in Chinese the ChatGPT and Claude plans
+ * sit under Other ways (#2865), which a person opens first.
+ */
+export async function setupWay(window: Page, card: Locator, testId: string): Promise<Locator> {
+  const way = card.getByTestId(testId);
+  if (await way.evaluate((element) => element.closest("details")?.open === false)) {
+    await pointAndClick(window, card.getByTestId("setup-other"));
+  }
+  await expect(way).toBeVisible();
+  return way;
 }
 
 /**
@@ -1224,6 +1201,9 @@ export async function openTranscriptBeside(
   await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
   await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
+
+/** The turn of a Transcript a line is in: its Speaker, its time and its Add to note. */
+export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
 
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
@@ -1455,6 +1435,27 @@ export async function interceptShowItemInFolder(app: ElectronApplication) {
 /** The paths the intercepted file manager was asked to show. */
 export function pathsShown(app: ElectronApplication) {
   return app.evaluate(() => (globalThis as { pathsShown?: string[] }).pathsShown ?? []);
+}
+
+/** Every request the scripted chat model was sent: where it would have gone, and with which key. */
+export const fakeChatRequests = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (
+        globalThis as {
+          incarnamindFakeChatRequests?: {
+            service: string;
+            endpoint: string | null;
+            apiKey: string | null;
+          }[];
+        }
+      ).incarnamindFakeChatRequests ?? [],
+  );
+
+/** Puts text on the clipboard and pastes it with the keyboard, as a person would. */
+export async function pasteText(app: ElectronApplication, window: Page, text: string) {
+  await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), text);
+  await window.keyboard.press("ControlOrMeta+v");
 }
 
 /**

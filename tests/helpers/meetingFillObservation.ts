@@ -601,6 +601,8 @@ export const V5_CHECKS = [
   "headings",
   "machine_addresses",
   "undo",
+  "structure",
+  "named",
 ] as const;
 export type V5Check = (typeof V5_CHECKS)[number];
 export interface ObservationEvidence {
@@ -660,7 +662,7 @@ export function observationReceipt(
     provider: controls.provider,
     model: controls.model,
     call: controls.call,
-    scoring: "cue-owner-subject-placement-v5",
+    scoring: "cue-owner-subject-placement-structure-v6",
     app_cap_usd: controls.cap,
     data_dir: evidence.data_dir,
     fill_ms: evidence.fill_ms,

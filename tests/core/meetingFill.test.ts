@@ -78,17 +78,25 @@ function fact(
   topic: string,
   body: string,
   {
+    heading,
     lines = [],
     sections = [],
     claim = false,
     citations = [...body.matchAll(/\[\^(\d+)\]/g)].map((match) => Number(match[1])),
-  }: { lines?: string[]; sections?: FillSection[]; claim?: boolean; citations?: number[] } = {},
+  }: {
+    heading?: string;
+    lines?: string[];
+    sections?: FillSection[];
+    claim?: boolean;
+    citations?: number[];
+  } = {},
 ): string {
   return [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
       topic,
+      ...(heading !== undefined && { heading }),
       citations: [...new Set(citations)],
       lines,
       sections,
@@ -253,6 +261,20 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
 }
 
 /** The Mind's lines as shown, AI text in «», a Citation as \uFFFC. */
+/** The Note's top-level Blocks as read: a heading with ##, a bullet with -, AI text in «». */
+const outline = (client: MindClient) => {
+  const lines: string[] = [];
+  readMind(client).forEach((block) => {
+    if (block.type.name === "heading") lines.push(`## ${shownWithAiText(block)}`);
+    else if (block.type.name === "bulletList") {
+      block.forEach((item) => {
+        lines.push(`- ${item.firstChild ? shownWithAiText(item.firstChild) : ""}`);
+      });
+    } else lines.push(shownWithAiText(block));
+  });
+  return lines;
+};
+
 const shown = (client: MindClient) => {
   const lines: string[] = [];
   readMind(client).descendants((node) => {
@@ -588,7 +610,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         text: [
           overview("The call covered the budget [^1]."),
           fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
-            sections: ["decisions"],
             claim: true,
           }),
         ].join("\n\n"),
@@ -880,13 +901,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
-  test("with no notes, the sections, and only the claims the Documents don't support", async () => {
-    const supported = "The enterprise price is 45 dollars a seat.";
+  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the statements the User's Documents don't support, moved there whole, never a decision, task or open question, which is the call's own and isn't checked (#2306); fails_when=a section is missing, uncited, a decision is checked or listed, or a claim is written twice; no_claim=the template's sections (#688).
+  test("with no notes, the sections, and only the claims the Documents don't support, written there once", async () => {
+    const decided = "The enterprise price is 45 dollars a seat";
+    const checks: string[] = [];
     const model = fillingModel(
       [
         overview("The call covered pricing and the contract [^1]."),
-        fact("P1_price", "pricing", `${supported.replace(".", "")} [^1].`, {
+        fact("P1_price", "pricing", `${decided} [^1].`, {
           sections: ["decisions"],
           claim: true,
         }),
@@ -907,17 +929,17 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         3: THEIR_LINES[1] as string,
         4: THEIR_LINES[0] as string,
       },
+      {},
       {
-        "The enterprise price is 45 dollars a seat.": {
-          verdict: "supported",
-          quote: "Enterprise plan: 45 dollars a seat",
+        seen: (call) => {
+          if (isCheckRun(call)) checks.push(call.prompt);
         },
       },
     );
     const { core, meeting, client } = await recorded(model, null, async (core) => {
       const sources = await createSourceFolder();
       await addAndProcess(core, [
-        await writeSourceFile(sources, "Price list.md", "Enterprise plan: 45 dollars a seat.\n"),
+        await writeSourceFile(sources, "Price list.md", "Team plan: 30 dollars a seat.\n"),
       ]);
     });
 
@@ -926,7 +948,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     expect(shown(client)).toEqual([
       "«Summary»",
       "«The call covered pricing and the contract »\uFFFC«.»",
-      "«The budget is approved for this year »\uFFFC«.»",
       "«Decisions»",
       "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "«Action items»",
@@ -934,8 +955,220 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       "«Open questions»",
       "«The security review is still open »\uFFFC«.»",
       "«Said in the call, not in your Documents»",
-      "«budget approval — see above »\uFFFC",
+      "«The budget is approved for this year »\uFFFC«.»",
     ]);
+    expect(checks.some((prompt) => prompt.includes("The budget is approved"))).toBe(true);
+    expect(checks.some((prompt) => prompt.includes(decided))).toBe(false);
+    core.close();
+  });
+
+  // protects=with no notes, the Summary leads with the overview alone, then a heading for each of the call's topics, in its order, with its facts as cited bullets, then only the sections the call had, each as bullets; a claim is checked only when a Document other than the Transcript is in scope, and only one the Documents don't back is listed, moved there whole; one Undo restores the Note (#2306); fails_when=facts are paragraphs under Summary, a topic repeats, an empty section or claims list shows, a check is sent with nothing to check against, or a claim is written twice; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+  test.each([
+    ["en", "no Documents"],
+    ["en", "a Document"],
+    ["zh-CN", "no Documents"],
+    ["zh-CN", "a Document"],
+  ] as const)(
+    "with no notes in %s and %s, Summary leads, each topic is a heading with cited bullets, and only unbacked claims are listed",
+    async (language, documents) => {
+      const chinese = language === "zh-CN";
+      const said = chinese ? CHINESE_LINES : { mine: MY_LINES, theirs: THEIR_LINES };
+      const [price = "", , rollout = ""] = said.mine;
+      const [budget = "", security = ""] = said.theirs;
+      const stop = chinese ? "。" : ".";
+      const topics = chinese ? ["价格与预算", "上线"] : ["Price and budget", "Rollout"];
+      const checks: string[] = [];
+      const model = fillingModel(
+        [
+          overview(
+            `${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} [^1]${stop}`,
+          ),
+          fact("P1_price", "price", `${price} [^1]${stop}`, { heading: topics[0], claim: true }),
+          fact("P1_budget", "budget", `${budget} [^2]${stop}`, {
+            heading: ` ${topics[0]?.toUpperCase()} `,
+            claim: true,
+          }),
+          fact("P1_rollout", "rollout", `${rollout} [^3]${stop}`, { heading: topics[1] }),
+          fact("P1_security", "security", `${security} [^4]${stop}`, {
+            heading: topics[1],
+            sections: ["questions"],
+          }),
+        ].join("\n"),
+        { 1: price, 2: budget, 3: rollout, 4: security },
+        { [`${price}${stop}`]: { verdict: "supported", quote: price } },
+        {
+          seen: (call) => {
+            if (isCheckRun(call)) checks.push(call.prompt);
+          },
+        },
+      );
+      const { core, meeting, client } = await recorded(
+        model,
+        null,
+        async (core) => {
+          if (documents === "no Documents") return;
+          const sources = await createSourceFolder();
+          await addAndProcess(core, [
+            await writeSourceFile(sources, "Price list.md", `${price}\n`),
+          ]);
+        },
+        undefined,
+        { lines: said },
+      );
+      const before = exactly(client);
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
+      const ai = (text: string) => `- «${text} »\uFFFC«${stop}»`;
+      const title = (key: "summary" | "questions" | "claims") =>
+        `## «${translate(language, `meetings.fill.section.${key}`)}»`;
+      await vi.waitFor(() =>
+        expect(outline(client)).toEqual([
+          title("summary"),
+          `«${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} »\uFFFC«${stop}»`,
+          `## «${topics[0]}»`,
+          ai(price),
+          ...(documents === "a Document" ? [] : [ai(budget)]),
+          `## «${topics[1]}»`,
+          ai(rollout),
+          title("questions"),
+          ai(security),
+          ...(documents === "a Document" ? [title("claims"), ai(budget)] : []),
+        ]),
+      );
+      expect(checks.length > 0).toBe(documents === "a Document");
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    },
+  );
+
+  // protects=a reply whose facts after the first leave their json fence open, or one that puts a blank line before each closing fence, still fills every fact in, each cited, as real models' replies did (#2306); fails_when=the facts after the first are read as code, or a closed fence gets a second one that swallows the next fact; no_claim=how often a model does either.
+  test.each(["left open", "closed after a blank line"] as const)(
+    "facts whose metadata fence the model %s are all filled in",
+    async (shape) => {
+      const closedFence = /(\{"topic"[^\n]*\})\n```\n/g;
+      const facts = [
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+        fact("P1_contract", "contract", "Dana will send the contract by Friday [^2].", {
+          heading: "Contract",
+        }),
+        fact("P1_rollout", "rollout", "The rollout starts in the second quarter [^3].", {
+          heading: "Rollout",
+        }),
+      ];
+      const [first = "", ...rest] = facts;
+      const written =
+        shape === "left open"
+          ? [first, ...rest.map((each) => each.replace(closedFence, "$1\n"))]
+          : facts.map((each) => each.replace(closedFence, "$1\n\n```\n"));
+      const model = fillingModel(
+        [overview("The call covered price, contract and rollout [^1]."), ...written].join("\n\n"),
+        { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string, 3: MY_LINES[2] as string },
+      );
+      const { core, meeting, client } = await recorded(model, null);
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+      await vi.waitFor(() =>
+        expect(outline(client)).toEqual([
+          "## «Summary»",
+          "«The call covered price, contract and rollout »\uFFFC«.»",
+          "## «Pricing»",
+          "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
+          "## «Contract»",
+          "- «Dana will send the contract by Friday »\uFFFC«.»",
+          "## «Rollout»",
+          "- «The rollout starts in the second quarter »\uFFFC«.»",
+        ]),
+      );
+      core.close();
+    },
+  );
+
+  // protects=a fill reply cut off at its output limit is asked once more with twice the room and fills the note in, while every first request sets aside only the usual room, so a fill still runs under a small monthly cap (#2306); fails_when=a cut-off fill fails without a second try, or a first request sets aside the larger room and passes the cap; no_claim=how often a real model's thinking reaches the limit.
+  test("a fill cut off at its output limit is asked once more with more room, and fills in", async () => {
+    const limits: (number | undefined)[] = [];
+    let cut = true;
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      limits.push(call.options.maxOutputTokens);
+      const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
+      const citations = transcriptCitations(call, shown, { 1: MY_LINES[0] as string });
+      if (citations) return citations;
+      const text = [
+        overview("The call settled the price [^1]."),
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+      ].join("\n\n");
+      if (!cut) return { text };
+      cut = false;
+      return { text: "", cutOff: true };
+    });
+    const { core, meeting, client } = await recorded(model, null);
+
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "filled",
+      problem: null,
+      omitted: 0,
+    });
+    expect([...new Set(limits)]).toEqual([16_000, 32_000]);
+    await vi.waitFor(() =>
+      expect(outline(client)).toContain(
+        "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    );
+    core.close();
+  });
+
+  test("a fill runs under a small monthly cap, each request setting aside only the usual room", async () => {
+    const model = fillingModel(
+      [
+        overview("The call settled the price [^1]."),
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    // Claude Haiku 5.5 sets aside about $0.008 for 16,000 tokens out and $0.016 for 32,000.
+    const { core, meeting, client } = await recorded(
+      model,
+      null,
+      async (core) => {
+        await core.updateSettings({ user: { monthlyCap: { amount: 0.012, currency: "USD" } } });
+      },
+      undefined,
+      { cloud: true },
+    );
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+    await vi.waitFor(() => expect(outline(client)).toContain("## «Pricing»"));
+    core.close();
+  });
+
+  // protects=a topic heading drops only this fill's own addresses: "H1" when the User typed a first heading, while "H2" as a half-year stays, in English and Chinese (#2306); fails_when=a finance "H2" is dropped, or an address the prompt listed shows as a heading; no_claim=which headings a model writes.
+  test.each([
+    ["H2 targets", "H2 targets"],
+    ["下半年 H2 目标", "下半年 H2 目标"],
+    ["H1 targets", "targets"],
+  ])("with a typed heading, a topic headed %j is shown as %j", async (title, shown) => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE",
+        overview("The call set the targets [^1]."),
+        fact("P1_targets", "targets", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: title,
+        }),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const { core, meeting, client } = await recorded(model, [heading(2, "Goals"), note("plan")]);
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    await vi.waitFor(() => expect(outline(client)).toContain(`## «${shown}»`));
     core.close();
   });
 
@@ -1395,7 +1628,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  test("a deleted target's fact moves to Summary instead of attaching to a stale line", async () => {
+  test("a deleted target's fact goes under the User's heading for its topic instead of a stale line", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1423,16 +1656,15 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     release();
 
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 3));
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 2));
     expect(shown(client)).toEqual([
       "Pricing",
       "contract",
       "«Dana sends the contract by Friday »\uFFFC«.»",
+      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "Rollout",
       "start date",
       "Who signs?",
-      "«Summary»",
-      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
     ]);
     await core.undoMeetingFill(meeting.id);
     await vi.waitFor(() => expect(exactly(client)).toEqual(before));
@@ -2299,7 +2531,7 @@ for (const call of CALLS) {
     );
 
     test.each(["claims first", "claims last"])(
-      "claims routed with %s check canonical facts and reference only unsupported ones",
+      "claims routed with %s list only the unsupported fact, whole and once, under that heading",
       async (order) => {
         const supported = `${written.L1.trim()}${stop}`;
         const { core, meeting, client } = await recordedWith(
@@ -2330,12 +2562,16 @@ for (const call of CALLS) {
           },
         );
         expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-        await vi.waitFor(() =>
-          expect(shown(client)).toContain(reference(call.topics.budget, "below")),
-        );
-        expect(shown(client)).not.toContain(reference(call.topics.price, "below"));
-        expect(shown(client).filter((line) => line === ai(written.L1))).toHaveLength(1);
-        expect(shown(client).filter((line) => line === ai(call.budget))).toHaveLength(1);
+        await vi.waitFor(() => expect(shown(client)).toContain(ai(call.budget)));
+        const lines = shown(client);
+        expect(lines.indexOf(ai(call.budget))).toBe(lines.indexOf(call.claimsHeading) + 1);
+        for (const topic of [call.topics.budget, call.topics.price]) {
+          for (const direction of ["above", "below"] as const) {
+            expect(lines).not.toContain(reference(topic, direction));
+          }
+        }
+        expect(lines.filter((line) => line === ai(written.L1))).toHaveLength(1);
+        expect(lines.filter((line) => line === ai(call.budget))).toHaveLength(1);
         core.close();
       },
     );
@@ -2437,7 +2673,7 @@ for (const call of CALLS) {
     );
 
     test.each(["H1", "L99"])(
-      "a reply with only %s omits an invalid address or uses the safe Summary fallback",
+      "a reply with only %s omits an invalid address or falls back to the fact's own topic",
       async (target) => {
         const { core, meeting, client } = await recordedWith(
           [heading(2, call.ownHeading), note(call.typed[0])],
@@ -2459,8 +2695,9 @@ for (const call of CALLS) {
         });
         if (target === "H1") expect(fill.problem?.kind).toBe("model");
         else {
-          expect(shown(client)).toContain(ai(written.L1));
-          expect(shown(client)).toContain(`«${titles[0]}»`);
+          const lines = shown(client);
+          expect(lines.indexOf(ai(written.L1))).toBe(lines.indexOf(`«${call.topics.price}»`) + 1);
+          expect(lines).not.toContain(`«${titles[0]}»`);
           await core.undoMeetingFill(meeting.id);
         }
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));

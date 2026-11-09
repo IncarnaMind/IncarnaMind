@@ -13,7 +13,6 @@ import {
   exportFromMenu,
   launchApp,
   newMind,
-  openSetupSteps,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -94,13 +93,9 @@ for (const language of ["en", "zh-CN"] as const) {
         timeout: 20_000,
       });
 
-      // Steps 2 and 3 take one click each.
-      await openSetupSteps(window);
-      await expect(card.getByTestId("setup-transcription-use")).toBeEnabled({ timeout: 15_000 });
-      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
-      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+      // The setup card goes with the first Answer; nothing more is asked of the newcomer.
       await expect(card).toHaveCount(0);
+      await expect(window.getByTestId("composer-input")).toBeVisible();
 
       // 2. Add Documents, then ask about them.
       await addDocuments(window, [join(sources, "Tides.pdf")]);
