@@ -23,7 +23,8 @@ import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { type ItemOutcome, RunItemError, runItems } from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
-import { type ClaimCheckRequest, failureOf, runFailureOf } from "./claimCheck";
+import { failureOf, runFailureOf } from "./checkResults";
+import type { ClaimCheckRequest } from "./claimCheck";
 
 /**
  * How long one check may take. A request whose reply never comes would otherwise hold its run, or

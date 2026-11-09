@@ -18,12 +18,12 @@ import type {
 } from "../../api";
 import { slots } from "../../runs/stop";
 import { inCheck } from "./checkedText";
+import { failureOf } from "./checkResults";
 import {
   type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
   createClaimCheck,
-  failureOf,
 } from "./claimCheck";
 import { readPartsLine } from "./claims";
 import { claimsAmong } from "./findClaims";
