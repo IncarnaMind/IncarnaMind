@@ -3254,7 +3254,8 @@ export const en = {
   "providers.form.test": "Test connection",
   "providers.form.testing": "Testing…",
   "providers.form.save": "Use this service",
-  "providers.sendsLine": "Sends your questions and document text to {provider}.",
+  "providers.sendsLine":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to {provider}.",
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
   "providers.sends.checks":
@@ -3432,7 +3433,8 @@ export const en = {
   "copilot.notice.title": "Use your Copilot plan",
   "copilot.notice.usage": "Answers count toward your Copilot plan’s usage limits.",
   "copilot.notice.experimental": "Experimental: GitHub may block this sign-in.",
-  "copilot.notice.sends": "Sends your questions and document text to GitHub.",
+  "copilot.notice.sends":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to GitHub.",
   "copilot.notice.sends.details":
     "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   "copilot.cancel": "Cancel",
