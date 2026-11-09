@@ -8,7 +8,7 @@
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
-import { createLiveStream, pcmBytes } from "./live";
+import { createLiveStream, heldWords, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -50,6 +50,7 @@ const wordsOf = (tokens: readonly Token[]) =>
 
 export function createSonioxStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   let line: Line | null = null;
   let nextId = 1;
   let finalMs = 0;
@@ -105,6 +106,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
 
   return createLiveStream(options, {
     url: SONIOX_URL,
+    words,
     opened(link) {
       link.setup(
         JSON.stringify({
@@ -115,12 +117,15 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
           language_hints: ["en", "zh"],
           enable_speaker_diarization: true,
           enable_endpoint_detection: true,
+          ...(words.now.length > 0 && { context: { terms: words.now } }),
         }),
       );
       link.ready();
     },
     heard(message, link) {
       if (typeof message.error_code === "number") {
+        // A context it won't take is a bad request, its first answer.
+        if (message.error_code === 400 && link.retryWithoutWords()) return;
         link.lose(lossOf(message.error_code));
         return;
       }

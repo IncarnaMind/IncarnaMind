@@ -3137,6 +3137,8 @@ export const en = {
   "setup.key.placeholder": "Paste an API key",
   "setup.key.checking": "Checking your key\u2026",
   "setup.key.recognised": "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
+  "setup.key.sends":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   "setup.key.unrecognised": "We don’t recognize this key’s service",
   "setup.key.chooseService": "Choose the service",
   "setup.key.ask": "{provider}?",
@@ -3253,7 +3255,8 @@ export const en = {
   "providers.form.test": "Test connection",
   "providers.form.testing": "Testing…",
   "providers.form.save": "Use this service",
-  "providers.sendsLine": "Sends your questions and document text to {provider}.",
+  "providers.sendsLine":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to {provider}.",
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
   "providers.sends.checks":
@@ -3431,7 +3434,8 @@ export const en = {
   "copilot.notice.title": "Use your Copilot plan",
   "copilot.notice.usage": "Answers count toward your Copilot plan’s usage limits.",
   "copilot.notice.experimental": "Experimental: GitHub may block this sign-in.",
-  "copilot.notice.sends": "Sends your questions and document text to GitHub.",
+  "copilot.notice.sends":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to GitHub.",
   "copilot.notice.sends.details":
     "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   "copilot.cancel": "Cancel",
@@ -3595,6 +3599,8 @@ export const en = {
   "consent.flow.transcription": "Meeting transcription",
   "consent.flow.transcription.purpose": "turn what’s said in your meetings into text",
   "consent.data.meeting-audio": "Meeting audio while you record, other people’s voices included",
+  "consent.data.meeting-words":
+    "Your name, your Words to know, each meeting’s folder name, and the names in its note, calendar event and folder’s documents",
   "consent.flow.calendars": "Calendars",
   "consent.flow.calendars.purpose": "show the meetings coming up from your calendar",
   "consent.data.calendar-request":
@@ -3726,6 +3732,8 @@ export const en = {
   "consent.settings.status.declined": "Not allowed",
   "consent.settings.status.not-asked": "Not asked yet",
   "consent.settings.status.sendsMore": "Asks again: it sends more now",
+  "consent.settings.status.sendsMoreWhat": "Not sent until you allow it: {what}",
+  "consent.settings.status.sendsMoreWhat.separator": "; ",
   "consent.settings.revoke": "Stop allowing",
   "consent.settings.askAgain": "Ask again",
 
@@ -3949,16 +3957,19 @@ export const en = {
   "meetings.route.wayRow": "{provider} · your key",
   "meetings.route.use": "Use {provider}",
   "meetings.route.waysNote":
-    "Choosing one sends the meeting’s audio to that service while you record. Change it in Settings › Meetings.",
+    "Choosing one sends the meeting’s audio to that service while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents. Change it in Settings › Meetings.",
   "meetings.route.cloudOn": "Transcribe with {provider}",
-  "meetings.route.cloudLine": "Audio goes to {provider} while you record.",
+  "meetings.route.cloudLine":
+    "Audio goes to {provider} while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.route.cloudLineAudio": "Audio goes to {provider} while you record.",
   "meetings.route.agreement": "Agreement",
   "meetings.route.useHere": "Use this computer",
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
   "meetings.route.slowNoKey": "Live text may fall behind on this computer.",
   "meetings.route.settingsLink": "Settings › Models",
-  "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
+  "meetings.route.consent":
+    "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
   "meetings.route.chooseAgain":
     "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
@@ -6577,7 +6588,6 @@ export const en = {
   "approvals.tools.off": "Off",
   "approvals.settings.title": "Approvals",
   "approvals.settings.body": "Tools and Skills you changed from the default.",
-  "approvals.settings.empty": "Nothing changed from the default.",
   "approvals.settings.revoke": "Reset",
   "approvals.settings.revokeLabel": "Reset {name} to its default",
   "approvals.settings.skillScripts": "Scripts of {skill}",
@@ -7040,7 +7050,12 @@ export const en = {
   "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
   "meetings.words.title": "Words to know",
   "meetings.words.body":
-    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+    "Names and terms that transcription writes as you do: people, companies, products. Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents. A cloud service you transcribe with gets them with the audio.",
+  "meetings.words.bodyHere":
+    "Names and terms that transcription writes as you do: people, companies, products. Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.words.waiting":
+    "{provider} gets the audio but not these words: you chose it before they were sent. Send them, and with each meeting it also gets your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.words.send": "Send to {provider}",
   "meetings.words.field": "Add a word to know",
   "meetings.words.placeholder": "A name or a term",
   "meetings.words.add": "Add",

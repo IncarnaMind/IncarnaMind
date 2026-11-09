@@ -429,6 +429,7 @@ export function serveTranscriber(
       stream,
       model: config.model,
       apiKey: config.apiKey,
+      words: config.words,
       connect: cloud.connect,
       report: streamReport,
     };

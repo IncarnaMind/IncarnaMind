@@ -2992,6 +2992,7 @@ export const zhCN = {
   "setup.key.placeholder": "粘贴 API 密钥",
   "setup.key.checking": "正在检查密钥…",
   "setup.key.recognised": "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
+  "setup.key.sends": "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
   "setup.key.unrecognised": "无法识别这个密钥所属的服务",
   "setup.key.chooseService": "选择服务",
   "setup.key.ask": "是{provider}吗？",
@@ -3106,7 +3107,8 @@ export const zhCN = {
   "providers.form.test": "测试连接",
   "providers.form.testing": "正在测试…",
   "providers.form.save": "使用此服务",
-  "providers.sendsLine": "会把你的问题和文档内容发送给 {provider}。",
+  "providers.sendsLine":
+    "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 {provider}。",
   "providers.sends.chat":
     "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落",
   "providers.sends.checks":
@@ -3273,7 +3275,7 @@ export const zhCN = {
   "copilot.notice.title": "使用你的 Copilot 订阅",
   "copilot.notice.usage": "回答会计入你的 Copilot 订阅用量限额。",
   "copilot.notice.experimental": "实验性：GitHub 可能会阻止这种登录。",
-  "copilot.notice.sends": "会把你的问题和文档内容发送给 GitHub。",
+  "copilot.notice.sends": "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 GitHub。",
   "copilot.notice.sends.details":
     "你的问题、当前笔记、文档中的相关段落，以及用于打标签的文档文字，会通过你的账号发送给 GitHub。",
   "copilot.cancel": "取消",
@@ -3425,6 +3427,8 @@ export const zhCN = {
   "consent.flow.transcription": "会议转写",
   "consent.flow.transcription.purpose": "把会议中说的话转成文字",
   "consent.data.meeting-audio": "录制期间的会议音频，包括其他参会者的声音",
+  "consent.data.meeting-words":
+    "你的名字、要识别的词、每场会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字",
   "consent.flow.calendars": "日历",
   "consent.flow.calendars.purpose": "显示日历中即将开始的会议",
   "consent.data.calendar-request":
@@ -3553,6 +3557,8 @@ export const zhCN = {
   "consent.settings.status.declined": "未允许",
   "consent.settings.status.not-asked": "尚未询问",
   "consent.settings.status.sendsMore": "会再次询问：发送的内容有所增加",
+  "consent.settings.status.sendsMoreWhat": "允许之后才会发送：{what}",
+  "consent.settings.status.sendsMoreWhat.separator": "；",
   "consent.settings.revoke": "停止允许",
   "consent.settings.askAgain": "重新询问",
 
@@ -3762,15 +3768,19 @@ export const zhCN = {
   "meetings.route.otherWays": "其他方式…",
   "meetings.route.wayRow": "{provider} · 你的密钥",
   "meetings.route.use": "使用{provider}",
-  "meetings.route.waysNote": "选择后，录音期间会议音频会发送给该服务。可在“设置 › 会议”中更改。",
+  "meetings.route.waysNote":
+    "选择后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。可在“设置 › 会议”中更改。",
   "meetings.route.cloudOn": "用{provider}转写",
-  "meetings.route.cloudLine": "录音期间，音频会发送给{provider}。",
+  "meetings.route.cloudLine":
+    "录音期间，音频会发送给{provider}，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+  "meetings.route.cloudLineAudio": "录音期间，音频会发送给{provider}。",
   "meetings.route.agreement": "协议",
   "meetings.route.useHere": "改用这台电脑",
   "meetings.route.slow": "这台电脑可能跟不上实时转写；云服务能让实时文字保持流畅。",
   "meetings.route.slowNoKey": "这台电脑上的实时文字可能会落后。",
   "meetings.route.settingsLink": "设置 › 模型",
-  "meetings.route.consent": "选择云服务后，录音期间会议音频会发送给该服务。",
+  "meetings.route.consent":
+    "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
   "meetings.route.paused": "已暂停：已开启“所有内容都留在这台电脑上”。",
   "meetings.route.chooseAgain":
     "音频现在只留在这台电脑上。重新选择{provider}后，音频会发送到{region}。",
@@ -6231,7 +6241,6 @@ export const zhCN = {
   "approvals.tools.off": "关闭",
   "approvals.settings.title": "批准",
   "approvals.settings.body": "你改过默认设置的工具和技能。",
-  "approvals.settings.empty": "没有改过默认设置。",
   "approvals.settings.revoke": "恢复默认",
   "approvals.settings.revokeLabel": "将 {name} 恢复默认",
   "approvals.settings.skillScripts": "{skill} 的脚本",
@@ -6663,7 +6672,12 @@ export const zhCN = {
   "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。",
   "meetings.words.title": "要识别的词",
   "meetings.words.body":
-    "本机转写会按你的写法写出这些人名、公司名、产品名等。每场会议还会加上它的笔记和所在文件夹里的名字。",
+    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。用云服务转写时，这些词会随音频一起发送给该服务。",
+  "meetings.words.bodyHere":
+    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+  "meetings.words.waiting":
+    "{provider}目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，每场会议它还会收到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+  "meetings.words.send": "发送给{provider}",
   "meetings.words.field": "添加要识别的词",
   "meetings.words.placeholder": "人名或术语",
   "meetings.words.add": "添加",
