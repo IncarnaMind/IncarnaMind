@@ -547,6 +547,98 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
   }
 });
 
+const MEETING_ROUTE_LINES = {
+  en: {
+    once: "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    sends:
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    paused: "Paused: “Keep everything on this computer” is on.",
+  },
+  "zh-CN": {
+    once: "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    sends:
+      "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    paused: "已暂停：已开启“所有内容都留在这台电脑上”。",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › AI: Local mode pauses the Meeting transcription line instead of saying where the audio goes, and turning it off brings the line back (${language})`, async () => {
+    const said = MEETING_ROUTE_LINES[language];
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await acceptPlainTextKeys(window);
+      await setLocalChatModel(window);
+      await dismissChatSetup(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-a-test-key" });
+      });
+      const settings = await openSettings(window, "ai");
+      await setLanguage(window, language);
+      const row = settings.getByTestId("model-default-row-transcription");
+      const route = row.getByTestId("meetings-route");
+      const consent = row.getByTestId("meetings-route-consent");
+      const localMode = (on: boolean) =>
+        window.evaluate(
+          (value) =>
+            (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(value),
+          on,
+        );
+      const fits = async (line: Locator) => {
+        const fitsItsBox = await line.evaluate(
+          (each) =>
+            each.scrollWidth <= each.clientWidth &&
+            each.scrollHeight <= each.clientHeight + 1 &&
+            each.getBoundingClientRect().right <= document.documentElement.clientWidth &&
+            document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        );
+        expect(fitsItsBox).toBe(true);
+      };
+
+      // No service chosen: the line says what choosing one sends, and Local mode takes the choice away.
+      await expect(consent).toHaveText(said.once);
+      await localMode(true);
+      await expect(consent).toHaveCount(0);
+      await expect(row).not.toContainText(said.once);
+      await localMode(false);
+      await expect(consent).toHaveText(said.once);
+
+      await route.selectOption("soniox");
+      await expect(consent).toHaveText(said.sends);
+      for (const [width, height] of [
+        [1440, 900],
+        [900, 720],
+      ] as const) {
+        await setWindowSize(app, window, width, height);
+        await expect(consent).toHaveText(said.sends);
+        await fits(consent);
+
+        // Local mode: nothing is sent, so the line says it is paused and never names the service, on
+        // this page and on Settings › Meetings. The choice itself is kept.
+        await localMode(true);
+        await expect(consent).toHaveText(said.paused);
+        await expect(route).toHaveValue("local");
+        await expect(row).not.toContainText("Soniox");
+        await fits(consent);
+        expect((await bridge(window).settings()).device.transcriptionRoute).toBe("soniox");
+        const meetings = await showSettingsPage(window, "meetings");
+        await expect(meetings.getByTestId("meetings-route-line")).toContainText(said.paused);
+        await expect(meetings.getByTestId("meetings-route-line")).not.toContainText(said.sends);
+        await showSettingsPage(window, "ai");
+
+        await localMode(false);
+        await expect(consent).toHaveText(said.sends);
+        await expect(route).toHaveValue("soniox");
+        await fits(consent);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`Try again keeps the focus as a retry fails again (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
