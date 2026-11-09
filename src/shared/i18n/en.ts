@@ -4522,7 +4522,7 @@ export const en = {
   "cost.estimate.month": "{spent} of {cap} used this month",
   "cost.cap.title": "Monthly spending cap",
   "cost.cap.tip":
-    "Counts what your keys spend on Answers and writing, quick tasks, reading images, and Organize and Tags. Meeting transcription, Document search and Best results first aren’t counted. Plans keep their own limits.",
+    "Counts what your keys spend on Answers and writing, quick tasks, reading images, Organize and Tags, and Meeting transcription. Document search and Best results first aren’t counted. Plans keep their own limits.",
   "cost.cap.spent": "Spent this month: {spent} on your keys.",
   "cost.cap.spentOf": "Spent this month: {spent} of {cap} on your keys.",
   "cost.cap.nothing": "Nothing spent on your keys this month.",

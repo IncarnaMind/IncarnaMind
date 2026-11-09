@@ -4327,7 +4327,7 @@ export const zhCN = {
   "cost.estimate.month": "本月已用{spent}，上限 {cap}",
   "cost.cap.title": "每月花费上限",
   "cost.cap.tip":
-    "计入你的密钥在回答和写作、快速任务、读取图片以及整理和标签上的花费。会议转写、文档搜索和“最相关的排在前面”不计入。订阅按自身额度计算。",
+    "计入你的密钥在回答和写作、快速任务、读取图片、整理和标签以及会议转写上的花费。文档搜索和“最相关的排在前面”不计入。订阅按自身额度计算。",
   "cost.cap.spent": "本月 API 密钥已花费：{spent}。",
   "cost.cap.spentOf": "本月 API 密钥已花费：{spent}，上限 {cap}。",
   "cost.cap.nothing": "本月 API 密钥尚无花费。",

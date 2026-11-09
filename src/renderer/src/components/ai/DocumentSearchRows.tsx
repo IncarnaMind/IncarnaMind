@@ -346,6 +346,11 @@ function RerankRow({
               {t("rerank.settings.runsOn", { device: rerank.runsOn === "gpu" ? "GPU" : "CPU" })}
             </span>
           )}
+          {rerank.enabled && rerank.kind === "built-in" && rerank.keyRemoved && (
+            <span data-testid="rerank-key-removed" className="block">
+              {t("embeddingProviders.rebuild.keyRemoved")}
+            </span>
+          )}
           {rerank.enabled && service && !confirming && (
             <span data-testid="rerank-sent-to" className="block">
               {t("rerank.settings.sentTo", { service: t(`rerank.kind.${service}`) })}

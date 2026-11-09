@@ -5815,6 +5815,8 @@ export interface RerankSettings {
   enabled: boolean;
   /** The User hasn't chosen on this device: reranking is on with the built-in model, the default. */
   byDefault: boolean;
+  /** It went back to the built-in model when the last key of its company's account was removed (#2835). */
+  keyRemoved?: boolean;
   kind: RerankProviderKind | null;
   /** The model, e.g. "rerank-v3.5" or the built-in model's name; null when rerank isn't set up. */
   modelId: string | null;

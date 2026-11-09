@@ -75,6 +75,8 @@ interface StoredRerank {
   modelId: string | null;
   /** Nothing is stored: the default, not the User's choice. */
   byDefault?: boolean;
+  /** It went back to the built-in model when the last key of its company's account went. */
+  keyRemoved?: boolean;
 }
 
 /** Reranking on a device where the User hasn't chosen: the built-in model. */
@@ -89,7 +91,11 @@ const isService = (kind: RerankProviderKind): kind is RerankServiceKind => kind 
 function parseStored(value: unknown): StoredRerank | null {
   if (value === undefined) return DEFAULT_RERANK;
   if (!isRecord(value) || !isRerankKind(value.kind)) return null;
-  return { kind: value.kind, modelId: typeof value.modelId === "string" ? value.modelId : null };
+  return {
+    kind: value.kind,
+    modelId: typeof value.modelId === "string" ? value.modelId : null,
+    ...(value.keyRemoved === true && { keyRemoved: true }),
+  };
 }
 
 function parseModel(value: unknown): string | null {
@@ -177,6 +183,7 @@ export function createRerank(options: {
       service: service ? RERANK_SERVICES[service] : null,
       paused: pausedNow(current),
       byDefault: current?.byDefault === true,
+      ...(current?.keyRemoved === true && { keyRemoved: true }),
       model: builtIn.status(),
       runsOn: builtIn.device(),
     };
@@ -362,6 +369,7 @@ export function createRerank(options: {
       settings.writeDeviceValue(SETTINGS_VALUE, {
         kind: "built-in",
         modelId: null,
+        keyRemoved: true,
       } satisfies StoredRerank);
       builtIn.retry();
       return true;

@@ -137,9 +137,12 @@ describe("One key per company (#2835)", { timeout: 30_000 }, () => {
     expect(rerankers.calls.at(-1)?.spec).toMatchObject({ apiKey: "cohere-account-key" });
 
     await core.deleteChatProvider(account.id);
-    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in" });
+    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in", keyRemoved: true });
     await core.saveChatProvider(cohere);
     expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in" });
+    // Chosen again by the User, it no longer says why it went back.
+    await core.saveRerankSettings({ kind: "built-in" });
+    expect(await core.getRerankSettings()).not.toHaveProperty("keyRemoved");
   });
 });
 
