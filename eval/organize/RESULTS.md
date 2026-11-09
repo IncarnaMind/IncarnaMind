@@ -352,3 +352,36 @@ The new-User mode on Claude Haiku 5.5, scored by counts. Tuning runs only here: 
 No run in this table ended in an error or with a reply cut short, and every Folder in it held at least 3.
 
 **What the prompt can and can't move.** Before choosing the sort's instructions, each Library was sorted five times by each of seven versions of them (the old one; without its sentence that joins Folders differing in kind; grouping by purpose; one area a name, never two joined by "and"; keep apart when unsure; without the kind sentence; broad areas, with and without it), scored before the rest of the plan. On the old held-out 40 every version gave 74% to 84% same-label pairs on average and passed all four bars in 0 to 3 sorts of 10; a consensus of the five sorts and a second request that checks the first didn't do better. What stays across all of them is the model's reading of a few Documents that the labels place by the starter Folders' descriptions: a project's status reports and kickoff deck go with its meetings, and financial statements and budgets with the business reports. The instructions keep the version closest to the old one with what was fitted to the tuning set taken out, which did best on the 40 (88% same-label pairs on average, 3 sorts of 10 passing).
+
+### The final round
+
+Run once, after CI was green, on the branch at f7d6fa0b7 beside `main` at b83d46fb0, the `main` the branch had merged. Nothing in Organize or its evaluation has changed on `main` since. Claude Haiku 5.5 with the key `ANTHROPIC_API_KEY`. The old held-out 40 and the 500 set (seed 1) ran twice a language, the fresh set three times a language (English Documents with the interface in English, Chinese with it in Chinese). Each arm ran one run at a time, and the two arms' fresh-set runs went side by side. Every run reached the Review: none failed and none was cut short. One branch run on the 500 set was stopped by a pause before it reached the Review and is not counted. Only the aggregate lines of the fresh set and the 500 set were read.
+
+| Set | Bar | `main` runs | `main` | Branch runs | Branch |
+|---|---|---|---|---|---|
+| Old held-out 40, English | Filed ≥ 80% | 32/38 (84%); 30/38 (79%) | misses | 38/38 (100%); 36/38 (95%) | meets |
+| Old held-out 40, English | Smallest Folder ≥ 3 | 5; 5 | meets | 5; 5 | meets |
+| Old held-out 40, English | Same-label pairs ≥ 90%, split allowed | 86/99 (87%); 72/99 (73%) | misses | 87/99 (88%); 86/99 (87%) | misses |
+| Old held-out 40, English | Different-label pairs ≤ 10% | 5/429 (1%); 34/429 (8%) | meets | 40/429 (9%); 0/429 (0%) | meets |
+| Old held-out 40, Chinese | Filed ≥ 80% | 30/38 (79%); 35/38 (92%) | misses | 38/38 (100%); 38/38 (100%) | meets |
+| Old held-out 40, Chinese | Smallest Folder ≥ 3 | 5; 5 | meets | 4; 5 | meets |
+| Old held-out 40, Chinese | Same-label pairs ≥ 90%, split allowed | 78/99 (79%); 81/99 (82%) | misses | 83/99 (84%); 87/99 (88%) | misses |
+| Old held-out 40, Chinese | Different-label pairs ≤ 10% | 28/429 (7%); 28/429 (7%) | meets | 52/429 (12%); 49/429 (11%) | misses |
+| 500, seed 1, English | Filed ≥ 80% | 425/494 (86%); 480/494 (97%) | meets | 494/494 (100%); 409/494 (83%) | meets |
+| 500, seed 1, English | Smallest Folder ≥ 3 | 27; 20 | meets | 27; 20 | meets |
+| 500, seed 1, English | Same-label pairs ≥ 90%, split allowed | 18302/18302 (100%); 15728/18302 (86%) | misses | 15697/18302 (86%); 14924/18302 (82%) | misses |
+| 500, seed 1, English | Different-label pairs ≤ 10% | 0/69269 (0%); 0/69269 (0%) | meets | 3866/69269 (6%); 1703/69269 (2%) | meets |
+| 500, seed 1, Chinese | Filed ≥ 80% | 444/494 (90%); 449/494 (91%) | meets | 441/494 (89%); 458/494 (93%) | meets |
+| 500, seed 1, Chinese | Smallest Folder ≥ 3 | 21; 20 | meets | 20; 20 | meets |
+| 500, seed 1, Chinese | Same-label pairs ≥ 90%, split allowed | 16344/18302 (89%); 15218/18302 (83%) | misses | 16710/18302 (91%); 16911/18302 (92%) | meets |
+| 500, seed 1, Chinese | Different-label pairs ≤ 10% | 938/69269 (1%); 1028/69269 (1%) | meets | 445/69269 (1%); 1892/69269 (3%) | meets |
+| Fresh set, English | Filed ≥ 80% | 11/17 (65%); 9/17 (53%); 13/17 (76%) | misses (mean 64.7%) | 9/17 (53%); 14/17 (82%); 12/17 (71%) | misses (mean 68.6%) |
+| Fresh set, English | Smallest Folder ≥ 3 | 3; 3; 3 | meets | 3; 3; 3 | meets |
+| Fresh set, English | Same-label pairs ≥ 90%, split allowed | 3/16 (19%); 2/16 (13%); 1/16 (6%) | misses (mean 12.5%, reported) | 4/16 (25%); 2/16 (13%); 3/16 (19%) | misses (mean 18.8%, reported) |
+| Fresh set, English | Different-label pairs ≤ 10% | 10/89 (11%); 7/89 (8%); 11/89 (12%) | misses (mean 10.5%, reported) | 14/89 (16%); 14/89 (16%); 15/89 (17%) | misses (mean 16.1%, reported) |
+| Fresh set, Chinese | Filed ≥ 80% | 14/18 (78%); 12/18 (67%); 7/18 (39%) | misses (mean 61.1%) | 14/18 (78%); 16/18 (89%); 18/18 (100%) | meets (mean 88.9%) |
+| Fresh set, Chinese | Smallest Folder ≥ 3 | 4; 4; 3 | meets | 4; 3; 4 | meets |
+| Fresh set, Chinese | Same-label pairs ≥ 90%, split allowed | 9/16 (56%); 6/16 (38%); 9/16 (56%) | misses (mean 50.0%, reported) | 8/16 (50%); 8/16 (50%); 13/16 (81%) | misses (mean 60.4%, reported) |
+| Fresh set, Chinese | Different-label pairs ≤ 10% | 15/89 (17%); 12/89 (13%); 0/89 (0%) | misses (mean 10.1%, reported) | 31/89 (35%); 31/89 (35%); 30/89 (34%) | misses (mean 34.5%, reported) |
+
+The fresh set gates Filed on the mean of its three runs. Its other bars are reported only, and the verdict beside them is on their mean.
