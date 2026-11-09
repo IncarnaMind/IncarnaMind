@@ -42,3 +42,22 @@ Every bar must hold. A bar that fails keeps the change from shipping, and the nu
 - What a press costs the User: its requests and their input and output tokens, from the press until its marks settled (`requests`), the median per press on each arm.
 - The same first request: in how many pairs the two arms' first requests were the same, their libraries' ids aside.
 - Each press with a wrong ✓ on either arm, with its sentence; the load at each run's start and during it; the spend, the judge's share apart.
+
+## The pilot, 2026-11-09: the check misreads call help's sentences, so the gate doesn't run
+
+Eight presses of the call-help set (`en-answer-total`, `en-check-wrong`, `en-want`, `en-sum`, `zh-answer-edition`, `zh-sum`, `zh-check-right` and `zh-want`), Claude Sonnet 5.5 on a direct Anthropic key, one run, both arms, the judge Claude Opus 5.5. Spent $0.53. The 15-minute load was 17.8 at the start; the one-minute load reached 29 from other work.
+
+| Sonnet 5.5 | Presses with a wrong ✓ (main → branch) | Kept ✓ on the branch | Marks settled, median (90th pct.) |
+|---|---|---|---|
+| English, 4 presses | 2 → 0 | 5 of 9 (56%) | 4.3 s (9.0 s) |
+| Chinese, 4 presses | 2 → 1 | 4 of 7 (57%) | 1.9 s (2.9 s) |
+
+The first requests were the same on both arms in all 8 pairs. Kept ✓ sits far under its bar (83% and 78%). Replayed through the core with a scripted judge that calls every sentence supported, at no cost, the misses come from the check's own figure rule, not from the model's verdict:
+
+1. **A line of Check what was said** sets their claim against the Document: "They claim 99.99% uptime, but the terms say 99.9% each month, with a 5% service credit below it [1][2]". It is never judged, even with their figure in digits: two figures of one unit across two quotes can't each be pinned to one quote, so the sentence is left Not checked. That button's form does this by design.
+2. **Two Documents' figures side by side:** "去年的开通费是 6,000 元，今年调整为 8,000 元 [2][1]" is never judged for the same reason. Because the option reuses [1], the sentence before it ("今年的开通费是一次性 8,000 元 [1]"), which passes alone, loses its ✓ too.
+3. **A worked-out total:** "For 40 Enterprise seats it comes to $1,620 a month: $45 per seat [1], and 10% off from 40 seats [2]" isn't judged, as the rule means (no calculation was made). In the paid run this press sent no check at all and its Citations stayed found with no ✓; the scripted replay ends Not checked. The cause of that difference isn't known.
+
+The rest are the check being stricter than this gate's judge: a promise on a → line ("书面承诺上线节点和早班支持安排 [3]") and a line that adds "in writing" to its quote, which the judge lets pass. One Chinese sum kept a wrong ✓ on all three of its lines ("试点定在三月三号开始，你已确认没问题，价格尚未谈 [1]"): the check read the whole Transcript Passage, which holds the other lines, and called the quoted words stating, while the judge reads the quote alone.
+
+As this file says, nothing more runs: no gate run reads `call-help-marks`, which stays unread for the next try. Changing how the check's figure rule reads a claim set against a Document, or a marker shared by two sentences, changes a check's verdict for every Answer, and needs a decision first.
