@@ -158,6 +158,7 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
   /** In a whole-read window: the absence the sentence states holds in this window's text. */
   absenceHeld?: true;
 };
+
 /**
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
  * Document (#2226).
@@ -231,28 +232,28 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
-  // The Passages each check was given or shown, so that a text whose figures couldn't be read is
+  return (request: ClaimCheckRequest) => checkSentence(deps, request);
+}
+
+async function checkSentence(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+): Promise<AtomicClaimCheckResult> {
+  // The Passages the check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
-  const passagesOf = new WeakMap<ClaimCheckRequest, () => readonly string[]>();
-  const check = async function checkClaim(
-    request: ClaimCheckRequest,
-  ): Promise<AtomicClaimCheckResult> {
-    const { signal } = request;
+  let shownPassageIds: () => readonly string[] = () => [];
+  try {
     const kept = keptInside(deps, request);
     if (kept) return kept;
+    const { signal } = request;
     const results = createCheckResults(request);
     const { facts, notChecked, failedCheck } = results;
     const setup = setUpRun(deps, request, results);
-    const { scoped, session, citedShown, looked } = setup;
-    // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
-    // host's own date for each, never shown to the model as the Document's words.
-    const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
-    passagesOf.set(request, setup.shownPassageIds);
-    const { model } = request;
-    const calculating = calculatesIn(model, request);
+    shownPassageIds = setup.shownPassageIds;
+    const { scoped, session, looked } = setup;
+    const calculating = calculatesIn(request.model, request);
     const ledger = createCalculationLedger(request, scoped, session, calculating);
     const tools = setup.tools(ledger.tools);
-
     let court: CourtDecisions;
     try {
       court = await courtDecisions(setup.decisions, scoped, signal);
@@ -260,33 +261,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (signal.aborted) return notChecked("stopped");
       throw error;
     }
-    const { citedCase } = court;
     let fits: boolean | undefined;
     const readsWhole = () => {
       fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
       return fits;
     };
-    const absenceFor = absenceAfterSearch({
-      request,
-      documents: deps.documents,
-      session,
-      readVersion: results.readVersion,
-      facts,
-      citedCase,
-      fits: readsWhole,
-      notChecked,
-      failedCheck,
-      lookAt: (evidence, absent, first) =>
-        lookForPresence(request, evidence, absent, session, signal, first),
-    });
-
-    const figureContext = figureContextIn(scoped);
-    const unstatedUnit = unitGate(deps, scoped, figureContext);
-
     const transcript = await checkRun(deps, request, {
       tools,
       session,
-      citedShown,
+      citedShown: setup.citedShown,
       looked,
       searches: setup.searches,
       readsWhole,
@@ -294,51 +277,47 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       ledger,
       results,
     });
-    const { failed } = transcript;
     if (signal.aborted) return notChecked("stopped");
-    if (failed) return failedCheck(failed);
-    const { figures } = request;
-    if (figures?.length)
-      return figuresVerdict(
-        deps,
-        { ...request, figures },
-        {
-          transcript,
-          looked,
-          session,
-          scoped,
-          ledger,
-          results,
-          citedCase,
-          unstatedUnit,
-          absenceFor,
-          newestFirst,
-        },
-      );
-    return plainVerdict(deps, request, {
+    if (transcript.failed) return failedCheck(transcript.failed);
+    const { citedCase } = court;
+    const figureContext = figureContextIn(scoped);
+    const verdicts = {
       transcript,
       looked,
       session,
+      scoped,
       ledger,
       results,
       court,
-      unstatedUnit,
+      citedCase,
+      unstatedUnit: unitGate(deps, scoped, figureContext),
       figureContext,
-      absenceFor,
-      newestFirst,
-    });
-  };
-  return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
-    try {
-      const result = await check(request);
-      return result.verdict === "supported"
-        ? withDollarClause(deps, request.claim, result)
-        : result;
-    } catch (error) {
-      if (!(error instanceof FiguresNotRead)) throw error;
-      return figuresNotRead(deps, request, error, passagesOf.get(request)?.() ?? []);
-    }
-  };
+      absenceFor: absenceAfterSearch({
+        request,
+        documents: deps.documents,
+        session,
+        readVersion: results.readVersion,
+        facts,
+        citedCase,
+        fits: readsWhole,
+        notChecked,
+        failedCheck,
+        lookAt: (evidence, absent, first) =>
+          lookForPresence(request, evidence, absent, session, signal, first),
+      }),
+      // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
+      // host's own date for each, never shown to the model as the Document's words.
+      newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
+    };
+    const { figures } = request;
+    const result = figures?.length
+      ? await figuresVerdict(deps, { ...request, figures }, verdicts)
+      : await plainVerdict(deps, request, verdicts);
+    return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
+  } catch (error) {
+    if (!(error instanceof FiguresNotRead)) throw error;
+    return figuresNotRead(deps, request, error, shownPassageIds());
+  }
 }
 
 /**
