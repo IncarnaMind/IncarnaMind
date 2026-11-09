@@ -6,13 +6,15 @@
  * - `note`: Check this Note on a Note of 10 sentences over an employment agreement (eval/repeats).
  * - `write`: the assistant writes 30 cited paragraphs into a new Note, scripted, and the first of
  *   them its check reads are checked before they land (src/core/answers/checks/written.ts).
+ *   `write-20` writes 20, as the write timed on GPT-6.1 Sol in #2532 did.
  * - `answer`: an Answer of 30 cited sentences, scripted, judged once it ends (#2311).
  *
  * The writing and the Answer are scripted, so only the checks' requests reach the model under test.
  * INCARNAMIND_EVAL_SPEED_THINKING ("summary" or "off") sets how every model thinks, which only an
  * Answer's batches feel; and
  * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
- * reranks as many Passages as it would in a real one.
+ * reranks as many Passages as it would in a real one; and INCARNAMIND_EVAL_SPEED_OPENAI_EFFORT
+ * names OpenAI's reasoning effort for every request where the core names none.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -33,6 +35,7 @@ import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
 import { queryDatabase } from "../../tests/helpers/core";
@@ -76,11 +79,16 @@ const NOTE: Record<Language, string[]> = {
   "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
 
-/** Thirty sentences over the membership rules, each with the quote it cites. */
-const CITED = (language: Language) =>
+/** How many cited sentences each flow writes: `write-20` is a write of 20 (#2532). */
+const WRITTEN: Record<string, number> = { write: 30, "write-20": 20, answer: 30 };
+
+const isWrite = (flow: string) => flow === "write" || flow === "write-20";
+
+/** The flow's sentences over the membership rules, each with the quote it cites. */
+const CITED = (language: Language, flow = "write") =>
   HELD_OUT_ITEMS.filter((item) => item.language === language && item.library === "terms").slice(
     0,
-    30,
+    WRITTEN[flow] ?? 30,
   );
 
 const marked = (sentence: string, marker: number) =>
@@ -136,17 +144,31 @@ function scripted(
   const answers = scriptedModel((call) => {
     const flow = current();
     if (!flow) return { text: "Nothing to write." };
-    return scriptedTurn(call, flow.items, flow.flow === "write" ? "note" : "answer");
+    return scriptedTurn(call, flow.items, isWrite(flow.flow) ? "note" : "answer");
   });
   const scriptsIt = (params: { tools?: readonly { name: string }[]; prompt: unknown }) => {
     const flow = current()?.flow;
-    if (flow === "write") return params.tools?.some((tool) => tool.name === "create_mind") ?? false;
+    if (flow && isWrite(flow))
+      return params.tools?.some((tool) => tool.name === "create_mind") ?? false;
     if (flow !== "answer") return false;
     const prompt = params.prompt as { role: string; content: unknown }[];
     return !prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
   };
+  // OpenAI's reasoning effort on every request to the model under test, where the core names none:
+  // a check on GPT-6.1 Sol, which refuses "none", goes at the API's default (#2532).
+  const effort = env("OPENAI_EFFORT");
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
+    transformParams: async ({ params }) =>
+      effort
+        ? {
+            ...params,
+            providerOptions: {
+              ...params.providerOptions,
+              openai: { ...params.providerOptions?.openai, reasoningEffort: effort },
+            },
+          }
+        : params,
     wrapStream: async ({ doStream, params }) =>
       scriptsIt(params) ? answers.doStream(params) : doStream(),
     wrapGenerate: async ({ doGenerate, params }) =>
@@ -298,8 +320,9 @@ async function writeFlow(
   choice: ChatModelChoice,
   language: Language,
   recorder: ReturnType<typeof checkRecorder>,
+  flow: string,
 ) {
-  const sentences = CITED(language).map((each) => each.sentence);
+  const sentences = CITED(language, flow).map((each) => each.sentence);
   const versions = await versionsOf(core);
   recorder.begin(sentences);
   const docs = new Map<string, Y.Doc>();
@@ -441,6 +464,25 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const results: FlowTimes[] = [];
   let stopped: string | null = null;
   let spentBefore = 0;
+  const out = join(
+    config.resultsDir,
+    `check-times-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+  );
+  await mkdir(out, { recursive: true });
+  const counts = new Map(Object.entries({ note: 10, ...WRITTEN }));
+  const written = () =>
+    [
+      "# Where a check's time goes",
+      "",
+      `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${results.reduce((total, run) => total + run.spentUsd, 0).toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
+      "",
+      checkTimesReport(results, counts),
+    ].join("\n");
+  // Each run is written as it ends, so a run stopped halfway keeps the ones before it.
+  const save = async () => {
+    await writeFile(join(out, "report.md"), written());
+    await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  };
   for (const language of languages) {
     const folder = await mkdtemp(join(tmpdir(), "incarnamind-check-times-"));
     const documents: EvalDocument[] = await writeDocuments(folder, {
@@ -505,7 +547,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             log(
               `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
             );
-            current = { flow, items: CITED(language) };
+            current = { flow, items: CITED(language, flow) };
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
@@ -514,8 +556,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             > =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
-                : flow === "write"
-                  ? await writeFlow(core, choice, language, recorder)
+                : isWrite(flow)
+                  ? await writeFlow(core, choice, language, recorder, flow)
                   : await answerFlow(core, choice, language, recorder);
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
@@ -548,8 +590,15 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               ...(flow === "note" && {
                 stated: NOTE_SENTENCES[language].map((each) => each.expected === "supported"),
               }),
+              // A write's checked sentences, the first it holds, against what the rules state.
+              ...(isWrite(flow) && {
+                stated: CITED(language, flow)
+                  .slice(0, SENTENCES_CHECKED_AT_MOST)
+                  .map((each) => each.expected === "stated"),
+              }),
               spentUsd: after - spent,
             });
+            await save();
             if (times.searchedDuring)
               log(
                 `  a search asked at ${seconds(times.searchedDuring.atMs)} took ${seconds(times.searchedDuring.ms)}`,
@@ -567,25 +616,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     }
     if (stopped) break;
   }
-  const counts = new Map([
-    ["note", 10],
-    ["write", 30],
-    ["answer", 30],
-  ]);
-  const report = [
-    "# Where a check's time goes",
-    "",
-    `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${spentBefore.toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
-    "",
-    checkTimesReport(results, counts),
-  ].join("\n");
-  console.log(report);
-  const out = join(
-    config.resultsDir,
-    `check-times-${new Date().toISOString().replace(/[:.]/g, "-")}`,
-  );
-  await mkdir(out, { recursive: true });
-  await writeFile(join(out, "report.md"), report);
-  await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  await save();
+  console.log(written());
   log(`Report in ${out}`);
 });

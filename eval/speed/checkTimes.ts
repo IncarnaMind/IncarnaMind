@@ -44,6 +44,10 @@ export interface CheckRequest {
   nudge: string | null;
   startMs: number;
   firstByteMs: number | null;
+  /**
+   * The first reasoning the stream sent: its start, which OpenAI's Responses API sends with no
+   * text when no summary is asked for, or else its first words.
+   */
   firstReasoningMs: number | null;
   /** The first text or Tool input after any reasoning. */
   firstAnswerMs: number | null;
@@ -53,6 +57,8 @@ export interface CheckRequest {
   cachedInputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
+  /** Why the reply ended, as the provider said: "length" is a reply its output limit cut off. */
+  finishReason: string | null;
   error: string | null;
 }
 
@@ -188,6 +194,7 @@ export function checkRecorder() {
       cachedInputTokens: null,
       outputTokens: null,
       reasoningTokens: null,
+      finishReason: null,
       error: null,
     };
     requests.push(request);
@@ -223,13 +230,17 @@ export function checkRecorder() {
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
             if (part.type !== "stream-start") request.firstByteMs ??= since();
-            if (part.type === "reasoning-delta") request.firstReasoningMs ??= since();
+            if (part.type === "reasoning-start" || part.type === "reasoning-delta")
+              request.firstReasoningMs ??= since();
             if (part.type === "text-delta" || part.type === "tool-input-start")
               request.firstAnswerMs ??= since();
             if (part.type === "tool-call" && part.toolName === "search_documents")
               request.searches++;
             if (part.type === "error") request.error = errorOf(part.error);
-            if (part.type === "finish") counted(request, part.usage);
+            if (part.type === "finish") {
+              counted(request, part.usage);
+              request.finishReason = part.finishReason.unified;
+            }
             controller.enqueue(part);
           },
           flush() {
@@ -245,6 +256,7 @@ export function checkRecorder() {
         const result = await doGenerate();
         request.firstByteMs = request.firstAnswerMs = request.endMs = since();
         counted(request, result.usage);
+        request.finishReason = result.finishReason.unified;
         return result;
       } catch (error) {
         request.endMs = since();
@@ -426,6 +438,55 @@ export function judged(run: FlowTimes): {
   return { right, falseSupported, notChecked };
 }
 
+const medianOf = (values: readonly (number | null)[]) =>
+  median(values.flatMap((value) => (value === null ? [] : [value])));
+
+/**
+ * Each kind of request a flow's checks made, per flow, model and language: how long it waited for
+ * its first byte, thought and wrote, the reasoning and output tokens, the share of its input read
+ * from the prompt cache, and how many were cut off at their output limit or failed; then how many
+ * sentences waited for a place among the checks at once (their first request over a second after
+ * the check began), and for how long.
+ */
+export function requestKindsReport(
+  groups: ReadonlyMap<string, readonly FlowTimes[]>,
+  counts: ReadonlyMap<string, number>,
+): string {
+  const lines = [
+    "| Flow · model · language · request kind | Requests | First byte | Thinking | Writing | Whole request | Reasoning tokens (median / most) | Output tokens | Cached input | Cut off at the limit | Failed |",
+    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+  ];
+  const queued: string[] = [];
+  for (const [key, list] of groups) {
+    const requests = list.flatMap((run) => run.requests);
+    const kinds = [...new Set(requests.map((request) => request.kind))].sort();
+    for (const kind of kinds) {
+      const ofKind = requests.filter((request) => request.kind === kind);
+      const input = sum(ofKind.map((request) => request.inputTokens ?? 0));
+      const cached = sum(ofKind.map((request) => request.cachedInputTokens ?? 0));
+      const reasoning = ofKind.flatMap((request) =>
+        request.reasoningTokens === null ? [] : [request.reasoningTokens],
+      );
+      lines.push(
+        `| ${key} · ${kind} | ${ofKind.length} | ${s(medianOf(ofKind.map((request) => (request.firstByteMs === null ? null : request.firstByteMs - request.startMs))))} | ${s(medianOf(ofKind.map((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0))))} | ${s(medianOf(ofKind.map((request) => (request.firstAnswerMs !== null && request.endMs !== null ? request.endMs - request.firstAnswerMs : null))))} | ${s(medianOf(ofKind.map((request) => (request.endMs === null ? null : request.endMs - request.startMs))))} | ${reasoning.length === 0 ? "–" : `${(median(reasoning) ?? 0).toFixed(0)} / ${Math.max(...reasoning)}`} | ${(medianOf(ofKind.map((request) => request.outputTokens)) ?? 0).toFixed(0)} | ${input === 0 ? "–" : `${Math.round((cached / input) * 100)}%`} | ${ofKind.filter((request) => request.finishReason === "length").length} | ${ofKind.filter((request) => request.error !== null).length} |`,
+      );
+    }
+    const count = counts.get(list[0]?.flow ?? "") ?? 0;
+    const waits = list.flatMap((run) =>
+      perSentence(run, count).flatMap((each) =>
+        each.queuedMs !== null && each.queuedMs > 1000 ? [each.queuedMs] : [],
+      ),
+    );
+    const started = list.flatMap((run) =>
+      perSentence(run, count).filter((each) => each.queuedMs !== null),
+    ).length;
+    queued.push(
+      `- ${key}: ${waits.length} of ${started} checked sentences waited for a place${waits.length > 0 ? `, ${s(median(waits))} s at the median, ${s(Math.max(...waits))} s at most` : ""}.`,
+    );
+  }
+  return [...lines, "", ...queued].join("\n");
+}
+
 /** The report's tables: each flow's first verdict and end, then where each sentence's time went. */
 export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string, number>): string {
   const lines: string[] = [];
@@ -452,6 +513,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
       `| ${key} | ${list.length} | ${s(med((run) => run.firstSignMs ?? null))} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${sum(list.map((run) => run.rerankRepeats.repeated))} of ${sum(list.map((run) => run.rerankRepeats.scored))} | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} / ${Math.max(...list.map((run) => run.load15)).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
     );
   }
+  lines.push("", requestKindsReport(groups, counts));
   const checked = [...groups].filter(([, list]) => list.some((run) => run.stated));
   if (checked.length > 0) {
     lines.push(
