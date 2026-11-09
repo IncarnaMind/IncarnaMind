@@ -178,7 +178,25 @@ export function createTextCopies(db: Database, now: () => string) {
   const wholeText = (version: TextVersion) =>
     kept.get(keyOf(version)) ?? keep(version, shinglesOf(unitsOf(version)));
 
+  // A Verify asks the same of every claim. A Document deleted or restored changes the answer
+  // without a fingerprint being recorded or forgotten, so the Library's state is part of the key.
+  const answers = new Map<string, string[]>();
+  const libraryState = () =>
+    db.get<{ state: string }>(
+      `SELECT COUNT(*) || ' ' || SUM(deleted_at IS NULL) || ' ' || COALESCE(MAX(updated_at), '')
+         AS state FROM documents`,
+    )?.state ?? "";
+  const remember = (asked: string, found: string[]) => {
+    answers.set(asked, found);
+    for (const oldest of answers.keys()) {
+      if (answers.size <= KEPT_TEXTS) break;
+      answers.delete(oldest);
+    }
+    return found;
+  };
+
   function record(version: TextVersion, units: readonly { text: string }[]): Fingerprint {
+    answers.clear();
     const shingles = keep(version, shinglesOf(units));
     const sample = sampleOf(shingles);
     const at = now();
@@ -235,6 +253,7 @@ export function createTextCopies(db: Database, now: () => string) {
     record,
 
     forget(version: TextVersion): void {
+      answers.clear();
       kept.delete(keyOf(version));
       db.run("DELETE FROM text_fingerprints WHERE document_id = ? AND content_hash = ?", [
         version.documentId,
@@ -244,6 +263,7 @@ export function createTextCopies(db: Database, now: () => string) {
 
     /** For a Document deleted for good. */
     forgetDocument(documentId: string): void {
+      answers.clear();
       for (const key of [...kept.keys()]) {
         if (key.startsWith(`${documentId}\n`)) kept.delete(key);
       }
@@ -269,10 +289,18 @@ export function createTextCopies(db: Database, now: () => string) {
       candidates: readonly string[] | null,
       skip: ReadonlySet<string>,
     ): string[] {
+      const asked = JSON.stringify([
+        libraryState(),
+        checked.map(keyOf),
+        candidates,
+        [...skip].sort(),
+      ]);
+      const known = answers.get(asked);
+      if (known) return [...known];
       const sources = checked
         .map((version) => ({ version, fingerprint: fingerprintOf(version) }))
         .filter(({ fingerprint }) => fingerprint.shingles >= SAME_TEXT_SHORTEST);
-      if (sources.length === 0) return [];
+      if (sources.length === 0) return [...remember(asked, [])];
       for (const version of missing(candidates)) record(version, unitsOf(version));
       // A text with fewer shingles than the bar's share of the checked text's can't hold it.
       const enough = (fingerprint: Fingerprint) =>
@@ -294,7 +322,7 @@ export function createTextCopies(db: Database, now: () => string) {
           ...(candidates === null ? [] : [JSON.stringify(candidates)]),
         ],
       );
-      return rows.flatMap((row) => {
+      const found = rows.flatMap((row) => {
         if (skip.has(row.id)) return [];
         const other: TextVersion = { documentId: row.id, contentHash: row.content_hash };
         const sample = sampleFrom(row.sample);
@@ -307,6 +335,7 @@ export function createTextCopies(db: Database, now: () => string) {
         );
         return holds ? [row.id] : [];
       });
+      return [...remember(asked, found)];
     },
   };
 }

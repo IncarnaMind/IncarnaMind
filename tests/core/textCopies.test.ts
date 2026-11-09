@@ -281,6 +281,60 @@ describe("A copy that changes", () => {
     expect(replaced.evidence).toEqual(new Set([pdf.id, reply.id]));
   }, 120_000);
 
+  test("the same check asked again follows the Library: a copy added, deleted, restored or given other text changes the answer", async () => {
+    const pairs = copyPairs("en");
+    const files = [pairOf("en", "a Word file saved again"), pairOf("en", REPLY)].flatMap((pair) => [
+      pair.checked,
+      pair.other,
+    ]);
+    const core = startCore(await createTempDataFolder());
+    const folder = await createSourceFolder();
+    const write = async (file: FixtureFile) => {
+      const path = join(folder, file.name);
+      await writeFile(path, file.bytes);
+      return path;
+    };
+    const paths = [...new Set(await Promise.all(files.map(write)))];
+    const added = await addAndProcess(core, paths);
+    const named = (name: string) => {
+      const found = added.find((each) => each.path.endsWith(name));
+      if (!found) throw new Error(name);
+      return found;
+    };
+    const word = named("Services Agreement.docx");
+    const resaved = named("Services Agreement (saved again).docx");
+    const reply = named("Comments on the draft.docx");
+    /** The Documents the check reads, by name: every one asked the same way. */
+    const evidence = async () => {
+      const found = await core.searchEvidence(QUERIES.en.clause, {
+        checked: { documentIds: [word.id] },
+      });
+      return [...new Set(found.passages.map((passage) => passage.documentName))].sort();
+    };
+
+    expect(await evidence()).toEqual(["Comments on the draft"]);
+    expect(await evidence()).toEqual(["Comments on the draft"]);
+
+    const printed = pairs.find((pair) => pair.pair === "a PDF printed from Word")?.other;
+    if (!printed) throw new Error("No PDF.");
+    const [pdf] = await addAndProcess(core, [await write(printed)]);
+    if (!pdf) throw new Error("Not added.");
+    expect(await evidence()).toEqual(["Comments on the draft"]);
+
+    await core.deleteDocument(resaved.id);
+    expect(await evidence()).toEqual(["Comments on the draft"]);
+    await core.restore([{ kind: "document", id: resaved.id }]);
+    expect(await evidence()).toEqual(["Comments on the draft"]);
+
+    await writeFile(join(folder, printed.name), printedPdf([sameTemplate("en")], "en").bytes);
+    const changed = nextEvent(core, "document.status");
+    await core.reconcileDocuments();
+    await changed;
+    await waitForProcessing(core, [pdf.id]);
+    expect(await evidence()).toEqual(["Comments on the draft", "Services Agreement"]);
+    expect(reply.name).toBe("Comments on the draft");
+  }, 120_000);
+
   test("a resaved copy of the checked file's earlier version is left out too, while that version's text is kept; a reply quoting it is still searched", async () => {
     const { core, folder, named, reply } = await library("en");
     const word = named("Services Agreement.docx");
