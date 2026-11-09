@@ -151,19 +151,33 @@ function titleOf(heading: unknown, topic: string, addresses: ReadonlySet<string>
   return words !== "" && !NOT_A_TITLE.test(words) ? words : null;
 }
 
+/**
+ * The User's lines a fact names: their addresses, where a bare number is read as the address of
+ * the line this fill listed under it ("lines":[1] for "L1"), and nothing else: a model wrote the
+ * number in place of "L1", and every fact that did was left out (#2306).
+ */
+function linesOf(value: unknown, addresses: ReadonlySet<string>): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const named: unknown[] = value.map((item: unknown) =>
+    typeof item === "number" && addresses.has(`L${item}`) ? `L${item}` : item,
+  );
+  return strings(named, /^L[1-9]\d{0,5}$/) ? named : null;
+}
+
 function factMetadata(
   value: Record<string, unknown>,
   addresses: ReadonlySet<string>,
 ): FactMetadata | null {
   if (Object.keys(value).some((key) => !FACT_KEYS.includes(key))) return null;
-  const { topic, citations, lines, sections, claim } = value;
+  const { topic, citations, sections, claim } = value;
+  const lines = linesOf(value.lines, addresses);
   const supersedes = Object.hasOwn(value, "supersedes") ? value.supersedes : [];
   const heading = label(topic) ? titleOf(value.heading, topic, addresses) : null;
   if (
     !label(topic) ||
     heading === null ||
     !inventory(citations) ||
-    !strings(lines, /^L[1-9]\d{0,5}$/) ||
+    lines === null ||
     !Array.isArray(sections) ||
     sections.length > SECTIONS.length ||
     !sections.every((section: unknown): section is FillSection =>

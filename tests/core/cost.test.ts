@@ -1257,7 +1257,7 @@ describe("What a whole read sets aside (#2275)", () => {
   test("each request of an absence check reserves its prompt and its call's limit, the whole read the table's", async () => {
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) =>
-        call.system.startsWith("Read the whole Documents")
+        call.question === "absence-read"
           ? { text: JSON.stringify({ absent: "break clause", absence: "holds" }) }
           : checkGenerate(plans)(call),
     });

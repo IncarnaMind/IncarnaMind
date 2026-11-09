@@ -27,7 +27,7 @@
 import { randomUUID } from "node:crypto";
 import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { Citing, FoundPassage } from "../answers/citing";
-import { replyJson } from "../answers/quoteRetry";
+import { replyJson } from "../answers/judge";
 import { createWindowBudget } from "../answers/window";
 import type {
   ChatModelChoice,
@@ -272,7 +272,7 @@ export function createSuggestions(options: SuggestionsOptions) {
         maxRetries: 0,
         abortSignal,
       });
-      value = await replyJson(result.text);
+      value = replyJson(result.text);
     } else {
       try {
         const result = await generateText({
@@ -288,7 +288,7 @@ export function createSuggestions(options: SuggestionsOptions) {
       } catch (error) {
         // JSON in a code fence, or after thinking, is still read.
         if (!NoObjectGeneratedError.isInstance(error) || !error.text) throw error;
-        value = await replyJson(error.text);
+        value = replyJson(error.text);
       }
     }
     return readReply(value, passages.length);

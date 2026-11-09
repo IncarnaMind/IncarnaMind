@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { checkableSentences } from "../../src/core/answers/checks/written";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -97,13 +96,14 @@ function batchReply(
         verdict: plans[sentence]?.verdict ?? "unsupported",
         roles: "same",
         time: "same",
+        quoted: "states",
         says: plans[sentence]?.says ?? null,
       })),
     }),
   };
 }
 
-const isBatch = (call: GenerateCall) => call.system === SENTENCE_BATCH_INSTRUCTIONS;
+const isBatch = (call: GenerateCall) => call.question === "sentence-batch";
 
 /**
  * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and
@@ -346,6 +346,11 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       expect(
         await judged(
           '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+        ),
+      ).toMatchObject([{ marker: 1, check: "not-checked" }]);
+      expect(
+        await judged(
+          '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The slide says so."}]}',
         ),
       ).toMatchObject([{ marker: 1, check: "found" }]);
     },
@@ -850,7 +855,10 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
       },
       { generate: checkGenerate({}), judgesItsAnswers: true },
     );
-    const { core } = await setUpWithDocuments(model, [report, survey]);
+    // Shown as given, the quote stops before 98%, which only the sentence's quoted words then hold.
+    const { core } = await setUpWithDocuments(model, [report, survey], {
+      quotesAsGiven: () => true,
+    });
 
     const citations = await citationsOfAnswer(core, "What were the findings?");
 

@@ -2870,7 +2870,10 @@ export interface CitationAttributes {
    * for Citations made before Locations: their label comes from the pages.
    */
   location: CitationLocation | null;
-  /** The quote the model gave, which it was asked to copy word for word from the Passage. */
+  /**
+   * The words the card shows: the quote the model copied word for word from the Passage, or, for
+   * an Answer's found quote, the whole sentence around it (#2739).
+   */
   quote: string | null;
   /**
    * Set when it quotes a snapshot of a Mind, the User's own note (#335): when that
@@ -2919,6 +2922,11 @@ export interface Citation {
   pageTo: number | null;
   location: CitationLocation | null;
   quote: string;
+  /**
+   * The words the model quoted, when `quote` shows the whole sentence around them (#2739): which of
+   * the sentence's numbers the model meant. Kept with an Answer's Citations, not in a Note.
+   */
+  given?: string;
   /** Set for a snapshot of a Mind, the User's own note (#335): when it was taken. */
   yourNoteAt?: string | null;
   check: CitationCheck;
@@ -7180,8 +7188,11 @@ export type ClaimCheckFailure =
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
-  /** "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378). */
-  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name";
+  /**
+   * "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378).
+   * "units": a figure written as bare digits differs from its source only by a unit (#2864).
+   */
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -7462,6 +7473,12 @@ export interface CheckFigure {
   context?: string;
   label?: string;
   /**
+   * Every line of the Note that states a scale, currency or percent its digits may be in, each
+   * whole (#2864): its section's, above and below it, the headings it is under and the Note's
+   * opening lines. Sent with a check, never kept with its result.
+   */
+  unitLines?: string;
+  /**
    * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
    * again to the same number, and what the Analysis read. A check decides it from this alone.
    */
@@ -7490,6 +7507,11 @@ export interface CheckFigure {
 export interface FigureFinding extends CheckFigure {
   /** An Analysis's figure the claim judge read its sentence as naming, as its label and rule say (#2378). */
   named?: true;
+  /**
+   * The unit its source's Document states, as the Document writes it ("GBP million"), that a
+   * figure written as bare digits was read in (#2864); absent when it wasn't.
+   */
+  statedUnit?: string;
   sourceInput: FigureInput | null;
   source?: Citation | null;
   roundedFrom: number | null;
@@ -7515,7 +7537,8 @@ export type FigureScheduleReason =
   | "quote-not-found"
   | "needs-recheck"
   | "doesnt-add-up"
-  | "differs-from-analysis";
+  | "differs-from-analysis"
+  | "units-may-differ";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;

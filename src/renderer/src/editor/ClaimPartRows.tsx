@@ -358,7 +358,9 @@ function PartRow({
               ? t("claim.part.checking")
               : state === "unsupported" && showsNotFound
                 ? t("claim.state.notFound")
-                : t(`claim.state.${state}`)}
+                : state === "unsupported" && part.unsupported?.kind === "units"
+                  ? t("claim.state.unitsMayDiffer")
+                  : t(`claim.state.${state}`)}
         </span>
         {citations && citing.some((decision) => decision.kind === "add") && (
           <button

@@ -7,6 +7,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import {
   claimCheckReply,
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -106,27 +107,29 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
     "“%s” with sources as text is refused, then written with checked Citations",
     async (request, title) => {
       const told: string[] = [];
-      const model = scriptedModel((call) =>
-        searchingFirst(call, (passage) => {
-          if (!called(call, "create_mind")) {
-            return {
-              calls: [
-                { tool: "create_mind", input: { title, content: AS_TEXT }, streamInput: true },
-              ],
-            };
-          }
-          if (!called(call, "cite")) {
-            told.push(call.results.find((each) => each.tool === "create_mind")?.text ?? "");
-            return cite([
-              { marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE },
-              { marker: 2, passage: passage(PLAN_QUOTE), quote: PLAN_QUOTE },
-            ]);
-          }
-          if (call.results.filter((each) => each.tool === "create_mind").length === 1) {
-            return { calls: [{ tool: "create_mind", input: { title, content: CITED } }] };
-          }
-          return { text: "Done." };
-        }),
+      const model = scriptedModel(
+        (call) =>
+          searchingFirst(call, (passage) => {
+            if (!called(call, "create_mind")) {
+              return {
+                calls: [
+                  { tool: "create_mind", input: { title, content: AS_TEXT }, streamInput: true },
+                ],
+              };
+            }
+            if (!called(call, "cite")) {
+              told.push(call.results.find((each) => each.tool === "create_mind")?.text ?? "");
+              return cite([
+                { marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE },
+                { marker: 2, passage: passage(PLAN_QUOTE), quote: PLAN_QUOTE },
+              ]);
+            }
+            if (call.results.filter((each) => each.tool === "create_mind").length === 1) {
+              return { calls: [{ tool: "create_mind", input: { title, content: CITED } }] };
+            }
+            return { text: "Done." };
+          }),
+        { generate: judgesNothing },
       );
       const { core, documents } = await setUpWithDocuments(model, [DECK, PLAN]);
       expect(documents).toHaveLength(2);
@@ -158,15 +161,17 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
       "Between [t1, t2], open [09:00, 17:00], as [1] says.",
       "“Claims under [Section 4] are void.”",
     ].join("\n\n");
-    const model = scriptedModel((call) =>
-      searchingFirst(call, (passage) => {
-        if (!called(call, "cite")) {
-          return cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]);
-        }
-        return called(call, "add_to_mind")
-          ? { text: "Done." }
-          : { calls: [{ tool: "add_to_mind", input: { content } }] };
-      }),
+    const model = scriptedModel(
+      (call) =>
+        searchingFirst(call, (passage) => {
+          if (!called(call, "cite")) {
+            return cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]);
+          }
+          return called(call, "add_to_mind")
+            ? { text: "Done." }
+            : { calls: [{ tool: "add_to_mind", input: { content } }] };
+        }),
+      { generate: judgesNothing },
     );
     const { core, mind } = await setUpWithDocuments(model, [DECK]);
 
@@ -190,10 +195,12 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
   // protects=a bare Document name in brackets is refused, and written so again with no Citation recorded for it is left out and counted, not kept as text (#1087 review); fails_when="[5_Rue_Berryer_Paris]" stays in the Mind or goes uncounted; no_claim=none beyond protects.
   test("a bare Document name is refused, then left out and counted", async () => {
     const content = `${DECK_QUOTE} [5_Rue_Berryer_Paris].`;
-    const model = scriptedModel((call) =>
-      call.results.filter((each) => each.tool === "add_to_mind").length < 2
-        ? { calls: [{ tool: "add_to_mind", input: { content } }] }
-        : { text: "Done." },
+    const model = scriptedModel(
+      (call) =>
+        call.results.filter((each) => each.tool === "add_to_mind").length < 2
+          ? { calls: [{ tool: "add_to_mind", input: { content } }] }
+          : { text: "Done." },
+      { generate: judgesNothing },
     );
     const { core, mind } = await setUpWithDocuments(model, [DECK]);
 
@@ -206,18 +213,21 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
 
   // protects=text with sources as text written in the last step that can call Tools goes in, each source made its Citation or left out, since there is no step left to try again (#1087 review); fails_when=it is refused and the Mind stays empty, or the Answer has no reply; no_claim=none beyond protects.
   test("with no step left to try again, the text goes in", async () => {
-    const model = scriptedModel((call) => {
-      const done = call.results.length;
-      if (done < 7)
-        return { calls: [{ tool: "search_documents", input: { query: `offices ${done}` } }] };
-      if (done === 7) {
-        const shown = call.results.flatMap((each) => shownPassages(each.text));
-        const deck = shown.find((passage) => passage.text.includes("rue Berryer has"))?.id;
-        return cite([{ marker: 1, passage: deck ?? "", quote: DECK_QUOTE }]);
-      }
-      if (done === 8) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
-      return { text: "Added the summary." };
-    });
+    const model = scriptedModel(
+      (call) => {
+        const done = call.results.length;
+        if (done < 7)
+          return { calls: [{ tool: "search_documents", input: { query: `offices ${done}` } }] };
+        if (done === 7) {
+          const shown = call.results.flatMap((each) => shownPassages(each.text));
+          const deck = shown.find((passage) => passage.text.includes("rue Berryer has"))?.id;
+          return cite([{ marker: 1, passage: deck ?? "", quote: DECK_QUOTE }]);
+        }
+        if (done === 8) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
+        return { text: "Added the summary." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind } = await setUpWithDocuments(model, [DECK, PLAN]);
 
     const answer = await askAssistant(core, {
@@ -259,16 +269,18 @@ describe("Sources written as text into a Mind (#1075)", { timeout: 30_000 }, () 
 
   // protects=written as text once more after the refusal, a source the model recorded becomes its Citation and one it didn't is left out, said to the model and on the card, never kept as text; fails_when=a bracket stays in the Mind, or one left out goes unsaid; no_claim=how a real model takes the refusal.
   test("written as text again, sources become their Citations or are left out and counted", async () => {
-    const model = scriptedModel((call) =>
-      searchingFirst(call, (passage) => {
-        const added = call.results.filter((each) => each.tool === "add_to_mind").length;
-        if (added === 0) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
-        if (!called(call, "cite")) {
-          return cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]);
-        }
-        if (added === 1) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
-        return { text: "Done." };
-      }),
+    const model = scriptedModel(
+      (call) =>
+        searchingFirst(call, (passage) => {
+          const added = call.results.filter((each) => each.tool === "add_to_mind").length;
+          if (added === 0) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
+          if (!called(call, "cite")) {
+            return cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]);
+          }
+          if (added === 1) return { calls: [{ tool: "add_to_mind", input: { content: AS_TEXT } }] };
+          return { text: "Done." };
+        }),
+      { generate: judgesNothing },
     );
     const { core, mind } = await setUpWithDocuments(model, [DECK, PLAN]);
 
@@ -291,18 +303,21 @@ describe("The last Answer put into a Mind (#1075)", { timeout: 30_000 }, () => {
     ["Put that into a new Mind.", "Offices"],
     ["把这个写进一个新笔记。", "办公室"],
   ])("“%s” puts in the Answer itself, cited", async (request, title) => {
-    const model = scriptedModel((call) => {
-      if (call.prompt.includes(request)) {
-        return called(call, "create_mind")
-          ? { text: "Done." }
-          : { calls: [{ tool: "create_mind", input: { title, answer: true } }] };
-      }
-      return searchingFirst(call, (passage) =>
-        called(call, "cite")
-          ? { text: `${DECK_QUOTE} [^1].` }
-          : cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]),
-      );
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.prompt.includes(request)) {
+          return called(call, "create_mind")
+            ? { text: "Done." }
+            : { calls: [{ tool: "create_mind", input: { title, answer: true } }] };
+        }
+        return searchingFirst(call, (passage) =>
+          called(call, "cite")
+            ? { text: `${DECK_QUOTE} [^1].` }
+            : cite([{ marker: 1, passage: passage(DECK_QUOTE), quote: DECK_QUOTE }]),
+        );
+      },
+      { generate: judgesNothing },
+    );
     const { core } = await setUpWithDocuments(model, [DECK]);
     const first = await askAssistant(core, { text: "How big are the offices?" });
 

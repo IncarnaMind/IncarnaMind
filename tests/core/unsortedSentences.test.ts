@@ -200,8 +200,7 @@ async function checkedNote(
     },
     {
       generate: (call) => {
-        if (!call.system.startsWith("You sort the sentences"))
-          return checkGenerate(pack.plans)(call);
+        if (call.question !== "find-claims") return checkGenerate(pack.plans)(call);
         sorts.push(call);
         const { sentences } = JSON.parse(call.prompt) as { sentences: Parameters<Sorter>[0] };
         return { text: JSON.stringify({ sentences: sorter(sentences) }) };

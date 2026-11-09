@@ -10,7 +10,12 @@ import { checkReply, isCheckRun } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { part, unzip } from "../helpers/docx";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 /**
  * A table the assistant writes into a Mind (#961), through the core's public
@@ -154,20 +159,23 @@ async function setUp(model: MockLanguageModelV4) {
 describe("A table the assistant writes into a Mind is a table", { timeout: 30_000 }, () => {
   // protects=edit_mind's rewrite of the User's text that adds a Markdown table proposes a table Block, its cells' markers the passage's Citations, and the model reads that a table was added; fails_when=the table lands as a paragraph of pipe lines (#961), or a cell's Citation is lost; no_claim=how a real model writes a table.
   test("a rewrite that adds a table proposes a table, its cells cited", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) {
-        return {
-          text: `${passage}\n\n${TABLE.replace("[^1]", "[1]")}\n<why>Longer, with a table.</why>`,
-        };
-      }
-      if (!called(call, "edit_mind")) {
-        return {
-          calls: [{ tool: "edit_mind", input: { instruction: "Make it longer, with a table" } }],
-        };
-      }
-      return { text: "" };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          return {
+            text: `${passage}\n\n${TABLE.replace("[^1]", "[1]")}\n<why>Longer, with a table.</why>`,
+          };
+        }
+        if (!called(call, "edit_mind")) {
+          return {
+            calls: [{ tool: "edit_mind", input: { instruction: "Make it longer, with a table" } }],
+          };
+        }
+        return { text: "" };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "Make the summary longer", mindId: mind.id });
@@ -209,6 +217,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
                     ],
                   },
             ),
+      { generate: judgesNothing },
     );
     const { core, mind, client } = await setUp(model);
 
@@ -227,7 +236,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         citations: [
           expect.objectContaining({
             documentName: "Tides",
-            quote: "Spring tides happen at new moon and at full moon",
+            quote: `${SPRING}, when the Sun and the Moon pull together.`,
             check: "found",
           }),
         ],
@@ -288,7 +297,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
             },
       );
     let script = byInstruction;
-    const model = scriptedModel((call) => script(call));
+    const model = scriptedModel((call) => script(call), { generate: judgesNothing });
     const { core, mind, client } = await setUp(model);
 
     const first = await askAssistant(core, { text: "Add the terms", mindId: mind.id });
@@ -320,26 +329,29 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
 describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
   // protects=in a rewrite's table, a source written as a name in brackets becomes the passage's Citation when it names its Document, else stays as text and is counted; an extra cell's text and Citation stay in the row's last cell; a marker for no Citation is reported (#961); fails_when=a bracketed name stays text though it names a cited Document, an unlinked one or an extra cell is dropped or not counted, or the model isn't told; no_claim=none beyond protects.
   test("a rewrite's bracketed names link to the passage's Citations, and what can't is kept and counted", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) {
-        return {
-          text: [
-            `${passage} Neap tides are smaller [2].`,
-            "",
-            "| Term | What it means |",
-            "|---|---|",
-            "| Spring tide | The biggest tide [Tides, p. 1] |",
-            "| Neap tide | The smallest tide [Atlas of the Sea, p. 9] |",
-            "| Bore | Rare | at new moon [1] |",
-            "<why>A table.</why>",
-          ].join("\n"),
-        };
-      }
-      return called(call, "edit_mind")
-        ? { text: "Done." }
-        : { calls: [{ tool: "edit_mind", input: { instruction: "Add a table of terms" } }] };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          return {
+            text: [
+              `${passage} Neap tides are smaller [2].`,
+              "",
+              "| Term | What it means |",
+              "|---|---|",
+              "| Spring tide | The biggest tide [Tides, p. 1] |",
+              "| Neap tide | The smallest tide [Atlas of the Sea, p. 9] |",
+              "| Bore | Rare | at new moon [1] |",
+              "<why>A table.</why>",
+            ].join("\n"),
+          };
+        }
+        return called(call, "edit_mind")
+          ? { text: "Done." }
+          : { calls: [{ tool: "edit_mind", input: { instruction: "Add a table of terms" } }] };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
 
     const answer = await askAssistant(core, { text: "Add a table of terms", mindId: mind.id });
@@ -373,6 +385,7 @@ describe("A table's cells keep their sources", { timeout: 30_000 }, () => {
             ? { text: "Done." }
             : { calls: [{ tool: "add_to_mind", input: { content } }] },
         ),
+      { generate: judgesNothing },
     );
     const { core, mind, client } = await setUp(model);
 
@@ -394,13 +407,16 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
   // protects=add_to_mind whose table can't be made, after some of its Blocks were already written as its input came, leaves the Mind as it was, counts nothing on the call or the card, and the reply carries the refusal in the User's language (#961); fails_when=the streamed Blocks stay, the call keeps a change ("Wrote 1 paragraph"), or the model isn't told what to say; no_claim=that a real model words it so.
   test("added after Blocks streamed in: the Mind is as it was, nothing is counted, and the reply says why", async () => {
     const content = `## 关键条款\n\n下面是表格。\n\n${BROKEN_TABLE}\n\n就这些。`;
-    const model = scriptedModel((call): ScriptedReply => {
-      const told = call.results.find((result) => result.tool === "add_to_mind")?.text;
-      if (told !== undefined) {
-        return { text: /in these words: “(.*?)” Then/.exec(told)?.[1] ?? "" };
-      }
-      return { calls: [{ tool: "add_to_mind", input: { content }, streamInput: true }] };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const told = call.results.find((result) => result.tool === "add_to_mind")?.text;
+        if (told !== undefined) {
+          return { text: /in these words: “(.*?)” Then/.exec(told)?.[1] ?? "" };
+        }
+        return { calls: [{ tool: "add_to_mind", input: { content }, streamInput: true }] };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     const before = JSON.stringify(client.blocks.toJSON());
 
@@ -434,6 +450,7 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
                   },
                 ],
               },
+        { generate: judgesNothing },
       );
       const { core, mind, client } = await setUp(model);
       const before = JSON.stringify(client.blocks.toJSON());
@@ -457,17 +474,24 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
 
   // protects=edit_mind whose rewrite writes pipe lines that make no table proposes nothing, takes back what it had written, and gives the model the text without its markers; fails_when=the pipe lines or part of the rewrite stay in the page; no_claim=none beyond protects.
   test("rewritten: nothing is proposed, and the model gets the text to give", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) {
-        return { text: `${passage} More here.\n\n${BROKEN_TABLE}\n\nThe end.\n<why>Longer.</why>` };
-      }
-      return called(call, "edit_mind")
-        ? { text: "Done." }
-        : {
-            calls: [{ tool: "edit_mind", input: { instruction: "Make it longer, with a table" } }],
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) {
+          return {
+            text: `${passage} More here.\n\n${BROKEN_TABLE}\n\nThe end.\n<why>Longer.</why>`,
           };
-    });
+        }
+        return called(call, "edit_mind")
+          ? { text: "Done." }
+          : {
+              calls: [
+                { tool: "edit_mind", input: { instruction: "Make it longer, with a table" } },
+              ],
+            };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     const before = JSON.stringify(client.blocks.toJSON());
 
@@ -492,13 +516,16 @@ describe("A table that can't be made goes in nowhere", { timeout: 30_000 }, () =
 describe("A table the assistant didn't touch", { timeout: 30_000 }, () => {
   // protects=a rewrite of the whole Mind that leaves its table's cells as they were changes nothing in the table: once accepted, Word and Markdown write it byte for byte as before; fails_when=the table, a cell or its Citation is rewritten, moved or exported differently; no_claim=none beyond protects.
   test("exports byte for byte as before after the rest of the Mind is rewritten", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
-      const passage = editPassage(call);
-      if (passage !== null) return { text: passage.replace("come at", "happen at") };
-      return called(call, "edit_mind")
-        ? { text: "Done." }
-        : { calls: [{ tool: "edit_mind", input: { instruction: "Reword it" } }] };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) return { text: passage.replace("come at", "happen at") };
+        return called(call, "edit_mind")
+          ? { text: "Done." }
+          : { calls: [{ tool: "edit_mind", input: { instruction: "Reword it" } }] };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client, tides } = await setUp(model);
     let cells = 0;
     const cell = (type: string, ...content: JSONContent[]): JSONContent => ({
