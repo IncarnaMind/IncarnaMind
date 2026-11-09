@@ -87,6 +87,32 @@ describe("A Contradicted card's explanation in the interface's language (#2081)"
     expect(saysOf(result)).toBe("文档写的是“38.6%”，不是“36.8%”。");
   });
 
+  test("a rewrite that swaps the Document's figure and the sentence's is never shown", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "The rate is 38.6%.",
+        says: `The report gives the rate as 38.6%, not 36.8%.\n${change}`,
+        restated: "报告写的比率是 36.8%，不是 38.6%。",
+      },
+      "zh-CN",
+    );
+    expect(saysOf(result)).toBe("文档写的是“38.6%”，不是“36.8%”。");
+  });
+
+  test("an unsupported reason rewritten with its figures swapped is none", async () => {
+    const { result } = await checked(
+      {
+        verdict: "unsupported",
+        says: "The report gives 38.6% for the first quarter, not for the second's 36.8%.",
+        restated: "报告给出的是第二季度的 36.8%，不是第一季度的 38.6%。",
+      },
+      "zh-CN",
+      "第二季度的比率是 36.8%。",
+    );
+    expect(result.verdict === "unsupported" && result.unsupported?.reason).toBeNull();
+  });
+
   test("one in the interface's language is shown as it is, with no request", async () => {
     const { result } = await checked(
       {
@@ -208,6 +234,123 @@ describe("A figure contradicted by a quote in another language (#2081)", () => {
       ],
     );
     expect(result.verdict === "contradicted" && result.correction).toBeFalsy();
+  });
+});
+
+describe("A bare figure in the Document is worth what its Document says (#2081)", () => {
+  const wordings = (result: ClaimCheckResult) =>
+    result.verdict === "contradicted"
+      ? result.correction?.choices.map((choice) => choice.wording)
+      : undefined;
+
+  test("a bare figure takes no scale from the sentence", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "Operating profit was 151.2.",
+        says: "报告写的营业利润是 151.2 百万英镑，不是 1.402 亿英镑。\nChange 1: 1.402 亿英镑\nTo 1: Operating profit was 151.2",
+      },
+      "zh-CN",
+      "营业利润为 1.402 亿英镑。",
+      [
+        {
+          name: "Annual report.md",
+          contents: "All figures in £ million.\nOperating profit was 151.2.\n营业利润见上。\n",
+        },
+      ],
+    );
+    // Its Document states £ million: 151.2 is £151.2 million, which is 1.512 亿英镑.
+    expect(wordings(result)).toEqual(["1.512 亿英镑"]);
+  });
+
+  test("and none the other way", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "营业利润为 151.2。",
+        says: "The report gives operating profit as 151.2 in £ million, not £140.2 million.\nChange 1: £140.2 million\nTo 1: 营业利润为 151.2",
+      },
+      "en",
+      "Operating profit was £140.2 million.",
+      [
+        {
+          name: "年报.md",
+          contents: "单位：百万英镑。\n营业利润为 151.2。\nOperating profit is above.\n",
+        },
+      ],
+    );
+    expect(wordings(result)).toEqual(["£151.2 million"]);
+  });
+
+  test.each([
+    {
+      language: "zh-CN" as const,
+      claim: "营业利润为 1.402 亿英镑。",
+      to: "Operating profit was 151.2",
+      contents: "Operating profit was 151.2.\n营业利润见上。\n",
+    },
+    {
+      language: "en" as const,
+      claim: "Operating profit was £140.2 million.",
+      to: "151.2",
+      contents: "Operating profit was 151.2.\n",
+    },
+  ])(
+    "a bare figure whose Document states no scale is no fix, in $language",
+    async ({ language, claim, to, contents }) => {
+      const { result } = await checked(
+        {
+          verdict: "contradicted",
+          quote: "Operating profit was 151.2.",
+          says: `The report gives operating profit as 151.2.\nChange 1: ${claim.includes("亿") ? "1.402 亿英镑" : "£140.2 million"}\nTo 1: ${to}`,
+        },
+        language,
+        claim,
+        [{ name: "Annual report.md", contents }],
+      );
+      expect(result.verdict).toBe("contradicted");
+      // Never the sentence's unit dropped ("营业利润为 151.2。") or a millionth of the amount.
+      expect(wordings(result)).toBeUndefined();
+    },
+  );
+
+  test("a bare figure in the sentence's language under a stated scale keeps the sentence's unit", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "Operating profit was 151.2.",
+        says: "The report gives operating profit as £151.2 million.\nChange 1: £140.2 million\nTo 1: 151.2",
+      },
+      "en",
+      "Operating profit was £140.2 million.",
+      [
+        {
+          name: "Annual report.md",
+          contents: "All figures in £ million.\nOperating profit was 151.2.\n",
+        },
+      ],
+    );
+    expect(wordings(result)).toEqual(["£151.2 million"]);
+  });
+
+  test("a table's cell under a heading that states its scale is written in the sentence's", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "2024 财年 | 1,226.7 | 171.6",
+        says: "哈尔登表格写的 2024 财年营业利润是 171.6 百万英镑。\nChange 1: 1.786 亿英镑\nTo 1: 171.6",
+      },
+      "zh-CN",
+      "2024 财年营业利润增至 1.786 亿英镑。",
+      [
+        {
+          name: "哈尔登.md",
+          contents:
+            "# 哈尔登年度数据\n\n| 年度 | 收入（百万英镑） | 营业利润（百万英镑） |\n|---|---|---|\n| 2023 财年 | 1,180.4 | 160.9 |\n| 2024 财年 | 1,226.7 | 171.6 |\n",
+        },
+      ],
+    );
+    expect(wordings(result)).toEqual(["1.716 亿英镑"]);
   });
 });
 

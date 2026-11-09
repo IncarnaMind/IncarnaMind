@@ -111,18 +111,21 @@ export const restateInstructions = (language: Language): string =>
     "Reply with the sentence alone.",
   ].join("\n");
 
-/** The amounts a text states, each once, whatever scale or language they are written in. */
+const sameAmount = (a: number, b: number) =>
+  Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+/**
+ * The amounts a text states, in the order it states them, whatever scale or language they are
+ * written in; one written again just after itself ("171.6 百万英镑，即 1.716 亿英镑") once. A
+ * rewrite that puts them in another order may have swapped the Document's and the sentence's.
+ */
 function amountsOf(text: string): number[] {
   const values = readFigures(text, documentFigureContext([{ text }])).map((each) => each.value);
-  return [...new Set(values)].sort((a, b) => a - b);
+  return values.filter((value, at) => at === 0 || !sameAmount(value, values[at - 1] ?? Number.NaN));
 }
 
 const sameAmounts = (a: readonly number[], b: readonly number[]) =>
-  a.length === b.length &&
-  a.every((value, index) => {
-    const other = b[index] ?? Number.NaN;
-    return Math.abs(value - other) <= 1e-9 * Math.max(1, Math.abs(value), Math.abs(other));
-  });
+  a.length === b.length && a.every((value, index) => sameAmount(value, b[index] ?? Number.NaN));
 
 export interface ExplanationAsk {
   language: Language;
