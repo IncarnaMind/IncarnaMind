@@ -399,14 +399,27 @@ export type ClaimCheckShown =
 
 /**
  * The failures a check on the same sentence and Documents cannot settle: the Citation it needs
- * is kept inside another Folder, or the sentence describes the Library in a way its facts can't
- * settle (#2525). A reply that failed, was refused or couldn't be used, a service
- * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
- * Not checked.
+ * is kept inside another Folder, the sentence describes the Library in a way its facts can't
+ * settle (#2525), or its figure is one its workbook or Document can't give a value for, which
+ * only a change to the file can (#2313). Checking again gives the same, so they don't hold back
+ * Checked, and a Check of what changed doesn't send them. A reply that failed, was refused or
+ * couldn't be used, a service limit, a cap, a stop, or a sentence a later Check takes may be
+ * settled next time, so those stay Not checked.
  */
 export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set([
   "kept-inside",
   "library-unsettled",
+  "workbook-differs",
+  "workbook-external",
+  "workbook-volatile",
+  "workbook-circular",
+  "workbook-not-read",
+  "workbook-no-saved-value",
+  "workbook-unsupported",
+  "workbook-text",
+  "workbook-changed",
+  "figures-not-read",
+  "sentence-figures-not-read",
 ]);
 
 /** Whether a check's result is one a check cannot settle for this sentence, rather than one still to make. */

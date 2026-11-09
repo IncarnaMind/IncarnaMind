@@ -19,6 +19,7 @@ import {
   noteHealth,
 } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { noteStateOf, noteStateParts } from "../../src/renderer/src/noteState";
 import type { KeptMark } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { sentenceKey } from "../../src/shared/mindCheck";
@@ -29,6 +30,7 @@ const ROW_KEY = {
   supported: "supported",
   ownNotes: "ownNotes",
   checking: "checking",
+  cantCheck: "cantCheck",
   toCheck: "notChecked",
 } as const;
 
@@ -571,7 +573,8 @@ describe("The check card's rows (#2831)", () => {
       ["look", 3],
       ["supported", 2],
       ["checking", 1],
-      ["toCheck", 2],
+      ["cantCheck", 1],
+      ["toCheck", 1],
     ]);
     const counted = rows.filter(({ row }) => row !== "ownNotes");
     expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
@@ -581,13 +584,15 @@ describe("The check card's rows (#2831)", () => {
       "3 need a look",
       "2 supported",
       "1 being checked",
-      "2 not checked",
+      "1 can’t be checked",
+      "1 not checked",
     ]);
     expect(rows.map(({ row, places }) => say("zh-CN", row, places.length))).toEqual([
       "3 句需要留意",
       "2 句有依据",
       "1 句正在核对",
-      "2 句未核对",
+      "1 句无法核对",
+      "1 句未核对",
     ]);
     for (const language of ["en", "zh-CN"] as const) {
       const words = rows.map(({ row, places }) => say(language, row, places.length)).join(" ");
@@ -741,5 +746,46 @@ describe("The check card's rows (#2831)", () => {
       ["supported", 1],
       ["toCheck", 1],
     ]);
+  });
+
+  // protects=a Note whose every verdict is handled reads Checked: kept as the User's view counts as handled, and a sentence a check can't settle while it and its file stay as they are (a figure its workbook works out anew each time) is named beside the mark, never "not checked yet" (#2313's 2026-11-08 walk); fails_when=the badge reads Not checked, or the sentence sits in the not-checked row; no_claim=which workbooks give such figures.
+  test("a Note whose verdicts are all handled reads Checked, naming what can't be checked", () => {
+    const doc = docOf(
+      paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+      paragraph(
+        checked("Online sales grew 12% in the quarter.", "unsupported", null, { kept: true }),
+      ),
+      paragraph(checked("Revenue was 4.2 million in March.", "not-checked", "workbook-volatile")),
+    );
+    const health = healthOf(doc);
+    expect(rowsOf(health)).toEqual([
+      ["supported", 1],
+      ["cantCheck", 1],
+    ]);
+    const state = noteStateOf(health);
+    expect(state).toMatchObject({ kind: "checked", cantCheck: 1 });
+    const words = (language: "en" | "zh-CN") =>
+      state
+        ? noteStateParts(state, (key, params) => translate(language, key, params), language)
+        : [];
+    expect(words("en")).toEqual([
+      expect.stringMatching(/^Checked \S/),
+      "1 sentence can’t be checked",
+    ]);
+    expect(words("zh-CN")).toEqual([expect.stringMatching(/^已核对 \S/), "1 句无法核对"]);
+  });
+
+  // protects=a check that may settle next time (a busy service) keeps the Note Not checked, under can't be checked with its reason in its card (#2313); fails_when=it reads Checked; no_claim=none beyond protects.
+  test("a check a retry may settle keeps the Note Not checked", () => {
+    const doc = docOf(
+      paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+      paragraph(checked("Revenue was 4.2 million in March.", "not-checked", "rate-limit")),
+    );
+    const health = healthOf(doc);
+    expect(rowsOf(health)).toEqual([
+      ["supported", 1],
+      ["cantCheck", 1],
+    ]);
+    expect(noteStateOf(health)?.kind).toBe("not-checked");
   });
 });

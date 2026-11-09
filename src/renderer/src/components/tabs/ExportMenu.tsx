@@ -12,7 +12,7 @@ import { EXPORT_OPTIONS_FORMATS, exportFormatNow, FORMAT_LABELS, useExports } fr
 import { useMindNoteStates } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { showCheckCard, startCheckAsking } from "../../mindCheck";
-import { noteStateParts } from "../../noteState";
+import { noteStateParts, nothingLeft } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
@@ -129,9 +129,11 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         label: `${t("export.running")} · ${t("export.show")}`,
         run: () => showCheckCard(mindId),
       }
-    : noteState === null || noteState.kind === "checked"
+    : noteState === null || nothingLeft(noteState)
       ? null
-      : noteState.kind === "needs-look"
+      : // A checked note with something settled only as far as it can be quotes the badge's line,
+        // as the Saved line does (#2313): "Checked 14:25 · 1 sentence can't be checked".
+        noteState.kind === "needs-look" || noteState.kind === "checked"
         ? {
             label: `${noteStateParts(noteState, t, language).join(" · ")} · ${t("export.show")}`,
             run: () => showCheckCard(mindId),

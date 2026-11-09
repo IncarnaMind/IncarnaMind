@@ -24,7 +24,12 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
-import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
+import {
+  addedCouldChange,
+  cantBeChecked,
+  checkedSentence,
+  claimCheckShown,
+} from "../../../shared/claimChecks";
 import { planOf, withFigureFacts } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
@@ -547,8 +552,12 @@ export function createMindCheck(options: MindCheckOptions) {
           kept: keptAsView(marks, sentence),
         });
         // An Analysis's figure no check can change (#2378): not worked out again, or its record
-        // gone. An edit of the sentence shows it to check again.
-        const settled = shown?.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason);
+        // gone; or a sentence a check can't settle while it and its Documents stay as they are
+        // (#2313). An edit of the sentence, or a change to its Document, shows it to check again.
+        const settled =
+          shown !== null &&
+          ((shown.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason)) ||
+            cantBeChecked(shown));
         if (mark && settled) {
           held.push(mark.check.checkedAt);
           continue;

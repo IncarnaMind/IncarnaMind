@@ -122,7 +122,7 @@ const WORDS = {
     slope: "A linear fit of amount against order date gives a slope of [=1] per day.",
     chart: "Total amount by region",
     note: "Calculated by the Analysis “Orders by region” from 40 rows of Orders.",
-    notRecalculated: "1 figure not recalculated",
+    notRecalculated: "1 not recalculated",
     column: "amount: sum of 40 rows, by region · recalculated",
     differs: "North: 9,999 in the note, 9,450 in the Analysis",
     footed: "The rows above add to 35,550",
@@ -136,7 +136,7 @@ const WORDS = {
     slope: "金额对下单日期的线性拟合斜率为每天 [=1]。",
     chart: "各地区金额合计",
     note: "由数据分析“按地区汇总订单”根据“Orders”的 40 行计算得出。",
-    notRecalculated: "1 个数字未重新计算",
+    notRecalculated: "1 处未重新计算",
     column: "amount：按 region 计算 40 行的合计 · 已重新计算",
     differs: "North：笔记中为 9,999，数据分析中为 9,450",
     footed: "上面各行相加为 35,550",
@@ -903,8 +903,8 @@ const NAMED = {
     gone: "The Analysis it came from is no longer available",
     misnamed: (label: string) => `The sentence doesn’t say this figure is ${label}`,
     unnamed: (label: string) => `The sentence doesn’t clearly say this figure is ${label}`,
-    rests: "1 figure not recalculated",
-    two: "2 figures not recalculated",
+    rests: "1 not recalculated",
+    two: "2 not recalculated",
     whole: "North's total is [=3], of [=6] in all.",
     inWord: "Central's subtotal amount is [=6].",
     inOrder: "Central's total amount is [=6], and Central's average amount is [=7].",
@@ -932,8 +932,8 @@ const NAMED = {
     gone: "它所来自的数据分析已不可用",
     misnamed: (label: string) => `句中没有写明这个数字是${label}`,
     unnamed: (label: string) => `句中没有写明这个数字是${label}`,
-    rests: "1 个数字未重新计算",
-    two: "2 个数字未重新计算",
+    rests: "1 处未重新计算",
+    two: "2 处未重新计算",
     whole: "North地区合计为 [=3]，全部合计为 [=6]。",
     inWord: null,
     inOrder: "中部地区金额合计为 [=6]，中部地区平均金额为 [=7]。",
@@ -1462,7 +1462,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
-  test("each column not recalculated counts as one figure, beside the slope, on the green line", async () => {
+  test("a table not recalculated counts once, beside the slope: two on the green line", async () => {
     const base = ANALYSIS(WORDS[language].caption);
     const shares: Answered = {
       ...base,

@@ -29,7 +29,7 @@ import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
-import { type NoteState, unreadForCard } from "../noteState";
+import { type NoteState, noteStateParts, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -186,6 +186,7 @@ const ROW_WORDS = {
   supported: "checks.row.supported",
   ownNotes: "checks.row.ownNotes",
   checking: "checks.row.checking",
+  cantCheck: "checks.row.cantCheck",
   toCheck: "checks.row.notChecked",
 } as const;
 
@@ -199,6 +200,7 @@ function RowMark({ row }: { row: CheckRow }) {
       return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "checking":
       return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
+    case "cantCheck":
     case "toCheck":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
   }
@@ -302,6 +304,12 @@ export function HealthCard({
     problem: problem !== undefined,
     unread: state?.unreadMatters === true ? state.unread : 0,
   });
+  // A checked Note's card quotes the badge's own line (#2313): "Checked 14:25 · 1 sentence can't
+  // be checked". Its unread files have a line of their own below.
+  const checkedLine =
+    summary !== null && state?.kind === "checked"
+      ? noteStateParts({ ...state, unread: 0 }, t, language).join(" · ")
+      : null;
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -352,9 +360,9 @@ export function HealthCard({
     ) : null;
   return (
     <>
-      {summary?.kind === "all" && (
+      {checkedLine !== null && (
         <p data-testid="health-all-checked" className="mind-health-summary">
-          {t("health.allChecked")}
+          {checkedLine}
         </p>
       )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />

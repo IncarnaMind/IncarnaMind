@@ -439,7 +439,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         health.supported++;
         health.supportedAt.push(pos);
       }
-      for (let at = 0; at < unearned; at++) {
+      // A table counts once, however many of its columns weren't recalculated (#2313).
+      if (unearned > 0) {
         health.toCheck.push(pos);
         health.failed.push(pos);
         health.notRecalculated.push(pos);
@@ -454,18 +455,31 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * The check card's rows (#2831): its sentences, each in one row by its one state, so the rows add
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
- * back named under it (`ownNotes`, of the supported), what is being checked and what isn't
+ * back named under it (`ownNotes`, of the supported), what is being checked, what a check
+ * couldn't settle (`cantCheck`, its reason in each sentence's own card, #2313) and what isn't
  * checked, the sentences the last whole check couldn't sort among them (named on that check's
  * line too). Each counts once, in its worst state: needs a look, then not checked, then
  * supported, so an Analysis table with a column not recalculated is one not checked. Rows with
  * none are left out.
  */
-export const CHECK_ROWS = ["look", "supported", "ownNotes", "checking", "toCheck"] as const;
+export const CHECK_ROWS = [
+  "look",
+  "supported",
+  "ownNotes",
+  "checking",
+  "cantCheck",
+  "toCheck",
+] as const;
 export type CheckRow = (typeof CHECK_ROWS)[number];
 
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
   const look = new Set(health.lookClaims);
-  const toCheck = [...new Set(health.toCheck)].filter((pos) => !look.has(pos));
+  const recalculated = new Set(health.notRecalculated);
+  const cantCheck = [...new Set(health.failed)].filter(
+    (pos) => !look.has(pos) && !recalculated.has(pos),
+  );
+  const cant = new Set(cantCheck);
+  const toCheck = [...new Set(health.toCheck)].filter((pos) => !look.has(pos) && !cant.has(pos));
   const notChecked = new Set(toCheck);
   const supportedAt = health.supportedAt.filter((pos) => !look.has(pos) && !notChecked.has(pos));
   const supported = new Set(supportedAt);
@@ -474,6 +488,7 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
     supported: supportedAt,
     ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
     checking: health.checking,
+    cantCheck,
     toCheck,
   };
   return CHECK_ROWS.flatMap((row) =>

@@ -207,14 +207,14 @@ describe("A note's state (D266)", () => {
     expect(state).toMatchObject({ kind: "checked", tone: "success", notRecalculated: 1 });
     const words = (language: "en" | "zh-CN") =>
       noteStateParts(state, (key, params) => translate(language, key, params), language, now);
-    expect(words("en").slice(1)).toEqual(["1 figure not recalculated"]);
-    expect(words("zh-CN").slice(1)).toEqual(["1 个数字未重新计算"]);
+    expect(words("en").slice(1)).toEqual(["1 not recalculated"]);
+    expect(words("zh-CN").slice(1)).toEqual(["1 处未重新计算"]);
     const two =
       noteStateOf(health({ ...slope, toCheck: [4, 9], failed: [4, 9], notRecalculated: [4, 9] })) ??
       fail();
     expect(
       noteStateParts(two, (key, params) => translate("en", key, params), "en", now).slice(1),
-    ).toEqual(["2 figures not recalculated"]);
+    ).toEqual(["2 not recalculated"]);
     // Only alone: a sentence a check could still settle keeps the Note Not checked.
     expect(noteStateOf(health({ ...slope, toCheck: [4, 9], failed: [4, 9] }))?.kind).toBe(
       "not-checked",
@@ -222,7 +222,7 @@ describe("A note's state (D266)", () => {
     // Under 400 px the green line's short form names it, as the export's line does.
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate("en", key, params);
-    expect(checkedCaveat(state, t, String)).toBe("1 figure not recalculated");
+    expect(checkedCaveat(state, t, String)).toBe("1 not recalculated");
     expect(nothingLeft(state)).toBe(false);
     expect(nothingLeft({ ...state, notRecalculated: 0 })).toBe(true);
   });
@@ -233,8 +233,8 @@ describe("A note's state (D266)", () => {
     expect(state).toMatchObject({ kind: "not-checked", tone: "neutral", notRecalculated: 1 });
     const words = (language: "en" | "zh-CN") =>
       noteStateParts(state, (key, params) => translate(language, key, params), language);
-    expect(words("en")).toEqual(["1 figure not recalculated"]);
-    expect(words("zh-CN")).toEqual(["1 个数字未重新计算"]);
+    expect(words("en")).toEqual(["1 not recalculated"]);
+    expect(words("zh-CN")).toEqual(["1 处未重新计算"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {
