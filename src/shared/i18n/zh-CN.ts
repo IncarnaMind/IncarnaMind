@@ -3628,7 +3628,7 @@ export const zhCN = {
   "composer.placeholder.followUp": "追问…",
   "composer.label": "提问，或说“写一篇关于……的笔记”（{shortcut}）",
   "composer.ask": "提问（Enter）",
-  "composer.queued": "这条回复结束后接着问",
+  "composer.queued": "这条回答结束后接着问",
   "composer.queued.cancel": "取消",
   "composer.scope.all": "全部文档",
   "composer.scope.leftOut.one": "全部文档 · 已排除 1 个文件夹",
