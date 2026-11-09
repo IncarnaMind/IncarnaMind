@@ -26,7 +26,7 @@ const controls = {
   INCARNAMIND_LIVE_REPLIES: "1",
   INCARNAMIND_LIVE_DEEPSEEK_KEY: "made-up-deepseek-key",
   INCARNAMIND_LIVE_DEEPSEEK_MODEL: "deepseek-flash",
-  INCARNAMIND_LIVE_CALLS: "reserved-en-structured-m",
+  INCARNAMIND_LIVE_CALLS: "reserved-en-structured-interview",
 };
 const spec: ChatModelSpec = {
   kind: "deepseek",
@@ -70,12 +70,12 @@ function response(streamed: boolean, usage: Record<string, unknown>) {
   );
 }
 
-test("the replacement gate registers six once-only DeepSeek observations, not two tiers", () => {
+test("the replacement gate registers eight once-only DeepSeek observations, not two tiers", () => {
   expect(gate).toMatchObject({
     schemaVersion: 1,
     provider: "deepseek",
     model: "deepseek-flash",
-    label: "DeepSeek V4.1 Flash 1017",
+    label: "DeepSeek V4.1 Flash 1108",
     repliesPerCall: 1,
     perObservationCapUsd: 0.25,
     independentRawAuditAfterEach: true,
@@ -85,11 +85,11 @@ test("the replacement gate registers six once-only DeepSeek observations, not tw
     releasePriorReserves: false,
   });
   expect(gate.callIds).toEqual(
-    ["en", "zh"].flatMap((language) =>
-      ["m", "n", "o"].map((call) => `reserved-${language}-structured-${call}`),
+    ["interview", "client", "team", "named"].flatMap((call) =>
+      ["en", "zh"].map((language) => `reserved-${language}-structured-${call}`),
     ),
   );
-  expect(new Set(gate.callIds).size).toBe(6);
+  expect(new Set(gate.callIds).size).toBe(8);
   expect(structuredControls(controls)).toMatchObject({ provider: "deepseek", model: gate.model });
 });
 

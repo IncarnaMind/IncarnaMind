@@ -2,14 +2,16 @@
   "schemaVersion": 1,
   "provider": "deepseek",
   "model": "deepseek-flash",
-  "label": "DeepSeek V4.1 Flash 1017",
+  "label": "DeepSeek V4.1 Flash 1108",
   "callIds": [
-    "reserved-en-structured-m",
-    "reserved-en-structured-n",
-    "reserved-en-structured-o",
-    "reserved-zh-structured-m",
-    "reserved-zh-structured-n",
-    "reserved-zh-structured-o"
+    "reserved-en-structured-interview",
+    "reserved-zh-structured-interview",
+    "reserved-en-structured-client",
+    "reserved-zh-structured-client",
+    "reserved-en-structured-team",
+    "reserved-zh-structured-team",
+    "reserved-en-structured-named",
+    "reserved-zh-structured-named"
   ],
   "repliesPerCall": 1,
   "perObservationCapUsd": 0.25,

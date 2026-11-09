@@ -29,8 +29,8 @@ import type { MindContent } from "../mindContent";
 import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import { createFactLedger } from "./factLedger";
-import { placeFacts } from "./factPlacement";
-import { type MeetingFact, parseFactReply } from "./factProtocol";
+import { type PlacedTopic, placeFacts } from "./factPlacement";
+import { type FactReply, type MeetingFact, parseFactReply } from "./factProtocol";
 import {
   CALL_LANGUAGES,
   callLanguage,
@@ -58,6 +58,9 @@ import { withUserName } from "./userName";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
+
+/** What a call agrees, sets someone to do or leaves open: never a claim to check. */
+const AGREED: ReadonlySet<FillSection> = new Set(["decisions", "actions", "questions"]);
 
 /** Claims checked at once on a model off this computer; one at a time on one on it. */
 const CLAIMS_AT_ONCE = 4;
@@ -101,8 +104,14 @@ export interface MeetingFillOptions {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
+      retry?: true;
     }): Promise<CellAnswer>;
   };
+  /**
+   * Whether the Mind's Folder (every Document, for a Mind in none) holds a Document to check the
+   * call's claims against, leaving out the Transcript.
+   */
+  checkable(input: { mindId: string; transcriptId: string }): boolean;
   /** Whether the Mind's Folder (every Document, for a Mind in none) supports `claim`, leaving out the Transcript. */
   supports(input: {
     claim: string;
@@ -302,34 +311,53 @@ function placeUnderLines(
   return added;
 }
 
-/** Sections not placed under the User's headings follow under their own titles. */
+const bullets = (nodes: readonly NodeJSON[]): NodeJSON[] => [
+  {
+    type: "bulletList",
+    content: nodes.map((node) => ({ type: "listItem", content: [node] })),
+  },
+];
+
+const titled = (title: string): NodeJSON => ({
+  type: "heading",
+  attrs: { level: 2 },
+  content: [{ type: "text", text: title, marks: [{ type: GENERATED_MARK }] }],
+});
+
+/**
+ * Summary, the call's topics, then the other sections: each under the User's heading for it, else
+ * after their notes under its own title. Every item but the Summary is a bullet.
+ */
 function placeSections(
   blocks: Y.XmlFragment,
   sections: ReadonlyMap<FillSection, NodeJSON[]>,
+  topics: readonly PlacedTopic[],
   headings: ReadonlyMap<FillSection, UserLine>,
+  lines: readonly UserLine[],
   language: Language,
 ): string[] {
   const atEnd: NodeJSON[] = [];
   const added: string[] = [];
-  for (const section of FILL_SECTIONS) {
-    const nodes = sections.get(section);
-    if (!nodes || nodes.length === 0) continue;
-    const heading = headings.get(section);
+  const place = (heading: UserLine | undefined, title: string, nodes: readonly NodeJSON[]) => {
     const element = heading ? findLine(blocks, heading) : null;
     const under = element && placeUnder(blocks, element, nodes);
-    if (under) {
-      added.push(...under);
-      continue;
+    if (under) added.push(...under);
+    else atEnd.push(titled(title), ...nodes);
+  };
+  for (const section of FILL_SECTIONS) {
+    const nodes = sections.get(section);
+    if (nodes && nodes.length > 0) {
+      place(
+        headings.get(section),
+        translate(language, SECTION_TITLES[section]),
+        section === "summary" ? nodes : bullets(nodes),
+      );
     }
-    const title = translate(language, SECTION_TITLES[section]);
-    atEnd.push(
-      {
-        type: "heading",
-        attrs: { level: 2 },
-        content: [{ type: "text", text: title, marks: [{ type: GENERATED_MARK }] }],
-      },
-      ...nodes,
-    );
+    if (section !== "summary") continue;
+    for (const topic of topics) {
+      const heading = lines.find((line) => line.heading && line.marker === topic.heading);
+      place(heading, topic.title, bullets(topic.nodes));
+    }
   }
   return [...added, ...placeAtEnd(blocks, atEnd, true)];
 }
@@ -477,6 +505,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     transcriptId: string,
     route: Routed,
     signal: AbortSignal,
+    retry = false,
   ): Promise<CellAnswer> {
     const answer = await options.answers.answerMeetingFill({
       context,
@@ -484,6 +513,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       documentIds: [transcriptId],
       model: route.model,
       signal,
+      ...(retry && { retry }),
     });
     if (answer.status === "stopped" || signal.aborted) {
       throw new FillProblemError({ kind: "stopped", message: "" });
@@ -570,6 +600,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
     );
     const ledger = createFactLedger();
+    const addresses = lines.map((line) => line.marker);
     let unfinishedParts = 0;
     let problem: MeetingFillProblem | null = null;
     const destinations = new Map<FillSection, string>();
@@ -579,6 +610,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         facts: ledger.facts.map((fact) => ({
           id: fact.id,
           topic: fact.topic,
+          heading: fact.heading,
           text: textOf(fact.body),
           lines: fact.lines,
           sections: fact.sections,
@@ -589,8 +621,23 @@ export function createMeetingFill(options: MeetingFillOptions) {
           ? notesContext(lines, question, history, spoken, name !== null)
           : sectionsContext(question, history, spoken, name !== null);
       let answer: CellAnswer;
+      let parsed: FactReply;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
+        parsed = parseFactReply(answer, addresses);
+        // Cut off before it closed a frame, as when the thinking takes the room: asked once more
+        // with twice the room, which the cost cap sets aside only then. One that closed some keeps
+        // them (#2306).
+        if (
+          answer.status === "failed" &&
+          answer.error?.kind === "cut-short" &&
+          parsed.facts.length === 0 &&
+          parsed.overview === null
+        ) {
+          log.info("meeting.fillAskedWithMoreRoom", { meetingId: meeting.id });
+          answer = await ask(context, part, transcriptId, route, signal, true);
+          parsed = parseFactReply(answer, addresses);
+        }
       } catch (error) {
         if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
@@ -602,7 +649,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
-      const parsed = parseFactReply(answer);
       ledger.accept(parsed);
       const markers = [
         "SUMMARY",
@@ -693,11 +739,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
             present.some((line) => line.heading && line.marker === marker),
           ),
         );
+        const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
           overview,
           lines: present,
           headings: routes,
+          topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),
           claims,
           reference: (topic, direction) =>
             translate(language, `meetings.fill.reference.${direction}`, { topic }),
@@ -721,11 +769,16 @@ export function createMeetingFill(options: MeetingFillOptions) {
           );
         const namedLines = named(planned.lines);
         const namedSections = named(planned.sections);
+        const namedTopics = planned.topics.map((topic) => {
+          const done = withUserName(topic.nodes, name);
+          leftovers += done.leftovers;
+          return { ...topic, nodes: done.nodes };
+        });
         if (leftovers > 0)
           log.warn("meeting.fillTokenLeftover", { meetingId: meeting.id, leftovers });
         return [
           ...placeUnderLines(blocks, present, namedLines),
-          ...placeSections(blocks, namedSections, headings, language),
+          ...placeSections(blocks, namedSections, namedTopics, headings, present, language),
         ];
       },
     };
@@ -915,7 +968,15 @@ export function createMeetingFill(options: MeetingFillOptions) {
     route: Routed,
     signal: AbortSignal,
   ): Promise<Set<string>> {
-    const claims = facts.filter((fact) => fact.claim);
+    // A decision, a task or a question is the call's own, which no Document holds yet; and with
+    // nothing to check against, every claim would be listed as not in the Documents (#2306).
+    const checked = facts.filter(
+      (fact) => fact.claim && !fact.sections.some((section) => AGREED.has(section)),
+    );
+    const claims =
+      checked.length > 0 && options.checkable({ mindId: meeting.mindId, transcriptId })
+        ? checked
+        : [];
     let checking = 0;
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) => {
       // Stopped, as when the pass renamed a line and the notes are made again: no check is sent,
