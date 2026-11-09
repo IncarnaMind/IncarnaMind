@@ -174,6 +174,15 @@ test("ask bar: with no answer yet, the window grows downward for the list and sh
   await expect(suggestion.getByTestId("help-heading")).toContainText("What to ask next");
   expect(await below(panel, suggestion)).toBeGreaterThan(await below(panel, more));
   expect(await focused()).toBe(false);
+
+  // Collapsed and expanded again with the list open, the bar comes back closed.
+  await pointAndClick(panel, more);
+  await expect(list).toBeVisible();
+  await pointAndClick(panel, panel.getByTestId("panel-collapse"));
+  await expect(panel.getByTestId("panel-pill")).toBeVisible();
+  await pointAndClick(panel, panel.getByTestId("panel-expand"));
+  await expect(panel.getByTestId("ask-bar")).toBeVisible();
+  await expect(list).toHaveCount(0);
   await app.close();
 });
 
