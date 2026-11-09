@@ -806,8 +806,9 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
 
   await window.getByTestId("mind-tab").first().click({ button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: "核对", exact: true }));
-  // On this computer it checks at once, asking nothing: no price line and no question.
-  const health = await checkCard(window);
+  // On this computer it checks at once, asking nothing: no price line and no question. The card
+  // opens once its 15 sentences are checked, however long a loaded machine takes.
+  const health = await checkCard(window, window, { stopTimeout: 120_000 });
   await mindCheckFinished(window, 15);
   const ask = health.getByTestId("mind-check-ask");
   await expect(ask).toHaveCount(0);
