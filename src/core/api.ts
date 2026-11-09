@@ -4326,7 +4326,10 @@ export interface Document {
    * Document, a .vtt the User added among them.
    */
   meetingMindId: string | null;
-  /** Who's who in a Meeting's Transcript (#138); null until the User names or moves a Speaker. */
+  /**
+   * Who's who in a Meeting's Transcript (#138); null until the speaker pass tells its voices
+   * apart (#2839), or the User names or moves a Speaker.
+   */
   speakers: TranscriptSpeakers | null;
   /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
@@ -4340,13 +4343,15 @@ export interface Document {
 }
 
 /**
- * Who's who in a Meeting's Transcript (#138), kept apart from its file, which a name never
- * rewrites: so no Citation of it is checked again, and every one shows the names as they are now.
+ * Who's who in a Meeting's Transcript (#138), kept apart from its file, which neither a name nor
+ * the speaker pass rewrites (#2839): so no Citation of it is checked again, and every one shows
+ * who said its line as it is now.
  * A line is known by its start and the label its file gives it ("Me", "Them", "Speaker ?",
  * "Speaker 2"), which is what a Citation of it stores.
  * - `labels`: the name the User gave a Speaker, by label. "Me" is the User and has none.
- * - `lines`: a line the User gave to another Speaker, by `lineKey` of the line as its file has it:
- *   that Speaker's label, "Me", one the file gives, or a "Speaker N" made for a new Speaker.
+ * - `lines`: a line given to another Speaker, by the speaker pass or the User, by `lineKey` of the
+ *   line as its file has it: that Speaker's label, "Me", one the file gives, or a "Speaker N" made
+ *   for a new Speaker.
  */
 export interface TranscriptSpeakers {
   labels: Record<string, string>;
@@ -11422,9 +11427,10 @@ export interface Meeting {
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
  * the Transcript's times; the User's own text never changes.
- * - "waiting": for the Transcript to be finished and saved. A call's notes may already be under
- *   way while its speakers are told apart; they are written once that ends (#2773);
- * - "filling": the model is writing;
+ * - "waiting": for the Transcript to be finished and saved, and in a room, or with a model on
+ *   this computer, for its speakers to be told apart;
+ * - "filling": the model is writing, then its claims are checked (`checking`). A call's notes
+ *   are filled in while its speakers are told apart, and written once ready (#2773, #2839);
  * - "filled": written, and one Undo takes it all back;
  * - "undone": taken back;
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
@@ -11450,6 +11456,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
+  checking?: number;
   /** Blocks inserted by this fill, for status placement without changing the Note. */
   addedBlockIds?: string[];
 }

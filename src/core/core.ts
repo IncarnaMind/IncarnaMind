@@ -4822,8 +4822,12 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
-  let transcriptSaved = (_meetingId: string, _renamed: boolean) => {};
-  let transcriptWritten = (_meetingId: string) => {};
+  let transcriptSaved = (_meetingId: string) => {};
+  // A pass run again at start, by the Meetings' sweep, begins before the notes can hear of it.
+  const writtenAtStart: string[] = [];
+  let transcriptWritten = (meetingId: string) => {
+    writtenAtStart.push(meetingId);
+  };
   /** "Transcript · {meeting}", named for its note, in Recently deleted too, in the interface's language. */
   const transcriptName = (meeting: ReturnType<typeof meetingRecord>) => {
     const language = settings.get().language;
@@ -4926,6 +4930,10 @@ export function createCore(adapters: CoreAdapters): Core {
             return null;
           }
         },
+        setSpeakers: (id, speakers) => {
+          const updated = documents.setToldApart(id, speakers);
+          if (updated) events.emit("documents.speakersChanged", [updated]);
+        },
       },
       partsOf: (meetingId) => listParts(meetingFolder(dataDir, meetingId)),
       audioDeleted: (meetingId) =>
@@ -4959,7 +4967,7 @@ export function createCore(adapters: CoreAdapters): Core {
              WHERE kind = 'transcript' AND source_kind = 'data-folder' AND purged_at IS NOT NULL`,
           )
           .map((row) => row.path),
-      saved: (meetingId, renamed) => transcriptSaved(meetingId, renamed),
+      saved: (meetingId) => transcriptSaved(meetingId),
       written: (meetingId) => transcriptWritten(meetingId),
       changed: meetingsChanged,
       log: adapters.log ?? silentLogger,
@@ -5141,6 +5149,11 @@ export function createCore(adapters: CoreAdapters): Core {
   const extracted = (documentId: string, ms: number) => settled(documentId, ms);
   /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
   const processed = (documentId: string) => settled(documentId, null);
+  /** Where a Meeting's claims are checked: its Note's Folder, or every Document for one in none. */
+  const claimScope = (mindId: string): SearchScope | null => {
+    const { folderId } = minds.get(mindId);
+    return folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null;
+  };
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     content,
@@ -5185,12 +5198,17 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     answers,
+    checkable({ mindId, transcriptId }) {
+      const scope = evidence.scope(mindId, scopeDocuments(claimScope(mindId)), {
+        documentIds: [transcriptId],
+      });
+      return documents.searchableCount(scope.documentIds ?? undefined) > 0;
+    },
     async supports({ claim, mindId, transcriptId, model, signal }) {
-      const { folderId } = minds.get(mindId);
       const result = await checks.checkClaim(
         {
           claim,
-          scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+          scope: claimScope(mindId),
           mindId,
           checked: { documentIds: [transcriptId] },
           model,
@@ -5266,8 +5284,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     log: adapters.log ?? silentLogger,
   });
-  transcriptSaved = (meetingId, renamed) => meetingFill.transcriptSaved(meetingId, renamed);
+  transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
   transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
+  for (const meetingId of writtenAtStart.splice(0)) meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
   /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
   const stopMeeting = (meetingId: unknown): Meeting => {

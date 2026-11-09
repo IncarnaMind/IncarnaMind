@@ -7,7 +7,7 @@ import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
   recordedCall,
-  savedCues,
+  toldCues,
   transcribingCore,
   until,
 } from "../helpers/transcription";
@@ -87,7 +87,7 @@ describe("The labels the speaker pass gives (#138)", () => {
 });
 
 describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
-  // protects=after Stop the Transcript is saved with the labels of where lines came from at once, then the pass relabels the other side in one write to the same file, and the Meeting says it is separating until then; fails_when=the save waits for the pass, "Me" lines change, the file isn't rewritten, or separating never ends; no_claim=the real engine, which the eval and the native import test cover.
+  // protects=after Stop the Transcript is saved with the labels of where lines came from at once, then the pass gives the other side's lines their voices in its who's who, its file and version untouched (#2839), and the Meeting says it is separating until then; fails_when=the save waits for the pass, "Me" lines change, the file is rewritten, a version is made, or separating never ends; no_claim=the real engine, which the eval and the native import test cover.
   test("in a call, the other side's voices become Speaker 1 and 2 after the save, and the User's lines stay \"Me\"", async () => {
     const dataDir = await createTempDataFolder();
     let release = () => {};
@@ -99,16 +99,24 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
 
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     expect(saved.separating).toBe(true);
-    const before = readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+    const file = readFileSync(saved.savedPath as string, "utf8");
+    const before = readVtt(file).cues;
     expect(new Set(before.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
     // The pass starts once the finished text is indexed.
     await vi.waitFor(() => expect(requests[0]?.parts.length).toBeGreaterThan(0), {
       timeout: 10_000,
     });
+    const version = (await core.listDocuments()).find(
+      (each) => each.id === saved.documentId,
+    )?.contentHash;
 
     release();
-    const cues = await savedCues(core, meeting.id);
+    const cues = await toldCues(core, meeting.id);
     expect(cues.map((cue) => cue.text)).toEqual(before.map((cue) => cue.text));
+    expect(readFileSync(saved.savedPath as string, "utf8")).toBe(file);
+    expect(
+      (await core.listDocuments()).find((each) => each.id === saved.documentId)?.contentHash,
+    ).toBe(version);
     expect(
       cues
         .filter((cue) => before[cues.indexOf(cue)]?.speaker === "Me")
@@ -124,12 +132,117 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  // protects=a call's Note deleted while its speakers are told apart gets who spoke each line when it is back, and a who's who the User set before then is kept, never written over by the pass (#2839, #1253); fails_when=the pass's result is lost while the Note is in Recently deleted, or replaces the User's names; no_claim=a pass that fails, which the tests below cover.
+  test("a Note deleted during the pass gets its speakers back with it, and the User's own who's who stays", async () => {
+    for (const named of [false, true]) {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { separator: told } = fakeSeparator({ holds });
+      let answered = false;
+      const separator: SpeakerSeparator = {
+        async separate(request) {
+          const turns = await told.separate(request);
+          answered = true;
+          return turns;
+        },
+      };
+      const { core, meeting } = await recordedCall(await createTempDataFolder(), {
+        speakerSeparator: separator,
+      });
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      const theirs = { labels: { Them: "Dana" }, lines: {} };
+      if (named) {
+        await core.setTranscriptSpeakers({
+          documentId: saved.documentId as string,
+          speakers: theirs,
+        });
+      }
+      await core.deleteMind(meeting.mindId);
+      release();
+      await vi.waitFor(() => expect(answered).toBe(true));
+      // The pass ends in the promise turns after its answer: the next task sees it ended.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      const cues = await toldCues(core, meeting.id);
+      const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+      if (named) {
+        expect(document?.speakers).toEqual(theirs);
+        expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+      } else {
+        expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
+          new Set(["Me", "Speaker 1", "Speaker 2"]),
+        );
+      }
+      core.close();
+    }
+  });
+
+  // protects=the pass says who's who changed only when it wrote it: once for a pass that gives lines to Speakers, never for one that renames no one, and never when the User's own who's who, set while the Note was in Recently deleted, kept the pass's result out (#2839); fails_when=an event says who's who changed when nothing was written, or none comes after a write; no_claim=the event's listeners in the window.
+  test.each([
+    ["gives lines to Speakers", undefined, false, 1],
+    ["renames no one", () => 0, false, 0],
+    ["meets the User's own who's who", undefined, true, 0],
+  ] as const)(
+    "a pass that %s says who's who changed only when it wrote it",
+    async (_, voiceOf, named, events) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { separator: told } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      let answered = false;
+      const separator: SpeakerSeparator = {
+        async separate(request) {
+          const turns = await told.separate(request);
+          answered = true;
+          return turns;
+        },
+      };
+      const { core, meeting } = await recordedCall(await createTempDataFolder(), {
+        speakerSeparator: separator,
+      });
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && transcript.separating,
+      );
+      const theirs = { labels: { Them: "Dana" }, lines: {} };
+      if (named) {
+        await core.setTranscriptSpeakers({
+          documentId: saved.documentId as string,
+          speakers: theirs,
+        });
+        await core.deleteMind(meeting.mindId);
+      }
+      const changed: string[] = [];
+      core.on("documents.speakersChanged", (documents) => {
+        for (const document of documents) changed.push(document.id);
+      });
+      release();
+      await vi.waitFor(() => expect(answered).toBe(true));
+      // The pass ends in the promise turns after its answer: the next task sees it ended.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (named) await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      await toldCues(core, meeting.id);
+      expect(changed).toEqual(Array.from({ length: events }, () => saved.documentId));
+      const document = (await core.listDocuments()).find((each) => each.id === saved.documentId);
+      if (named) expect(document?.speakers).toEqual(theirs);
+      core.close();
+    },
+  );
+
   // protects=one voice on the other side keeps "Them", in a call; fails_when=it becomes "Speaker 1"; no_claim=a real recording's one voice, which the eval covers.
   test('with one voice on the other side, its lines stay "Them"', async () => {
     const dataDir = await createTempDataFolder();
     const { separator } = fakeSeparator({ voiceOf: () => 0 });
     const { core, meeting } = await recordedCall(dataDir, { speakerSeparator: separator });
-    const cues = await savedCues(core, meeting.id);
+    const cues = await toldCues(core, meeting.id);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
     core.close();
   });
@@ -142,7 +255,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       { speakerSeparator: room.separator, capture: { system: "denied" } },
       ["microphone"],
     );
-    const cues = await savedCues(told.core, told.meeting.id);
+    const cues = await toldCues(told.core, told.meeting.id);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Speaker 1", "Speaker 2"]));
     expect(room.requests[0]?.parts.every((part) => part.path.includes("microphone"))).toBe(true);
     told.core.close();
@@ -153,7 +266,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       { speakerSeparator: failing.separator, capture: { system: "denied" } },
       ["microphone"],
     );
-    const unchanged = await savedCues(kept.core, kept.meeting.id);
+    const unchanged = await toldCues(kept.core, kept.meeting.id);
     expect(unchanged.length).toBeGreaterThan(0);
     expect(new Set(unchanged.map((cue) => cue.speaker))).toEqual(new Set(["Speaker ?"]));
     expect((await meetingOf(kept.core, kept.meeting.id)).transcript?.problem?.kind).toBe(
@@ -177,7 +290,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     });
     await until(core, meeting.id, (transcript) => transcript.problem?.kind === "speakers");
     await core.retryTranscript(meeting.id);
-    const cues = await savedCues(core, meeting.id);
+    const cues = await toldCues(core, meeting.id);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
       new Set(["Me", "Speaker 1", "Speaker 2"]),
     );
@@ -215,7 +328,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     missing.record(25 * SECOND);
     await until(missing.core, meeting.id, (transcript) => transcript.lines >= 8);
     await missing.core.stopMeeting(meeting.id);
-    const cues = await savedCues(missing.core, meeting.id);
+    const cues = await toldCues(missing.core, meeting.id);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
     expect(requests).toHaveLength(0);
     expect((await meetingOf(missing.core, meeting.id)).transcript?.problem?.kind).toBe("speakers");
@@ -241,7 +354,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
 
     const again = fakeSeparator();
     const second = await transcribingCore(dataDir, { speakerSeparator: again.separator });
-    const cues = await savedCues(second.core, first.meeting.id);
+    const cues = await toldCues(second.core, first.meeting.id);
     expect(again.requests).toHaveLength(1);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
       new Set(["Me", "Speaker 1", "Speaker 2"]),
@@ -261,7 +374,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     cut.core.close();
     const later = fakeSeparator();
     const third = await transcribingCore(gone, { speakerSeparator: later.separator });
-    const kept = await savedCues(third.core, cut.meeting.id);
+    const kept = await toldCues(third.core, cut.meeting.id);
     expect(later.requests).toHaveLength(0);
     expect(new Set(kept.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
     third.core.close();

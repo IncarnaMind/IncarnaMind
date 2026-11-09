@@ -9,6 +9,7 @@ import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
   ChatModelFactory,
+  CitationLocation,
   Core,
   Meeting,
   MeetingFill,
@@ -22,6 +23,8 @@ import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { formatLocation } from "../../src/shared/locations";
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -39,7 +42,13 @@ import {
   writeMind,
 } from "../helpers/minds";
 import { type ModelCall, questionOf, scriptedModel } from "../helpers/models";
-import { fakeSeparator, savedCues, transcribingCore, until } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  savedCues,
+  toldCues,
+  transcribingCore,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 const MY_LINES = [
@@ -69,17 +78,25 @@ function fact(
   topic: string,
   body: string,
   {
+    heading,
     lines = [],
     sections = [],
     claim = false,
     citations = [...body.matchAll(/\[\^(\d+)\]/g)].map((match) => Number(match[1])),
-  }: { lines?: string[]; sections?: FillSection[]; claim?: boolean; citations?: number[] } = {},
+  }: {
+    heading?: string;
+    lines?: string[];
+    sections?: FillSection[];
+    claim?: boolean;
+    citations?: number[];
+  } = {},
 ): string {
   return [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
       topic,
+      ...(heading !== undefined && { heading }),
       citations: [...new Set(citations)],
       lines,
       sections,
@@ -244,6 +261,20 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
 }
 
 /** The Mind's lines as shown, AI text in «», a Citation as \uFFFC. */
+/** The Note's top-level Blocks as read: a heading with ##, a bullet with -, AI text in «». */
+const outline = (client: MindClient) => {
+  const lines: string[] = [];
+  readMind(client).forEach((block) => {
+    if (block.type.name === "heading") lines.push(`## ${shownWithAiText(block)}`);
+    else if (block.type.name === "bulletList") {
+      block.forEach((item) => {
+        lines.push(`- ${item.firstChild ? shownWithAiText(item.firstChild) : ""}`);
+      });
+    } else lines.push(shownWithAiText(block));
+  });
+  return lines;
+};
+
 const shown = (client: MindClient) => {
   const lines: string[] = [];
   readMind(client).descendants((node) => {
@@ -289,8 +320,8 @@ const NOTES = [
 describe("After Stop, the notes are filled in from the Transcript (#142)", {
   timeout: 60_000,
 }, () => {
-  // protects=in a call, the notes start from the saved Transcript while its speakers are told apart (#2773), but nothing is written until the pass ends, and when it renames no one the notes are made once; fails_when=the fill waits for the pass before its request, writes before the pass ends, or is made twice; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
-  test("a call's notes start while its speakers are told apart and are written once the pass renames no one", async () => {
+  // protects=in a call, the notes start from the saved Transcript while its speakers are told apart (#2773), and are written as soon as they are ready, the pass still running, once (#2839); fails_when=the fill waits for the pass before its request or before writing, or is made twice; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
+  test("a call's notes are written as soon as they are ready, while its speakers are still told apart", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -317,20 +348,16 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       undefined,
       { speakerSeparator: separator, cloud: true },
     );
-    const before = shown(client);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    await vi.waitFor(() => expect(asked).toEqual([true]));
-    await vi.waitFor(() =>
-      expect(model.doStreamCalls.length + model.doGenerateCalls.length).toBeGreaterThanOrEqual(2),
-    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([true]);
+    expect((await until(core, meeting.id, (each) => each.state === "saved")).separating).toBe(true);
     await client.settled();
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
-    expect(shown(client)).toEqual(before);
+    expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
-    expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
     expect(asked).toEqual([true]);
     core.close();
   });
@@ -401,8 +428,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=when the speaker pass renames who spoke a line, notes made before it ended are dropped and made again from the renamed Transcript, so the Citations written name the final speakers (#2773, #138); fails_when=the notes made before the rename are written, or their Citations keep the old label; no_claim=the pass's labels.
-  test("a call whose pass renames a line is filled again from the renamed Transcript, its Citations naming the new speakers", async () => {
+  // protects=when the speaker pass renames who spoke a line after a call's notes are in, the notes stay as written, made once, and each of their Citations names the new speaker, read from the Transcript's who's who, with no new version for them to be checked against; one Undo takes them all back (#2839, #138); fails_when=the notes are made again, a Citation shows the old speaker, the Transcript's version changes under them, or Undo leaves some; no_claim=the pass's accuracy.
+  test("a call whose pass renames a line keeps its notes, and their Citations name the new speaker", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -441,25 +468,113 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       speakerSeparator: separator,
       cloud: true,
     });
+    const before = shown(client);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    await vi.waitFor(() => expect(asked).toEqual([true]));
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    const written = mindCitations(client).filter((each) => each.quote === said);
+    expect(written.length).toBeGreaterThan(0);
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(asked).toEqual([true, false]);
-    expect(marks).toEqual(["0:00 Them", "0:00 Speaker 1"]);
-    const final = (await savedCues(core, meeting.id)).find((cue) => cue.text === said);
+    const final = (await toldCues(core, meeting.id)).find((cue) => cue.text === said);
     expect(final?.speaker).toBe("Speaker 1");
+    expect(asked).toEqual([true]);
+    expect(marks).toEqual(["0:00 Them"]);
+    const transcriptId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+      ?.transcript?.documentId;
+    const transcript = (await core.listDocuments()).find((each) => each.id === transcriptId);
     const cited = mindCitations(client).filter((each) => each.quote === said);
-    expect(cited.length).toBeGreaterThan(0);
+    expect(cited).toEqual(written);
+    const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
     for (const citation of cited) {
-      expect(citation.location).toMatchObject({ kind: "time", speaker: "Speaker 1" });
+      expect(citation.contentHash).toBe(transcript?.contentHash);
+      const location = citation.location as CitationLocation;
+      expect(formatLocation(location, t, { speakers: transcript?.speakers ?? null })).toBe(
+        "Speaker 1 · 0:00",
+      );
     }
+    await core.undoMeetingFill(meeting.id);
+    await client.settled();
+    expect(shown(client)).toEqual(before);
     core.close();
   });
 
-  // protects=when the speaker pass renames a line while the notes made before it are checking their claims, those checks are stopped and the notes are made again at once, without waiting for them (#2773); fails_when=the second fill request waits for the first fill's claim checks to end; no_claim=what the checks would have said.
-  test("a pass that renames a line while the first notes check their claims makes them again at once", async () => {
+  // protects=a call's notes whose reply is still out when the speaker pass ends are checked against who's who as their model read it, so their records of "Them" lines are found and written, and their Citations then name the new speaker; without a rename the same holds (#2839); fails_when=a record is checked against who's who changed while its reply was out, so the notes fail or lose items; no_claim=the pass's accuracy.
+  test.each([
+    ["renames", undefined, "Speaker 1"],
+    ["renames no one", () => 0, "Them"],
+  ] as const)(
+    "notes whose reply is out when the pass %s are found and written",
+    async (_, voiceOf, speaker) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let answer = () => {};
+      const held = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let asked = 0;
+      const said = THEIR_LINES[0] as string;
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        if (fillRun(call)) {
+          asked++;
+          const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+            each.text.includes(said),
+          );
+          const mark = passage?.text
+            .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+            ?.find((each) => passage.text.includes(`${each}${said}`));
+          const citations = [
+            { marker: 1, passage: passage?.id, location: mark?.slice(1, -2) ?? "", quote: said },
+          ];
+          return {
+            calls: [{ tool: "cite", input: { citations } }],
+            pause: { after: 0, until: held },
+          };
+        }
+        return {
+          text: [
+            overview("The call covered the budget [^1]."),
+            fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
+              sections: ["decisions"],
+            }),
+          ].join("\n\n"),
+        };
+      });
+      const { separator, requests } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+        speakerSeparator: separator,
+        cloud: true,
+      });
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await vi.waitFor(() => expect(asked).toBe(1));
+      release();
+      await until(core, meeting.id, (each) => !each.separating);
+      answer();
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+      expect(asked).toBe(1);
+      const transcriptId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+        ?.transcript?.documentId;
+      const transcript = (await core.listDocuments()).find((each) => each.id === transcriptId);
+      const cited = mindCitations(client).filter((each) => each.quote === said);
+      expect(cited.length).toBeGreaterThan(0);
+      const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+      for (const citation of cited) {
+        expect(citation.check).toBe("found");
+        expect(
+          formatLocation(citation.location as CitationLocation, t, {
+            speakers: transcript?.speakers ?? null,
+          }),
+        ).toBe(`${speaker} · 0:00`);
+      }
+      core.close();
+    },
+  );
+
+  // protects=a call's claims are checked while its speakers are told apart, the fill says how many while the checks run, and a pass that renames a line meanwhile leaves the checks and the notes as they are, made once (#2839); fails_when=the notes are made again, the checks are stopped, or no count is said while they run or one is left after; no_claim=what the checks say.
+  test("a call's claims are counted while they are checked, and a rename meanwhile doesn't make the notes again", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -495,7 +610,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         text: [
           overview("The call covered the budget [^1]."),
           fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
-            sections: ["decisions"],
             claim: true,
           }),
         ].join("\n\n"),
@@ -519,12 +633,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       { speakerSeparator: separator, cloud: true },
     );
     await vi.waitFor(() => expect(checks).toBeGreaterThan(0));
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling", checking: 1 });
     passing = false;
     release();
-    await vi.waitFor(() => expect(asked).toEqual([true, false]));
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling", checking: 1 });
     answer();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    expect(asked).toEqual([true, false]);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", checking: 0 });
+    expect(asked).toEqual([true]);
     core.close();
   });
 
@@ -561,8 +677,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=a quit while a call's notes are made before its speakers are told apart writes nothing, and at the next start the notes wait for the pass to run again, then are filled in once (#2773); fails_when=the next start says the fill stopped, writes before the pass, or writes twice; no_claim=the pass's labels.
-  test("a quit while the notes are made before the speakers are told apart fills them in once the pass has run at the next start", async () => {
+  // protects=a quit while a call's notes are made during its speaker pass writes nothing; the next start says the fill stopped, as for any fill a quit cuts short, runs the pass again, and Try again fills the notes in once (#2839); fails_when=anything is written at the quit, the next start fills them in by itself or says nothing, or Try again writes twice; no_claim=the pass's labels.
+  test("a quit while a call's notes are made during its speaker pass says the fill stopped, and Try again fills them in once", async () => {
     let made = 0;
     const model = fillingModel(
       PRICING_REPLY,
@@ -579,38 +695,37 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     const before = shown(client);
     await vi.waitFor(() => expect(made).toBe(1));
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     core.close();
 
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let passing = true;
-    const asked: boolean[] = [];
-    const { separator: again } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const asked: number[] = [];
+    const { separator: again, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
     const { core: reopened } = await transcribingCore(dataDir, {
       model: fillingModel(
         PRICING_REPLY,
         { 1: MY_LINES[0] as string },
         {},
-        { seen: (call) => fillRun(call) && asked.push(passing) },
+        { seen: (call) => fillRun(call) && asked.push(1) },
       ),
       speakerSeparator: again,
       keychain,
     });
-    const writtenWhile: boolean[] = [];
-    reopened.on("meetings.changed", (meetings) => {
-      const fill = meetings.find((each) => each.id === meeting.id)?.fill;
-      if (fill?.state === "filled" && writtenWhile.length === 0) writtenWhile.push(passing);
-    });
     const shownAgain = await connectToMind(reopened, meeting.mindId);
     expect(shown(shownAgain)).toEqual(before);
-    expect((await fillOf(reopened, meeting.id))?.state).not.toBe("failed");
-    passing = false;
-    release();
+    expect(await fillOf(reopened, meeting.id)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(asked).toHaveLength(0);
+    await reopened.fillMeetingNotes(meeting.id);
     expect(await settledFill(reopened, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
+    release();
+    await until(reopened, meeting.id, (each) => !each.separating);
     expect(asked).toHaveLength(1);
     expect(
       shown(shownAgain).filter(
@@ -786,13 +901,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the claims the User's Documents don't support; fails_when=a section is missing, uncited, or a supported claim is listed; no_claim=the template's sections (#688).
-  test("with no notes, the sections, and only the claims the Documents don't support", async () => {
-    const supported = "The enterprise price is 45 dollars a seat.";
+  // protects=with no notes, the sections are filled in, each citing the Transcript, and "Said in the call, not in your Documents" keeps only the statements the User's Documents don't support, moved there whole, never a decision, task or open question, which is the call's own and isn't checked (#2306); fails_when=a section is missing, uncited, a decision is checked or listed, or a claim is written twice; no_claim=the template's sections (#688).
+  test("with no notes, the sections, and only the claims the Documents don't support, written there once", async () => {
+    const decided = "The enterprise price is 45 dollars a seat";
+    const checks: string[] = [];
     const model = fillingModel(
       [
         overview("The call covered pricing and the contract [^1]."),
-        fact("P1_price", "pricing", `${supported.replace(".", "")} [^1].`, {
+        fact("P1_price", "pricing", `${decided} [^1].`, {
           sections: ["decisions"],
           claim: true,
         }),
@@ -813,17 +929,17 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         3: THEIR_LINES[1] as string,
         4: THEIR_LINES[0] as string,
       },
+      {},
       {
-        "The enterprise price is 45 dollars a seat.": {
-          verdict: "supported",
-          quote: "Enterprise plan: 45 dollars a seat",
+        seen: (call) => {
+          if (isCheckRun(call)) checks.push(call.prompt);
         },
       },
     );
     const { core, meeting, client } = await recorded(model, null, async (core) => {
       const sources = await createSourceFolder();
       await addAndProcess(core, [
-        await writeSourceFile(sources, "Price list.md", "Enterprise plan: 45 dollars a seat.\n"),
+        await writeSourceFile(sources, "Price list.md", "Team plan: 30 dollars a seat.\n"),
       ]);
     });
 
@@ -832,7 +948,6 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     expect(shown(client)).toEqual([
       "«Summary»",
       "«The call covered pricing and the contract »\uFFFC«.»",
-      "«The budget is approved for this year »\uFFFC«.»",
       "«Decisions»",
       "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "«Action items»",
@@ -840,8 +955,220 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       "«Open questions»",
       "«The security review is still open »\uFFFC«.»",
       "«Said in the call, not in your Documents»",
-      "«budget approval — see above »\uFFFC",
+      "«The budget is approved for this year »\uFFFC«.»",
     ]);
+    expect(checks.some((prompt) => prompt.includes("The budget is approved"))).toBe(true);
+    expect(checks.some((prompt) => prompt.includes(decided))).toBe(false);
+    core.close();
+  });
+
+  // protects=with no notes, the Summary leads with the overview alone, then a heading for each of the call's topics, in its order, with its facts as cited bullets, then only the sections the call had, each as bullets; a claim is checked only when a Document other than the Transcript is in scope, and only one the Documents don't back is listed, moved there whole; one Undo restores the Note (#2306); fails_when=facts are paragraphs under Summary, a topic repeats, an empty section or claims list shows, a check is sent with nothing to check against, or a claim is written twice; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+  test.each([
+    ["en", "no Documents"],
+    ["en", "a Document"],
+    ["zh-CN", "no Documents"],
+    ["zh-CN", "a Document"],
+  ] as const)(
+    "with no notes in %s and %s, Summary leads, each topic is a heading with cited bullets, and only unbacked claims are listed",
+    async (language, documents) => {
+      const chinese = language === "zh-CN";
+      const said = chinese ? CHINESE_LINES : { mine: MY_LINES, theirs: THEIR_LINES };
+      const [price = "", , rollout = ""] = said.mine;
+      const [budget = "", security = ""] = said.theirs;
+      const stop = chinese ? "。" : ".";
+      const topics = chinese ? ["价格与预算", "上线"] : ["Price and budget", "Rollout"];
+      const checks: string[] = [];
+      const model = fillingModel(
+        [
+          overview(
+            `${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} [^1]${stop}`,
+          ),
+          fact("P1_price", "price", `${price} [^1]${stop}`, { heading: topics[0], claim: true }),
+          fact("P1_budget", "budget", `${budget} [^2]${stop}`, {
+            heading: ` ${topics[0]?.toUpperCase()} `,
+            claim: true,
+          }),
+          fact("P1_rollout", "rollout", `${rollout} [^3]${stop}`, { heading: topics[1] }),
+          fact("P1_security", "security", `${security} [^4]${stop}`, {
+            heading: topics[1],
+            sections: ["questions"],
+          }),
+        ].join("\n"),
+        { 1: price, 2: budget, 3: rollout, 4: security },
+        { [`${price}${stop}`]: { verdict: "supported", quote: price } },
+        {
+          seen: (call) => {
+            if (isCheckRun(call)) checks.push(call.prompt);
+          },
+        },
+      );
+      const { core, meeting, client } = await recorded(
+        model,
+        null,
+        async (core) => {
+          if (documents === "no Documents") return;
+          const sources = await createSourceFolder();
+          await addAndProcess(core, [
+            await writeSourceFile(sources, "Price list.md", `${price}\n`),
+          ]);
+        },
+        undefined,
+        { lines: said },
+      );
+      const before = exactly(client);
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
+      const ai = (text: string) => `- «${text} »\uFFFC«${stop}»`;
+      const title = (key: "summary" | "questions" | "claims") =>
+        `## «${translate(language, `meetings.fill.section.${key}`)}»`;
+      await vi.waitFor(() =>
+        expect(outline(client)).toEqual([
+          title("summary"),
+          `«${chinese ? "通话谈了价格和上线" : "The call went through price and rollout"} »\uFFFC«${stop}»`,
+          `## «${topics[0]}»`,
+          ai(price),
+          ...(documents === "a Document" ? [] : [ai(budget)]),
+          `## «${topics[1]}»`,
+          ai(rollout),
+          title("questions"),
+          ai(security),
+          ...(documents === "a Document" ? [title("claims"), ai(budget)] : []),
+        ]),
+      );
+      expect(checks.length > 0).toBe(documents === "a Document");
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    },
+  );
+
+  // protects=a reply whose facts after the first leave their json fence open, or one that puts a blank line before each closing fence, still fills every fact in, each cited, as real models' replies did (#2306); fails_when=the facts after the first are read as code, or a closed fence gets a second one that swallows the next fact; no_claim=how often a model does either.
+  test.each(["left open", "closed after a blank line"] as const)(
+    "facts whose metadata fence the model %s are all filled in",
+    async (shape) => {
+      const closedFence = /(\{"topic"[^\n]*\})\n```\n/g;
+      const facts = [
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+        fact("P1_contract", "contract", "Dana will send the contract by Friday [^2].", {
+          heading: "Contract",
+        }),
+        fact("P1_rollout", "rollout", "The rollout starts in the second quarter [^3].", {
+          heading: "Rollout",
+        }),
+      ];
+      const [first = "", ...rest] = facts;
+      const written =
+        shape === "left open"
+          ? [first, ...rest.map((each) => each.replace(closedFence, "$1\n"))]
+          : facts.map((each) => each.replace(closedFence, "$1\n\n```\n"));
+      const model = fillingModel(
+        [overview("The call covered price, contract and rollout [^1]."), ...written].join("\n\n"),
+        { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string, 3: MY_LINES[2] as string },
+      );
+      const { core, meeting, client } = await recorded(model, null);
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+      await vi.waitFor(() =>
+        expect(outline(client)).toEqual([
+          "## «Summary»",
+          "«The call covered price, contract and rollout »\uFFFC«.»",
+          "## «Pricing»",
+          "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
+          "## «Contract»",
+          "- «Dana will send the contract by Friday »\uFFFC«.»",
+          "## «Rollout»",
+          "- «The rollout starts in the second quarter »\uFFFC«.»",
+        ]),
+      );
+      core.close();
+    },
+  );
+
+  // protects=a fill reply cut off at its output limit is asked once more with twice the room and fills the note in, while every first request sets aside only the usual room, so a fill still runs under a small monthly cap (#2306); fails_when=a cut-off fill fails without a second try, or a first request sets aside the larger room and passes the cap; no_claim=how often a real model's thinking reaches the limit.
+  test("a fill cut off at its output limit is asked once more with more room, and fills in", async () => {
+    const limits: (number | undefined)[] = [];
+    let cut = true;
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      limits.push(call.options.maxOutputTokens);
+      const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
+      const citations = transcriptCitations(call, shown, { 1: MY_LINES[0] as string });
+      if (citations) return citations;
+      const text = [
+        overview("The call settled the price [^1]."),
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+      ].join("\n\n");
+      if (!cut) return { text };
+      cut = false;
+      return { text: "", cutOff: true };
+    });
+    const { core, meeting, client } = await recorded(model, null);
+
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "filled",
+      problem: null,
+      omitted: 0,
+    });
+    expect([...new Set(limits)]).toEqual([16_000, 32_000]);
+    await vi.waitFor(() =>
+      expect(outline(client)).toContain(
+        "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
+      ),
+    );
+    core.close();
+  });
+
+  test("a fill runs under a small monthly cap, each request setting aside only the usual room", async () => {
+    const model = fillingModel(
+      [
+        overview("The call settled the price [^1]."),
+        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: "Pricing",
+        }),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    // Claude Haiku 5.5 sets aside about $0.008 for 16,000 tokens out and $0.016 for 32,000.
+    const { core, meeting, client } = await recorded(
+      model,
+      null,
+      async (core) => {
+        await core.updateSettings({ user: { monthlyCap: { amount: 0.012, currency: "USD" } } });
+      },
+      undefined,
+      { cloud: true },
+    );
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+    await vi.waitFor(() => expect(outline(client)).toContain("## «Pricing»"));
+    core.close();
+  });
+
+  // protects=a topic heading drops only this fill's own addresses: "H1" when the User typed a first heading, while "H2" as a half-year stays, in English and Chinese (#2306); fails_when=a finance "H2" is dropped, or an address the prompt listed shows as a heading; no_claim=which headings a model writes.
+  test.each([
+    ["H2 targets", "H2 targets"],
+    ["下半年 H2 目标", "下半年 H2 目标"],
+    ["H1 targets", "targets"],
+  ])("with a typed heading, a topic headed %j is shown as %j", async (title, shown) => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE",
+        overview("The call set the targets [^1]."),
+        fact("P1_targets", "targets", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+          heading: title,
+        }),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const { core, meeting, client } = await recorded(model, [heading(2, "Goals"), note("plan")]);
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    await vi.waitFor(() => expect(outline(client)).toContain(`## «${shown}»`));
     core.close();
   });
 
@@ -1301,7 +1628,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  test("a deleted target's fact moves to Summary instead of attaching to a stale line", async () => {
+  test("a deleted target's fact goes under the User's heading for its topic instead of a stale line", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1329,16 +1656,15 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     release();
 
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 3));
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(typed.length + 2));
     expect(shown(client)).toEqual([
       "Pricing",
       "contract",
       "«Dana sends the contract by Friday »\uFFFC«.»",
+      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       "Rollout",
       "start date",
       "Who signs?",
-      "«Summary»",
-      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
     ]);
     await core.undoMeetingFill(meeting.id);
     await vi.waitFor(() => expect(exactly(client)).toEqual(before));
@@ -1426,8 +1752,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=a call's note deleted while its notes are made before its speakers are told apart, and brought back after the pass ends, gets its notes, as one deleted while it waited for the pass does (#2773); fails_when=the restored note says the fill stopped, or nothing is filled in; no_claim=a note deleted after the pass, which the tests around it cover.
-  test("a call's note deleted while its notes are made before the pass ends gets them once it is back", async () => {
+  // protects=a call's note deleted while its notes are made during its speaker pass stops them as any fill under way: brought back, it says the fill stopped, and Try again fills them in once (#1253, #2839); fails_when=the restored note fills itself in, says nothing, or Try again writes twice; no_claim=a note deleted after the notes are in, which the tests around it cover.
+  test("a call's note deleted while its notes are made comes back saying the fill stopped, and Try again fills them in once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1443,38 +1769,38 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       {},
       { held, seen: (call) => fillRun(call) && runs++ },
     );
-    const { separator: told } = fakeSeparator({ holds, voiceOf: () => 0 });
-    let answered = false;
-    const separator: SpeakerSeparator = {
-      async separate(request) {
-        const turns = await told.separate(request);
-        answered = true;
-        return turns;
-      },
-    };
+    const { separator } = fakeSeparator({ holds, voiceOf: () => 0 });
     const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
       speakerSeparator: separator,
       cloud: true,
     });
+    const before = shown(await connectToMind(core, meeting.mindId));
     await vi.waitFor(() => expect(runs).toBe(1));
     await core.deleteMind(meeting.mindId);
     reply();
-    release();
-    await vi.waitFor(() => expect(answered).toBe(true));
-    // The pass ends in the promise turns after its answer: the next task sees it ended.
-    await new Promise((resolve) => setTimeout(resolve, 0));
     await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    await core.fillMeetingNotes(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled", omitted: 0 }),
+    );
+    release();
+    await until(core, meeting.id, (each) => !each.separating);
     expect(
       shown(await connectToMind(core, meeting.mindId)).filter(
         (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       ),
     ).toHaveLength(1);
+    expect(runs).toBe(2);
     core.close();
   });
 
-  // protects=a call's note deleted and brought back while its speakers are still told apart, with its notes made before the pass, gets one set of notes once the pass ends, and a second delete and Undo leaves them as they are (#2773); fails_when=the restored note says the fill stopped, nothing is filled in, or the notes are written twice; no_claim=the pass's labels.
-  test("a call's note deleted and brought back before its pass ends gets its notes once, after the pass", async () => {
+  // protects=a call's note deleted and brought back after its notes are in, its speakers still told apart, keeps one set of notes, and a second delete and Undo leaves them as they are (#2839, #1253); fails_when=the notes are made again or written twice; no_claim=the pass's labels.
+  test("a call's note deleted and brought back after its notes are in keeps them once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1491,29 +1817,24 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       speakerSeparator: separator,
       cloud: true,
     });
-    await vi.waitFor(() => expect(runs).toBe(1));
-    await core.deleteMind(meeting.mindId);
-    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
-    release();
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
     const line = "«The enterprise price is 45 dollars a seat »\uFFFC«.»";
-    expect(
-      shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
-    ).toHaveLength(1);
-
-    await core.deleteMind(meeting.mindId);
-    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
-    expect(
-      shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
-    ).toHaveLength(1);
-    expect(runs).toBe(2);
+    for (let round = 0; round < 2; round++) {
+      await core.deleteMind(meeting.mindId);
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      if (round === 0) release();
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
+      expect(
+        shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
+      ).toHaveLength(1);
+    }
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(runs).toBe(1);
     core.close();
   });
 
-  // protects=notes made before a call's speakers are told apart and still being made once the pass ends say they are filling in, so deleting the note then stops them as any fill under way: Undo brings it back saying the fill stopped (#2773, #1253); fails_when=the notes still say they wait after the pass, or the restored note fills itself in; no_claim=none beyond protects.
-  test("notes made before the speakers are told apart and deleted after the pass come back saying the fill stopped", async () => {
+  // protects=notes made during a call's speaker pass and still being made once it ends say they are filling in from the start, so deleting the note then stops them as any fill under way: Undo brings it back saying the fill stopped (#2839, #1253); fails_when=the notes say they wait, or the restored note fills itself in; no_claim=none beyond protects.
+  test("notes made during a call's speaker pass and deleted after it ends come back saying the fill stopped", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1536,11 +1857,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     const before = shown(client);
     await vi.waitFor(() => expect(made).toBe(1));
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     release();
-    await vi.waitFor(async () =>
-      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" }),
-    );
+    await until(core, meeting.id, (each) => !each.separating);
 
     await core.deleteMind(meeting.mindId);
     reply();
@@ -1554,8 +1873,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=Try again pressed while a call's speakers are still told apart, after notes made early failed, says at once that the notes are under way again, and they are written once, after the pass (#2773); fails_when=the line keeps the old problem until the notes land, or they are written before the pass ends or twice; no_claim=which provider error it was.
-  test("Try again during the speaker pass, after notes made early failed, waits for the pass and fills them in once", async () => {
+  // protects=Try again pressed while a call's speakers are still told apart, after its notes failed, says at once that the notes are under way again, and they are written once, as soon as they are ready, as at Stop (#2773, #2839); fails_when=the line keeps the old problem until the notes land, or they wait for the pass, or are written twice; no_claim=which provider error it was.
+  test("Try again during the speaker pass, after a call's notes failed, fills them in at once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1591,10 +1910,11 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       state: "waiting",
       problem: null,
     });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([true]);
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
+    await until(core, meeting.id, (each) => !each.separating);
     expect(
       shown(client).filter(
         (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
@@ -2211,7 +2531,7 @@ for (const call of CALLS) {
     );
 
     test.each(["claims first", "claims last"])(
-      "claims routed with %s check canonical facts and reference only unsupported ones",
+      "claims routed with %s list only the unsupported fact, whole and once, under that heading",
       async (order) => {
         const supported = `${written.L1.trim()}${stop}`;
         const { core, meeting, client } = await recordedWith(
@@ -2242,12 +2562,16 @@ for (const call of CALLS) {
           },
         );
         expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-        await vi.waitFor(() =>
-          expect(shown(client)).toContain(reference(call.topics.budget, "below")),
-        );
-        expect(shown(client)).not.toContain(reference(call.topics.price, "below"));
-        expect(shown(client).filter((line) => line === ai(written.L1))).toHaveLength(1);
-        expect(shown(client).filter((line) => line === ai(call.budget))).toHaveLength(1);
+        await vi.waitFor(() => expect(shown(client)).toContain(ai(call.budget)));
+        const lines = shown(client);
+        expect(lines.indexOf(ai(call.budget))).toBe(lines.indexOf(call.claimsHeading) + 1);
+        for (const topic of [call.topics.budget, call.topics.price]) {
+          for (const direction of ["above", "below"] as const) {
+            expect(lines).not.toContain(reference(topic, direction));
+          }
+        }
+        expect(lines.filter((line) => line === ai(written.L1))).toHaveLength(1);
+        expect(lines.filter((line) => line === ai(call.budget))).toHaveLength(1);
         core.close();
       },
     );
@@ -2349,7 +2673,7 @@ for (const call of CALLS) {
     );
 
     test.each(["H1", "L99"])(
-      "a reply with only %s omits an invalid address or uses the safe Summary fallback",
+      "a reply with only %s omits an invalid address or falls back to the fact's own topic",
       async (target) => {
         const { core, meeting, client } = await recordedWith(
           [heading(2, call.ownHeading), note(call.typed[0])],
@@ -2371,8 +2695,9 @@ for (const call of CALLS) {
         });
         if (target === "H1") expect(fill.problem?.kind).toBe("model");
         else {
-          expect(shown(client)).toContain(ai(written.L1));
-          expect(shown(client)).toContain(`«${titles[0]}»`);
+          const lines = shown(client);
+          expect(lines.indexOf(ai(written.L1))).toBe(lines.indexOf(`«${call.topics.price}»`) + 1);
+          expect(lines).not.toContain(`«${titles[0]}»`);
           await core.undoMeetingFill(meeting.id);
         }
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));

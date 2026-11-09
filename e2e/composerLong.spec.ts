@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -11,6 +11,7 @@ import {
   enterContent,
   launchApp,
   nameMind,
+  pasteText as paste,
   placeAssistant,
   pointAndClick,
   removeDataFolder,
@@ -212,12 +213,6 @@ test("the composer grows to 8 lines then scrolls; from 4 lines Expand opens a ta
   await expect(input).not.toBeFocused();
   await app.close();
 });
-
-/** Puts text on the clipboard and pastes it with the keyboard, as a person would. */
-async function paste(app: ElectronApplication, window: Page, text: string) {
-  await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), text);
-  await window.keyboard.press("ControlOrMeta+v");
-}
 
 const LONG_PASTE = Array.from(
   { length: 74 },

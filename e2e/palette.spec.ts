@@ -734,9 +734,10 @@ test("a word is never matched across words, and a name read two ways is found by
   // The action is offered by its own name, so the failure is the match, not a missing command.
   await window.keyboard.type("> remove the examples");
   await expect(group(window, "actions")).toContainText("Remove the examples");
-  // "theme" is not "the e" of "the examples": nothing is highlighted, and the row says so.
+  // "theexam" would only match "the examples" read across its space: nothing is highlighted, and
+  // the row says so.
   await window.keyboard.press("ControlOrMeta+a");
-  await window.keyboard.type("> theme");
+  await window.keyboard.type("> theexam");
   await expect(window.getByTestId("palette-empty")).toHaveText("No actions match");
   await expect(palette(window).getByTestId("palette-item")).toHaveCount(0);
 

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import {
+  CLAIM_CHECK_INSTRUCTIONS,
+  DONE_BY_NOTE_CHANGE,
+  UNCHANGED_PART_RULE,
+  unbackedClaims,
+} from "../../src/core/answers/claimedChanges";
 import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
@@ -240,6 +245,306 @@ describe("The quick model's verdict", () => {
 
   test("an unreadable verdict finds nothing", async () => {
     expect((await check(judge("not JSON"), "An honest Answer.")).claims).toEqual([]);
+  });
+});
+
+/** An edit_mind of one part of “Q3 review”: done with `change`, or failed with `problem`. */
+const partCall = (
+  id: string,
+  part: string | null,
+  change: Partial<MindChange> | null,
+  problem: "length" | "uncited" = "length",
+): AnswerToolCall => ({
+  ...mindCall("edit_mind", change),
+  id,
+  input: part === null ? {} : { part },
+  ...(change === null && { mindProblem: { kind: problem, mindId: "q3" } }),
+});
+
+/** Where each part is in “Q3 review”, by its text blocks: `Summary` holds `Detail`, the rest stand apart. */
+const SPANS: Record<string, { from: number; to: number }> = {
+  Risks: { from: 0, to: 2 },
+  Outlook: { from: 2, to: 4 },
+  风险: { from: 4, to: 6 },
+  下周计划: { from: 6, to: 8 },
+  Summary: { from: 8, to: 12 },
+  Detail: { from: 10, to: 12 },
+  下周要跟客户开会: { from: 12, to: 13 },
+};
+
+const recordRead = async (calls: AnswerToolCall[]) => {
+  const model = judge({ claims: [] });
+  await unbackedClaims("The section is longer now.", calls, MINDS, null, {
+    model,
+    names,
+    parts: (_mindId, part) => SPANS[part] ?? null,
+    signal: new AbortController().signal,
+  });
+  return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+};
+
+const UNCHANGED = 'nothingChangedIn\\": ';
+
+describe("What the record tells the check of a part and a rewrite (#2769)", () => {
+  // protects=a part of a Note whose every call failed, while another part of it changed, is named in the record as unchanged, in English and Chinese, and a part that failed then changed, or a Note changed as a whole, names none; fails_when=the check reads only that the Note changed, and backs the failed part's claim, or names a part that did change; no_claim=the judge's verdicts (the probes and runs).
+  test.each([
+    ["Risks", "Outlook"],
+    ["风险", "下周计划"],
+  ])("a part every call failed on is named unchanged: %s", async (failed, other) => {
+    const prompt = await recordRead([
+      partCall("a", failed, null),
+      partCall("b", other, { revised: true }),
+      partCall("c", other, null, "uncited"),
+      partCall("d", failed, null, "uncited"),
+    ]);
+    expect(prompt.split(UNCHANGED)).toHaveLength(3);
+    expect(prompt).toContain(`\\"nothingChangedIn\\": \\"${failed}\\"`);
+    expect(prompt).not.toContain(`\\"nothingChangedIn\\": \\"${other}\\"`);
+    expect(prompt).not.toContain('\\"part\\"');
+
+    const later = await recordRead([
+      partCall("a", failed, null),
+      partCall("b", other, { revised: true }),
+      partCall("c", failed, { revised: true }),
+    ]);
+    expect(later).not.toContain(UNCHANGED);
+    const whole = await recordRead([partCall("a", failed, null), partCall("b", null, {})]);
+    expect(whole).not.toContain(UNCHANGED);
+    expect(prompt).toContain("A call with nothingChangedIn failed");
+    expect(later).not.toContain("nothingChangedIn");
+    expect(whole).not.toContain("nothingChangedIn");
+    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("nothingChangedIn");
+    expect(UNCHANGED_PART_RULE).toContain("A call with nothingChangedIn failed");
+  });
+
+  // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).
+  test("a part a change reached under another name, or that can't be found, is never named", async () => {
+    for (const calls of [
+      [partCall("a", "Summary", null), partCall("b", "Detail", { revised: true })],
+      [partCall("a", "Detail", null), partCall("b", "Summary", { revised: true })],
+      [partCall("a", "Elsewhere", null), partCall("b", "Outlook", { revised: true })],
+      [partCall("a", "Risks", null), partCall("b", "Moved on", { revised: true })],
+    ]) {
+      expect(await recordRead(calls)).not.toContain(UNCHANGED);
+    }
+    const unfound: AnswerToolCall = {
+      ...partCall("a", "Risks", null),
+      mindProblem: { kind: "no-heading", mindId: "q3", heading: "Risks" },
+    };
+    expect(await recordRead([unfound, partCall("b", "Outlook", { revised: true })])).not.toContain(
+      UNCHANGED,
+    );
+    expect(
+      await recordRead([partCall("a", "Risks", null), partCall("b", "Outlook", { revised: true })]),
+    ).toContain(`\\"nothingChangedIn\\": \\"Risks\\"`);
+  });
+
+  // protects=the rules for a part no change reached and for a Note changed go to the check only beside a record that holds one, so a record with neither is judged by main's rules as they were, a part whose edit failed in a Note nothing else of changed is named by none, and a new Note opens beside one only when the User is in one (#2769); fails_when=either rule goes with every record, or a new Note is said to open beside a Note when none is in front, which made the check catch fewer unmade claims ("I've translated it." with no call, 3 of 10 against main's 10 of 10 on Claude Haiku 5.5), or a Note with no change names a part; no_claim=the judge's verdicts (the probes and runs).
+  test("each new rule goes only beside the record it is about", async () => {
+    const sent = async (calls: AnswerToolCall[], focused: string | null = null) => {
+      const model = judge({ claims: [] });
+      await unbackedClaims("Done.", calls, MINDS, focused, {
+        model,
+        names,
+        parts: (_mindId, part) => SPANS[part] ?? null,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      });
+      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    };
+    const plain = await sent([]);
+    // With no call, the probe main caught every time ("I've translated it.") is sent main's rules.
+    expect(plain).toContain(JSON.stringify(CLAIM_CHECK_INSTRUCTIONS).slice(1, -1));
+    expect(plain).not.toContain("nothingChangedIn");
+    expect(plain).not.toContain(DONE_BY_NOTE_CHANGE);
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "is backed when the record shows a command done and names nothing that call didn’t do.",
+    );
+    const failedAlone = await sent([partCall("a", "Risks", null)]);
+    expect(failedAlone).not.toContain("nothingChangedIn");
+    expect(failedAlone).not.toContain(DONE_BY_NOTE_CHANGE);
+    const beside = await sent([
+      partCall("a", "Risks", null),
+      partCall("b", "Outlook", { revised: true }),
+    ]);
+    expect(beside).toContain("A call with nothingChangedIn failed");
+    expect(beside).not.toContain(DONE_BY_NOTE_CHANGE);
+    const create = {
+      ...mindCall("create_mind", { created: true, mindId: "tides" }),
+      input: { title: "Tide notes" },
+    };
+    const made = await sent([create]);
+    expect(made).toContain(DONE_BY_NOTE_CHANGE);
+    expect(made).not.toContain("opens");
+    expect(made).not.toContain("nothingChangedIn");
+    expect(await sent([create], "q3")).toContain(
+      '\\"opens\\": \\"beside the Note the User is in\\"',
+    );
+  });
+
+  // protects=a request said to be done is backed by a change to a Note only when every call that changes something did it: beside a failed write in the same Note or another, a stopped write, one the stop cut short after it wrote (#2834), a failed command or a change waiting for the User, main's sentence goes, while every call applied, or a failure its later call of the same Tool on the same Note and part retried, backs it (#2769's review); fails_when=one applied change backs "done" for the whole Answer; no_claim=the judge's verdicts (the probes and runs).
+  test("done is backed by a Note change only when nothing was left undone", async () => {
+    const sentTo = async (calls: AnswerToolCall[], waiting = "") => {
+      const model = judge({ claims: [] });
+      await unbackedClaims("Everything you asked for is done.", calls, MINDS, null, {
+        model,
+        names,
+        states: (change) =>
+          change.request === waiting
+            ? null
+            : { waiting: 0, accepted: 0, rejected: 0, applied: true },
+        signal: new AbortController().signal,
+      });
+      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    };
+    const applied = partCall("a", "Outlook", { cited: 2 });
+    const added: AnswerToolCall = { ...mindCall("add_to_mind", {}), id: "add" };
+    const stopped: AnswerToolCall = {
+      ...partCall("s", null, null),
+      mindProblem: { kind: "stopped", mindId: "q3" },
+    };
+    const cut: AnswerToolCall = {
+      ...partCall("c", "Risks", { cited: 1 }),
+      status: "failed",
+      mindProblem: { kind: "stopped", mindId: "q3" },
+    };
+    const command: AnswerToolCall = {
+      id: "cmd",
+      tool: "run_command",
+      source: "commands",
+      input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+      status: "failed",
+      resultCount: null,
+    };
+    const elsewhere: AnswerToolCall = {
+      ...partCall("w", "风险", null),
+      mindProblem: { kind: "length", mindId: "weekly" },
+    };
+    for (const calls of [
+      [added, partCall("f", "Risks", null)],
+      [applied, elsewhere],
+      [applied, stopped],
+      [applied, cut],
+      [cut],
+      [applied, command],
+    ]) {
+      const prompt = await sentTo(calls);
+      expect(prompt).not.toContain(DONE_BY_NOTE_CHANGE);
+      expect(prompt).toContain("is backed when the record shows a command done");
+    }
+    expect(
+      await sentTo([applied, partCall("b", "Risks", { request: "wait" })], "wait"),
+    ).not.toContain(DONE_BY_NOTE_CHANGE);
+    expect(await sentTo([applied])).toContain(DONE_BY_NOTE_CHANGE);
+    expect(
+      await sentTo([
+        partCall("f", "Risks", null),
+        partCall("g", "Risks", { revised: true }),
+        applied,
+      ]),
+    ).toContain(DONE_BY_NOTE_CHANGE);
+  });
+
+  // protects=a later write is read as the retry of a failed one only when it has the same Tool, Note and target (a new Note's title, the part or place named, else the first line written or the instruction), and each retries one failure (#2769's review); fails_when=another section written at the Note's end, another whole-Note edit or another new Note backs "done" after the first failed; no_claim=the judge's verdicts.
+  describe("only a write with the same target retries a failed one", () => {
+    const sentTo = async (calls: AnswerToolCall[]) => {
+      const model = judge({ claims: [] });
+      await unbackedClaims("Everything you asked for is done.", calls, MINDS, null, {
+        model,
+        names,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      });
+      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    };
+    const write = (
+      id: string,
+      tool: string,
+      input: Record<string, unknown>,
+      change: Partial<MindChange> | null,
+    ): AnswerToolCall => ({
+      ...mindCall(tool, change),
+      id,
+      input,
+      ...(change === null && { mindProblem: { kind: "uncited", mindId: "q3" } }),
+    });
+    const risks = (id: string, change: Partial<MindChange> | null, line = "- Supplier delay") =>
+      write(id, "add_to_mind", { content: `## Risks\n${line}` }, change);
+    const graphst = (id: string, change: Partial<MindChange> | null) =>
+      write(id, "create_mind", { title: "GraphST notes" }, change);
+
+    test.each([
+      [
+        "another section written at the Note's end",
+        [risks("r", null), write("t", "add_to_mind", { content: "## Timeline\n- March" }, {})],
+      ],
+      [
+        "another whole-Note edit",
+        [
+          write("ty", "edit_mind", { instruction: "fix the typos" }, null),
+          write("fo", "edit_mind", { instruction: "make it more formal" }, {}),
+        ],
+      ],
+      [
+        "another new Note",
+        [
+          graphst("g", null),
+          write(
+            "s",
+            "create_mind",
+            { title: "STAGATE notes" },
+            { created: true, mindId: "stagate" },
+          ),
+        ],
+      ],
+      [
+        "one retry after two failures",
+        [risks("r1", null), risks("r2", null, "- Late audit"), risks("r3", {}, "- Both, cited")],
+      ],
+    ])("main's sentence after %s", async (_case, calls) => {
+      const prompt = await sentTo(calls);
+      expect(prompt).not.toContain(DONE_BY_NOTE_CHANGE);
+      expect(prompt).toContain("is backed when the record shows a command done");
+    });
+
+    test.each([
+      ["the same section written again", [risks("r", null), risks("r-again", {}, "- Cited")]],
+      [
+        "the same new Note made again",
+        [graphst("g", null), graphst("g-again", { created: true, mindId: "graphst" })],
+      ],
+      [
+        "the same whole-Note edit again",
+        [
+          write("fo", "edit_mind", { instruction: "Make it more formal" }, null),
+          write("fo-again", "edit_mind", { instruction: "make it more formal" }, {}),
+        ],
+      ],
+    ])("a Note change backs done after %s", async (_case, calls) => {
+      expect(await sentTo(calls)).toContain(DONE_BY_NOTE_CHANGE);
+    });
+  });
+
+  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
+  test("a rewrite read as sentences taken out and written new is told in words", async () => {
+    const prompt = await recordRead([
+      partCall("a", "下周要跟客户开会", {
+        proposals: 1,
+        changed: 1,
+        sentences: {
+          kept: 0,
+          takenOut: 1,
+          shortened: 0,
+          rewritten: 0,
+          written: 2,
+          named: { takenOut: ["下周要跟客户开会，聊聊合同的事。"], rewritten: [] },
+        },
+      }),
+    ]);
+    expect(prompt).toContain(
+      "What it does to the User's sentences there: 1 taken out whole (“下周要跟客户开会，聊聊合同的事。”); 2 sentences written new.",
+    );
+    expect(prompt).not.toContain('rewritten\\": 0');
   });
 });
 

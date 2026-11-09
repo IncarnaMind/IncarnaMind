@@ -23,6 +23,14 @@ One issue per theme, not one per finding. A theme is one screen, one flow or one
 - **P0 and a lone P1** are filed on their own the day they are found, so nothing waits for a theme to fill.
 - Issues filed before this rule follow it too: an open issue that shares its theme, tier, difficulty and risk class with another is folded into that one as a part (its criteria kept under "### Part … (was #N)") and closed with a pointer. Issues with an open pull request are folded only after it merges.
 
+## Taking an issue
+
+Two people or agents must never build the same issue. Check before you start, and claim the issue the moment you do.
+
+- **Before starting,** look for anyone already on it: the issue's comments and linked pull requests (`gh issue view <n> --comments`), `gh pr list --search <n>`, and `git ls-remote origin '*<n>*'` for a branch named after it. If anything shows work under way, stop and ask who owns it.
+- **The moment you start,** claim it: push your branch from `main` (`git push -u origin <branch>`) and post one line on the issue, "Being built on branch `<branch>`" (`gh issue comment <n> --body "…"`), with no names. A pull request appears an hour or more into the work, so without the claim a second agent can't see the first.
+- **If you stop without a pull request,** say so on the issue and delete the branch, so the issue is free again.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

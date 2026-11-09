@@ -8,17 +8,15 @@ import { SortingLine } from "./SortingChoice";
 /**
  * "Use TypeSafe Jev…" chosen in the sorting picker (#2615): what Jev is, then the one Jev key
  * entry, with what choosing it sends above its Use this, which saves the key and makes Jev what
- * sorts. `choosing`: the setup card's step, where choosing it turns tagging on, as its line says.
+ * sorts.
  */
 export function JevSortingSetUp({
   jev,
-  choosing,
   choose,
   onChosen,
   onCancel,
 }: {
   jev: JevSettings;
-  choosing: boolean;
   choose(): Promise<boolean>;
   onChosen(): void;
   onCancel(): void;
@@ -49,7 +47,7 @@ export function JevSortingSetUp({
                 provider: service,
                 decisionModel: true,
               }}
-              choosing={choosing}
+              choosing={false}
             />
           ),
           choose,
