@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
 import { VERDICT_SETS } from "../../eval/repeats/verdictCases";
 import { checkInstructions } from "../../src/core/answers/checks/prompt";
+import { readStatedUnits } from "../../src/shared/figures";
 import { OTHERWISE_DECOYS } from "../live/defaultUnitsOtherwise.cases";
 import { AMENDED_SETS } from "../live/nearCopyAmended.cases";
 import { ASK_PATHS_SETS } from "../live/nearCopyAskPaths.cases";
@@ -58,5 +59,7 @@ describe("a Document's default unit (#2889)", () => {
     expect(sentences.length).toBeGreaterThan(400);
     const asBefore = instructions("");
     expect(sentences.filter((claim) => instructions(claim) !== asBefore)).toEqual([]);
+    // A reply is read with a unit line's default as no condition only where its sentence names a unit.
+    expect(sentences.filter((claim) => readStatedUnits(claim).length > 0)).toEqual([]);
   });
 });

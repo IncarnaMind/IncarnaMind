@@ -30,6 +30,7 @@ import {
   type FigureContext,
   FiguresNotRead,
   readFigures,
+  readStatedUnits,
 } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
@@ -155,9 +156,19 @@ import {
   replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
+  withReadingDefault,
 } from "./prompt";
+
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from "./units";
+
+/**
+ * How the check of a part of `sentence`, or of the whole, reads a reply: where the sentence names a
+ * unit, its Document's default for reading figures ("unless otherwise stated") is read as no
+ * condition, as its check is told (#2889); every other sentence's reply is read as written.
+ */
+const readingDefaultOf = (sentence: string) =>
+  readStatedUnits(sentence).length > 0 ? withReadingDefault : (reply: string) => reply;
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -1222,12 +1233,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       request.findParts(text);
     };
     let setAside: readonly string[] = [];
+    const readable = readingDefaultOf(request.originalClaim ?? request.claim);
     // The Duty and Condition lines that took support away before an ask about something else: the
     // engine sets aside no turn across an ask, and a difference the check wrote down holds (#1766).
     // An ask for those very lines drops them, as the reply written again answers it.
     let heldBack: readonly string[] = [];
     const across = (last: string, aside: readonly string[] = []) =>
-      replyAcrossTurns(last, heldBack.length > 0 ? [heldBack.join("\n"), ...aside] : aside);
+      readable(
+        replyAcrossTurns(last, heldBack.length > 0 ? [heldBack.join("\n"), ...aside] : aside),
+      );
     // Set by any reply that compared other words than the sentence's, whether or not the ask was
     // still free: a later reply that gives none is held back as one that gives other words.
     let askedForOwnWords = false;
@@ -1487,7 +1501,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           : doubted;
       };
       const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
-      const said = readVerdict(verdictText);
+      const said = readVerdict(readable(verdictText));
       const checkedFigures = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
@@ -2002,7 +2016,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const again = await compare(request, stated, session, signal, RECHECK_INSTRUCTIONS);
         if (signal.aborted) return notChecked("stopped");
         if ("failed" in again) return failedCheck(again.failed);
-        return rechecked(readVerdict(again.reply), stated);
+        return rechecked(
+          readVerdict(readingDefaultOf(request.originalClaim ?? request.claim)(again.reply)),
+          stated,
+        );
       }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
@@ -2141,7 +2158,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const again = await compare(request, deciding, session, signal, RECHECK_INSTRUCTIONS);
         if (signal.aborted) return notChecked("stopped");
         if ("failed" in again) return failedCheck(again.failed);
-        return rechecked(readVerdict(again.reply), evidence);
+        return rechecked(
+          readVerdict(readingDefaultOf(request.originalClaim ?? request.claim)(again.reply)),
+          evidence,
+        );
       }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
       // called the parties the other way round the same (#1668, #2313).

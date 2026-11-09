@@ -1131,6 +1131,46 @@ const holdsBack = (line: string) =>
     return word === "differs" || word === "denied";
   });
 
+// A Document's own default for reading its figures, never a condition on a right or a duty:
+// "unless otherwise stated", "except where noted", 除另有说明外, 如无特别说明 (#2889). "Unless
+// otherwise agreed", "except as otherwise provided" and 除非双方另有约定 are conditions.
+const READING_DEFAULT =
+  /\bunless\s+(?:otherwise\s+)?(?:stated|noted|indicated|specified|shown)(?:\s+otherwise)?\b|\bexcept\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|specified|shown)\b|除(?:另有|特别|非另有)(?:说明|注明|指明)外?|如无(?:特别|特殊)?(?:说明|注明)/giu;
+// What else would make the rest of a side a condition, once its default is taken out.
+const CONDITION_WORD =
+  /\b(?:only|unless|except|provided|subject|if|when|where|after|before|until|save|upon|once)\b|除|非|只有|经|前提|如果|须|方可|之后|以后|以前|之前/iu;
+
+/** A Condition side whose only condition is its Document's default for reading its figures. */
+const defaultOnly = (side: string) => {
+  if (!new RegExp(READING_DEFAULT.source, "iu").test(side)) return false;
+  return !CONDITION_WORD.test(side.replace(READING_DEFAULT, " "));
+};
+
+/**
+ * A Supported reply with each Condition line whose one condition is the Document's default for
+ * reading its figures, beside a side that holds none, read as the same on both sides (#2889). For
+ * the check of a sentence that names a unit only, which a Document's "unless otherwise stated"
+ * line gives: the judge's own Supported stands, as it said; any other condition still takes it
+ * away, and a reply that isn't Supported is left as it is.
+ */
+export function withReadingDefault(reply: string): string {
+  if (readVerdict(reply)?.verdict !== "supported") return reply;
+  return reply
+    .split("\n")
+    .map((line) => {
+      const field = CONDITION.exec(line)?.[1];
+      if (field === undefined) return line;
+      const { word, sides: lineSides } = closingWord(field, ["same", "differs"]);
+      if (word === null || lineSides.length !== 2) return line;
+      const none = lineSides.map(conditionNone);
+      const defaults = lineSides.map(defaultOnly);
+      const onlyTheDefault = lineSides.every((_, at) => none[at] || defaults[at]);
+      if (!onlyTheDefault || !defaults.includes(true)) return line;
+      return `${line.slice(0, line.length - field.length)} none / none, same`;
+    })
+    .join("\n");
+}
+
 /** A reply's Duty and Condition lines that take support away whatever a later line says. */
 export const heldDetailLines = (reply: string): string[] => linesOf(reply).filter(holdsBack);
 
