@@ -275,6 +275,9 @@ export function createTextCopies(db: Database, now: () => string) {
       db.run("DELETE FROM text_fingerprints WHERE document_id = ?", [documentId]);
     },
 
+    /** Whether a live Document's text still has no fingerprint (one passed over this session aside). */
+    anyMissing: (): boolean => nextMissing() !== null,
+
     /**
      * Fingerprints the next Document whose text was stored before fingerprints were. A Document
      * it can't fingerprint is passed over, with why, until the next start. Throws only when it

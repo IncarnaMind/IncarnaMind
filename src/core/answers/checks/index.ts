@@ -1577,7 +1577,7 @@ export function createChecks(options: ChecksOptions) {
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
-    evidenceReady: () => options.evidence.ready(),
+    evidenceReady: (stop) => options.evidence.ready(stop),
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1604,7 +1604,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
-    evidenceReady: () => options.evidence.ready(),
+    evidenceReady: (stop) => options.evidence.ready(stop),
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1618,7 +1618,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
-    evidenceReady: () => options.evidence.ready(),
+    evidenceReady: (stop) => options.evidence.ready(stop),
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1790,7 +1790,7 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
-        await options.evidence.ready();
+        await options.evidence.ready(tracked.signal);
         if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"

@@ -1498,13 +1498,20 @@ export function createDocuments(options: DocumentsOptions) {
 
   /**
    * Fingerprints every live Document whose text has none yet (#2216), one a turn, so nothing
-   * holds this thread for long: settles once none is left, or the core closes. Each call asks
-   * again, so a Document restored, or one an ended fill didn't reach, is fingerprinted before
-   * the check that waits on it goes on.
+   * holds this thread for long: settles once none is left. Each call asks again, so a Document
+   * restored, or one an ended fill didn't reach, is fingerprinted before the check that waits on
+   * it goes on. Once the core closes it never settles, so nothing that waits on it reads the
+   * closed database; a check with a stop of its own ends on that (`Evidence.ready`).
    */
   function fillTextFingerprints(): Promise<void> {
-    if (closed) return Promise.resolve();
+    if (closed) return new Promise<void>(() => {});
     if (fingerprintsFilled) return fingerprintsFilled.done;
+    try {
+      if (!textCopies.anyMissing()) return Promise.resolve();
+    } catch (error) {
+      reportError(error);
+      return Promise.resolve();
+    }
     let settle = () => {};
     const done = new Promise<void>((resolve) => {
       settle = resolve;
@@ -3949,7 +3956,7 @@ export function createDocuments(options: DocumentsOptions) {
     close(): void {
       closed = true;
       if (fingerprintTurn) clearTimeout(fingerprintTurn);
-      fingerprintsFilled?.settle();
+      fingerprintsFilled = null;
       library.close();
       embedding.close();
       processor.close();

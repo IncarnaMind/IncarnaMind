@@ -171,9 +171,22 @@ export function createEvidence(deps: EvidenceDependencies) {
      * Settles once `scope` can tell every copy of a checked file by its text. A check waits for
      * it before taking its scope: Documents without a fingerprint (those an older version
      * stored, one restored since) are fingerprinted one a turn, not all at once on this thread
-     * (#2216).
+     * (#2216). It also settles when `stop` aborts, so a stopped check ends at once; after the
+     * core closes, only that settles it.
      */
-    ready: (): Promise<void> => deps.textFingerprinted(),
+    ready(stop?: AbortSignal): Promise<void> {
+      const filled = deps.textFingerprinted();
+      if (!stop) return filled;
+      if (stop.aborted) return Promise.resolve();
+      return new Promise((resolve) => {
+        const end = () => resolve();
+        stop.addEventListener("abort", end, { once: true });
+        void filled.then(() => {
+          stop.removeEventListener("abort", end);
+          resolve();
+        });
+      });
+    },
 
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,

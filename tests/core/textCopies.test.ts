@@ -537,7 +537,8 @@ describe("Every flow the issue names leaves the copy out and names it", () => {
 });
 
 describe("Fingerprinting what an older version stored", () => {
-  test("a Verify stopped while it waits for the fingerprints ends stopped, and sends nothing", async () => {
+  /** A Word file verified and its claim found, then its data folder as an older version left it: no fingerprints. */
+  async function verifiedBeforeFingerprints() {
     const resaved = pairOf("en", "a Word file saved again");
     const calls: ModelCall[] = [];
     const model = checkingModel({ [IN_DISPUTE.en]: { verdict: "unsupported" } }, calls);
@@ -564,13 +565,36 @@ describe("Fingerprinting what an older version stored", () => {
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     db.run("DELETE FROM text_fingerprints");
     db.close();
+    return { start, calls, mindId: made.mind.id, documentId: made.documentId };
+  }
 
+  test("a Verify stopped while it waits for the fingerprints ends stopped, and sends nothing", async () => {
+    const { start, calls, mindId } = await verifiedBeforeFingerprints();
     const again = start();
-    const verifying = again.verifyClaims({ requestId: "stopped", mindId: made.mind.id });
+    const verifying = again.verifyClaims({ requestId: "stopped", mindId });
     await again.cancelCheck("stopped");
     expect(await verifying).toEqual({ kind: "cancelled" });
     expect(calls.filter(isCheckRun)).toEqual([]);
     again.close();
+  }, 120_000);
+
+  test("the core closed while the fill runs: a waiting Verify ends stopped, a waiting search never goes on, and nothing is sent", async () => {
+    const { start, calls, mindId, documentId } = await verifiedBeforeFingerprints();
+    const again = start();
+    const verifying = again.verifyClaims({ requestId: "closing", mindId });
+    let searched = false;
+    const settled = () => {
+      searched = true;
+    };
+    again
+      .searchEvidence(QUERIES.en.clause, { checked: { documentIds: [documentId] } })
+      .then(settled, settled);
+    again.close();
+
+    expect(await verifying).toEqual({ kind: "cancelled" });
+    for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
+    expect(searched).toBe(false);
+    expect(calls.filter(isCheckRun)).toEqual([]);
   }, 120_000);
 
   test("a Document whose text can't be fingerprinted is passed over: the ones after it are fingerprinted, and it is tried again at the next start", async () => {
