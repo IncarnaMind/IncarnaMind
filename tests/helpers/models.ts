@@ -639,6 +639,7 @@ function allSupported(prompt: string): string {
       verdict: "supported",
       roles: "same",
       time: "same",
+      quoted: "states",
       says: "The Document says so.",
     })),
   });

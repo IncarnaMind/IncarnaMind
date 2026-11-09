@@ -71,6 +71,7 @@ async function answered(
           verdict: "supported",
           roles: "same",
           time: "same",
+          quoted: "states",
           says: "The schedule says so.",
         }));
         return { text: JSON.stringify({ sentences }), usage };

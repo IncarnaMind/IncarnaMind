@@ -5,10 +5,11 @@
  * bottom in batches against the Passages their Citations quote (./sentenceBatch), on the model that
  * answered as its own request used it, a few batches at a time, each within the claim time limit;
  * none on a model on this computer too small to judge reliably (#680). Its Citations show the
- * result: found only when it is supported. A limit that stops the judgement stops it at a batch,
- * so the sentences it leaves are the last ones.
+ * result: found only when it is supported and the words it cites say so (#2739). A limit that
+ * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
+import type { Figure, FigureUnit } from "../../../shared/figures";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
@@ -30,7 +31,7 @@ import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
 import { json, judge } from "../judge";
-import { needsCalculation } from "./calculationGate";
+import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
@@ -161,6 +162,9 @@ async function supportOf(
   ) {
     return { check: "unsupported", verdict: verdict.says };
   }
+  // A Citation shows its words beside the check: a sentence they don't state is never green,
+  // whatever another part of the Passage says (#2739).
+  if (verdict.quoted === "other") return null;
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
@@ -172,9 +176,39 @@ async function supportOf(
     quotedWords: [
       ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
     ],
-    confirm: async () => false,
+    confirm: async (figure) => pinnedByModel(figure, sentence.found, units),
   });
   return calculation ? null : { check: "found", verdict: null };
+}
+
+const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
+  (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
+
+/**
+ * Whether the words the model quoted for a sentence, all its Citations' together, hold `figure` as
+ * their one figure of its unit (#2739), read as the figure rule reads a quote: in its page's figure
+ * context, a unit its page states included. A whole sentence shown around them may hold others of
+ * that unit, and only the model's own words say which it meant. With nothing widened they are the
+ * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
+ */
+function pinnedByModel(
+  figure: Figure,
+  cited: readonly Citation[],
+  units: AnswerCheckOptions["units"],
+): boolean {
+  const ofUnit = cited.flatMap((citation) =>
+    figureReadings(citation.given ?? citation.quote, units(citation)).filter((readings) =>
+      readings.some((each) => sameUnit(each.unit, figure.unit)),
+    ),
+  );
+  const [only] = ofUnit;
+  return (
+    ofUnit.length === 1 &&
+    only !== undefined &&
+    only.some((each) => sameUnit(each.unit, figure.unit) && each.value === figure.value)
+  );
 }
 
 /** The limit a failed batch met, if it was one. */

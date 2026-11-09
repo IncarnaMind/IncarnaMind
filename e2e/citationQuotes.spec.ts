@@ -17,8 +17,8 @@ import {
 
 /*
  * A quote shows as words (#905): the scripted model quotes the line of a PDF that is cut at a
- * hyphen where its line breaks, and the Citation's card shows the whole word. The check still
- * finds the quote as it was given.
+ * hyphen where its line breaks, and the Citation's card shows the whole sentence that holds it
+ * (#2739), the split word whole. The check still finds the quote as it was given.
  */
 
 const HARBOUR = buildPdf([
@@ -43,7 +43,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("a Citation's card shows a quote cut at a line-end hyphen as the whole word, and the quote is still found", async () => {
+test("a Citation's card shows a quote cut at a line-end hyphen in its whole sentence, the word whole, and the quote is still found", async () => {
   await writeFile(join(sources, "Harbour.pdf"), HARBOUR);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -59,6 +59,8 @@ test("a Citation's card shows a quote cut at a line-end hyphen as the whole word
   await expect(citation).toHaveAttribute("data-check", "found");
   await pointAt(window, citation.getByTestId("citation-chip"));
   const quote = window.getByTestId("citation-card").locator("blockquote");
-  await expect(quote).toHaveText("The harbour committee will review the case for the existence");
+  await expect(quote).toHaveText(
+    "The harbour committee will review the case for the existence of tides near the pier.",
+  );
   await app.close();
 });
