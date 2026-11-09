@@ -128,12 +128,12 @@ import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { checkRunStart } from "./checkRun";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
-  checkRunStart,
   createClaimCheck,
 } from "./claimCheck";
 import { createFastPaths } from "./fastPaths";
@@ -1839,7 +1839,7 @@ export function createChecks(options: ChecksOptions) {
     ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
-    forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
+    forgetCheckWindow: (clientId: string) => mindCheck.forgetCheckWindow(clientId),
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),

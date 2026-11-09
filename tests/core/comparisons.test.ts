@@ -1391,8 +1391,10 @@ describe("Compare Documents", () => {
     });
     const [notice] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
     if (!notice) throw new Error("The table has no first column.");
-    await core.watchComparisonMind({ mindId: mind.id, clientId: "a-closed-window" });
-    await core.forgetComparisonWindow({ clientId: "a-closed-window" });
+    const watch = { mindId: mind.id, clientId: "a-closed-window" };
+    core.windowCalled(1, "watchComparisonMind", watch);
+    await core.watchComparisonMind(watch);
+    core.windowGone(1);
 
     const moved = await core.moveComparisonColumn({
       mindId: mind.id,
@@ -1403,6 +1405,33 @@ describe("Compare Documents", () => {
     });
     expect(moved.moved).toBe(true);
     expect(complaints).toEqual([]);
+  });
+
+  test("a window whose page starts again keeps its place: a change still waits for it", async () => {
+    const model = cellModel();
+    const complaints = watchComplaints();
+    const { core, client, mind, documents } = await cloudSetUp(model);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const [notice] = comparisonQuestionsOf(tableElementIn(client).getAttributes());
+    if (!notice) throw new Error("The table has no first column.");
+    const watch = { mindId: mind.id, clientId: "a-reloaded-window" };
+    core.windowCalled(1, "watchComparisonMind", watch);
+    await core.watchComparisonMind(watch);
+    core.windowReloaded(1);
+
+    const moved = await core.moveComparisonColumn({
+      mindId: mind.id,
+      clientId: "test-window",
+      tableId,
+      questionId: notice.id,
+      to: 1,
+    });
+    expect(moved.moved).toBe(true);
+    expect(complaints).toHaveLength(1);
   });
 
   test("a fill moved at each point lands with every Answer under its own Question, and Undo moves it back", async () => {
