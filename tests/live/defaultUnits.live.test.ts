@@ -10,7 +10,9 @@
  * - "decoys": pairs of a Document and one sentence where Supported would be wrong: a default
  *   applied to a figure the Document states otherwise, a right stated without its condition beside
  *   an "unless otherwise stated", and a scale changed under the default. Each pair has its own
- *   Folder and Note, so a decoy's Document never backs another. None of them may read Supported.
+ *   Folder and Note, so a decoy's Document never backs another. With them, those of
+ *   `defaultUnitsOtherwise.cases.ts`: a duty or right whose own condition is an "otherwise" clause.
+ *   None of them may read Supported.
  *
  * The cases were written and committed before any run of the fix, and none of them is a prompt's
  * example or a case of #2864's. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY.
@@ -20,6 +22,7 @@
  * - INCARNAMIND_LIVE_RUNS: how many times the Note is checked (10 when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
  * - INCARNAMIND_LIVE_REPORT: a file to keep each run's counts.
+ * - INCARNAMIND_LIVE_DECOY_KINDS: only the decoys of these kinds, by name (all when unset).
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
@@ -33,6 +36,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
+import { OTHERWISE_DECOYS } from "./defaultUnitsOtherwise.cases";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-sonnet-5-5";
@@ -40,6 +44,8 @@ const SETS = (process.env.INCARNAMIND_LIVE_SET ?? "note,decoys").split(",");
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "10");
 const LANGUAGES = (process.env.INCARNAMIND_LIVE_LANGUAGES ?? "en,zh").split(",");
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+/** Only the decoys of these kinds; all when unset. */
+const DECOY_KINDS = process.env.INCARNAMIND_LIVE_DECOY_KINDS?.split(",") ?? null;
 
 type Language = "en" | "zh";
 
@@ -158,7 +164,7 @@ const NOTES: Record<Language, NoteSet> = {
 interface Decoy {
   name: string;
   language: Language;
-  kind: "default-elsewhere" | "right-beside-default" | "scale-changed";
+  kind: "default-elsewhere" | "right-beside-default" | "scale-changed" | "otherwise-condition";
   document: readonly string[];
   sentence: string;
 }
@@ -638,7 +644,13 @@ describe.skipIf(!KEY)("a Document's default unit, stated as the Document gives i
     async () => {
       const results: { name: string; kind: string; state: string }[] = [];
       for (const language of LANGUAGES as Language[]) {
-        const decoys = DECOYS.filter((each) => each.language === language);
+        const decoys = [
+          ...DECOYS,
+          ...OTHERWISE_DECOYS.map((each): Decoy => ({ ...each, kind: "otherwise-condition" })),
+        ].filter(
+          (each) =>
+            each.language === language && (DECOY_KINDS === null || DECOY_KINDS.includes(each.kind)),
+        );
         if (decoys.length === 0) continue;
         const core = await newCore(language);
         const sources = await createTempDataFolder();

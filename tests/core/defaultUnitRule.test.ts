@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
 import { VERDICT_SETS } from "../../eval/repeats/verdictCases";
 import { checkInstructions } from "../../src/core/answers/checks/prompt";
+import { OTHERWISE_DECOYS } from "../live/defaultUnitsOtherwise.cases";
 import { AMENDED_SETS } from "../live/nearCopyAmended.cases";
 import { ASK_PATHS_SETS } from "../live/nearCopyAskPaths.cases";
 import { BEYOND_EXAMPLES_SETS } from "../live/nearCopyBeyondExamples.cases";
@@ -31,6 +32,11 @@ describe("a Document's default unit (#2889)", () => {
     ["承租人经出租人同意后可以转租。", false],
   ])("%s: %s", (claim, told) => {
     expect(instructions(claim).includes(DEFAULT_RULE)).toBe(told);
+  });
+
+  // protects=each decoy of a duty or right whose own condition is an "otherwise" clause names a unit, so its check is told the default rule and the decoy tries it; fails_when=a decoy names no unit and tests nothing; no_claim=its real-model verdict, which tests/live/defaultUnits.live.test.ts measures.
+  test.each(OTHERWISE_DECOYS.map(({ sentence }) => sentence))("%s is told the rule", (sentence) => {
+    expect(instructions(sentence).includes(DEFAULT_RULE)).toBe(true);
   });
 
   // protects=#2515's near-copy cases and the repeated-checks sets are sent the instructions they were, word for word: none of their sentences names a unit, so none is told the default rule; fails_when=the rule reaches a sentence about a right, a duty or a condition; no_claim=none beyond protects.
