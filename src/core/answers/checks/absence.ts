@@ -26,7 +26,7 @@ interface AbsenceContext {
   request: ClaimCheckRequest;
   documents: ClaimCheckDependencies["documents"];
   session: ReturnType<typeof createCitationSession>;
-  versions: Map<string, string>;
+  readVersion(documentId: string, contentHash: string): void;
   facts(): { versions: CheckedVersion[]; excluded: LeftOutDocument[] };
   citedCase(evidence: Citation | null): {
     citedCaseUnchecked: boolean;
@@ -186,7 +186,7 @@ export async function checkAbsence({
   request,
   documents,
   session,
-  versions,
+  readVersion,
   facts,
   citedCase,
   fits,
@@ -209,7 +209,7 @@ export async function checkAbsence({
   for (const { documentId, passages, units } of reading) {
     const contentHash = passages[0]?.contentHash;
     if (!contentHash) continue;
-    versions.set(documentId, contentHash);
+    readVersion(documentId, contentHash);
     readDocuments.push({
       documentId,
       documentName: passages[0]?.documentName ?? "",

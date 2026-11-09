@@ -29,6 +29,7 @@ import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
 import { absencePrompt, WHOLE_READ } from "./absence";
+import { runFailureOf } from "./checkResults";
 import {
   type AtomicClaimCheckResult,
   afterRun,
@@ -36,7 +37,6 @@ import {
   type ClaimCheckRequest,
   checkSession,
   NO_DATE,
-  runFailureOf,
 } from "./claimCheck";
 import {
   confirmPrompt,

@@ -37,14 +37,11 @@ import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../sh
 import { sentenceSpans } from "../../../shared/sentences";
 import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
-  CheckedVersion,
   CheckFigure,
   Citation,
-  CitationAttributes,
   CitationLocation,
   CitationSupport,
   ClaimCalculation,
-  ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimJudgment,
@@ -54,9 +51,7 @@ import type {
   Document,
   FigureCheckResult,
   FigureInput,
-  LeftOutDocument,
   LimitRelation,
-  PassageSearchResult,
   ProviderError,
   SearchScope,
   ThirdPartyReason,
@@ -102,6 +97,15 @@ import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
+import {
+  citationKey,
+  createCheckResults,
+  decidingCitation,
+  failureOf,
+  foundCitations,
+  UNBACKED,
+  uniqueCitations,
+} from "./checkResults";
 import { correctionFor, sameNumber, writtenAt } from "./correction";
 import {
   aboutSomeoneElse,
@@ -118,7 +122,7 @@ import {
 } from "./figureChecks";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
 import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
-import { figuresMatch, nearestLine } from "./nearest";
+import { nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
   CHECK_TAGS,
@@ -243,44 +247,6 @@ export interface ClaimCheckRequest {
    * request, or what the Run wrote when it calls no Tool.
    */
   findParts?: (heard: string) => void;
-}
-
-/** Why a provider's failure left a claim not checked. */
-export function failureOf(error: ProviderError): {
-  reason: ClaimCheckFailure;
-  detail: string | null;
-} {
-  switch (error.kind) {
-    case "rate-limit":
-      return { reason: "rate-limit", detail: null };
-    case "cost-cap":
-      // The budget and the spend, as JSON, for the card to say in the User's currency format.
-      return error.budget
-        ? { reason: "read-budget", detail: JSON.stringify(error.budget) }
-        : { reason: "cost-cap", detail: null };
-    case "plan-limit":
-      return { reason: "plan-limit", detail: null };
-    case "out-of-credit":
-      return { reason: "out-of-credit", detail: null };
-    case "consent-revoked":
-      return { reason: "consent-revoked", detail: null };
-    case "local-mode":
-      return { reason: "local-mode", detail: null };
-    case "no-answer":
-      return { reason: "empty", detail: null };
-    case "cut-short":
-      return { reason: "cut-short", detail: null };
-    default:
-      return { reason: "failed", detail: error.message };
-  }
-}
-
-/** A claim check's failure that the run's other claims share: waited out, or it stops the run. */
-export function runFailureOf(result: ClaimCheckResult): ProviderError | null {
-  if (result.verdict !== "not-checked") return null;
-  const { reason } = result;
-  if (reason !== "rate-limit" && reason !== "cost-cap" && reason !== "plan-limit") return null;
-  return { kind: reason, message: result.detail ?? reason };
 }
 
 const SEARCH_FIRST =
@@ -698,11 +664,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       };
     }
     let searches = 0;
-    const read = new Map<string, string>();
-    const readPassages = new Set<string>();
-    const excluded = new Map<string, LeftOutDocument>();
+    const results = createCheckResults(request);
+    const { facts, workingsSayingIt, unchecked, notChecked, failedCheck, unjudged } = results;
     const decisions = caseCitations(request.originalClaim ?? request.claim);
-    const workings = new Map<string, PassageSearchResult[]>();
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
       // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
@@ -733,22 +697,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
         ];
         if (!request.window) {
-          for (const passage of passages) read.set(passage.documentId, passage.contentHash);
+          for (const passage of passages)
+            results.readVersion(passage.documentId, passage.contentHash);
         }
-        for (const each of found?.excluded ?? []) {
-          if (each.reason === "own-workings") {
-            workings.set(each.documentId, [
-              ...(workings.get(each.documentId) ?? []),
-              ...each.passages,
-            ]);
-          }
-          if (excluded.has(each.documentId)) continue;
-          excluded.set(each.documentId, {
-            documentId: each.documentId,
-            documentName: each.documentName,
-            reason: each.reason,
-          });
-        }
+        for (const each of found?.excluded ?? []) results.leftOut(each);
         return passages;
       },
       citationSource: (passageId) => deps.documents.citationSource(passageId),
@@ -765,7 +717,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
-    for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
+    for (const passage of citedPassages)
+      results.readVersion(passage.documentId, passage.contentHash);
     const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
     passagesOf.set(request, () => [
       ...citedPassages.map((passage) => passage.passageId),
@@ -1039,56 +992,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
       });
     };
-    let retainedEvidence: Citation[] = [];
     let namedEvidence: Citation[] = [];
-    let retainedCoverage: ClaimPartCoverage | undefined;
-    const facts = () => ({
-      ...(retainedEvidence.length > 0 && { checkedEvidence: retainedEvidence }),
-      ...(retainedCoverage && { coverage: retainedCoverage }),
-      versions: [...read].map(
-        ([documentId, contentHash]): CheckedVersion => ({ documentId, contentHash }),
-      ),
-      excluded: [...excluded.values()].filter(
-        (each) =>
-          each.reason === "own-file" ||
-          each.reason === "own-note" ||
-          each.reason === "checked-document",
-      ),
-      ...(request.window && { readPassages: [...readPassages] }),
-    });
-    const workingsSayingIt = (): LeftOutDocument[] =>
-      [...workings].flatMap(([documentId, passages]) => {
-        const left = excluded.get(documentId);
-        const speaks = passages.some(
-          (passage) =>
-            figuresMatch(request.claim, passage.text) &&
-            nearestLine(request.claim, [{ id: passage.passageId, text: passage.text }]),
-        );
-        return left && speaks ? [left] : [];
-      });
-    const unchecked = (reason: ClaimCheckFailure, detail: string | null = null): ClaimJudgment => ({
-      verdict: "not-checked",
-      reason,
-      detail,
-      ...facts(),
-    });
-    const notChecked = (
-      reason: ClaimCheckFailure,
-      detail: string | null = null,
-    ): ClaimCheckResult => {
-      const result = unchecked(reason, detail);
-      return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
-    };
-    const failedCheck = (error: ProviderError): ClaimCheckResult => {
-      const { reason, detail } = failureOf(error);
-      return notChecked(reason, detail);
-    };
-    /** A judge's question that came to no reading, as the sentence's result says it. */
-    const unjudged = (failure: NotJudged): ClaimCheckResult => {
-      if (failure.reason === "stopped") return notChecked("stopped");
-      if (failure.error) return failedCheck(failure.error);
-      return notChecked(failure.reason === "refused" ? "refused" : "malformed");
-    };
 
     let opinions: Opinions;
     try {
@@ -1127,7 +1031,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         request,
         documents: deps.documents,
         session,
-        versions: read,
+        readVersion: results.readVersion,
         facts,
         citedCase,
         fits: readsWhole(),
@@ -1262,9 +1166,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         fitted: (passageIds: readonly string[]) => {
           const fitted = new Set(passageIds);
           for (const passage of request.window ?? []) {
-            if (!fitted.has(passage.passageId)) continue;
-            read.set(passage.documentId, passage.contentHash);
-            readPassages.add(passage.passageId);
+            if (fitted.has(passage.passageId)) results.readInWindow(passage);
           }
         },
       }),
@@ -1710,7 +1612,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     if (confirmationFailure) return unjudged(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
     const checked = calculated(request.claim, figures, stated, figureContext);
-    retainedEvidence = uniqueCitations(
+    results.keepEvidence(
       checked.flatMap(({ calculation }) =>
         calculation.figure.inputs.flatMap((input) => [
           input.citation,
@@ -1775,8 +1677,6 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // one was carried through (#2816).
     judgedAfter.set(request, async (result) => {
       if (result.verdict !== "supported") return result;
-      const notGiven = <T extends CitationKeyed>(list: readonly T[]): T[] =>
-        list.filter((each) => !givenAfter.has(citationKey(each)));
       const cited = uniqueCitations([
         ...(result.evidence ? [result.evidence] : []),
         ...(result.checkedEvidence ?? []),
@@ -1792,17 +1692,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         );
         if (judged.ok && judged.value === "same") continue;
         // The Not checked result shows none of those quotes either.
-        retainedEvidence = notGiven(retainedEvidence);
-        if (retainedCoverage) {
-          retainedCoverage = {
-            ...retainedCoverage,
-            members: retainedCoverage.members.map((member) => ({
-              ...member,
-              evidence: notGiven(member.evidence),
-            })),
-            domainEvidence: notGiven(retainedCoverage.domainEvidence),
-          };
-        }
+        results.dropEvidence(givenAfter);
         if (signal.aborted) return notChecked("stopped");
         if (!judged.ok && judged.error) return failedCheck(judged.error);
         return notChecked("no-evidence");
@@ -1826,7 +1716,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       ...(verdict.evidence === undefined ? foundCitations(session.finalCitation, null) : []),
       ...namedCitations.filter((citation): citation is Citation => citation?.check === "found"),
     ]);
-    retainedEvidence = uniqueCitations([...retainedEvidence, ...namedEvidence]);
+    results.keepEvidence(namedEvidence);
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (namedCitations.some((citation) => citation?.check !== "found"))
@@ -1840,7 +1730,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             return citation?.check === "found" ? [citation] : [];
           }),
         );
-      retainedCoverage = {
+      results.keepCoverage({
         unit: coverage.unit,
         quantifier: coverage.quantifier,
         complete: coverage.complete,
@@ -1849,7 +1739,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           evidence: citations(member.evidence),
         })),
         domainEvidence: citations(coverage.domainEvidence),
-      };
+      });
       const backed = coverage.members.filter((member) => member.verdict === "supported").length;
       const enough =
         coverage.quantifier === "most"
@@ -1914,11 +1804,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
               // Only the card's quote rests on it: the verdict stands without.
               notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
       if (signal.aborted) return notChecked("stopped");
-      retainedEvidence = uniqueCitations([
-        ...retainedEvidence,
-        ...(quoted ? [quoted] : []),
-        ...(nearest ? [nearest] : []),
-      ]);
+      results.keepEvidence([...(quoted ? [quoted] : []), ...(nearest ? [nearest] : [])]);
       const left = facts();
       return {
         verdict: "unsupported",
@@ -1984,7 +1870,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         !ownDetailUnread(verdict) &&
         verdict.absence === "no" &&
         !unstatedUnit(
-          [stated, ...retainedEvidence],
+          [stated, ...results.evidence()],
           request.claim,
           undefined,
           checked.map(({ number }) => number),
@@ -2012,12 +1898,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
-    retainedEvidence = uniqueCitations([...retainedEvidence, evidence]);
-    const deciding = retainedEvidence;
+    results.keepEvidence([evidence]);
+    const deciding = results.evidence();
     const unitProblem = unstatedUnit(
       [
         evidence,
-        ...retainedEvidence,
+        ...results.evidence(),
         ...checked.flatMap(({ calculation }) =>
           calculation.figure.inputs.map((input) => input.citation),
         ),
@@ -2786,12 +2672,6 @@ const derivedFigureOnly = (text: string, stated: string, document: FigureContext
   !ANOTHER_CLAUSE.test(text) &&
   statedFigure(text, stated, document) !== null;
 
-/**
- * A Passage the check found and judged that doesn't back the sentence, with nothing to quote from it:
- * Unsupported, never Not found (#1608).
- */
-const UNBACKED: UnsupportedReason = { reason: null, covered: null, uncovered: null, found: true };
-
 /** The marker the nearest line is recorded under: apart from the model's and the evidence's. */
 const NEAREST_MARKER = 98;
 
@@ -2814,47 +2694,3 @@ function checkedNumber(figure: FigureCheckResult): FigureInput | null {
     ? input
     : null;
 }
-
-function foundCitations(
-  finalCitation: (marker: number) => Citation | null,
-  deciding: Citation | null,
-  markers: readonly number[] = [1, 2, 3, 4],
-): Citation[] {
-  const found: Citation[] = [];
-  for (const marker of markers) {
-    const citation = finalCitation(marker);
-    if (citation?.check !== "found") continue;
-    if (deciding && citationKey(citation) === citationKey(deciding)) continue;
-    found.push(citation);
-  }
-  return uniqueCitations(found);
-}
-
-/** The Citation that decides a claim: marker 1's, or the first other marker's, whose quote the check found. */
-function decidingCitation(finalCitation: (marker: number) => Citation | null): Citation | null {
-  for (let marker = 1; marker <= 4; marker++) {
-    const citation = finalCitation(marker);
-    if (citation?.check === "found") return citation;
-  }
-  return null;
-}
-
-type CitationKeyed = Pick<
-  CitationAttributes,
-  "documentId" | "contentHash" | "passageId" | "pageFrom" | "pageTo" | "location" | "quote"
->;
-
-const citationKey = (citation: CitationKeyed) =>
-  JSON.stringify([
-    citation.documentId,
-    citation.contentHash,
-    citation.passageId,
-    citation.pageFrom,
-    citation.pageTo,
-    citation.location,
-    citation.quote,
-  ]);
-
-const uniqueCitations = (citations: readonly Citation[]): Citation[] => [
-  ...new Map(citations.map((citation) => [citationKey(citation), citation])).values(),
-];
