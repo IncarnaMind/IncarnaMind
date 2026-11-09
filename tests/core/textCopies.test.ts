@@ -13,8 +13,19 @@ import { kindOf } from "../../src/core/documents/files";
 import { processFile } from "../../src/core/documents/processing";
 import { heldShare, shinglesOf } from "../../src/core/documents/textCopies";
 import { openDatabase } from "../../src/core/storage";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { checkingModel, isCheckRun } from "../helpers/checks";
+import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, queryDatabase, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, waitForProcessing } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForDocuments,
+  waitForProcessing,
+} from "../helpers/documents";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
+import { type ModelCall, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import {
   agreement,
@@ -29,6 +40,7 @@ import {
   printedPdf,
   wordOf,
 } from "../helpers/sameTextFiles";
+import { importWordBytes } from "../helpers/wordMinds";
 
 const LANGUAGES: readonly Language[] = ["en", "zh"];
 
@@ -88,7 +100,9 @@ async function checkOf(core: Core, query: string, checked: Document, scope: Docu
 }
 
 const queryFor = (language: Language, pair: CopyPair) =>
-  pair.pair === "a source the checked file quotes" ? QUERIES[language].code : QUERIES[language].clause;
+  pair.pair === "a source the checked file quotes"
+    ? QUERIES[language].code
+    : QUERIES[language].clause;
 
 describe.each(LANGUAGES)("A copy of the checked file by its text (%s)", (language) => {
   test("each of the ruling's copies is left out, named, with its reason; a reply quoting two of its paragraphs is still searched", async () => {
@@ -139,15 +153,19 @@ describe("The shares measured for #2216", () => {
     return shinglesOf(result.pages);
   }
 
-  test.each(LANGUAGES)("in %s: every copy holds 90% or more of the checked text, every other Document less, and the checked text is past 200 shingles", async (language) => {
-    for (const pair of copyPairs(language)) {
-      const checked = await shinglesStored(pair.checked);
-      const share = heldShare(checked, await shinglesStored(pair.other));
-      expect(checked.length, pair.pair).toBeGreaterThan(200);
-      if (pair.copy) expect(share, pair.pair).toBeGreaterThanOrEqual(0.9);
-      else expect(share, pair.pair).toBeLessThan(0.9);
-    }
-  }, 60_000);
+  test.each(LANGUAGES)(
+    "in %s: every copy holds 90% or more of the checked text, every other Document less, and the checked text is past 200 shingles",
+    async (language) => {
+      for (const pair of copyPairs(language)) {
+        const checked = await shinglesStored(pair.checked);
+        const share = heldShare(checked, await shinglesStored(pair.other));
+        expect(checked.length, pair.pair).toBeGreaterThan(200);
+        if (pair.copy) expect(share, pair.pair).toBeGreaterThanOrEqual(0.9);
+        else expect(share, pair.pair).toBeLessThan(0.9);
+      }
+    },
+    60_000,
+  );
 });
 
 describe("Where the rule stops", () => {
@@ -172,7 +190,8 @@ describe("Where the rule stops", () => {
       await write("Longer.docx", wordOf(longer, "en")),
       await write("Longer (saved again).docx", wordOf(longer, "en", "saved again")),
     ]);
-    if (!checked || !resaved || !copy || !longChecked || !longResaved) throw new Error("Not added.");
+    if (!checked || !resaved || !copy || !longChecked || !longResaved)
+      throw new Error("Not added.");
 
     const query = "registered office";
     const shortCheck = await checkOf(core, query, checked, [resaved, copy]);
@@ -194,7 +213,11 @@ describe("Where the rule stops", () => {
     await writeFile(broken, Buffer.from("PK\u0003\u0004 not a whole package"));
     const [unread, nothing, damaged] = await addAndProcess(core, [scan, empty, broken]);
     if (!unread || !nothing || !damaged) throw new Error("Not added.");
-    expect([unread.status, nothing.status, damaged.status]).toEqual(["no-text", "no-text", "failed"]);
+    expect([unread.status, nothing.status, damaged.status]).toEqual([
+      "no-text",
+      "no-text",
+      "failed",
+    ]);
 
     const word = named("Services Agreement.docx");
     for (const checked of [unread, nothing]) {
@@ -286,5 +309,156 @@ describe("A copy that changes", () => {
     const found = await checkOf(third, QUERIES.en.clause, word, [pdf, reply]);
     expect(found.leftOut).toEqual([["Services Agreement", "same-text"]]);
     expect(found.evidence).toEqual(new Set([reply.id]));
+  }, 120_000);
+});
+
+const IN_DISPUTE = {
+  en: "If the Client disputes an invoice in good faith, it shall tell the Supplier within ten Business Days and pay the part that is not in dispute.",
+  zh: "甲方对发票有异议的，应当在十个工作日内书面告知乙方，并支付无异议的部分。",
+} as const;
+const SINGULAR = "Words in the singular include the plural and the other way round.";
+
+/** A core whose model on this computer takes `sentence` for the one claim and finds it unsupported, and the files on disk. */
+async function checkingLibrary(sentence: string, files: readonly FixtureFile[]) {
+  const calls: ModelCall[] = [];
+  const model = checkingModel({ [sentence]: { verdict: "unsupported" } }, calls);
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const folder = await createSourceFolder();
+  const paths = new Map<string, string>();
+  for (const file of files) {
+    const path = join(folder, file.name);
+    await writeFile(path, file.bytes);
+    paths.set(file.name, path);
+  }
+  const pathOf = (file: FixtureFile) => paths.get(file.name) ?? "";
+  /** The Documents the model was handed as evidence, by name. */
+  const handed = () =>
+    new Set(
+      calls
+        .filter(isCheckRun)
+        .flatMap((call) =>
+          call.results
+            .filter((result) => result.tool === "search_documents")
+            .flatMap((result) => shownPassages(result.text).map((passage) => passage.document)),
+        ),
+    );
+  return { core, pathOf, handed };
+}
+
+/** The claim's check, as its mark keeps it. */
+async function checkOfClaim(client: MindClient, sentence: string) {
+  await client.settled();
+  return claimSpans(readMind(client)).find((span) => span.sentence.text.trim() === sentence)?.check;
+}
+
+const pairOf = (language: Language, name: string) => {
+  const found = copyPairs(language).find((pair) => pair.pair === name);
+  if (!found) throw new Error(`No pair ${name}.`);
+  return found;
+};
+
+describe("Every flow the issue names leaves the copy out and names it", () => {
+  test("Verify of a Word file: a resaved copy and a PDF of it are never handed to the model and are named as left out; the other deal's file from the template is searched", async () => {
+    const resaved = pairOf("en", "a Word file saved again");
+    const printed = pairOf("en", "a PDF printed from Word");
+    const template = pairOf("en", "two files from one template");
+    const set = await checkingLibrary(IN_DISPUTE.en, [
+      resaved.checked,
+      resaved.other,
+      printed.other,
+      template.other,
+    ]);
+    const [copy, pdf] = await addAndProcess(set.core, [
+      set.pathOf(resaved.other),
+      set.pathOf(printed.other),
+      set.pathOf(template.other),
+    ]);
+    const made = await set.core.verifyDocument({ path: set.pathOf(resaved.checked) });
+    if (!made.ok || !copy || !pdf) throw new Error("Not verified.");
+    await waitForProcessing(set.core, [made.documentId]);
+    const client = await connectToMind(set.core, made.mind.id);
+    expect(await set.core.findClaims({ requestId: "find", mindId: made.mind.id })).toEqual({
+      kind: "found",
+      claims: 1,
+    });
+    await set.core.verifyClaims({ requestId: "verify", mindId: made.mind.id });
+
+    expect(set.handed()).toEqual(new Set(["Services Agreement (Marlow Street)"]));
+    const check = await checkOfClaim(client, IN_DISPUTE.en);
+    expect(check?.state).toBe("unsupported");
+    expect(check?.excluded).toEqual(
+      expect.arrayContaining([
+        { documentId: copy.id, documentName: copy.name, reason: "same-text" },
+        { documentId: pdf.id, documentName: pdf.name, reason: "same-text" },
+      ]),
+    );
+  }, 120_000);
+
+  test("Verify of a PDF, in Chinese: the Word file it was printed from is never handed to the model and is named as left out; the template's other file is searched", async () => {
+    const printed = pairOf("zh", "a PDF printed from Word");
+    const template = pairOf("zh", "two files from one template");
+    const set = await checkingLibrary(IN_DISPUTE.zh, [
+      printed.checked,
+      printed.other,
+      template.other,
+    ]);
+    const [word] = await addAndProcess(set.core, [
+      set.pathOf(printed.checked),
+      set.pathOf(template.other),
+    ]);
+    const made = await set.core.verifyDocument({ path: set.pathOf(printed.other) });
+    if (!made.ok || !word) throw new Error("Not verified.");
+    await waitForProcessing(set.core, [made.documentId]);
+    const client = await connectToMind(set.core, made.mind.id);
+    expect(await set.core.findClaims({ requestId: "find", mindId: made.mind.id })).toEqual({
+      kind: "found",
+      claims: 1,
+    });
+    await set.core.verifyClaims({ requestId: "verify", mindId: made.mind.id });
+
+    expect(set.handed()).toEqual(new Set(["技术服务合同（白鹭洲）"]));
+    const check = await checkOfClaim(client, IN_DISPUTE.zh);
+    expect(check?.excluded).toEqual(
+      expect.arrayContaining([
+        { documentId: word.id, documentName: word.name, reason: "same-text" },
+      ]),
+    );
+  }, 120_000);
+
+  test("a check of a Note imported from Word: a PDF of its original is never handed to the model and is named as left out; the template's other file is searched", async () => {
+    const original = firstClauses(agreement("en"), 1);
+    const files = {
+      pdf: { name: "Services Agreement.pdf", bytes: printedPdf([original], "en").bytes },
+      template: {
+        name: "Services Agreement (Marlow Street).docx",
+        bytes: wordOf(firstClauses(sameTemplate("en"), 1), "en"),
+      },
+    };
+    const set = await checkingLibrary(SINGULAR, [files.pdf, files.template]);
+    const [pdf] = await addAndProcess(set.core, [
+      set.pathOf(files.pdf),
+      set.pathOf(files.template),
+    ]);
+    if (!pdf) throw new Error("Not added.");
+    const { mindId, client } = await importWordBytes(
+      set.core,
+      await createSourceFolder(),
+      wordOf(original, "en"),
+      { name: "Services Agreement.docx", origin: "own", folderId: null, addOriginal: true },
+    );
+    const imported = await waitForDocuments(set.core, (documents) =>
+      expect(documents.filter((each) => each.status === "ready")).toHaveLength(3),
+    );
+    expect(imported.filter((each) => each.name === "Services Agreement")).toHaveLength(2);
+    await set.core.checkMind({ requestId: "all", mindId, mode: "all" });
+
+    expect(set.handed()).toEqual(new Set(["Services Agreement (Marlow Street)"]));
+    const check = await checkOfClaim(client, SINGULAR);
+    expect(check?.excluded).toEqual(
+      expect.arrayContaining([{ documentId: pdf.id, documentName: pdf.name, reason: "same-text" }]),
+    );
   }, 120_000);
 });

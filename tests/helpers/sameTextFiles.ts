@@ -5,6 +5,8 @@
  * saved from that PDF, drafts, a reply, a bundle and the code it quotes.
  * Built by the tests' own Word and PDF writers, so they stay readable.
  */
+
+import { buildPdf, type PdfPage, widthOf } from "./pdf";
 import {
   type Agreement,
   agreement,
@@ -15,7 +17,6 @@ import {
   reply,
   sameTemplate,
 } from "./sameTextAgreements";
-import { buildPdf, type PdfPage, widthOf } from "./pdf";
 import { escapeXml, field, paragraph, run, wordFile } from "./word";
 
 export interface FixtureFile {
@@ -37,7 +38,9 @@ const PAGE = '<w:pgSz w:w="11906" w:h="16838"/>';
 
 function footer(language: Language): string {
   return language === "zh"
-    ? paragraph(`${run("第 ")}${field("PAGE", "1")}${run(" 页 共 ")}${field("NUMPAGES", "4")}${run(" 页")}`)
+    ? paragraph(
+        `${run("第 ")}${field("PAGE", "1")}${run(" 页 共 ")}${field("NUMPAGES", "4")}${run(" 页")}`,
+      )
     : paragraph(`${run("Page ")}${field("PAGE", "1")}${run(" of ")}${field("NUMPAGES", "4")}`);
 }
 
@@ -195,7 +198,10 @@ export function printedPdf(
       "",
     ]);
     for (let at = 0; at < lines.length; at += LINES_PER_PAGE) {
-      pages.push({ header: header ?? document.header, lines: lines.slice(at, at + LINES_PER_PAGE) });
+      pages.push({
+        header: header ?? document.header,
+        lines: lines.slice(at, at + LINES_PER_PAGE),
+      });
     }
   }
   const printed = pages.map((page, index) => ({
@@ -254,19 +260,40 @@ export function copyPairs(language: Language): CopyPair[] {
   const pdf: FixtureFile = { name: `${names.original}.pdf`, bytes: printed.bytes };
   const parts = bundleParts(language);
   const file = (name: string, bytes: Uint8Array): FixtureFile => ({ name, bytes });
-  const suffix = language === "zh" ? { again: "（另存）", entry: "（含自定义部件）", fromPdf: "（由 PDF 转换）", one: "（修改一条）", third: "（修改三分之一）" } : { again: " (saved again)", entry: " (with a part added)", fromPdf: " (from the PDF)", one: " (one clause changed)", third: " (a third changed)" };
+  const suffix =
+    language === "zh"
+      ? {
+          again: "（另存）",
+          entry: "（含自定义部件）",
+          fromPdf: "（由 PDF 转换）",
+          one: "（修改一条）",
+          third: "（修改三分之一）",
+        }
+      : {
+          again: " (saved again)",
+          entry: " (with a part added)",
+          fromPdf: " (from the PDF)",
+          one: " (one clause changed)",
+          third: " (a third changed)",
+        };
   return [
     {
       pair: "a Word file saved again",
       copy: true,
       checked: word,
-      other: file(`${names.original}${suffix.again}.docx`, wordOf(original, language, "saved again")),
+      other: file(
+        `${names.original}${suffix.again}.docx`,
+        wordOf(original, language, "saved again"),
+      ),
     },
     {
       pair: "one with a zip entry added",
       copy: true,
       checked: word,
-      other: file(`${names.original}${suffix.entry}.docx`, wordOf(original, language, "entry added")),
+      other: file(
+        `${names.original}${suffix.entry}.docx`,
+        wordOf(original, language, "entry added"),
+      ),
     },
     { pair: "a PDF printed from Word", copy: true, checked: word, other: pdf },
     {
@@ -279,7 +306,10 @@ export function copyPairs(language: Language): CopyPair[] {
       pair: "a draft with one clause changed",
       copy: true,
       checked: word,
-      other: file(`${names.original}${suffix.one}.docx`, wordOf(draft(language, "one clause"), language)),
+      other: file(
+        `${names.original}${suffix.one}.docx`,
+        wordOf(draft(language, "one clause"), language),
+      ),
     },
     {
       pair: "a bundle holding the whole file",
@@ -294,7 +324,10 @@ export function copyPairs(language: Language): CopyPair[] {
       pair: "a draft with a third of its clauses changed",
       copy: false,
       checked: word,
-      other: file(`${names.original}${suffix.third}.docx`, wordOf(draft(language, "a third"), language)),
+      other: file(
+        `${names.original}${suffix.third}.docx`,
+        wordOf(draft(language, "a third"), language),
+      ),
     },
     {
       pair: "two files from one template",

@@ -595,9 +595,7 @@ export const sameTemplate = (language: Language): Agreement =>
 /** The paragraphs of the agreement that start with these numbers. */
 function paragraphsNumbered(language: Language, numbers: readonly string[]): string[] {
   return numbers.map((number) => {
-    const found = agreement(language).paragraphs.find((each) =>
-      each.text.startsWith(`${number} `),
-    );
+    const found = agreement(language).paragraphs.find((each) => each.text.startsWith(`${number} `));
     if (!found) throw new Error(`The agreement has no paragraph ${number}.`);
     return found.text;
   });

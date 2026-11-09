@@ -111,7 +111,9 @@ const sampleOf = (shingles: Uint32Array) => shingles.filter((hash) => (hash & SA
 function sampleBytes(sample: Uint32Array): Uint8Array {
   const bytes = new Uint8Array(sample.length * 4);
   const view = new DataView(bytes.buffer);
-  sample.forEach((hash, index) => view.setUint32(index * 4, hash, true));
+  for (let index = 0; index < sample.length; index++) {
+    view.setUint32(index * 4, sample[index] as number, true);
+  }
   return bytes;
 }
 
@@ -258,7 +260,8 @@ export function createTextCopies(db: Database, now: () => string) {
       if (sources.length === 0) return [];
       for (const version of missing(candidates)) record(version, unitsOf(version));
       // A text with fewer shingles than the bar's share of the checked text's can't hold it.
-      const enough = (fingerprint: Fingerprint) => Math.ceil(fingerprint.shingles * SAME_TEXT_SHARE);
+      const enough = (fingerprint: Fingerprint) =>
+        Math.ceil(fingerprint.shingles * SAME_TEXT_SHARE);
       const rows = db.all<{
         id: string;
         content_hash: string;
