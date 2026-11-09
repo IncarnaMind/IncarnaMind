@@ -11,8 +11,8 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type Document, type SearchScope } from "../../src/core";
 import { kindOf } from "../../src/core/documents/files";
 import { processFile } from "../../src/core/documents/processing";
-import { heldShare, shinglesOf } from "../../src/core/documents/textCopies";
-import { openDatabase } from "../../src/core/storage";
+import { createTextCopies, heldShare, shinglesOf } from "../../src/core/documents/textCopies";
+import { type Database, openDatabase } from "../../src/core/storage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkingModel, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -534,4 +534,86 @@ describe("Every flow the issue names leaves the copy out and names it", () => {
       expect.arrayContaining([{ documentId: pdf.id, documentName: pdf.name, reason: "same-text" }]),
     );
   }, 120_000);
+});
+
+describe("Fingerprinting what an older version stored", () => {
+  test("a Verify stopped while it waits for the fingerprints ends stopped, and sends nothing", async () => {
+    const resaved = pairOf("en", "a Word file saved again");
+    const calls: ModelCall[] = [];
+    const model = checkingModel({ [IN_DISPUTE.en]: { verdict: "unsupported" } }, calls);
+    const dataDir = await createTempDataFolder();
+    const start = () =>
+      startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    const core = start();
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const folder = await createSourceFolder();
+    const write = async (file: FixtureFile) => {
+      const path = join(folder, file.name);
+      await writeFile(path, file.bytes);
+      return path;
+    };
+    await addAndProcess(core, [await write(resaved.other), await write(pairOf("en", REPLY).other)]);
+    const made = await core.verifyDocument({ path: await write(resaved.checked) });
+    if (!made.ok) throw new Error("Not verified.");
+    await waitForProcessing(core, [made.documentId]);
+    expect(await core.findClaims({ requestId: "find", mindId: made.mind.id })).toEqual({
+      kind: "found",
+      claims: 1,
+    });
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("DELETE FROM text_fingerprints");
+    db.close();
+
+    const again = start();
+    const verifying = again.verifyClaims({ requestId: "stopped", mindId: made.mind.id });
+    await again.cancelCheck("stopped");
+    expect(await verifying).toEqual({ kind: "cancelled" });
+    expect(calls.filter(isCheckRun)).toEqual([]);
+    again.close();
+  }, 120_000);
+
+  test("a Document whose text can't be fingerprinted is passed over: the ones after it are fingerprinted, and it is tried again at the next start", async () => {
+    const { core, dataDir } = await library("en");
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run("DELETE FROM text_fingerprints");
+    const [unreadable] = db.all<{ id: string }>(
+      "SELECT id FROM documents WHERE deleted_at IS NULL ORDER BY created_at, rowid LIMIT 1",
+    );
+    if (!unreadable) throw new Error("No Document.");
+    const live =
+      db.get<{ count: number }>("SELECT COUNT(*) AS count FROM documents WHERE deleted_at IS NULL")
+        ?.count ?? 0;
+    const breaking: Database = {
+      exec: (sql) => db.exec(sql),
+      run: (sql, params) => db.run(sql, params),
+      get: (sql, params) => db.get(sql, params),
+      all: (sql, params) => {
+        if (sql.includes("FROM document_pages") && params?.[0] === unreadable.id) {
+          throw new Error("The text can't be read.");
+        }
+        return db.all(sql, params);
+      },
+      transaction: (fn) => db.transaction(fn),
+      close: () => db.close(),
+    };
+    const now = () => new Date().toISOString();
+    const copies = createTextCopies(breaking, now);
+    expect(() => copies.fillNext()).toThrow("The text can't be read.");
+    let filled = 0;
+    while (copies.fillNext()) filled++;
+    const fingerprinted = () =>
+      db
+        .all<{ document_id: string }>("SELECT document_id FROM text_fingerprints")
+        .map((row) => row.document_id);
+    expect(filled).toBe(live - 1);
+    expect(fingerprinted()).not.toContain(unreadable.id);
+
+    const nextStart = createTextCopies(db, now);
+    expect(nextStart.fillNext()).toBe(true);
+    expect(fingerprinted()).toContain(unreadable.id);
+    expect(nextStart.fillNext()).toBe(false);
+    db.close();
+  });
 });

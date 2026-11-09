@@ -1577,6 +1577,7 @@ export function createChecks(options: ChecksOptions) {
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
+    evidenceReady: () => options.evidence.ready(),
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1603,6 +1604,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
+    evidenceReady: () => options.evidence.ready(),
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1745,20 +1747,15 @@ export function createChecks(options: ChecksOptions) {
     newId: randomUUID,
   });
 
-  /** A check that may take a scope with a checked file in it: it waits until every copy can be told (#2216). */
-  const afterFingerprints =
-    <A extends unknown[], R>(check: (...args: A) => Promise<R>) =>
-    async (...args: A): Promise<R> => {
-      await options.evidence.ready();
-      return check(...args);
-    };
-
   return {
     ...verify,
-    verifyClaims: afterFingerprints(verify.verifyClaims),
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten: afterFingerprints(checkWritten),
+    async checkWritten(input: Parameters<typeof checkWritten>[0]) {
+      // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
+      await options.evidence.ready();
+      return checkWritten(input);
+    },
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -1769,7 +1766,6 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async checkSentences(input: unknown): Promise<CheckSentencesResult> {
-      await options.evidence.ready();
       const parsed = parseCheck(input);
       options.requireMind(parsed.mindId);
       if (running.has(parsed.requestId)) {
@@ -1794,6 +1790,8 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
+        await options.evidence.ready();
+        if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
@@ -1805,7 +1803,6 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async planDocumentCheck(input: unknown): Promise<DocumentCheckPlan> {
-      await options.evidence.ready();
       if (!isRecord(input)) throw new InvalidInputError("planDocumentCheck expects an object.");
       const mindId = parseMindId(input.mindId);
       options.requireMind(mindId);
@@ -1820,6 +1817,7 @@ export function createChecks(options: ChecksOptions) {
         const run = running.get(requestId);
         if (run?.mindId === mindId) run.controller.abort();
       }
+      await options.evidence.ready();
       return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
@@ -1828,7 +1826,6 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async checkContradictions(input: unknown): Promise<CheckContradictionsResult> {
-      await options.evidence.ready();
       if (!isRecord(input) || typeof input.requestId !== "string" || input.requestId === "") {
         throw new InvalidInputError({ key: "error.contradictions.request" });
       }
@@ -1900,7 +1897,6 @@ export function createChecks(options: ChecksOptions) {
 
     /** `signal` stops the check, for a caller in the core; the API's callers can't pass one. */
     async checkClaim(input: unknown, signal?: AbortSignal): Promise<ClaimCheckResult> {
-      await options.evidence.ready();
       const parsed = parseClaim(input);
       const ready = await prepare(parsed.model ?? options.defaultModel());
       if (!ready.ok) {
@@ -1910,6 +1906,7 @@ export function createChecks(options: ChecksOptions) {
           key: result.kind === "local-mode" ? "error.check.localMode" : "error.check.declined",
         });
       }
+      await options.evidence.ready();
       const scope = options.evidence.scope(
         parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
@@ -2001,7 +1998,6 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async chooseRecordCiteSource(value: unknown) {
-      await options.evidence.ready();
       const input = chooseInput(value);
       const stored = content.read(input.mindId, (blocks) =>
         checkedSentences(blocks).find(({ check }) => check.id === input.checkId),
@@ -2025,6 +2021,7 @@ export function createChecks(options: ChecksOptions) {
         stored.check.scope.chosen ??
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      await options.evidence.ready();
       const scope = options.evidence.scope(
         input.mindId,
         options.scopeDocuments(wanted, input.mindId),

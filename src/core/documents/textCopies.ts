@@ -220,11 +220,14 @@ export function createTextCopies(db: Database, now: () => string) {
     return { shingles: shingles.length, sample };
   }
 
+  /** Documents `fillNext` failed on: not tried again before the next start, so one costs only itself. */
+  const unfingerprinted = new Set<string>();
+
   /** A live Document's current version whose text is stored but not fingerprinted. */
   function nextMissing(): TextVersion | null {
     const row = db.get<{ id: string; content_hash: string }>(
       `SELECT d.id, d.content_hash FROM documents d
-       WHERE d.deleted_at IS NULL
+       WHERE d.deleted_at IS NULL AND d.id NOT IN (SELECT value FROM json_each(?))
          AND EXISTS (SELECT 1 FROM document_pages p
                      WHERE p.document_id = d.id AND p.content_hash = d.content_hash
                        AND p.deleted_at IS NULL)
@@ -232,6 +235,7 @@ export function createTextCopies(db: Database, now: () => string) {
                          WHERE f.document_id = d.id AND f.content_hash = d.content_hash
                            AND f.deleted_at IS NULL)
        ORDER BY d.created_at, d.rowid LIMIT 1`,
+      [JSON.stringify([...unfingerprinted])],
     );
     return row ? { documentId: row.id, contentHash: row.content_hash } : null;
   }
@@ -268,11 +272,19 @@ export function createTextCopies(db: Database, now: () => string) {
       db.run("DELETE FROM text_fingerprints WHERE document_id = ?", [documentId]);
     },
 
-    /** Fingerprints the next Document whose text was stored before fingerprints were; false when none is left. */
+    /**
+     * Fingerprints the next Document whose text was stored before fingerprints were; false when
+     * none is left. Throws for one it can't fingerprint, which the next call passes over.
+     */
     fillNext(): boolean {
       const next = nextMissing();
       if (!next) return false;
-      record(next, unitsOf(next));
+      try {
+        record(next, unitsOf(next));
+      } catch (error) {
+        unfingerprinted.add(next.documentId);
+        throw error;
+      }
       return true;
     },
 

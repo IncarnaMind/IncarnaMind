@@ -1513,19 +1513,18 @@ export function createDocuments(options: DocumentsOptions) {
     const next = () => {
       fingerprintTurn = null;
       let more = false;
-      let failed = false;
       try {
         more = !closed && textCopies.fillNext();
       } catch (error) {
-        // The check goes on without it; the next one tries again.
+        // That Document is passed over until the next start, and is no copy by this rule.
         reportError(error);
-        failed = true;
+        more = !closed;
       }
       if (more) {
         fingerprintTurn = setTimeout(next, 0);
         return;
       }
-      fingerprintsComplete = !closed && !failed;
+      fingerprintsComplete = !closed;
       fingerprintsFilled = null;
       settle();
     };
