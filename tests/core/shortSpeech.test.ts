@@ -144,13 +144,66 @@ describe("A short stretch read on this computer (#1031)", () => {
     },
   );
 
-  // protects=a reading that is only the model's header ("language Chinese", "language None") or its prompt's word ("system", "<asr_text>system") is no line, as it is what the model writes for a short or quiet stretch instead of words; fails_when="language Chinese" or "system" shows as something said in the Transcript; no_claim=a header in the middle of words, which tests/core/speechText.test.ts covers.
-  test.each(["language Chinese", "language None", "<asr_text>system", "system", "System."])(
-    "reading only %j writes nothing",
+  // protects=when the second reading that checks a doubted short reading fails, the stretch fails with it, so the host notes it as not transcribed and the doubted words aren't written; fails_when=a failed check keeps "shit。" in a Mandarin call's Transcript, or the failure is hidden; no_claim=what the host does with a stretch that failed, which tests/core/captureHealth.test.ts covers.
+  test("a doubted short reading whose check fails is a failed stretch, not the doubted words", async () => {
+    const engine = await createSherpaEngine(model);
+    answer = (seconds, options) => {
+      if (seconds >= 4) return CHINESE;
+      if (options.language) return "shit。";
+      throw new Error("The model stopped.");
+    };
+    const read = (seconds: number) => engine.recognizer.decode(audio(seconds), "meeting-7:mic", []);
+    await read(5);
+    await read(5);
+
+    await expect(read(1)).rejects.toThrow("The model stopped.");
+  });
+
+  // protects=a reading that is only the model's header ("language Chinese", "language None", "<asr_text>") is no line in any stream, an English one included, as it is what the model writes for a short or quiet stretch instead of words; fails_when="language Chinese" shows as something said in the Transcript; no_claim=a header in the middle of words, which tests/core/speechText.test.ts covers.
+  test.each(["language Chinese", "language None", "<asr_text>", "<asr_text>。"])(
+    "reading only %j writes nothing, whatever the stream's language",
     async (text) => {
       const engine = await createSherpaEngine(model);
-      answer = () => text;
-      expect(await engine.recognizer.decode(audio(1), "meeting-4:mic", [])).toBe("");
+      answer = (seconds) => (seconds >= 4 ? ENGLISH : text);
+      const read = (seconds: number, stream: string) =>
+        engine.recognizer.decode(audio(seconds), stream, []);
+
+      expect(await read(1, "meeting-4:mic")).toBe("");
+      await read(5, "meeting-4:system");
+      await read(5, "meeting-4:system");
+      expect(await read(1, "meeting-4:system")).toBe("");
+    },
+  );
+
+  // protects=a reading that is only "system", the word the model takes from its own prompt for a short stretch it misread ("是的"), is no line in a Chinese stream or one whose language isn't known yet, and is kept in an English stream, where it can be the one-word answer someone gave; fails_when="system" shows in a Mandarin call's Transcript, or a real "System." is lost from an English call; no_claim=which of the two an English stream's "system" is, which no reading can tell.
+  test.each([
+    ["system", "system"],
+    ["System.", "System."],
+    ["<asr_text>system", "system"],
+  ])(
+    "reading only %j is kept in an English stream, and left out of a Chinese or unknown one",
+    async (text, kept) => {
+      const engine = await createSherpaEngine(model);
+      const long: Record<string, string> = {
+        "meeting-6:english": ENGLISH,
+        "meeting-6:chinese": CHINESE,
+      };
+      let stream = "";
+      answer = (seconds) => (seconds >= 4 ? (long[stream] ?? "") : text);
+      const read = (seconds: number, name: string) => {
+        stream = name;
+        return engine.recognizer.decode(audio(seconds), name, []);
+      };
+
+      expect(await read(1, "meeting-6:english")).toBe("");
+      for (const name of Object.keys(long)) {
+        await read(5, name);
+        await read(5, name);
+      }
+      expect(await read(1, "meeting-6:english")).toBe(kept);
+      expect(await read(3.5, "meeting-6:english")).toBe(kept);
+      expect(await read(1, "meeting-6:chinese")).toBe("");
+      expect(await read(1, "meeting-6:unknown")).toBe("");
     },
   );
 

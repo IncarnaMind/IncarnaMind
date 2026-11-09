@@ -13,12 +13,17 @@ const HANGUL = /\p{Script=Hangul}/gu;
 const LATIN_WORDS = /\p{Script=Latin}+(?:'\p{Script=Latin}+)?/gu;
 /** Characters only Cantonese is written with: Mandarin uses others for the same words. */
 const CANTONESE = /[係喺嘅咗唔冇啲嘢佢哋噉乜嚟睇咩啱嗰嘞囉噃㗎攞搵諗]/gu;
-/** English words that none of French, German, Spanish and Italian writes as a word of its own. */
+/**
+ * English words that French, German, Spanish and Italian don't write too, so not "will", "not" or
+ * "just" (German), "but", "for", "if" or "about" (French), "are" (French, Italian), "be" (Italian
+ * "be'") or "it" (their "IT"). The few that are rare there stay (Italian "to'", "the" for "tè"),
+ * which is one reason a reading needs two of these words.
+ */
 const ENGLISH = new Set(
   [
-    "the and you that is it of to we this have what are for with be but not they there would ",
-    "will just about my your our she if at were been does did think know yeah it's that's ",
-    "don't i'm we're you're can't going should could",
+    "the and you that is of to we this have what with they there would my your our she at ",
+    "were been does did think know yeah it's that's don't i'm we're you're can't going should ",
+    "could",
   ]
     .join("")
     .split(" "),

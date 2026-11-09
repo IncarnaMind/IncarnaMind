@@ -60,16 +60,22 @@ export function untilEndOfText(result: { text: string; tokens?: unknown }): {
  */
 const HEADER = /^(?:\S{1,16}\n)?language[ \t]+\p{L}+<asr_text>/u;
 /**
- * A reading that is only the model's header ("language Chinese", "language None") or its prompt's
- * word ("system", "<asr_text>system"), which it writes for a short or quiet stretch instead of
- * words: nothing was said (#1031).
+ * A reading that is only the model's header ("language Chinese", "language None"), which it
+ * writes for a short or quiet stretch instead of words: nothing was said (#1031).
  */
-const PROMPT_ONLY = /^(?:language[ \t]+\p{L}+|system)?[\s\p{P}]*$/iu;
+const HEADER_ONLY = /^(?:language[ \t]+\p{L}+)?[\s\p{P}]*$/iu;
 
 export function wordsOnly(text: string): string {
   const words = text.replace(HEADER, "").replace(/^\s*<asr_text>/u, "");
-  return PROMPT_ONLY.test(words) ? "" : words;
+  return HEADER_ONLY.test(words) ? "" : words;
 }
+
+/**
+ * Whether a reading is only the word "system", which the model takes from its own prompt for a
+ * short stretch it misread ("是的" in a Mandarin call, #1031). In an English call it can also be
+ * the answer someone gave, so only the engine, knowing the call's language, can leave it out.
+ */
+export const onlyPromptWord = (text: string): boolean => /^\s*system[\s\p{P}]*$/iu.test(text);
 
 /**
  * What a stretch of speech said, kept: a break (a newline, a tab) is a space, any other control

@@ -20,7 +20,7 @@ describe("The language a reading's words are in (#1031)", () => {
     expect(spokenLanguageOf(text)).toBe(language);
   });
 
-  // protects=Latin-script speech that isn't English is never named English, so a French, German, Spanish or Italian call's short readings are never told English and translated into it; fails_when=a function word those languages share with English (a, in, on, so, was, do) names a reading English; no_claim=naming those languages, which no reading here does.
+  // protects=Latin-script speech that isn't English is never named English, so a French, German, Spanish or Italian call's short readings are never told English and translated into it; fails_when=words those languages write too (a, in, on, so, was, do, and German "will", "Not" and "just", French "but", "for" and "if", French and Italian "are", Italian "be'", their "IT") name a reading English; no_claim=naming those languages, which no reading here does, or an English phrase quoted inside one of them.
   test.each([
     "Je pense que nous devons revoir le budget avant la réunion de demain, OK?",
     "On a parlé du planning, mais le client veut une réponse aujourd'hui.",
@@ -30,6 +30,11 @@ describe("The language a reading's words are in (#1031)", () => {
     "OK, entonces vamos a hablar del meeting y del budget a las diez.",
     "Penso che dobbiamo rivedere il budget prima della riunione di domani.",
     "Do il report al cliente domani, se va bene a tutti.",
+    "Die IT will das Meeting auf morgen verschieben.",
+    "In der Not hat sie just den Bericht geschickt, aber ich will ihn erst lesen.",
+    "Le but, c'est de planter un if devant le bureau avant la visite du client.",
+    "Le terrain fait un are, et le for intérieur du client dit non.",
+    "Be', sono solo due are di terreno, ma il cliente vuole aspettare.",
   ])("never names English: %s", (text) => {
     expect(spokenLanguageOf(text)).toBeNull();
   });

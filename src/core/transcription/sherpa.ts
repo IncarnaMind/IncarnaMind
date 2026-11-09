@@ -12,7 +12,7 @@ import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
-import { resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
+import { onlyPromptWord, resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
 import { borrowedInto, shareAWord, spokenLanguageOf, writtenOutside } from "./spokenLanguage";
 import { writtenNumbers } from "./spokenNumbers";
 
@@ -333,10 +333,15 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         const short = samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000;
         const language = short ? languageOf(name) : undefined;
         const plain = await read(samples, [], language);
+        // A stream not yet known to be English counts as not English: a word left out is the
+        // smaller harm than one written that nobody said (#1031).
+        if (onlyPromptWord(plain) && languageOf(name) !== "English") return "";
         if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(name, plain);
         if (language && writtenOutside(plain, language) && !borrowedInto(plain, language)) {
           // Told the call's language, it still wrote another: kept only if its own guess agrees,
-          // as a word of another language said alone (a name) reads the same both ways.
+          // as a word of another language said alone (a name) reads the same both ways. If that
+          // second reading fails, so does the stretch: the host notes it as not transcribed,
+          // rather than keeping words this check doubts.
           if (!shareAWord(plain, await read(samples, []))) {
             console.warn(
               "The speech model read a short stretch in another language than the call's, and differently each time; it is left out.",
