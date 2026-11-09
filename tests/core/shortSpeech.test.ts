@@ -63,9 +63,12 @@ const model = {
 const audio = (seconds: number) => new Float32Array(Math.round(seconds * MEETING_SAMPLE_RATE));
 const ENGLISH = "I think that's the plan, and it should be fine for the team.";
 const CHINESE = "我们先看一下这个季度的预算，然后再讨论下周的安排。";
+/** English with none of the words that name it, as about one long English reading in nine is. */
+const UNNAMED = "Tabs are nice. I like tabs, Mozilla style, to be fair.";
+const MIXED = "这个 feature 我们 next week 再 discuss 一下 okay";
 
 describe("A short stretch read on this computer (#1031)", () => {
-  // protects=a stretch under 3 s is told its stream's language once the stream's latest two readings of 4 s or more are in it, so a short "yeah" in an English call isn't written "对。"; only that stream's, as the microphone and the call can be in different languages; fails_when=a short reading is told before its stream's language is clear, on another stream, or at 3 s and over; no_claim=the real model's answers, which eval/meetings and the short-phrase runs measure.
+  // protects=a stretch under 3 s is told its stream's language once two of the stream's latest readings of 4 s or more are in it, so a short "yeah" in an English call isn't written "对。"; only that stream's, as the microphone and the call can be in different languages; fails_when=a short reading is told before its stream's language is clear, on another stream, or at 3 s and over; no_claim=the real model's answers, which eval/meetings and the short-phrase runs measure.
   test("is told its stream's language once two long readings agree, and only on that stream", async () => {
     const engine = await createSherpaEngine(model);
     answer = (seconds, options) =>
@@ -90,7 +93,7 @@ describe("A short stretch read on this computer (#1031)", () => {
     ]);
   });
 
-  // protects=a stream whose latest long readings are in different languages, or in none the words name (a mixed call), tells its short readings nothing; fails_when=a mixed Chinese and English call's short English replies are told Chinese and translated; no_claim=calls that change language for good, which the latest two readings follow.
+  // protects=a stream whose latest long readings are in different languages, or in none the words name (a mixed call), tells its short readings nothing; fails_when=a mixed Chinese and English call's short English replies are told Chinese and translated; no_claim=calls that change language for good, which the latest three readings follow.
   test("is told nothing while its stream's long readings disagree", async () => {
     const engine = await createSherpaEngine(model);
     let long = [ENGLISH, CHINESE];
@@ -101,16 +104,67 @@ describe("A short stretch read on this computer (#1031)", () => {
     await read(5);
     await read(5);
     expect(await read(1)).toBe("untold");
-    long = [
-      "这个 feature 我们 next week 再 discuss 一下 okay",
-      "这个 feature 我们 next week 再 discuss 一下 okay",
-    ];
+    long = [MIXED, MIXED];
     await read(5);
     await read(5);
     expect(await read(1)).toBe("untold");
   });
 
-  // protects=a short reading told the call's language that still comes back in another script is kept when Chinese speech says such words on their own ("OK", "email", an abbreviation said letter by letter) or the model's own reading writes the same ("Okay" for "OK", a Chinese name in an English call), and left out otherwise ("是的" told Chinese as "shit。", read alone as "system"), with none of its words in the log; fails_when=real code-switching is dropped, or a word the model makes up in another script reaches the Transcript; no_claim=how often each happens, which the short-phrase runs count.
+  /** A stream whose long readings come back as given, and whose short ones name the language they were told, in its script. */
+  async function streamOf(name: string) {
+    const engine = await createSherpaEngine(model);
+    const told: Options = { English: "English", Chinese: "中文" };
+    let long: string[] = [];
+    answer = (seconds, options) =>
+      seconds >= 4 ? (long.shift() ?? "") : (told[options.language ?? ""] ?? "untold");
+    const read = (seconds: number) => engine.recognizer.decode(audio(seconds), name, []);
+    return {
+      short: () => read(1),
+      async hear(...readings: string[]) {
+        long = [...readings];
+        for (const _ of readings) await read(5);
+      },
+    };
+  }
+
+  // protects=one long reading in Latin letters whose words name no language leaves its stream told English, between two English readings or after them, as English is often said without the words that tell it; two of the latest three stop it, as that is what a German or Dutch call's readings look like; fails_when=an English call's short replies go untold after every such reading, or a call in another language written in Latin letters stays told English after two sentences with English phrases in them; no_claim=how often each happens, which the replay of the meeting set's lines counts.
+  test("stays told English through one Latin reading that names no language, not through two", async () => {
+    const stream = await streamOf("meeting-8:mic");
+
+    await stream.hear(ENGLISH, UNNAMED);
+    expect(await stream.short()).toBe("untold");
+    await stream.hear(ENGLISH);
+    expect(await stream.short()).toBe("English");
+    await stream.hear(ENGLISH, UNNAMED);
+    expect(await stream.short()).toBe("English");
+    await stream.hear(UNNAMED);
+    expect(await stream.short()).toBe("untold");
+    await stream.hear(ENGLISH, ENGLISH);
+    expect(await stream.short()).toBe("English");
+  });
+
+  // protects=a long reading that mixes scripts between two English ones stops its stream being told English, and keeps it stopped while it is among the latest three; and a reading in Latin letters, naming a language or not, stops a stream being told Chinese, so a mixed call's short English replies aren't told Chinese and translated ("So it's the distance." came back "所以是，是，是，是。"); fails_when=a reading half in Chinese is passed over like one that names no language, or Latin letters that name none pass for Chinese as they do for English; no_claim=a call whose every long reading is mostly Chinese with English terms in it, which is told Chinese.
+  test("is not told a language across a reading that mixes scripts or is in another", async () => {
+    const stream = await streamOf("meeting-9:mic");
+
+    await stream.hear(ENGLISH, ENGLISH);
+    expect(await stream.short()).toBe("English");
+    await stream.hear(MIXED, ENGLISH);
+    expect(await stream.short()).toBe("untold");
+    await stream.hear(ENGLISH);
+    expect(await stream.short()).toBe("untold");
+    await stream.hear(ENGLISH);
+    expect(await stream.short()).toBe("English");
+
+    await stream.hear(CHINESE, CHINESE, CHINESE);
+    expect(await stream.short()).toBe("中文");
+    await stream.hear(UNNAMED, CHINESE);
+    expect(await stream.short()).toBe("untold");
+    await stream.hear(CHINESE, CHINESE);
+    expect(await stream.short()).toBe("中文");
+  });
+
+  // protects=a short reading told the call's language that still comes back in another script is kept when Chinese speech says such words on their own ("OK", "email", an abbreviation said letter by letter) or the model's own reading writes the same ("Okay" for "OK", a Chinese name in an English call), and left out otherwise ("是的" told Chinese as "shit。", read alone as "system"), with none of its words in the log; the same check holds a lone "system" written told English, which the model writes there for "um", "sorry" or "okay" and which stays only when it reads "system" untold too; fails_when=real code-switching is dropped, a word the model makes up in another script reaches the Transcript, or "system" stands in an English call where nobody said it; no_claim=how often each happens, which the short-phrase runs count.
   test.each([
     ["Chinese", CHINESE, "OK。", "", "OK。"],
     ["Chinese", CHINESE, "OK。", "Okay.", "OK。"],
@@ -123,6 +177,10 @@ describe("A short stretch read on this computer (#1031)", () => {
     ["Chinese", CHINESE, "kitty。", "", ""],
     ["Chinese", CHINESE, "bullshit。", "我 shit。", ""],
     ["English", ENGLISH, "对。", "是。", ""],
+    ["English", ENGLISH, "System.", "system", "System."],
+    ["English", ENGLISH, "system", "Um.", ""],
+    ["English", ENGLISH, "System.", "嗯。", ""],
+    ["English", ENGLISH, "system", "", ""],
   ])(
     "told %s, a short reading of %s's stream written %s, read alone as %s, gives %j",
     async (_language, long, told, alone, kept) => {
@@ -175,7 +233,7 @@ describe("A short stretch read on this computer (#1031)", () => {
     },
   );
 
-  // protects=a reading that is only "system", the word the model takes from its own prompt for a short stretch it misread ("是的"), is no line in a Chinese stream or one whose language isn't known yet, and is kept in an English stream, where it can be the one-word answer someone gave; fails_when="system" shows in a Mandarin call's Transcript, or a real "System." is lost from an English call; no_claim=which of the two an English stream's "system" is, which no reading can tell.
+  // protects=a reading that is only "system", the word the model takes from its own prompt for a short stretch it misread ("是的"), is no line in a Chinese stream or one whose language isn't known yet, and is kept in an English stream when the model reads it so told English and untold, as the one-word answer someone gave; fails_when="system" shows in a Mandarin call's Transcript, or a real "System." is lost from an English call; no_claim=a told "system" the untold reading doesn't repeat, which the test above leaves out.
   test.each([
     ["system", "system"],
     ["System.", "System."],

@@ -3,6 +3,7 @@ import {
   borrowedInto,
   shareAWord,
   spokenLanguageOf,
+  unnamedLatin,
   writtenOutside,
 } from "../../src/core/transcription/spokenLanguage";
 
@@ -20,7 +21,7 @@ describe("The language a reading's words are in (#1031)", () => {
     expect(spokenLanguageOf(text)).toBe(language);
   });
 
-  // protects=Latin-script speech that isn't English is never named English, so a French, German, Spanish or Italian call's short readings are never told English and translated into it; fails_when=words those languages write too (a, in, on, so, was, do, and German "will", "Not" and "just", French "but", "for" and "if", French and Italian "are", Italian "be'", their "IT") name a reading English; no_claim=naming those languages, which no reading here does, or an English phrase quoted inside one of them.
+  // protects=Latin-script speech that isn't English is never named English, so a call in French, German, Spanish, Italian, Dutch, Polish, Czech or Danish never has its short readings told English and translated into it; fails_when=words those languages write too (a, in, on, so, was, do, German "will", "Not" and "just", French "but", "for" and "if", "are", Italian "be'", their "IT", Dutch "we", "of" and "is", Polish and Czech "my" and "to", Danish "at" and "have") or an English phrase they borrow whole ("Nice-to-have", "State of the Art") name a reading English; no_claim=naming those languages, which no reading here does, or a sentence that borrows two of English's own words ("you know").
   test.each([
     "Je pense que nous devons revoir le budget avant la réunion de demain, OK?",
     "On a parlé du planning, mais le client veut une réponse aujourd'hui.",
@@ -35,6 +36,12 @@ describe("The language a reading's words are in (#1031)", () => {
     "Le but, c'est de planter un if devant le bureau avant la visite du client.",
     "Le terrain fait un are, et le for intérieur du client dit non.",
     "Be', sono solo due are di terreno, ma il cliente vuole aspettare.",
+    "We weten nog niet of het is gelukt, maar morgen horen we meer.",
+    "My to zrobimy we wtorek, a potem to sprawdzimy.",
+    "My to víme, ale klient to ještě neviděl.",
+    "Det er godt at have to dage mere til at blive færdig.",
+    "Das ist für uns nur ein Nice-to-have, kein Must-have.",
+    "Für den Kunden ist das State of the Art, sagt er.",
   ])("never names English: %s", (text) => {
     expect(spokenLanguageOf(text)).toBeNull();
   });
@@ -43,6 +50,29 @@ describe("The language a reading's words are in (#1031)", () => {
     expect(spokenLanguageOf("这个 feature 我们 next week 再 discuss 一下 okay")).toBeNull();
     expect(spokenLanguageOf("……")).toBeNull();
     expect(spokenLanguageOf("")).toBeNull();
+  });
+
+  // protects=Latin letters whose words name no language are told apart from scripts mixed in one reading: the first may be English said without the words that tell it ("Tabs are nice."), the second shows the call isn't in one language; fails_when=an English reading without those words counts against its call being English, or a mixed reading counts as saying nothing; no_claim=what a stream makes of either, which tests/core/shortSpeech.test.ts covers.
+  test("Latin letters that name no language are not a mix of scripts", () => {
+    for (const unnamed of [
+      "Tabs are nice. I like tabs, Mozilla style, to be fair.",
+      "Okay. Um. Actually, Monday. Monday might be good.",
+      "Wir müssen das Budget vor dem Meeting morgen noch einmal prüfen.",
+      "Li Ming 说 okay, fine, Monday morning it is.",
+    ]) {
+      expect(spokenLanguageOf(unnamed)).toBeNull();
+      expect(unnamedLatin(unnamed)).toBe(true);
+    }
+    for (const shown of [
+      "I think that's the budget we agreed on, and it should be fine.",
+      "这个 feature 我们 next week 再 discuss 一下 okay",
+      "我们先看一下这个季度的预算。",
+      "Привет, как дела?",
+      "……",
+      "",
+    ]) {
+      expect(unnamedLatin(shown)).toBe(false);
+    }
   });
 
   test("a reading is outside a language only when none of its words is in that language's script", () => {

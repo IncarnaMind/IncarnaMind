@@ -3,8 +3,8 @@
  * for its `language` option (#1031). The model starts each reading with its own guess
  * ("language English<asr_text>"), but sherpa-onnx strips that header and leaves the result's
  * `lang` empty, so the words it wrote are what is left to read the guess from. Latin letters are
- * English only with English words that French, German, Spanish and Italian don't share; any other
- * Latin text has no language here.
+ * English only with words no other language written in them shares; any other Latin text has no
+ * language here.
  */
 
 const HAN = /\p{Script=Han}/gu;
@@ -14,16 +14,16 @@ const LATIN_WORDS = /\p{Script=Latin}+(?:'\p{Script=Latin}+)?/gu;
 /** Characters only Cantonese is written with: Mandarin uses others for the same words. */
 const CANTONESE = /[係喺嘅咗唔冇啲嘢佢哋噉乜嚟睇咩啱嗰嘞囉噃㗎攞搵諗]/gu;
 /**
- * English words that French, German, Spanish and Italian don't write too, so not "will", "not" or
- * "just" (German), "but", "for", "if" or "about" (French), "are" (French, Italian), "be" (Italian
- * "be'") or "it" (their "IT"). The few that are rare there stay (Italian "to'", "the" for "tè"),
- * which is one reason a reading needs two of these words.
+ * English words that no other language written in Latin letters is known to use as an everyday
+ * word. The commonest are missing because one does: "is", "of", "we" (Dutch), "to", "my" (Polish,
+ * Czech), "at", "have", "for" (Danish), "will", "not" (German), "but" (French), "are" (Romanian),
+ * "it" ("IT"). With them, a phrase borrowed whole ("Nice-to-have") named its German sentence
+ * English.
  */
 const ENGLISH = new Set(
   [
-    "the and you that is of to we this have what with they there would my your our she at ",
-    "were been does did think know yeah it's that's don't i'm we're you're can't going should ",
-    "could",
+    "the and you that this what with they there would your our she were does did think know ",
+    "yeah it's that's don't i'm we're you're can't going should could",
   ]
     .join("")
     .split(" "),
@@ -33,22 +33,35 @@ const ONE_SCRIPT = 0.8;
 
 const count = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
 
-/** The language of `text`, by Qwen3-ASR's names, or null when its words don't say. */
-export function spokenLanguageOf(text: string): string | null {
+/** What `text` is written in: Han characters, kana, Hangul and Latin words, counted. */
+function scriptsOf(text: string) {
   const han = count(text, HAN);
   const kana = count(text, KANA);
   const hangul = count(text, HANGUL);
-  const latin = text.match(LATIN_WORDS) ?? [];
-  const units = han + kana + hangul + latin.length;
+  const latin = (text.match(LATIN_WORDS) ?? []).map((word) => word.toLowerCase());
+  return { han, kana, hangul, latin, units: han + kana + hangul + latin.length };
+}
+
+const inEnglish = (latin: readonly string[]) =>
+  new Set(latin.filter((word) => ENGLISH.has(word))).size >= 2;
+
+/** The language of `text`, by Qwen3-ASR's names, or null when its words don't say. */
+export function spokenLanguageOf(text: string): string | null {
+  const { han, kana, hangul, latin, units } = scriptsOf(text);
   if (units === 0) return null;
   if (kana > 0 && (han + kana) / units >= ONE_SCRIPT) return "Japanese";
   if (hangul / units >= ONE_SCRIPT) return "Korean";
   if (han / units >= ONE_SCRIPT) return count(text, CANTONESE) >= 2 ? "Cantonese" : "Chinese";
-  if (latin.length / units < ONE_SCRIPT) return null;
-  const english = new Set(
-    latin.map((word) => word.toLowerCase()).filter((word) => ENGLISH.has(word)),
-  );
-  return english.size >= 2 ? "English" : null;
+  return latin.length / units >= ONE_SCRIPT && inEnglish(latin) ? "English" : null;
+}
+
+/**
+ * Whether `text` is in Latin letters whose words name no language. It may be English without the
+ * words that tell it, or any other language written in them: alone, it shows neither.
+ */
+export function unnamedLatin(text: string): boolean {
+  const { latin, units } = scriptsOf(text);
+  return latin.length > 0 && latin.length / units >= ONE_SCRIPT && !inEnglish(latin);
 }
 
 /** The script a language is written in, as a test of whether a text is in it at all. */

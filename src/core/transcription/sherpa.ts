@@ -13,7 +13,13 @@ import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
 import { onlyPromptWord, resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
-import { borrowedInto, shareAWord, spokenLanguageOf, writtenOutside } from "./spokenLanguage";
+import {
+  borrowedInto,
+  shareAWord,
+  spokenLanguageOf,
+  unnamedLatin,
+  writtenOutside,
+} from "./spokenLanguage";
 import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
@@ -41,12 +47,22 @@ const LONGEST_READING_MS = 15_000;
 /**
  * Qwen3-ASR guesses a reading's language from its audio, and with under about 3 s of it guesses
  * wrong: a short English "yeah" comes back as "对。", a Mandarin "那就这样" as Cantonese (#1031).
- * Such a reading is told its stream's language, as `AGREEING` of the stream's latest readings of
- * at least `LANGUAGE_FROM_MS` show it in their words: from that length the model's guess holds.
+ * Such a reading is told its stream's language, as `AGREEING` of the stream's `LATEST` readings of
+ * at least `LANGUAGE_FROM_MS` show it in their words and the other shows no other: from that
+ * length the model's guess holds.
  */
 const TOLD_LANGUAGE_UNDER_MS = 3000;
 const LANGUAGE_FROM_MS = 4000;
 const AGREEING = 2;
+const LATEST = 3;
+/**
+ * What a long reading in Latin letters shows when its words name no language: nothing against
+ * English, the one language named here that is written in them, and that it is no other. One
+ * between two English readings is English said without the words that tell it, about one in nine
+ * on the meeting set; two of the latest three are a call in another language written in those
+ * letters.
+ */
+const UNNAMED = "";
 
 /**
  * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
@@ -279,20 +295,24 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
   const live = model.live && (await liveReadingsOrNone(model.live));
 
-  /** Each stream's language, as its latest readings long enough to show one have it (null: they don't). */
+  /**
+   * What each stream's latest readings long enough to show a language showed: its name, null for
+   * more than one or one with no name here, or `UNNAMED`.
+   */
   const heard = new Map<string, (string | null)[]>();
 
   function languageOf(stream: string): string | undefined {
     const latest = heard.get(stream) ?? [];
-    const [first] = latest;
-    return latest.length === AGREEING && first && latest.every((each) => each === first)
-      ? first
-      : undefined;
+    const named = latest.filter((each) => each !== UNNAMED);
+    const [first] = named;
+    if (named.length < AGREEING || !first || named.some((each) => each !== first)) return undefined;
+    return first === "English" || named.length === latest.length ? first : undefined;
   }
 
   function learn(stream: string, text: string): void {
     if (!/\p{L}/u.test(text)) return;
-    heard.set(stream, [...(heard.get(stream) ?? []), spokenLanguageOf(text)].slice(-AGREEING));
+    const shown = unnamedLatin(text) ? UNNAMED : spokenLanguageOf(text);
+    heard.set(stream, [...(heard.get(stream) ?? []), shown].slice(-LATEST));
   }
 
   async function read(
@@ -337,14 +357,17 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         // smaller harm than one written that nobody said (#1031).
         if (onlyPromptWord(plain) && languageOf(name) !== "English") return "";
         if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(name, plain);
-        if (language && writtenOutside(plain, language) && !borrowedInto(plain, language)) {
-          // Told the call's language, it still wrote another: kept only if its own guess agrees,
-          // as a word of another language said alone (a name) reads the same both ways. If that
+        const outside =
+          language && writtenOutside(plain, language) && !borrowedInto(plain, language);
+        if (outside || (language && onlyPromptWord(plain))) {
+          // Told the call's language, it still wrote another, or wrote only "system", as it also
+          // does told English for a stretch it can't read. Kept only if its own guess agrees, as
+          // a word said alone (a name, a one-word answer) reads the same both ways. If that
           // second reading fails, so does the stretch: the host notes it as not transcribed,
           // rather than keeping words this check doubts.
           if (!shareAWord(plain, await read(samples, []))) {
             console.warn(
-              "The speech model read a short stretch in another language than the call's, and differently each time; it is left out.",
+              "The speech model read a short stretch one way told its call's language and another way untold; it is left out.",
               { language },
             );
             return "";
