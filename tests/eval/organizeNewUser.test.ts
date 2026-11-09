@@ -122,7 +122,11 @@ describe("the Organize benchmark's new-User scores", () => {
     };
 
     test("filed with its second label's Documents, it counts right, where the labels as written count it wrong twice", () => {
-      const scored = counts([...three("m", "meetings", "f1"), ...three("r", "reports", "f2"), status("f1")]);
+      const scored = counts([
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        status("f1"),
+      ]);
       expect(scored.now).toEqual([9, 9, 12, 0]);
       expect(scored.written).toMatchObject({
         samePairs: 9,
@@ -133,13 +137,21 @@ describe("the Organize benchmark's new-User scores", () => {
     });
 
     test("filed with its first label's Documents, it counts right under both", () => {
-      const scored = counts([...three("m", "meetings", "f1"), ...three("r", "reports", "f2"), status("f2")]);
+      const scored = counts([
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        status("f2"),
+      ]);
       expect(scored.now).toEqual([9, 9, 12, 0]);
       expect(scored.written).toMatchObject({ sameShared: 9, differentShared: 0 });
     });
 
     test("filed with a third label's Documents, or left out, it counts by its first label, once", () => {
-      const filed = [...three("m", "meetings", "f1"), ...three("r", "reports", "f2"), ...three("x", "finance", "f3")];
+      const filed = [
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        ...three("x", "finance", "f3"),
+      ];
       expect(counts([...filed, status("f3")]).now).toEqual([12, 9, 33, 3]);
       expect(counts([...filed, status(null)]).now).toEqual([12, 9, 33, 0]);
     });
