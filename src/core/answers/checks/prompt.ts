@@ -57,7 +57,7 @@ function readingWords(reading: Reading): string {
  * that unit (#2864).
  */
 const STATED_UNIT =
-  'A sentence that says which unit or scale figures are in, and that a Document states them so ("All amounts are in SEK thousands, as the filings give them", "下列金额以千日元计，与报表一致"), is supported by a Passage\'s line that states that unit for its figures ("(SEK \'000)", "单位：千日元"), whether or not the sentence gives the figures.';
+  'A sentence that says which unit or scale figures are in, and that a Document states them so ("All amounts are in SEK thousands, as the filings give them", "下列金额以千日元计，与报表一致"), is supported by a Passage\'s line that states that unit for its figures ("(SEK \'000)", "单位：千日元"), whether or not the sentence gives the figures. That line\'s "unless otherwise stated" (除另有说明外) gives the Document\'s default, not a condition on the sentence: write none for it on both sides of the Condition line. A figure the Document gives in another unit stays in that unit, and a condition on a right or a duty is still a condition.';
 
 const rules = (calculate = false, namesUnit = false) => [
   "You check one sentence the User wrote against the User's Documents. You don't answer it, add to it or rewrite it.",
