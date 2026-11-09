@@ -278,7 +278,10 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
       ],
       answer: "It reached 28.4 BLEU [^1].",
     });
-    const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
+    // Its quote stays shorter than the review's whole sentence, so it is a Citation of its own.
+    const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs(), {
+      quotesAsGiven: () => true,
+    });
     await writeReview(core, client, documents);
 
     const one = await contextOfNextQuestion(core, client, mind.id, model, "What did it score?");
