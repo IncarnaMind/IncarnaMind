@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import type { ConversationAnswer } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { translate } from "../../src/shared/i18n";
@@ -14,7 +15,14 @@ vi.mock("../../src/renderer/src/conversations", () => ({
   questionOf: () => ({ id: "q1", text: QUESTION.text, model: null }),
 }));
 
+const handle = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+vi.mock("../../src/renderer/src/commands/handles", () => ({ readMindHandle: handle }));
+vi.mock("../../src/renderer/src/editor/notePlace", () => ({
+  notePlace: () => ({ from: 0, to: 0 }),
+}));
+
 const made: Record<string, unknown>[] = [];
+const renamed: [string, string][] = [];
 const minds: { id: string; title: string; autoTitle: string; folderId: string | null }[] = [];
 vi.mock("../../src/renderer/src/core", () => ({
   core: {
@@ -22,6 +30,10 @@ vi.mock("../../src/renderer/src/core", () => ({
     createMind: async (input: { title: string }) => {
       made.push(input);
       return { id: "made", title: input.title, autoTitle: "", folderId: null };
+    },
+    renameMind: async (id: string, title: string) => {
+      renamed.push([id, title]);
+      return { id, title };
     },
     addToNote: async () => ({ blockIds: ["b1"] }),
   },
@@ -87,6 +99,8 @@ const { addAnswer } = await import("../../src/renderer/src/addToNote");
 
 beforeEach(() => {
   made.length = 0;
+  renamed.length = 0;
+  handle.current = null;
   minds.length = 0;
   pushed.length = 0;
   QUESTION.text = "What are the revenue and adjusted EBITDA?";
@@ -137,5 +151,30 @@ describe("Write as a note names the note it makes", () => {
       { kind: "new" },
     );
     expect(made[1]).toMatchObject({ title: "Half-year review" });
+  });
+});
+
+describe("the open, empty, untitled note an Answer is written into", () => {
+  test("keeps its empty title when the Blocks can't go in, and no second note is made", async () => {
+    minds.push({ id: "own", title: "", autoTitle: "", folderId: null });
+    handle.current = {
+      mindId: "own",
+      doc: new Y.Doc(),
+      cursorInMind: () => true,
+      editor: {
+        isDestroyed: false,
+        state: { doc: {}, selection: {} },
+        schema: {
+          nodeFromJSON: () => {
+            throw new Error("Not a block.");
+          },
+        },
+      },
+    };
+    await addAnswer({ answer, conversation: undefined, blocks: [SENTENCE] }, { kind: "new" });
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(renamed).toEqual([]);
+    expect(made).toEqual([]);
+    expect(pushed).toEqual([]);
   });
 });

@@ -8,6 +8,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  frontMind,
   frontMindName,
   launchApp,
   newMind,
@@ -30,6 +31,7 @@ import {
 const WORDS = {
   en: {
     settings: "Settings",
+    untitled: "Untitled",
     ready: /\bReady\b/,
     today: /Today:/,
     entries: /Entries:/,
@@ -42,6 +44,7 @@ const WORDS = {
   },
   "zh-CN": {
     settings: "设置",
+    untitled: "未命名",
     ready: /就绪/,
     today: /今天：/,
     entries: /共\s*\d+\s*条/,
@@ -188,12 +191,28 @@ for (const language of LANGUAGES) {
       await expect.poll(() => readdir(output)).toContain(`${w.named}.docx`);
 
       // A note of the User's own that is still empty and unnamed takes the name the same way,
-      // with a number once another note has it.
+      // with a number once another note has it, and Undo, here or in the note, takes the name
+      // back with the Answer.
       await newMind(window);
+      const editor = frontMind(window).getByTestId("mind-editor");
+      await expect(frontMindName(window)).toHaveText(w.untitled);
       const again = await askInAssistant(window, w.question);
-      await pointAndClick(window, again.getByTestId("answer-write-note"));
+      const write = again.getByTestId("answer-write-note");
+      await pointAndClick(window, write);
       await expect(frontMindName(window)).toHaveText(`${w.named} 2`);
       await expect(window.getByTestId("mind-tab")).toHaveCount(2);
+      await expect(editor).not.toHaveText("");
+
+      await pointAndClick(window, again.getByTestId("answer-added-undo"));
+      await expect(editor).toHaveText("");
+      await expect(frontMindName(window)).toHaveText(w.untitled);
+
+      await pointAndClick(window, write);
+      await expect(frontMindName(window)).toHaveText(`${w.named} 2`);
+      await pointAndClick(window, editor.locator(":scope > p").first());
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(editor).toHaveText("");
+      await expect(frontMindName(window)).toHaveText(w.untitled);
     } finally {
       await app.close();
       await removeDataFolder(output);

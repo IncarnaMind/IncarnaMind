@@ -144,8 +144,27 @@ export function addInEditor(
   return ids;
 }
 
-/** Into the Mind the assistant reads, through its editor; false when it isn't open in one. */
-async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolean> {
+/**
+ * Names a note that has no title once the Answer is in it, and puts the empty title back when the
+ * Answer is taken out again, by Undo or ⌘Z (#2870). A title the User has set since is left alone.
+ */
+function nameWhileIn(mindId: string, title: string) {
+  const rename = (from: string, to: string) => {
+    const now = useAppStore.getState().minds.find((each) => each.id === mindId)?.title;
+    if (now === from) core.renameMind(mindId, to).catch(useAppStore.getState().reportError);
+  };
+  return {
+    apply: () => rename("", title),
+    undone: () => rename(title, ""),
+    redone: () => rename("", title),
+  };
+}
+
+/**
+ * Into the Mind the assistant reads, through its editor; false when it isn't open in one.
+ * `title` names it once the Answer is in.
+ */
+async function addToReadMind(added: AddedAnswer, mindId: string, title?: string): Promise<boolean> {
   const read = readMindHandle.current;
   if (!read || read.mindId !== mindId || read.editor.isDestroyed) return false;
   const checked = asGenerated(
@@ -195,12 +214,15 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
       },
     ])
     .catch(useAppStore.getState().reportError);
-  const mind = nameOfMind(mindId, added.blocks);
+  const naming = title === undefined ? null : nameWhileIn(mindId, title);
   offerEditorUndo(
     editor,
-    addedLine(false, mind, added.blocks, folderId ?? null),
+    addedLine(false, title ?? nameOfMind(mindId, added.blocks), added.blocks, folderId ?? null),
     answerUndoPlace(added.answer.id),
+    naming?.undone,
+    naming?.redone,
   );
+  naming?.apply();
   return true;
 }
 
@@ -275,8 +297,8 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   if (own && empty) {
     const unnamed =
       useAppStore.getState().minds.find((each) => each.id === own.mindId)?.title === "";
-    if (unnamed) await core.renameMind(own.mindId, titleForAnswer(added, namesOfMinds()));
-    if (await addToReadMind(added, own.mindId)) return;
+    const title = unnamed ? titleForAnswer(added, namesOfMinds()) : undefined;
+    if (await addToReadMind(added, own.mindId, title)) return;
   }
   const title = titleForAnswer(added, namesOfMinds());
   const mind = await newMindFor(added, title);
