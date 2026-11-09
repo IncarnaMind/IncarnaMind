@@ -66,3 +66,22 @@ From the independent pre-review:
 - **The unit tests of the rule** had first used this slice's Document lines word for word. They were replaced with other made-up lines before any press. No run has seen the slice, and no constant was set from its presses, but the rule's first tests were written having read its Documents.
 - **`help-marks-as-before` is main's path except for one thing:** quotations are counted fairly there too, since that count is shared code. On that arm a Chinese quotation of four or five characters is no longer turned into a Citation in call help. This makes main's arm cleaner than main, so the bar only gets harder for the branch.
 
+## Third amendment, 2026-11-09, before any press of `call-help-twins`
+
+The pre-review read the fixes again and found four more ways a record could land on words its quote doesn't hold. Each is fixed, and each has a test that fails without the fix:
+
+- **Figures.** A numeral that starts a common word (一样, 十分) is left as words, so its count is still compared: 十分钟 is no 五分钟, 一个月 no 三个月. A classifier keeps the unit after it: 5 个工作日 is no 5 个月.
+- **Negations of a figure.** A negation now reaches a figure: "not $200" against "$200", 不是 200 元 against 是 200 元, 不一样 against 一样.
+- **之 and 在** count as words again: 之前 is no 之后.
+- **More English negations:** neither, nothing, nobody, nowhere.
+
+**Opposite pairs.** A clause and a quote that each say only one side of a pair of opposites (before/after, 前/后, 以上/以下, 最高/最低 and a few more) never hold, however many words they share.
+
+**Chinese pairs.** A Chinese pair counts as held when both its characters are in the quote, as an English word does wherever it stands. 个 counts no more than "a".
+
+**Known limits that only lose a ✓:**
+
+- A correct negative sentence in another word order can be refused ("Basic doesn't cover refrigerated goods").
+- "one" as a pronoun reads as a figure.
+- When records exist but none fits, the press asks the model once for its Citations, as main asks whenever a reply shows none.
+
