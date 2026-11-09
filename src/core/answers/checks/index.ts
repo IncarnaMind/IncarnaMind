@@ -1340,17 +1340,21 @@ export function createChecks(options: ChecksOptions) {
         else {
           const reading = wholeRead.reader(input, read, prepared, atomic, current);
           const heard = heardFrom(prepared);
-          const result = withSpent(
-            await currentTask.run(task, () =>
-              withCites(createPartCheck(options, reading.readPart))({
-                ...checkRequest(queued, read.scope, heard.prepared, mindId, signal),
-                undecidedOnly: true,
-              }),
-            ),
-            (currency) => options.readSpent(input.requestId, currency),
-            "previous" in queued ? queued.previous : undefined,
-          );
-          if (heard.replied()) recordCheck(record, prepared, result);
+          let result: ClaimCheckResult | null = null;
+          try {
+            result = withSpent(
+              await currentTask.run(task, () =>
+                withCites(createPartCheck(options, reading.readPart))({
+                  ...checkRequest(queued, read.scope, heard.prepared, mindId, signal),
+                  undecidedOnly: true,
+                }),
+              ),
+              (currency) => options.readSpent(input.requestId, currency),
+              "previous" in queued ? queued.previous : undefined,
+            );
+          } finally {
+            if (heard.replied()) recordCheck(record, prepared, result);
+          }
           outcome = { result };
           pages = reading.pagesRead();
         }
