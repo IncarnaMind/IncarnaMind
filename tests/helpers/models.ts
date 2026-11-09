@@ -6,6 +6,12 @@ import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges"
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { listedSentences } from "./claimSentences";
 
+/** How a request's instructions start when it is the change-claim check, whatever record it is beside. */
+export const CLAIM_CHECK_OPENING = CLAIM_CHECK_INSTRUCTIONS.slice(
+  0,
+  CLAIM_CHECK_INSTRUCTIONS.indexOf("\n"),
+);
+
 /** A chat model that answers "OK" to every request. */
 export function replyingModel(text = "OK"): MockLanguageModelV4 {
   return new MockLanguageModelV4({
@@ -438,7 +444,7 @@ export function scriptedModel(
         warnings: [],
       };
     }
-    if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
+    if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_OPENING)) {
       return {
         content: [{ type: "text", text: '{"claims":[]}' }],
         finishReason: { unified: "stop", raw: undefined },

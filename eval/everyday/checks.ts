@@ -160,6 +160,8 @@ export interface RequestOutcome {
   addedBlocks?: readonly number[];
   /** The Mind's text is longer after the request than before it (`Expected.longer`). */
   longer?: boolean;
+  /** The request's language, and the names of the Notes it made as the User reads them (#2770). */
+  made?: { language: "en" | "zh-CN"; names: readonly string[] };
   /** Sources the Minds it wrote hold as text, in brackets, as written. */
   sourcesAsText?: readonly string[];
   /** The text of the Blocks it wrote or changed in Minds, once its changes are accepted. */
@@ -215,6 +217,8 @@ export type RequestFailure =
   | { kind: "unseen-attempt"; said: string }
   | { kind: "date-not-in-text"; dates: string[] }
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
+  /** A Note it made is named outside the request's language (#2770). */
+  | { kind: "name-language"; wanted: "en" | "zh-CN"; names: string[] }
   | { kind: "no-figure"; wanted: string; shown: string[] }
   | { kind: "missing-answer-text"; wanted: string }
   | { kind: "wrong-answer-citation" }
@@ -252,6 +256,37 @@ export function chineseShare(reply: string): number {
 export function inLanguage(reply: string, language: "en" | "zh-CN"): boolean {
   const share = chineseShare(reply);
   return language === "en" ? share <= ENGLISH_CJK_AT_MOST : share >= CHINESE_CJK_AT_LEAST;
+}
+
+/** Whether a new Note's name is in `language`: an English one holds no Chinese character, a Chinese one at least one. */
+export function namedIn(name: string, language: "en" | "zh-CN"): boolean {
+  const chinese = (name.match(CJK)?.length ?? 0) > 0;
+  return language === "en" ? !chinese : chinese;
+}
+
+/**
+ * Whether the summary reads longer once the request's changes are accepted: its Blocks, by id,
+ * and the Blocks the request added among them, up to the next Block that was there before and
+ * isn't the summary's; headings left out. Counting only the Blocks there before read an edit
+ * that inserted paragraphs as shorter (#2769).
+ */
+export function readsLonger(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+  summary: ReadonlySet<string>,
+  headings: ReadonlySet<string>,
+): boolean {
+  const counted = (text: string, id: string) => (headings.has(id) ? 0 : text.trim().length);
+  let was = 0;
+  for (const [id, text] of before) if (summary.has(id)) was += counted(text, id);
+  let now = 0;
+  let inside = false;
+  for (const [id, text] of after) {
+    if (summary.has(id)) inside = true;
+    else if (before.has(id)) inside = false;
+    if (summary.has(id) || (inside && !before.has(id))) now += counted(text, id);
+  }
+  return now > was;
 }
 
 const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
@@ -686,6 +721,12 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     failures.push({ kind: "untouched" });
   }
   if (expected.longer && !outcome.longer) failures.push({ kind: "not-longer" });
+  if (outcome.made) {
+    const { language, names } = outcome.made;
+    const misnamed = names.filter((name) => !namedIn(name, language));
+    if (misnamed.length > 0)
+      failures.push({ kind: "name-language", wanted: language, names: misnamed });
+  }
   if (outcome.sourcesAsText && outcome.sourcesAsText.length > 0) {
     failures.push({ kind: "as-text", sources: [...outcome.sourcesAsText] });
   }
@@ -849,6 +890,8 @@ export function failureLine(failure: RequestFailure): string {
         : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
       return `claims a change no call made: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+    case "name-language":
+      return `names a Note it made outside the request's language (${failure.wanted}): ${failure.names.map((name) => `“${name}”`).join(", ")}`;
     case "claimed-action":
       return `claims actions the Mind's change log doesn't back: ${failure.claims.join(", ")}`;
     case "unbacked-tool":
