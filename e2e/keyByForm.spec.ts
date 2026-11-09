@@ -154,7 +154,7 @@ test("in English, a key typed and sent with Enter, then another pasted, asks eac
     await field.fill(SHARED_KEY);
     await field.press("Enter");
     await expect(card.getByTestId("setup-key-sends")).toHaveText(
-      "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
     );
     const ask = card.getByTestId("setup-key-ask");
     await expect(ask).toHaveText("DeepSeek? · Use this key · Another service");

@@ -1080,7 +1080,7 @@ for (const { value, line, sends, chips, titles } of [
     value: "en",
     line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
     sends:
-      "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
     chips: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi", "Qwen"],
     titles: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi"],
   },

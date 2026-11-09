@@ -3100,7 +3100,7 @@ export const en = {
   "setup.key.checking": "Checking your key\u2026",
   "setup.key.recognised": "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
   "setup.key.sends":
-    "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   "setup.key.unrecognised": "We don’t recognize this key’s service",
   "setup.key.chooseService": "Choose the service",
   "setup.key.ask": "{provider}?",

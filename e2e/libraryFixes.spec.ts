@@ -191,7 +191,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
     await expect(needs.getByTestId("library-organize-key-key-sends")).toHaveText(
       language === "en"
-        ? "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for."
+        ? "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for."
         : "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
     );
     await expect(needs).toContainText(

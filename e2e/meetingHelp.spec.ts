@@ -131,7 +131,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
   );
   await expect(needs.getByTestId("meeting-needs-model-key")).toBeVisible();
   await expect(needs.getByTestId("meeting-needs-model-key-sends")).toHaveText(
-    "What you ask, edit or check, with the Notes and the parts of your Documents it needs, goes to the service your key is for.",
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   );
   const panel = await panelOf(app);
   await pointAndClick(
