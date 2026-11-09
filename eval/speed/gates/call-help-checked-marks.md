@@ -61,3 +61,12 @@ The first requests were the same on both arms in all 8 pairs. Kept ✓ sits far 
 The rest are the check being stricter than this gate's judge: a promise on a → line ("书面承诺上线节点和早班支持安排 [3]") and a line that adds "in writing" to its quote, which the judge lets pass. One Chinese sum kept a wrong ✓ on all three of its lines ("试点定在三月三号开始，你已确认没问题，价格尚未谈 [1]"): the check read the whole Transcript Passage, which holds the other lines, and called the quoted words stating, while the judge reads the quote alone.
 
 As this file says, nothing more runs: no gate run reads `call-help-marks`, which stays unread for the next try. Changing how the check's figure rule reads a claim set against a Document, or a marker shared by two sentences, changes a check's verdict for every Answer, and needs a decision first.
+
+### Before a next try's first run
+
+An independent review of the branch at b06bd4ada found, besides the misread above:
+
+- **The spread this file sets its bars from is misread in places.** Sonnet 5.5's cited ranged 14–15, not 15–15, and Haiku 5.5's Chinese judged right ranged 8–13, so bar 3's "by more than 4" rests on a range at least 5 wide. A 0.52 s spread doubled is ±1.0 s, not ±0.5 s. Half of 4 is a fall of 2, less than the chance move of 4 that bar 1 cites. A next try sets its bars again, from these numbers read right, before its first run.
+- **A press can fail on the branch alone:** its marks must settle within 20 s. A bar is needed that no press fails on `today` where main finished.
+- **The stops added for the next press, Stop on the Meeting and closing the panel stop the reply itself, not only its check.** With the panel closed, presses go to the assistant, so the next press cuts the earlier reply mid-sentence while the User may be reading it, and closing the panel stops a reply asked through ⌘K. A pinned reply's check that hasn't settled ends at the next press, and it never gets its ✓. A next try ends only the check, and only of a reply the panel no longer shows.
+- **A ✓ is drawn per Citation, and the check judges sentences.** A line too short to be a claim ("→ Same price [1]") isn't judged; it shows the ✓ that its marker's other sentence earned.
