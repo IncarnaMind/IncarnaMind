@@ -281,6 +281,22 @@ describe("A copy that changes", () => {
     expect(replaced.evidence).toEqual(new Set([pdf.id, reply.id]));
   }, 120_000);
 
+  test("a resaved copy of the checked file's earlier version is left out too, while that version's text is kept; a reply quoting it is still searched", async () => {
+    const { core, folder, named, reply } = await library("en");
+    const word = named("Services Agreement.docx");
+    const resaved = named("Services Agreement (saved again).docx");
+    await writeFile(join(folder, "Services Agreement.docx"), wordOf(sameTemplate("en"), "en"));
+    const changed = nextEvent(core, "document.status");
+    await core.reconcileDocuments();
+    await changed;
+    const [now] = await waitForProcessing(core, [word.id]);
+    expect(now?.contentHash).not.toBe(word.contentHash);
+
+    const found = await checkOf(core, QUERIES.en.clause, word, [resaved, reply]);
+    expect(found.leftOut).toEqual([["Services Agreement (saved again)", "same-text"]]);
+    expect(found.evidence).toEqual(new Set([reply.id]));
+  }, 120_000);
+
   test("Documents stored before fingerprints were are fingerprinted after the start, without a check; a check before that still leaves the copy out", async () => {
     const { core, dataDir, named, reply } = await library("en");
     const word = named("Services Agreement.docx");
