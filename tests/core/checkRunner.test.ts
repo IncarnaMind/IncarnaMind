@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { ClaimCheckResult, Core, Document } from "../../src/core";
+import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { contradictionWatchOf } from "../../src/shared/contradictionWatch";
@@ -79,6 +80,14 @@ const quoteOf = (line: string) => line.replace(/[.。]$/u, "");
 interface Script {
   /** How often each claim's check is refused for too many requests before one is let through. */
   limited?: readonly [number, number, number];
+  /** The same, refused on the request after its model's first reply, so a model read it. */
+  limitedAfterReply?: readonly [number, number, number];
+  /**
+   * The plan's limit is reached on the first claim's request after its model's first reply: that
+   * request and every one after it are refused, as Ollama Cloud refuses them. In a flow that sends
+   * the claims at once, the first claim's reply waits until the others are out.
+   */
+  planLimit?: true;
   /** The claim whose check never replies. */
   hangs?: number;
   /** The monthly cap is reached once the first claim's check has ended, as the next ones start. */
@@ -306,7 +315,12 @@ const FLOWS: readonly Flow[] = [
  * as `plans` say, and writes the claims with their Citations when the assistant is asked to; once
  * `begin` is called, it does to the checks what the script says, and counts their Runs.
  */
-async function worldOf(example: Example, flow: Flow) {
+/** What Ollama Cloud answers a request past the plan's weekly limit. */
+const PLAN_USED_UP = {
+  error: { status: 402, message: "You have reached your weekly usage limit" },
+} as const;
+
+async function worldOf(example: Example, flow: Flow, plan = false) {
   const plans: Record<string, Plan> = Object.fromEntries(
     example.claims.map((claim, index) => {
       const against = example.against[index] ?? "";
@@ -323,6 +337,12 @@ async function worldOf(example: Example, flow: Flow) {
   /** Each check Run as it started: its claim, and which of that claim's Runs it is. */
   const order: string[] = [];
   let left = [0, 0, 0];
+  let leftAfterReply = [0, 0, 0];
+  let planUsed = false;
+  let othersOut: () => void = () => undefined;
+  const othersSent = new Promise<void>((resolve) => {
+    othersOut = resolve;
+  });
   let release: () => void = () => undefined;
   const released = new Promise<void>((resolve) => {
     release = resolve;
@@ -344,12 +364,25 @@ async function worldOf(example: Example, flow: Flow) {
     if (first) {
       runs[index as 0 | 1 | 2]++;
       order.push(`${index}:${runs[index]}`);
+      if (runs[1] > 0 && runs[2] > 0) othersOut();
     }
+    if (planUsed) return PLAN_USED_UP;
     const own = script.reply?.(index, runs[index] ?? 0, call, reply);
     if (own) return own;
     if (first && (left[index] ?? 0) > 0) {
       left[index] = (left[index] ?? 1) - 1;
       return { error: { status: 429, message: "Too many requests." } };
+    }
+    if (!first && (leftAfterReply[index] ?? 0) > 0) {
+      leftAfterReply[index] = (leftAfterReply[index] ?? 1) - 1;
+      return { error: { status: 429, message: "Too many requests." } };
+    }
+    if (script.planLimit && index === 0) {
+      if (!first) {
+        planUsed = true;
+        return PLAN_USED_UP;
+      }
+      if (!flow.inTurn) return { ...reply, pause: { after: 0, until: othersSent } };
     }
     if (index === script.hangs) return { text: "", pause: { after: 0, until: NEVER } };
     if (
@@ -363,6 +396,7 @@ async function worldOf(example: Example, flow: Flow) {
   };
 
   const write = (call: ModelCall): ScriptedReply => {
+    if (planUsed) return PLAN_USED_UP;
     const search = call.results.find((result) => result.tool === "search_documents");
     if (!search)
       return { calls: [{ tool: "search_documents", input: { query: example.claims[0] } }] };
@@ -392,6 +426,7 @@ async function worldOf(example: Example, flow: Flow) {
 
   const model = scriptedModel((call) => (isCheckRun(call) ? check(call) : write(call)), {
     generate: (call) => {
+      if (planUsed) return PLAN_USED_UP;
       const reply = checkGenerate(plans)(call);
       return call.question === "find-claims" ? beforeTheCap(reply) : reply;
     },
@@ -410,12 +445,13 @@ async function worldOf(example: Example, flow: Flow) {
     await started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
   };
   started.on("consent.requested", (asked) => void started.respondToConsent(asked.requestId, true));
-  const provider = await started.saveChatProvider({
-    kind: "anthropic",
-    modelId: "claude-haiku-5-5",
-    apiKey: "sk-ant-test",
-  });
-  const service = provider.service?.id;
+  // A plan with a weekly limit: a cloud model in Ollama, which sends to ollama.com.
+  const provider = await started.saveChatProvider(
+    plan
+      ? { kind: "ollama", modelId: "glm-5.3:cloud" }
+      : { kind: "anthropic", modelId: "claude-haiku-5-5", apiKey: "sk-ant-test" },
+  );
+  const service = plan ? OLLAMA_CLOUD.id : provider.service?.id;
   if (!service) throw new Error("Anthropic is a service.");
   for (const each of ["chat", "checks", "document-check"] as const)
     await started.allowDataFlow(each, service);
@@ -461,6 +497,7 @@ async function worldOf(example: Example, flow: Flow) {
       judgedBefore = await everyRecorded(started);
       script = next;
       left = [...(next.limited ?? [0, 0, 0])];
+      leftAfterReply = [...(next.limitedAfterReply ?? [0, 0, 0])];
       if (next.capFirst && !flow.asksFirst) await reachCap();
     },
     /**
@@ -558,6 +595,7 @@ interface Case {
 }
 
 const RL = "not-checked: rate-limit";
+const PLAN = "not-checked: plan-limit";
 const CAP = "not-checked: cost-cap";
 const TIMED_OUT = "not-checked: timed-out";
 
@@ -587,6 +625,33 @@ const CASES: readonly Case[] = [
     runs: (flow) => (flow.inTurn && !flow.apart ? [6, 0, 0] : [6, 1, 1]),
     pauses: [1_000, 2_000, 4_000, 8_000, 16_000],
     recorded: (flow) => ({ checked: flow.inTurn && !flow.apart ? 0 : 2, asked: 0 }),
+  },
+  {
+    name: "a rate limit after the model read the claim, cleared on the second try, is one check",
+    script: { limitedAfterReply: [1, 0, 0] },
+    shows: () => ["ok", "ok", "ok"],
+    runs: () => [2, 1, 1],
+    pauses: [1_000],
+    recorded: () => ({ checked: 3, asked: 0 }),
+  },
+  {
+    name: "a rate limit after the model read the claim, never cleared, is one check left Not checked",
+    script: { limitedAfterReply: [99, 0, 0] },
+    shows: (flow) => (flow.inTurn && !flow.apart ? [RL, RL, RL] : [RL, "ok", "ok"]),
+    runs: (flow) => (flow.inTurn && !flow.apart ? [6, 0, 0] : [6, 1, 1]),
+    pauses: [1_000, 2_000, 4_000, 8_000, 16_000],
+    recorded: (flow) => ({ checked: flow.inTurn && !flow.apart ? 0 : 2, asked: 1 }),
+  },
+  {
+    name: "a plan's limit on the first claim stops the run: nothing more is sent, and every claim is Not checked for it",
+    script: { planLimit: true },
+    shows: () => [PLAN, PLAN, PLAN],
+    // In turn, nothing after the limit is sent; at once, the others were out already; each call of
+    // the claim-check function is a run of its own, refused by the plan.
+    runs: (flow) => (flow.inTurn && !flow.apart ? [1, 0, 0] : [1, 1, 1]),
+    pauses: [],
+    // A model read each claim it sent before the limit, so each is asked.
+    recorded: (flow) => ({ checked: 0, asked: flow.inTurn ? 1 : 3 }),
   },
   {
     name: "the cap reached midway stops the run, and each claim left is Not checked for it",
@@ -627,13 +692,13 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
   // protects=each flow waits out a rate limit (1, 2, 4, 8, 16 s) and sends the claim again, ends Not checked on a limit no pause cleared, stops at the cap with every claim left Not checked for it, gives up a check after the one time limit with one message, and records every check a model replied to in the Note's record, checked with a verdict or asked with none, and none a model never got, in English and Chinese (#2897); fails_when=a flow marks a rate limit at once, ends a whole read's part on it, keeps sending after the cap or leaves a claim unmarked, has no time limit, leaves a check a model ran out of the record, or records one no model ran; no_claim=the verdicts, which the claim-check tests cover.
   describe.each(FLOWS)("$name", (flow) => {
     test.each(CASES)("$name", async (each) => {
-      const made = await worldOf(example, flow);
+      const made = await worldOf(example, flow, each.script.planLimit === true);
       const { world } = made;
       await flow.setUp?.(world);
       const before = await recorded(world);
       const pausedBefore = world.clock.pauses().length;
-      if ((each.script.cap || each.script.capFirst) && flow.asksFirst === "write")
-        world.ends = "failed";
+      const stopped = each.script.cap || each.script.capFirst || each.script.planLimit;
+      if (stopped && flow.asksFirst === "write") world.ends = "failed";
       await made.begin(each.script);
 
       const running = flow.run(world);

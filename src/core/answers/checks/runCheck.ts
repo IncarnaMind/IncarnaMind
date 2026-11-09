@@ -10,9 +10,10 @@
  * - The monthly cap or a plan's limit is "stop": nothing more is sent, and the claim and every one
  *   after it are Not checked for its reason.
  * - A check with no reply within the time limit is given up on: "failed", timed out.
- * - Every check a model replied to is a use of AI in its Note's record (#906), whether or not its
- *   result lands: "sentence-checked" with its verdict, "sentence-asked" with none. A check no
- *   model replied to (refused before it was sent, at the cap, kept inside a wall) is none.
+ * - A claim whose check a model replied to, on any try, is one use of AI in its Note's record
+ *   (#906), written once its outcome is final, whether or not it lands: "sentence-checked" with a
+ *   verdict, "sentence-asked" with none. A claim no model replied to (refused before it was sent,
+ *   turned away by its provider, kept inside a wall) is none.
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ClaimCheckFailure, ClaimCheckResult, RecordAiUseInput, RunStop } from "../../api";
@@ -91,15 +92,26 @@ type StreamPart =
     ? Part
     : never;
 
+/** A model lent to a check, and what to tell when a reply comes to it some other way. */
+const lent = new WeakMap<PreparedChatModel, () => void>();
+
 /**
  * `prepared`, and whether a reply from its model has begun: a request refused before it was
- * sent, or one its provider turned away, began none.
+ * sent, or one its provider turned away, began none. `heard` hears the first.
  */
-export function heardFrom(prepared: PreparedChatModel): {
+export function heardFrom(
+  prepared: PreparedChatModel,
+  heard?: () => void,
+): {
   prepared: PreparedChatModel;
   replied(): boolean;
 } {
   let replied = false;
+  const hear = () => {
+    if (replied) return;
+    replied = true;
+    heard?.();
+  };
   const listen = (model: ChatLanguageModel) =>
     wrapLanguageModel({
       model,
@@ -107,7 +119,7 @@ export function heardFrom(prepared: PreparedChatModel): {
         specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate }) => {
           const result = await doGenerate();
-          replied = true;
+          hear();
           return result;
         },
         wrapStream: async ({ doStream }) => {
@@ -115,7 +127,7 @@ export function heardFrom(prepared: PreparedChatModel): {
           const stream = result.stream.pipeThrough(
             new TransformStream<StreamPart, StreamPart>({
               transform(part, controller) {
-                if (part.type !== "error" && !BEFORE_REPLY.has(part.type)) replied = true;
+                if (part.type !== "error" && !BEFORE_REPLY.has(part.type)) hear();
                 controller.enqueue(part);
               },
             }),
@@ -125,18 +137,23 @@ export function heardFrom(prepared: PreparedChatModel): {
       },
     });
   let listened: ChatLanguageModel | null = null;
-  return {
-    prepared: {
-      ...prepared,
-      // Wrapped when a request first asks for it: a check may never send one.
-      get model() {
-        listened ??= listen(prepared.model);
-        return listened;
-      },
+  const listening: PreparedChatModel = {
+    ...prepared,
+    // Wrapped when a request first asks for it: a check may never send one.
+    get model() {
+      listened ??= listen(prepared.model);
+      return listened;
     },
-    replied: () => replied,
   };
+  lent.set(listening, hear);
+  return { prepared: listening, replied: () => replied };
 }
+
+/**
+ * Tells the check that was lent `prepared` (`heardFrom`) that its claim was read, by a check it
+ * took in place of its own: one Check this Note started early.
+ */
+export const heardThrough = (prepared: PreparedChatModel): void => lent.get(prepared)?.();
 
 /**
  * Records a check a model replied to as a use of AI: checked when it came to a verdict, else
@@ -186,16 +203,16 @@ const stopped = (): ClaimCheckResult => ({
   excluded: [],
 });
 
-/** The check, or `TimedOut` once the time limit passes; recorded when its model replied. */
+/** The check, or `TimedOut` once the time limit passes; `read` hears its model reply. */
 async function within(
   check: ClaimCheck,
   request: ClaimCheckRequest,
   run: CheckRun,
+  read: () => void,
 ): Promise<ClaimCheckResult> {
   const settled = new AbortController();
   const givenUp = new AbortController();
-  const heard = heardFrom(request.model);
-  let came: ClaimCheckResult | null = null;
+  const heard = heardFrom(request.model, read);
   try {
     // A reply that never comes, even once its check is stopped, is given up on all the same.
     const ended = new Promise<ClaimCheckResult | TimedOut>((resolve) => {
@@ -221,11 +238,9 @@ async function within(
       ended,
     ]);
     if (result instanceof TimedOut) throw result;
-    came = result;
     return result;
   } finally {
     settled.abort();
-    if (heard.replied()) recordCheck(run.record, run.model, came);
   }
 }
 
@@ -235,11 +250,19 @@ export async function checkOnce(
   request: ClaimCheckRequest,
   run: CheckRun,
 ): Promise<ClaimCheckResult> {
+  let read = false;
+  let result: ClaimCheckResult | null = null;
   try {
-    return await within(check, request, run);
+    result = await within(check, request, run, () => {
+      read = true;
+    });
+    return result;
   } catch (error) {
-    if (error instanceof TimedOut) return resultOf(timedOut(run));
-    throw error;
+    if (!(error instanceof TimedOut)) throw error;
+    result = resultOf(timedOut(run));
+    return result;
+  } finally {
+    if (read) recordCheck(run.record, run.model, result);
   }
 }
 
@@ -288,18 +311,24 @@ export async function runClaimChecks<I>(
   stop: RunStop | null;
   outcomeError: { error: unknown } | null;
 }> {
-  const attempt: CheckTry = async (check, request) => {
-    const result = await within(check, request, run);
-    const failure = runFailureOf(result);
-    if (failure) throw new RunItemError(failure);
-    return result;
-  };
+  /** Whether a model replied to each item's check, on any of its tries. */
+  const read = items.map(() => false);
+  const attempt =
+    (index: number): CheckTry =>
+    async (check, request) => {
+      const result = await within(check, request, run, () => {
+        read[index] = true;
+      });
+      const failure = runFailureOf(result);
+      if (failure) throw new RunItemError(failure);
+      return result;
+    };
   const { onOutcome } = run;
   const { outcomes, stop, outcomeError } = await runItems(
-    items,
-    async (item): Promise<CheckOutcome> => {
+    items.map((item, index) => ({ item, index })),
+    async ({ item, index }): Promise<CheckOutcome> => {
       try {
-        return { result: await each(item, attempt) };
+        return { result: await each(item, attempt(index)) };
       } catch (error) {
         if (error instanceof RunItemError) throw error;
         if (error instanceof TimedOut) return timedOut(run);
@@ -314,12 +343,12 @@ export async function runClaimChecks<I>(
       // A sleep rejects only when the run is stopped, which ends the pause.
       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),
       now: run.timers.now,
-      ...(onOutcome && {
-        onOutcome(item: I, outcome: ItemOutcome<CheckOutcome>) {
-          const heard = outcomeOf(outcome);
-          if (heard) onOutcome(item, heard);
-        },
-      }),
+      // Heard once an item's tries are over: its one record, from what it came to in the end.
+      onOutcome({ item, index }, outcome) {
+        const heard = outcomeOf(outcome);
+        if (read[index]) recordCheck(run.record, run.model, heard && resultOf(heard));
+        if (heard) onOutcome?.(item, heard);
+      },
     },
   );
   return { outcomes: outcomes.map(outcomeOf), stop, outcomeError };

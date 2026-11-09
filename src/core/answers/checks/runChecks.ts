@@ -29,6 +29,7 @@ import {
   type CheckRuns,
   checkRunOf,
   heardFrom,
+  heardThrough,
   recordCheck,
   runClaimChecks,
 } from "./runCheck";
@@ -206,9 +207,18 @@ export function earlyChecks(
     /** What the check reads besides its request, as it was when it started, and as it is now. */
     read: string;
     readNow(): string;
+    replied(): boolean;
   }
   const started = new Map<string, Early[]>();
-  const drop = (early: Early) => early.stop.abort();
+  // One the run takes is its claim's own check, recorded by the run; one it doesn't is a claim of
+  // its own, recorded here once it ends, when a model replied to it.
+  const drop = (early: Early) => {
+    early.stop.abort();
+    const ended = (result: ClaimCheckResult | null) => {
+      if (early.replied()) recordCheck(record, run.prepared, result);
+    };
+    early.result.then(ended, () => ended(null));
+  };
   return {
     /**
      * `readNow` says what the check reads besides its request (the Library, the Note's record
@@ -230,13 +240,8 @@ export function earlyChecks(
         stop,
         read: readNow(),
         readNow,
+        replied: heard.replied,
       };
-      // Recorded as it ends, whether the run takes it or not: the run's own record is of the
-      // checks it sends itself.
-      const ended = (result: ClaimCheckResult | null) => {
-        if (heard.replied()) recordCheck(record, run.prepared, result);
-      };
-      early.result.then(ended, () => ended(null));
       early.result.catch((error: unknown) => {
         // A check the run takes fails there, as any other does.
         if (stop.signal.aborted || !started.get(key)?.includes(early)) return;
@@ -269,7 +274,19 @@ export function earlyChecks(
       if (!early) return claimCheck(request);
       // The run's time limit stops it as it would the check the run sends.
       request.signal.addEventListener("abort", () => early.stop.abort(), { once: true });
-      return early.result;
+      const ended = () => {
+        if (early.replied()) heardThrough(request.model);
+      };
+      return early.result.then(
+        (result) => {
+          ended();
+          return result;
+        },
+        (error: unknown) => {
+          ended();
+          throw error;
+        },
+      );
     },
     /** Stops every early check the run didn't take. */
     drop(): void {

@@ -1011,7 +1011,7 @@ describe("Checks in the statement", () => {
       uses: [
         ["Use", "Model", "Times"],
         ["Sentences checked against the Documents", "local-model", "1"],
-        ["Sentences sent to a model to check, left Not checked", "local-model", "1"],
+        ["Sentences a model read to check, left Not checked", "local-model", "1"],
       ],
       results: [
         ["Result", "Sentences"],
@@ -1029,7 +1029,7 @@ describe("Checks in the statement", () => {
       uses: [
         ["用途", "模型", "次数"],
         ["对照文档核对句子", "local-model", "1"],
-        ["发给模型核对、结果为未核对的句子", "local-model", "1"],
+        ["模型读过、结果为未核对的句子", "local-model", "1"],
       ],
       results: [
         ["核对结果", "说法（条）"],

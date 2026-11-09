@@ -4784,7 +4784,7 @@ export const zhCN = {
   "aiStatement.use.search-sources": "检索公开学术资料（查找资料）",
   "aiStatement.use.search-web": "联网搜索",
   "aiStatement.use.sentence-checked": "对照文档核对句子",
-  "aiStatement.use.sentence-asked": "发给模型核对、结果为未核对的句子",
+  "aiStatement.use.sentence-asked": "模型读过、结果为未核对的句子",
   "aiStatement.text.heading": "二、AI 生成文字的保留与改写（按章节）",
   "aiStatement.text.none": "这篇笔记中没有 AI 生成的文字。",
   "aiStatement.text.intro":

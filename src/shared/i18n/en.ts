@@ -5005,7 +5005,7 @@ export const en = {
   "aiStatement.use.search-sources": "Searches of public scholarly sources (Find sources)",
   "aiStatement.use.search-web": "Web searches",
   "aiStatement.use.sentence-checked": "Sentences checked against the Documents",
-  "aiStatement.use.sentence-asked": "Sentences sent to a model to check, left Not checked",
+  "aiStatement.use.sentence-asked": "Sentences a model read to check, left Not checked",
   "aiStatement.text.heading": "AI text, by section",
   "aiStatement.text.none": "This note has no AI text.",
   "aiStatement.text.intro":

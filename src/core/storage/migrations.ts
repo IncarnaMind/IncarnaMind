@@ -3092,16 +3092,6 @@ export const migrations: readonly Migration[] = [
       DROP TABLE kind_names;
     `,
   },
-  {
-    version: 141,
-    description:
-      "The AI use record keeps a check a model replied to but left Not checked, as a kind of its own (#2897)",
-    sql: `
-      -- ai_use.kind gains 'sentence-asked': a sentence whose check a model replied to, left Not
-      -- checked. The table is as it was, but an older version reads a kind it doesn't know as an
-      -- Answer added to the Note, so it refuses a database this migration ran on instead.
-    `,
-  },
 ];
 
 /**

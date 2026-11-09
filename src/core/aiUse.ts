@@ -209,10 +209,10 @@ export function createAiUse(options: AiUseOptions) {
   const dirty = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const toEntry = (row: Row): AiUseEntry => ({
+  const entryOf = (row: Row, kind: AiUseKind): AiUseEntry => ({
     id: row.id,
     mindId: row.mind_id,
-    kind: isKind(row.kind) ? row.kind : "answer-added",
+    kind,
     outcome: isOutcome(row.outcome) ? row.outcome : "kept",
     providerId: row.provider_id,
     modelId: row.model_id,
@@ -222,9 +222,26 @@ export function createAiUse(options: AiUseOptions) {
     occurredAt: row.occurred_at,
   });
 
+  /** The kinds a newer version wrote, said once each: this version neither lists nor counts them. */
+  const unknown = new Set<string>();
+  const toEntry = (row: Row): AiUseEntry[] => {
+    if (isKind(row.kind)) return [entryOf(row, row.kind)];
+    if (!unknown.has(row.kind)) {
+      unknown.add(row.kind);
+      console.warn(
+        `The AI use record of Note ${row.mind_id} holds an entry of a kind this version doesn't know ("${row.kind}"): it is left out.`,
+      );
+    }
+    return [];
+  };
+
   const status = (): AiUseStatus => ({
     entries:
-      db.get<{ n: number }>("SELECT count(*) AS n FROM ai_use WHERE deleted_at IS NULL")?.n ?? 0,
+      db.get<{ n: number }>(
+        `SELECT count(*) AS n FROM ai_use WHERE deleted_at IS NULL
+         AND kind IN (${aiUseKinds.map(() => "?").join(", ")})`,
+        [...aiUseKinds],
+      )?.n ?? 0,
   });
   const announce = () => options.changed(status());
 
@@ -389,7 +406,7 @@ export function createAiUse(options: AiUseOptions) {
         : db.all<Row>(
             `SELECT ${COLUMNS} FROM ai_use WHERE deleted_at IS NULL ORDER BY occurred_at, rowid`,
           );
-      return rows.map(toEntry);
+      return rows.flatMap(toEntry);
     },
 
     status,
