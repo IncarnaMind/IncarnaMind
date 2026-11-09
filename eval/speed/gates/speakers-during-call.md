@@ -6,7 +6,8 @@ Written and committed on 2026-11-09, before any run it gates.
 
 - While a Meeting records, what is saved of the side whose voices the speaker pass tells apart (the computer's sound in a call, the room otherwise) is clustered during the call, in the speaker process at low priority, one run at a time, in memory only:
   - all of it again, once what isn't clustered yet reaches max(60 s, a quarter of what was);
-  - between those runs, everything saved after the last of them, once it grows by max(20 s, half of what that run took).
+  - between those runs, everything saved after the last of them, once it grows by max(20 s, half of what that run took);
+  - a run over everything takes at most an hour of audio, as the engine clusters a long recording in windows of an hour, and the next goes on after it.
 - At Stop, a run still going stops. Only what was saved after the last finished runs is clustered, and the stretches' voices are joined by voiceprint, as a long recording's windows already were. A call with no finished run of everything, a Try again, and a pass after a restart cluster the whole recording at once, as on main.
 - A pass after Stop comes first: a run during a call stops for it and starts again after it.
 - Nothing is shown during the call. The labels the pass gives after Stop are the only ones, written once into the Transcript's who's who, as since #2851.
