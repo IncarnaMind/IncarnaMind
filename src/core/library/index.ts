@@ -365,7 +365,11 @@ export function createLibrary(options: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
   }): ExternalService[];
-  /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
+  /**
+   * When the User turned tagging or Organize on for this service, as a switch saved with no list
+   * of turn-ons knows it: their consent to it (../consent). Null if there is none, or the consent
+   * was recorded with no turn-on.
+   */
   consentedAt(service: ExternalService): string | null;
   /** Whether the User's consent to tagging sending to this service stands (../consent). */
   taggingAllowed(service: ExternalService): boolean;
@@ -468,9 +472,18 @@ export function createLibrary(options: {
     const since = sinceOf(saved);
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
-  /** The place of the User's turn-on for this service in the database's order; null if none. */
-  const turnedOnSeq = (service: ExternalService): number | null =>
-    savedSettings().automaticSinceSeq?.[service.id] ?? null;
+  /**
+   * The place of the User's turn-on for this service in the database's order; null if none. A
+   * place kept for a switch saved with no list (#2370) counts only while that service's consent
+   * still reads as a turn-on (#2623).
+   */
+  const turnedOnSeq = (service: ExternalService): number | null => {
+    const saved = savedSettings();
+    const turnedOn = saved.automaticSince
+      ? saved.automaticSince[service.id] !== undefined
+      : options.consentedAt(service) !== null;
+    return turnedOn ? (saved.automaticSinceSeq?.[service.id] ?? null) : null;
+  };
   const sinceSeqOf = (saved: ReturnType<typeof savedSettings>): Record<string, number> =>
     saved.automaticSinceSeq ?? {};
   const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
