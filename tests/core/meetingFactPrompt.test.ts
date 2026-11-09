@@ -87,7 +87,7 @@ test.each([
       "When one person speaks as Them and their name is known, that name is Them on every line",
     );
     expect(prompt).toContain(
-      "A name the User typed is written as they typed it, even when the transcript heard it differently. Never invent a name.",
+      "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",
     );
     expect(prompt).toContain(
       "A proposal agreed as it stood is not a fact of its own, and a decision names only its own choice, never another decision's terms.",
