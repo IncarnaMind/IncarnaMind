@@ -70,6 +70,8 @@ export function reasonKey(row: FigureScheduleRow): MessageKey | null {
       return "claim.why.doesntAddUp";
     case "differs-from-analysis":
       return "claim.why.differsFromAnalysis";
+    case "units-may-differ":
+      return "claim.why.unitsMayDiffer";
     default:
       return `claim.why.${row.reason}`;
   }
@@ -326,7 +328,9 @@ function sourceDecimals(row: FigureScheduleRow): number {
 }
 
 /** The number a figure's quoted source gives, written as the note writes the figure. */
-export function quotedSourceText(figure: FigureFinding): string | null {
+export function quotedSourceText(
+  figure: Pick<FigureFinding, "reading" | "sourceInput">,
+): string | null {
   const { sourceInput } = figure;
   if (!sourceInput) return null;
   return writtenLike(

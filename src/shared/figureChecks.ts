@@ -179,7 +179,8 @@ export function readFigureFinding(value: unknown): FigureFinding | null {
     return null;
   if (
     (value.context !== undefined && typeof value.context !== "string") ||
-    (value.label !== undefined && typeof value.label !== "string")
+    (value.label !== undefined && typeof value.label !== "string") ||
+    (value.statedUnit !== undefined && typeof value.statedUnit !== "string")
   )
     return null;
   const locator = locatorOf(value.locator);
@@ -226,6 +227,7 @@ export function readFigureFinding(value: unknown): FigureFinding | null {
     ...(typeof value.context === "string" && { context: value.context }),
     ...(typeof value.label === "string" && { label: value.label }),
     ...(value.named === true && { named: true as const }),
+    ...(typeof value.statedUnit === "string" && { statedUnit: value.statedUnit }),
   };
 }
 

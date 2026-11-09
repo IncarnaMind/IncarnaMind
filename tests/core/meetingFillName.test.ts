@@ -205,12 +205,14 @@ async function filled(language: Language, name: string | null) {
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.updateSettings({ user: { language, authorName: name } });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  // A Document to check the claim against, so the check asks the model.
+  // A Document in the Note's Folder to check the claim against, so the check asks the model.
   const sources = await createSourceFolder();
-  await addAndProcess(core, [
+  const added = await addAndProcess(core, [
     await writeSourceFile(sources, "Budget.md", "The budget review is in March.\n"),
   ]);
-  const meeting = await core.createMeeting();
+  const folder = await core.createLibraryGroup({ name: "Review", description: "" });
+  await core.moveToFolder({ documentIds: added.map((each) => each.id), folderId: folder.id });
+  const meeting = await core.createMeeting({ folderId: folder.id });
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(1, call.heading), note(call.line)]);
   await client.settled();

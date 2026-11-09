@@ -78,28 +78,6 @@ function Item({
   );
 }
 
-/**
- * Export on a strip whose shown tab isn't a Note: every group's strip holds the same controls in
- * the same order, so this one waits, saying what it needs.
- */
-export function ExportIdle() {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      data-testid="export-idle"
-      aria-disabled="true"
-      aria-description={t("export.idle")}
-      tabIndex={-1}
-      title={t("export.idle")}
-      className="tab-export"
-    >
-      <ExportLineIcon />
-      <span>{t("export.action")}</span>
-    </button>
-  );
-}
-
 export function ExportMenu({ mindId }: { mindId: string }) {
   const t = useT();
   const language = useLanguage();

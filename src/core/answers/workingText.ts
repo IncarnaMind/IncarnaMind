@@ -7,11 +7,11 @@
  * Answer before it for context. A failure to decide, or no reply within the time limit, keeps the
  * text: losing the User's Answer is worse than showing a note.
  */
-import { generateText, jsonSchema, Output } from "ai";
-import { tagged } from "../promptData";
+import { jsonSchema } from "ai";
+import type { PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
-import { outputTokens } from "../providers/outputLimits";
 import type { AnswerRequest } from "./engine";
+import { fieldsOf, judge, list, structured, word } from "./judge";
 import { smallCallModel } from "./smallCalls";
 
 /** The instructions for the one request that decides (#2371). */
@@ -24,6 +24,8 @@ export const WORKING_TEXT_INSTRUCTIONS = [
   "When in doubt, reply answer.",
   "Reply with one word for each part, in order.",
 ].join("\n");
+
+const WORKING_TEXT_TAGS: readonly PromptTag[] = ["answer", "question", "reply"];
 
 /** How long the judgement may take before the engine keeps the text. */
 export const WORKING_TEXT_TIME_LIMIT_MS = 20_000;
@@ -40,6 +42,16 @@ const partsSchema = jsonSchema<{ parts: ("answer" | "working")[] }>({
   required: ["parts"],
 });
 
+const verdict = word("answer", "working");
+
+/** The reply about `count` parts, in structured output: one word for each, in their order. */
+export const workingReply = (count: number) =>
+  structured(partsSchema, "parts", (value) => {
+    const given = fieldsOf(value, { parts: list })?.parts ?? [];
+    const verdicts = given.flatMap((each) => verdict(each) ?? []);
+    return given.length === count && verdicts.length === count ? verdicts : null;
+  });
+
 /**
  * The parts' verdicts, in order: "answer" or "working". Null when the reply couldn't be read, the
  * count didn't match, or the time limit passed.
@@ -54,36 +66,33 @@ export async function judgeWorkingText(
   limitMs = WORKING_TEXT_TIME_LIMIT_MS,
 ): Promise<("answer" | "working")[] | null> {
   if (parts.length === 0) return [];
-  let timedOut = false;
-  const limit = AbortSignal.timeout(limitMs);
-  limit.addEventListener("abort", () => (timedOut = true), { once: true });
-  try {
-    const result = await generateText({
-      model,
-      instructions: WORKING_TEXT_INSTRUCTIONS,
-      prompt: [
-        tagged("question", question, "", ["answer", "reply"]),
-        tagged("answer", context, "", ["question", "reply"]),
-        ...parts.map((text, index) =>
-          tagged("reply", text, ` id="${index + 1}"`, ["answer", "question"]),
-        ),
-      ].join("\n\n"),
-      temperature,
-      maxOutputTokens: outputTokens("working-text"),
-      output: Output.object({ schema: partsSchema, name: "parts" }),
-      maxRetries: 0,
-      abortSignal: AbortSignal.any([signal, limit]),
-    });
-    const verdicts = result.output.parts;
-    return verdicts.length === parts.length ? verdicts : null;
-  } catch (error) {
-    if (!signal.aborted) {
-      console.error(
-        `Whether text beside cite is the model's working wasn't decided${timedOut ? ` within ${Math.round(limitMs / 1000)} s` : ""}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    return null;
+  const judged = await judge({
+    model,
+    question: { id: "working-text", instructions: WORKING_TEXT_INSTRUCTIONS },
+    parts: [
+      { tag: "question", text: question },
+      "",
+      { tag: "answer", text: context },
+      "",
+      ...parts.flatMap((text, index) => [
+        ...(index > 0 ? [""] : []),
+        { tag: "reply" as const, text, attributes: { id: `${index + 1}` } },
+      ]),
+    ],
+    data: WORKING_TEXT_TAGS,
+    reply: workingReply(parts.length),
+    retries: 0,
+    signal,
+    timeoutMs: limitMs,
+    temperature,
+  });
+  if (judged.ok) return judged.value;
+  if (judged.reason !== "stopped") {
+    console.error(
+      `Whether text beside cite is the model's working wasn't decided: ${judged.error?.message ?? `the reply was ${judged.reason}`}`,
+    );
   }
+  return null;
 }
 
 /** The verdicts for `parts`; null when they couldn't be had, which keeps every part. */

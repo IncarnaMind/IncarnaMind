@@ -108,11 +108,12 @@ export interface MeetingFillOptions {
     }): Promise<CellAnswer>;
   };
   /**
-   * Whether the Mind's Folder (every Document, for a Mind in none) holds a Document to check the
-   * call's claims against, leaving out the Transcript.
+   * Whether the Search scope chosen for the Mind, else its Folder, holds a Document to check the
+   * call's claims against, leaving out the Transcript: never, for a Mind in no Folder with none
+   * chosen.
    */
   checkable(input: { mindId: string; transcriptId: string }): boolean;
-  /** Whether the Mind's Folder (every Document, for a Mind in none) supports `claim`, leaving out the Transcript. */
+  /** Whether that scope supports `claim`, leaving out the Transcript. */
   supports(input: {
     claim: string;
     mindId: string;
@@ -438,9 +439,9 @@ export function orStopped<T>(promise: Promise<T>, signal: AbortSignal, stopped: 
   });
 }
 
-/** Whether the speaker pass renamed anyone, once it ends; false if the fill is stopped first. */
-const renamedOrStopped = (pass: SpeakersTold, signal: AbortSignal) =>
-  orStopped(pass.renamed, signal, false);
+/** Once the speaker pass has ended, or the fill is stopped. */
+const passEnded = (pass: SpeakersTold, signal: AbortSignal) =>
+  orStopped(pass.ended, signal, undefined);
 
 async function inTurns<T, R>(
   items: readonly T[],
@@ -459,30 +460,29 @@ async function inTurns<T, R>(
   return results;
 }
 
-/** A speaker pass under way when a fill started: whether it renamed who spoke, once it ends. */
+/** A speaker pass under way when a fill started, and when it ends. */
 interface SpeakersTold {
-  renamed: Promise<boolean>;
-  settle(renamed: boolean): void;
+  ended: Promise<void>;
+  settle(): void;
 }
 
 function speakersTold(): SpeakersTold {
-  let settle: (renamed: boolean) => void = () => undefined;
-  const renamed = new Promise<boolean>((resolve) => {
+  let settle: () => void = () => undefined;
+  const ended = new Promise<void>((resolve) => {
     settle = resolve;
   });
-  return { renamed, settle };
+  return { ended, settle };
 }
 
 export function createMeetingFill(options: MeetingFillOptions) {
   const { content, meetings, log } = options;
   const running = new Map<string, AbortController>();
   /**
-   * Fills started while their call's speakers are told apart (#2773): each writes only once the
-   * pass has ended. One whose pass renamed a line is made again (`again`), as is one stopped by
-   * its Note's deletion when the Note is back before it ended.
+   * Fills started while their call's speakers are told apart (#2773). They are written once
+   * ready: who spoke a line goes into the Transcript's who's who, which their Citations read
+   * (#2839). Only one on this computer's model waits for the pass, which shares the computer.
    */
   const told = new Map<string, SpeakersTold>();
-  const again = new Set<string>();
   let closed = false;
 
   const set = (meetingId: string, change: Partial<StoredFill>): Meeting => {
@@ -557,8 +557,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
     transcriptId: string,
     route: Routed,
     signal: AbortSignal,
-    /** The speaker pass under way as they start, if any. */
-    speakers: SpeakersTold | null,
   ): Promise<Written> {
     const lines = content.read(meeting.mindId, (blocks) => userLines(blocks));
     const mode = lines.length > 0 ? "notes" : "sections";
@@ -570,25 +568,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       problem: null,
       omitted: 0,
       unfinishedParts: 0,
+      checking: 0,
       blocks: [],
     };
-    if (speakers) {
-      // Until the pass ends they stay "waiting", so a quit or the Note's deletion leaves them
-      // waiting for the Transcript, as if they hadn't started.
-      void renamedOrStopped(speakers, signal)
-        .then((renamed) => {
-          if (renamed || signal.aborted || meetings.isDeleted(meeting.id)) return;
-          if (meetings.storedFill(meeting.id)?.state === "waiting") set(meeting.id, filling);
-        })
-        .catch((error: unknown) => {
-          log.error("meeting.fillStateFailed", {
-            meetingId: meeting.id,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
-    } else {
-      set(meeting.id, filling);
-    }
+    set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
     // The notes, their section titles and the question that steers an Answer's language are in
@@ -868,7 +851,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       route = { problem: { kind: "no-model", message: words("meetings.fill.problem.noModel") } };
     }
     // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
-    if (closed || meetings.isDeleted(meetingId) || again.has(meetingId)) return;
+    if (closed || meetings.isDeleted(meetingId)) return;
     if ("problem" in route && meeting.kind === "meeting") {
       set(meetingId, { state: "off", problem: route.problem });
       return;
@@ -876,28 +859,16 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const controller = new AbortController();
     running.set(meetingId, controller);
     try {
-      // A model on this computer would share it with the pass, and a request dropped after a
-      // rename costs it minutes: it waits for the pass.
+      // A model on this computer would share it with the pass: it waits for the pass.
       if (pass && "model" in route && route.local) {
-        if (await renamedOrStopped(pass, controller.signal)) again.add(meetingId);
-        if (controller.signal.aborted || again.has(meetingId)) {
-          throw new FillProblemError({ kind: "stopped", message: "" });
-        }
+        await passEnded(pass, controller.signal);
+        if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
       }
       const written =
         meeting.kind === "memo" || "problem" in route
           ? await memo(meeting, transcriptId, route, controller.signal)
-          : await notes(
-              meeting,
-              transcriptId,
-              route,
-              controller.signal,
-              pass && told.get(meetingId) === pass ? pass : null,
-            );
-      if (pass && (await renamedOrStopped(pass, controller.signal))) again.add(meetingId);
-      if (controller.signal.aborted || again.has(meetingId)) {
-        throw new FillProblemError({ kind: "stopped", message: "" });
-      }
+          : await notes(meeting, transcriptId, route, controller.signal);
+      if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
       options.checkpoint(meeting.mindId);
       const added = content.edit(
         meeting.mindId,
@@ -929,28 +900,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
               message: error instanceof Error ? error.message : String(error),
             };
       const ended = { meetingId, kind: problem.kind, message: problem.message };
-      // Made again from the renamed Transcript: nothing of this one is kept or said.
-      if (again.has(meetingId)) {
-        log.info("meeting.fillRedone", ended);
-        return;
-      }
       // At a quit it is left as it was: the next start says it stopped, or starts it (`resume`).
       if (closed) {
         log.info("meeting.fillClosed", ended);
         return;
       }
       const deleted = meetings.isDeleted(meetingId);
-      // Stopped while its call's speakers were told apart, its notes still wait: the Note came
-      // back before this one ended, so they start again.
-      if (
-        !deleted &&
-        controller.signal.aborted &&
-        meetings.storedFill(meetingId)?.state === "waiting"
-      ) {
-        log.info("meeting.fillRedone", ended);
-        again.add(meetingId);
-        return;
-      }
       log.warn("meeting.fillFailed", ended);
       // In Recently deleted it stays as it was: once back, "filling" says it stopped and
       // "waiting" starts (`restored`).
@@ -977,10 +932,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       checked.length > 0 && options.checkable({ mindId: meeting.mindId, transcriptId })
         ? checked
         : [];
+    if (claims.length > 0) set(meeting.id, { checking: claims.length });
     let checking = 0;
     const supported = await inTurns(claims, route.local ? 1 : CLAIMS_AT_ONCE, (claim) => {
-      // Stopped, as when the pass renamed a line and the notes are made again: no check is sent,
-      // and none under way is waited for.
+      // Stopped: no check is sent, and none under way is waited for.
       if (signal.aborted) return Promise.resolve(false);
       checking++;
       const check = options
@@ -1005,6 +960,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         });
       return orStopped(check, signal, false);
     });
+    if (claims.length > 0 && !signal.aborted) set(meeting.id, { checking: 0 });
     if (signal.aborted && checking > 0) {
       log.info("meeting.claimChecksStopped", { meetingId: meeting.id, checks: checking });
     }
@@ -1029,16 +985,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
       })
       .finally(() => {
         starting.delete(meetingId);
-        // Deleted meanwhile, its notes wait for the Note to come back (`restored`).
-        if (!again.delete(meetingId) || closed || meetings.isDeleted(meetingId)) return;
-        try {
-          start(meetingId);
-        } catch (error) {
-          log.error("meeting.fillRestartFailed", {
-            meetingId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
       });
   }
 
@@ -1072,29 +1018,25 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
     /**
      * A call's Transcript is saved while its speakers are told apart (#2773): its words are final,
-     * so its notes start now, and are written once the pass has ended.
+     * so its notes start now, and are written as soon as they are ready (#2839).
      */
     transcriptWritten(meetingId: string): void {
       if (meetings.isDeleted(meetingId) || !options.startsBeforeSpeakers()) return;
+      // Try again during the pass starts at once too, after a restart that ran it again.
+      if (!told.has(meetingId)) told.set(meetingId, speakersTold());
       if (meetings.storedFill(meetingId)?.state === "waiting") start(meetingId);
     },
 
     /**
      * The Transcript is finished, saved or with no lines: the notes are filled in now, if they wait
-     * for it, and notes made while its speakers were told apart are written, or made again from
-     * it where the pass `renamed` who spoke a line. In Recently deleted, they wait until the
-     * Meeting is back (`restored`).
+     * for it, and a fill on this computer's model that waited for its speakers goes on. In
+     * Recently deleted, they wait until the Meeting is back (`restored`).
      */
-    transcriptSaved(meetingId: string, renamed: boolean): void {
+    transcriptSaved(meetingId: string): void {
       const pass = told.get(meetingId);
       told.delete(meetingId);
-      pass?.settle(renamed);
+      pass?.settle();
       if (meetings.isDeleted(meetingId)) return;
-      if (pass && renamed && (running.has(meetingId) || starting.has(meetingId))) {
-        again.add(meetingId);
-        running.get(meetingId)?.abort();
-        return;
-      }
       if (meetings.storedFill(meetingId)?.state === "waiting") start(meetingId);
     },
 
@@ -1102,13 +1044,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
     retry(meetingId: string): Meeting {
       const fill = meetings.storedFill(meetingId);
       if (fill?.state === "failed" || fill?.state === "off" || fill?.state === "undone") {
-        // While the speakers are told apart, the notes wait for them, as at Stop: the pass's end
-        // starts them (`transcriptSaved`).
-        if (meetings.get(meetingId).transcript?.separating) {
-          set(meetingId, { state: "waiting", problem: null, blocks: [] });
-        } else {
-          start(meetingId);
-        }
+        const separating = meetings.get(meetingId).transcript?.separating === true;
+        if (separating) set(meetingId, { state: "waiting", problem: null, blocks: [] });
+        // While a room's speakers are told apart, its notes wait for them, as at Stop: the pass's
+        // end starts them (`transcriptSaved`). A call's start now, as they did at Stop.
+        if (!separating || told.has(meetingId)) start(meetingId);
       }
       return meetings.get(meetingId);
     },

@@ -356,7 +356,7 @@ describe("record-cite choices through the core", () => {
     };
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) => {
-        if (call.system.includes("exact Passage a record cite names")) {
+        if (call.question === "record-cite") {
           throw new TranslatableError({ key: "claim.reason.rate-limit" });
         }
         return checkGenerate(plans)(call);
@@ -382,9 +382,7 @@ describe("record-cite choices through the core", () => {
     };
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) =>
-        call.system.includes("exact Passage a record cite names")
-          ? { text: "unreadable" }
-          : checkGenerate(plans)(call),
+        call.question === "record-cite" ? { text: "unreadable" } : checkGenerate(plans)(call),
     });
     const setup = await setUp(CLAIM, {}, {}, model);
 

@@ -101,6 +101,8 @@ export interface CitingPlan {
   preamble?: string;
   /** Holds the Answer's stream back once `after` characters are out, until `until` resolves. */
   pause?: { after: number; until: Promise<void> };
+  /** Holds its records back until `until` resolves, as a model still thinking does. */
+  recordsHeld?: Promise<void>;
 }
 
 /** A model that calls Tools: it searches once, cites, then writes its Answer. */
@@ -118,7 +120,10 @@ export function citingModel(plan: CitingPlan): MockLanguageModelV4 {
       }
       if (!cited) {
         const passages = shownPassages(searches.at(-1)?.text ?? "");
-        return { calls: [{ tool: "cite", input: { citations: plan.records(passages) } }] };
+        return {
+          calls: [{ tool: "cite", input: { citations: plan.records(passages) } }],
+          ...(plan.recordsHeld && { pause: { after: 0, until: plan.recordsHeld } }),
+        };
       }
       return { text: plan.answer, pause: plan.pause };
     },

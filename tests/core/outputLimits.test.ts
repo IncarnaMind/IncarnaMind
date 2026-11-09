@@ -26,6 +26,7 @@ import {
   type GenerateCall,
   type GeneratedReply,
   type ModelCall,
+  questionOf,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
@@ -42,20 +43,14 @@ const systemOf = (options: Options) =>
     .map((message) => (typeof message.content === "string" ? message.content : ""))
     .join("\n");
 
-/** The kinds a request of these instructions may be, as each call site names its own. */
+/**
+ * The kinds a request of these instructions may be, as each call site names its own. A judge's
+ * question names its own kind (src/core/answers/judge.ts).
+ */
 const KINDS: readonly [RegExp, readonly ModelCallKind[]][] = [
   [/^You check one sentence/, ["check-step"]],
-  [/^You say whether parts of a model's reply/, ["working-text"]],
   [/^You turn a Question from the User's notebook/, ["search-query"]],
   [/^You translate a query/, ["search-query"]],
-  [/^You check an AI assistant's reply/, ["claimed-changes"]],
-  [/^You add the Citations an Answer left out/, ["unmarked-quotes"]],
-  [/^You fix the quotes/, ["quote-retry"]],
-  [/^You fix the calculated figures/, ["figure-retry"]],
-  [/^Read the whole Documents/, ["absence-read"]],
-  [/^You checked a sentence the User wrote/, ["evidence"]],
-  [/^Compare a sentence/, ["comparison", "record-cite"]],
-  [/^You sort the sentences/, ["find-claims"]],
   [/^You tag a User's Documents/, ["tags", "tag-batch"]],
   [/^You propose Folders/, ["folders"]],
 ];
@@ -73,6 +68,8 @@ const limitsOf = (kind: ModelCallKind) =>
  */
 function unlimited(model: MockLanguageModelV4): string[] {
   const kindsOf = (options: Options, streamed: boolean): readonly ModelCallKind[] => {
+    const question = questionOf(options);
+    if (question) return [question];
     const system = systemOf(options);
     const known = KINDS.find(([pattern]) => pattern.test(system))?.[1];
     if (known) return known;
@@ -126,7 +123,7 @@ function checkModel({ cutVerdict = false, cutRead = false } = {}) {
     },
     {
       generate: (call: GenerateCall): GeneratedReply =>
-        call.system.startsWith("Read the whole Documents")
+        call.question === "absence-read"
           ? { text: JSON.stringify(HOLDS), cutOff: cutRead }
           : checkGenerate(PLANS)(call),
     },

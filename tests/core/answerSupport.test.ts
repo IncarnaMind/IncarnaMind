@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { checkableSentences } from "../../src/core/answers/checks/written";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -103,7 +102,7 @@ function batchReply(
   };
 }
 
-const isBatch = (call: GenerateCall) => call.system === SENTENCE_BATCH_INSTRUCTIONS;
+const isBatch = (call: GenerateCall) => call.question === "sentence-batch";
 
 /**
  * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and

@@ -44,6 +44,7 @@ import type { PageText } from "../../documents/passages";
 import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { SearchResultForModel } from "../engine";
+import { labelled } from "../judge";
 import type { TurnCheck } from "../turnChecks";
 import type {
   AtomicClaimCheckResult,
@@ -162,11 +163,11 @@ export type DeclaredLibrary =
   | { kind: "facts"; facts: ReadonlySet<LibraryFact["kind"]> };
 
 export function declaredLibrary(reply: string): DeclaredLibrary | null {
-  const line = reply
-    .split("\n")
-    .map((each) => LIBRARY_LINE_FIELD.exec(each.trim())?.[1])
-    .findLast((each) => each !== undefined);
-  if (line === undefined) return null;
+  const line = labelled(
+    reply.split("\n").map((each) => each.trim()),
+    LIBRARY_LINE_FIELD,
+  );
+  if (line === undefined || line === null) return null;
   const words = line
     .toLowerCase()
     .split(/[^a-z]+/)

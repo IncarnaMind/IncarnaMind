@@ -7,6 +7,7 @@ import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { asData, type PromptTag, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
+import { type JudgePart, judgePrompt } from "./judge";
 import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
@@ -998,26 +999,34 @@ export interface FigureToRetry {
   passages: readonly { id: string; text: string }[];
 }
 
+/** The retries' tags: none of them may be opened or closed by what they hold (#2423). */
+export const RETRY_TAGS: readonly PromptTag[] = ["passage"];
+
 /** The request to fix figures: each one as given, why it couldn't be worked out, and its Passages. */
-export function figureRetryPrompt(figures: readonly FigureToRetry[]): string {
+export function figureRetryParts(figures: readonly FigureToRetry[]): JudgePart[] {
   return withMeaning(
-    figures
-      .map((figure) =>
-        [
-          asData(`[=${figure.marker}] as you gave it: ${figure.given}`, ["passage"]),
-          `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
-          ...figure.passages.map((passage) =>
-            tagged("passage", passage.text, ` id="${attribute(passage.id)}"`),
-          ),
-        ].join("\n"),
-      )
-      .join("\n\n"),
+    figures.flatMap((figure, index): JudgePart[] => [
+      ...(index > 0 ? [""] : []),
+      { text: `[=${figure.marker}] as you gave it: ${figure.given}` },
+      `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
+      ...figure.passages.map((passage) => ({
+        tag: "passage" as const,
+        text: passage.text,
+        attributes: { id: passage.id },
+      })),
+    ]),
+    RETRY_TAGS,
   );
 }
 
+export const figureRetryPrompt = (figures: readonly FigureToRetry[]): string =>
+  judgePrompt(figureRetryParts(figures), RETRY_TAGS);
+
 /** A request that shows Passages, with what their set-aside rows' marks mean after it. */
-const withMeaning = (request: string): string =>
-  [request, setAsideRowsMeaning(request)].filter((part) => part !== "").join("\n\n");
+function withMeaning(parts: JudgePart[], tags: readonly PromptTag[]): JudgePart[] {
+  const meaning = setAsideRowsMeaning(judgePrompt(parts, tags));
+  return meaning === "" ? parts : [...parts, "", meaning];
+}
 
 /** A record whose quote wasn't found, as the request for exact quotes shows it. */
 export interface QuoteToRetry {
@@ -1033,24 +1042,22 @@ export interface QuoteToRetry {
 }
 
 /** The request for exact quotes: each record's marker, sentence, quote and Passage text. */
-export function quoteRetryPrompt(records: readonly QuoteToRetry[]): string {
+export function quoteRetryParts(records: readonly QuoteToRetry[]): JudgePart[] {
   return withMeaning(
-    records
-      .map((record) =>
-        [
-          asData(`[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`, [
-            "passage",
-          ]),
-          asData(
-            `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
-            ["passage"],
-          ),
-          tagged("passage", record.text, ` id="${attribute(record.passage)}"`),
-        ].join("\n"),
-      )
-      .join("\n\n"),
+    records.flatMap((record, index): JudgePart[] => [
+      ...(index > 0 ? [""] : []),
+      { text: `[^${record.marker}] is on this sentence of the Answer: ${record.sentence}` },
+      {
+        text: `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
+      },
+      { tag: "passage", text: record.text, attributes: { id: record.passage } },
+    ]),
+    RETRY_TAGS,
   );
 }
+
+export const quoteRetryPrompt = (records: readonly QuoteToRetry[]): string =>
+  judgePrompt(quoteRetryParts(records), RETRY_TAGS);
 
 /**
  * Once an Answer is written with no Citation though it read Passages, and no
@@ -1064,21 +1071,27 @@ export const CITE_RETRY_INSTRUCTIONS = [
   'Reply with one JSON object: {"citations": [{"sentence": "…", "passage": "P1", "quote": "…"}]}, or {"citations": []} if no Passage supports any sentence.',
 ].join("\n");
 
+/** The one request for Citations shows an Answer: its tags are the Answer's and the Passages'. */
+export const CITE_RETRY_TAGS: readonly PromptTag[] = ["answer", "passage"];
+
 /** The one request for an Answer's Citations: the Answer, then the Passages it read. */
-export function citeRetryPrompt(
+export function citeRetryParts(
   answer: string,
   passages: readonly { id: string; text: string }[],
-): string {
-  const shown = passages.map((passage) =>
-    tagged("passage", passage.text, ` id="${attribute(passage.id)}"`, ["answer"]),
-  );
-  return [
-    tagged("answer", answer, "", ["passage"]),
-    "",
-    ...shown,
-    ...[setAsideRowsMeaning(shown.join("\n"))].filter((note) => note !== ""),
-  ].join("\n");
+): JudgePart[] {
+  const shown = passages.map((passage) => ({
+    tag: "passage" as const,
+    text: passage.text,
+    attributes: { id: passage.id },
+  }));
+  const meaning = setAsideRowsMeaning(judgePrompt(shown, CITE_RETRY_TAGS));
+  return [{ tag: "answer", text: answer }, "", ...shown, ...(meaning === "" ? [] : [meaning])];
 }
+
+export const citeRetryPrompt = (
+  answer: string,
+  passages: readonly { id: string; text: string }[],
+): string => judgePrompt(citeRetryParts(answer, passages), CITE_RETRY_TAGS);
 
 /** The request to rewrite `question` into a search query, with the notebook text above it. */
 export function searchQueryPrompt(earlier: string, question: string): string {

@@ -36,7 +36,13 @@ import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
-import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
+import {
+  answerRequests,
+  judgesNothing,
+  promptOf,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { docxOf, xlsxOf, xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
@@ -122,17 +128,20 @@ function calculatingModel(plan: {
   steps: ((passages: ShownPassage[]) => Call[])[];
   answer: string;
 }): MockLanguageModelV4 {
-  return scriptedModel((call) => {
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    if (searches.length < plan.queries.length) {
-      return {
-        calls: [{ tool: "search_documents", input: { query: plan.queries[searches.length] } }],
-      };
-    }
-    const step = plan.steps[call.index - plan.queries.length];
-    if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
-    return { text: plan.answer };
-  });
+  return scriptedModel(
+    (call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length < plan.queries.length) {
+        return {
+          calls: [{ tool: "search_documents", input: { query: plan.queries[searches.length] } }],
+        };
+      }
+      const step = plan.steps[call.index - plan.queries.length];
+      if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
+      return { text: plan.answer };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 /** The id of the Passage of a Document whose name starts with `name`. */
@@ -1007,25 +1016,28 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
   });
 
   test("an Answer written beside calculate with no marker in it stands when the model writes no other", async () => {
-    const model = scriptedModel((call) => {
-      const search = call.results.find((result) => result.tool === "search_documents");
-      if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
-      if (call.index === 1) {
-        const [growth] = GROWTH({ revenue: 1, margin: 1 });
-        const passage = passageOf(shownPassages(search.text), "Acme");
-        const inputs = growth?.inputs.map(({ citation: _, ...input }) => ({
-          ...input,
-          passage,
-          location: "p. 1",
-          quote: REVENUE,
-        }));
-        return {
-          text: "Acme's revenue grew 20.4% in 2025.",
-          calls: [{ tool: "calculate", input: { figures: [{ ...growth, inputs }] } }],
-        };
-      }
-      return { text: "" };
-    });
+    const model = scriptedModel(
+      (call) => {
+        const search = call.results.find((result) => result.tool === "search_documents");
+        if (!search) return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+        if (call.index === 1) {
+          const [growth] = GROWTH({ revenue: 1, margin: 1 });
+          const passage = passageOf(shownPassages(search.text), "Acme");
+          const inputs = growth?.inputs.map(({ citation: _, ...input }) => ({
+            ...input,
+            passage,
+            location: "p. 1",
+            quote: REVENUE,
+          }));
+          return {
+            text: "Acme's revenue grew 20.4% in 2025.",
+            calls: [{ tool: "calculate", input: { figures: [{ ...growth, inputs }] } }],
+          };
+        }
+        return { text: "" };
+      },
+      { generate: judgesNothing },
+    );
     const { core } = await setUpCalculating(model, [ACME]);
 
     const { answer } = await askAndRead(core, "How much did Acme's revenue grow?");
@@ -2124,22 +2136,25 @@ function scaleModel(
     },
     ...(withUnitQuote ? [() => [{ tool: "calculate", input: { figures: figures(true) } }]] : []),
   ];
-  return scriptedModel((call) => {
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    if (searches.length === 0) {
-      return {
-        calls: forms.map((form) => ({
-          tool: "search_documents",
-          input: {
-            query: `${form.code} ${chinese ? "公司账目 收入 成本" : "Holdings accounts revenue costs"}`,
-          },
-        })),
-      };
-    }
-    const step = steps[call.index - 1];
-    if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
-    return { text: forms.map((_, index) => `[=${index + 1}]`).join(" ") };
-  });
+  return scriptedModel(
+    (call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return {
+          calls: forms.map((form) => ({
+            tool: "search_documents",
+            input: {
+              query: `${form.code} ${chinese ? "公司账目 收入 成本" : "Holdings accounts revenue costs"}`,
+            },
+          })),
+        };
+      }
+      const step = steps[call.index - 1];
+      if (step) return { calls: step(searches.flatMap((each) => shownPassages(each.text))) };
+      return { text: forms.map((_, index) => `[=${index + 1}]`).join(" ") };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 /** Runs `scaleModel` over every form's Document of `format`; returns what the model was told and the figures recorded, by marker. */
@@ -6599,19 +6614,21 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
       ],
     };
     // Its provider refuses Tools, so the Answer steps down to structured output.
-    const model = scriptedModel((call) =>
-      call.tools.length > 0
-        ? { error: { status: 400, message: "This model does not support tools" } }
-        : {
-            text: JSON.stringify({
-              answer: "Revenue grew [=1][^1], and gross margin rose [=2][^2].",
-              citations: [
-                { marker: 1, passage: "P1", location: "p. 1", quote: REVENUE },
-                { marker: 2, passage: "P1", location: "p. 2", quote: MARGIN },
-              ],
-              calculations: [growth[0], badMargin],
-            }),
-          },
+    const model = scriptedModel(
+      (call) =>
+        call.tools.length > 0
+          ? { error: { status: 400, message: "This model does not support tools" } }
+          : {
+              text: JSON.stringify({
+                answer: "Revenue grew [=1][^1], and gross margin rose [=2][^2].",
+                citations: [
+                  { marker: 1, passage: "P1", location: "p. 1", quote: REVENUE },
+                  { marker: 2, passage: "P1", location: "p. 2", quote: MARGIN },
+                ],
+                calculations: [growth[0], badMargin],
+              }),
+            },
+      { generate: judgesNothing },
     );
     const { core } = await setUpCalculating(model, [ACME]);
 
@@ -7453,14 +7470,17 @@ const marginChange = (citation: number, numbers = ["41.2%", "38.9%"]) => [
  */
 function steppingModel(steps: ((passage: string) => { text?: string; calls: Call[] })[]) {
   let made = 0;
-  return scriptedModel((call) => {
-    const searched = call.results.find((result) => result.tool === "search_documents");
-    if (!searched) {
-      return { calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }] };
-    }
-    const step = steps[made++];
-    return step ? step(passageOf(shownPassages(searched.text), "Acme")) : { text: "" };
-  });
+  return scriptedModel(
+    (call) => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) {
+        return { calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }] };
+      }
+      const step = steps[made++];
+      return step ? step(passageOf(shownPassages(searched.text), "Acme")) : { text: "" };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 /** A `cite` call with one record, for `marker`'s quote on `location`. */
@@ -7674,16 +7694,21 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     "%s: a fix still owed when the Run stops at its step limit: the record's marker is placed, not found",
     async (_, writes) => {
       const refused = writesOneMarker({ quote: "Gross margin 99.9%" });
-      const model = scriptedModel((call) => {
-        const searched = call.results.find((result) => result.tool === "search_documents");
-        if (!searched) {
-          return { calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }] };
-        }
-        const passage = passageOf(shownPassages(searched.text), "Acme");
-        return call.results.some((result) => result.tool === "cite")
-          ? { calls: [citeOne(passage, 2, "p. 2", "Gross margin 99.9%")] }
-          : refused(passage);
-      });
+      const model = scriptedModel(
+        (call) => {
+          const searched = call.results.find((result) => result.tool === "search_documents");
+          if (!searched) {
+            return {
+              calls: [{ tool: "search_documents", input: { query: "Acme revenue margin" } }],
+            };
+          }
+          const passage = passageOf(shownPassages(searched.text), "Acme");
+          return call.results.some((result) => result.tool === "cite")
+            ? { calls: [citeOne(passage, 2, "p. 2", "Gross margin 99.9%")] }
+            : refused(passage);
+        },
+        { generate: judgesNothing },
+      );
       const { core } = await setUpCalculating(model, [ACME], undefined, {
         answerPaths: { writesThenCites: () => writes },
       });

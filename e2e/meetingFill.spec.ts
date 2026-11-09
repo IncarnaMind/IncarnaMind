@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
@@ -7,6 +7,7 @@ import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { INTERVIEW } from "../src/main/fakeChat/meetingInterview";
 import { translate } from "../src/shared/i18n";
 import {
+  addDocuments,
   closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
@@ -627,12 +628,13 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, an interview with nothing typed reads as a Summary paragraph, then one heading per topic in the call's order, each with its answers as cited bullets, and no Decisions, Action items, Open questions or claims list, with no pointers; one Undo takes it all out (#2306); fails_when=the facts are paragraphs under Summary, a topic repeats or is missing, an empty section or the claims list shows without Documents, or Undo leaves an addition; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
+  // protects=after Stop, an interview with nothing typed reads as a Summary paragraph, then one heading per topic in the call's order, each with its answers as cited bullets, and no Decisions, Action items, Open questions or claims list, with no pointers, though the Library holds a Document: a Note in no Folder, with no scope chosen, has nothing to check its claims against; one Undo takes it all out (#2306); fails_when=the facts are paragraphs under Summary, a topic repeats or is missing, an empty section shows, the claims list shows for a Note in no Folder, or Undo leaves an addition; no_claim=a real model's topics, which tests/live/meetingFillSections.live.test.ts measures.
   test(`after Stop, an interview with no notes is a Summary and a heading per topic with cited bullets, and one Undo takes it out (${language})`, async () => {
     // The other side's stream says each answer in turn before Stop, about a minute of speech.
     test.setTimeout(150_000);
     const words = LINES[language];
     const call = INTERVIEW[language];
+    const sources = await createDataFolder();
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
       transcriber: { lines: call.questions, theirLines: call.answers.map((answer) => answer.said) },
@@ -642,6 +644,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await recordOnClose(app, window, `meeting-fill-topics-${language}`);
       await dismissChatSetup(window);
       await selectLocalChatModel(window);
+      await writeFile(join(sources, "Course.md"), `${call.answers[4]?.written ?? ""}\n`);
+      await addDocuments(window, [join(sources, "Course.md")]);
       const bar = await startRecording(window, await recordMeeting(window), { notice: true });
       // Every answer is heard before Stop: the other side's stream says them in turn.
       await expect
@@ -705,6 +709,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(line).toContainText(words.undone);
     } finally {
       await app.close();
+      await removeDataFolder(sources);
     }
   });
 }

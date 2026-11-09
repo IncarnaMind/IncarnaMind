@@ -102,7 +102,7 @@ function assistant(
     },
     {
       generate: (call) => {
-        if (!call.system.includes(CLAIM_CHECK_INSTRUCTIONS)) return { text: '{"claims":[]}' };
+        if (call.question !== "claimed-changes") return { text: '{"claims":[]}' };
         judged.push(call);
         order?.push("judge");
         if (judgeFails(judged.length)) return { error: { status: 503, message: "Offline." } };
