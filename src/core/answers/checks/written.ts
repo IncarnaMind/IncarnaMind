@@ -634,6 +634,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     if (judgesUnreliably(input.prepared) || input.signal.aborted) return null;
     const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
+    // Read as the write lands, before anything is awaited: a reject meanwhile leaves no Proposal to
+    // tell the write by, and a rewrite in place keeps its Blocks' ids.
+    const { shape, markedBefore } = options.read(mindId, (note) => ({
+      shape: shapeOf(note, input.ids, input.write),
+      // As each sentence was marked before the write: an Undo that brings its words back brings
+      // their mark back too, rather than this check's.
+      markedBefore: new Map(
+        sentences.map((sentence) => [sentence, markOn(note, input.ids, sentence)]),
+      ),
+    }));
     const allowed = await options.prepare(input.prepared);
     const waiting = !allowed && options.widened(input.prepared);
     if (!allowed && !waiting) return null;
@@ -641,18 +651,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const prepared = allowed ?? input.prepared;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
-    const { reads, shape } = options.read(mindId, (note) => {
+    const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
-      return {
-        reads: new Map(
-          sentences.map((sentence) => {
-            const place = notePlace(note, input.ids, sentence);
-            const read = readAsChecked(note, input.ids, sentence, figures);
-            return [sentence, place ? { ...read, place } : read];
-          }),
-        ),
-        shape: shapeOf(note, input.ids, input.write),
-      };
+      return new Map(
+        sentences.map((sentence) => {
+          const place = notePlace(note, input.ids, sentence);
+          const read = readAsChecked(note, input.ids, sentence, figures);
+          return [sentence, place ? { ...read, place } : read];
+        }),
+      );
     });
     const holding = waiting || input.answerFailed === true;
     const request = randomUUID();
@@ -799,12 +806,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
           : { kind: "unknown" };
       });
-    // As each sentence was marked before the write: an Undo that brings its words back brings
-    // their mark back too, rather than this check's.
-    const markedBefore = options.read(
-      mindId,
-      (note) => new Map(sentences.map((sentence) => [sentence, markOn(note, input.ids, sentence)])),
-    );
     const restoreBefore = () =>
       input.edit((note) => {
         for (const sentence of sentences) {
