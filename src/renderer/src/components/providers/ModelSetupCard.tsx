@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, ChatProvider } from "../../../../core/api";
+import type { KeyTarget } from "../../../../core/providers/catalog/keyForms";
 import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -8,10 +9,8 @@ import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
 import { ollamaRead } from "../../ollamaRead";
 import { useAppStore } from "../../store";
-import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
-import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
 import {
@@ -27,51 +26,22 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupCard, SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
 /**
  * The first own Question with no model set (#103): the assistant's composer becomes this card
- * while the Question waits above it. The first of three steps (#1922) is a key pasted, named by
- * its form and used at once; then the ways in that need no key, best first. Choosing a service
- * is the consent for it (#718), so no dialog is added here.
+ * while the Question waits above it. A key is pasted, named by its form and used at once; then
+ * the ways in that need no key, best first. Choosing a service is the consent for it (#718), so
+ * no dialog is added here.
  */
 export function ModelSetupCard() {
-  const ready = useModelSetup((state) => state.ready);
-  const t = useT();
-  // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
-  // that was read, and never redraw as a later read lands (#2147). While the read goes, the card
-  // says it is reading, rather than offering the key form of step 1 again (#2310).
-  const services = useTranscriptionServicesRead(ready, true);
-  if (!ready) return <ChooseAnAi />;
-  if (services.state === "loading") {
-    return (
-      <SetupCard>
-        <p data-testid="setup-services-reading" role="status" className={hintClass}>
-          {t("setup.services.reading")}
-        </p>
-      </SetupCard>
-    );
-  }
-  if (services.state === "ready") return <SetupSteps />;
-  return (
-    <SetupCard>
-      <ReadProblem
-        words={t("setup.services.failed")}
-        read={services}
-        testId="setup-services-problem"
-      />
-    </SetupCard>
-  );
-}
-
-function ChooseAnAi() {
   const t = useT();
   const chinese = useLanguage() === "zh-CN";
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const [view, setView] = useState<"key" | null>(null);
   const [initialKey, setInitialKey] = useState("");
+  const [initialTarget, setInitialTarget] = useState<KeyTarget | undefined>(undefined);
   const [others, setOthers] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
@@ -96,6 +66,14 @@ function ChooseAnAi() {
     setView(null);
     keyField.current?.focus();
   };
+  // Neither plan is sold in mainland China, the region the Chinese interface stands for, so
+  // there they wait under Other ways (#2865).
+  const plans = (
+    <>
+      <ChatGptPlanWay sign={sign} leads={!chinese} />
+      <ClaudePlanWay onUseKey={useKeyInstead} />
+    </>
+  );
 
   return (
     <section
@@ -136,19 +114,15 @@ function ChooseAnAi() {
                 onSaved={() => undefined}
                 unrecognised={{
                   label: "setup.key.chooseService",
-                  run: (key) => {
+                  run: (key, next) => {
                     setInitialKey(key);
+                    setInitialTarget(next);
                     setView("key");
                   },
                 }}
               />
             )}
-            {!localOnly && (
-              <>
-                <ChatGptPlanWay sign={sign} chinese={chinese} />
-                <ClaudePlanWay onUseKey={useKeyInstead} />
-              </>
-            )}
+            {!localOnly && !chinese && plans}
             <LocalWay ollama={ollama} />
             {!localOnly && (
               <details
@@ -163,6 +137,7 @@ function ChooseAnAi() {
                   {t("setup.other")}
                 </summary>
                 <div className="mt-2 flex flex-col gap-2">
+                  {chinese && plans}
                   <CopilotSetupWay onKey={useKeyInstead} />
                   {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
                 </div>
@@ -183,6 +158,10 @@ function ChooseAnAi() {
           <ProviderForm
             providers={providers}
             initialKey={initialKey}
+            {...(initialTarget !== undefined && {
+              initialKind: initialTarget.service,
+              initialEndpoint: initialTarget.region,
+            })}
             onSaved={() => undefined}
             standalone
           />
@@ -203,13 +182,13 @@ function ChooseAnAi() {
   );
 }
 
-/** The ChatGPT plan: the first way in for a User with no key. */
+/** The ChatGPT plan: the first way in for a User with no key, where it can be bought. */
 function ChatGptPlanWay({
   sign,
-  chinese,
+  leads,
 }: {
   sign: ReturnType<typeof useContinueWithChatGpt>;
-  chinese: boolean;
+  leads: boolean;
 }) {
   const t = useT();
   const storage = useChatGptStorage();
@@ -227,13 +206,13 @@ function ChatGptPlanWay({
             sign.failure?.kind === "record-unreadable" ? { replaceUnreadable: true } : {},
           )
         }
-        className={`w-full ${buttonStyle(chinese ? "secondary" : "primary", "lg")}`}
+        className={`w-full ${buttonStyle(leads ? "primary" : "secondary", "lg")}`}
       >
         <ChatGptMark className="size-4" />
         {t("setup.chatgpt.use")}
       </button>
       <p data-testid="setup-chatgpt-line" className={lineClass}>
-        {t(chinese ? "setup.chatgpt.line.china" : "setup.chatgpt.line")}
+        {t("setup.chatgpt.line")}
       </p>
       {/* It signs in at once, so it says here what goes to OpenAI (ADR-0022). */}
       <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />

@@ -1,16 +1,14 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
-  askFirstQuestion,
   createDataFolder,
   interceptOpenExternal,
   launchApp,
   openSettings,
-  openSetupSteps,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -20,8 +18,8 @@ import {
 } from "./app";
 
 /*
- * Decision models offered before their key is saved (#2615, #1907): the sorting picker, on the
- * setup card and in Settings › Models, ends with "Set up another decision model", which holds
+ * Decision models offered before their key is saved (#2615, #1907): the sorting picker in
+ * Settings › Models ends with "Set up another decision model", which holds
  * "Use TypeSafe Jev…" and each host with a key of its own. Choosing one opens its key entry in
  * place, with what choosing it sends. Nothing goes to the host before its Use this; a refused key
  * says so there and chooses nothing; a valid one makes it what sorts. One stand-in plays TypeSafe
@@ -72,7 +70,7 @@ const library = (window: Page) =>
     return (await core.getLibrary()).settings;
   });
 
-/** The rows that set a decision model up, as the setup card and Settings list them with no key. */
+/** The rows that set a decision model up, as Settings lists them with no key. */
 const setUpRows = (language: "en" | "zh-CN") => [
   translate(language, "jev.settings.setUp"),
   translate(language, "decisions.setUp.row", { model: "Decider v1.2", provider: "Perplexity" }),
@@ -94,14 +92,6 @@ async function fitsIn(element: Locator, container: Locator): Promise<boolean> {
   return inner.x >= outer.x - 0.5 && inner.x + inner.width <= outer.x + outer.width + 0.5;
 }
 
-/** Whether the element's top, or all of it, shows inside the card, which scrolls in a short window. */
-async function showsIn(element: Locator, card: Locator, whole: boolean): Promise<boolean> {
-  const [inner, outer] = await Promise.all([element.boundingBox(), card.boundingBox()]);
-  if (!inner || !outer) throw new Error("Not on screen.");
-  const bottom = whole ? inner.y + inner.height : inner.y + 1;
-  return inner.y >= outer.y - 0.5 && bottom <= outer.y + outer.height + 0.5;
-}
-
 async function launch(language: "en" | "zh-CN", width: number, height: number) {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -112,122 +102,6 @@ async function launch(language: "en" | "zh-CN", width: number, height: number) {
   await acceptPlainTextKeys(window);
   await setLanguage(window, language);
   return { app, window };
-}
-
-/** The setup card's step 3, open with its list read. */
-async function openSortingStep(window: Page): Promise<Locator> {
-  const card = await askFirstQuestion(window);
-  await setLocalChatModel(window);
-  await openSetupSteps(window);
-  await expect(card.getByTestId("setup-step-transcription")).toBeVisible({ timeout: 15_000 });
-  await pointAndClick(window, card.getByTestId("setup-transcription-use"));
-  await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
-  return card;
-}
-
-async function noTypeSafeRequestYet(app: ElectronApplication) {
-  expect(typeSafe.requests).toEqual([]);
-  expect(await urlsOpened(app)).toEqual([]);
-}
-
-for (const language of ["en", "zh-CN"] as const) {
-  for (const [width, height] of [
-    [900, 800],
-    [1440, 900],
-  ] as const) {
-    test(`the setup card's sorting step sets Jev up in place: Cancel, a refused key, then a valid one (${language}, ${width} × ${height}) (#2615)`, async () => {
-      const { app, window } = await launch(language, width, height);
-      try {
-        await interceptOpenExternal(app);
-        const card = await openSortingStep(window);
-        const picker = card.getByTestId("models-sorting");
-        const chat = translate(language, "models.sorting.chat");
-        const setUp = translate(language, "jev.settings.setUp");
-
-        // After the choice that can run, folded under one group: Jev, then each host.
-        await expect(picker.locator("option")).toHaveText([chat, ...setUpRows(language)]);
-        await expect(picker.locator("optgroup")).toHaveAttribute(
-          "label",
-          translate(language, "decisions.setUp.group"),
-        );
-        await expect(picker.locator("option:checked")).toHaveText(chat);
-
-        // Chosen, it opens the Jev key entry in place, with the field in hand, what Jev is, a
-        // link to TypeSafe's prices and what choosing it sends; the step's own buttons give way.
-        await picker.selectOption({ label: setUp });
-        const setUpJev = card.getByTestId("jev-sorting-set-up");
-        const form = setUpJev.getByTestId("jev-form");
-        const field = form.getByLabel(translate(language, "jev.form.apiKey"));
-        await expect(field).toBeFocused();
-        await expect(setUpJev.getByTestId("jev-sorting-line")).toHaveText(
-          `${translate(language, "jev.setUp.line")} · ${translate(language, "providers.form.pricing")} ↗`,
-        );
-        await expect(form.getByTestId("models-sorting-line")).toContainText(
-          translate(language, "setup.sorting.sends", { service: "TypeSafe Jev" }),
-        );
-        await expect(form.getByTestId("models-sorting-line")).toContainText(
-          translate(language, "setup.sorting.uses"),
-        );
-        await expect(
-          form.getByRole("button", { name: translate(language, "providers.form.test") }),
-        ).toHaveCount(0);
-        await expect(card.getByTestId("setup-sorting-use")).toHaveCount(0);
-        const use = form.getByTestId("jev-save");
-        await expect(use).toHaveText(translate(language, "setup.step.useThis"));
-        expect(await fitsIn(form, card)).toBe(true);
-        expect(await fitsIn(use, card)).toBe(true);
-        expect(await showsIn(field, card, true), "the key field shows").toBe(true);
-        // Where the card has the room, the form's buttons show with the field.
-        if (height >= 900) expect(await showsIn(use, card, true), "Use this shows").toBe(true);
-        expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-          true,
-        );
-        await noTypeSafeRequestYet(app);
-
-        // Cancel puts the choice back as it was.
-        await pointAndClick(
-          window,
-          form.getByRole("button", { name: translate(language, "providers.settings.cancel") }),
-        );
-        await expect(setUpJev).toHaveCount(0);
-        await expect(picker.locator("option:checked")).toHaveText(chat);
-        await expect(picker).toBeFocused();
-        await expect(card.getByTestId("setup-sorting-use")).toBeVisible();
-
-        // The link opens TypeSafe's own page; the app states no price.
-        await picker.selectOption({ label: setUp });
-        await pointAndClick(window, setUpJev.getByTestId("jev-pricing"));
-        await expect.poll(() => urlsOpened(app)).toEqual(["https://docs.typesafe.ai/models"]);
-        expect(typeSafe.requests).toEqual([]);
-
-        // Typed, the key still goes nowhere until Use this. A refused key says so in place, and
-        // nothing is chosen.
-        await field.fill("jev-a-wrong-key");
-        await expect(use).toBeEnabled();
-        expect(typeSafe.requests).toEqual([]);
-        await pointAndClick(window, use);
-        await expect(form.getByTestId("connection-test")).toContainText(
-          translate(language, "providers.test.auth"),
-        );
-        await expect
-          .poll(() => showsIn(form.getByTestId("connection-test"), card, false))
-          .toBe(true);
-        expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key"]);
-        expect((await library(window)).classifier).toEqual({ kind: "automatic" });
-        await expect(card.getByTestId("setup-step-sorting")).not.toHaveAttribute("data-done");
-
-        // A valid key is saved and chosen, and the step is done with Jev.
-        await field.fill(JEV_KEY);
-        await pointAndClick(window, use);
-        await expect(card).toHaveCount(0);
-        await expect.poll(async () => (await library(window)).classifier).toEqual({ kind: "jev" });
-        expect((await library(window)).automatic).toBe(true);
-        expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key", `Bearer ${JEV_KEY}`]);
-      } finally {
-        await app.close();
-      }
-    });
-  }
 }
 
 for (const [language, width, height] of [
@@ -267,16 +141,35 @@ for (const [language, width, height] of [
       await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
       expect(await rowsOf(picker)).toEqual(before);
 
+      // The link opens TypeSafe's own page; the app states no price.
+      await interceptOpenExternal(app);
       await picker.selectOption({ label: setUp });
+      await pointAndClick(window, row.getByTestId("jev-pricing"));
+      await expect.poll(() => urlsOpened(app)).toEqual(["https://docs.typesafe.ai/models"]);
+      expect(typeSafe.requests).toEqual([]);
+
+      // Typed, the key goes nowhere until Use this. A refused key says so in place, and nothing
+      // is chosen.
+      const use = form.getByTestId("jev-save");
+      await expect(use).toHaveText(translate(language, "setup.step.useThis"));
+      await field.fill("jev-a-wrong-key");
+      expect(typeSafe.requests).toEqual([]);
+      await pointAndClick(window, use);
+      await expect(form.getByTestId("connection-test")).toContainText(
+        translate(language, "providers.test.auth"),
+      );
+      expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key"]);
+      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
+
       await field.fill(JEV_KEY);
-      await pointAndClick(window, form.getByTestId("jev-save"));
+      await pointAndClick(window, use);
       await expect(form).toHaveCount(0);
       await expect(picker.locator("option:checked")).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option").first()).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option", { hasText: setUp })).toHaveCount(0);
       await expect(row.getByTestId("models-tagging-off")).toBeVisible();
       expect((await library(window)).classifier).toEqual({ kind: "jev" });
-      expect(typeSafe.requests).toEqual([`Bearer ${JEV_KEY}`]);
+      expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key", `Bearer ${JEV_KEY}`]);
     } finally {
       await app.close();
     }

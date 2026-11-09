@@ -2,7 +2,6 @@ import { type ElectronApplication, expect, type Locator, test } from "@playwrigh
 import { createFakeOpenAI, type FakeOpenAIServer } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -11,6 +10,7 @@ import {
   openSettings,
   removeDataFolder,
   setLanguage,
+  setupWay,
   setWindowSize,
   urlsOpened,
 } from "./app";
@@ -123,7 +123,7 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await window.keyboard.type("我的文档里有什么？");
     await window.keyboard.press("Enter");
     const setup = window.getByTestId("model-setup");
-    await setup.getByTestId("setup-chatgpt").click();
+    await (await setupWay(window, setup, "setup-chatgpt")).click();
     const address = await addressAfterApproving(app);
 
     await expect(setup).toContainText("没有回到 IncarnaMind？粘贴浏览器地址栏里的地址");
@@ -153,7 +153,6 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     await button.click();
     await expect(window.getByTestId("chatgpt-welcome")).toContainText("你正在使用 ChatGPT 订阅");
     await window.getByTestId("chatgpt-welcome-ok").click();
-    await continueSetup(window);
     expect(exchanges()).toHaveLength(1);
   } finally {
     await app.close();

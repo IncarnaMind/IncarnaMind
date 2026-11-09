@@ -23,7 +23,7 @@ import { AssistantFoldedContext } from "../../editor/mindContext";
 import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
-import { useModelSetup, useSettingUp, useSetupStepsWaiting } from "../../modelSetup";
+import { useSettingUp } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { GripIcon } from "../icons";
 import {
@@ -43,7 +43,6 @@ import { AssistantMenu } from "./AssistantMenu";
 import { ConversationThread } from "./ConversationThread";
 import { HistoryPopover } from "./HistoryPopover";
 import { useReadMindId } from "./readMind";
-import { SetupLine } from "./SetupLine";
 import { useKeepInView } from "./useKeepInView";
 
 /**
@@ -282,19 +281,6 @@ function AssistantMain({
   const seat = useComposer((state) => state.seat);
   const mind = seat !== null && seat.mindId === readMindId ? seat : null;
   const settingUp = useSettingUp();
-  // The first run ends at the first checked Answer: the steps still to do say nothing after it,
-  // since each feature asks where it lives (#2867).
-  const firstRunDone = useAppStore((state) => {
-    const progress = state.settings?.device.gettingStarted;
-    return (
-      progress?.indexed === true &&
-      (progress.askedOwn === true || progress.askedReady === true) &&
-      progress.citationChecked === true
-    );
-  });
-  const stepsWaiting = useSetupStepsWaiting() && !firstRunDone;
-  const stepOpen = useModelSetup((state) => state.step !== null);
-  const setupCardShown = settingUp || (stepsWaiting && stepOpen);
   const thread = useRef<HTMLDivElement>(null);
   useKeepInView(thread);
   useScrollFade(thread);
@@ -319,19 +305,11 @@ function AssistantMain({
       <div
         ref={onComposerSlot}
         data-testid="assistant-composer"
-        data-setup={setupCardShown || undefined}
+        data-setup={settingUp || undefined}
         className="assistant-composer"
       >
         <TaskTray mindId={mind?.mindId ?? null} />
-        {settingUp ? (
-          <ModelSetupCard />
-        ) : (
-          <>
-            {stepsWaiting && <SetupLine />}
-            {stepsWaiting && stepOpen && <ModelSetupCard />}
-            <Composer mind={mind} />
-          </>
-        )}
+        {settingUp ? <ModelSetupCard /> : <Composer mind={mind} />}
       </div>
     </div>
   );
