@@ -197,6 +197,7 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
     covered: text(value.covered),
     uncovered: text(value.uncovered),
     ...(value.found === true && { found: true }),
+    ...(value.unconfirmed === true && { unconfirmed: true }),
     ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
   };
 }
@@ -467,12 +468,13 @@ export function figuresByPart(
 
 /**
  * `plans` with every figure of the sentence inside a fact (#1932): opinions can surround a number,
- * but the number is a checkable fact, so a figure the sort left in an opinion becomes a fact inside
- * it, and the opinion stays one, counted and shown once (#2002). A figure between parts, or across
- * one's edge, joins the facts it touches, and an opinion keeps only its words outside them. A
- * sentence whose figures can't be placed, and that has no fact, is one fact, as before sentences
- * had parts. One the sort says asserts nothing (a heading, a question) stays so: its numbers say
- * nothing either.
+ * but the number is a checkable fact, so a figure the sort left in an opinion beside its facts
+ * becomes a fact inside it, and the opinion stays one, counted and shown once (#2002). A figure
+ * between parts, or across one's edge, joins the facts it touches, and an opinion keeps only its
+ * words outside them. A sentence with figures that the sort gives no fact is one fact: checked as
+ * its digits alone, the words that say what they count, a duty among them, went unjudged, and the
+ * digits' Supported stood for the sentence (#2184). One the sort says asserts nothing (a heading, a
+ * question) stays so: its numbers say nothing either.
  */
 export function withFigureFacts(
   sentence: string,
@@ -481,14 +483,15 @@ export function withFigureFacts(
   projection?: InlineTextProjection,
 ): readonly ClaimPartPlan[] {
   if (figures.length === 0 || plans.length === 0) return plans;
-  const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
+  if (!plans.some((plan) => plan.kind === "fact"))
+    return [{ kind: "fact", span: { start: 0, end: sentence.length } }];
   const spans: ClaimPartSpan[] = [];
   for (const figure of figures) {
     const span =
       figure.locator.kind === "text" &&
       projection?.text === sentence &&
       inlineSpan(projection, figure.locator.from.offset, figure.locator.to.offset);
-    if (!span) return plans.some((plan) => plan.kind === "fact") ? plans : whole;
+    if (!span) return plans;
     spans.push(span);
   }
   let parts = [...plans];

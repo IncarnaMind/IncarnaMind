@@ -2882,6 +2882,67 @@ describe("When the model can't check a sentence", () => {
     },
   );
 
+  test.each([
+    {
+      language: "en",
+      document: {
+        name: "Tides.md",
+        contents:
+          "# Tides\n\nSpring tides happen at new moon and at full moon. Harbours publish the times of high water every year.",
+      },
+      claim: "Spring tides happen only at half moon.",
+      quote: "Spring tides happen at new moon and at full moon",
+      before: "The request asks for the record behind marker [1], the Passage that decides it.",
+    },
+    {
+      language: "zh-CN",
+      document: {
+        name: "潮汐.md",
+        contents: "# 潮汐\n\n大潮出现在新月和满月时。港口每年公布高潮时间。",
+      },
+      claim: "大潮只在上弦月时出现。",
+      quote: "大潮出现在新月和满月时",
+      before: "请求要的是标记 [1] 的记录，也就是决定这句话的段落。",
+    },
+  ])(
+    "$language: a record asked for after a contradicted verdict is read when the reply names its marker in words before the JSON (#2184)",
+    async (each) => {
+      const checked = async (evidence: string) => {
+        const plans: Record<string, Plan> = {
+          [each.claim]: {
+            verdict: "contradicted",
+            says: "It says otherwise.",
+            judgement: "conflict",
+          },
+        };
+        const { core } = await setUpWithDocuments(checkingModel(plans, [], evidence), [
+          each.document,
+        ]);
+        core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "synthetic-test-key",
+          modelId: "claude-haiku-5-5",
+        });
+        return core.checkClaim({ claim: each.claim });
+      };
+      const record = JSON.stringify({ passage: "P1", location: null, quote: each.quote });
+
+      expect(await checked(`${each.before}\n\n${record}`)).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: each.quote, check: "found" },
+      });
+      expect(await checked(record)).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: each.quote, check: "found" },
+      });
+      expect(await checked(`${each.before}\n\n${record.slice(0, -2)}`)).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+    },
+  );
+
   test("cost cap: nothing is sent, and the sentence says “not checked” with why", async () => {
     const calls: ModelCall[] = [];
     const model = checkingModel(PLANS, calls);
@@ -2945,7 +3006,8 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
         const citations = [{ marker: 1, passage: passage?.id, quote: step.quote }];
         return { text: step.beside, calls: [{ tool: "cite", input: { citations } }] };
       },
-      { generate: checkGenerate({}) },
+      // Read past its last turn's words, a Supported verdict's quote is judged once (#2184).
+      { generate: checkGenerate({ [SUPPORTED]: { judgement: "same" } }) },
     );
 
   // protects=verdict lines written beside cite with no marker, the marked sentence or the last lines after it, give the sentence its verdict and Citation in the model's own three requests; fails_when=the lines are dropped as a preamble and the check reads "not checked"; no_claim=how often a real model writes it so.
@@ -3068,7 +3130,8 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
         }
         return step ? step(passage) : { text: "" };
       },
-      { generate: checkGenerate({}) },
+      // Read past its last turn's words, a Supported verdict's quote is judged once (#2184).
+      { generate: checkGenerate({ [SUPPORTED]: { judgement: "same" } }) },
     );
   const cites = (passage: string, quote: string) => ({
     tool: "cite",

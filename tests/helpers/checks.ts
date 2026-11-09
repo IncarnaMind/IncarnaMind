@@ -91,6 +91,11 @@ interface PlannedFigure {
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
+const PART = /<part>\n([\s\S]*?)\n<\/part>/;
+
+/** What a judge's request asks about: the part it names, else its whole sentence. */
+export const judgedClaim = (prompt: string): string =>
+  PART.exec(prompt)?.[1] ?? SENTENCE.exec(prompt)?.[1] ?? "";
 const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
 
 /**
@@ -335,7 +340,7 @@ const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsuppor
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
-    const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
+    const sentence = judgedClaim(call.prompt);
     // A record cite's judgement reads the sentence as the Note holds it: a Citation left out of a
     // plan's words leaves no space before the stop there.
     const tidy = (text: string) => text.replace(/\s+([.,;:!?。，；：！？])/gu, "$1");

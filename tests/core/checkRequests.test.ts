@@ -521,17 +521,19 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=a number inside an opinion is checked as its own fact inside it, in what the assistant writes and in Check this Note, with the same parts and result, and the opinion is left out whole (#1932, #2002); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, or the two checks give it different parts; no_claim=how a real model sorts the sentence.
-  test("a number inside an opinion is checked as its own fact, written or typed", async () => {
+  // protects=a sentence the sort calls an opinion all through, with a number in it, is one claim checked whole, in what the assistant writes and in Check this Note, with the same parts and result, so the judge reads what the number counts and never its digits alone (#1932, #2184); fails_when=the sentence is left out whole as an opinion, its number is checked on its own, or the two checks give it different parts; no_claim=how a real model sorts or judges the sentence.
+  test("a sentence the sort gives no fact, with a number in it, is checked whole, written or typed", async () => {
     const { figure } = example;
     const opinion = (sentence: string): Part[] => [
       { kind: "opinion", text: sentence.replace(/[.。]$/u, "") },
     ];
+    const words = figure.written.replace("[^1]", "");
     const plans = {
-      [figure.number]: {
-        verdict: "supported" as const,
+      [words]: {
+        verdict: "unsupported" as const,
         quote: figure.source,
         number: figure.number,
+        says: "It gives the rise, not that it is impressive.",
       },
     };
     const checked: string[] = [];
@@ -548,20 +550,13 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     const core = await coreWith(model);
     const folderId = await inFolder(core, "Revenue.md", `# Revenue\n\n${figure.source}\n`);
     const expected = [
-      {
-        state: "supported",
-        parts: [
-          { text: figure.opinion, kind: "opinion", verdict: null },
-          { text: figure.number, kind: "fact", verdict: "supported" },
-        ],
-      },
+      { state: "unsupported", parts: [{ text: words, kind: "fact", verdict: "unsupported" }] },
     ];
 
-    const words = figure.written.replace("[^1]", "");
     const { change, client } = await write(core, folderId);
     expect(await marksOf(client)).toEqual(expected);
-    // Its first turn names the parts, and only the number goes on to be checked.
-    expect(checked).toEqual([words, figure.number]);
+    // Its first turn names the parts, and that Run, of the whole sentence, decides it.
+    expect(checked).toEqual([words]);
 
     const typed = await core.createMind({ title: "Typed", folderId });
     const own = await connectToMind(core, typed.id);
@@ -577,7 +572,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
     ).toMatchObject({ kind: "checked" });
     expect(await marksOf(own)).toEqual(expected);
-    expect(checked).toEqual([words, figure.number, figure.number]);
+    expect(checked).toEqual([words, words]);
 
     await resolveChanges(client, "accept");
     expect(
@@ -586,18 +581,13 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     expect(await marksOf(client)).toEqual(expected);
   });
 
-  // protects=one opinion that numbers split is one opinion left out, counted once and shown whole, while each number in it is checked as a fact of its own (#2002, #1932); fails_when=the opinion's pieces count as several opinions, or Show would select a joining word on its own; no_claim=how a real model sorts the sentence.
-  test("one opinion around two numbers is left out once and shown whole", async () => {
+  // protects=one opinion that two numbers sit in, the sentence's only part, is one claim checked whole, with no opinion left out (#2184, #2002); fails_when=its numbers are checked as facts of their own, or an opinion is still counted; no_claim=how a real model sorts or judges the sentence.
+  test("one opinion around two numbers, the sentence's only part, is checked whole", async () => {
     const { deals } = example;
     const opinion = (sentence: string): Part[] => [
       { kind: "opinion", text: sentence.replace(/[.。]$/u, "") },
     ];
-    const plans = Object.fromEntries(
-      deals.numbers.map((number) => [
-        number,
-        { verdict: "supported" as const, quote: deals.source, number },
-      ]),
-    );
+    const plans: Record<string, Plan> = { [deals.typed]: { verdict: "unsupported" } };
     const model = scriptedModel((call) => naming(call, plans, opinion), {
       generate: (call) =>
         call.system.startsWith(SORTS) ? sortingInto(opinion)(call) : checkGenerate(plans)(call),
@@ -616,18 +606,12 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
 
     expect(await marksOf(own)).toEqual([
       {
-        state: "supported",
-        parts: [
-          { text: deals.opinion, kind: "opinion", verdict: null },
-          ...deals.numbers.map((text) => ({ text, kind: "fact", verdict: "supported" })),
-        ],
+        state: "unsupported",
+        parts: [{ text: deals.typed, kind: "fact", verdict: "unsupported" }],
       },
     ]);
     const page = readMind(own);
-    const opinions = opinionsIn(page, own.doc);
-    expect(opinions.map((each) => page.textBetween(each.range.from, each.range.to))).toEqual([
-      deals.opinion,
-    ]);
+    expect(opinionsIn(page, own.doc)).toEqual([]);
   });
 
   // protects=what a figure's number measures is named in the check's own reply, so a typed sentence with a figure costs its three steps and no ask, whether its quote measures the same thing or something else (#2255); fails_when=naming the measure, or finding it differs, sends a request more; no_claim=how a real model words the measure.

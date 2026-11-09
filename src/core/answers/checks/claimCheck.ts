@@ -160,6 +160,7 @@ import {
   replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
+  supportedPastWords,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from "./units";
@@ -1455,7 +1456,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const result = figureJudgment(said, evidence, facts(), citedCase(evidence));
         if (result.verdict !== "contradicted" || !evidence) return result;
         const confirmation = await confirmContradiction(
-          { ...request, claim: words, figures: undefined },
+          {
+            ...request,
+            claim: words,
+            originalClaim: request.originalClaim ?? request.claim,
+            figures: undefined,
+          },
           evidence,
           session,
           signal,
@@ -1474,10 +1480,14 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           citedCase(evidence),
         );
         // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
-        // the quote states, quoting it, when the reply names that part.
-        return doubted.verdict === "unsupported" && said.covered && said.uncovered
-          ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
-          : doubted;
+        // the quote states when the reply names that part, else what the check found; either way
+        // it quotes the Passage.
+        if (doubted.verdict !== "unsupported") return doubted;
+        const shown = { ...UNBACKED, ...doubted.unsupported, quoted: evidence };
+        return {
+          ...doubted,
+          unsupported: said.covered && said.uncovered ? shown : { ...shown, unconfirmed: true },
+        };
       };
       const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
       const said = readVerdict(verdictText);
@@ -1486,6 +1496,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         claim: request.claim,
         ...(request.context !== undefined && { paragraph: request.context }),
         reply: figuresText,
+        explanation: said?.says ?? null,
         calculations: figures,
         citation: (marker) => session.finalCitation(marker),
         facts,
@@ -1777,6 +1788,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
     ];
     const givenAfter = new Set<string>();
+    const pastWords = supportedPastWords(reply, setAside);
     // A quote the model gave only when asked for one after its verdict was found on its page, never
     // compared with the sentence: each backs a Supported result only once the strict judgement finds,
     // on its own, that it says what the sentence says. Judged with a quote that does, an unrelated
@@ -1814,6 +1826,23 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         if (signal.aborted) return notChecked("stopped");
         if (!judged.ok && judged.error) return failedCheck(judged.error);
         return notChecked("no-evidence");
+      }
+      // Read past words of a later turn, the verdict may be one those words took back: one
+      // judgement of its quote decides, never the words themselves (#2184).
+      if (pastWords && !(result.evidence && givenAfter.has(citationKey(result.evidence)))) {
+        const judged = result.evidence
+          ? await compare(
+              request,
+              result.evidence,
+              session,
+              signal,
+              { id: "strict", instructions: STRICT_INSTRUCTIONS },
+              readJudgement,
+            )
+          : null;
+        if (signal.aborted) return notChecked("stopped");
+        if (judged && !judged.ok && judged.error) return failedCheck(judged.error);
+        if (!judged?.ok || judged.value !== "same") return notChecked("malformed");
       }
       return result;
     });
@@ -1910,7 +1939,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // workings saying it take the card instead, so their check asks for no quote.
       const quoted =
         nearest ||
-        (!why.kind && (!why.covered || !why.uncovered)) ||
+        (!why.kind && !why.unconfirmed && (!why.covered || !why.uncovered)) ||
         (request.cited?.length ?? 0) > 0 ||
         opinions.missing ||
         workingsSayingIt().length > 0
@@ -2105,6 +2134,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       return unsupported({ ...UNBACKED, reason: verdict.says });
     }
     if (verdict.verdict === "contradicted") {
+      // Not upheld, the contradiction's card still says what the check found, and its quote.
+      const unconfirmed: UnsupportedReason = {
+        ...UNBACKED,
+        reason: verdict.says,
+        unconfirmed: true,
+      };
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
@@ -2113,7 +2148,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const part = await parts(deciding);
         if (signal.aborted) return notChecked("stopped");
         if (isFailed(part)) return failedCheck(part.failed);
-        if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
+        if (!part.covered || !part.uncovered) return unsupported(unconfirmed, evidence);
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
@@ -2122,9 +2157,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (confirmation.kind === "stopped") return notChecked("stopped");
       // The Passage is about something else: what is nearest may still say something different.
       if (confirmation.kind === "unrelated") {
-        return unit
-          ? unsupported(unit, unitProblem?.quote ?? null, null)
-          : unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
+        if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
+        return verdict.topic === "not found" ? unsupported() : unsupported(unconfirmed, evidence);
       }
       // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
       // Scope agree: the reply's contradiction was about words outside the part, as a sentence's
@@ -2499,6 +2533,7 @@ async function compare<T>(
   question: Comparison,
   read: (reply: string) => T | null,
   quantity?: Figure,
+  sentence?: string,
 ): Promise<Judged<T>> {
   const citations: readonly Citation[] = "quote" in quoted ? [quoted] : quoted;
   const passages = citations.map(
@@ -2512,6 +2547,7 @@ async function compare<T>(
     question,
     parts: confirmParts({
       claim: request.claim,
+      ...(sentence !== undefined && { sentence }),
       quote: citations.map((citation) => citation.quote).join("\n"),
       passage: passages.join("\n"),
       quantity,
@@ -2637,6 +2673,12 @@ async function confirmContradiction(
   | { kind: "unrelated" | "states" | "doubt" | "confirmed" | "malformed" | "stopped" }
   | { failed: ProviderError }
 > {
+  // Shown a part alone, it couldn't tell whose detail the part's words were: "Tunde Okoro is the
+  // employer" against the agreement's parties was "neither" (#2184).
+  const sentence =
+    request.originalClaim !== undefined && isPartOf(request.originalClaim, request.claim)
+      ? request.originalClaim
+      : undefined;
   const first = await compare(
     request,
     quoted,
@@ -2644,6 +2686,8 @@ async function confirmContradiction(
     signal,
     { id: "confirm", instructions: CONFIRM_INSTRUCTIONS },
     readJudgement,
+    undefined,
+    sentence,
   );
   if (signal.aborted) return { kind: "stopped" };
   if (!first.ok && first.error) return { failed: first.error };
@@ -2657,6 +2701,8 @@ async function confirmContradiction(
     signal,
     { id: "strict", instructions: STRICT_INSTRUCTIONS },
     readJudgement,
+    undefined,
+    sentence,
   );
   if (signal.aborted) return { kind: "stopped" };
   if (!strict.ok) return strict.error ? { failed: strict.error } : { kind: "malformed" };

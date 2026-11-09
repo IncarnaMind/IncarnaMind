@@ -280,6 +280,7 @@ _Avoid_: nothing says this, missing, not in your Documents
 
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
+The parties the other way round contradict only when the Passage's own words give the sentence's party the other side of that very thing; a Passage that gives that party no part in it leaves the sentence unsupported, even when it is the Document's other party, since an agreement may give both sides the same duty in clauses of their own.
 _Avoid_: wrong, conflict, false
 
 **Not examined**:
@@ -287,7 +288,7 @@ A sentence the check couldn't tell is a Claim or not, because the model said not
 _Avoid_: unsorted (Sort files Documents), Not checked (a Claim whose check failed or hasn't run)
 
 **Part**:
-One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion is a fact inside that opinion, which stays one part. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.
+One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion beside a fact is a fact inside that opinion, which stays one part; a sentence with a number and no fact of its own is one fact, checked whole. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.
 _Avoid_: chunk, clause, segment
 
 **Opinion left out**:

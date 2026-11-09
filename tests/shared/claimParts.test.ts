@@ -1170,30 +1170,60 @@ describe("a figure the sort leaves outside a fact", () => {
   test.each([
     ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
     ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
-  ])("keeps one opinion whole around its numbers, each a fact inside it: %s", (sentence, a, b) => {
-    const opinion = sentence.slice(0, -1);
-    const plans = withFigureFacts(
-      sentence,
-      [{ kind: "opinion", span: span(sentence, opinion) }],
-      [figure(sentence, a), figure(sentence, b)],
-      plain(sentence),
-    );
-    expect(words(sentence, plans)).toEqual([
-      ["opinion", opinion],
-      ["fact", a],
-      ["fact", b],
-    ]);
-    expect(readPartPlans(plans, sentence)).toEqual(plans);
-    expect(
-      figuresByPart(
+  ])(
+    "a sentence the sort gives no fact, with numbers in it, is one fact (#2184): %s",
+    (sentence, a, b) => {
+      expect(
+        words(
+          sentence,
+          withFigureFacts(
+            sentence,
+            [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
+            [figure(sentence, a), figure(sentence, b)],
+            plain(sentence),
+          ),
+        ),
+      ).toEqual([["fact", sentence]]);
+    },
+  );
+
+  test.each([
+    ["Revenue rose, and sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["收入增长了，可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])(
+    "keeps an opinion beside a fact whole around its numbers, each a fact inside it: %s",
+    (sentence, a, b) => {
+      const fact = sentence.startsWith("Revenue") ? "Revenue rose" : "收入增长了";
+      const opinion = sentence.slice(sentence.search(/sadly|可惜/), -1);
+      const plans = withFigureFacts(
         sentence,
-        plans,
+        [
+          { kind: "fact", span: span(sentence, fact) },
+          { kind: "opinion", span: span(sentence, opinion) },
+        ],
         [figure(sentence, a), figure(sentence, b)],
         plain(sentence),
-      )?.map((owned) => owned.map(({ reading }) => reading.chars)),
-    ).toEqual([[], [a], [b]]);
-    expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(plans);
-  });
+      );
+      expect(words(sentence, plans)).toEqual([
+        ["fact", fact],
+        ["opinion", opinion],
+        ["fact", a],
+        ["fact", b],
+      ]);
+      expect(readPartPlans(plans, sentence)).toEqual(plans);
+      expect(
+        figuresByPart(
+          sentence,
+          plans,
+          [figure(sentence, a), figure(sentence, b)],
+          plain(sentence),
+        )?.map((owned) => owned.map(({ reading }) => reading.chars)),
+      ).toEqual([[], [], [a], [b]]);
+      expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
+        plans,
+      );
+    },
+  );
 
   test("a figure between parts is a fact of its own, and one already in a fact stays there", () => {
     const sentence = "Costs rose by £5m and we like it.";

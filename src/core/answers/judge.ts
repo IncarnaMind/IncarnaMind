@@ -256,11 +256,25 @@ export function parseJson(text: string): { value: unknown } | null {
  */
 export function replyJson(raw: string): unknown {
   const text = replyText(raw);
-  const start = text.search(/[[{]/);
+  const whole = parseJson(text);
+  if (whole) return whole.value;
   const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
-  return (
-    parseJson(text) ?? (start >= 0 && end > start ? parseJson(text.slice(start, end + 1)) : null)
-  )?.value;
+  // The words before the JSON may close a bracket of their own: asked for a record, Claude Haiku 5.5
+  // named its marker first ("The request asks for marker [1]…") (#2184). A bracket inside an
+  // unclosed one is never where the JSON starts, so a reply cut off is never read as a piece of it.
+  let depth = 0;
+  for (const { 0: bracket, index } of text.matchAll(/[[\]{}]/g)) {
+    if (bracket === "]" || bracket === "}") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth === 0 && index < end) {
+      const read = parseJson(text.slice(index, end + 1));
+      if (read) return read.value;
+    }
+    depth++;
+  }
+  return undefined;
 }
 
 /** Words a model refuses with, in English and Chinese. */

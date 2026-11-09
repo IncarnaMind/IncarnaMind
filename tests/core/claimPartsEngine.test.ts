@@ -3,7 +3,7 @@ import { periodCounts, statedFigure } from "../../src/core/answers/checks/calcul
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
 import { wholeNumberWords } from "../../src/shared/numberWords";
-import { listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
+import { judgedClaim, listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import {
   comparesAQuote,
@@ -149,7 +149,7 @@ async function check(
         }
         if (comparesAQuote(call)) {
           judgements.push(call.system);
-          const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          const target = judgedClaim(call.prompt);
           const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
           return {
             text: outcomes[target]?.judge?.(quote) ?? outcomes[target]?.judgement ?? "neither",
@@ -157,7 +157,7 @@ async function check(
         }
         if (call.question === "restate") return { text: restatedAsQuoted(call) };
         if (call.question === "recheck") {
-          const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          const target = judgedClaim(call.prompt);
           looks.set(target, (looks.get(target) ?? 0) + 1);
           return {
             text:
@@ -167,7 +167,7 @@ async function check(
         }
         if (call.question === "evidence" || call.question === "covered-evidence") {
           recoveries.push(call);
-          const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          const target = judgedClaim(call.prompt);
           const passages = [
             ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
           ];

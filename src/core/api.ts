@@ -7222,6 +7222,11 @@ export interface UnsupportedReason {
    * "units": a figure written as bare digits differs from its source only by a unit (#2864).
    */
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
+  /**
+   * The check found a contradiction its confirmation didn't uphold (#2184): `reason` is the
+   * check's own explanation, and `quoted` the quote it rested on.
+   */
+  unconfirmed?: true;
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */

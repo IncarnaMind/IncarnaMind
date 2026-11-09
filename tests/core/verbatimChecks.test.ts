@@ -13,6 +13,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import {
   checkGenerate,
   isCheckRun,
+  isStrict,
   requestedFigures,
   SAME_DETAIL,
   sentenceOf,
@@ -377,7 +378,9 @@ function plainSplitting(quote: string, last: string, refusesBetween = false) {
           return { text: "I'm sorry, I can't help with that.", calls: [cite(2)] };
         return { text: last };
       },
-      { generate: checkGenerate({}) },
+      // Read past its last turn's words, the verdict's quote is judged once: here it states the
+      // sentence (#2184).
+      { generate: (call) => (isStrict(call) ? { text: "same" } : checkGenerate({})(call)) },
     );
 }
 

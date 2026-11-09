@@ -127,6 +127,7 @@ export function failedSentences(
         },
         notFound: saysNotFound(shown, check, cited.length),
         reason: why?.reason ?? null,
+        unconfirmed: why?.unconfirmed === true,
       });
     } else if (shown.state === "needs-recheck") {
       failed.set(id, { id, check: "needs-recheck", why: shown.why });

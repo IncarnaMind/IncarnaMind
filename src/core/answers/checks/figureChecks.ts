@@ -407,6 +407,8 @@ export interface FigureCheckOptions {
   /** The paragraph the sentence is in: its words for what a figure measures may be there. */
   paragraph?: string;
   reply: string;
+  /** The reply's own explanation of its verdict: the reason of a figure its item gives none for. */
+  explanation: string | null;
   calculations: CalculationSession;
   citation(marker: number): Citation | null;
   facts(): Facts;
@@ -910,8 +912,15 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       ],
     };
     const flags = options.caseFlags(evidence);
+    // An item gives its own `says` only when it wants to: the reply's explanation is the reason of
+    // one it leaves without, so its Unsupported card is never bare (#2184).
+    const unbackedItem = {
+      ...item,
+      verdict: "unsupported" as const,
+      says: item.says ?? options.explanation,
+    };
     const unbacked = (quoted: Citation | null) =>
-      figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
+      figureJudgment(unbackedItem, quoted, facts, flags);
     // Bare digits that differ from their source only by a unit need a look, never Contradicted:
     // the check can't tell which unit the sentence means. Nor are they ever Supported (#2864).
     const unitsDiffer = (figure: CheckFigure = written): FigureCheckResult => {
@@ -1015,7 +1024,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       })),
     );
     if (bare || unit) {
-      const judged = figureJudgment({ ...item, verdict: "unsupported" }, evidence, facts, flags);
+      const judged = unbacked(evidence);
       rows.push({
         ...base,
         sourceInput,

@@ -315,23 +315,27 @@ function PartRow({
           ? t("claim.forecast")
           : part.unsupported?.kind === "unbacked-cause"
             ? t("claim.unbackedCause")
-            : (part.unsupported?.reason ??
-              (part.verdict !== "unsupported"
-                ? null
-                : read
-                  ? t(
-                      read.pages === read.of
-                        ? "claim.readAll.notFound"
-                        : read.of === 1
-                          ? "claim.readSome.notFound.one"
-                          : "claim.readSome.notFound",
-                      {
-                        scope: lookedIn,
-                        pages: read.pages,
-                        of: read.of,
-                      },
-                    )
-                  : t("claim.unsupported.notFound", { scope: lookedIn })));
+            : part.unsupported?.unconfirmed
+              ? [t("claim.unsupported.notConfirmed"), part.unsupported.reason]
+                  .filter(Boolean)
+                  .join(language === "zh-CN" ? "" : " ")
+              : (part.unsupported?.reason ??
+                (part.verdict !== "unsupported"
+                  ? null
+                  : read
+                    ? t(
+                        read.pages === read.of
+                          ? "claim.readAll.notFound"
+                          : read.of === 1
+                            ? "claim.readSome.notFound.one"
+                            : "claim.readSome.notFound",
+                        {
+                          scope: lookedIn,
+                          pages: read.pages,
+                          of: read.of,
+                        },
+                      )
+                    : t("claim.unsupported.notFound", { scope: lookedIn })));
   const offered = !stale && !checking && onCorrect ? correction : undefined;
   const wording =
     !stale &&

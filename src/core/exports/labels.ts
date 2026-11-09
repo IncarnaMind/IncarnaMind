@@ -173,6 +173,15 @@ export function exportLabels(language: Language): ExportLabels {
           ),
         );
       }
+      if (sentence.unconfirmed) {
+        return done(
+          sentence.reason
+            ? t("export.comment.sentence.unsupported.notConfirmed.reason", {
+                reason: sentence.reason,
+              })
+            : t("export.comment.sentence.unsupported.notConfirmed"),
+        );
+      }
       if (!sentence.notFound) {
         return done(
           sentence.reason

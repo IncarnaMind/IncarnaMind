@@ -227,6 +227,8 @@ export type FailedSentence = {
       notFound: boolean;
       /** Why it is unsupported, in the check's words; null when it gave none. */
       reason: string | null;
+      /** The check found a contradiction it couldn't confirm (#2184). */
+      unconfirmed: boolean;
     }
   | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }
