@@ -32,12 +32,12 @@ import { absencePrompt, WHOLE_READ } from "./absence";
 import { runFailureOf } from "./checkResults";
 import {
   type AtomicClaimCheckResult,
-  afterRun,
   type CheckStart,
   type ClaimCheckRequest,
   checkSession,
   NO_DATE,
 } from "./claimCheck";
+import { afterRun } from "./looks";
 import {
   confirmPrompt,
   PRESENCE_INSTRUCTIONS,

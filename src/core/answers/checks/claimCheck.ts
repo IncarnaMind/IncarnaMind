@@ -60,11 +60,9 @@ import type {
 import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
-import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
-import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
 import {
@@ -85,16 +83,14 @@ import {
 import {
   type AnswerEngine,
   type AnswerTools,
-  answerTemperature,
-  type CitationRecordInput,
   type CiteOptions,
   type DocumentLanguage,
   documentToolDefinitions,
   type SearchResultForModel,
 } from "../engine";
-import { fieldsOf, type Judged, json, judge, lines, list, type NotJudged } from "../judge";
+import type { NotJudged } from "../judge";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
+import { checkAbsence, fitsWholeRead } from "./absence";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -122,42 +118,38 @@ import {
 } from "./figureChecks";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
 import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
-import { nearestLine } from "./nearest";
+import {
+  askForEvidence,
+  compare,
+  confirmContradiction,
+  isFailed,
+  lateQuotesJudged,
+  lookForPresence,
+  nearestDifferent,
+  notFailed,
+  partOf,
+  RECHECK,
+} from "./looks";
 import {
   type AbsenceAnswer,
   CHECK_TAGS,
-  CONFIRM_INSTRUCTIONS,
-  COVERED_EVIDENCE_INSTRUCTIONS,
   changesItsMind,
   checkInstructions,
   claimPrompt,
-  confirmParts,
   deniesItself,
-  EVIDENCE_INSTRUCTIONS,
-  evidenceParts,
-  givesNoEvidence,
   heldDetailLines,
-  NEAREST_INSTRUCTIONS,
   namesNothing,
   ownDetailDiffers,
   ownDetailUnread,
   ownWords,
-  PRESENCE_INSTRUCTIONS,
-  partInstructions,
-  presenceParts,
-  RECHECK_INSTRUCTIONS,
   type ReadCorrection,
   type ReadVerdict,
-  readEvidence,
   readJudgement,
-  readPart,
-  readPresence,
   readRecheck,
   readsAsRefusal,
   readVerdict,
   replyAcrossTurns,
   STRICT_INSTRUCTIONS,
-  STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from "./units";
@@ -1349,7 +1341,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const result = figureJudgment(said, evidence, facts(), citedCase(evidence));
         if (result.verdict !== "contradicted" || !evidence) return result;
         const confirmation = await confirmContradiction(
-          { ...request, claim: words, figures: undefined },
+          { claim: words, model: request.model },
           evidence,
           session,
           signal,
@@ -1671,34 +1663,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
     ];
     const givenAfter = new Set<string>();
-    // A quote the model gave only when asked for one after its verdict was found on its page, never
-    // compared with the sentence: each backs a Supported result only once the strict judgement finds,
-    // on its own, that it says what the sentence says. Judged with a quote that does, an unrelated
-    // one was carried through (#2816).
-    judgedAfter.set(request, async (result) => {
-      if (result.verdict !== "supported") return result;
-      const cited = uniqueCitations([
-        ...(result.evidence ? [result.evidence] : []),
-        ...(result.checkedEvidence ?? []),
-      ]);
-      for (const citation of cited.filter((each) => givenAfter.has(citationKey(each)))) {
-        const judged = await compare(
-          request,
-          citation,
-          session,
-          signal,
-          { id: "strict", instructions: STRICT_INSTRUCTIONS },
-          readJudgement,
-        );
-        if (judged.ok && judged.value === "same") continue;
-        // The Not checked result shows none of those quotes either.
-        results.dropEvidence(givenAfter);
-        if (signal.aborted) return notChecked("stopped");
-        if (!judged.ok && judged.error) return failedCheck(judged.error);
-        return notChecked("no-evidence");
-      }
-      return result;
-    });
+    judgedAfter.set(request, (result) =>
+      lateQuotesJudged(result, givenAfter, request, session, signal, results),
+    );
     if (
       missing.length > 0 &&
       !namedMarkers.some((marker) => {
@@ -2230,166 +2197,6 @@ function calculated(
 }
 
 /**
- * The most requests a check sends once its Run has ended, beside a whole read's absence judgement
- * and looks: its evidence asked for twice with every Passage it read, once for the records it
- * named and once for the one it rests on (`evidence`, the most each may write); and its quotes
- * compared with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the
- * nearest line, and for a sentence with figures the rest's two looks and one for each figure.
- */
-export function afterRun(figures: number): {
-  evidence: number[];
-  comparisons: number;
-  comparing: number;
-} {
-  return {
-    evidence: [OUTPUT_LIMITS.evidence.most, outputTokens("evidence")],
-    comparisons: 4 + (figures > 0 ? 2 + figures : 0),
-    comparing: Math.max(...COMPARISONS.map((id) => outputTokens(id))),
-  };
-}
-
-/**
- * A model that gave a verdict without a record of the Passage that decides
- * it, or with a quote the check doesn't find, is asked once more, in one
- * request, for that record from the Passages it read (Claude Haiku 5.5 left
- * `cite` out of about one check in four). The record is taken as structured
- * output's are, and counts only when the check finds its quote. With
- * `covered`, it is the Passage that states that part of an unsupported sentence.
- */
-async function askForEvidence(
-  request: ClaimCheckRequest,
-  verdict: ReadVerdict,
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-  covered: string | null = null,
-  markers: readonly number[] = [],
-): Promise<Citation | null | Failed> {
-  const passages = session.shownPassages();
-  if (passages.length === 0) return null;
-  // Asked for the one marker its reply names, Claude Haiku 5.5 gave the record alone, as an ask for
-  // no marker takes it, for a quote it had written into its reply instead of calling cite (#2184).
-  // Beside other markers, a record alone may be another one's copied.
-  const named = new Set([
-    ...(verdict.evidence ?? []),
-    ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
-    ...(verdict.coverage?.domainEvidence ?? []),
-  ]);
-  const [asked] = markers;
-  const only =
-    markers.length === 1 && asked !== undefined && named.size === 1 && named.has(asked)
-      ? asked
-      : undefined;
-  const judged = await judge({
-    model: request.model.model,
-    question:
-      covered === null
-        ? { id: "evidence", instructions: EVIDENCE_INSTRUCTIONS }
-        : { id: "covered-evidence", instructions: COVERED_EVIDENCE_INSTRUCTIONS },
-    parts: evidenceParts({ claim: request.claim, ...verdict, covered, passages, markers }),
-    data: CHECK_TAGS,
-    reply: json((value) => {
-      const alone =
-        markers.length === 0 || only !== undefined
-          ? oneRecord(value, only ?? EVIDENCE_MARKER)
-          : null;
-      return alone ?? (markers.length === 0 ? null : markedRecords(value, markers));
-    }),
-    items: markers.length,
-    retries: 1,
-    signal,
-    temperature: answerTemperature(request.model.capabilities.facts.temperature),
-  });
-  if (!judged.ok) {
-    if (judged.reason === "stopped" || !judged.error) return null;
-    console.error(`A check's evidence couldn't be asked for again: ${judged.error.message}`);
-    return { failed: judged.error };
-  }
-  const records = judged.value;
-  if (records.length === 0) return null;
-  session.tools.cite(records, { structured: true });
-  session.check();
-  const citations = records.map((record) => session.finalCitation(record.marker));
-  return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
-}
-
-/** The record a reply gives alone, as `marker`'s; none for `{"passage": null}`; null otherwise. */
-function oneRecord(value: unknown, marker: number): CitationRecordInput[] | null {
-  if (givesNoEvidence(value)) return [];
-  const record = readEvidence(value);
-  return record ? [{ marker, ...record }] : null;
-}
-
-/** Each asked marker's record, every one once and none else; null otherwise. */
-function markedRecords(value: unknown, markers: readonly number[]): CitationRecordInput[] | null {
-  const reply = fieldsOf(value, { citations: list });
-  if (!reply || reply.citations.length !== markers.length) return null;
-  const missing = new Set(markers);
-  const records: CitationRecordInput[] = [];
-  for (const given of reply.citations) {
-    const marker = isRecord(given) ? given.marker : undefined;
-    if (typeof marker !== "number" || !missing.delete(marker)) return null;
-    const record = readEvidence(given);
-    if (!record) return null;
-    records.push({ marker, ...record });
-  }
-  return records;
-}
-
-/** The questions a judge is asked about a sentence and one quote, read in its Passage. */
-const COMPARISONS = ["confirm", "strict", "strict-figure", "recheck", "nearest", "parts"] as const;
-
-interface Comparison {
-  id: (typeof COMPARISONS)[number];
-  instructions: string;
-}
-
-const RECHECK: Comparison = { id: "recheck", instructions: RECHECK_INSTRUCTIONS };
-
-// In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
-// another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
-async function compare<T>(
-  request: ClaimCheckRequest,
-  quoted: Citation | readonly Citation[],
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-  question: Comparison,
-  read: (reply: string) => T | null,
-  quantity?: Figure,
-): Promise<Judged<T>> {
-  const citations: readonly Citation[] = "quote" in quoted ? [quoted] : quoted;
-  const passages = citations.map(
-    (citation) =>
-      session.shownPassages().find((each) => each.passageId === citation.passageId)?.text ??
-      citation.quote,
-  );
-  const { model } = request;
-  return judge({
-    model: model.model,
-    question,
-    parts: confirmParts({
-      claim: request.claim,
-      quote: citations.map((citation) => citation.quote).join("\n"),
-      passage: passages.join("\n"),
-      quantity,
-    }),
-    data: CHECK_TAGS,
-    reply: lines(read),
-    retries: 1,
-    signal,
-    temperature: answerTemperature(model.capabilities.facts.temperature),
-  });
-}
-
-interface Failed {
-  failed: ProviderError;
-}
-
-const isFailed = (value: unknown): value is Failed =>
-  typeof value === "object" && value !== null && "failed" in value;
-
-const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
-
-/**
  * Whether `claim` is one part of `sentence`, not the whole sentence but for spaces and punctuation
  * around it, as the part path tells a part from the sentence it fills (#2313).
  */
@@ -2484,110 +2291,6 @@ export function quoteStatesDetail(claim: string, quote: string): boolean {
   return true;
 }
 
-async function confirmContradiction(
-  request: ClaimCheckRequest,
-  quoted: Citation | readonly Citation[],
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-): Promise<
-  | { kind: "unrelated" | "states" | "doubt" | "confirmed" | "malformed" | "stopped" }
-  | { failed: ProviderError }
-> {
-  const first = await compare(
-    request,
-    quoted,
-    session,
-    signal,
-    { id: "confirm", instructions: CONFIRM_INSTRUCTIONS },
-    readJudgement,
-  );
-  if (signal.aborted) return { kind: "stopped" };
-  if (!first.ok && first.error) return { failed: first.error };
-  const judged = first.ok ? first.value : null;
-  if (judged === "neither") return { kind: "unrelated" };
-  if (judged === "same") return { kind: "states" };
-  const strict = await compare(
-    request,
-    quoted,
-    session,
-    signal,
-    { id: "strict", instructions: STRICT_INSTRUCTIONS },
-    readJudgement,
-  );
-  if (signal.aborted) return { kind: "stopped" };
-  if (!strict.ok) return strict.error ? { failed: strict.error } : { kind: "malformed" };
-  return { kind: strict.value === "neither" ? "doubt" : "confirmed" };
-}
-
-/**
- * Whether the quote a window's judgement gives for what the sentence says is absent states it is
- * there: two looks, each asked that and nothing else (#1554); with `first`, only the first.
- */
-async function lookForPresence(
-  request: ClaimCheckRequest,
-  quoted: Citation,
-  absent: string | null,
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-  first = false,
-): Promise<Presence> {
-  const passage =
-    session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
-    quoted.quote;
-  const { model } = request;
-  const looks = [
-    { id: "presence" as const, instructions: PRESENCE_INSTRUCTIONS },
-    ...(first
-      ? []
-      : [{ id: "strict-presence" as const, instructions: STRICT_PRESENCE_INSTRUCTIONS }]),
-  ];
-  for (const question of looks) {
-    const looked = await judge({
-      model: model.model,
-      question,
-      parts: presenceParts({
-        claim: request.claim,
-        absent,
-        quote: quoted.quote,
-        document: quoted.documentName ?? "",
-        passage,
-      }),
-      data: CHECK_TAGS,
-      reply: lines(readPresence),
-      retries: 1,
-      signal,
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-    });
-    if (!looked.ok) {
-      if (looked.reason === "stopped") return { kind: "stopped" };
-      return looked.error ? { failed: looked.error } : { kind: "malformed" };
-    }
-    if (looked.value !== "there") return { kind: looked.value };
-  }
-  return { kind: "there" };
-}
-
-async function partOf(
-  request: ClaimCheckRequest,
-  quoted: Citation | readonly Citation[],
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-  language: Language,
-): Promise<{ covered: string | null; uncovered: string | null } | Failed> {
-  const asked = await compare(
-    request,
-    quoted,
-    session,
-    signal,
-    { id: "parts", instructions: partInstructions(language) },
-    readPart,
-  );
-  if (asked.ok) return asked.value;
-  if (!asked.error) return { covered: null, uncovered: null };
-  console.error(`A sentence's parts couldn't be asked for: ${asked.error.message}`);
-  return { failed: asked.error };
-}
-
 interface Opinions {
   documentIds: ReadonlySet<string>;
   missing: boolean;
@@ -2624,43 +2327,6 @@ async function opinionsOf(
   return { documentIds, missing };
 }
 
-/**
- * For a sentence found unsupported: the nearest line of what the Run read, as
- * a Citation whose quote the check found, when judged alone it states another
- * value for the very thing the sentence says (30 days of leave against the
- * Document's 27). Never "contradicted": the verdict stays unsupported, and the
- * card shows what the Document says. Null when nothing read is near enough, or
- * the nearest line doesn't differ.
- */
-async function nearestDifferent(
-  request: ClaimCheckRequest,
-  session: ReturnType<typeof createCitationSession>,
-  signal: AbortSignal,
-): Promise<Citation | null> {
-  const line = nearestLine(request.claim, session.shownPassages());
-  if (!line) return null;
-  session.tools.cite(
-    [{ marker: NEAREST_MARKER, passage: line.id, location: null, quote: line.text }],
-    {
-      structured: true,
-    },
-  );
-  session.check();
-  const citation = session.finalCitation(NEAREST_MARKER);
-  if (citation?.check !== "found") return null;
-  const judged = await compare(
-    request,
-    citation,
-    session,
-    signal,
-    { id: "nearest", instructions: NEAREST_INSTRUCTIONS },
-    readJudgement,
-  );
-  if (!judged.ok && judged.error)
-    console.error(`A nearest line couldn't be judged: ${judged.error.message}`);
-  return judged.ok && judged.value === "conflict" ? citation : null;
-}
-
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 // A calculation settles one missing figure, not another coordinated or adjoining clause.
@@ -2671,12 +2337,6 @@ const derivedFigureOnly = (text: string, stated: string, document: FigureContext
   sentenceSpans(text).length === 1 &&
   !ANOTHER_CLAUSE.test(text) &&
   statedFigure(text, stated, document) !== null;
-
-/** The marker the nearest line is recorded under: apart from the model's and the evidence's. */
-const NEAREST_MARKER = 98;
-
-/** The marker the record asked for once more is given: apart from any the model gave. */
-const EVIDENCE_MARKER = 99;
 
 /**
  * The Document's number a figure was checked against: its source, or the one number a calculation
