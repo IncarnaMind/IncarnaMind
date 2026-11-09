@@ -115,6 +115,8 @@ interface Writing {
   citesAfter?: "beside" | "next-step";
   /** Its closing reply fails, so the Answer does. */
   replyFails?: boolean;
+  /** Into a Note with no title and no text yet, which takes its name from what lands. */
+  untitled?: boolean;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -199,6 +201,7 @@ async function harbour(
   model: ReturnType<typeof writingModel>,
   cloud: Writing["cloud"],
   record: Writing["record"],
+  untitled = false,
 ) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -225,12 +228,17 @@ async function harbour(
   ]);
   const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
-  const mind = await core.createMind({ title: "Harbour notes", folderId: folder.id });
+  const mind = await core.createMind({
+    title: untitled ? "" : "Harbour notes",
+    folderId: folder.id,
+  });
   const client = await connectToMind(core, mind.id);
-  writeMind(client, [
-    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Harbour" }] },
-    { type: "paragraph", content: [{ type: "text", text: "Boats moor by the quay." }] },
-  ]);
+  if (!untitled) {
+    writeMind(client, [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Harbour" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Boats moor by the quay." }] },
+    ]);
+  }
   await client.settled();
   return { core, folderId: folder.id, mindId: mind.id, client, service };
 }
@@ -258,6 +266,7 @@ async function write(
     model,
     writing.cloud,
     writing.record,
+    writing.untitled,
   );
   started = core;
   await onStart?.({ core, client, mindId, service, calls });
@@ -774,6 +783,18 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ).toBe(true);
     expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["unsupported"]);
     expect(change?.selfCheck).toMatchObject({ checkable: 1, cited: 0, sent: 1, checked: 1 });
+  });
+
+  // protects=a write into a Note with no title names it as the User now finds it, by its new first line, so the reply never names a Note that is gone (#2830); fails_when=the result names it "Untitled" after the write named it, which the reply then repeats and the record of changes no longer backs; no_claim=the words the model replies with.
+  test("a write into an untitled Note names it by the first line it gave it", async () => {
+    const { model } = await write({
+      content: `## Tide summary\n\n${MOON} [^1].`,
+      into: true,
+      untitled: true,
+    });
+
+    expect(lastResult(model)).toContain("in “Tide summary”, at its end");
+    expect(lastResult(model)).not.toContain("Untitled");
   });
 
   // protects=a written sentence's mark lands as its own check ends, while another sentence of the write is still being checked (#2532); fails_when=the marks wait for the last check and land together; no_claim=the order in which the checks end.
