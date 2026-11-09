@@ -283,7 +283,19 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       !!settings?.device.meetingPanel && (meeting?.status === "recording" || !!panel);
     const wanted = !!meeting && (choice?.meetingId === meeting.id ? choice.shown : byDefault);
     if (wanted && !panel) open();
-    else if (!wanted && panel) panel.destroy();
+    else if (!wanted && panel) {
+      panel.destroy();
+      // Its suggestion goes with it: the reply stops, and so does the check of its sentences (#2847).
+      const help = meeting?.help;
+      if (help) {
+        const { conversationId, answerId } = help;
+        core.stopConversationAnswer({ conversationId, answerId }).catch((error: unknown) =>
+          options.log.error("meeting.helpStopFailed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+    }
     if (panel && settings) panel.setContentProtection(settings.device.meetingPanelHidden);
     holdKeys(keysWanted());
   }

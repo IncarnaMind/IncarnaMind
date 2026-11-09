@@ -17,6 +17,7 @@ import {
   quoted,
   type ReplyItem,
   type ReplyPiece,
+  sentencePassed,
 } from "../../helpReply";
 import { useT } from "../../i18n";
 import { useModelNames, useServiceName } from "../../modelNames";
@@ -53,19 +54,25 @@ export function useHelpAnswer(
   return answer;
 }
 
+/**
+ * A Citation's number, with ✓ only where the sentence check passed its sentence (#2847): a found
+ * quote alone earns none. The ✓ keeps its place whether it shows or not, so nothing moves when it
+ * comes after the reply.
+ */
 function CitationChip({ citation, number }: { citation?: MarkedCitation; number: number }) {
   const t = useT();
   const where = citation ? citedLocation(citation, t) : null;
-  const found = citation?.check === "found";
+  const passed = citation !== undefined && sentencePassed(citation);
   return (
     <span
       data-testid="help-citation"
       data-check={citation?.check ?? "checking"}
+      data-passed={passed}
       title={citation ? [citation.documentName, where].filter(Boolean).join(", ") : undefined}
       className="help-citation"
     >
       {number}
-      {found && <CheckLineIcon aria-hidden="true" className="help-citation-found" />}
+      <CheckLineIcon aria-hidden="true" className="help-citation-found" />
     </span>
   );
 }

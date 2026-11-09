@@ -4,7 +4,7 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { AnswerStatus } from "../../core/api";
+import type { AnswerStatus, MarkedCitation } from "../../core/api";
 import {
   EFFECT_MARK,
   HELP_SHAPE,
@@ -171,6 +171,14 @@ export function citationNumbers(
   }
   return numbers;
 }
+
+/**
+ * Whether a help reply's Citation shows ✓: the sentence check passed its sentence (#2847), the one
+ * thing that writes `judgedAt` on a found Citation. A found quote alone, its sentence unjudged,
+ * shows none.
+ */
+export const sentencePassed = (citation: Pick<MarkedCitation, "check" | "judgedAt">): boolean =>
+  citation.check === "found" && citation.judgedAt !== undefined;
 
 export function readHelpReply(markdown: string): ReplyItem[] {
   const items: ReplyItem[] = [];

@@ -49,6 +49,7 @@ export const SET_IDS = [
   "call-help-fresh",
   "call-help-documents",
   "call-help-checks",
+  "call-help-marks",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -105,6 +106,12 @@ export interface ArmRun {
   text: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
+  /**
+   * A help reply's marks (#2847): of the Citations it shows whose sentence the judge says their
+   * quoted words hold, how many there are and how many show ✓; and how long after the reply's end
+   * the last of its marks settled. Absent: not a help reply, or one that didn't end.
+   */
+  marks?: { held: number; checked: number; settledMs: number | null };
 }
 
 /**

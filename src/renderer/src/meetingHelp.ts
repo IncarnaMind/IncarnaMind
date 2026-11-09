@@ -13,7 +13,7 @@ import type {
   Settings,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
-import { pageBlocks } from "../../shared/answerBlocks";
+import { pageBlocks, withAnswerChecks } from "../../shared/answerBlocks";
 import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
@@ -145,22 +145,24 @@ export async function helpToKeepOf(help: MeetingHelp) {
       translateNow(answer.status === "stopped" ? "answer.status.stopped" : "meetings.help.nothing"),
     );
   }
-  return answer;
+  const asked = messages.find((message) => message.id === answer.questionId);
+  return { answer, scope: asked?.kind === "question" ? asked.scope : null };
 }
 
 /**
- * Puts a help Answer into its meeting's notes, at their end, with a link back to it; resolves to
- * the Blocks added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
+ * Puts a help Answer into its meeting's notes, at their end, with a link back to it and what its
+ * sentences' check settled, as Add to note from the assistant does (#2313); resolves to the Blocks
+ * added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
  */
 export async function addHelpToNotes(
   meeting: Meeting,
   help: MeetingHelp,
 ): Promise<{ mindId: string; blockIds: string[] }> {
-  const answer = await helpToKeepOf(help);
+  const { answer, scope } = await helpToKeepOf(help);
   const question = translateNow(helpLabel(help.kind));
   const { blockIds } = await core.addToNote({
     mindId: meeting.mindId,
-    blocks: pageBlocks(answer, question),
+    blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
     origin: { from: messageReference(answer.conversationId, answer.id), question },
     model: answer.model,
   });

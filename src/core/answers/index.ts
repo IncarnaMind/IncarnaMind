@@ -656,6 +656,8 @@ export interface AnswersOptions {
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
   quotesAsGiven?(): boolean;
+  /** See `CoreAdapters.helpMarksQuoteOnly`. */
+  helpMarksQuoteOnly?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -1899,9 +1901,9 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     /**
-     * The Citations whose sentences an Answer in the assistant has judged once it ends (#2311), by
-     * marker: they wait as checking, never found, so no green check shows before its sentence
-     * earns it.
+     * The Citations whose sentences an Answer in the assistant, or call help's reply, has judged
+     * once it ends (#2311, #2847), by marker: they wait as checking, never found, so no green check
+     * shows before its sentence earns it.
      */
     let waiting: ReadonlySet<number> = new Set();
     /** Checking while its sentence is judged; not checked when the Answer stopped before that. */
@@ -1909,13 +1911,14 @@ export function createAnswers(options: AnswersOptions) {
     const withSupport = (marker: number, citation: Citation): Citation =>
       waiting.has(marker) ? { ...citation, check: waitingAs, checkReason: null } : citation;
     /**
-     * The User reads an Answer in the assistant by its Citations' checks. An Answer read elsewhere is
-     * checked where it lands: in a Note, by its checks; by an outside agent or a Task, as they do.
+     * The User reads an Answer in the assistant, and call help's reply in its panel, by its
+     * Citations' checks (#2847). An Answer read elsewhere is checked where it lands: in a Note, by
+     * its checks; by an outside agent or a Task, as they do.
      */
     const judgesItsSentences = () =>
       options.checkAnswer !== undefined &&
       place.conversationId !== undefined &&
-      flow === "question";
+      (flow === "question" || (flow === "call-help" && !options.helpMarksQuoteOnly?.()));
 
     const finish = (outcome: Outcome) => {
       if (finished) return;

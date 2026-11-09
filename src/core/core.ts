@@ -2286,6 +2286,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
+    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -5147,6 +5148,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     const result = await answers.askInConversation(asked);
     if (result.asked) {
+      // The reply this press replaces stops, and so does the check of its sentences (#2847).
+      const replaced = meetings.get(meeting.id).help;
+      if (replaced && replaced.answerId !== result.answerId) answers.stopInConversation(replaced);
       helpConversations.set(meeting.id, result.conversation.id);
       const from = HEARD_FROM[kind];
       const newest = (speaker?: string) => transcripts?.newestLine(meeting.id, speaker) ?? null;
@@ -5348,7 +5352,10 @@ export function createCore(adapters: CoreAdapters): Core {
   meetingFill.resume();
   /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
   const stopMeeting = (meetingId: unknown): Meeting => {
+    const { help } = meetings.get(meetingId);
     const stopped = meetings.stop(meetingId);
+    // Its help reply goes with the panel: it stops, and so does the check of its sentences (#2847).
+    if (help) answers.stopInConversation(help);
     meetingFill.stopped(stopped.id);
     return meetings.get(stopped.id);
   };
