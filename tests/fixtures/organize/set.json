@@ -267,6 +267,7 @@
       "alsoFolder": "meetings",
       "tags": ["slides", "report"],
       "split": "tune",
+      "hard": ["two-folders"],
       "note": "以幻灯片形式汇报的项目周报（进展、里程碑、风险、计划）。",
       "sha256": "f11140e58ae357ea3418c89f9d104783c69afaf664d82c531ee89ac5a75abeab"
     },
@@ -279,7 +280,7 @@
       "alsoFolder": "meetings",
       "tags": ["slides"],
       "split": "heldout",
-      "hard": ["opaque-name"],
+      "hard": ["opaque-name", "two-folders"],
       "note": "Project kickoff presentation deck.",
       "sha256": "6a0762f90c030b8c0b1be744fb993d6e464bf6973dcc3e7a45b1a07522c29521"
     },
@@ -351,6 +352,7 @@
       "alsoFolder": "meetings",
       "tags": ["slides", "report"],
       "split": "tune",
+      "hard": ["two-folders"],
       "note": "Post-incident review presented as slides (timeline, impact, root cause, actions).",
       "sha256": "b951fe69f28ce484dd3e79a8ba3171b689a6992cb40616fd3220082e7653ef61"
     },
