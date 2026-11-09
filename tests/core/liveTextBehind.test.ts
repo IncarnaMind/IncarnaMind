@@ -346,6 +346,23 @@ describe("What the speech host says it owes (#2902)", () => {
     await quiet.push("me", 20);
     expect(quiet.last("me")).toEqual({ stream: "me", doneMs: 20_000, heardMs: 20_000 });
   });
+
+  test("what a stream owes is never more than what isn't final: heard is never short of done", async () => {
+    const { held, push, progress } = heldHost(
+      [
+        [1, 25],
+        [27, 31],
+        [33, 52],
+      ],
+      15 * SECOND,
+    );
+    for (let at = 0; at < 6; at++) {
+      await push("call", 10);
+      held.shift()?.();
+    }
+    expect(progress.length).toBeGreaterThan(500);
+    expect(progress.filter((each) => each.heardMs < each.doneMs)).toEqual([]);
+  });
 });
 
 describe("A recorded call with both sides, as the test build plays it (#2902)", () => {

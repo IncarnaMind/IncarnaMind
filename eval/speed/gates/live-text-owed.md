@@ -47,3 +47,40 @@ Each run is quiet: the 1-minute load at most 18 and the 15-minute load at most 2
 ## What decides
 
 The change ships if every bar holds. If one fails, it ships no further and the numbers go on #2902. No model is called: $0.
+
+## Result, 2026-11-09
+
+The change is at 5036b400b; no model was called.
+
+| Bar | Outcome |
+|---|---|
+| 1. Nothing in decoding changes | **Holds.** Main (d57bb7d07) and the branch give identical lines, each with the same start, end and text: EN2002a 1650–2130 s 85 and 85, 0–480 s 65 and 65; R8007_M8011 0–480 s 57 and 57, 480–900 s 50 and 50. |
+| 2. Replays | **One line fails** (below). Everything else holds: at 0.56, 0.70 and 0.84 s per s the change never falls behind, with one track (EN 11.9 / 14.9 / 17.9 s at worst, ZH 9.0 / 11.3 / 14.8 s) or both tracks (9.1 / 12.2 / 17.2 s). |
+| 2. Scripted test through the core | **Holds.** At 0.85 of real time on two streams, live text stays up. An engine that reads each stretch whole falls behind between 30 and 32 s. The test fails without the change. |
+| 3. A computer that can't keep up | **Holds.** At 1.5 times real time, live text is behind within 60 s, and the Transcript after Stop holds both sides from the first second to at least 59 s. |
+| 4. The built app, on the real engine | Not yet run: the load stayed over the limits. Its results are added here when taken. |
+| 5. Unit tests | **Hold** (`tests/core/liveTextBehind.test.ts`). |
+
+The replays, worst moment against the 30 s rule or where live text falls behind:
+
+| Call | Speed (s per s) | Main's rule | The change |
+|---|---|---|---|
+| EN, computer sound | measured 0.28 | 17.4 s | 5.9 s |
+| | 0.56 / 0.70 / 0.84 | 23.0 / 26.0 / 29.0 s | 11.9 / 14.9 / 17.9 s |
+| | 0.98 | falls behind at 300.9 s | 21.0 s |
+| | 1.12 | falls behind at 193.5 s | 29.2 s |
+| EN, both tracks | measured 0.17 | 15.4 s | 2.5 s |
+| | 0.56 / 0.70 / 0.84 | 20.7 / 22.9 / 27.8 s | 9.1 / 12.2 / 17.2 s |
+| | 0.98 | falls behind at 224.8 s | falls behind at 324.1 s |
+| ZH, computer sound | measured 0.15 | 17.0 s | 2.2 s |
+| | 0.56 / 0.70 / 0.84 | 23.8 / 26.1 / 28.4 s | 9.0 / 11.3 / 14.8 s |
+| | 0.98 | falls behind at 109.4 s | 19.1 s |
+| Both sides densely at once | measured 0.28 / 0.42 | 23.1 / 29.1 s | 12.0 / 18.0 s |
+| | 0.56 | falls behind at 193.5 s | falls behind at 324.1 s |
+| | 0.70 | falls behind at 178.9 s | falls behind at 209.3 s |
+
+Exception, 2026-11-09: bar 2's line "both sides talking densely at once: never at 0.56" failed (the change falls behind at 324.1 s) and stays failed. Main fails the same line earlier, at 193.5 s. In 240–330 s that case needs 1.03–1.04 s of decoding per second of call, so the computer can't keep up there, which is the case bar 3 requires to fall behind. The line was set at a speed the case can't meet. The change falls behind later than main, or not at all, in every replay.
+
+- **The stated contrast didn't appear.** Main's rule held at 0.84 with both tracks (27.8 s at worst). It falls behind from 0.98, on both tracks, one track and the Chinese call.
+- **Why the replays favour main's rule.** The replay's detector ends each line exactly where it was, so each line is queued at its end. The app queues a part cut from longer speech only at the cut, up to 4 s after the part's end, and a stretch the detector ends 0.5 s after its last speech. So in the replays decodes start earlier, which lowers main's measure (counted from a line's start) and raises the change's (counted from the queueing).
+- **Checked at no cost:** at every moment of every replay above (95,880 moments, a tenth of a second apart, over 20 replays), the change's measure is no larger than main's. It can't be, since `heardMs` is never short of `doneMs`. The replay asserts this, and so does a unit test: over three turns and six held decodes, no progress report has `heardMs` below `doneMs`.
