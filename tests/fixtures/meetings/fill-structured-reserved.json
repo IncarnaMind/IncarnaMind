@@ -4427,14 +4427,17 @@
       {
         "name": "Kraft board",
         "kind": "decision",
-        "pattern": ["kraft"],
+        "pattern": ["kraft", "agreed|go(?:ing)? with|decided|settled|chose|opted|will use|switch"],
         "subject": ["board|material|finish|stock|box"],
         "said": [5, 6, 7]
       },
       {
         "name": "One delivery to the central kitchen",
         "kind": "decision",
-        "pattern": ["kitchen|Dock Street"],
+        "pattern": [
+          "kitchen|Dock Street",
+          "agreed|decided|settled|one delivery|single delivery|go(?:ing)? with"
+        ],
         "subject": ["deliver"],
         "said": [8, 9]
       },
@@ -4539,7 +4542,7 @@
       {
         "name": "选嘉兴仓",
         "kind": "decision",
-        "pattern": ["嘉兴"],
+        "pattern": ["嘉兴", "定|决定|选|同意|就用|改用"],
         "subject": ["仓|存放"],
         "said": [7, 8, 9]
       },
@@ -4653,7 +4656,7 @@
       {
         "name": "Corner desk",
         "kind": "decision",
-        "pattern": ["corner"],
+        "pattern": ["corner", "agreed|go(?:ing)? with|decided|settled|chose|opted|switch|move"],
         "subject": ["desk|move|switch"],
         "said": [4, 5, 6, 7]
       }
@@ -4740,7 +4743,7 @@
       {
         "name": "续租一年",
         "kind": "decision",
-        "pattern": ["一年|1年|12个月|十二个月"],
+        "pattern": ["一年|1年|12个月|十二个月", "续租|续约|续签"],
         "subject": ["续租|续约|租约"],
         "said": [2, 4]
       }
