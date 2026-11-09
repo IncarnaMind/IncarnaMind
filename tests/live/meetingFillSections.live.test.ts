@@ -3805,10 +3805,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           said: fact.said.filter((index) => call.turns[index]?.side === "them"),
         });
         // A part that states the unnamed person's fact, or cites their turn, and carries the name.
+        // The Summary is left out: it speaks for the whole call, and may name who the call was with.
         const misattributed = call.facts.flatMap((fact) => {
           const unit = units.find(
             (unit) =>
               unit.ai &&
+              !summary.includes(unit) &&
               fact.notBy?.test(unit.text) === true &&
               (says(fact, unit.text) || citesRightly(unit, theirTurns(fact), call, cues)),
           );
