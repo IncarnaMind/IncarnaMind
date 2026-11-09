@@ -466,6 +466,33 @@ describe("Meeting fact protocol (#2306)", () => {
     },
   );
 
+  // protects=a fact that names one of this fill's own lines by its bare number, as a model wrote "lines":[1] for "L1", goes under that line, while any number the prompt didn't list, or anything else that isn't an address, still leaves the fact out (#2306); fails_when=such a fact is dropped, or a number is read as a line the prompt never listed; no_claim=how often a model writes it.
+  test.each([
+    { lines: [1], addresses: ["L1", "L2"], expected: ["L1"] },
+    { lines: [2, "L1"], addresses: ["L1", "L2", "H1"], expected: ["L2", "L1"] },
+    { lines: [1], addresses: [], expected: null },
+    { lines: [3], addresses: ["L1", "L2"], expected: null },
+    { lines: [1], addresses: ["H1"], expected: null },
+    { lines: [1.5], addresses: ["L1"], expected: null },
+    { lines: [0], addresses: ["L1"], expected: null },
+    { lines: ["1"], addresses: ["L1"], expected: null },
+    { lines: [1, "L1"], addresses: ["L1"], expected: null },
+  ])(
+    "a fact naming lines $lines with $addresses listed has lines $expected",
+    ({ lines, addresses, expected }) => {
+      for (const body of [undefined, "对方和 Alex 周五前把评审发过去。 [^1]"]) {
+        const parsed = parseFactReply(
+          answer(`${fact("F1", body, { lines, sections: [] })}\n${overview}`),
+          addresses,
+        );
+        if (expected === null) {
+          expect(parsed.facts).toEqual([]);
+          expect(parsed.omittedIds).toEqual(["F1"]);
+        } else expect(parsed.facts[0]?.lines).toEqual(expected);
+      }
+    },
+  );
+
   test("keeps the topic as a literal label, never parsed Markdown or Note content", () => {
     const topic = "**Config/A** <review> [label](https://example.test)";
     const parsed = parseFactReply(answer(`${fact("F1", undefined, { topic })}\n${overview}`));

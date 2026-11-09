@@ -26,7 +26,9 @@ import { clockTime } from "../../src/shared/clock";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import { formatLocation } from "../../src/shared/locations";
 import { setMindModel } from "../../src/shared/mindModel";
+import { setMindScope } from "../../src/shared/mindScope";
 import { pendingProposals } from "../../src/shared/proposals";
+import { folderScope } from "../../src/shared/searchScope";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { mindCitations, shownPassages, transcriptCitations } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder, saveProviderUnasked } from "../helpers/core";
@@ -186,8 +188,11 @@ async function recorded(
     cloud = false,
     keychain,
     notesBeforeSpeakers,
+    folder,
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** The Folder the Meeting's Note is made in, once `before` has run: none, no Folder. */
+    folder?: () => string | undefined;
     /** How Stop is pressed. */
     stop?: (core: Core, meetingId: string) => Promise<unknown>;
     /** Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer. */
@@ -228,7 +233,8 @@ async function recorded(
     });
   }
   await before?.(core);
-  const meeting = await core.createMeeting();
+  const folderId = folder?.();
+  const meeting = await core.createMeeting(folderId ? { folderId } : undefined);
   const client = await connectToMind(core, meeting.mindId);
   if (notes) writeMind(client, notes);
   inMind?.(client);
@@ -258,6 +264,20 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
     },
     { timeout: 20_000 },
   );
+}
+
+/** A Folder holding `files` (name: text): a Note in it has its claims checked there (#2306). */
+async function callFolder(core: Core, files: Record<string, string>): Promise<string> {
+  const sources = await createSourceFolder();
+  const added = await addAndProcess(
+    core,
+    await Promise.all(
+      Object.entries(files).map(([name, text]) => writeSourceFile(sources, name, text)),
+    ),
+  );
+  const folder = await core.createLibraryGroup({ name: "Call documents", description: "" });
+  await core.moveToFolder({ documentIds: added.map((each) => each.id), folderId: folder.id });
+  return folder.id;
 }
 
 /** The Mind's lines as shown, AI text in «», a Citation as \uFFFC. */
@@ -616,21 +636,17 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       };
     });
     const { separator } = fakeSeparator({ holds });
+    let folderId: string | undefined;
     const { core, meeting } = await recorded(
       model,
       null,
       async (core) => {
-        const sources = await createSourceFolder();
-        await addAndProcess(core, [
-          await writeSourceFile(
-            sources,
-            "Budget.md",
-            "Next year's budget is still under review.\n",
-          ),
-        ]);
+        folderId = await callFolder(core, {
+          "Budget.md": "Next year's budget is still under review.\n",
+        });
       },
       undefined,
-      { speakerSeparator: separator, cloud: true },
+      { speakerSeparator: separator, cloud: true, folder: () => folderId },
     );
     await vi.waitFor(() => expect(checks).toBeGreaterThan(0));
     expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling", checking: 1 });
@@ -936,12 +952,16 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         },
       },
     );
-    const { core, meeting, client } = await recorded(model, null, async (core) => {
-      const sources = await createSourceFolder();
-      await addAndProcess(core, [
-        await writeSourceFile(sources, "Price list.md", "Team plan: 30 dollars a seat.\n"),
-      ]);
-    });
+    let folderId: string | undefined;
+    const { core, meeting, client } = await recorded(
+      model,
+      null,
+      async (core) => {
+        folderId = await callFolder(core, { "Price list.md": "Team plan: 30 dollars a seat.\n" });
+      },
+      undefined,
+      { folder: () => folderId },
+    );
 
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
     await vi.waitFor(() => expect(shown(client).length).toBeGreaterThan(5));
@@ -1002,18 +1022,17 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
           },
         },
       );
+      let folderId: string | undefined;
       const { core, meeting, client } = await recorded(
         model,
         null,
         async (core) => {
-          if (documents === "no Documents") return;
-          const sources = await createSourceFolder();
-          await addAndProcess(core, [
-            await writeSourceFile(sources, "Price list.md", `${price}\n`),
-          ]);
+          if (documents === "a Document") {
+            folderId = await callFolder(core, { "Price list.md": `${price}\n` });
+          }
         },
         undefined,
-        { lines: said },
+        { lines: said, folder: () => folderId },
       );
       const before = exactly(client);
 
@@ -1169,6 +1188,75 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
 
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
     await vi.waitFor(() => expect(outline(client)).toContain(`## «${shown}»`));
+    core.close();
+  });
+
+  // protects=a meeting's claims are checked only against the Search scope the User chose for its Note, else the Note's Folder, never the whole Library by default: a Note in no Folder with none chosen sends no check and shows no "Said in the call, not in your Documents", a Note in a Folder checks there, and a chosen scope wins over the Folder either way, in English and Chinese (#2306); fails_when=a check goes out for a Note in no Folder, a Folder's Note isn't checked, or the Folder is read instead of the chosen scope; no_claim=a check's verdict, which the claim-check tests cover.
+  test.each(
+    (["en", "zh-CN"] as const).flatMap((language) =>
+      (
+        [
+          ["in no Folder", false],
+          ["in a Folder that holds a Document", true],
+          ["in a Folder, with a chosen scope that holds none", false],
+          ["in no Folder, with a chosen scope that holds a Document", true],
+        ] as const
+      ).map(([where, checked]) => [language, where, checked] as const),
+    ),
+  )("in %s, a Note %s has its claims checked: %s", async (language, where, checked) => {
+    const chinese = language === "zh-CN";
+    const said = chinese ? CHINESE_LINES : { mine: MY_LINES, theirs: THEIR_LINES };
+    const [budget = ""] = said.theirs;
+    const stop = chinese ? "。" : ".";
+    const topic = chinese ? "预算" : "Budget";
+    const review = chinese
+      ? "明年的预算还在审核中。\n"
+      : "Next year's budget is still under review.\n";
+    const checks: string[] = [];
+    const model = fillingModel(
+      [
+        overview(`${chinese ? "通话谈了预算" : "The call went through the budget"} [^1]${stop}`),
+        fact("P1_budget", "budget", `${budget} [^1]${stop}`, { heading: topic, claim: true }),
+      ].join("\n\n"),
+      { 1: budget },
+      {},
+      {
+        seen: (call) => {
+          if (isCheckRun(call)) checks.push(call.prompt);
+        },
+      },
+    );
+    let noteFolder: string | undefined;
+    let chosen: string | undefined;
+    const { core, meeting, client } = await recorded(
+      model,
+      null,
+      async (core) => {
+        if (where === "in no Folder") {
+          const sources = await createSourceFolder();
+          await addAndProcess(core, [await writeSourceFile(sources, "Budget.md", review)]);
+        } else if (where === "in a Folder that holds a Document") {
+          noteFolder = await callFolder(core, { "Budget.md": review });
+        } else if (where === "in a Folder, with a chosen scope that holds none") {
+          noteFolder = await callFolder(core, { "Budget.md": review });
+          chosen = (await core.createLibraryGroup({ name: "Empty", description: "" })).id;
+        } else chosen = await callFolder(core, { "Budget.md": review });
+      },
+      (client) => {
+        if (chosen) setMindScope(client.doc, folderScope(chosen));
+      },
+      { lines: said, folder: () => noteFolder },
+    );
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    const claims = `## «${translate(language, "meetings.fill.section.claims")}»`;
+    const bullet = `- «${budget} »\uFFFC«${stop}»`;
+    await vi.waitFor(() => expect(outline(client)).toContain(bullet));
+    expect(checks.length > 0).toBe(checked);
+    expect(outline(client).includes(claims)).toBe(checked);
+    expect(outline(client).indexOf(bullet)).toBe(
+      checked ? outline(client).indexOf(claims) + 1 : outline(client).indexOf(`## «${topic}»`) + 1,
+    );
     core.close();
   });
 
@@ -2197,20 +2285,22 @@ for (const call of CALLS) {
     );
   const recordedWith = (
     notes: Parameters<typeof writeMind>[1],
-    before?: (core: Core) => Promise<void>,
+    /** Makes what the call needs, and gives the Folder for the Note to be made in, if any. */
+    folderFor?: (core: Core) => Promise<string>,
     options: Parameters<typeof model>[0] = {},
   ) => {
     asked.length = 0;
     limits.length = 0;
+    let folderId: string | undefined;
     return recorded(
       model(options),
       notes,
       async (core) => {
         await core.updateSettings({ user: { language: call.language } });
-        await before?.(core);
+        folderId = await folderFor?.(core);
       },
       undefined,
-      { lines: { mine: call.mine, theirs: call.theirs } },
+      { lines: { mine: call.mine, theirs: call.theirs }, folder: () => folderId },
     );
   };
   const typedLines = () => [note(call.typed[0]), note(call.typed[1])];
@@ -2536,12 +2626,7 @@ for (const call of CALLS) {
         const supported = `${written.L1.trim()}${stop}`;
         const { core, meeting, client } = await recordedWith(
           [heading(2, call.claimsHeading)],
-          async (core) => {
-            const sources = await createSourceFolder();
-            await addAndProcess(core, [
-              await writeSourceFile(sources, "Price list.md", `${supported}\n`),
-            ]);
-          },
+          (core) => callFolder(core, { "Price list.md": `${supported}\n` }),
           {
             reply: () => {
               const facts = [
