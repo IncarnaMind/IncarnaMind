@@ -622,8 +622,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   };
 
   /**
-   * Null when there was nothing to check, or it couldn't be checked here. Resolves once the check
-   * has begun, each sentence it reads shown as being checked; `input.ended` hears its end.
+   * Null when there was nothing to check, it couldn't be checked here, or an Undo or a reject took
+   * the write away before its check began. Resolves once the check has begun, each sentence it
+   * reads shown as being checked; `input.ended` hears its end.
    */
   async function checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null> {
     const { mindId, blocks } = input;
@@ -649,6 +650,23 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     if (!allowed && !waiting) return null;
     // Waiting, nothing is sent: the Answer's model only names who the marks wait for.
     const prepared = allowed ?? input.prepared;
+    const holding = waiting || input.answerFailed === true;
+    const quick = holding
+      ? null
+      : await options.quickModel(prepared).catch((error: unknown) => {
+          console.warn(
+            `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        });
+    // An Undo or a reject while the check was readied reached no check yet: it marks nothing, which
+    // would land on the words brought back, and sends nothing. A window writing the Blocks again
+    // only looks so for a moment (#2378).
+    if (writeGone(mindId, shape)) {
+      await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
+      if (writeGone(mindId, shape)) return null;
+    }
+    if (!holding && input.signal.aborted) return null;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
     const reads = options.read(mindId, (note) => {
@@ -661,7 +679,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       );
     });
-    const holding = waiting || input.answerFailed === true;
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const markIds = new Map(sentences.map((sentence) => [sentence, randomUUID()]));
@@ -787,13 +804,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       return snapshot();
     }
 
-    const quick = await options.quickModel(prepared).catch((error: unknown) => {
-      console.warn(
-        `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    });
-    if (input.signal.aborted) return null;
     // What the Note holds just before the write: its first paragraph follows that.
     const beforeWrite =
       quick &&

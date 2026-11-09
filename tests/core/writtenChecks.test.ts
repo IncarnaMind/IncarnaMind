@@ -23,7 +23,12 @@ import {
   unsupportedReply,
 } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  type MemoryKeychain,
+  startCore,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
@@ -210,10 +215,12 @@ async function harbour(
   record: Writing["record"],
   untitled = false,
   sortTimeLimit?: Writing["sortTimeLimit"],
+  keychain?: MemoryKeychain,
 ) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     ...(sortTimeLimit && { contradictionWatch: { sortTimeLimit } }),
+    ...(keychain && { keychain }),
   });
   let service: string | undefined;
   if (cloud) {
@@ -262,14 +269,21 @@ const LONGER = "Make that note on tides longer";
 
 /**
  * A model that adds `first` to the Note in front, then, asked for it `LONGER`, writes `longer`
- * over it with edit_mind, in place; each sentence's check as `check` says, else as `PLANS` does.
+ * over it with edit_mind, in place, telling `rewrites` as it does; each sentence's check as
+ * `check` says, else as `PLANS` does.
  */
 function rewritingModel(
   {
     first,
     longer,
     check,
-  }: { first: string; longer: string; check?: (call: ModelCall) => ScriptedReply | null },
+    rewrites,
+  }: {
+    first: string;
+    longer: string;
+    check?: (call: ModelCall) => ScriptedReply | null;
+    rewrites?: () => void;
+  },
   calls: ModelCall[],
 ) {
   return scriptedModel(
@@ -289,12 +303,48 @@ function rewritingModel(
       }
       if (!results.some((result) => result.tool === tool)) {
         const input = again ? { part: "Tides", content: longer } : { content: first };
+        if (again) rewrites?.();
         return { calls: [{ tool, input }] };
       }
       return { text: again ? "It says more now." : "Wrote it from your Documents." };
     },
     { generate: checkGenerate(PLANS) },
   );
+}
+
+/**
+ * A keychain whose reads wait, once `hold` is called, until `release`: a model is readied with
+ * its key, so a check being readied waits there.
+ */
+function holdingKeychain() {
+  const keychain = createMemoryKeychain();
+  let holding = false;
+  let held = 0;
+  let release: () => void = () => undefined;
+  let released = Promise.resolve();
+  return {
+    keychain: {
+      ...keychain,
+      get: async (name: string) => {
+        if (holding) {
+          held++;
+          await released;
+        }
+        return keychain.get(name);
+      },
+    } satisfies MemoryKeychain,
+    hold() {
+      holding = true;
+      released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    held: () => held,
+    release() {
+      holding = false;
+      release();
+    },
+  };
 }
 
 /** Writes as `writing` says and resolves once the Answer has ended and the check of what it wrote is over. */
@@ -1432,6 +1482,89 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       expect(change?.selfCheck).toMatchObject({ undone: true });
     },
   );
+
+  // protects=a rewrite in place rejected while its check is still being readied, before it marks anything, is never checked: the words brought back keep the mark they had, nothing of it is sent, and the Answer has no line for it (#2830); fails_when=its first marks land on the words brought back and end there as stopped, or its sentences are sent for a write that is gone; no_claim=how long readying takes.
+  test("a rewrite in place rejected while its check is readied leaves the words brought back as they were", async () => {
+    const keys = holdingKeychain();
+    const calls: ModelCall[] = [];
+    const model = rewritingModel(
+      {
+        first: `## Tides\n\n${MOON.slice(0, -1)} [^1].`,
+        longer: "## Tides\n\nSpring tides come twice a month, at new and full moon [^1].",
+        rewrites: () => keys.hold(),
+      },
+      calls,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+      false,
+      undefined,
+      keys.keychain,
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    const scope = { folderIds: [folderId], tagIds: [], documentIds: [] };
+    const first = await askAssistant(core, { text: ASK.into, mindId, scope });
+    const firstCheck = await checkEnds(progress);
+    await resolveChanges(client, "accept");
+    await client.settled();
+    const marksBefore = (await marksIn(core, client)).map(({ sentence, check }) => [
+      sentence,
+      check.state,
+      check.request,
+    ]);
+    expect(marksBefore).toEqual([
+      ["Spring tides come at new and full moon .", "supported", firstCheck.request],
+    ]);
+
+    const answering = askAndEnd(core, {
+      text: LONGER,
+      mindId,
+      scope,
+      conversationId: first.conversationId,
+    });
+    // The rewrite waits in the Note while its check is readied with the model's key.
+    await vi.waitFor(
+      () => {
+        expect(keys.held()).toBeGreaterThan(0);
+        expect(shownWithChanges(client).join("\n")).toContain("twice a month");
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    await resolveChanges(client, "reject");
+    keys.release();
+    const second = await answering;
+    await vi.waitFor(
+      () => {
+        const begun = new Set(progress.map((event) => event.request));
+        const ended = new Set(progress.filter((each) => !each.running).map((each) => each.request));
+        expect([...begun].every((request) => ended.has(request))).toBe(true);
+      },
+      { timeout: 20_000, interval: 10 },
+    );
+    await client.settled();
+
+    expect(shownWithChanges(client)).toEqual([
+      "Harbour",
+      "Boats moor by the quay.",
+      "Tides",
+      "Spring tides come at new and full moon ⟨found⟩.",
+    ]);
+    expect(
+      (await marksIn(core, client)).map(({ sentence, check }) => [
+        sentence,
+        check.state,
+        check.request,
+      ]),
+    ).toEqual(marksBefore);
+    expect(
+      calls.filter((call) => isCheckRun(call) && sentenceOf(call).includes("twice a month")),
+    ).toEqual([]);
+    const [change] = changesIn(await storedAnswer(core, second.conversationId, second.id));
+    expect(change?.selfCheck).toBeUndefined();
+  });
 
   // protects=a newer write over the same Blocks takes their sentences over from the older write's check still running: the older check's late verdicts never land on the newer text (#2830); fails_when=the older check's result overwrites the newer check's mark, so a sentence reads as checked by a check of words it no longer has; no_claim=which verdicts the judge gives.
   test("a newer write over the same Blocks takes their sentences over from the older check", async () => {
