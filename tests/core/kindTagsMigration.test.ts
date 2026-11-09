@@ -45,7 +45,7 @@ describe("Migration 140: kinds and uncertain Tags", () => {
         "report",
         0,
       ],
-      [tag.contract, "Agreements", "Signed agreements.", "contract", 1],
+      [tag.contract, "Client files", "Signed agreements.", "contract", 1],
       [tag.notes, "Notes", "Informal notes.", "notes", 0],
       [tag.reports, "Reports", "Made by tagging.", null, 0],
       [tag.chineseReport, "报告", "由打标签生成。", null, 0],
@@ -93,7 +93,7 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     // A preset no one changed is its kind, named in the interface's language.
     expect(named(tag.report)).toMatchObject({ kind: "report", name: "Report" });
     // One the User renamed stays an ordinary Tag of theirs: it is given no kind's Documents.
-    expect(named(tag.contract)).toMatchObject({ kind: null, name: "Agreements" });
+    expect(named(tag.contract)).toMatchObject({ kind: null, name: "Client files" });
     // Notes is no kind: it stays a Tag as it was.
     expect(named(tag.notes)).toMatchObject({ kind: null, name: "Notes" });
     // Tags tagging made under a kind's name are merged into it, and wait in no Recently deleted.
@@ -104,7 +104,7 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     expect(await tagNamesOf(core, doc.q2)).toEqual(["Report", "Report Q3"]);
     // The User's own Tag stays.
     expect(named(tag.mine)).toMatchObject({ kind: null, name: "Report Q3", madeByUser: true });
-    expect(await tagNamesOf(core, doc.lease)).toEqual(["Agreements"]);
+    expect(await tagNamesOf(core, doc.lease)).toEqual(["Client files"]);
     // An uncertain Tag is off its Document and waits in the Review.
     expect(await tagNamesOf(core, doc.quote)).toEqual([]);
     const review = await core.getOrganizeReview();
@@ -116,7 +116,7 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     await core.updateSettings({ user: { language: "zh-CN" } });
     expect((await core.listTags()).find((each) => each.id === tag.report)?.name).toBe("报告");
     expect((await core.listTags()).find((each) => each.id === tag.contract)?.name).toBe(
-      "Agreements",
+      "Client files",
     );
   });
 
@@ -184,6 +184,41 @@ describe("Migration 140: kinds and uncertain Tags", () => {
     expect(await linksOf(doc.mine)).toEqual([[tag.report, "user"]]);
     expect(await linksOf(doc.off)).toEqual([]);
     expect((await core.listTags()).filter((each) => each.kind === "report")).toHaveLength(1);
+  });
+
+  // protects=the User's own Tag under any of a kind's names, a plural or another word for it, in either language, is that kind's Tag before tagging's, which merges into it; fails_when=the User's "Contracts" is passed over while tagging's "agreements" becomes the kind; no_claim=the kinds' words.
+  test("the User's own Tag under any of a kind's names is the kind's Tag: Contracts, 信件", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(
+      db,
+      migrations.filter((each) => each.version <= 139),
+    );
+    const id = () => randomUUID();
+    const tag = { contracts: id(), agreements: id(), letters: id() };
+    for (const [tagId, name, byUser, at] of [
+      [tag.agreements, "agreements", 0, AT],
+      [tag.contracts, "Contracts", 1, "2026-11-02T09:00:00.000Z"],
+      [tag.letters, "信件", 1, AT],
+    ] as const)
+      db.run(
+        `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+         VALUES (?, ?, '', NULL, ?, 'green', ?, ?)`,
+        [tagId, name, byUser, at, at],
+      );
+    db.close();
+
+    const listed = await startCore(dataDir).listTags();
+
+    expect(listed.find((each) => each.id === tag.contracts)).toMatchObject({
+      kind: "contract",
+      name: "Contracts",
+    });
+    expect(listed.find((each) => each.id === tag.letters)).toMatchObject({
+      kind: "letter",
+      name: "信件",
+    });
+    expect(listed.find((each) => each.id === tag.agreements)).toBeUndefined();
   });
 
   /**

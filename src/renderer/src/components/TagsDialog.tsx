@@ -162,9 +162,13 @@ export function TagsDialog() {
                 data-testid="retag-all"
                 onClick={() => {
                   setRetagStarted(true);
-                  void tagDocuments().catch((error: unknown) =>
-                    useAppStore.getState().reportError(error),
-                  );
+                  void tagDocuments()
+                    .then((result) => {
+                      // Nothing to re-tag: the notice says why, and nothing started.
+                      if (result?.status === "done" && result.documents === 0)
+                        setRetagStarted(false);
+                    })
+                    .catch((error: unknown) => useAppStore.getState().reportError(error));
                 }}
                 className={buttonClass}
               >

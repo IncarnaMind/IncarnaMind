@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   launchApp,
   motionSettled,
+  openManageTags,
   organizeWithChatModel,
   pointAndClick,
   removeDataFolder,
@@ -181,8 +182,11 @@ for (const [language, width, height] of [
   });
 }
 
-/** Five Documents with nothing in common, as many first words; with `kinds`, two say a kind. */
-async function unrelated(kinds: boolean): Promise<string[]> {
+/**
+ * Five Documents with nothing in common, as many first words; with `kinds`, two say a kind. With
+ * `refusing`, one says so, and the scripted model refuses the request that tags it.
+ */
+async function unrelated(kinds: boolean, refusing = false): Promise<string[]> {
   const paths: string[] = [];
   for (const [name, text] of [
     ["Lease Harbour Street", kinds ? "Contract for the office, two years." : "Keys to the office."],
@@ -191,7 +195,12 @@ async function unrelated(kinds: boolean): Promise<string[]> {
       kinds ? "Invoice 4471 for pilot boat services." : "The pilot boat sails at six.",
     ],
     ["Marathon training", "Week six: easy runs and one long run."],
-    ["Tomato seeds", "Sow the tomatoes indoors in March."],
+    [
+      "Tomato seeds",
+      refusing
+        ? "Sow the tomatoes indoors in March. The seed club refuses tagging."
+        : "Sow the tomatoes indoors in March.",
+    ],
     ["Violin scales", "Practise the scales slowly, then faster."],
   ] as const) {
     const path = join(sources, `${name}.txt`);
@@ -277,6 +286,75 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("library-sorted")).toHaveCount(0);
       expect(await tagged(window)).toEqual([]);
       await screenshot(window, `apart-${language}`);
+    } finally {
+      await app?.close();
+    }
+  });
+}
+
+/** The scripted model on this computer, with tagging new Documents turned off. */
+async function untagged(language: Language) {
+  const launched = await launchApp(dataDir, { fakeChat: true });
+  const { app, window } = launched;
+  await connectLocalChatModel(window);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  await setLanguage(window, language);
+  await organizeWithChatModel(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const { settings } = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({ ...settings, automatic: false });
+  });
+  return launched;
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: an Organize whose tagging fails says so at the Library's top, and tags nothing`, async () => {
+    test.setTimeout(120_000);
+    const say = t(language);
+    let app: ElectronApplication | undefined;
+    try {
+      const launched = await untagged(language);
+      app = launched.app;
+      const { window } = launched;
+      await addDocuments(window, await unrelated(false, true));
+      await expect(window.getByTestId("document-list-item")).toHaveCount(5);
+      await runCommand(window, "library.open", say("library.open"));
+      await pointAndClick(window, loose(window).getByTestId("library-organize"));
+
+      const line = window.getByTestId("organize-tagging-failed");
+      await expect(line).toContainText(say("organizeReview.taggingFailed"), { timeout: 30_000 });
+      expect(await tagged(window)).toEqual([]);
+      await screenshot(window, `tagging-failed-${language}`);
+      await pointAndClick(window, line.getByTestId("organize-tagging-failed-dismiss"));
+      await expect(line).toHaveCount(0);
+    } finally {
+      await app?.close();
+    }
+  });
+
+  test(`${language}: Re-tag all with tagging off says there is nothing to re-tag`, async () => {
+    test.setTimeout(120_000);
+    const say = t(language);
+    let app: ElectronApplication | undefined;
+    try {
+      const launched = await untagged(language);
+      app = launched.app;
+      const { window } = launched;
+      await addDocuments(window, await unrelated(true));
+      await expect(window.getByTestId("document-list-item")).toHaveCount(5);
+      await openManageTags(window, language);
+      await pointAndClick(window, window.getByTestId("retag-all"));
+
+      await expect(window.getByTestId("copied-line")).toHaveText(say("tags.dialog.retag.none"));
+      await expect(window.getByTestId("tags-dialog")).toContainText(say("tags.dialog.retag.hint"));
+      await expect(window.getByTestId("tags-dialog")).not.toContainText(
+        say("tags.dialog.retag.started"),
+      );
+      expect(await tagged(window)).toEqual([]);
+      await expect(window.getByTestId("organize-review")).toHaveCount(0);
+      await screenshot(window, `retag-none-${language}`);
     } finally {
       await app?.close();
     }

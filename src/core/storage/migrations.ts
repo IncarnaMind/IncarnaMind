@@ -2958,19 +2958,12 @@ export const migrations: readonly Migration[] = [
             WHERE w.kind = tags.preset AND w.description = tags.description);
       DROP TABLE preset_words;
 
-      -- The User's own Tag named as a kind, in either language, is that kind's Tag where it has
-      -- none yet, keeping their words: the oldest, before any Tag tagging made.
-      CREATE TEMP TABLE kind_own_names (name TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL);
-      INSERT INTO kind_own_names (name, kind) VALUES
-        ('contract', 'contract'), ('合同', 'contract'), ('invoice', 'invoice'), ('发票', 'invoice'),
-        ('statement', 'statement'), ('对账单', 'statement'), ('report', 'report'), ('报告', 'report'),
-        ('paper', 'paper'), ('论文', 'paper'), ('book', 'book'), ('书籍', 'book'),
-        ('slides', 'slides'), ('幻灯片', 'slides'), ('meeting notes', 'meeting-notes'),
-        ('会议记录', 'meeting-notes'), ('letter', 'letter'), ('信函', 'letter');
+      -- The User's own Tag under a kind's name, by the same names as tagging's, is that kind's Tag
+      -- where it has none yet, keeping their words: the oldest, before any Tag tagging made.
       CREATE TEMP TABLE kind_own (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, place INTEGER NOT NULL);
       INSERT INTO kind_own (id, kind, place)
         SELECT t.id, o.kind, ROW_NUMBER() OVER (PARTITION BY o.kind ORDER BY t.created_at, t.rowid)
-        FROM tags t JOIN kind_own_names o ON o.name = lower(trim(t.name))
+        FROM tags t JOIN kind_names o ON o.name = lower(trim(t.name))
         WHERE t.deleted_at IS NULL AND t.kind IS NULL AND (t.made_by_user = 1 OR EXISTS (
           SELECT 1 FROM document_tags l
           WHERE l.tag_id = t.id AND l.source = 'user' AND l.deleted_at IS NULL));
@@ -2979,7 +2972,6 @@ export const migrations: readonly Migration[] = [
           SELECT o.id FROM kind_own o WHERE o.place = 1 AND NOT EXISTS (
             SELECT 1 FROM tags k WHERE k.kind = o.kind AND k.deleted_at IS NULL));
       DROP TABLE kind_own;
-      DROP TABLE kind_own_names;
 
       -- A Tag tagging made under a kind's name, with no one's changes, is that kind: the oldest
       -- becomes the kind's Tag where it has none yet, and the others are merged into it.

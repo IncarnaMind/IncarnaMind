@@ -145,6 +145,23 @@ describe("the Organize benchmark's new-User scores", () => {
     });
   });
 
+  // protects=a bar compares counts, so a score exactly on it passes, as 24/30 is 0.8; fails_when=floating point puts 24/30 just under 0.8 and the bar fails; no_claim=which bars exist.
+  test("a bar compares counts: 24/30 meets 0.8, 23/30 doesn't", () => {
+    const base = scoreNewUser([], folders, []);
+    const pass = (name: string, scores: typeof base) =>
+      bars(scores).find((bar) => bar.name.startsWith(name))?.pass;
+
+    expect(pass("Filed", { ...base, readable: 30, filed: 24 })).toBe(true);
+    expect(pass("Filed", { ...base, readable: 30, filed: 23 })).toBe(false);
+    // 2 × 12 / (2 × 12 + 4 + 2) = 24/30, and with one more miss 24/31.
+    expect(pass("Kind Tag F1, one kind", { ...base, oneKind: { tp: 12, fp: 4, fn: 2 } })).toBe(
+      true,
+    );
+    expect(pass("Kind Tag F1, one kind", { ...base, oneKind: { tp: 12, fp: 4, fn: 3 } })).toBe(
+      false,
+    );
+  });
+
   describe("a fresh set labelled with the app's kind codes (version 2)", () => {
     /** Writes a version-2 set of one text file labelled `tags` into a folder of its own. */
     async function fresh(tags: string[]) {

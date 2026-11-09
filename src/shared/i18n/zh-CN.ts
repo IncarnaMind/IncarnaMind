@@ -119,7 +119,7 @@ export const zhCN = {
   "organizeReview.tagged.one": "已为 1 个文档添加标签",
   "organizeReview.running": "正在整理 {done}/{total}…",
   "organizeReview.failed.model": "无法连接 AI 模型",
-  "organizeReview.taggingFailed": "这次整理未能建议标签。文件夹照常建议，下次整理时会再试一次标签",
+  "organizeReview.taggingFailed": "这次整理未能建议标签，下次整理时会再试一次",
   "organizeReview.stop": "停止",
   "organizeReview.stopped": "读了 {count} 个后已停止，还没有移动任何文档。",
   "organizeReview.estimate": "整理 {count} 个文档：{cost}",

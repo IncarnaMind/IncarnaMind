@@ -84,6 +84,15 @@ export function tagsRateLimited(options: GenerateOptions): boolean {
   return true;
 }
 
+/**
+ * A tagging request for a Document whose text says "refuses tagging" meets a key its service
+ * refuses, every time; Organize's plan of the same Documents still goes.
+ */
+export function tagsRefused(options: GenerateOptions): boolean {
+  const excerpt = taggingExcerpt(options);
+  return !!excerpt && /\brefuses tagging\b/i.test(excerpt);
+}
+
 const creditOnce = new Set<string>();
 
 /**

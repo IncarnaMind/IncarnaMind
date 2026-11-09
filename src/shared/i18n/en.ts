@@ -124,7 +124,7 @@ export const en = {
   "organizeReview.running": "Organizing {done} of {total}…",
   "organizeReview.failed.model": "Couldn’t reach the AI model",
   "organizeReview.taggingFailed":
-    "Organize couldn’t suggest Tags this time. Its Folders are suggested without them, and the next run tries the Tags again",
+    "Organize couldn’t suggest Tags this time. The next run tries them again",
   "organizeReview.stop": "Stop",
   "organizeReview.stopped": "Stopped after reading {count}. Nothing has moved.",
   "organizeReview.estimate": "Organizing {count} Documents: {cost}",

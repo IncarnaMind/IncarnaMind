@@ -4,7 +4,17 @@
  * (tests/eval/organizeNewUser.test.ts) run it without a model.
  */
 import { kindOfName } from "../../../src/core/tags/kinds";
-import { decimal, f1, fraction, type Labelled, precision, ratio, recall } from "./scoring";
+import {
+  atLeast,
+  atMost,
+  decimal,
+  f1,
+  f1AtLeast,
+  fraction,
+  type Labelled,
+  precision,
+  recall,
+} from "./scoring";
 import { formatOf, type SetDocument } from "./set";
 
 const normal = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -247,7 +257,7 @@ export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[]
     name,
     value: kindValue(counts),
     bar: "≥ 0.80",
-    pass: f1(counts) >= 0.8,
+    pass: f1AtLeast(counts, 4, 5),
     ...(!gates && { reported: true as const }),
   });
   const sizes = s.folderSizes.map((each) => each.size);
@@ -258,7 +268,7 @@ export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[]
       name: "Filed: readable Documents in a Folder",
       value: fraction(s.filed, s.readable),
       bar: "≥ 80%",
-      pass: ratio(s.filed, s.readable) >= 0.8,
+      pass: atLeast(s.filed, s.readable, 4, 5),
     },
     {
       name: "Smallest Folder",
@@ -270,19 +280,19 @@ export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[]
       name: "Same-label pairs together, a split by area allowed",
       value: fraction(s.sameTogether, s.samePairs),
       bar: "≥ 90%",
-      pass: ratio(s.sameTogether, s.samePairs) >= 0.9,
+      pass: atLeast(s.sameTogether, s.samePairs, 9, 10),
     },
     {
       name: "Same-label pairs sharing one Folder, no allowance",
       value: fraction(s.sameShared, s.samePairs),
       bar: "≥ 90%",
-      pass: ratio(s.sameShared, s.samePairs) >= 0.9,
+      pass: atLeast(s.sameShared, s.samePairs, 9, 10),
     },
     {
       name: "Different-label pairs sharing a Folder",
       value: fraction(s.differentShared, s.differentPairs),
       bar: "≤ 10%",
-      pass: ratio(s.differentShared, s.differentPairs) <= 0.1,
+      pass: atMost(s.differentShared, s.differentPairs, 1, 10),
     },
     kindBar(s.oneKind, kindScore === "one-kind", "Kind Tag F1, one kind a Document"),
     kindBar(s.kinds, kindScore === "as-written", "Kind Tag F1, the labels as written"),
@@ -297,7 +307,7 @@ export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[]
       name: "Topic Tags off-topic",
       value: `${fraction(s.offTopic, answered)}${s.unanswered ? `, ${s.unanswered} unanswered` : ""}`,
       bar: "≤ 5%",
-      pass: ratio(s.offTopic, answered) <= 0.05,
+      pass: atMost(s.offTopic, answered, 1, 20),
     },
     {
       name: "Distinct Tag names",
