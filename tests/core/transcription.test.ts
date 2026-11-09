@@ -444,6 +444,166 @@ describe("Live words from a streaming model (#2662)", () => {
   });
 });
 
+/** Sound at a speaking level, with 100 ms of quiet at each of `quietAt`, in seconds. */
+function sound(seconds: number, quietAt: readonly number[] = [], speech = [0, seconds]) {
+  const samples = new Float32Array(seconds * RATE);
+  samples.fill(0.3, (speech[0] as number) * RATE, (speech[1] as number) * RATE);
+  for (const at of quietAt) samples.fill(0, at * RATE, (at + 0.1) * RATE);
+  return samples;
+}
+
+/** Pushes `samples` in 100 ms frames, as the capture sends them, letting decodes run between. */
+async function pushSound(host: ReturnType<typeof createSpeechHost>, samples: Float32Array) {
+  for (let at = 0; at < samples.length; at += RATE / 10) {
+    host.push("live", samples.subarray(at, at + RATE / 10));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+const words = (count: number) => Array.from({ length: count }, (_, at) => `w${at + 1}`).join(" ");
+
+describe("Speech longer than the engine reads at once (#1031)", () => {
+  // protects=speech that goes on past what the engine reads at once is cut as it goes on, at its quietest 100 ms in the last 4 s before the limit, each part a line of its own from where the last ended, and the live words neither doubled nor lost at a cut; fails_when=a part runs past the limit, a cut lands outside the quiet, the parts overlap or leave a gap, the next part's live words repeat the words before the cut, or the parts come only once the speaker stops; no_claim=where a real voice is quietest, which eval/meetings measures.
+  test("is cut at its quietest moment as it goes on, the live words kept in step", async () => {
+    const segments: SpeechSegment[] = [];
+    const host = createSpeechHost(
+      {
+        ...lengthEngine([[0.5, 30]]),
+        recognizer: { decode: async (samples) => `${(samples.length / RATE).toFixed(2)} s` },
+        live: countingReader().live,
+        longestMs: 6000,
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    // Quiet at 1 s, too early to cut at, then at 4 s and 9 s.
+    await pushSound(host, sound(12, [1, 4, 9]));
+    const live = segments.filter((segment) => segment.final).length;
+    await host.finish("live");
+
+    expect(segments.filter((segment) => segment.final)).toEqual([
+      expect.objectContaining({ id: 1, startMs: 200, endMs: 4050, text: "3.85 s" }),
+      expect.objectContaining({ id: 2, startMs: 4050, endMs: 9050, text: "5.00 s" }),
+      expect.objectContaining({ id: 3, startMs: 9050, endMs: 12_000, text: "2.95 s" }),
+    ]);
+    // The first two came while the speaker went on.
+    expect(live).toBe(2);
+    const first = segments.findIndex((segment) => segment.final);
+    // Before the cut, 5.9 s heard: 19 words. After it, the 3.8 s heard up to the cut and the
+    // 2.15 s heard again from it: 19 words still, the first part's until its line comes.
+    expect(segments.slice(first - 2, first + 2)).toEqual([
+      expect.objectContaining({ id: 1, text: words(19), final: false }),
+      expect.objectContaining({ id: 1, text: `${words(12)} ${words(7)}`, final: false }),
+      expect.objectContaining({ id: 1, text: "3.85 s", final: true }),
+      expect.objectContaining({ id: 2, text: words(7), final: false }),
+    ]);
+  });
+
+  // protects=a stretch whose sound comes all at once, as a recording read back after Stop comes 20 s at a time, is read in parts no longer than the engine reads at once, whether the detector says it is speaking as it goes or gives the stretch whole at its end; fails_when=a reading runs past the limit, or the parts overlap, leave a gap or lose the stretch's start; no_claim=live words, which a recording read back has none of.
+  test.each([
+    ["as it goes on", (speech: [number, number][]) => scriptedDetector(speech)],
+    [
+      "given whole at its end",
+      (speech: [number, number][]) => ({ ...scriptedDetector(speech), speaking: () => false }),
+    ],
+  ])("that comes 20 s at a time is read in parts, the stretch %s", async (_how, detector) => {
+    const finals: SpeechSegment[] = [];
+    const host = createSpeechHost(
+      { ...lengthEngine([]), detector: () => detector([[1, 19]]), longestMs: 6000 },
+      {
+        segment: (segment) => {
+          if (segment.final) finals.push(segment);
+        },
+        progress: () => {},
+        failed: () => {},
+      },
+    );
+    host.push("live", new Float32Array(20 * RATE));
+    await host.finish("live");
+
+    expect(finals.length).toBeGreaterThanOrEqual(4);
+    for (const [at, line] of finals.entries()) {
+      expect(line.endMs - line.startMs).toBeLessThanOrEqual(6000);
+      if (at > 0) expect(line.startMs).toBe(finals[at - 1]?.endMs);
+    }
+    expect(finals[0]?.startMs).toBeLessThanOrEqual(750);
+    expect(finals.at(-1)?.endMs).toBe(19_000);
+    expect(new Set(finals.map((line) => line.id)).size).toBe(finals.length);
+  });
+
+  // protects=when the detector ends a stretch half a second after its last sound, as Silero does, and the cut came in that half second, nothing is read twice and the part after the cut gets an empty final text, which drops its live words; fails_when=the quiet after the cut is read again as a line, or its live words stay shown with no line to replace them; no_claim=a stretch that goes on after the cut, which the test above covers.
+  test("that ends just before a cut is read once, leaving no live words behind", async () => {
+    const segments: SpeechSegment[] = [];
+    const decoded: number[] = [];
+    let position = 0;
+    let ended = false;
+    // Speech from 0.5 s to 6 s, its stretch ended at 6.6 s.
+    const detector: VoiceDetector = {
+      accept: (samples) => {
+        position += samples.length;
+      },
+      speaking: () => !ended && position > 0.5 * RATE,
+      next: () => {
+        if (ended || position < 6.6 * RATE) return null;
+        ended = true;
+        return { start: 0.5 * RATE, samples: new Float32Array(5.5 * RATE) };
+      },
+      flush: () => {},
+    };
+    const host = createSpeechHost(
+      {
+        detector: () => detector,
+        recognizer: {
+          decode: async (samples) => {
+            decoded.push(samples.length / RATE);
+            return "The launch moves.";
+          },
+        },
+        live: countingReader().live,
+        longestMs: 6000,
+        close() {},
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushSound(host, sound(8, [], [0.5, 6]));
+    await host.finish("live");
+
+    // Cut at 6.15 s, in the quiet after the speech; nothing after it is read.
+    expect(decoded).toEqual([5.95]);
+    expect(segments.filter((segment) => segment.final)).toEqual([
+      expect.objectContaining({ id: 1, startMs: 200, endMs: 6150, text: "The launch moves." }),
+      expect.objectContaining({ id: 2, text: "" }),
+    ]);
+    // The streaming model heard a word in the quiet after the cut; the empty line drops it.
+    expect(segments.slice(-2)).toEqual([
+      expect.objectContaining({ id: 2, text: "w1", final: false }),
+      expect.objectContaining({ id: 2, text: "", final: true }),
+    ]);
+  });
+
+  // protects=a stream dropped while a cut part waits to be read gives no more lines; another stream goes on; fails_when=a dropped Meeting's part reaches the Transcript after it was dropped; no_claim=finishing halfway, which the first test does after its cuts.
+  test("dropped halfway gives nothing more", async () => {
+    const segments: SpeechSegment[] = [];
+    const waiting: (() => void)[] = [];
+    const host = createSpeechHost(
+      {
+        ...lengthEngine([[0.5, 30]]),
+        recognizer: {
+          decode: () => new Promise<string>((resolve) => waiting.push(() => resolve("A part."))),
+        },
+        live: countingReader().live,
+        longestMs: 6000,
+      },
+      { segment: (segment) => segments.push(segment), progress: () => {}, failed: () => {} },
+    );
+    await pushSound(host, sound(7));
+    expect(waiting).toHaveLength(1);
+    host.drop("live");
+    waiting.shift()?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(segments.filter((segment) => segment.final)).toEqual([]);
+  });
+});
+
 describe("Speech whose words hold control characters (#981)", () => {
   test("is kept as one line of words, the stretch not marked as one the engine couldn't read", async () => {
     const segments: SpeechSegment[] = [];

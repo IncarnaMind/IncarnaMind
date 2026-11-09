@@ -11,29 +11,34 @@ const latest = () => RESULTS.at(-1) ?? "";
 /** Each stream's options, and what a stream told hotwords decodes to instead, when set. */
 const STREAMS: Record<string, string>[] = [];
 let toldResult: string | null = null;
+/** The recognizer's configuration, as each engine made it. */
+const CONFIGS: unknown[] = [];
 
 // As the built process gets the package, from a native import(): everything is on `default`.
 vi.mock("sherpa-onnx-node", () => ({
   default: {
     OfflineRecognizer: {
-      createAsync: async () => ({
-        createStream: () => {
-          const options: Record<string, string> = {};
-          STREAMS.push(options);
-          return {
-            acceptWaveform: () => {},
-            setOption: (key: string, value: string) => {
-              options[key] = value;
-            },
-            handle: { id: RESULTS.length },
-          };
-        },
-        decodeAsync: async () => {
-          const told = toldResult !== null && STREAMS.at(-1)?.hotwords;
-          if (told && toldResult === "fails") throw new Error("The told reading failed.");
-          return JSON.parse(told ? (toldResult as string) : latest());
-        },
-      }),
+      createAsync: async (config: unknown) => {
+        CONFIGS.push(config);
+        return {
+          createStream: () => {
+            const options: Record<string, string> = {};
+            STREAMS.push(options);
+            return {
+              acceptWaveform: () => {},
+              setOption: (key: string, value: string) => {
+                options[key] = value;
+              },
+              handle: { id: RESULTS.length },
+            };
+          },
+          decodeAsync: async () => {
+            const told = toldResult !== null && STREAMS.at(-1)?.hotwords;
+            if (told && toldResult === "fails") throw new Error("The told reading failed.");
+            return JSON.parse(told ? (toldResult as string) : latest());
+          },
+        };
+      },
     },
     OnlineRecognizer: class {
       constructor() {
@@ -207,5 +212,44 @@ describe("The sherpa-onnx recognizer", () => {
     expect(String(warned.mock.calls[0])).not.toMatch(/Priya|Lumen/);
     warned.mockRestore();
     toldResult = null;
+  });
+
+  // protects=a reading that reaches Qwen3-ASR's 128 written tokens, or its 512 in all with its prompt and audio, says so in the app's log with none of its words, since sherpa-onnx's own log says nothing at the total; the limits are the engine's own, set where it is made; a reading of 12 s, the most one takes, reaches neither; fails_when=a reading cut short at either limit goes unseen again, the log holds what was said, or the limits the log counts against aren't the ones the engine runs with; no_claim=that readings stay that short, which tests/core/longSpeech.test.ts covers.
+  test("a reading that reaches either token limit says so in the log, with none of its words (#1031)", async () => {
+    CONFIGS.length = 0;
+    const engine = await createSherpaEngine(model);
+    expect(CONFIGS).toEqual([
+      expect.objectContaining({
+        modelConfig: expect.objectContaining({
+          qwen3Asr: expect.objectContaining({ maxNewTokens: 128, maxTotalLen: 512 }),
+        }),
+      }),
+    ]);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reading = async (seconds: number, tokens: number) => {
+      RESULTS.push(
+        JSON.stringify({ lang: "", text: "Secret words.", tokens: Array(tokens).fill("x") }),
+      );
+      await engine.recognizer.decode(
+        new Float32Array(seconds * MEETING_SAMPLE_RATE),
+        "meeting:1:mic",
+        [],
+      );
+    };
+    // 125 tokens after its 3-token header: all 128 written.
+    await reading(10, 125);
+    // 30 s of audio is 390 tokens: with the 15 of the prompt and 107 written, all 512.
+    await reading(30, 104);
+    await reading(12, 100);
+    await reading(12, 10);
+
+    const message =
+      "A reading of the speech model reached its token limit; its words may be cut short.";
+    expect(warned.mock.calls).toEqual([
+      [message, { limit: 128, seconds: 10, written: 128, total: 273 }],
+      [message, { limit: 512, seconds: 30, written: 107, total: 512 }],
+    ]);
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/Secret/);
+    warned.mockRestore();
   });
 });

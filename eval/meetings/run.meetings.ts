@@ -79,6 +79,7 @@ describe("Transcription on this computer, on the meeting set", () => {
       );
       if (TOLD) for (const [track] of tracks) host.words(track, told.told);
       const started = Date.now();
+      const cpuStarted = process.cpuUsage();
       const length = Math.max(...tracks.map(([, samples]) => samples.length));
       for (let at = 0, frames = 0; at < length; at += FRAME, frames++) {
         for (const [track, samples] of tracks) host.push(track, samples.subarray(at, at + FRAME));
@@ -86,6 +87,8 @@ describe("Transcription on this computer, on the meeting set", () => {
       }
       await Promise.all(tracks.map(([track]) => host.finish(track)));
       const processingSeconds = (Date.now() - started) / 1000;
+      const cpu = process.cpuUsage(cpuStarted);
+      const cpuPerMinute = (cpu.user + cpu.system) / 1e6 / (length / MEETING_SAMPLE_RATE / 60);
 
       const hypothesis: Hypothesis = {
         case: definition.id,
@@ -108,7 +111,9 @@ describe("Transcription on this computer, on the meeting set", () => {
         language: definition.language,
         score: scoreTerms(definition.language, loaded.reference, hypothesis, told, UNTIL),
       });
-      console.log(`${definition.id}: ${formatReport(scores.slice(-1)).split("\n").at(-1)}`);
+      console.log(
+        `${definition.id}: ${formatReport(scores.slice(-1)).split("\n").at(-1)} ${segments.length} lines, CPU ${cpuPerMinute.toFixed(1)} s per audio minute`,
+      );
     }
     engine.close();
 

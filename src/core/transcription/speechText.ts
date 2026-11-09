@@ -11,14 +11,19 @@ import { escapedInStrings } from "../../shared/jsonText";
 const CONTROLS = /[\u0000-\u001f\u007f]/g;
 const BREAKS = /[\t\n\v\f\r]/g;
 
-/** The text of an engine's result JSON, however it escaped what the text holds. Throws if it isn't one. */
-export function textOfResult(json: string): string {
+/**
+ * An engine's result JSON, however it escaped what the text holds: its text, and the tokens it
+ * wrote as the JSON has them. Throws if it isn't JSON.
+ */
+export function resultOf(json: string): { text: string; tokens?: unknown } {
   const result: unknown = JSON.parse(escapedInStrings(json));
-  if (typeof result === "object" && result !== null && "text" in result) {
-    return typeof result.text === "string" ? result.text : "";
-  }
-  return "";
+  if (typeof result !== "object" || result === null) return { text: "" };
+  const text = "text" in result && typeof result.text === "string" ? result.text : "";
+  return "tokens" in result ? { text, tokens: result.tokens } : { text };
 }
+
+/** The text of an engine's result JSON (see `resultOf`). */
+export const textOfResult = (json: string): string => resultOf(json).text;
 
 /**
  * Qwen3-ASR's header, "language English<asr_text>", which sherpa-onnx drops before the words,
