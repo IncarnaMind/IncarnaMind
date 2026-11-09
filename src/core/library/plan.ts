@@ -16,12 +16,12 @@
  *    there, unless one sits near a cluster that went elsewhere (`CLEAR`) or the sampled Document
  *    most like it went elsewhere. The rest are asked of the model, `PLACE_BATCH` to a request.
  *    Only the model leaves a Document out.
- * 5. Three or more left out that no sample showed get a second look, which may find an area
+ * 5. A new Folder holding fewer than `MIN_FOLDER` is dropped. Three or more left out, by the model
+ *    or with such a Folder, get a second look beside the Folders made, which may find an area
  *    they share: a Folder for them, and every Document still left out is placed again. A plan
  *    already at its most Folders merges its two most alike to make room (`mergeClosest`).
- * 6. A new Folder left with fewer than `MIN_FOLDER` is dropped. A new Folder of more than
- *    `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at least `MIN_SUBFOLDER`,
- *    which one more request names.
+ * 6. A new Folder of more than `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at
+ *    least `MIN_SUBFOLDER`, which one more request names.
  *
  * A request whose reply runs past its output limit, asked again with more room, leaves out only
  * what it was asked about, so the run still reaches the Review.
@@ -678,6 +678,8 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   // The Folders there are go to the model as F1, F2…; new ones are N1, N2… in the plan.
   const known = input.folders.map((folder, at) => ({ ...folder, ref: `F${at + 1}` }));
   const folders: PlannedFolder[] = [];
+  // Keys count every Folder made: one dropped leaves a gap that counting those left would reuse.
+  let made = 0;
   const choices = (): PlanFolder[] => [
     ...known.map(({ ref, name, description }) => ({ id: ref, name, description })),
     ...folders.map(({ key, name, description }) => ({ id: key, name, description })),
@@ -725,7 +727,8 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       }
       let place = folder.id === null ? null : placeOf(folder.id);
       if (!place || place.kind === "none") {
-        const key = `N${folders.length + 1}`;
+        made++;
+        const key = `N${made}`;
         folders.push({ key, name: folder.name, description: folder.description, parentKey: null });
         place = { kind: "new", key };
       }
@@ -832,17 +835,38 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   report();
   await placeAll(unclear);
 
-  // Documents the model left out of every Folder it had, though it never saw them in a sample:
-  // a second look may find an area 3 or more of them share.
-  const seen = new Set(sample);
-  const leftOut = [...places]
-    .filter(([at, place]) => place.kind === "none" && !place.failed && !seen.has(at))
-    .map(([at]) => at);
-  if (leftOut.length >= MIN_FOLDER) {
-    const byCluster = clustering.centres.map((_, cluster) =>
-      leftOut.filter((at) => clustering.assignment[at] === cluster),
+  // A new Folder holding too few Documents isn't made: they are left out.
+  const holding = (key: string) =>
+    [...places.values()].filter((place) => place.kind === "new" && place.key === key).length;
+  const dropSmall = () => {
+    const small = new Set(
+      folders.filter((folder) => holding(folder.key) < MIN_FOLDER).map((folder) => folder.key),
     );
-    const second = spread(byCluster, SAMPLE);
+    for (const [at, place] of places)
+      if (place.kind === "new" && small.has(place.key)) places.set(at, { kind: "none" });
+    folders.splice(0, folders.length, ...folders.filter((folder) => !small.has(folder.key)));
+  };
+  dropSmall();
+
+  // What the model left out, or put in a Folder too small to make, gets a second look beside the
+  // Folders made, which may find an area 3 or more of them share. A Library small enough to be
+  // sampled whole has no other Documents to look at again (#2737).
+  const leftOut = [...places]
+    .filter(([, place]) => place.kind === "none" && !place.failed)
+    .map(([at]) => at);
+  const second = spread(
+    clustering.centres.map((_, cluster) =>
+      leftOut.filter((at) => clustering.assignment[at] === cluster),
+    ),
+    SAMPLE,
+  );
+  const sampled = new Set(sample);
+  // The same Documents beside no new Folder would be the first sort's request again.
+  const repeats =
+    folders.length === 0 &&
+    second.length === sample.length &&
+    second.every((at) => sampled.has(at));
+  if (leftOut.length >= MIN_FOLDER && !repeats) {
     for (const at of second) places.delete(at);
     const before = folders.length;
     let again: number[] | null = null;
@@ -861,15 +885,9 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       await placeAll([...again, ...(folders.length > before ? rest : [])]);
       mergeClosest(folders, places, vectors, aim.most);
     }
+    dropSmall();
   }
-
-  // A new Folder with too few Documents isn't made: they are left out.
-  const holding = (key: string) =>
-    [...places.values()].filter((place) => place.kind === "new" && place.key === key).length;
-  const kept = folders.filter((folder) => holding(folder.key) >= MIN_FOLDER);
-  for (const [at, place] of places)
-    if (place.kind === "new" && !kept.some((folder) => folder.key === place.key))
-      places.set(at, { kind: "none" });
+  const kept = folders;
 
   let subfolders: { folders: PlannedFolder[]; requested: boolean } = {
     folders: [],
