@@ -108,10 +108,18 @@ export interface ArmRun {
   requests?: RequestTiming[];
   /**
    * A help reply's marks (#2847): of the Citations it shows whose sentence the judge says their
-   * quoted words hold, how many there are and how many show ✓; and how long after the reply's end
-   * the last of its marks settled. Absent: not a help reply, or one that didn't end.
+   * quoted words hold, how many there are, how many show ✓, how many the check gave a verdict
+   * (passed it, or found it unsupported or contradicted), and why each of the rest shows none, by
+   * its check (and reason); and how long after the reply's end the last of its marks settled.
+   * Absent: not a help reply, or one that didn't end.
    */
-  marks?: { held: number; checked: number; settledMs: number | null };
+  marks?: {
+    held: number;
+    checked: number;
+    judged: number;
+    missed: Record<string, number>;
+    settledMs: number | null;
+  };
 }
 
 /**

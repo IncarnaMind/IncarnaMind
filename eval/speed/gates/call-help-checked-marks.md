@@ -1,5 +1,7 @@
 # The gate for call help's ✓ only where the sentence check passed (#2847)
 
+Replaced on 2026-11-09, before any of its bars ran, by `call-help-checked-marks-2.md`, which says what changed and why.
+
 Written and committed on 2026-11-09, with its fresh slice (`../callHelpMarks.ts`), before any run it gates, pilots included.
 
 ## The change

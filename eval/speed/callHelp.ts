@@ -416,6 +416,33 @@ async function press(
   }
 }
 
+/**
+ * What a reply's held Citations show: those with ✓, those the check gave a verdict, and why each
+ * of the others shows none: its check, a not-checked one's reason, or "found" for a line the check
+ * didn't judge though the Citation's other sentence passed.
+ */
+function marksOf(
+  held: readonly ConversationAnswer["citations"][number][],
+  showsCheck: (citation: ConversationAnswer["citations"][number]) => boolean,
+  settledMs: number | null,
+): NonNullable<Measured["marks"]> {
+  const missed: Record<string, number> = {};
+  let checked = 0;
+  let judged = 0;
+  for (const citation of held) {
+    const shows = showsCheck(citation);
+    if (shows) checked++;
+    if (shows || citation.check === "unsupported" || citation.check === "contradicted") judged++;
+    if (shows) continue;
+    const why =
+      citation.check === "not-checked"
+        ? `not-checked:${citation.checkReason ?? "no reason"}`
+        : citation.check;
+    missed[why] = (missed[why] ?? 0) + 1;
+  }
+  return { held: held.length, checked, judged, missed, settledMs };
+}
+
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
@@ -522,9 +549,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstWordsMs,
         firstOptionMs,
         requests,
-        ...(read && {
-          marks: { held: held.length, checked: held.filter(showsCheck).length, settledMs },
-        }),
+        ...(read && { marks: marksOf(held, showsCheck, settledMs) }),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,
