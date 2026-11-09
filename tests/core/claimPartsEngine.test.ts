@@ -2092,8 +2092,40 @@ describe("structural part and declared-count readers", () => {
     ["four five", null],
     ["three years", null],
     ["three and four", null],
+    ["three hundred and four", 304],
+    ["one hundred and twenty-eight thousand four hundred", 128400],
+    ["two thousand and three", 2003],
+    ["three hundred four thousand five hundred", 304500],
+    ["three hundred and four hundred", null],
+    ["two thousand and three thousand", null],
+    ["one hundred thousand two hundred thousand", null],
   ])("whole number words %s", (word, value) => {
     expect(wholeNumberWords(String(word))).toBe(value);
+  });
+
+  // protects=words that say two numbers are not read as one: the check has no figure for them, and still reads a number said whole (#1031); fails_when=three hundred and four hundred reads 30400, two thousand and three thousand reads 5000, or three hundred and four stops reading 304; no_claim=that each of the two numbers is read by itself.
+  test.each([
+    ["three hundred and four", "The site holds three hundred and four machines.", 304],
+    [
+      "one hundred and twenty-eight thousand four hundred",
+      "It shipped one hundred and twenty-eight thousand four hundred units.",
+      128400,
+    ],
+    ["two thousand and three", "The plan lists two thousand and three stores.", 2003],
+    [
+      "three hundred and four hundred",
+      "It holds between three hundred and four hundred machines.",
+      null,
+    ],
+    [
+      "two thousand and three thousand",
+      "It costs between two thousand and three thousand a month.",
+      null,
+    ],
+  ])("reads a count said in words whole or not at all: %s", (stated, sentence, value) => {
+    expect(statedFigure(String(sentence), String(stated), { language: "en" })?.value ?? null).toBe(
+      value,
+    );
   });
 
   test.each([
@@ -2130,6 +2162,8 @@ describe("structural part and declared-count readers", () => {
     ["6 months", 6, "month"],
     ["two weeks", 2, "week"],
     ["five days", 5, "day"],
+    ["three hundred and four days", 304, "day"],
+    ["two thousand and three days", 2003, "day"],
     ["连续三年", 3, "year"],
     ["三个月", 3, "month"],
     ["两周", 2, "week"],
@@ -2142,6 +2176,12 @@ describe("structural part and declared-count readers", () => {
   });
   test.each(["2025年3月1日", "2025年第三季度", "year 2025", "three stores reported last year"])(
     "calendar or nonadjacent words stay out: %s",
+    (text) => {
+      expect(periodCounts(text, {})).toEqual([]);
+    },
+  );
+  test.each(["three hundred and four hundred days", "two thousand and three thousand days"])(
+    "words that say two numbers are no count of periods: %s",
     (text) => {
       expect(periodCounts(text, {})).toEqual([]);
     },

@@ -78,6 +78,8 @@ export function figuresOf(words: readonly string[]): Figure[] {
   let count = 0;
   let scales = 0;
   let lastScale = "";
+  let afterHundred = -1;
+  let afterScale = -1;
   const close = () => {
     if (count > 0) {
       out.push({
@@ -96,17 +98,32 @@ export function figuresOf(words: readonly string[]): Figure[] {
     scaled = false;
     count = 0;
     scales = 0;
+    afterHundred = -1;
   };
-  for (const each of words) {
+  for (const [at, each] of words.entries()) {
     const kind = kindOf(each);
+    // A second "hundred", or a scale no smaller than the last, starts another number: "three
+    // hundred four hundred" is 300 and 400, and "two thousand three thousand" 2,000 and 3,000.
+    const another =
+      kind === "hundred"
+        ? afterHundred
+        : kind === "scale" && scales > 0 && (SCALES.get(each) ?? 0) >= (SCALES.get(lastScale) ?? 0)
+          ? afterScale
+          : -1;
+    if (another > 0)
+      return [...figuresOf(words.slice(0, another)), ...figuresOf(words.slice(another))];
     if (!goesOn(last, kind)) close();
-    if (kind === "hundred") current = (current || 1) * 100;
-    else if (kind === "scale") {
+    if (kind === "hundred") {
+      current = (current || 1) * 100;
+      afterHundred = at + 1;
+    } else if (kind === "scale") {
       total += (current || 1) * (SCALES.get(each) ?? 1);
       current = 0;
       scaled = true;
       scales++;
       lastScale = each;
+      afterHundred = -1;
+      afterScale = at + 1;
     } else current += TENS.get(each) ?? UNITS.get(each) ?? 0;
     last = kind;
     count++;
