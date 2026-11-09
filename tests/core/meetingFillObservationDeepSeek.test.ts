@@ -386,3 +386,124 @@ test("DeepSeek keeps additional received usage fields for an independent raw aud
     restore();
   }
 });
+
+const route = {
+  ...controls,
+  INCARNAMIND_LIVE_DEEPSEEK_ROUTE: "openrouter:deepseek/deepseek-v4.1-flash-1017@fireworks",
+};
+
+function openRouterReply(streamed: boolean, host: string) {
+  const base = { id: "toy-completion", created: 1, model: "deepseek/deepseek-v4.1-flash-1017" };
+  const usage = {
+    prompt_tokens: 12,
+    completion_tokens: 3,
+    total_tokens: 15,
+    cost: 0.00042,
+    prompt_tokens_details: { cached_tokens: 4 },
+    completion_tokens_details: { reasoning_tokens: 1 },
+  };
+  if (!streamed)
+    return Response.json({
+      ...base,
+      provider: host,
+      object: "chat.completion",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "OK", reasoning: "Thought" },
+          finish_reason: "stop",
+        },
+      ],
+      usage,
+    });
+  const chunk = { ...base, provider: host, object: "chat.completion.chunk" };
+  const chunks = [
+    { ...chunk, choices: [{ index: 0, delta: { role: "assistant", reasoning: "Thought" } }] },
+    { ...chunk, choices: [{ index: 0, delta: { content: "OK" } }] },
+    { ...chunk, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    { ...chunk, choices: [], usage },
+  ];
+  return new Response(
+    `: OPENROUTER PROCESSING\n\n${chunks.map((each) => `data: ${JSON.stringify(each)}\n\n`).join("")}data: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+test.each([false, true])(
+  "through OpenRouter, the request names the snapshot and one host, thinks as DeepSeek's default, and costs what OpenRouter reports (streamed: %s)",
+  async (streamed) => {
+    const network = vi.fn<typeof fetch>(async () => openRouterReply(streamed, "Fireworks"));
+    vi.stubGlobal("fetch", network);
+    const ledger = createRequestLedger({
+      model: spec.modelId,
+      price: catalogModel("deepseek", spec.modelId)?.price,
+      strict: structuredControls(route),
+    });
+    const restore = ledger.installTransportGuard();
+    try {
+      const model = ledger.model(spec, () => createAiSdkChatModel(spec));
+      if (streamed) await drain((await model.doStream({ prompt, maxOutputTokens: 16 })).stream);
+      else await model.doGenerate({ prompt, maxOutputTokens: 16 });
+      ledger.assertSettled();
+      const [input, init] = network.mock.calls[0] ?? [];
+      if (!input) throw new Error("No mocked OpenRouter request");
+      const request = new Request(input, init);
+      expect(request.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+      expect(request.headers.get("authorization")).toBe(`Bearer ${spec.apiKey}`);
+      expect(await request.json()).toMatchObject({
+        model: "deepseek/deepseek-v4.1-flash-1017",
+        reasoning: { effort: "high" },
+        provider: {
+          only: ["fireworks"],
+          allow_fallbacks: false,
+          data_collection: "deny",
+          require_parameters: true,
+        },
+      });
+      const observed = ledger.snapshot().requests[0];
+      expect(observed).toMatchObject({
+        usage_complete: true,
+        input_tokens: 12,
+        cache_read_tokens: 4,
+        output_tokens: 3,
+        cost_usd: 0.00042,
+        price_currency: "USD",
+      });
+      expect(observed?.raw).toContain("Thought");
+      expect(observed?.provider_usage).toMatchObject({ openrouter_host: "fireworks" });
+    } finally {
+      restore();
+    }
+  },
+);
+
+test("through OpenRouter, a reply from another host stops the observation", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () => openRouterReply(false, "Together")),
+  );
+  const ledger = createRequestLedger({
+    model: spec.modelId,
+    price: catalogModel("deepseek", spec.modelId)?.price,
+    strict: structuredControls(route),
+  });
+  const restore = ledger.installTransportGuard();
+  try {
+    const model = ledger.model(spec, () => createAiSdkChatModel(spec));
+    await expect(model.doGenerate({ prompt })).rejects.toThrow();
+    expect(ledger.snapshot().status).toBe("failed");
+  } finally {
+    restore();
+  }
+});
+
+test.each([
+  "openrouter:deepseek/deepseek-v4.1-flash@fireworks",
+  "openrouter:deepseek/deepseek-v4.1-flash-1017",
+  "openrouter:deepseek/deepseek-v4.1-flash-1017@Fire works",
+  "deepseek/deepseek-v4.1-flash-1017@fireworks",
+])("a route other than the DeepSeek snapshot on one named host is refused: %s", (value) => {
+  expect(() =>
+    structuredControls({ ...controls, INCARNAMIND_LIVE_DEEPSEEK_ROUTE: value }),
+  ).toThrow();
+});
