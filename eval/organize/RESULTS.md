@@ -331,3 +331,39 @@ Every mistake: a Document not filed, in a Folder mostly of another label, with a
 | en-sleep-preprint (en, markdown) | research; paper | –; 睡眠与记忆 (topic), 认知科学研究 (topic) | not filed; kind missing: paper |
 
 </details>
+
+## 2026-11-09: the pair bars honour `alsoFolder` (#2737)
+
+The labels gave 7 Documents of the 80 a second Folder (`alsoFolder`) before any model ran, and the classifier's lenient score honours it. The new-User pair bars read only the first label, so a two-Folder Document filed with its second label's Documents counted wrong twice: once as a same-label pair apart, and once as a different-label pair together. They now score it by whichever of its two labels its Folder holds most (README, "Pairs of a two-Folder Document"). Every run reports the labels as written beside it.
+
+Three more Documents labelled reports get meetings as their second Folder:
+- `zh-project-weekly-deck` (tuning half), a project's weekly report, as `en-weekly-status` is;
+- `en-incident-review-deck` (tuning half), a post-incident review, the same kind of paper as the retrospective's record, which is labelled meetings;
+- `en-kickoff-deck` (held-out half), a project's kickoff deck.
+
+That is one label line each, and one of them is in the held-out half.
+
+**Re-scoring, no model run.** The saved runs of #2917's final round were scored again, both arms: the branch at f7d6fa0b7 and `main` at b83d46fb0, on Claude Haiku 5.5. Filed and the smallest Folder don't change. For the fresh set and the 500 set only the aggregate lines were read. A verdict is every run against the bar, and on the fresh set the mean of its three runs.
+
+**Same-label pairs ≥ 90%, split allowed**, the labels as written beside `alsoFolder` honoured:
+
+| Set | `main` as written | `main` with alsoFolder | Branch as written | Branch with alsoFolder |
+|---|---|---|---|---|
+| Old held-out 40, English | 87%, 73%: misses | 94%, 85%: misses | 88%, 87%: misses | 95%, 87%: misses |
+| Old held-out 40, Chinese | 79%, 82%: misses | 91%, 94%: meets | 84%, 88%: misses | 91%, 100%: meets |
+| 500, seed 1, English | 100%, 86%: misses | 100%, 86%: misses | 86%, 82%: misses | 86%, 82%: misses |
+| 500, seed 1, Chinese | 89%, 83%: misses | 89%, 83%: misses | 91%, 92%: meets | 91%, 92%: meets |
+| Fresh set, English | 19%, 13%, 6%: misses (mean 12.5%) | 35%, 24%, 18%: misses (mean 25.5%) | 25%, 13%, 19%: misses (mean 18.8%) | 35%, 13%, 24%: misses (mean 23.8%) |
+| Fresh set, Chinese | 56%, 38%, 56%: misses (mean 50.0%) | 69%, 67%, 56%: misses (mean 63.9%) | 50%, 50%, 81%: misses (mean 60.4%) | 53%, 53%, 82%: misses (mean 62.7%) |
+
+**Different-label pairs ≤ 10%**, the labels as written beside `alsoFolder` honoured:
+
+| Set | `main` as written | `main` with alsoFolder | Branch as written | Branch with alsoFolder |
+|---|---|---|---|---|
+| Old held-out 40, English | 1%, 8%: meets | 0%, 5%: meets | 9%, 0%: meets | 8%, 0%: meets |
+| Old held-out 40, Chinese | 7%, 7%: meets | 3%, 3%: meets | 12%, 11%: misses | 11%, 8%: misses |
+| 500, seed 1, English | 0%, 0%: meets | 0%, 0%: meets | 6%, 2%: meets | 6%, 2%: meets |
+| 500, seed 1, Chinese | 1%, 1%: meets | 1%, 1%: meets | 1%, 3%: meets | 1%, 3%: meets |
+| Fresh set, English | 11%, 8%, 12%: misses (mean 10.5%) | 8%, 6%, 10%: meets (mean 8.0%) | 16%, 16%, 17%: misses (mean 16.1%) | 14%, 16%, 16%: misses (mean 15.1%) |
+| Fresh set, Chinese | 17%, 13%, 0%: misses (mean 10.1%) | 15%, 7%, 0%: meets (mean 7.2%) | 35%, 35%, 34%: misses (mean 34.5%) | 34%, 34%, 33%: misses (mean 33.7%) |
+
