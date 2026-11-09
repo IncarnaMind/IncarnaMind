@@ -27,7 +27,7 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, shifted, whole } from "../calculations";
-import { namingHolds } from "./analysisNaming";
+import { linesSayFrame, namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { isPropertyPassage } from "./fileProperties";
@@ -227,7 +227,7 @@ export function readFigureReply(
 type Facts = Pick<ClaimJudgment, "versions" | "excluded">;
 type CaseFlags = { citedCaseUnchecked: boolean; citedCaseFound: boolean };
 
-function finding(figure: CheckFigure) {
+function finding({ above: _above, ...figure }: CheckFigure) {
   return {
     ...figure,
     source: null,
@@ -676,11 +676,14 @@ function inStatedUnit(
 
 // A thousand, a million and a billion: the scales a unit line most often leaves off a figure.
 const UNIT_SCALES = [1e3, 1e6, 1e9];
+// "3" is 3,400 at its shown places a thousand times over; a unit explains only a near-equal figure.
+const UNIT_CLOSENESS = 0.005;
 
 /**
  * Whether a figure written as bare digits differs from what it is compared with only by a unit:
  * by a thousand, a million, a billion or the scale its source's Document states (万, 亿), either
- * way, to the figure's shown precision (#2864). A share, a multiple or a limit never is.
+ * way, to the figure's shown precision and within half a percent (#2864). A share, a multiple or
+ * a limit never is.
  */
 function differsOnlyByUnit(
   bare: Figure,
@@ -690,12 +693,18 @@ function differsOnlyByUnit(
   if (typeof compared.value !== "number") return false;
   if (compared.unit.kind !== "plain" && compared.unit.kind !== "currency") return false;
   const { value } = compared;
+  const close = (a: number, b: number) =>
+    Math.abs(a - b) <= UNIT_CLOSENESS * Math.max(Math.abs(a), Math.abs(b));
   const scales = new Set([...UNIT_SCALES, ...(stated !== null && stated > 1 ? [stated] : [])]);
-  return [...scales].some(
-    (scale) =>
-      agreesAtShownPrecision(readAt(bare, scale, null, bare.unit), compared) === true ||
-      agreesAtShownPrecision(bare, { ...compared, value: scaledBy(value, scale) }) === true,
-  );
+  return [...scales].some((scale) => {
+    const up = readAt(bare, scale, null, bare.unit);
+    const down = scaledBy(value, scale);
+    return (
+      (agreesAtShownPrecision(up, compared) === true && close(up.value, value)) ||
+      (agreesAtShownPrecision(bare, { ...compared, value: down }) === true &&
+        close(bare.value, down))
+    );
+  });
 }
 
 /** Whether a source number equals the figure in any way the figure can be read. */
@@ -852,7 +861,20 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       !isPropertyPassage(sourceInput?.citation.passageId) &&
       writtenBare(original.reading) &&
       writtenBare(written.reading);
-    const stated = bareDigits ? inStatedUnit(target, sourceInput, options.claim) : null;
+    // A unit the Note states above them is the digits' own: one its source isn't in is never
+    // Supported, whatever the digits (#2864).
+    const noteSays =
+      bareDigits && target.above
+        ? sourceInput && sourceInput.number.unit.kind !== "rate"
+          ? linesSayFrame(
+              target.above.split("\n"),
+              sourceInput.number.scale,
+              sourceInput.number.unit,
+            )
+          : false
+        : null;
+    const stated =
+      bareDigits && noteSays !== false ? inStatedUnit(target, sourceInput, options.claim) : null;
     if (stated) target = stated.target;
     const base = {
       ...finding(target),
@@ -1013,6 +1035,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       rows.push(unitsDiffer());
       continue;
     }
+    if (agrees && noteSays === false) {
+      rows.push(unitsDiffer());
+      continue;
+    }
     if (agrees && asWrittenFirst) {
       rows.push(
         unitsDiffer({
@@ -1139,6 +1165,14 @@ export function aboutSomeoneElse(result: ClaimCheckResult): ClaimCheckResult {
 const unitsMayDiffer = ({ result }: FigureCheckResult) =>
   result.verdict === "unsupported" && result.unsupported?.kind === "units";
 
+/** Whether the words a contradiction would change are that figure's digits and nothing else. */
+function onlyItsDigits(changed: string, figure: FigureCheckResult): boolean {
+  const at = changed.indexOf(figure.reading.chars);
+  if (at < 0) return false;
+  const rest = changed.slice(0, at) + changed.slice(at + figure.reading.chars.length);
+  return !/[\p{L}\p{N}]/u.test(rest);
+}
+
 const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
   contradicted: 0,
   unsupported: 1,
@@ -1153,11 +1187,12 @@ const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
  * rests on the sentence's other words, such as its parties, period or unit, so it takes the
  * remainder's place, however the model wrote its remainder. A Supported verdict settles nothing
  * the figures and the remainder don't, so a missing remainder still leaves the sentence not
- * checked.
+ * checked. `changed`: the words of the sentence the judge's correction would change, if any.
  */
 export async function withSentenceVerdict(
   result: ClaimCheckResult,
   sentence: () => Promise<ClaimJudgment>,
+  changed: string | null = null,
 ): Promise<ClaimCheckResult> {
   const { figures, remainder } = result;
   if (!figures || result.verdict === "contradicted") return result;
@@ -1170,8 +1205,13 @@ export async function withSentenceVerdict(
     (remainder && STRICTNESS[remainder.verdict] <= STRICTNESS[judged.verdict])
   )
     return result;
-  // Beside a figure whose units may differ, a contradiction no figure shows may be that very unit:
-  // the sentence needs a look as the figure does, never Contradicted (#2864).
-  if (judged.verdict === "contradicted" && figures.some(unitsMayDiffer)) return result;
+  // A contradiction whose only change is a figure's digits, whose units may differ, is that unit:
+  // the sentence needs a look as the figure does. Any other stays Contradicted (#2864).
+  if (
+    judged.verdict === "contradicted" &&
+    changed !== null &&
+    figures.some((figure) => unitsMayDiffer(figure) && onlyItsDigits(changed, figure))
+  )
+    return result;
   return { ...aggregateFigureResults(figures, judged), figures, remainder: judged };
 }

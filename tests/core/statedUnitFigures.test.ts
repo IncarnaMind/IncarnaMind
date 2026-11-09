@@ -5,6 +5,7 @@
  * really differs stays Contradicted, a percent is never scaled, and no code path gives a Supported
  * the judge didn't.
  */
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
 import { checkInstructions } from "../../src/core/answers/checks/prompt";
@@ -20,18 +21,23 @@ interface SourceFile {
   contents: string;
 }
 
-/** Checks `claim` as a sentence of a Note, as the Note's Check does, and gives its check. */
+/**
+ * Checks `claim` as a sentence of a Note, as the Note's Check does, and gives its check. `above`:
+ * the Note's Blocks before it, such as a heading that states its unit.
+ */
 async function check(
   claim: string,
   document: SourceFile,
   plan: Plan,
   language: "en" | "zh-CN" = "en",
+  above: JSONContent[] = [],
 ): Promise<ClaimCheckAttributes> {
   const { core, mind, client } = await setUpWithDocuments(checkingModel({ [claim]: plan }), [
     document,
   ]);
   if (language !== "en") await core.updateSettings({ user: { language } });
   writeMind(client, [
+    ...above,
     { type: "paragraph", attrs: { id: "line" }, content: [{ type: "text", text: claim }] },
   ]);
   await client.settled();
@@ -110,9 +116,15 @@ const supported = (quote: string, unitQuote?: string): Plan => ({
   says: quote,
   ...(unitQuote && { unitQuote }),
 });
-const contradicted = (quote: string, unitQuote?: string): Plan => ({
+/** The judge's Contradicted, its Change lines replacing `from` with `to`. */
+const contradicted = (
+  quote: string,
+  unitQuote?: string,
+  change?: { from: string; to: string },
+): Plan => ({
   ...supported(quote, unitQuote),
   verdict: "contradicted",
+  ...(change && { says: `${quote}.\nChange 1: ${change.from}\nTo 1: ${change.to}` }),
 });
 
 const unitLine = (language: "en" | "zh-CN", figure: string, unit: string) =>
@@ -178,7 +190,10 @@ describe("a figure that differs only by a unit is never Contradicted", () => {
     const result = await check(
       "Revenue for the six months: 668.3",
       HALF_YEAR,
-      contradicted("Revenue for the six months was 668.3", "GBP million unless stated otherwise"),
+      contradicted("Revenue for the six months was 668.3", "GBP million unless stated otherwise", {
+        from: "668.3",
+        to: "668,300,000",
+      }),
     );
     expect(result).toMatchObject({
       state: "unsupported",
@@ -197,7 +212,10 @@ describe("a figure that differs only by a unit is never Contradicted", () => {
       const result = await check("Room revenue: 8,214", NO_UNIT, {
         verdict,
         quote: "Room revenue was 8,214,000",
-        says: "Room revenue was 8,214,000",
+        says:
+          verdict === "contradicted"
+            ? "Room revenue was 8,214,000.\nChange 1: 8,214\nTo 1: 8,214,000"
+            : "Room revenue was 8,214,000",
       });
       expect(result).toMatchObject({
         state: "unsupported",
@@ -206,7 +224,14 @@ describe("a figure that differs only by a unit is never Contradicted", () => {
       const zh = await check(
         "客房收入：8,214",
         { name: "客房.txt", contents: "客房经营简报\n客房收入为8,214,000。\n" },
-        { verdict, quote: "客房收入为8,214,000", says: "客房收入为8,214,000" },
+        {
+          verdict,
+          quote: "客房收入为8,214,000",
+          says:
+            verdict === "contradicted"
+              ? "客房收入为8,214,000。\nChange 1: 8,214\nTo 1: 8,214,000"
+              : "客房收入为8,214,000",
+        },
         "zh-CN",
       );
       expect(zh).toMatchObject({
@@ -399,5 +424,101 @@ describe("a Note's own unit line", () => {
     const instructions = checkInstructions("tools", "en", "", false, false, true, true, claim);
     expect(instructions.includes("whether or not the sentence gives the figures")).toBe(told);
     expect(instructions).toContain("You check one sentence");
+  });
+});
+
+const heading = (text: string): JSONContent => ({
+  type: "heading",
+  attrs: { id: "unit-heading", level: 2 },
+  content: [{ type: "text", text }],
+});
+const line = (text: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id: "unit-line" },
+  content: [{ type: "text", text }],
+});
+
+describe("a unit the Note states above bare digits", () => {
+  const plan = supported(
+    "Revenue for the six months was 668.3",
+    "GBP million unless stated otherwise",
+  );
+
+  // protects=equal digits under a unit the Note states in a heading or a line of its own that isn't the Document's need a look, never Supported, in English and Chinese, though the judge called them Supported; fails_when="(GBP thousand)" above "668.3" against 668.3 in GBP million reads Supported; no_claim=a real model's verdict, which the held-out decoys measure.
+  test.each([
+    { name: "a heading in GBP thousand", above: [heading("Key figures (GBP thousand)")] },
+    { name: "a line in GBP thousands", above: [line("Figures are in GBP thousands.")] },
+    { name: "a heading in US dollars", above: [heading("Results (US$ million)")] },
+    {
+      name: "a line naming only the currency",
+      above: [line("All amounts below are in pounds sterling.")],
+    },
+  ])("$name", async ({ above }) => {
+    const result = await check("Revenue for the six months: 668.3", HALF_YEAR, plan, "en", above);
+    expect(result).toMatchObject({ state: "unsupported", unsupported: { kind: "units" } });
+    expect(result.figures?.map((figure) => figure.state)).toEqual(["unsupported"]);
+  });
+
+  test("a Chinese heading in 千元", async () => {
+    const result = await check(
+      "营业收入：2025年全年为187.3。",
+      MILLIONS_ZH,
+      supported("2025年全年营业收入为187.3", "单位：人民币百万元"),
+      "zh-CN",
+      [heading("主要数字（单位：千元）")],
+    );
+    expect(result).toMatchObject({ state: "unsupported", unsupported: { kind: "units" } });
+  });
+
+  // protects=a unit the Note states that is the Document's keeps the judge's Supported and the unit named; fails_when="Figures are in GBP million" above "668.3" stops it being Supported; no_claim=none beyond protects.
+  test.each([
+    ["Figures are in GBP million, as the Harbourline documents state them.", "en"],
+    ["数字单位为人民币百万元，与华岭食品的文件一致。", "zh-CN"],
+  ] as const)("%s", async (said, language) => {
+    const zh = language === "zh-CN";
+    const result = await check(
+      zh ? "营业收入：2025年全年为187.3。" : "Revenue for the six months: 668.3",
+      zh ? MILLIONS_ZH : HALF_YEAR,
+      zh ? supported("2025年全年营业收入为187.3", "单位：人民币百万元") : plan,
+      language,
+      [line(said)],
+    );
+    expect(result.state).toBe("supported");
+    expect(result.figures?.[0]?.statedUnit).toBe(zh ? "人民币百万元" : "GBP million");
+  });
+});
+
+describe("a unit softens only the figure it explains", () => {
+  // protects=a sentence the Document contradicts in other words (fell for rose) stays Contradicted, though its figure differs only by a unit; fails_when=its Contradicted turns into "Units may differ"; no_claim=none beyond protects.
+  test("Revenue fell to 91,500 against rose to 91.5 in GBP million", async () => {
+    const result = await check(
+      "Revenue for the half year fell to 91,500.",
+      {
+        name: "Ardley update.txt",
+        contents:
+          "Ardley half-year update\nGBP million unless stated otherwise\nRevenue for the half year rose to 91.5.\n",
+      },
+      contradicted(
+        "Revenue for the half year rose to 91.5",
+        "GBP million unless stated otherwise",
+        { from: "fell", to: "rose" },
+      ),
+    );
+    expect(result.state).toBe("contradicted");
+  });
+
+  // protects=a figure a unit doesn't explain closely ("3" against 3,400, a thousand times off only to its shown places) stays Contradicted; fails_when="Employees: 3" against 3,400 reads "Units may differ"; no_claim=none beyond protects.
+  test("Employees: 3 against 3,400", async () => {
+    const result = await check(
+      "Employees at the year end: 3",
+      {
+        name: "Headcount.txt",
+        contents:
+          "Headcount note\nEmployees at the year end were 3,400.\nContractors were 1,250.5.\n",
+      },
+      contradicted("Employees at the year end were 3,400", undefined, { from: "3", to: "3,400" }),
+    );
+    expect(result.state).toBe("contradicted");
+    expect(result.unsupported?.kind).toBeUndefined();
   });
 });

@@ -1593,7 +1593,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (signal.aborted) return result;
       const figureResult = oneVerdict(
         said
-          ? await withSentenceVerdict(result, () => sentence(said))
+          ? await withSentenceVerdict(result, () => sentence(said), said.correction?.from ?? null)
           : // Figures that all check out never make a sentence Supported without a verdict to read.
             result.verdict === "supported"
             ? await withSentenceVerdict(result, async () => unchecked("malformed"))

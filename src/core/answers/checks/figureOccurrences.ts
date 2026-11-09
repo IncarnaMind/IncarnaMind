@@ -452,15 +452,17 @@ const withoutAbove = ({
  * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
  * when a check sends its sentence (#2544): a heading or line typed above since the Block's
  * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
- * are kept, since the check's record keeps them.
+ * are kept, since the check's record keeps them. Every other figure carries those lines too: a
+ * unit the Note states there is its digits' unit (#2864).
  */
 export function withAboveNow<Figure extends CheckFigure>(
   figures: readonly Figure[],
   element: Y.XmlElement,
 ): Figure[] {
-  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  if (figures.length === 0) return [];
   const block = topBlockOf(element);
   const framing = linesAbove(block).filter(statesAFrame);
+  const above = framing.length > 0 ? { above: framing.join("\n") } : {};
   return figures.map((figure) =>
     figure.analysisRecord
       ? {
@@ -468,10 +470,10 @@ export function withAboveNow<Figure extends CheckFigure>(
           analysisRecord: {
             ...withoutAbove(figure.analysisRecord),
             ...headingAbove(block),
-            ...(framing.length > 0 && { above: framing.join("\n") }),
+            ...above,
           },
         }
-      : figure,
+      : { ...figure, ...above },
   );
 }
 
