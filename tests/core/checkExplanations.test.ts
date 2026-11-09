@@ -1,8 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type { ClaimCheckResult } from "../../src/core";
+import type { ClaimCheckResult, ClaimJudgment } from "../../src/core";
+import { explainedIn } from "../../src/core/answers/checks/explanations";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
+import type { PreparedChatModel } from "../../src/core/providers/chat";
+import { emptyFigureFinding } from "../../src/shared/figureChecks";
+import { readFigures } from "../../src/shared/figures";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { type SourceFile, setUpWithDocuments } from "../helpers/citations";
+import { restatedAsQuoted, scriptedModel } from "../helpers/models";
 
 // Each Document has a line in the other language, so that either sentence's search finds it.
 const REPORT: SourceFile = {
@@ -203,5 +208,61 @@ describe("A figure contradicted by a quote in another language (#2081)", () => {
       ],
     );
     expect(result.verdict === "contradicted" && result.correction).toBeFalsy();
+  });
+});
+
+describe("A sentence checked figure by figure (#2081)", () => {
+  const judged = (verdict: "contradicted" | "unsupported", said: string): ClaimJudgment => ({
+    verdict,
+    evidence: null,
+    says: verdict === "contradicted" ? said : null,
+    unsupported:
+      verdict === "unsupported" ? { reason: said, covered: null, uncovered: null } : null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    versions: [],
+    excluded: [],
+  });
+  // The rewrite a model on this computer gives, quoted inside a Chinese sentence.
+  const model = {
+    model: scriptedModel(() => ({ text: "" }), {
+      generate: (call) => ({ text: restatedAsQuoted(call) }),
+    }),
+    capabilities: { facts: { temperature: 0 } },
+  } as unknown as PreparedChatModel;
+
+  test("has each figure's and the rest's explanation in the interface's language, as its card shows one in its place", async () => {
+    const [reading] = readFigures("营业利润为 1.786 亿英镑。");
+    if (!reading) throw new Error("No figure read.");
+    const figure = emptyFigureFinding({
+      id: "F1",
+      locator: {
+        kind: "text",
+        from: { blockId: "b", offset: 6 },
+        to: { blockId: "b", offset: 15 },
+      },
+      reading,
+      calculated: null,
+    });
+    const result: ClaimCheckResult = {
+      ...judged("contradicted", "报告写的营业利润是 1.716 亿英镑。"),
+      figures: [
+        { ...figure, result: judged("contradicted", "The table gives 171.6 million, not 178.6.") },
+      ],
+      remainder: judged("unsupported", "The report says nothing of the trend."),
+    };
+    const explained = await explainedIn(result, {
+      language: "zh-CN",
+      model,
+      signal: new AbortController().signal,
+    });
+    expect(saysOf(explained)).toBe("报告写的营业利润是 1.716 亿英镑。");
+    expect(explained.figures?.[0]?.result).toMatchObject({
+      says: "文档写的是：“The table gives 171.6 million, not 178.6.”",
+    });
+    expect(explained.remainder).toMatchObject({
+      unsupported: { reason: "文档写的是：“The report says nothing of the trend.”" },
+    });
   });
 });

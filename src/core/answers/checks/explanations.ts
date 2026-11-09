@@ -8,7 +8,7 @@
  */
 import { readFigures } from "../../../shared/figures";
 import { translate } from "../../../shared/i18n";
-import type { ClaimCheckResult } from "../../api";
+import type { ClaimCheckResult, ClaimJudgment } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
 import { documentFigureContext } from "../calculations";
@@ -172,13 +172,10 @@ async function shownIn(text: string | null, ask: ExplanationAsk): Promise<string
 }
 
 /**
- * A result whose explanation is in the interface's language, or none. A Contradicted one without
+ * A judgement whose explanation is in the interface's language, or none. A Contradicted one without
  * any, and with no figure worked out to show instead, says the two values its correction holds.
  */
-export async function explainedIn<T extends ClaimCheckResult>(
-  result: T,
-  ask: ExplanationAsk,
-): Promise<T> {
+async function judgedIn<T extends ClaimJudgment>(result: T, ask: ExplanationAsk): Promise<T> {
   if (result.verdict === "contradicted") {
     const choice = result.correction?.choices[0];
     const says =
@@ -199,4 +196,29 @@ export async function explainedIn<T extends ClaimCheckResult>(
       : { ...result, unsupported: { ...result.unsupported, reason } };
   }
   return result;
+}
+
+/**
+ * A result whose explanations are all in the interface's language: its own, and its figures' and
+ * the rest of its words', one of which its card shows in its place.
+ */
+export async function explainedIn<T extends ClaimCheckResult>(
+  result: T,
+  ask: ExplanationAsk,
+): Promise<T> {
+  const own = await judgedIn(result, ask);
+  const figures =
+    result.figures &&
+    (await Promise.all(
+      result.figures.map(async (figure) => ({
+        ...figure,
+        result: await judgedIn(figure.result, ask),
+      })),
+    ));
+  const remainder = result.remainder && (await judgedIn(result.remainder, ask));
+  return {
+    ...own,
+    ...(figures && { figures }),
+    ...(remainder && { remainder }),
+  };
 }
