@@ -1,0 +1,49 @@
+id,submitted,age_group,commute_mode,commute_minutes,office_days_per_week,satisfaction_1to5,comment
+R001,2026-09-06,30-39,remote-only,0,0,5,Remote days are the best part of my week.
+R002,2026-09-05,40-49,car,59,4,4,
+R003,2026-09-12,30-39,car,37,4,3,Bike lockers please!
+R004,2026-09-11,30-39,car,30,5,4,Parking costs are too high.
+R005,2026-09-15,50-59,remote-only,0,0,3,
+R006,2026-09-12,50-59,car,44,5,4,Need a better desk setup at the office.
+R007,2026-09-26,18-29,bus,52,4,2,
+R008,2026-09-27,18-29,remote-only,0,0,4,
+R009,2026-09-24,18-29,car,19,3,5,Parking costs are too high.
+R010,2026-09-04,18-29,bike,17,5,3,"Hybrid works, but Fridays are empty."
+R011,2026-09-13,60+,car,37,4,4,
+R012,2026-09-12,18-29,car,68,3,3,
+R013,2026-09-16,40-49,bus,18,5,3,Bike lockers please!
+R014,2026-09-27,40-49,bus,12,5,3,
+R015,2026-09-09,18-29,car,51,3,3,Parking costs are too high.
+R016,2026-09-09,30-39,car,36,1,4,Bike lockers please!
+R017,2026-09-02,50-59,bike,38,5,4,Bike lockers please!
+R018,2026-09-08,60+,car,69,3,4,
+R019,2026-09-11,50-59,train,24,4,4,"Hybrid works, but Fridays are empty."
+R020,2026-09-10,60+,bus,47,4,4,
+R021,2026-09-13,18-29,bus,60,1,4,Prefer fully remote.
+R022,2026-09-20,50-59,remote-only,0,0,2,"Commute is fine, the building is not."
+R023,2026-09-11,30-39,car,24,2,2,Prefer fully remote.
+R024,2026-09-01,60+,train,39,2,4,I would come in more if the team did.
+R025,2026-09-17,18-29,walk,29,1,4,Bike lockers please!
+R026,2026-09-28,30-39,walk,33,2,2,I would come in more if the team did.
+R027,2026-09-16,60+,car,29,3,4,Wish the office had quieter rooms.
+R028,2026-09-01,18-29,bus,58,3,2,Childcare timing is the real constraint.
+R029,2026-09-06,30-39,remote-only,0,0,3,Need a better desk setup at the office.
+R030,2026-09-11,40-49,bike,47,5,3,"Hybrid works, but Fridays are empty."
+R031,2026-09-17,50-59,car,43,4,3,Need a better desk setup at the office.
+R032,2026-09-25,40-49,car,53,4,4,
+R033,2026-09-14,18-29,remote-only,0,0,5,Parking costs are too high.
+R034,2026-09-12,30-39,bus,56,2,3,Remote days are the best part of my week.
+R035,2026-09-21,40-49,bus,52,3,4,
+R036,2026-09-24,50-59,walk,12,5,3,"Commute is fine, the building is not."
+R037,2026-09-02,40-49,car,64,2,3,"Hybrid works, but Fridays are empty."
+R038,2026-09-12,60+,car,55,2,5,Bus is unreliable after 6pm.
+R039,2026-09-06,50-59,bike,38,3,5,Wish the office had quieter rooms.
+R040,2026-09-24,30-39,bus,67,3,3,Prefer fully remote.
+R041,2026-09-21,30-39,remote-only,0,0,4,Remote days are the best part of my week.
+R042,2026-09-22,50-59,train,8,3,4,
+R043,2026-09-15,50-59,car,36,3,3,"Hybrid works, but Fridays are empty."
+R044,2026-09-04,30-39,train,40,5,3,Prefer fully remote.
+R045,2026-09-23,60+,remote-only,0,0,3,
+R046,2026-09-08,30-39,bike,21,5,4,Childcare timing is the real constraint.
+R047,2026-09-11,40-49,bike,33,4,4,Bike lockers please!
+R048,2026-09-09,30-39,remote-only,0,0,4,Bike lockers please!
