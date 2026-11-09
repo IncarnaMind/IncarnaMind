@@ -45,7 +45,6 @@ import {
 } from "../../../shared/analysisTables";
 import { askedFor, translationRequested, whyItWaits } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
-import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
 import { closeTitles } from "../../../shared/closeTitles";
 import { formatShortDate } from "../../../shared/dates";
@@ -68,6 +67,7 @@ import {
   pendingProposals,
   readProposalAttribute,
   removesOnlyAsked,
+  resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
 import { changedText, paragraphsRemoved, sentenceChanges } from "../../../shared/sentenceChanges";
@@ -98,6 +98,7 @@ import {
   type EditAction,
   type EditWithAiResult,
   type Effect,
+  MIND_CONTENT_FIELD,
   type MindChange,
   type MindProblem,
   PROPOSAL_ATTRIBUTE,
@@ -110,7 +111,7 @@ import {
 } from "../../api";
 import { detectLanguage } from "../../documents/textLanguage";
 import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../../language";
-import { plainText } from "../../mindText";
+import { firstLineOf, plainText } from "../../mindText";
 import { insertBlocks } from "../../noteAdding";
 import { type Change, createChanges } from "../../proposals/apply";
 import {
@@ -160,6 +161,8 @@ export interface ChangeableMind {
 }
 
 export interface ListedMind extends ChangeableMind {
+  /** The User gave it its title: no line of its text names it. */
+  titled?: boolean;
   folderId: string | null;
   /** ISO 8601 UTC. */
   changedAt: string;
@@ -1063,15 +1066,33 @@ interface Written {
 }
 
 /**
- * What the model reads of the check of what it wrote: nothing of how it goes, which the Note and
- * the line under the card say as its marks land (#2830), only that it is no part of the reply.
+ * What the model reads of the check of what it wrote, `checked` now or once its Citations are in:
+ * nothing of how it goes or went, which the Note and the line under the card say as its marks
+ * land (#2830), only that it is no part of the reply. A short check may have ended already.
  */
-function checkingNotes(checked: WrittenCheck | null): string[] {
-  return checked?.running
+function checkingNotes(checked: boolean): string[] {
+  return checked
     ? [
-        "IncarnaMind checks these sentences against the Documents itself, after your reply, and marks each one in the Note: don't say in your reply that they were checked, verified or supported, or what a check found.",
+        "IncarnaMind checks these sentences against the Documents itself, apart from your reply, and marks each one in the Note: don't say in your reply that they were checked, verified or supported, or what a check found.",
       ]
     : [];
+}
+
+const isChecked = (checked: WrittenCheck | null, written: Pick<Written, "unrecorded">) =>
+  checked !== null || written.unrecorded > 0;
+
+/** The first line a Note's text will have once `request`'s changes apply, which names it (`firstLineOf`). */
+function firstLineOnceApplied(blocks: Y.XmlFragment, request: string): string {
+  if (!blocks.doc) return firstLineOf(blocks);
+  const copy = new Y.Doc();
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(blocks.doc));
+    const applied = copy.getXmlFragment(MIND_CONTENT_FIELD);
+    copy.transact(() => resolveProposals(applied, (ref) => ref.request === request, "accept"));
+    return firstLineOf(applied);
+  } finally {
+    copy.destroy();
+  }
 }
 
 const selfCheckOf = (check: WrittenCheck): NonNullable<MindChange["selfCheck"]> => ({
@@ -2033,26 +2054,6 @@ export function mindTools(options: MindToolsOptions): {
     return `${outcome === APPLIES ? "Drew" : "Proposed"} a chart of the table in “${mind.name}”, right after it. ${outcome}`;
   };
 
-  // The check marks the Citations of the tables it read: their charts, drawn before, would read
-  // as made from another table.
-  const redrawCharts = (mindId: string, tableIds: readonly string[]) =>
-    minds.edit(mindId, (note) => {
-      const blocks = topLevelBlocks(note);
-      for (const element of blocks) {
-        if (element.nodeName !== CHART_NODE) continue;
-        const chart = readChart(element.getAttributes());
-        const { source } = chart;
-        if (source.kind !== "table" || !source.blockId || !tableIds.includes(source.blockId)) {
-          continue;
-        }
-        const table = blocks.find((each) => idOf(each) === source.blockId);
-        // As an Update draws it: an Analysis's values and inputs stay with cells that still read them.
-        const data = table && redrawnData(gridOfTable(nodeOf(table)), chart, options.language);
-        if (data)
-          (element as unknown as Y.XmlElement<{ data: ChartData }>).setAttribute("data", data);
-      }
-    });
-
   // Not while markers `cite` hadn't recorded are still to get their Citations: `settle` writes the
   // Blocks again, and checks them then.
   const checkWritten = (
@@ -2081,20 +2082,13 @@ export function mindTools(options: MindToolsOptions): {
         mindId,
         blocks,
         ids,
+        write: written.change.request,
         prepared: options.prepared,
         signal,
         ...(answerFailed && { answerFailed }),
         edit: (change) => minds.edit(mindId, change),
         ended: (check) => {
           ended = check;
-          try {
-            redrawCharts(mindId, ids);
-          } catch (error) {
-            console.error(
-              `The charts of what the assistant wrote in Mind ${mindId} couldn't be drawn again:`,
-              error,
-            );
-          }
           recorded(check);
           options.checkEnded(toolCallId, written.change);
         },
@@ -2104,7 +2098,6 @@ export function mindTools(options: MindToolsOptions): {
       console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
     }
     if (checked && !ended) {
-      if (!checked.running) redrawCharts(mindId, ids);
       recorded(checked);
       options.changed(toolCallId, written.change);
     }
@@ -2256,23 +2249,40 @@ export function mindTools(options: MindToolsOptions): {
     }
   };
 
+  /**
+   * The Note as the User finds it once the write `request` is through, with what became of the
+   * write: one with no title is named by its first line, which a write that applies at once may
+   * give it or change, so what the model reads after it never names a Note that is gone (#2830).
+   */
+  const namedAfter = (
+    mind: ChangeableMind,
+    request: string,
+  ): { mind: ChangeableMind; outcome: string } => {
+    const listed = minds.list().find((each) => each.id === mind.id);
+    const now = listed && listed.name !== mind.name ? { ...mind, name: listed.name } : mind;
+    const outcome = outcomeOf(now, request);
+    if (outcome !== APPLIES || !listed || listed.titled) return { mind: now, outcome };
+    const first = minds.read(mind.id, (note) => firstLineOnceApplied(note, request));
+    return { mind: first && first !== now.name ? { ...now, name: first } : now, outcome };
+  };
+
   /** What the model reads of Blocks it added: how many, and what of their Citations didn't hold. */
   const added = (
-    mind: ChangeableMind,
+    target: ChangeableMind,
     written: NonNullable<ReturnType<typeof finishContent>>,
-    where: string,
+    where: (name: string) => string,
     checked: WrittenCheck | null,
   ): string => {
-    const outcome = outcomeOf(mind, written.change.request);
+    const { mind, outcome } = namedAfter(target, written.change.request);
     const blocks =
       written.change.proposals === 1 ? "1 new Block" : `${written.change.proposals} new Blocks`;
     return [
-      `${outcome === APPLIES ? "Wrote" : "Proposed"} ${blocks} ${where}.`,
+      `${outcome === APPLIES ? "Wrote" : "Proposed"} ${blocks} ${where(mind.name)}.`,
       ...tableNotes(written.change),
       outcome,
       ...writtenNotes(written),
       ...(written.charted ? [written.charted] : []),
-      ...checkingNotes(checked),
+      ...checkingNotes(isChecked(checked, written)),
     ].join(" ");
   };
 
@@ -2336,13 +2346,13 @@ export function mindTools(options: MindToolsOptions): {
   ): string | NonNullable<MindToolsOptions["lastAnswer"]> | null =>
     input.answer === true && options.lastAnswer ? options.lastAnswer : optional(input.content);
 
-  const replacedOwnText = (mind: ChangeableMind, request: string, went: string): string => {
-    const outcome = outcomeOf(mind, request);
+  const replacedOwnText = (written: ChangeableMind, request: string, went: string): string => {
+    const { mind, outcome } = namedAfter(written, request);
     return `${outcome === APPLIES ? "Wrote" : "Proposed"} your new text in place of your own in “${mind.name}”${went}. ${outcome}`;
   };
 
-  const editedText = (mind: ChangeableMind, change: MindChange, went: string): string => {
-    const outcome = outcomeOf(mind, change.request);
+  const editedText = (edited: ChangeableMind, change: MindChange, went: string): string => {
+    const { mind, outcome } = namedAfter(edited, change.request);
     const { proposals } = change;
     const done =
       outcome !== APPLIES
@@ -2360,8 +2370,8 @@ export function mindTools(options: MindToolsOptions): {
     return `${done} “${mind.name}”${went}. ${outcome}`;
   };
 
-  const revisedText = (mind: ChangeableMind, change: MindChange, went: string): string => {
-    const outcome = outcomeOf(mind, change.request);
+  const revisedText = (revised: ChangeableMind, change: MindChange, went: string): string => {
+    const { mind, outcome } = namedAfter(revised, change.request);
     return outcome === WAITING
       ? `Revised your own waiting text in “${mind.name}”${went}: the old version of it is gone, and ${changes(change.proposals)} wait there in its place for the User to accept or reject. Nothing of the User's text changed.`
       : `Revised your own text in “${mind.name}”${went}: the old version of it is gone. ${outcome}`;
@@ -2655,7 +2665,7 @@ export function mindTools(options: MindToolsOptions): {
           ...tableNotes(written.change),
           ...writtenNotes(written),
           ...droppedSaid(written.dropped),
-          ...checkingNotes(checked),
+          ...checkingNotes(isChecked(checked, written)),
           // Asked once already: what lands bare is said, so the reply never calls it all cited.
           ...(added.length > 0
             ? [
@@ -2852,17 +2862,15 @@ export function mindTools(options: MindToolsOptions): {
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
-      // A Note with no title is named by its first line, which this write may just have given it:
-      // the reply names the Note as the User and the record of changes find it now (#2830).
-      const now = minds.list().find((each) => each.id === mind.id)?.name ?? mind.name;
       return added(
-        now === mind.name ? mind : { ...mind, name: now },
+        mind,
         written,
         // Told only the new name, the model said its write went to another Note than the one the
         // User was in (#2769).
-        written.change.filled && focused?.mindId === mind.id
-          ? `in the Note the User is in, which held nothing before and which its first line now names “${now}”`
-          : `in “${now}”, ${after ? `after “${after}”` : "at its end"}`,
+        (name) =>
+          written.change.filled && focused?.mindId === mind.id
+            ? `in the Note the User is in, which held nothing before and which its first line now names “${name}”`
+            : `in “${name}”, ${after ? `after “${after}”` : "at its end"}`,
         checked,
       );
     },
@@ -2935,13 +2943,14 @@ export function mindTools(options: MindToolsOptions): {
     }
     // Text from every Document is new text too: it lands checked, as a first write does.
     const checked = await checkWritten(toolCallId, written, signal);
+    const now = namedAfter(mind, written.change.request);
     return [
-      `Wrote the new text in place of the text you wrote for this request before, in “${mind.name}”.`,
+      `Wrote the new text in place of the text you wrote for this request before, in “${now.mind.name}”.`,
       ...(drawn ? [drawn.said] : []),
-      outcomeOf(mind, written.change.request),
+      now.outcome,
       ...tableNotes(written.change),
       ...writtenNotes(written),
-      ...checkingNotes(checked),
+      ...checkingNotes(isChecked(checked, written)),
     ].join(" ");
   };
 
@@ -3060,7 +3069,7 @@ export function mindTools(options: MindToolsOptions): {
         return `${made}. It is empty. ${noTable(mind).message}`;
       }
       const checked = await checkWritten(toolCallId, written, signal);
-      return `${made}. ${added(mind, written, "in it", checked)}`;
+      return `${made}. ${added(mind, written, () => "in it", checked)}`;
     },
   };
 

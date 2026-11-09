@@ -29,6 +29,7 @@ import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient"
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
+  type GeneratedReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -117,6 +118,10 @@ interface Writing {
   replyFails?: boolean;
   /** Into a Note with no title and no text yet, which takes its name from what lands. */
   untitled?: boolean;
+  /** A request that isn't streamed answered as this says; null: as `PLANS` says. */
+  generate?: (call: GenerateCall) => GeneratedReply | null;
+  /** Ends the claims sort, in place of its time limit. */
+  sortTimeLimit?: () => AbortSignal;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -139,6 +144,7 @@ function writingModel(
     check,
     record,
     generated,
+    generate,
     citesAfter,
     replyFails = false,
   }: Writing,
@@ -185,11 +191,11 @@ function writingModel(
       if (replyFails) return { error: { status: 500, message: "The service broke." } };
       return { text: "Wrote it from your Documents." };
     },
-    record || generated
+    record || generated || generate
       ? {
           generate: (call: GenerateCall) => {
             generated?.(call);
-            return checkGenerate(PLANS)(call);
+            return generate?.(call) ?? checkGenerate(PLANS)(call);
           },
         }
       : undefined,
@@ -202,9 +208,11 @@ async function harbour(
   cloud: Writing["cloud"],
   record: Writing["record"],
   untitled = false,
+  sortTimeLimit?: Writing["sortTimeLimit"],
 ) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
+    ...(sortTimeLimit && { contradictionWatch: { sortTimeLimit } }),
   });
   let service: string | undefined;
   if (cloud) {
@@ -248,6 +256,46 @@ const ASK = {
   made: "Summarise these Documents into a new note",
 };
 
+/** What the User asks the second time, for a longer version of what the assistant wrote. */
+const LONGER = "Make that note on tides longer";
+
+/**
+ * A model that adds `first` to the Note in front, then, asked for it `LONGER`, writes `longer`
+ * over it with edit_mind, in place; each sentence's check as `check` says, else as `PLANS` does.
+ */
+function rewritingModel(
+  {
+    first,
+    longer,
+    check,
+  }: { first: string; longer: string; check?: (call: ModelCall) => ScriptedReply | null },
+  calls: ModelCall[],
+) {
+  return scriptedModel(
+    (call): ScriptedReply => {
+      calls.push(call);
+      if (isCheckRun(call)) return check?.(call) ?? checkReply(call, PLANS);
+      const { results } = call;
+      const again = call.prompt.includes(LONGER);
+      const tool = again ? "edit_mind" : "add_to_mind";
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      if (!results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(search.text);
+        const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      if (!results.some((result) => result.tool === tool)) {
+        const input = again ? { part: "Tides", content: longer } : { content: first };
+        return { calls: [{ tool, input }] };
+      }
+      return { text: again ? "It says more now." : "Wrote it from your Documents." };
+    },
+    { generate: checkGenerate(PLANS) },
+  );
+}
+
 /** Writes as `writing` says and resolves once the Answer has ended and the check of what it wrote is over. */
 async function write(
   writing: Writing,
@@ -267,6 +315,7 @@ async function write(
     writing.cloud,
     writing.record,
     writing.untitled,
+    writing.sortTimeLimit,
   );
   started = core;
   await onStart?.({ core, client, mindId, service, calls });
@@ -320,6 +369,25 @@ async function storedAnswer(core: Core, conversationId: string, answerId: string
   const found = messages.find((each) => each.id === answerId);
   if (found?.kind !== "answer") throw new Error("No Answer.");
   return found;
+}
+
+/** Asks, and resolves as soon as the Answer ends, while what it wrote may still be checked. */
+async function askAndEnd(core: Core, input: Parameters<Core["askInConversation"]>[0]) {
+  const ended = new Set<string>();
+  const stop = core.on("answer.finished", (event) => ended.add(event.answerId));
+  try {
+    const asked = await core.askInConversation(input);
+    if (!asked.asked) throw new Error("Not asked.");
+    await vi.waitFor(
+      () => {
+        if (!ended.has(asked.answerId)) throw new Error("The Answer hasn't ended.");
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    return { conversationId: asked.conversation.id, id: asked.answerId };
+  } finally {
+    stop();
+  }
 }
 
 /** Resolves once the check under `request` has said it ended. */
@@ -679,10 +747,10 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     });
   });
 
-  // protects=a User who allowed checks before they sent more isn't asked as the assistant writes, nor is anything sent: the write's sentences land not checked, saying why, and the Check of one asks for the more and checks the whole write once allowed (#2525); fails_when=the write lands unchecked with no reason, is sent on the earlier consent, asks in the background, or Allow checks only the one sentence; no_claim=the consent dialog's words.
+  // protects=a User who allowed checks before they sent more isn't asked as the assistant writes, nor is anything sent: the write's sentences land not checked, saying why, and the Check of one asks for the more and checks the whole write once allowed (#2525), and the model, whose check ended before its result was written, is still told the check isn't its to report (#2830); fails_when=the write lands unchecked with no reason, is sent on the earlier consent, asks in the background, Allow checks only the one sentence, or the model hears nothing of the check; no_claim=the consent dialog's words.
   test("allowed before checks sent more, the write waits for the User's OK, then is checked whole", async () => {
     const asked: string[][] = [];
-    const { core, calls, change, client } = await write(
+    const { core, model, calls, change, client } = await write(
       {
         content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
@@ -710,6 +778,8 @@ describe("What the assistant writes is checked once it lands, the reply not wait
 
     expect(asked).toEqual([]);
     expect(calls.some(isCheckRun)).toBe(false);
+    // Its check ended before the call's result was written: the model is told all the same.
+    expect(lastResult(model)).toContain(CHECKED_AFTER);
     expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
       ["not-checked", "consent-widened"],
       ["not-checked", "consent-widened"],
@@ -785,7 +855,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(change?.selfCheck).toMatchObject({ checkable: 1, cited: 0, sent: 1, checked: 1 });
   });
 
-  // protects=a write into a Note with no title names it as the User now finds it, by its new first line, so the reply never names a Note that is gone (#2830); fails_when=the result names it "Untitled" after the write named it, which the reply then repeats and the record of changes no longer backs; no_claim=the words the model replies with.
+  // protects=a write into the empty Note in front, which has no title, names it as the User now finds it, by its new first line, so the reply never names a Note that is gone (#2769, #2830); fails_when=the result names it "Untitled" after the write named it, which the reply then repeats and the record of changes no longer backs; no_claim=the words the model replies with.
   test("a write into an untitled Note names it by the first line it gave it", async () => {
     const { model } = await write({
       content: `## Tide summary\n\n${MOON} [^1].`,
@@ -793,8 +863,92 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       untitled: true,
     });
 
-    expect(lastResult(model)).toContain("in “Tide summary”, at its end");
+    expect(lastResult(model)).toContain(
+      "in the Note the User is in, which held nothing before and which its first line now names “Tide summary”",
+    );
     expect(lastResult(model)).not.toContain("Untitled");
+  });
+
+  const isSort = (call: GenerateCall) => call.system.startsWith("You sort the sentences");
+  /** The sort of the write's two sentences with no Citation, asked again of the second, not the one a sentence's own check asks. */
+  const writeSorted = (call: GenerateCall) => isSort(call) && call.prompt.includes('"number":2');
+  /** A sort's reply that names every sentence a fact, as the scripted model's own does. */
+  const allFacts = (call: GenerateCall): GeneratedReply => {
+    const asked = call.prompt.slice(call.prompt.indexOf("{"), call.prompt.lastIndexOf("}") + 1);
+    const { sentences } = JSON.parse(asked) as { sentences: { number: number; text: string }[] };
+    const parts = sentences.map(({ number, text }) => ({
+      number,
+      parts: [{ kind: "fact", text }],
+    }));
+    return { text: JSON.stringify({ sentences: parts }) };
+  };
+
+  // protects=a sentence the claims sort says nothing of, asked twice, is checked as a claim, as Check this Note keeps it, never left out as an opinion (#2830); fails_when=it loses its checking dot, leaves the total and gets no mark, while the line says every sentence was checked; no_claim=how often a real model leaves one out.
+  test("a sentence the claims sort leaves undecided is checked as a claim", async () => {
+    const progress: WrittenCheckProgress[] = [];
+    const sorted: string[] = [];
+    const { core, answer, client } = await write(
+      {
+        content: "## Tides\n\nThe harbour is quiet in winter. The quay is busy in summer.",
+        generate: (call) => {
+          if (!writeSorted(call)) return isSort(call) ? allFacts(call) : null;
+          sorted.push(call.prompt);
+          const parts = [{ kind: "fact", text: "The harbour is quiet in winter." }];
+          return { text: JSON.stringify({ sentences: [{ number: 1, parts }] }) };
+        },
+      },
+      ({ core: started }) => {
+        started.on("writtenCheck.progress", (event) => progress.push(event));
+      },
+    );
+
+    expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+    expect(sorted).toHaveLength(2);
+    expect(
+      (await marksIn(core, client)).map(({ sentence, check }) => [sentence, check.state]),
+    ).toEqual([
+      ["The harbour is quiet in winter.", "unsupported"],
+      ["The quay is busy in summer.", "unsupported"],
+    ]);
+    const [checked] = changesIn(await storedAnswer(core, answer.conversationId, answer.id));
+    expect(checked?.selfCheck).toMatchObject({ checkable: 2, checked: 2, leftOut: 0 });
+  });
+
+  // protects=a claims sort that never replies is given up on at its time limit, and each sentence is then checked on its own, as when the sort fails, so the count never freezes (#2830); fails_when=the sentences with no Citation wait on the sort for good, the line stuck at what the cited ones reached; no_claim=how long a real sort takes, or the limit's length.
+  test("a claims sort that never replies is given up on, and each sentence is checked on its own", async () => {
+    const limit = new AbortController();
+    const progress: WrittenCheckProgress[] = [];
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { core, answer, client } = await write(
+        {
+          content: "## Tides\n\nThe harbour is quiet in winter. The quay is busy in summer.",
+          sortTimeLimit: () => limit.signal,
+          generate: (call) => {
+            if (!writeSorted(call)) return isSort(call) ? allFacts(call) : null;
+            // Asked, the sort never replies: its limit is what ends it.
+            limit.abort();
+            return { text: "", until: new Promise<void>(() => undefined) };
+          },
+        },
+        ({ core: started }) => {
+          started.on("writtenCheck.progress", (event) => progress.push(event));
+        },
+      );
+
+      expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+      expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
+        "unsupported",
+        "unsupported",
+      ]);
+      const [checked] = changesIn(await storedAnswer(core, answer.conversationId, answer.id));
+      expect(checked?.selfCheck).toMatchObject({ checkable: 2, checked: 2 });
+      expect(
+        warnings.mock.calls.some(([line]) => String(line).includes("weren't named in time")),
+      ).toBe(true);
+    } finally {
+      warnings.mockRestore();
+    }
   });
 
   // protects=a written sentence's mark lands as its own check ends, while another sentence of the write is still being checked (#2532); fails_when=the marks wait for the last check and land together; no_claim=the order in which the checks end.
@@ -946,6 +1100,46 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(change?.selfCheck).toMatchObject({ checked: 1, failed: 1 });
   });
 
+  // protects=a table's cell whose check ended before Stop on the Note's badge keeps the verdict it was given, while the cell whose check Stop cut short lands Not checked (#2710, #2830); fails_when=the held cell verdict is dropped with the Stop and the cell reads Not checked though it was checked; no_claim=the verdict the scripted judge gives the first cell.
+  test("Stop while a table's write is checked keeps the cell verdict that ended, and stops the rest", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    const progress: WrittenCheckProgress[] = [];
+    const model = writingModel(
+      {
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
+        into: true,
+        // One claim at a time, as a local model checks: the second check starting proves the first ended.
+        check: (call, core) => {
+          if (!sentenceOf(call).includes("Neap tides are twice as strong")) return null;
+          if (call.results.length > 0) return null;
+          const request = progress[0]?.request ?? "";
+          const stopped = Promise.resolve().then(() => core.cancelCheck(request));
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(model, undefined, undefined);
+    started = core;
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+
+    await askAssistant(core, {
+      text: ASK.into,
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+
+    expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      ["Spring tides come at new and full moon", "unsupported", null],
+      ["Neap tides are twice as strong", "not-checked", "stopped"],
+    ]);
+  });
+
   // protects=Stop on the Answer once its write has landed doesn't stop the check of what it wrote: only Stop before the write lands does (#2830); fails_when=the Answer's Stop takes the check with it and the sentences stay unmarked or stopped; no_claim=what the Answer says once stopped.
   test("Stop on the Answer after its write landed leaves the check to finish", async () => {
     const calls: ModelCall[] = [];
@@ -1031,6 +1225,11 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     await answerEnded(core, asked.answerId);
 
     expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+    // Written before its Citations were in, it is checked after the Run: the model is told so.
+    const result = calls
+      .flatMap((call) => call.results)
+      .find((each) => each.tool === "add_to_mind");
+    expect(result?.text).toContain(CHECKED_AFTER);
     await client.settled();
     expect(shownWithChanges(client).at(-1)).toBe(
       "+ Spring tides come at new and full moon ⟨found⟩. Neap tides are twice as strong ⟨found⟩.",
@@ -1041,7 +1240,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ]);
   });
 
-  // protects=Undo of the write stops its check: no sentence's check starts after it, the check ends as undone, and a Redo brings the sentences back shown as stopped, never as still being checked (#2830's acceptance); fails_when=the check goes on with sentences that are gone, or a Redo shows checking dots that never end; no_claim=how Undo looks in the window, or the turns of checks already sent.
+  // protects=Undo of the write stops its check: no sentence's check starts after it, the check ends as undone, and a Redo brings the sentences back shown as stopped, never as still being checked, with the line saying they weren't checked (#2830's acceptance); fails_when=the check goes on with sentences that are gone, or a Redo shows checking dots that never end; no_claim=how Undo looks in the window, or the turns of checks already sent.
   test("Undo of the write stops its check, and a Redo shows its sentences not checked", async () => {
     let undo: (() => void) | null = null;
     // More sentences than a cloud model checks at once: some are still to start when it is undone.
@@ -1083,6 +1282,231 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     await vi.waitFor(() => expect(statesIn(client)).toEqual(sentences.map(() => "not-checked")), {
       timeout: 20_000,
     });
+    // Back, the write's line says what wasn't checked, as a stopped check's does.
+    await vi.waitFor(
+      async () => {
+        const [back] = changesIn(await storedAnswer(core, asked.conversation.id, asked.answerId));
+        expect(back?.selfCheck).not.toHaveProperty("undone");
+        expect(back?.selfCheck).toMatchObject({ checked: 0, failed: sentences.length });
+      },
+      { timeout: 20_000 },
+    );
+  });
+
+  // protects=an Undo, or a reject while it waits, of a write that rewrote the assistant's own text in place ends its check, though the write's Blocks keep their ids: nothing more is sent, nothing lands on the words brought back, which keep the marks they had, and the write's line goes (#2830); fails_when=the check goes on because the ids are still there, its marks land on the restored text, or the Answer still says what it checked; no_claim=how Undo looks in the window, which applies the change and takes it back in one step.
+  test.each(["undo", "reject"] as const)(
+    "the %s of a rewrite in place ends its check, and the words brought back keep their marks",
+    async (how) => {
+      const longer = Array.from(
+        { length: 8 },
+        (_, index) => `Neap tide ${index + 1} is twice as strong [^1].`,
+      );
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const calls: ModelCall[] = [];
+      const model = rewritingModel(
+        {
+          first: `## Tides\n\n${MOON.slice(0, -1)} [^1].`,
+          longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. ${longer.join(" ")}`,
+          check: (call) =>
+            /^Neap tide \d/.test(sentenceOf(call)) && call.results.length === 0
+              ? { ...checkReply(call, PLANS), pause: { after: 0, until: held } }
+              : null,
+        },
+        calls,
+      );
+      const { core, folderId, mindId, client } = await harbour(
+        model,
+        { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        undefined,
+      );
+      const progress: WrittenCheckProgress[] = [];
+      core.on("writtenCheck.progress", (event) => progress.push(event));
+      const scope = { folderIds: [folderId], tagIds: [], documentIds: [] };
+      const first = await askAssistant(core, { text: ASK.into, mindId, scope });
+      const firstCheck = await checkEnds(progress);
+      // The window applies what the User asked for once the Answer ends.
+      await resolveChanges(client, "accept");
+      await client.settled();
+      const before = readMind(client).toJSON().content ?? [];
+      const marksBefore = (await marksIn(core, client)).map(({ sentence, check }) => [
+        sentence,
+        check.state,
+        check.request,
+      ]);
+      expect(marksBefore).toEqual([
+        ["Spring tides come at new and full moon .", "supported", firstCheck.request],
+      ]);
+
+      const second = await askAndEnd(core, {
+        text: LONGER,
+        mindId,
+        scope,
+        conversationId: first.conversationId,
+      });
+      const started = () =>
+        calls.filter(
+          (call) =>
+            isCheckRun(call) && call.results.length === 0 && /^Neap tide/.test(sentenceOf(call)),
+        );
+      await vi.waitFor(() => expect(started().length).toBeGreaterThan(0), { timeout: 20_000 });
+      const sent = started().length;
+      expect(sent).toBeLessThan(longer.length);
+      const request = progress.find((event) => event.request !== firstCheck.request)?.request;
+      if (how === "reject") await resolveChanges(client, "reject");
+      else {
+        // An Undo of the applied rewrite: the Note as it was before it, in one step.
+        await resolveChanges(client, "accept");
+        editMind(client, () => before);
+      }
+      await client.settled();
+
+      expect(await checkEnds(progress, request)).toMatchObject({ running: false });
+      release();
+      await client.settled();
+      expect(started()).toHaveLength(sent);
+      expect(shownWithChanges(client)).toEqual([
+        "Harbour",
+        "Boats moor by the quay.",
+        "Tides",
+        "Spring tides come at new and full moon ⟨found⟩.",
+      ]);
+      expect(
+        (await marksIn(core, client)).map(({ sentence, check }) => [
+          sentence,
+          check.state,
+          check.request,
+        ]),
+      ).toEqual(marksBefore);
+      const [change] = changesIn(await storedAnswer(core, second.conversationId, second.id));
+      expect(change?.selfCheck).toMatchObject({ undone: true });
+    },
+  );
+
+  // protects=a newer write over the same Blocks takes their sentences over from the older write's check still running: the older check's late verdicts never land on the newer text (#2830); fails_when=the older check's result overwrites the newer check's mark, so a sentence reads as checked by a check of words it no longer has; no_claim=which verdicts the judge gives.
+  test("a newer write over the same Blocks takes their sentences over from the older check", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let paused = false;
+    const calls: ModelCall[] = [];
+    const model = rewritingModel(
+      {
+        first: `## Tides\n\n${MOON.slice(0, -1)} [^1]. ${UNBACKED} [^1].`,
+        longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. ${UNBACKED} [^1]. Neap tide 1 is twice as strong [^1].`,
+        // Only the first write's check of the neap sentence waits: the newer write's goes on.
+        check: (call) => {
+          if (paused || sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0)
+            return null;
+          paused = true;
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: held } };
+        },
+      },
+      calls,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    const scope = { folderIds: [folderId], tagIds: [], documentIds: [] };
+    const first = await askAndEnd(core, { text: ASK.into, mindId, scope });
+    const older = progress[0]?.request ?? "";
+    await vi.waitFor(() => expect(paused).toBe(true), { timeout: 20_000 });
+    await resolveChanges(client, "accept");
+    await client.settled();
+
+    await askAndEnd(core, {
+      text: LONGER,
+      mindId,
+      scope,
+      conversationId: first.conversationId,
+    });
+    const newer = progress.find((event) => event.request !== older)?.request ?? "";
+    expect(await checkEnds(progress, newer)).toMatchObject({ done: 3, total: 3 });
+    release();
+    expect(await checkEnds(progress, older)).toMatchObject({ running: false });
+    await client.settled();
+
+    expect(
+      (await marksIn(core, client)).map(({ sentence, check }) => [
+        sentence,
+        check.state,
+        check.request === newer,
+      ]),
+    ).toEqual([
+      ["Spring tides come at new and full moon .", "supported", true],
+      ["Neap tides are twice as strong .", "unsupported", true],
+      ["Neap tide 1 is twice as strong .", "unsupported", true],
+    ]);
+  });
+
+  // protects=Retry or regenerate while a write's check runs leaves the Answer written again with its own calls: the old turn's check, ending after, never writes the old turn's calls over them (#2830); fails_when=the old check's end puts the old Answer's write card on the new Answer; no_claim=what the new Answer says.
+  test("an Answer written again while its write's check runs keeps its own calls once that check ends", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answers = 0;
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (isCheckRun(call))
+          return call.results.length === 0
+            ? { ...checkReply(call, PLANS), pause: { after: 0, until: held } }
+            : checkReply(call, PLANS);
+        const { results } = call;
+        if (results.length === 0) answers++;
+        // Written again, the Answer only replies.
+        if (answers > 1) return { text: "Nothing to add." };
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        if (!results.some((result) => result.tool === "cite")) {
+          const [passage] = shownPassages(search.text);
+          const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        if (!results.some((result) => result.tool === "add_to_mind")) {
+          const content = `${MOON.slice(0, -1)} [^1]. ${UNBACKED} [^1].`;
+          return { calls: [{ tool: "add_to_mind", input: { content } }] };
+        }
+        return { text: "Wrote it from your Documents." };
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    const scope = { folderIds: [folderId], tagIds: [], documentIds: [] };
+    const first = await askAndEnd(core, { text: ASK.into, mindId, scope });
+    expect(changesIn(await storedAnswer(core, first.conversationId, first.id))).toHaveLength(1);
+    // The window applies what was asked for: written again, the Answer keeps it.
+    await resolveChanges(client, "accept");
+    await client.settled();
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversationId,
+      answerId: first.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+    expect(progress.at(-1)).toMatchObject({ running: true });
+    release();
+    await checkEnds(progress);
+    await client.settled();
+
+    const stored = await storedAnswer(core, first.conversationId, first.id);
+    expect(stored.text).toBe("Nothing to add.");
+    expect(changesIn(stored)).toEqual([]);
   });
 
   // protects=a new message sent while the check of what the last Answer wrote runs is answered, and the check still finishes (#2830's acceptance, beside its smoke spec); fails_when=the new Question waits for the check, or the new Answer stops it; no_claim=what the window shows.

@@ -243,6 +243,8 @@ export interface ChecksOptions
     WatchOptions,
     "minds" | "documentVersions" | "background" | "runCost" | "delayMs" | "claimTimeLimitMs" | "log"
   >;
+  /** Aborts once a write's claims sort has taken too long; a check's time limit unless given. */
+  sortTimeLimit?: () => AbortSignal;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -1616,6 +1618,8 @@ export function createChecks(options: ChecksOptions) {
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
+    sortTimeLimit:
+      options.sortTimeLimit ?? (() => AbortSignal.timeout(options.watch.claimTimeLimitMs)),
     track,
     settleStopped,
     progress: options.writtenProgress,

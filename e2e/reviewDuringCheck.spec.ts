@@ -144,6 +144,14 @@ async function writeNote(window: Page, title: string, lines: readonly string[]):
   ).toHaveText([...lines]);
 }
 
+/** The text of the Block the cursor is in. */
+const caretBlock = (window: Page) =>
+  window.evaluate(() => {
+    const node = document.getSelection()?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    return element?.closest("h1, h2, h3, p, li")?.textContent ?? null;
+  });
+
 interface RowFrame {
   streaming: boolean;
   rows: number;
@@ -184,7 +192,7 @@ const stopSamplingRows = (window: Page) =>
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a Note the assistant made says nothing waits while its write is checked, its Open shows the Note, and Review changes opens it, in ${language}`, async () => {
+  test(`a Note the assistant made says nothing waits while its write is checked, its Open goes to the write's first change, and Review changes opens it, in ${language}`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language, "Tides.md", TIDES);
     await holdChecks(app);
@@ -204,12 +212,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("mind-changes-left")).toHaveCount(0);
     await expect(window.getByTestId("proposals-count")).toHaveCount(0);
 
-    // Open, while the check still runs, shows the Note it made.
+    // Open, while the check still runs, shows the Note it made with the cursor on the write's
+    // first change.
     const open = card.getByTestId("mind-changes-open");
     await expect(open).toHaveText(words.open);
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await pointAndClick(window, open);
     await expect(frontMindName(window)).toHaveText("Tide summary");
+    await expect(editor).toBeFocused();
+    expect(await caretBlock(window)).toBe("Summary");
 
     // Review changes shows it while its sentences are still checked, and once they are.
     await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);

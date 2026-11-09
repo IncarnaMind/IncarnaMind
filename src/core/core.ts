@@ -2426,6 +2426,7 @@ export function createCore(adapters: CoreAdapters): Core {
                 {
                   id: mind.id,
                   name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+                  titled: mind.title !== "",
                   folderId: mind.folderId,
                   changedAt: mind.updatedAt,
                 },
@@ -3140,6 +3141,9 @@ export function createCore(adapters: CoreAdapters): Core {
       claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
       log: adapters.log ?? silentLogger,
     },
+    ...(adapters.contradictionWatch?.sortTimeLimit && {
+      sortTimeLimit: adapters.contradictionWatch.sortTimeLimit,
+    }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,

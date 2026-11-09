@@ -1,12 +1,14 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { INLINE_NODE } from "../../src/shared/sentences";
 import { answerRequests, askAssistant, changesIn } from "../helpers/assistant";
 import { checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { shownWithChanges } from "../helpers/minds";
+import { readMind, shownWithChanges } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -27,6 +29,13 @@ const SPRING = "Spring tides happen just after a new moon or a full moon.";
 const CONTENT =
   "## Tides\n\nSpring tides come at new and full moon [^1].\n\nNeap tides come between.";
 const REPORT = "Made “Tide notes” with a short summary of spring tides happening after a new moon.";
+
+/** Each sentence a check marked, with its mark's state, as the Note holds them. */
+const markedIn = (page: Parameters<typeof readMind>[0]) =>
+  claimSpans(readMind(page)).map((span) => [
+    span.sentence.text.replaceAll(INLINE_NODE, "").trim(),
+    span.check.state,
+  ]);
 
 /** A Folder with one PDF, and a Mind in focus, on a scripted model. */
 async function setUp(model: MockLanguageModelV4) {
@@ -146,12 +155,16 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
     const [revised] = changesIn(second);
     expect(revised).toMatchObject({ revised: true, cited: 1 });
     expect(revised?.unrecorded).toBeUndefined();
-    expect(revised?.selfCheck).toMatchObject({ cited: 1, failed: 0 });
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, checked: 2, failed: 0 });
     const page = await connectToMind(core, revised?.mindId ?? "");
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
       "+ Neap tides come between them.",
+    ]);
+    expect(markedIn(page)).toEqual([
+      ["Spring tides come at new and full moon .", "unsupported"],
+      ["Neap tides come between them.", "unsupported"],
     ]);
   });
   // protects=a revision written before its cite, which comes in the step after it, keeps its Citation and is checked once the Citation goes in after the Run (#1635); fails_when=it lands with a found Citation and no check; no_claim=how often a real model cites after it revises.
@@ -202,12 +215,16 @@ describe("Text written into a Mind keeps its Citations", { timeout: 30_000 }, ()
 
     const [revised] = changesIn(second);
     expect(revised).toMatchObject({ revised: true, cited: 1 });
-    expect(revised?.selfCheck).toMatchObject({ cited: 1, failed: 0 });
+    expect(revised?.selfCheck).toMatchObject({ cited: 1, checked: 2, failed: 0 });
     const page = await connectToMind(core, revised?.mindId ?? "");
     expect(shownWithChanges(page)).toEqual([
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
       "+ Neap tides come between them.",
+    ]);
+    expect(markedIn(page)).toEqual([
+      ["Spring tides come at new and full moon .", "unsupported"],
+      ["Neap tides come between them.", "unsupported"],
     ]);
   });
 });

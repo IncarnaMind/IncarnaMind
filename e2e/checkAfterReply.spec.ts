@@ -69,7 +69,12 @@ const WORDS = {
 } as const;
 
 type SlowCheck = {
-  incarnamindSlowCheck: { hold: boolean; waiting: (() => void)[]; release(): void };
+  incarnamindSlowCheck: {
+    hold: boolean;
+    waiting: (() => void)[];
+    kinds: ("check-run" | "other")[];
+    release(): void;
+  };
 };
 
 const holdChecks = (app: ElectronApplication) =>
@@ -84,21 +89,42 @@ const releaseChecks = (app: ElectronApplication) =>
     incarnamindSlowCheck.release();
   });
 
-/** Lets one held step of a sentence's check go on: its search, or its verdict. */
+/**
+ * Lets the first held step of a sentence's check go on, its search or its verdict, with every
+ * other held step: the Answers' own judgements, which move no count.
+ */
 const releaseOneStep = (app: ElectronApplication) =>
   app.evaluate(() => {
-    (globalThis as unknown as SlowCheck).incarnamindSlowCheck.waiting.shift()?.();
+    const { waiting, kinds } = (globalThis as unknown as SlowCheck).incarnamindSlowCheck;
+    const first = kinds.indexOf("check-run");
+    for (let at = kinds.length - 1; at >= 0; at--) {
+      if (at !== first && kinds[at] === "check-run") continue;
+      kinds.splice(at, 1);
+      waiting.splice(at, 1)[0]?.();
+    }
   });
 
-/** How many steps of the checks are held now. */
+/** How many steps of the sentences' checks are held now. */
 const heldSteps = (app: ElectronApplication) =>
-  app.evaluate(() => (globalThis as unknown as SlowCheck).incarnamindSlowCheck.waiting.length);
+  app.evaluate(
+    () =>
+      (globalThis as unknown as SlowCheck).incarnamindSlowCheck.kinds.filter(
+        (kind) => kind === "check-run",
+      ).length,
+  );
 
-/** The numbers a count shows, done then total: "Checking: 1 of 2 sentences done", "正在核对 1/2". */
-const countIn = async (shown: Locator) =>
-  ((await shown.count()) === 0 ? "" : ((await shown.textContent()) ?? ""))
-    .match(/\d+/g)
-    ?.join(" of ") ?? null;
+/**
+ * The numbers the line under the Answer and the Note's badge show, done then total, read from
+ * the window at the same moment: "Checking: 1 of 2 sentences done", "正在核对 1/2". Null where
+ * one shows none.
+ */
+const counts = (window: Page) =>
+  window.evaluate(() => {
+    const numbers = (id: string) =>
+      document.querySelector(`[data-testid="${id}"]`)?.textContent?.match(/\d+/g)?.join(" of ") ??
+      null;
+    return { line: numbers("self-check-checking"), badge: numbers("badge-progress") };
+  });
 
 /** Asks as a person does, and gives back the Answer at once. */
 async function ask(window: Page, question: string): Promise<Locator> {
@@ -150,29 +176,25 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // One step at a time to the end: the line under the card and the badge count the same
     // finished sentences at every step, several being checked at once (#2830).
-    const badge = window.getByTestId("badge-progress");
     const seen = new Set<string>();
-    const agree = async () =>
-      (await line.count()) === 0 || (await countIn(line)) === (await countIn(badge));
-    for (let step = 0; step < 12 && (await line.count()) > 0; step++) {
-      await expect.poll(agree).toBe(true);
-      const before = await countIn(line);
-      if (before) seen.add(before);
-      const held = await heldSteps(app);
-      if (held === 0) break;
-      await releaseOneStep(app);
-      // The step goes on to its next one, held again, or its sentence's check ends and the count
-      // moves; a step of the follow-up's own checks does neither, so its wait ends without either.
+    for (let step = 0; step < 12; step++) {
+      // A step of a check is held, or the check is over.
       await expect
-        .poll(
-          async () =>
-            (await line.count()) === 0 ||
-            (await countIn(line)) !== before ||
-            (await heldSteps(app)) >= held,
-          { timeout: 2_000 },
-        )
-        .toBe(true)
-        .catch(() => undefined);
+        .poll(async () => (await line.count()) === 0 || (await heldSteps(app)) > 0)
+        .toBe(true);
+      const now = await counts(window);
+      if (now.line === null) break;
+      expect(now.badge).toBe(now.line);
+      seen.add(now.line);
+      const held = await heldSteps(app);
+      await releaseOneStep(app);
+      // The step goes on to its next one, held again, or its sentence's check ends and the count moves.
+      await expect
+        .poll(async () => {
+          const after = await counts(window);
+          return after.line === null || after.line !== now.line || (await heldSteps(app)) >= held;
+        })
+        .toBe(true);
     }
     expect([...seen]).toEqual(expect.arrayContaining(["0 of 2", "1 of 2"]));
     await releaseChecks(app);

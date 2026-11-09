@@ -1271,9 +1271,14 @@ export interface CoreAdapters {
   /**
    * Contradiction watch's timings (#112), which tests shorten: how long after
    * a new version of a Document its Folder's Minds are checked (30 seconds),
-   * and how long a background check of one claim may take (3 minutes).
+   * and how long a background check of one claim may take (3 minutes), as the
+   * sort of a write's claims may too (`sortTimeLimit`, which tests end themselves).
    */
-  contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
+  contradictionWatch?: {
+    delayMs?: number;
+    claimTimeLimitMs?: number;
+    sortTimeLimit?: () => AbortSignal;
+  };
   /**
    * How long asking the example's ready Question waits for its Documents to be read before it
    * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.

@@ -10,7 +10,7 @@ import { buttonStyle } from "../components/ui";
 import { type EstimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
-import { useWrittenProgress } from "../writtenChecks";
+import { useWrittenInNote } from "../writtenChecks";
 import { shownClaims } from "./claimChecks";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
@@ -142,11 +142,12 @@ export function RunningText({
   const t = useT();
   const language = useLanguage();
   const running = useChecks((state) => state.running[mindId]);
+  const background = useChecks((state) => state.background[mindId]);
   const marked = useMindCheckProgress(editor, running?.requestId ?? null);
-  // A check of what the assistant wrote counts as the line under its Answer does, as each check
-  // ends: a table's marks land only together, at its end (#2830).
-  const written = useWrittenProgress(running?.requestId ?? "");
-  const progress = written ?? marked;
+  // Checks of what the assistant wrote count as the lines under their Answers do, as each check
+  // ends (a table's marks land only together, at its end), every one in the Note as one (#2830).
+  const written = useWrittenInNote(mindId);
+  const progress = running && background?.includes(running.requestId) && written ? written : marked;
   if (!running) return null;
   if (running.action !== "whole-mind") return <>{t(`checks.running.${running.action}`)}</>;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);

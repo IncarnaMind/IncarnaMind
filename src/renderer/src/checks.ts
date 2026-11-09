@@ -458,10 +458,15 @@ export function restoreCheck(
   editor.view.dispatch(tr);
 }
 
-/** Stops the Mind's check: the sentences not checked yet say "stopped". */
+/** Stops the Mind's check, or every check there of what the assistant wrote: the sentences not checked yet say "stopped". */
 export function stopCheck(mindId: string): void {
-  const running = useChecks.getState().running[mindId];
-  if (running) void core.cancelCheck(running.requestId);
+  const { running: all, background } = useChecks.getState();
+  const running = all[mindId];
+  if (!running) return;
+  const written = background[mindId] ?? [];
+  for (const requestId of written.includes(running.requestId) ? written : [running.requestId]) {
+    void core.cancelCheck(requestId);
+  }
 }
 
 /**

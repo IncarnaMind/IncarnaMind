@@ -1073,6 +1073,11 @@ export function createAnswers(options: AnswersOptions) {
   const { content, events, engine } = options;
   /** Answers being written, by id. */
   const active = new Map<string, Generation>();
+  /**
+   * By Answer: the turn that wrote it last. Retry and regenerate write it again under its id, while
+   * an older turn's check of what it wrote may still end, which mustn't write that turn's calls.
+   */
+  const turns = new Map<string, symbol>();
   /** Whether an Answer not written for a Task is being written. */
   let writing = false;
   const writingChanged = () => {
@@ -1991,6 +1996,8 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     active.set(answerId, { home, model, finish, task: input.task === true });
+    const ownTurn = Symbol(answerId);
+    turns.set(answerId, ownTurn);
     writingChanged();
     announce("answer.started", { ...place, answerId, questionId: input.questionId, model });
 
@@ -2986,8 +2993,9 @@ export function createAnswers(options: AnswersOptions) {
                 // A call whose change was taken back has no card to say it on.
                 if (!call?.mindChange) return;
                 call.mindChange = change;
-                if (finished) options.conversations.writeToolCalls(answerId, toolCalls);
-                else writeSoon();
+                if (!finished) writeSoon();
+                else if (turns.get(answerId) === ownTurn)
+                  options.conversations.writeToolCalls(answerId, toolCalls);
               },
               failed: (toolCallId, problem) => {
                 mindProblems.set(toolCallId, problem);
