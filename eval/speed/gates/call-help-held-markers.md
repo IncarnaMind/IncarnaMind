@@ -85,3 +85,34 @@ The pre-review read the fixes again and found four more ways a record could land
 - "one" as a pronoun reads as a figure.
 - When records exist but none fits, the press asks the model once for its Citations, as main asks whenever a reply shows none.
 
+## Result, 2026-11-09: neither part holds, so neither ships
+
+Four paired runs at afbfee69c, one run each over the 30 twin presses, direct Anthropic key, judge Claude Opus 5.5, all 120 pairs finished, none failed. Each run started at a 15-minute load of 24 or less (6.3, 5.8, 5.6 and 10.9); the one-minute load reached 24.8 during the last one. Counts are presses of 15.
+
+**Part A, the check** (`help-marks-as-before` → `help-own-only`):
+
+| Model · language | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|
+| Sonnet 5.5 · English | 1 → **2** | 15 → 15 | 15 → 15 | 14 → 15 |
+| Sonnet 5.5 · Chinese | 2 → **5** | 15 → **14** | 14 → **13** | 15 → 15 |
+| Haiku 5.5 · English | 6 → **7** | 14 → **10** | 13 → **11** | 14 → **12** |
+| Haiku 5.5 · Chinese | 3 → **6** | 15 → **11** | 12 → 12 | 15 → **13** |
+
+**Part B, the reply's rule** (`help-own-only` → `today`):
+
+| Model · language | False Supported | Cited | Judged right | Every Citation found |
+|---|---|---|---|---|
+| Sonnet 5.5 · English | 3 → 1 | 15 → **14** | 14 → **13** | 15 → **14** |
+| Sonnet 5.5 · Chinese | 7 → 2 | 14 → 15 | 14 → 14 | 15 → 15 |
+| Haiku 5.5 · English | 4 → 4 | 13 → **8** | 15 → **12** | 12 → 12 |
+| Haiku 5.5 · Chinese | 6 → 4 | 12 → 14 | 12 → 12 | 12 → 14 |
+
+- **Part A fails on both models.**
+  - On Sonnet 5.5, which writes its own markers, the presses that moved were the model's own sentences: they differ from run to run, and the same arm gave 5 and 7 Chinese false Supported in the two runs that had it. The check isn't what moved them.
+  - On Haiku 5.5, Citations fell: replies whose sentences main's core matched to a line now show none. The ask for the Citations a reply left out didn't make up for it.
+- **Part B fails on both models.**
+  - On Sonnet 5.5, Chinese false Supported fell from 7 to 2 (from 7 to 3 in the first try), but English lost one press each on cited, judged right and every Citation found.
+  - On Haiku 5.5, English cited fell from 13 to 8 and judged right from 15 to 12.
+- **The issue's bar** has nothing that ships to be read on. On `today`, Chinese false Supported is no higher than English's on Haiku (4 against 4), and one higher on Sonnet (2 against 1).
+- **Spend:** $3.89 of the $5 cap. $0.06 went on the three smoke presses, $1.53 and $0.37 on Part A (Sonnet, Haiku), and $1.57 and $0.36 on Part B. The judge took $1.18.
+
