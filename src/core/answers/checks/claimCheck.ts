@@ -56,7 +56,7 @@ import type { Slots } from "../../runs/stop";
 import { documentFigureContext } from "../calculations";
 import { type AnswerDocuments, matchingOf } from "../citations";
 import type { AnswerEngine, DocumentLanguage } from "../engine";
-import { checkAbsence, fitsWholeRead } from "./absence";
+import { absenceAfterSearch, fitsWholeRead } from "./absence";
 import { statedFigure } from "./calculated";
 import { calculatesIn, createCalculationLedger, figureContextIn } from "./calculationLedger";
 import {
@@ -102,7 +102,6 @@ import {
   RECHECK,
 } from "./looks";
 import {
-  type AbsenceAnswer,
   changesItsMind,
   ownDetailDiffers,
   ownDetailUnread,
@@ -325,34 +324,19 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
       return fits;
     };
-    const absenceFor = async (
-      absence: AbsenceAnswer,
-      searched: ClaimCheckResult["verdict"],
-    ): Promise<AtomicClaimCheckResult | null> => {
-      // A search that found and cited the thing contradicts its absence as any sentence is
-      // contradicted: the whole read decides only whether search may say Supported.
-      if (searched === "contradicted") return null;
-      // A check that ended Not checked (refused, unread, no verdict) stays so: no whole read.
-      if (searched === "not-checked") return null;
-      if (absence === "no") return null;
-      // An answer that can't be read may hide an absence, which search alone never backs; and
-      // the whole read is only for a sentence known to assert one.
-      if (absence === null) return searched === "supported" ? notChecked("malformed") : null;
-      if (signal.aborted) return notChecked("stopped");
-      return checkAbsence({
-        request,
-        documents: deps.documents,
-        session,
-        readVersion: results.readVersion,
-        facts,
-        citedCase,
-        fits: readsWhole(),
-        notChecked,
-        failedCheck,
-        lookAt: (evidence, absent, first) =>
-          lookForPresence(request, evidence, absent, session, signal, first),
-      });
-    };
+    const absenceFor = absenceAfterSearch({
+      request,
+      documents: deps.documents,
+      session,
+      readVersion: results.readVersion,
+      facts,
+      citedCase,
+      fits: readsWhole,
+      notChecked,
+      failedCheck,
+      lookAt: (evidence, absent, first) =>
+        lookForPresence(request, evidence, absent, session, signal, first),
+    });
 
     const figureContext = figureContextIn(scoped);
     const unstatedUnit = unitGate(deps, scoped, figureContext);
