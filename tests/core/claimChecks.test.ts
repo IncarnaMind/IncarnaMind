@@ -3604,11 +3604,12 @@ describe("Why a sentence is unsupported", () => {
   const OWNER =
     "教程讨论了训练速度、鲁棒性和内存需求之间的权衡：已有实验通常显示，拟牛顿方法比梯度下降更快；一阶优化方法通常更加稳健，但速度较慢。";
 
-  const reasonOf = async (reply: string, sentence = HALF) => {
+  const reasonOf = async (reply: string, sentence = HALF, language: "en" | "zh-CN" = "en") => {
     const { core, client, check } = await mindWith(
       [sentence],
       checkingModel({ [sentence]: { reply: { text: reply } } }),
     );
+    await core.updateSettings({ user: { language } });
     await check();
     const [shown] = await shownChecks(core, client);
     return shown?.check.unsupported;
@@ -3618,7 +3619,8 @@ describe("Why a sentence is unsupported", () => {
     const calls: ModelCall[] = [];
     const { check } = await mindWith([UNSUPPORTED], checkingModel(PLANS, calls));
     await check();
-    expect(calls[0]?.system).toContain("For unsupported, one plain sentence in English");
+    expect(calls[0]?.system).toContain("Explanation: one plain sentence in English");
+    expect(calls[0]?.system).toContain("For unsupported, say what the Documents don't say.");
     expect(calls[0]?.system).toContain('"Covered: "');
     expect(calls[0]?.system).toContain('"Not covered: "');
   });
@@ -3641,6 +3643,7 @@ describe("Why a sentence is unsupported", () => {
       await reasonOf(
         "Verdict: unsupported\n引用只比较了速度。\nCovered: 速度比较\nNot covered: 内存和鲁棒性",
         OWNER,
+        "zh-CN",
       ),
     ).toEqual({
       reason: "引用只比较了速度。",

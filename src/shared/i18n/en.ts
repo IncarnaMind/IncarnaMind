@@ -1344,6 +1344,7 @@ export const en = {
   "claim.useFigure.moved":
     "Nothing was changed: the sentence isn’t where its check marked it. Check it again.",
   "claim.correction": "Change to {wording}",
+  "claim.says.correction": "The Document gives {to}, not {from}.",
   "claim.correction.command": "Change to the Document’s wording",
   "claim.correction.doneMany": "Corrected {count} from the Documents",
   "claim.correction.badge": "Correct {count} from the Documents",

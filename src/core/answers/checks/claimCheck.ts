@@ -24,6 +24,7 @@
 
 import { citedInputs } from "../../../shared/calculatedFigures";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
+import { writtenLike } from "../../../shared/figureSchedule";
 import {
   type Figure,
   type FigureContext,
@@ -106,6 +107,7 @@ import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
+import { explainedIn } from "./explanations";
 import {
   aboutSomeoneElse,
   analysisItemDisagrees,
@@ -144,7 +146,6 @@ import {
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presenceParts,
-  RECHECK_INSTRUCTIONS,
   type ReadCorrection,
   type ReadVerdict,
   readEvidence,
@@ -154,6 +155,7 @@ import {
   readRecheck,
   readsAsRefusal,
   readVerdict,
+  recheckInstructions,
   replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
@@ -2015,7 +2017,14 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         )?.why &&
         quoteStatesDetail(request.claim, stated.quote)
       ) {
-        const again = await compare(request, stated, session, signal, RECHECK, readRecheck);
+        const again = await compare(
+          request,
+          stated,
+          session,
+          signal,
+          recheck(deps.language()),
+          readRecheck,
+        );
         return again.ok ? rechecked(again.value, stated) : unjudged(again);
       }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
@@ -2153,7 +2162,14 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         evidence !== null &&
         quoteStatesDetail(request.claim, evidence.quote)
       ) {
-        const again = await compare(request, deciding, session, signal, RECHECK, readRecheck);
+        const again = await compare(
+          request,
+          deciding,
+          session,
+          signal,
+          recheck(deps.language()),
+          readRecheck,
+        );
         return again.ok ? rechecked(again.value, evidence) : unjudged(again);
       }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
@@ -2195,7 +2211,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const result = (await judgedAfter.get(request)?.(checked)) ?? checked;
       return result.verdict === "supported"
         ? withDollarClause(deps, request.claim, result)
-        : result;
+        : explainedIn(result, {
+            language: deps.language(),
+            model: request.model,
+            signal: request.signal,
+          });
     } catch (error) {
       if (!(error instanceof FiguresNotRead)) throw error;
       return figuresNotRead(deps, request, error, passagesOf.get(request)?.() ?? []);
@@ -2481,7 +2501,10 @@ interface Comparison {
   instructions: string;
 }
 
-const RECHECK: Comparison = { id: "recheck", instructions: RECHECK_INSTRUCTIONS };
+const recheck = (language: Language): Comparison => ({
+  id: "recheck",
+  instructions: recheckInstructions(language),
+});
 
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
 // another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
@@ -3152,9 +3175,57 @@ function inPlace(before: string, after: string, wording: string): string {
 }
 
 /**
+ * The Document's figure written as the sentence writes its own: "2.6 million pounds" in place of
+ * 二百四十万英镑 is 260万英镑 (#2081). Null unless the old words and the Document's are one figure
+ * each, of one unit and sign, and the sentence then reads the Document's amount where the old words
+ * stood. A Document's figure of no unit the reader knows ("pounds" may be a weight) takes the
+ * sentence's, as the check judged the two the same thing.
+ */
+function writtenAsSentence(
+  claim: string,
+  first: number,
+  from: string,
+  old: Figure,
+  words: string,
+  context: FigureContext,
+): string | null {
+  const [quoted, ...more] = readFigures(words, documentFigureContext([{ text: words }]));
+  if (
+    !quoted ||
+    more.length > 0 ||
+    quoted.rangeTo !== null ||
+    old.rangeTo !== null ||
+    quoted.ambiguous.length > 0 ||
+    old.ambiguous.length > 0 ||
+    Math.sign(quoted.value) !== Math.sign(old.value)
+  )
+    return null;
+  const ofAmounts =
+    old.unit.kind === "currency" || old.unit.kind === "other" || old.unit.kind === "plain";
+  const sameUnit = JSON.stringify(quoted.unit) === JSON.stringify(old.unit);
+  if (!sameUnit && !(quoted.unit.kind === "plain" && ofAmounts)) return null;
+  const shares = old.unit.kind === "percent" || old.unit.kind === "points";
+  const most = shares
+    ? quoted.decimals
+    : Math.max(0, quoted.decimals + Math.round(Math.log10(old.scale / quoted.scale)));
+  // As few decimals as write the amount whole: 260 万英镑 is £2.6 million, not £2.60 million.
+  const amount = Math.abs(quoted.value) * (shares ? 100 : 1 / old.scale);
+  const decimals =
+    [...Array(most + 1).keys()].find(
+      (places) => Math.abs(Number(amount.toFixed(places)) - amount) <= 1e-9 * Math.max(1, amount),
+    ) ?? most;
+  const written = writtenLike(old, quoted.value, decimals);
+  const [read, ...others] = writtenAt(claim, first, from, written, context) ?? [];
+  return read && others.length === 0 && sameNumber(read, { value: quoted.value, unit: old.unit })
+    ? written
+    : null;
+}
+
+/**
  * A confirmed contradiction's correction of `claim`, a part of `sentence` or all of it: old words
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
- * quote, keeping the sentence's named periods.
+ * quote, or that quote's figure written as the sentence writes its own, keeping the sentence's
+ * named periods.
  */
 export function correctionFor(
   sentence: string,
@@ -3176,7 +3247,13 @@ export function correctionFor(
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
   const figure = figureOnly(read.from, context);
   const end = first + read.from.length;
-  for (const stated of read.choices) {
+  // The Document's own words first: a figure written again that says what they say is no choice.
+  const ownFirst = [...read.choices].sort(
+    (a, b) =>
+      Number(!inLanguageAt(claim, first, end, a.wording)) -
+      Number(!inLanguageAt(claim, first, end, b.wording)),
+  );
+  for (const stated of ownFirst) {
     const inPlaceOf = (words: string) =>
       inPlace(claim.slice(0, first), claim.slice(first + read.from.length), words);
     const citation = finalCitation(stated.marker);
@@ -3188,11 +3265,25 @@ export function correctionFor(
     // A figure takes the Document's figure of its own kind, not the words around it.
     const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
     const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
-    const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
-    // Another Document's words in another language are left out, as a choice no one could take.
-    if (!inLanguageAt(claim, first, end, choice.wording)) continue;
-    const place = placeIn(citation.quote, choice.wording);
-    if (place < 0 || !seamsHold(claim, first, read.from, choice.wording, citation.quote, place))
+    const quoted = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
+    const own = inLanguageAt(claim, first, end, quoted.wording);
+    // Another Document's figure in another language is written as the sentence writes its own
+    // (#2081); its other words are left out, as a choice no one could take.
+    const written =
+      own || !figure
+        ? null
+        : writtenAsSentence(claim, first, read.from, figure, quoted.wording, context);
+    if (
+      !own &&
+      (written === null || !inLanguageAt(claim, first, end, written) || wordings.has(written))
+    )
+      continue;
+    const choice = written === null ? quoted : { ...quoted, wording: written };
+    const place = written === null ? placeIn(citation.quote, choice.wording) : 0;
+    if (
+      written === null &&
+      (place < 0 || !seamsHold(claim, first, read.from, choice.wording, citation.quote, place))
+    )
       return null;
     if (
       markers.has(choice.marker) ||
@@ -3205,7 +3296,8 @@ export function correctionFor(
       ) ||
       wordings.has(choice.wording) ||
       !namesPeriodsOf(claim, citation.quote) ||
-      !readsAsQuote(claim, first, read.from, choice.wording, citation.quote, context)
+      (written === null &&
+        !readsAsQuote(claim, first, read.from, choice.wording, citation.quote, context))
     )
       return null;
     markers.add(choice.marker);

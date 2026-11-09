@@ -836,7 +836,8 @@ describe("the export back into the file", () => {
     expect(
       comments.filter((each) => each.author === "IncarnaMind").map((each) => each.comment),
     ).toEqual([
-      "与文档矛盾：Tides says harbours publish them every year, not every week（“Harbours publish the times of high water every year.”，Tides，第 1 页）",
+      // Its English sentence, written again in the interface's Chinese (#2081).
+      "与文档矛盾：Tides 写的是港口每年公布一次高潮时间，不是每周（“Harbours publish the times of high water every year.”，Tides，第 1 页）",
       "无依据：你的文档里是另一种说法（“The harbour wall was raised in 1984.”，Tides，第 2 页）",
       "未找到：未在“全部文档”中找到。",
     ]);
