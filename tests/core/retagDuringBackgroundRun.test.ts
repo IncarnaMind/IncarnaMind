@@ -8,9 +8,11 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import type { ExternalService } from "../../src/core/api";
 import { createBackgroundQueue } from "../../src/core/backgroundQueue";
+import type { TagsProposal } from "../../src/core/organizeReview";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { createTags } from "../../src/core/tags";
 import type { TagClassifier } from "../../src/core/tags/classify";
+import { TAG_KINDS } from "../../src/core/tags/kinds";
 import { createTagger } from "../../src/core/tags/tagger";
 
 const LIQUID: ExternalService = { id: "https://api.liquid.ai", name: "Liquid AI" };
@@ -19,24 +21,22 @@ test("a Re-tag pressed while a held Document's background turn prepares is still
   const db = openDatabase(":memory:");
   migrate(db);
   const now = () => new Date().toISOString();
-  const tags = createTags(db, now);
-  tags.seedPresets("en");
+  createTags(db, now).seedPresets();
   const id = randomUUID();
   db.run(
     `INSERT INTO documents (id, content_hash, name, kind, size, status, created_at, updated_at)
      VALUES (?, ?, 'Attention', 'text', 1, 'ready', ?, ?)`,
     [id, randomUUID(), now(), now()],
   );
-  const paper = tags.list().find((tag) => tag.name === "Paper");
-  if (!paper) throw new Error("No Paper Tag.");
   let sent = 0;
   const classifier: TagClassifier = {
     service: LIQUID,
     decide: async () => {
       sent += 1;
-      return { decisions: [{ tagId: paper.id, confidence: 0.9, needsReview: false }], newTags: [] };
+      return { decisions: [{ tagId: "kind:paper", confidence: 0.9 }], newTags: [] };
     },
   };
+  const proposed: TagsProposal[] = [];
   // The first turn's prepare waits until the Re-tag is in; later ones are at once.
   let release = () => {};
   const held = new Promise<void>((resolve) => {
@@ -51,7 +51,12 @@ test("a Re-tag pressed while a held Document's background turn prepares is still
   const tagger = createTagger({
     db,
     now,
-    tags,
+    offered: () => [],
+    kinds: () => TAG_KINDS,
+    language: () => "en",
+    propose: (_, proposals) => {
+      proposed.push(...proposals);
+    },
     automatic: () => true,
     background: createBackgroundQueue({
       reportError: (error) => {
@@ -106,4 +111,5 @@ test("a Re-tag pressed while a held Document's background turn prepares is still
 
   expect(sent).toBe(1);
   expect(states).not.toContain("off");
+  expect(proposed.map((each) => each.tags)).toEqual([[{ kind: "paper" }]]);
 });

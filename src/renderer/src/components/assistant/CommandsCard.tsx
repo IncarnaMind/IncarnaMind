@@ -128,7 +128,11 @@ export function CommandsCard({
                       data-testid="command-changes-nothing-moved"
                       className="mind-changes-count"
                     >
-                      {t("organizeReview.nothingMoved")}
+                      {t(
+                        done.some((each) => each.command === "documents.organize")
+                          ? "organizeReview.nothingMoved"
+                          : "organizeReview.nothingChanged",
+                      )}
                     </span>
                   </>
                 )}

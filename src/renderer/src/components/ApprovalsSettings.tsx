@@ -31,11 +31,9 @@ export function ApprovalsSettings() {
 
   return (
     <div data-testid="approvals-settings">
-      <SettingsGroup role={policies.length === 0 ? undefined : "list"}>
-        {policies.length === 0 ? (
-          <SettingsRow label={t("approvals.settings.empty")} />
-        ) : (
-          policies.map((policy) => {
+      {policies.length > 0 && (
+        <SettingsGroup role="list">
+          {policies.map((policy) => {
             const { subject } = policy;
             const name =
               subject.kind === "tool"
@@ -86,9 +84,9 @@ export function ApprovalsSettings() {
                 }
               />
             );
-          })
-        )}
-      </SettingsGroup>
+          })}
+        </SettingsGroup>
+      )}
       <SettingsHelp>{t("approvals.settings.body")}</SettingsHelp>
     </div>
   );

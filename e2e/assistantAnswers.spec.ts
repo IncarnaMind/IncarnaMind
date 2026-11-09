@@ -277,7 +277,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await window.keyboard.press("Enter");
   await expect(assistantAnswers(window)).toHaveCount(1);
 
-  // ▾ → New note: named by its first line, in a new tab, its content in at once (#1559), with Undo.
+  // ▾ → New note: named from the Question, in a new tab, its content in at once (#1559), with Undo.
   const shown = assistantAnswers(window).first();
   await pointAt(window, shown.getByTestId("assistant-answer-text"));
   // The line under it goes after a few seconds, and its actions come back.
@@ -286,9 +286,9 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await pointAndClick(window, window.getByTestId("add-to-option").last());
   // What went in is one Undo under the Answer; the Mind it made, Delete takes back (#1940).
   await expect(shown.getByTestId("answer-added")).toContainText(
-    "Wrote “Your Documents answer this”",
+    "Wrote “When do spring tides happen”",
   );
-  const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
+  const tab = window.getByTestId("mind-tab").filter({ hasText: "When do spring tides happen" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
   const made = window.getByTestId("mind-editor");
   await expect(made).toContainText("Your Documents answer this");
@@ -496,7 +496,7 @@ test("the ⋯ menu writes the last Answer as a note and clears the conversation,
   await askInAssistant(window, "When do spring tides happen?");
   await pointAndClick(window, more);
   await pointAndClick(window, window.getByTestId("assistant-menu-write-note"));
-  const tab = window.getByTestId("mind-tab").filter({ hasText: "Your Documents answer this" });
+  const tab = window.getByTestId("mind-tab").filter({ hasText: "When do spring tides happen" });
   await expect(tab).toHaveAttribute("aria-selected", "true");
   // In at once, as Write as a note under the Answer puts it (#1940).
   await expect(window.getByTestId("mind-editor")).toContainText("Your Documents answer this");

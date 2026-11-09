@@ -220,16 +220,19 @@ describe("what Confirm would do", () => {
       documents: 3,
       yours: 1,
       proposed: 2,
+      tagged: 0,
     });
     expect(confirmCounts(mixed({ finance: [true, false], leases: [false, false] }))).toEqual({
       documents: 1,
       yours: 1,
       proposed: 0,
+      tagged: 0,
     });
     expect(confirmCounts(mixed({ finance: [false], leases: [true] }))).toEqual({
       documents: 1,
       yours: 0,
       proposed: 2,
+      tagged: 0,
     });
   });
 });
@@ -325,6 +328,54 @@ describe("the line under the Review's title", () => {
   });
 });
 
+describe("a Review with no Folder in it (#2339)", () => {
+  const contract = {
+    id: "row-1",
+    tagId: null,
+    kind: "contract" as const,
+    name: "Contract",
+    colour: "red" as const,
+    description: "",
+    addedByUser: false,
+  };
+  const tooFew: OrganizeReviewPlacement = { kind: "leftOut", leftOut: { reason: "tooFew" } };
+
+  test("Tags waiting beside Documents too few like each other for a Folder: Tags only", () => {
+    const layout = reviewLayout(
+      review([
+        item("1", { kind: "unchanged" }, { tags: [contract] }),
+        item("2", tooFew),
+        item("3", tooFew),
+      ]),
+      library,
+      [],
+      "Not in a Folder",
+    );
+
+    expect(layout.onlyTags).toBe(true);
+    expect(layout.tagsOnly.map((card) => card.items.map((each) => each.id))).toEqual([["1"]]);
+    expect(layout.leftOut.map((each) => each.id)).toEqual(["2", "3"]);
+    expect([willMoveText(layout, en), willMoveText(layout, zh)]).toEqual([
+      "1 Document will get Tags. Nothing has changed yet.",
+      "1 个文档将添加标签。还没有做任何更改。",
+    ]);
+  });
+
+  test("a Document that doesn't fit Folders there are isn't Tags only", () => {
+    const layout = reviewLayout(
+      review([
+        item("1", { kind: "unchanged" }, { tags: [contract] }),
+        item("2", { kind: "leftOut", leftOut: { reason: "doesntFit" } }),
+      ]),
+      library,
+      [],
+      "Not in a Folder",
+    );
+
+    expect(layout.onlyTags).toBe(false);
+  });
+});
+
 describe("why a Document is left out", () => {
   const folderNames = new Map([
     ["matter", "Matter"],
@@ -348,6 +399,11 @@ describe("why a Document is left out", () => {
       "Stays in “Contracts”",
       "留在“Contracts”中",
     ]);
+    expect(said({ reason: "tooFew" })).toEqual([
+      "Too few like it for a Folder yet",
+      "相近的文档太少，还不能建文件夹",
+    ]);
+    expect(said({ reason: "noTag" })).toEqual(["No Tag fits", "没有合适的标签"]);
     expect(said({ reason: "noText" })).toEqual(["No text to read", "没有可读取的文字"]);
     expect(said({ reason: "unreachable", service: "OpenAI" })).toEqual([
       "Couldn’t reach OpenAI",

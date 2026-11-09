@@ -7,7 +7,7 @@ import type { SortScope } from "../../sortChoices";
 import { useSortMenu } from "../../sortMenu";
 import { CheckLineIcon, ChevronRightLineIcon, CloseLineIcon, PlusLineIcon } from "../lineIcons";
 import { SORT_KEY_LABELS } from "../SortMenu";
-import { ReviewRing, TagDot } from "../TagColour";
+import { TagDot } from "../TagColour";
 import { menuClass, menuItemClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -276,11 +276,7 @@ function FacetOptions<T>({
             className={`${menuItemClass} pl-2 ${count === 0 && !selected ? "text-ink-meta" : ""}`}
           >
             <CheckLineIcon className={`size-3.5 shrink-0 ${selected ? "text-ink" : "invisible"}`} />
-            {facet.review?.(value) ? (
-              <ReviewRing />
-            ) : (
-              facet.colour?.(value) && <TagDot colour={facet.colour(value) ?? undefined} />
-            )}
+            {facet.colour?.(value) && <TagDot colour={facet.colour(value) ?? undefined} />}
             <span className="min-w-0 flex-1 truncate">{name}</span>
             <span aria-hidden="true" className="shrink-0 text-[12px] tabular-nums text-ink-meta">
               {formatCount(count, language)}

@@ -52,6 +52,7 @@ import {
   SLOW_TAGGING_MS,
   tagsOutOfCredit,
   tagsRateLimited,
+  tagsRefused,
   tagsSlowly,
   tagsUnreachable,
 } from "./structured";
@@ -223,6 +224,15 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
         statusCode: 429,
         responseHeaders: { "retry-after": "600" },
         isRetryable: true,
+      });
+    }
+    if (tagsRefused(options)) {
+      throw new APICallError({
+        message: "Invalid API key.",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 401,
+        isRetryable: false,
       });
     }
     if (tagsOutOfCredit(options)) {

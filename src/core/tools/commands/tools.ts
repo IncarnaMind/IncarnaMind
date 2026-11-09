@@ -318,7 +318,7 @@ export function commandTools(options: CommandToolsOptions): {
         alsoAsked: {
           type: "string",
           description:
-            'documents.organize only: what else the User\'s request asks for besides organizing, in their words, short ("say which is newest", "and who signed it?", "再说说哪份最新"), a question asked alongside too, never the organizing itself; empty when it asks for nothing but organizing.',
+            'documents.organize and documents.tagWithAi only: what else the request asks for besides organizing or tagging, in the User\'s words, short ("and who signed it?", "再说说哪份最新"); empty when nothing else.',
         },
         format: { type: "string", enum: [...COMMAND_EXPORT_FORMATS] },
         marks: {

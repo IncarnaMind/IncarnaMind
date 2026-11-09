@@ -32,6 +32,7 @@ import {
 } from "./run";
 import { SETTINGS_TAKEN, settingsChecker } from "./settings";
 import { STYLE_CHECKERS, STYLE_EXAMPLES } from "./styles";
+import { tagWithAiChecker } from "./tagWithAi";
 import { type WindowRun, windowChecked, yoursChecked } from "./window";
 
 /** What a command the core runs acts on and does, its arguments as the model reads them, and its check. */
@@ -73,6 +74,13 @@ export const CORE_COMMANDS = {
     does: "app",
     takes: "ids; tag: a Tag's name, made if there is none",
     check: LIBRARY_CHECKERS["document.tags"],
+  },
+  "documents.tagWithAi": {
+    on: "document",
+    does: "app",
+    takes:
+      "ids, or none for every Document; alsoAsked. Proposes Tags the User confirms with Review; IncarnaMind writes the reply",
+    check: tagWithAiChecker,
   },
   "document.delete": {
     deletes: true,

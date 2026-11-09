@@ -496,9 +496,9 @@ export function YourNoteLabel({ item }: { item: Pick<Document, "yourNote"> }) {
 /**
  * The status at a row's end: "Missing" or "Unavailable" when its file isn't
  * where it was (that comes first: it's what the User can act on), "38%"
- * while it's embedded, "Failed" if it failed, nothing once it's ready. Its
- * full words (and a failure's message) are its tooltip, and what a screen
- * reader reads.
+ * while it's embedded, "Failed" if it failed, nothing once it's ready, not
+ * even for a screen reader (#2870). Its full words (and a failure's message)
+ * are its tooltip, and what a screen reader reads.
  */
 export function DocumentStatusLabel({ item }: { item: Document }) {
   const t = useT();
@@ -529,13 +529,7 @@ export function DocumentStatusLabel({ item }: { item: Document }) {
     : shortStatusMessages[item.status];
   const short = shortKey && (scanning?.short ?? t(shortKey, { percent }));
   const title = item.failure?.message ? `${full}\n${item.failure.message}` : full;
-  if (!short) {
-    return (
-      <span data-testid="document-status" className="sr-only">
-        {full}
-      </span>
-    );
-  }
+  if (!short) return null;
   return (
     <span
       data-testid="document-status"
