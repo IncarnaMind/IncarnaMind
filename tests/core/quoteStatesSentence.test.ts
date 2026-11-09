@@ -88,7 +88,9 @@ describe("a Citation's shown quote states its sentence, or the sentence has no g
       const citation = await asked(each, chinese);
 
       expect(citation?.check).toBe(each.ends);
-      if (each.ends === "found") {
+      // A stated sentence shows words that state it; a decoy's number is in the words shown, and
+      // only the model's own words keep it from the green check.
+      if (each.ends === "found" || cases === DECOY_ENGLISH || cases === DECOY_CHINESE) {
         for (const words of each.states) expect(holds(citation?.quote ?? "", words)).toBe(true);
         expect(holds(citation?.quote ?? "", each.quote)).toBe(true);
       }

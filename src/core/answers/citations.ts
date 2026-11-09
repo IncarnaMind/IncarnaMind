@@ -2223,7 +2223,7 @@ export function createCitationSession(
       const shown = wholeSentences(citedText(record), quote, matchingFor(source));
       // Words around the quote may hold a scan's word that may be misread: the check reads them too.
       if (shown !== quote && check({ ...record, quote: shown }).check === "found") {
-        record = { ...record, shown };
+        record = { ...record, shown, location: locationFor({ ...record, quote: shown }) };
       }
     }
     return { ok: true, record, source, passageUnits };

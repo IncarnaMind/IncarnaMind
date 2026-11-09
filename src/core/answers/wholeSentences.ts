@@ -13,7 +13,7 @@ import type { PageText } from "../documents/passages";
 import type { Matching } from "./citations";
 
 /** The longest a widened quote may be, in characters: past it, a "sentence" is a table or a list. */
-export const WIDEST_QUOTE = 500;
+const WIDEST_QUOTE = 500;
 
 /**
  * A wrapped line fills the measure: one that ends this far short of the page's longest lines was
@@ -26,9 +26,18 @@ const ENDS_SENTENCE = /[.!?。．！？；;:：…]/u;
 const RUNS_ON = /[,，、]/u;
 const HAS_WORDS = /[\p{L}\p{N}]/u;
 /**
+ * A line that starts a numbered heading or caption ("4.2 Delivery", "Section 4 …", "Table 1: …"): a
+ * capital starting the line after it starts a sentence, where a numbered clause wraps to small letters.
+ */
+const HEADING =
+  /^\s*(?:\d+(?:\.\d+)*\.?\s|(?:section|chapter|clause|article|part|table|figure)\s+\d)/iu;
+/** A table's row: three numbers or more on one line. */
+const ROW_OF_FIGURES = /(?:\d[\d,.]*%?\D+){2,}\d/u;
+const CAPITAL = /\p{Lu}/u;
+/**
  * A sentence's end, with the closing marks and bracketed reference marks after it ("…提出的。[2]"):
- * text that ends otherwise, a decimal's digits included, is a table's rows, a list or a heading,
- * never widened into.
+ * text that ends otherwise, a decimal's digits included, is likely a table's rows, a list or a
+ * heading, and the quote stays as given.
  */
 const ENDS_PROSE = /[.!?。．！？…](?:["'”’»」』)）\]】]|\[\d{1,3}\])*\s*$/u;
 const TRAILING_OPENERS = /[\s[（(「『“‘《]+$/u;
@@ -45,14 +54,16 @@ function fullLength(lines: readonly string[]): number {
 
 /**
  * `text` with each newline a PDF page wrapped at read as a space, so the sentences run on across
- * it; same length, so offsets hold. One after a comma always wraps. Chinese and Japanese wraps were
- * joined when the page was read, so a newline beside them was printed on purpose; so was one after
- * a sentence's end or a line well short of the page's measure. Other kinds of Units break their
- * lines on purpose.
+ * it, and each tab between a table's cells as a newline, so they don't; same length, so offsets
+ * hold. One after a comma always wraps. Chinese and Japanese wraps were joined when the page was
+ * read, so a newline beside them was printed on purpose; so was one after a sentence's end, a line
+ * well short of the page's measure, a numbered heading or caption, or a table's row. Other kinds of
+ * Units break their lines on purpose.
  */
 function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
-  if (!units.every((unit) => (unit.kind ?? "page") === "page")) return text;
-  const lines = text.split("\n");
+  const cells = text.replaceAll("\t", "\n");
+  if (!units.every((unit) => (unit.kind ?? "page") === "page")) return cells;
+  const lines = cells.split("\n");
   const full = fullLength(lines) * FULL_LINE;
   return lines
     .map((line, index) => {
@@ -63,6 +74,8 @@ function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
       const wraps =
         before !== "" &&
         after !== "" &&
+        !(HEADING.test(line) && CAPITAL.test(after)) &&
+        !ROW_OF_FIGURES.test(line) &&
         (RUNS_ON.test(before) ||
           (!ENDS_SENTENCE.test(before) &&
             !isCjk(before) &&
@@ -78,7 +91,8 @@ function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
  * quote as given when it is whole sentences already, when the check doesn't find it in one place,
  * in a sheet's rows or a Transcript's lines, in text that doesn't end a sentence there (a table, a
  * list, a sentence that runs on past its page), or when the sentences would be longer than
- * `WIDEST_QUOTE`. What it gives is always found where the quote is.
+ * `WIDEST_QUOTE`. A PDF's heading with no number that fills a line can still read as the start of
+ * the sentence after it. What it gives is always found where the quote is.
  */
 export function wholeSentences(
   units: readonly PageText[],

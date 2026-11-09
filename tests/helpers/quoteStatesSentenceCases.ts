@@ -18,6 +18,8 @@ export interface Case {
   sentence: string;
   /** The quote the model gave. */
   quote: string;
+  /** A second quote the model gave the same sentence. */
+  also?: string;
   /** Words a quote must hold to state the sentence. */
   states: readonly string[];
   /** The judge's verdict on what the Passages say; supported when absent. */
@@ -347,6 +349,15 @@ export const DECOY_ENGLISH: readonly Case[] = [
     states: ["300 tonnes"],
     ends: "not-checked",
   },
+  {
+    name: "gives the year's rise as its output, from a second quote",
+    lines: ["The plant's output rose to 4,200 tonnes in 2025, up 300 tonnes on the year before."],
+    sentence: "The plant's output was 300 tonnes in 2025.",
+    quote: "The plant's output rose to 4,200 tonnes in 2025",
+    also: "up 300 tonnes on the year before",
+    states: ["300 tonnes"],
+    ends: "not-checked",
+  },
 ];
 
 export const DECOY_CHINESE: readonly Case[] = [
@@ -355,6 +366,15 @@ export const DECOY_CHINESE: readonly Case[] = [
     lines: ["该厂 2025 年产量升至 4,200 吨，比上年增加 300 吨。"],
     sentence: "该厂 2025 年的产量为 300 吨。",
     quote: "该厂 2025 年产量升至 4,200 吨",
+    states: ["300 吨"],
+    ends: "not-checked",
+  },
+  {
+    name: "gives the year's rise as its output, from a second quote",
+    lines: ["该厂 2025 年产量升至 4,200 吨，比上年增加 300 吨。"],
+    sentence: "该厂 2025 年的产量为 300 吨。",
+    quote: "该厂 2025 年产量升至 4,200 吨",
+    also: "比上年增加 300 吨",
     states: ["300 吨"],
     ends: "not-checked",
   },
@@ -373,26 +393,24 @@ export const documentOf = (each: Case, chinese: boolean) => ({
   ),
 });
 
-/** An Answer that searches, cites `each.quote` in the Passage that holds it, and writes its sentence. */
+/** An Answer that searches, cites `each.quote` (and `each.also`) in the Passage that holds it, and writes its sentence. */
 export function answering(each: Case) {
-  const marked = `${each.sentence.slice(0, -1)}[^1]${each.sentence.slice(-1)}`;
+  const quotes = [each.quote, ...(each.also ? [each.also] : [])];
+  const markers = quotes.map((_, index) => `[^${index + 1}]`).join("");
+  const marked = `${each.sentence.slice(0, -1)}${markers}${each.sentence.slice(-1)}`;
   return (call: ModelCall): ScriptedReply => {
     const searches = call.results.filter((result) => result.tool === "search_documents");
     if (searches.length === 0) {
       return { calls: [{ tool: "search_documents", input: { query: each.quote } }] };
     }
     if (!call.results.some((result) => result.tool === "cite")) {
-      const passage = shownPassages(searches.at(-1)?.text ?? "").find((shown) =>
-        spaced(shown.text).includes(spaced(each.quote)),
-      );
-      return {
-        calls: [
-          {
-            tool: "cite",
-            input: { citations: [{ marker: 1, passage: passage?.id, quote: each.quote }] },
-          },
-        ],
-      };
+      const shown = shownPassages(searches.at(-1)?.text ?? "");
+      const citations = quotes.map((quote, index) => ({
+        marker: index + 1,
+        passage: shown.find((passage) => spaced(passage.text).includes(spaced(quote)))?.id,
+        quote,
+      }));
+      return { calls: [{ tool: "cite", input: { citations } }] };
     }
     return { text: marked };
   };
