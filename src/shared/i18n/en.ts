@@ -100,6 +100,7 @@ export const en = {
   "organizeReview.leftOut.stays": "Stays in “{folder}”",
   "organizeReview.leftOut.noText": "No text to read",
   "organizeReview.leftOut.unreachable": "Couldn’t reach {service}",
+  "organizeReview.leftOut.cutShort": "The AI model’s reply was cut short",
   "organizeReview.leftOut.walled": "“{folder}” keeps its work inside it",
   "organizeReview.leftOut.noTag": "No Tag fits",
   "organizeReview.leftOut.tooFew": "Too few like it for a Folder yet",

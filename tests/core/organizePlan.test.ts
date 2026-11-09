@@ -26,6 +26,7 @@ import {
   finishPlan,
   type LibraryPlan,
   type PlanExcerpt,
+  type PlanFailure,
   type PlanModel,
   planLocally,
   SAMPLE,
@@ -34,6 +35,7 @@ import {
   wordVectors,
 } from "../../src/core/library/plan";
 import { createOrganizeReviewStore } from "../../src/core/organizeReview";
+import { CutShortError, outputTokens } from "../../src/core/providers/outputLimits";
 import { openDatabase } from "../../src/core/storage";
 import { PRESET_TAGS } from "../../src/core/tags/presets";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -83,6 +85,10 @@ function letterModel(
     failPlacing?: boolean;
     existing?: Record<string, string>;
     missesAtFirst?: string;
+    /** The requests whose replies run past their output limit. */
+    cut?: ("sort" | "second sort" | "place" | "name")[];
+    /** A second sort files them by another letter: { I: "A" } puts Iota's Documents in Alpha. */
+    secondAs?: Record<string, string>;
   } = {},
 ) {
   const asked = {
@@ -90,12 +96,18 @@ function letterModel(
     placed: [] as PlanExcerpt[][],
     named: [] as SubfolderGroup[][],
   };
+  const cut = (request: "sort" | "second sort" | "place" | "name") => {
+    if (options.cut?.includes(request)) throw new CutShortError(400, true);
+  };
   const model: PlanModel = {
     async sort(request) {
       asked.sorted.push([...request.documents]);
+      cut(asked.sorted.length === 1 ? "sort" : "second sort");
       const folders = new Map<string, { id: string | null; name: string; refs: string[] }>();
       for (const doc of request.documents) {
-        const name = LETTERS.find((each) => each.startsWith(doc.name.charAt(0)));
+        const first = doc.name.charAt(0);
+        const letter = asked.sorted.length > 1 ? (options.secondAs?.[first] ?? first) : first;
+        const name = LETTERS.find((each) => each.startsWith(letter));
         if (!name || (asked.sorted.length === 1 && name === options.missesAtFirst)) continue;
         const existing =
           request.folders.find((folder) => folder.name === name)?.id ??
@@ -116,6 +128,7 @@ function letterModel(
           requestBodyValues: {},
           isRetryable: false,
         });
+      cut("place");
       return new Map(
         documents.map((doc) => [
           doc.ref,
@@ -125,6 +138,7 @@ function letterModel(
     },
     async nameSubfolders(groups) {
       asked.named.push([...groups]);
+      cut("name");
       return new Map(
         groups.map((group) => [
           group.ref,
@@ -140,7 +154,8 @@ function plan(
   named: { name: string; vector: Float32Array }[],
   model: PlanModel,
   folders: { id: string; name: string; description: string }[] = [],
-  leavesOut = () => true,
+  leavesOut: (error: unknown) => PlanFailure | null = (error) =>
+    error instanceof CutShortError ? "cutShort" : "unreachable",
   aim?: FolderAim,
 ): Promise<LibraryPlan> {
   const local = planLocally({
@@ -263,10 +278,38 @@ describe("The plan's requests and places", () => {
       expect(held.length).toBeGreaterThanOrEqual(3);
     }
 
-    const fewer = await plan(reshaped, letterModel().model, [], () => true, { least: 3, most: 4 });
+    const fewer = await plan(reshaped, letterModel().model, [], () => "unreachable", {
+      least: 3,
+      most: 4,
+    });
     const top = fewer.folders.filter((folder) => folder.parentKey === null);
     expect(top.length).toBeLessThanOrEqual(4);
     expect(top.map((folder) => folder.name)).toContain("Alpha");
+  });
+
+  // protects=in a Library the sample covers whole, what the sort left out or put in a Folder too small to make still gets a second look beside the Folders made; fails_when=those Documents stay out of every Folder, as on a Library of a few Documents an area (#2737).
+  test("a Library sampled whole: a Folder too small to make gets a second look beside those made", async () => {
+    const { model, asked } = letterModel({ secondAs: { I: "A" } });
+    const { vectors } = groups(4, 5, 32);
+    const named = namedGroups(vectors, 5, ["A", "B", "G", "I"]).map((each, at) =>
+      at >= 17 ? { ...each, name: `X${at}` } : each,
+    );
+    const result = await plan(named, model);
+    expect(asked.sorted).toHaveLength(2);
+    expect(asked.sorted[1]?.map((doc) => doc.name).sort()).toEqual([
+      "I15",
+      "I16",
+      "X17",
+      "X18",
+      "X19",
+    ]);
+    const alpha = result.folders.find((folder) => folder.name === "Alpha")?.key;
+    expect(result.folders.map((folder) => folder.name).sort()).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect([15, 16].map((at) => result.places.get(`doc${at}`))).toEqual([
+      { kind: "new", key: alpha },
+      { kind: "new", key: alpha },
+    ]);
+    expect(result.places.get("doc17")).toEqual({ kind: "none" });
   });
 
   test("a new Folder of more than 40 is split into named subfolders of at least 5", async () => {
@@ -356,10 +399,44 @@ describe("The plan's requests and places", () => {
       { name: "AB", vector: unit([...alpha].map((value, at) => value + (beta[at] ?? 0))) },
     ];
     const result = await plan(named, letterModel({ failPlacing: true }).model);
-    expect(result.places.get("doc90")).toEqual({ kind: "none", unreachable: true });
+    expect(result.places.get("doc90")).toEqual({ kind: "none", failed: "unreachable" });
     await expect(
-      plan(named, letterModel({ failPlacing: true }).model, [], () => false),
+      plan(named, letterModel({ failPlacing: true }).model, [], () => null),
     ).rejects.toThrow("fetch failed");
+  });
+
+  test("a reply cut short leaves out only what it was asked about, and the plan goes on", async () => {
+    const { vectors, middles } = groups(3, 30);
+    const [alpha, beta] = middles as [Float32Array, Float32Array];
+    const named = [
+      ...namedGroups(vectors, 30, ["A", "B", "G"]),
+      { name: "AB", vector: unit([...alpha].map((value, at) => value + (beta[at] ?? 0))) },
+    ];
+    const placing = await plan(named, letterModel({ cut: ["place"] }).model);
+    expect(placing.places.get("doc90")).toEqual({ kind: "none", failed: "cutShort" });
+    expect(placing.folders.map((folder) => folder.name).sort()).toEqual(["Alpha", "Beta", "Gamma"]);
+
+    const sorting = await plan(named, letterModel({ cut: ["sort"] }).model);
+    expect(sorting.folders).toEqual([]);
+    expect([...sorting.places.values()]).toHaveLength(91);
+    expect(
+      [...sorting.places.values()].every((place) => place.kind === "none" && place.failed),
+    ).toBe(true);
+
+    const second = letterModel({ missesAtFirst: "Delta", cut: ["second sort"] });
+    const delta = groups(4, 20).vectors;
+    const looked = await plan(namedGroups(delta, 20, ["A", "B", "G", "D"]), second.model);
+    expect(second.asked.sorted).toHaveLength(2);
+    expect(looked.places.get("doc70")).toEqual({ kind: "none" });
+    expect(looked.folders.map((folder) => folder.name).sort()).toEqual(["Alpha", "Beta", "Gamma"]);
+
+    const parts = groups(2, 25, 24, 0.1, 9).vectors;
+    const naming = await plan(
+      parts.map((vector, at) => ({ name: `A${at < 25 ? "x" : "y"}${at}`, vector })),
+      letterModel({ cut: ["name"] }).model,
+    );
+    expect(naming.folders.map((folder) => folder.name)).toEqual(["Alpha"]);
+    expect([...naming.places.values()].filter((place) => place.kind === "new")).toHaveLength(50);
   });
 });
 
@@ -388,18 +465,26 @@ const RULES = [
 const ruleOf = (doc: { name: string; text: string }) =>
   RULES.find((rule) => `${doc.name} ${doc.text}`.toLowerCase().includes(rule.word));
 
-/** A chat model that sorts by `RULES`, answering the plan's requests, and records each request. */
-function rulesModel(options: { holdSort?: boolean } = {}) {
+/**
+ * A chat model that sorts by `RULES`, answering the plan's requests, and records each request.
+ * `sortRoom`: the room a sort's reply needs, past which it runs and is cut off at its limit.
+ */
+function rulesModel(options: { holdSort?: boolean; sortRoom?: number } = {}) {
   const requests: string[] = [];
-  const reply = (value: unknown) => ({
-    content: [{ type: "text" as const, text: JSON.stringify(value) }],
-    finishReason: { unified: "stop" as const, raw: undefined },
-    warnings: [],
-    usage: {
-      inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
-      outputTokens: { total: 1, text: 1, reasoning: undefined },
-    },
-  });
+  const sortLimits: (number | undefined)[] = [];
+  const reply = (value: unknown, limit?: number) => {
+    const text = JSON.stringify(value);
+    const cut = limit !== undefined && limit < (options.sortRoom ?? 0);
+    return {
+      content: [{ type: "text" as const, text: cut ? text.slice(0, text.length / 2) : text }],
+      finishReason: { unified: cut ? ("length" as const) : ("stop" as const), raw: undefined },
+      warnings: [],
+      usage: {
+        inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
+      },
+    };
+  };
   const model = new MockLanguageModelV4({
     doGenerate: async (call) => {
       const schema = (
@@ -408,6 +493,7 @@ function rulesModel(options: { holdSort?: boolean } = {}) {
       if (schema?.properties?.folders && "documents" in JSON.parse(userText(call))) {
         const text = userText(call);
         requests.push(text);
+        sortLimits.push(call.maxOutputTokens);
         if (options.holdSort)
           await new Promise((_, reject) =>
             call.abortSignal?.addEventListener("abort", () => reject(new Error("Stopped."))),
@@ -434,7 +520,7 @@ function rulesModel(options: { holdSort?: boolean } = {}) {
           folders.set(rule.folder, entry);
           placed.push({ ref: doc.ref, folder: entry.key });
         }
-        return reply({ folders: [...folders.values()], documents: placed });
+        return reply({ folders: [...folders.values()], documents: placed }, call.maxOutputTokens);
       }
       if (schema?.properties?.placements) {
         const text = userText(call);
@@ -454,10 +540,12 @@ function rulesModel(options: { holdSort?: boolean } = {}) {
       return reply({ tags: [], newTags: [] });
     },
   });
-  return { model, requests };
+  return { model, requests, sortLimits };
 }
 
-async function start(options: { holdSort?: boolean; embeddings?: boolean } = {}) {
+async function start(
+  options: { holdSort?: boolean; embeddings?: boolean; sortRoom?: number } = {},
+) {
   const sorting = rulesModel(options);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
@@ -636,6 +724,37 @@ describe("Organize the Library into the Review", () => {
     await core.stopOrganizeLibrary();
     expect(await running).toMatchObject({ status: "stopped" });
     expect((await core.getOrganizeReview()).items).toHaveLength(0);
+  });
+
+  // protects=a plan reply that runs past its output limit never ends the run: it is asked again with all its room, and only a reply that runs past that too leaves its Documents out, saying why, while the Review still opens; fails_when=the run ends with CutShortError and no Review, as one at 400 tokens did on the 500 set (#2737).
+  test("a plan reply that runs past its output limit is asked again with room, and the run reaches the Review", async () => {
+    const files = {
+      "Invoice 1.txt": "Invoice for March.",
+      "Invoice 2.txt": "Invoice for April.",
+      "Invoice 3.txt": "Invoice for May.",
+      "Board minutes 1.txt": "Minutes of the board.",
+      "Board minutes 2.txt": "Minutes of the second board.",
+      "Board minutes 3.txt": "Minutes of the third board.",
+    };
+    const share = outputTokens("folder-plan", 6);
+    const all = outputTokens("folder-plan", Number.POSITIVE_INFINITY);
+
+    const roomy = await start({ sortRoom: share + 1 });
+    await add(roomy.core, roomy.sources, files);
+    expect(await roomy.core.organizeLibrary()).toMatchObject({ status: "done", proposed: 6 });
+    expect(roomy.sorting.sortLimits).toEqual([share, all]);
+    const { review } = await placementsByName(roomy.core);
+    expect(review.folders.map((folder) => folder.name).sort()).toEqual(["Invoices", "Meetings"]);
+
+    const cut = await start({ sortRoom: all + 1 });
+    await add(cut.core, cut.sources, files);
+    expect(await cut.core.organizeLibrary()).toMatchObject({ status: "done", proposed: 6 });
+    expect(cut.sorting.sortLimits).toEqual([share, all]);
+    const left = await placementsByName(cut.core);
+    expect(left.review.folders).toEqual([]);
+    expect(left.review.items.map((item) => item.placement)).toEqual(
+      Array.from({ length: 6 }, () => ({ kind: "leftOut", leftOut: { reason: "cutShort" } })),
+    );
   });
 
   test("a run estimated at more than $1 returns its estimate and sends nothing until accepted", async () => {

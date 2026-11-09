@@ -97,6 +97,7 @@ export const zhCN = {
   "organizeReview.leftOut.stays": "留在“{folder}”中",
   "organizeReview.leftOut.noText": "没有可读取的文字",
   "organizeReview.leftOut.unreachable": "无法连接 {service}",
+  "organizeReview.leftOut.cutShort": "AI 模型的回复过长，已截断",
   "organizeReview.leftOut.walled": "“{folder}”只在本文件夹内工作",
   "organizeReview.leftOut.noTag": "没有合适的标签",
   "organizeReview.leftOut.tooFew": "相近的文档太少，还不能建文件夹",

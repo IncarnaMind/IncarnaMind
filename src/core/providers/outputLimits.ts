@@ -30,7 +30,9 @@ export const OUTPUT_LIMITS = {
   organize: { most: 512 },
   folders: { most: 1_024 },
   // Organize's plan at any size (../library/plan): a sample sorted, a batch placed, subfolders named.
-  "folder-plan": { most: 4_000, each: 40 },
+  // A sort lists its Folders, each named and described, before its Documents: Claude Haiku 5.5
+  // wrote about 270 tokens and 18 a Document, so a sort of 15 ran past 40 a Document (#2737).
+  "folder-plan": { most: 4_000, each: 40, base: 600 },
   placements: { most: 2_048, each: 40 },
   subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
@@ -69,7 +71,7 @@ export const OUTPUT_LIMITS = {
   "working-text": { most: 256 },
   // One sentence of a check's card written again in the interface's language (#2081).
   restate: { most: 400 },
-} as const satisfies Record<string, { most: number; each?: number }>;
+} as const satisfies Record<string, { most: number; each?: number; base?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;
 
@@ -78,12 +80,12 @@ export const LONGEST_OUTPUT = Math.max(
   ...Object.values(OUTPUT_LIMITS).map((limit: { most: number }) => limit.most),
 );
 
-/** `count`: the items a call of a kind with `each` asks about. */
+/** `count`: the items a call of a kind with `each` asks about, after its `base`. */
 export function outputTokens(kind: ModelCallKind, count = 1): number {
-  const limit: { most: number; each?: number } = OUTPUT_LIMITS[kind];
+  const limit: { most: number; each?: number; base?: number } = OUTPUT_LIMITS[kind];
   return limit.each === undefined
     ? limit.most
-    : Math.min(limit.most, limit.each * Math.max(1, count));
+    : Math.min(limit.most, (limit.base ?? 0) + limit.each * Math.max(1, count));
 }
 
 /**

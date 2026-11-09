@@ -16,12 +16,15 @@
  *    there, unless one sits near a cluster that went elsewhere (`CLEAR`) or the sampled Document
  *    most like it went elsewhere. The rest are asked of the model, `PLACE_BATCH` to a request.
  *    Only the model leaves a Document out.
- * 5. Three or more left out that no sample showed get a second look, which may find an area
+ * 5. A new Folder holding fewer than `MIN_FOLDER` is dropped. Three or more left out, by the model
+ *    or with such a Folder, get a second look beside the Folders made, which may find an area
  *    they share: a Folder for them, and every Document still left out is placed again. A plan
  *    already at its most Folders merges its two most alike to make room (`mergeClosest`).
- * 6. A new Folder left with fewer than `MIN_FOLDER` is dropped. A new Folder of more than
- *    `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at least `MIN_SUBFOLDER`,
- *    which one more request names.
+ * 6. A new Folder of more than `SPLIT_OVER` is split by its vectors into 2 to 5 subfolders of at
+ *    least `MIN_SUBFOLDER`, which one more request names.
+ *
+ * A request whose reply runs past its output limit, asked again with more room, leaves out only
+ * what it was asked about, so the run still reaches the Review.
  *
  * On generated Libraries of 500 and 1,000 Documents with the labels as the model's answers,
  * steps 2–4 placed 98% where the labels put them, asking the model about a quarter of them.
@@ -499,11 +502,14 @@ export interface PlanInput {
   aim?: FolderAim;
 }
 
+/** Why a request left its Documents out: the service couldn't be reached, or its reply was cut short. */
+export type PlanFailure = "unreachable" | "cutShort";
+
 /** Where a Document goes: a Folder there is, a new Folder (by key), or none. */
 export type PlanPlace =
   | { kind: "folder"; folderId: string }
   | { kind: "new"; key: string }
-  | { kind: "none"; unreachable?: true };
+  | { kind: "none"; failed?: PlanFailure };
 
 export interface PlannedFolder {
   key: string;
@@ -642,10 +648,11 @@ export interface PlanCallbacks {
   /** How many of the Documents have their place so far. */
   progress(done: number): void;
   /**
-   * Whether a failed placement request leaves its Documents out as unreachable (true) or ends
-   * the plan (false): a stop by the User or the send gate always ends it.
+   * Why a failed placement request leaves its Documents out, or null when it ends the plan: a
+   * stop by the User or the send gate always ends it. A sort cut short leaves its Documents out
+   * and subfolders cut short aren't made; any other failure of those ends the plan.
    */
-  leavesOut(error: unknown): boolean;
+  leavesOut(error: unknown): PlanFailure | null;
 }
 
 /** Steps 3–6: the requests, and every Document's place. */
@@ -671,6 +678,8 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   // The Folders there are go to the model as F1, F2…; new ones are N1, N2… in the plan.
   const known = input.folders.map((folder, at) => ({ ...folder, ref: `F${at + 1}` }));
   const folders: PlannedFolder[] = [];
+  // Keys count every Folder made: one dropped leaves a gap that counting those left would reuse.
+  let made = 0;
   const choices = (): PlanFolder[] => [
     ...known.map(({ ref, name, description }) => ({ id: ref, name, description })),
     ...folders.map(({ key, name, description }) => ({ id: key, name, description })),
@@ -718,7 +727,8 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       }
       let place = folder.id === null ? null : placeOf(folder.id);
       if (!place || place.kind === "none") {
-        const key = `N${folders.length + 1}`;
+        made++;
+        const key = `N${made}`;
         folders.push({ key, name: folder.name, description: folder.description, parentKey: null });
         place = { kind: "new", key };
       }
@@ -743,9 +753,10 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
           requests++;
           for (const at of batch) places.set(at, placeOf(chosen.get(refOf(at)) ?? null));
         } catch (error) {
-          if (signal.aborted || !run.leavesOut(error)) throw error;
+          const failed = signal.aborted ? null : run.leavesOut(error);
+          if (!failed) throw error;
           requests++;
-          for (const at of batch) places.set(at, { kind: "none", unreachable: true });
+          for (const at of batch) places.set(at, { kind: "none", failed });
         }
         report();
       }),
@@ -753,7 +764,24 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     );
   };
 
-  const unclear = await sortInto(sample, aim.most);
+  const cutShort = (error: unknown) => !signal.aborted && run.leavesOut(error) === "cutShort";
+  let unclear: number[];
+  try {
+    unclear = await sortInto(sample, aim.most);
+  } catch (error) {
+    if (!cutShort(error)) throw error;
+    // No Folder came back to place anything in.
+    return {
+      folders: [],
+      places: new Map(
+        documents.map(({ id }) => [id, { kind: "none", failed: "cutShort" } as const]),
+      ),
+      clusters: clustering.centres.length,
+      sampled: sample.length,
+      placedByModel: 0,
+      requests: requests + 1,
+    };
+  }
 
   // A cluster goes where its sampled Documents all went; a split cluster goes nowhere. Only the
   // model leaves a Document out.
@@ -807,47 +835,79 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
   report();
   await placeAll(unclear);
 
-  // Documents the model left out of every Folder it had, though it never saw them in a sample:
-  // a second look may find an area 3 or more of them share.
-  const seen = new Set(sample);
-  const leftOut = [...places]
-    .filter(([at, place]) => place.kind === "none" && !place.unreachable && !seen.has(at))
-    .map(([at]) => at);
-  if (leftOut.length >= MIN_FOLDER) {
-    const byCluster = clustering.centres.map((_, cluster) =>
-      leftOut.filter((at) => clustering.assignment[at] === cluster),
-    );
-    const second = spread(byCluster, SAMPLE);
-    for (const at of second) places.delete(at);
-    const before = folders.length;
-    // A plan already at its most still takes one more area, and makes room for it below.
-    const again = await sortInto(second, Math.max(1, aim.most - folders.length));
-    // With a Folder more, every Document still left out is placed again, those sampled first too.
-    const rest = [...places]
-      .filter(([at, place]) => place.kind === "none" && !place.unreachable && !second.includes(at))
-      .map(([at]) => at);
-    await placeAll([...again, ...(folders.length > before ? rest : [])]);
-    mergeClosest(folders, places, vectors, aim.most);
-  }
-
-  // A new Folder with too few Documents isn't made: they are left out.
+  // A new Folder holding too few Documents isn't made: they are left out.
   const holding = (key: string) =>
     [...places.values()].filter((place) => place.kind === "new" && place.key === key).length;
-  const kept = folders.filter((folder) => holding(folder.key) >= MIN_FOLDER);
-  for (const [at, place] of places)
-    if (place.kind === "new" && !kept.some((folder) => folder.key === place.key))
-      places.set(at, { kind: "none" });
+  const dropSmall = () => {
+    const small = new Set(
+      folders.filter((folder) => holding(folder.key) < MIN_FOLDER).map((folder) => folder.key),
+    );
+    for (const [at, place] of places)
+      if (place.kind === "new" && small.has(place.key)) places.set(at, { kind: "none" });
+    folders.splice(0, folders.length, ...folders.filter((folder) => !small.has(folder.key)));
+  };
+  dropSmall();
 
-  const subfolders = await split(
-    kept,
-    input.folders.map((folder) => folder.name),
-    places,
-    vectors,
-    excerpt,
-    model,
-    input.language,
-    signal,
+  // What the model left out, or put in a Folder too small to make, gets a second look beside the
+  // Folders made, which may find an area 3 or more of them share. A Library small enough to be
+  // sampled whole has no other Documents to look at again (#2737).
+  const leftOut = [...places]
+    .filter(([, place]) => place.kind === "none" && !place.failed)
+    .map(([at]) => at);
+  const second = spread(
+    clustering.centres.map((_, cluster) =>
+      leftOut.filter((at) => clustering.assignment[at] === cluster),
+    ),
+    SAMPLE,
   );
+  const sampled = new Set(sample);
+  // The same Documents beside no new Folder would be the first sort's request again.
+  const repeats =
+    folders.length === 0 &&
+    second.length === sample.length &&
+    second.every((at) => sampled.has(at));
+  if (leftOut.length >= MIN_FOLDER && !repeats) {
+    for (const at of second) places.delete(at);
+    const before = folders.length;
+    let again: number[] | null = null;
+    try {
+      // A plan already at its most still takes one more area, and makes room for it below.
+      again = await sortInto(second, Math.max(1, aim.most - folders.length));
+    } catch (error) {
+      if (!cutShort(error)) throw error;
+      for (const at of second) places.set(at, { kind: "none" });
+    }
+    if (again) {
+      // With a Folder more, every Document still left out is placed again, those sampled first too.
+      const rest = [...places]
+        .filter(([at, place]) => place.kind === "none" && !place.failed && !second.includes(at))
+        .map(([at]) => at);
+      await placeAll([...again, ...(folders.length > before ? rest : [])]);
+      mergeClosest(folders, places, vectors, aim.most);
+    }
+    dropSmall();
+  }
+  const kept = folders;
+
+  let subfolders: { folders: PlannedFolder[]; requested: boolean } = {
+    folders: [],
+    requested: true,
+  };
+  try {
+    subfolders = await split(
+      kept,
+      input.folders.map((folder) => folder.name),
+      places,
+      vectors,
+      excerpt,
+      model,
+      input.language,
+      signal,
+    );
+  } catch (error) {
+    // Subfolders left unnamed aren't made: each Folder stays whole.
+    if (!cutShort(error)) throw error;
+  }
   if (subfolders.requested) requests++;
 
   return {
