@@ -93,8 +93,8 @@ const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{S
 /**
  * How many words a text is worth, alike across scripts: its words and numbers, common English
  * words aside, as `wordsOf` gives them, and its Chinese, Japanese or Korean characters in pairs,
- * as the Citation card's nearest words count them (./closestWords). Counted by `wordsOf`'s
- * neighbouring pairs, four characters such as 律师预期 were worth three words where "lawyer
+ * as the Citation card's nearest words count them (./closestWords). Counted as `wordsOf`'s
+ * neighbouring pairs, four characters such as 律师预期 would be worth three words where "lawyer
  * expected" is worth two (#2847).
  */
 export function wordsWorth(text: string): number {

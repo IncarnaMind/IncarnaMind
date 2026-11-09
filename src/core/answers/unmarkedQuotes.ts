@@ -85,17 +85,26 @@ export function* missingMarkerEvents(
   return placed;
 }
 
-/** Where the engine places a finished reply's unmarked records, only after words they hold: the edits, and the text. */
+/**
+ * Where call help places a finished reply's unmarked records, only after words they hold (#2847):
+ * the edits, and the text. A record whose quote isn't found as given is never placed.
+ */
 export function* heldMarkerEvents(
   text: string,
-  records: readonly MarkerRecord[],
-  tools: Pick<AnswerTools, "hasRecord">,
+  records: readonly (MarkerRecord & { passage?: string })[],
+  tools: Pick<AnswerTools, "hasRecord" | "quoteFound">,
   spansIn: (text: string) => readonly Span[],
 ): Generator<AnswerEngineEvent, string> {
+  const found = new Map(
+    records.map((record) => [
+      record.marker,
+      record.passage !== undefined && (tools.quoteFound?.(record.passage, record.quote) ?? false),
+    ]),
+  );
   const { text: placed, placed: markers } = withHeldMarkers(
     text,
     records,
-    (marker) => tools.hasRecord?.(marker) ?? false,
+    (marker) => (tools.hasRecord?.(marker) ?? false) && found.get(marker) === true,
     spansIn(text),
   );
   if (markers.length === 0) return text;

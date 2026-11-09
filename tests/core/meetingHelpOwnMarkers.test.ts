@@ -217,6 +217,32 @@ const OPPOSITE = [
   },
 ];
 
+const NOWHERE = [
+  {
+    language: "Chinese",
+    call: {
+      lines: ["我们下周排期。", ...QUIET, "嗯。"],
+      theirLines: ["我们必须在六月审计之前上线。", "预算是定死的。", ...QUIET],
+    },
+    reply: "★ 对方必须在六月审计之前上线\n0:03 “预算是定死的”\n→ 先确认能在六月审计之前上线",
+    quote: "我们必须在六月审计之前上线",
+  },
+  {
+    language: "English",
+    call: {
+      lines: ["We can plan next week.", ...QUIET_EN, "Okay."],
+      theirLines: [
+        "We need this running before our audit in June.",
+        "The budget is fixed.",
+        ...QUIET_EN,
+      ],
+    },
+    reply:
+      "★ They need this running before their audit in June\n0:03 “The budget is fixed”\n→ confirm it can be running before the audit in June",
+    quote: "We need this running before our audit in June",
+  },
+];
+
 describe("Call help's Citations", { timeout: 60_000 }, () => {
   // protects=a record the model left unmarked goes right after the clause its quote holds, so Haiku's Citations stay and each ✓ sits after its own words; fails_when=it goes at the sentence's end, after a clause its quote doesn't hold, or nowhere; no_claim=which records a real model leaves unmarked (#2847).
   test.each(HELD)(
@@ -244,6 +270,17 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
         { quote: quotes[1], check: "found" },
       ]);
       expect(answer.text).toBe(placed);
+    },
+  );
+
+  // protects=a "→" line or a reading's own sentence never takes a Citation, even when a record's quote holds its words, since the form says neither is a fact; fails_when=the record goes after either; no_claim=the reading's quoted moment, which is the reading's place for it (#2847).
+  test.each(NOWHERE)(
+    "a → line or a reading's own sentence never takes a record: $language",
+    async ({ call, reply, quote }) => {
+      const { answer } = await pressed(call, citing(reply, [quote]), "want");
+
+      expect(answer.citations).toEqual([]);
+      expect(answer.text).toBe(reply);
     },
   );
 
@@ -358,39 +395,69 @@ describe("Call help's Citations", { timeout: 60_000 }, () => {
 });
 
 describe("Whether a quote holds the words a record would go after", () => {
-  // protects=a quote holds words only with every figure of theirs by kind and unit, never saying their opposite, in English and Chinese; fails_when=another unit, another currency or a negated word passes; no_claim=how much of their words it must share beyond the cases here (#2847).
+  // protects=a quote holds words only with every figure of theirs by kind and unit (digits, English and Chinese numbers in words, Chinese percentages), never saying their opposite within a negation's reach, and with most of each clause's own words, alike in English and Chinese; fails_when=another figure, another unit, an opposite or another subject passes, or a clause the quote doesn't hold rides on one it does; no_claim=how a real model paraphrases (#2847).
   test.each([
     {
-      quote: "Refunds are processed within 5 business days.",
-      words: "refunds come within 5 business days",
+      quote: "Licences renew every 12 months.",
+      words: ["licences renew every 12 months"],
       held: true,
     },
     {
-      quote: "Refunds are processed within 5 business days.",
-      words: "refunds come within 5 days",
-      held: false,
-    },
-    { quote: "Return labels cost $1.20 each.", words: "a return label costs $1.20", held: true },
-    {
-      quote: "A site can book up to 40 docks.",
-      words: "a site can book up to $40 of docks",
+      quote: "Licences renew every 12 months.",
+      words: ["licences renew every 12 weeks"],
       held: false,
     },
     {
-      quote: "Refrigerated goods are not covered on the Basic plan.",
-      words: "Basic covers refrigerated goods",
+      quote: "Either side may leave with sixty days' notice.",
+      words: ["either side may leave with thirty days' notice"],
       held: false,
     },
-    { quote: "错过的时段保留 15 分钟。", words: "错过的时段会保留 15 分钟", held: true },
-    { quote: "错过的时段保留 15 分钟。", words: "错过的时段会保留 15 天", held: false },
     {
-      quote: "注销账户的数据在注销 30 天后删除。",
-      words: "注销账户的数据三十天后删除",
+      quote: "Either side may leave with sixty days' notice.",
+      words: ["either side may leave with 60 days' notice"],
       held: true,
     },
-    { quote: "基础版不承保冷藏货物。", words: "基础版承保冷藏货物", held: false },
-    { quote: "退货面单每张 8 元。", words: "好的", held: false },
-  ])("“$words” against “$quote”: $held", ({ quote, words, held }) => {
-    expect(holds(quote, words)).toBe(held);
+    { quote: "Seats cost €12,50 a month.", words: ["seats cost €13,50 a month"], held: false },
+    { quote: "Seats cost €12,50 a month.", words: ["seats cost €12,50 a month"], held: true },
+    {
+      quote: "Only the Pro plan includes 24/7 phone support.",
+      words: ["the Basic plan also includes 24/7 phone support"],
+      held: false,
+    },
+    {
+      quote: "Upgrades are no longer available after launch.",
+      words: ["upgrades are available after launch"],
+      held: false,
+    },
+    {
+      quote: "Cleaners get a text reminder before each visit.",
+      words: ["cleaners get a text reminder before each visit", "and we rebook them for free"],
+      held: false,
+    },
+    {
+      quote: "Cleaners get a text reminder before each visit.",
+      words: ["cleaners get a text reminder before each visit"],
+      held: true,
+    },
+    { quote: "年付合同：服务费打九五折。", words: ["年付合同服务费打五折"], held: false },
+    { quote: "年付合同：服务费打九五折。", words: ["年付合同服务费打九五折"], held: true },
+    {
+      quote: "延误按服务费的百分之二十补偿。",
+      words: ["延误按服务费的百分之五十补偿"],
+      held: false,
+    },
+    { quote: "延误按服务费的百分之二十补偿。", words: ["延误按服务费的 20% 补偿"], held: true },
+    { quote: "每场培训最多六十人参加。", words: ["每场培训最多三十人参加"], held: false },
+    { quote: "专业版没有包含上门保洁。", words: ["专业版包含上门保洁"], held: false },
+    {
+      quote: "保洁员每次上门前两小时收到提醒。",
+      words: ["保洁员每次上门前 2 小时收到提醒"],
+      held: true,
+    },
+    { quote: "清洁剂：每瓶 45 元。", words: ["★ 我们的清洁剂每瓶 45 元"], held: true },
+    { quote: "专业版：每月 3,800 元，含 4 次上门。", words: ["专业版一个月 3,800 元"], held: true },
+    { quote: "清洁剂：每瓶 45 元。", words: ["好的"], held: false },
+  ])("$words against “$quote”: $held", ({ quote, words, held }) => {
+    expect(holds(quote, ...words)).toBe(held);
   });
 });
