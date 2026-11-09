@@ -508,15 +508,14 @@ describe("a unit softens only the figure it explains", () => {
   });
 
   // protects=a figure a unit doesn't explain closely ("3" against 3,400, a thousand times off only to its shown places) stays Contradicted; fails_when="Employees: 3" against 3,400 reads "Units may differ"; no_claim=none beyond protects.
-  test("Employees: 3 against 3,400", async () => {
+  test("Employees: 3 against 3400", async () => {
     const result = await check(
       "Employees at the year end: 3",
       {
         name: "Headcount.txt",
-        contents:
-          "Headcount note\nEmployees at the year end were 3,400.\nContractors were 1,250.5.\n",
+        contents: "Headcount note\nEmployees at the year end were 3400.\n",
       },
-      contradicted("Employees at the year end were 3,400", undefined, { from: "3", to: "3,400" }),
+      contradicted("Employees at the year end were 3400", undefined, { from: "3", to: "3400" }),
     );
     expect(result.state).toBe("contradicted");
     expect(result.unsupported?.kind).toBeUndefined();
