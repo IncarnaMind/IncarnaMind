@@ -24,16 +24,16 @@ const say = (
 
 test("a service is named, a model on this computer says so, and nothing is said otherwise", () => {
   expect(say(ANTHROPIC, "en")).toBe(
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to Anthropic.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic, with your interface language for a chat model.",
   );
   expect(say(ANTHROPIC, "zh-CN")).toBe(
-    "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic；使用聊天模型时，还有你的界面语言。",
   );
   expect(say(LOCAL, "en")).toBe(
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   );
   expect(say(LOCAL, "zh-CN")).toBe(
-    "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
   );
   expect(say(UNKNOWN, "en")).toBeNull();
   expect(say(NONE, "zh-CN")).toBeNull();
@@ -41,22 +41,22 @@ test("a service is named, a model on this computer says so, and nothing is said 
 
 test("Organize adds the Folders it files by, and page images when it reads scans", () => {
   expect(say(ANTHROPIC, "en", { folders: true })).toBe(
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to Anthropic.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to Anthropic.",
   );
   expect(say(ANTHROPIC, "zh-CN", { folders: true })).toBe(
-    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。",
+    "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。",
   );
   expect(say(ANTHROPIC, "en", { folders: true, scans: ANTHROPIC })).toBe(
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to Anthropic. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to Anthropic. Page images of scans are included.",
   );
   expect(say(ANTHROPIC, "zh-CN", { folders: true, scans: ANTHROPIC })).toBe(
-    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。包括扫描件的页面图片。",
+    "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。包括扫描件的页面图片。",
   );
   expect(say(LOCAL, "en", { folders: true, scans: LOCAL })).toBe(
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
   );
   expect(say(LOCAL, "zh-CN", { folders: true })).toBe(
-    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
+    "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
   );
 });
 
@@ -66,7 +66,7 @@ test("a server named by its address is spaced from the Chinese around it", () =>
     service: { id: "https://api.deepseek.com", name: "api.deepseek.com" },
   };
   expect(say(route, "zh-CN")).toBe(
-    "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 api.deepseek.com。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 api.deepseek.com；使用聊天模型时，还有你的界面语言。",
   );
 });
 
@@ -78,9 +78,9 @@ test.each(["en", "zh-CN"] as const)(
       service: { id: "https://api.openai.com", name: "OpenAI" },
     };
     const expected = {
-      en: "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to OpenAI. For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to Anthropic.",
+      en: "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to OpenAI. For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags go to Anthropic.",
       "zh-CN":
-        "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 OpenAI。扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 Anthropic。",
+        "对于有文本的文档，文件夹和你自己的标签的名称和描述、文档类别，以及文档的名称、目录和简短摘录，都会发送到 OpenAI。扫描件的页面图片、文档名称和类型、文档类别，以及文件夹和你自己的标签的名称和描述，都会发送到 Anthropic。",
     };
     expect(
       taggingSends(text, (key, params) => translate(language, key, params), {
@@ -97,28 +97,28 @@ test.each([
     text: LOCAL,
     images: ANTHROPIC,
     expected:
-      "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to Anthropic.",
+      "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer. For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags go to Anthropic.",
   },
   {
     language: "zh-CN" as const,
     text: LOCAL,
     images: ANTHROPIC,
     expected:
-      "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都留在这台电脑上。扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 Anthropic。",
+      "对于有文本的文档，文件夹和你自己的标签的名称和描述、文档类别，以及文档的名称、目录和简短摘录，都留在这台电脑上。扫描件的页面图片、文档名称和类型、文档类别，以及文件夹和你自己的标签的名称和描述，都会发送到 Anthropic。",
   },
   {
     language: "en" as const,
     text: ANTHROPIC,
     images: LOCAL,
     expected:
-      "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to Anthropic. For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+      "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to Anthropic. For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags stay on this computer.",
   },
   {
     language: "zh-CN" as const,
     text: ANTHROPIC,
     images: LOCAL,
     expected:
-      "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 Anthropic。扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都留在这台电脑上。",
+      "对于有文本的文档，文件夹和你自己的标签的名称和描述、文档类别，以及文档的名称、目录和简短摘录，都会发送到 Anthropic。扫描件的页面图片、文档名称和类型、文档类别，以及文件夹和你自己的标签的名称和描述，都留在这台电脑上。",
   },
 ])("only the local payload stays here ($language)", ({ language, text, images, expected }) => {
   expect(say(text, language, { folders: true, scans: images })).toBe(expected);
@@ -180,8 +180,8 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(said).toContain("Anthropic");
     expect(said).toContain(
       language === "en"
-        ? "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer."
-        : "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都留在这台电脑上。",
+        ? "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags stay on this computer."
+        : "扫描件的页面图片、文档名称和类型、文档类别，以及文件夹和你自己的标签的名称和描述，都留在这台电脑上。",
     );
   });
 }

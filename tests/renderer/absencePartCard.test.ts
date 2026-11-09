@@ -56,7 +56,7 @@ async function checked(example: (typeof CASES)[number]) {
     (call) => withParts(call, checkReply(call, plans), [example.absence, example.rest]),
     {
       generate: (call) =>
-        call.system.startsWith("Read the whole Documents")
+        call.question === "absence-read"
           ? {
               // As a live read did: the absence holds, and it offers a quote anyway.
               text: JSON.stringify({
@@ -65,7 +65,7 @@ async function checked(example: (typeof CASES)[number]) {
                 citations: [{ marker: 1, passage: "P1", quote: example.stray }],
               }),
             }
-          : call.system.startsWith("A sentence the User wrote says something is absent")
+          : call.question === "presence" || call.question === "strict-presence"
             ? { text: "not" }
             : checkGenerate(plans)(call),
     },

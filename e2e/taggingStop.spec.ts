@@ -215,6 +215,8 @@ test("in Chinese, the status names the company, and Stop names the Folder", asyn
     ),
     folderId,
   );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Supply contract");
   await openFolder(window, FOLDER);
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status.getByTestId("status-label")).toHaveText(
@@ -262,6 +264,8 @@ test("⌘K stops Tagging, and turns it back on for Documents not in a Folder", a
     .setInputFiles(
       await Promise.all(["Field notes", "Site visit", "Interview", "Survey"].map(slowFile)),
     );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Field notes");
   const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
   await expect(status).toBeVisible();
 
@@ -289,6 +293,8 @@ test("after Stop, the status row and a new Document's Tag picker say Tagging sto
     .setInputFiles(
       await Promise.all(["Field notes", "Site visit", "Interview", "Survey"].map(slowFile)),
     );
+  // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+  await makeTagOnDocument(window, "Field notes");
   const footer = window.getByTestId("sidebar-status");
   await expect(footer.getByTestId("tagging-status")).toBeVisible();
   await runFromPalette(window, "Stop Tagging");
@@ -368,7 +374,7 @@ test("while Organize runs, the status names the company too, with Stop", async (
   );
   await progress.getByTestId("status-label").click();
   await expect(window.getByTestId("status-sends")).toHaveText(
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to Anthropic. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to Anthropic. Page images of scans are included.",
   );
   await screenshot(window, "organize-status-stop-en");
   await progress.getByTestId("tagging-stop").click();
@@ -426,15 +432,17 @@ const LINES = {
     cloud: /^Tagging \d+ Documents? with Anthropic…$/,
     local: /^Tagging \d+ Documents?…$/,
     cloudSends:
-      "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to Anthropic.",
+      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to Anthropic, with your interface language for a chat model.",
     localSends:
-      "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+      "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   },
   "zh-CN": {
     cloud: /^正在用 Anthropic 为 \d+ 个文档打标签…$/,
     local: /^正在为 \d+ 个文档打标签…$/,
-    cloudSends: "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 Anthropic。",
-    localSends: "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
+    cloudSends:
+      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 Anthropic；使用聊天模型时，还有你的界面语言。",
+    localSends:
+      "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
   },
 } as const;
 
@@ -506,15 +514,15 @@ for (const language of ["en", "zh-CN"] as const) {
         const textClause =
           language === "en"
             ? localText
-              ? "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer."
-              : "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to OpenAI."
+              ? "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer."
+              : "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to OpenAI."
             : localText
-              ? "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都留在这台电脑上。"
-              : "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 OpenAI。";
+              ? "对于有文本的文档，文件夹和你自己的标签的名称和描述、文档类别，以及文档的名称、目录和简短摘录，都留在这台电脑上。"
+              : "对于有文本的文档，文件夹和你自己的标签的名称和描述、文档类别，以及文档的名称、目录和简短摘录，都会发送到 OpenAI。";
         const imageClause =
           language === "en"
-            ? "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to Anthropic."
-            : "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 Anthropic。";
+            ? "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags go to Anthropic."
+            : "扫描件的页面图片、文档名称和类型、文档类别，以及文件夹和你自己的标签的名称和描述，都会发送到 Anthropic。";
         const disclosure = textClause + (language === "en" ? " " : "") + imageClause;
         await expect(window.getByTestId("status-sends")).toHaveText(disclosure);
         await motionSettled(window);
@@ -596,6 +604,8 @@ for (const cloud of [true, false] as const) {
           ["Supply contract", "Purchase order", "Delivery log", "Draft brief"].map(slowFile),
         ),
       );
+    // The line shows once a Document carries a Tag (#1942), and tagging's own wait in the Review (#2339): one is put on by hand.
+    await makeTagOnDocument(window, "Supply contract");
     const status = window.getByTestId("sidebar-status").getByTestId("tagging-status");
     const label = status.getByTestId("status-label");
 

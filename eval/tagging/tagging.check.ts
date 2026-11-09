@@ -1,33 +1,31 @@
 /**
- * `npm run eval:tagging`: Tags from what the Documents say, and the Folders Organize proposes
- * where there are none (#2308), on set.json (see README.md).
+ * `npm run eval:tagging`: the Tags tagging proposes from what the Documents say, and what Organize
+ * proposes for the walk (#2308, #2339), on set.json (see README.md).
  *
- * Each group of Documents is tagged one at a time, as the app does, through the app's own
- * tagger (`chatClassifier`) with the preset Tags in the group's interface language: a new Tag a
- * Document brings joins the list the next one is offered, found again by `tagKey` and held to
- * `NEW_TAG_LIMIT`, as `TagsStore.applyAutomatic` does. The walk's group then goes through
- * Organize: one Folder proposal (`proposeFolders`), then a Folder for each Document
- * (`organize`). No app database, embeddings or data folder.
+ * Each group of Documents is tagged as one run of the app's own (`tagInRun` with `chatClassifier`,
+ * as a Re-tag sends it): one kind each from the fixed list, named in the group's interface
+ * language, and a new topic only where 3 of the group share it, none of the User's own Tags yet.
+ * The walk's files then go through Organize in a core on a temporary data folder, and what it
+ * proposes is read from the Review, before anything is confirmed.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { wrapLanguageModel } from "ai";
 import { test } from "vitest";
 import type { DocumentKind } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
-import { chatGroupClassifier } from "../../src/core/library/classifier";
-import type { LibraryGroup } from "../../src/core/library/types";
 import { type ChatLanguageModel, createAiSdkChatModel } from "../../src/core/providers/models";
 import {
+  BATCH_EXCERPT_TOKENS,
   chatClassifier,
   type DocumentExcerpt,
-  documentType,
   excerptFromPassages,
-  type TagDefinition,
 } from "../../src/core/tags/classify";
-import { PRESET_TAGS } from "../../src/core/tags/presets";
-import { NEW_TAG_LIMIT, tagKey } from "../../src/core/tags/suggest";
+import { kindName } from "../../src/core/tags/kinds";
+import { tagInRun } from "../../src/core/tags/run";
 import { createFakeChatModel } from "../../src/main/fakeChatModel";
+import { createTempDataFolder, startCore } from "../../tests/helpers/core";
+import { addAndProcess, writeSourceFile } from "../../tests/helpers/documents";
 import { chatModelSpecOf, chatSettings } from "../lib/config";
 
 interface SetDocument {
@@ -114,40 +112,33 @@ const excerptOf = (document: SetDocument): DocumentExcerpt => ({
   name: document.name,
   kind: document.kind,
   pageCount: document.pageCount,
-  text: excerptFromPassages([document.text]),
+  text: excerptFromPassages([document.text], BATCH_EXCERPT_TOKENS),
 });
 
-const presets = (language: Language): TagDefinition[] =>
-  PRESET_TAGS.map((preset) => ({ id: `preset:${preset.key}`, ...preset.text[language] }));
-
-/** Tags a group one Document at a time, the Tags made joining the list as in the app. */
+/** Tags a group as one Re-tag run: a kind each, and a topic only where 3 of them share it. */
 async function tagGroup(
   chat: ChatLanguageModel,
   documents: readonly SetDocument[],
   language: Language,
-): Promise<{ tagged: Tagged[]; tags: TagDefinition[] }> {
-  const tags = presets(language);
-  const tagger = chatClassifier(chat);
+): Promise<{ tagged: Tagged[] }> {
+  const run = await tagInRun({
+    tagger: chatClassifier(chat, { language }),
+    subjects: documents.map((document) => ({ id: document.id, excerpt: excerptOf(document) })),
+    offered: new Map(),
+    language,
+    signal: AbortSignal.timeout(600_000),
+    progress: () => {},
+  });
   const tagged: Tagged[] = [];
   for (const document of documents) {
-    const signal = AbortSignal.timeout(180_000);
-    const choice = await tagger.decide({ tags, excerpt: excerptOf(document), signal });
-    const ids = new Set(choice.decisions.map((each) => each.tagId));
-    const made: string[] = [];
-    for (const named of choice.newTags) {
-      const same = tags.find((each) => tagKey(each.name) === tagKey(named.name));
-      if (same) {
-        ids.add(same.id);
-      } else if (tags.length < NEW_TAG_LIMIT) {
-        const id = `new:${tags.length}`;
-        tags.push({ id, ...named });
-        ids.add(id);
-        made.push(named.name);
-      }
-    }
-    const names = [...ids].map((id) => tags.find((each) => each.id === id)?.name ?? id);
-    const invoice = ids.has("preset:invoice");
-    const otherLanguage = made.filter((name) => han.test(name) !== (document.language === "zh"));
+    const proposed = run.proposed.get(document.id) ?? [];
+    const names = proposed.map((tag) =>
+      "kind" in tag ? kindName(tag.kind, language) : "name" in tag ? tag.name : tag.tagId,
+    );
+    const made = proposed.flatMap((tag) => ("name" in tag ? [tag.name] : []));
+    const invoice = proposed.some((tag) => "kind" in tag && tag.kind === "invoice");
+    // A new topic is named in the interface's language (#2339).
+    const otherLanguage = made.filter((name) => han.test(name) !== (language === "zh-CN"));
     tagged.push({
       id: document.id,
       name: document.name,
@@ -165,7 +156,7 @@ async function tagGroup(
     });
     log(`${document.id} ${document.name}: ${names.join(", ") || "(none)"}`);
   }
-  return { tagged, tags };
+  return { tagged };
 }
 
 interface FolderResult {
@@ -177,54 +168,57 @@ interface FolderResult {
   sorted: number;
 }
 
-/** Organize on the walk: a proposal, then a Folder for each Document, with the Tags so far. */
+/**
+ * Organize on the walk, as the Library's Organize runs it: its files in a core with no Folders,
+ * planned into the Review, with their Tags beside, and read from there.
+ */
 async function organizeWalk(
   chat: ChatLanguageModel,
   documents: readonly SetDocument[],
-  tags: readonly TagDefinition[],
 ): Promise<FolderResult> {
-  const classifier = chatGroupClassifier(chat, false);
-  const proposed =
-    (await classifier.proposeFolders?.(
-      documents.map((each) => ({
-        name: each.name,
-        type: documentType(excerptOf(each)),
-        text: excerptFromPassages([each.text], 120),
-      })),
-      [],
-      "en",
-      AbortSignal.timeout(180_000),
-    )) ?? [];
-  const groups: LibraryGroup[] = proposed.map((folder, at) => ({
-    id: `g-${at}`,
-    ...folder,
-    parentId: null,
-    countsOwnFiles: false,
-    keepInside: false,
-    createdAt: "",
-    updatedAt: "",
-  }));
-  const placed: Record<string, string | null> = {};
-  for (const document of documents) {
-    const { groupId } = await classifier.organize(
-      groups,
-      [...tags],
-      excerptOf(document),
-      AbortSignal.timeout(180_000),
-    );
-    placed[document.id] = groups.find((group) => group.id === groupId)?.name ?? null;
+  const core = startCore(await createTempDataFolder(), { createChatModel: () => chat });
+  try {
+    await core.saveChatProvider({ kind: "ollama", modelId: "walk" });
+    // The core keeps each file by its resolved path: on macOS the temporary folder is under /var's link.
+    const sources = await realpath(await createTempDataFolder());
+    const paths = new Map<string, SetDocument>();
+    for (const document of documents)
+      paths.set(await writeSourceFile(sources, `${document.name}.md`, document.text), document);
+    const added = await addAndProcess(core, [...paths.keys()]);
+    const setOf = new Map(added.map((each) => [each.id, paths.get(each.path)]));
+    const { automatic } = await core.getTaggingModels();
+    if (!automatic) throw new Error("Automatic offers no model to organize with.");
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, organizeWith: automatic.classifier });
+    await core.organizeLibrary({ costAccepted: true });
+    const review = await core.getOrganizeReview();
+    const names = new Map(review.folders.map((folder) => [folder.id, folder.name]));
+    const placed: Record<string, string | null> = {};
+    for (const item of review.items) {
+      const document = setOf.get(item.documentId);
+      if (!document) continue;
+      placed[document.id] =
+        item.placement.kind === "newFolder"
+          ? (names.get(item.placement.newFolderId) ?? null)
+          : null;
+    }
+    const folders = review.folders
+      .filter((folder) => folder.parentNewFolderId === null)
+      .map((folder) => folder.name);
+    let pure = 0;
+    for (const folder of folders) {
+      const inside = documents.filter((each) => placed[each.id] === folder);
+      const topics = new Map<string, number>();
+      for (const each of inside)
+        topics.set(each.topic ?? "", (topics.get(each.topic ?? "") ?? 0) + 1);
+      pure += Math.max(0, ...topics.values());
+    }
+    const sorted = documents.filter((each) => (placed[each.id] ?? null) !== null).length;
+    log(`Folders: ${folders.join(", ")}`);
+    return { folders, placed, pure, sorted };
+  } finally {
+    await core.close();
   }
-  let pure = 0;
-  for (const folder of proposed) {
-    const inside = documents.filter((each) => placed[each.id] === folder.name);
-    const topics = new Map<string, number>();
-    for (const each of inside)
-      topics.set(each.topic ?? "", (topics.get(each.topic ?? "") ?? 0) + 1);
-    pure += Math.max(0, ...topics.values());
-  }
-  const sorted = documents.filter((each) => placed[each.id] !== null).length;
-  log(`Folders: ${proposed.map((each) => each.name).join(", ")}`);
-  return { folders: proposed.map((each) => each.name), placed, pure, sorted };
 }
 
 const share = (count: number, of: number) =>
@@ -243,9 +237,9 @@ function groupLines(label: string, tagged: readonly Tagged[]): string[] {
     `| Non-invoices tagged Invoice (bar: 0) | ${tagged.filter((each) => each.falseInvoice).length} of ${tagged.length - invoices.length} |`,
     `| Invoices and receipts tagged Invoice | ${share(invoices.filter((each) => each.invoice).length, invoices.length)} |`,
     `| Documents with a fitting Tag (bar: 90%) | ${share(tagged.filter((each) => each.fitting).length, tagged.length)} |`,
-    `| New Tags in the Document's language (bar: 95%) | ${share(made.length - otherLanguage.length, made.length)} |`,
-    `| Chinese Documents with a Tag in Chinese (bar: 95%) | ${share(chinese.filter((each) => each.chineseTag).length, chinese.length)} |`,
-    `| Most Tags on one Document (bar: 3) | ${Math.max(0, ...tagged.map((each) => each.tags.length))} |`,
+    `| New topic Tags in the interface's language (bar: 95%) | ${share(made.length - otherLanguage.length, made.length)} |`,
+    `| Chinese Documents with a Tag in the interface's language, reported | ${share(chinese.filter((each) => each.chineseTag).length, chinese.length)} |`,
+    `| Most Tags on one Document | ${Math.max(0, ...tagged.map((each) => each.tags.length))} |`,
     `| New Tags made | ${made.length}: ${[...new Set(made)].join(", ")} |`,
     "",
     "Misses, to read by hand (the word list can miss a fitting synonym):",
@@ -287,7 +281,7 @@ test("Tags from content, and Organize's Folders", async () => {
       });
     }
   }
-  const lines: string[] = [`# Tags from content (#2308)`, "", `Model: ${chat.label}.`, ""];
+  const lines: string[] = [`# Tags from content (#2308, #2339)`, "", `Model: ${chat.label}.`, ""];
   const results: Record<string, unknown> = {};
   for (const group of groups) {
     const { tagged } = await tagGroup(chat.model, group.documents, group.language);
@@ -306,12 +300,12 @@ test("Tags from content, and Organize's Folders", async () => {
     `Walk bars: quote, notes and registration tagged Invoice: ${wrong.length} (bar: 0); the .xlsx has a fitting Tag: ${sheet?.fitting ? "yes" : "no"} (${sheet?.tags.join(", ") || "none"}).`,
     "",
   );
-  const folders = await organizeWalk(chat.model, walk, walked.tags);
+  const folders = await organizeWalk(chat.model, walk);
   results.folders = folders;
   lines.push(
     "### Organize on the walk, with no Folders",
     "",
-    `Folders proposed: ${folders.folders.join(", ")} (bar: 2 to 4).`,
+    `Folders proposed: ${folders.folders.join(", ")} (Organize aims at 3 to 7).`,
     `Documents in a Folder: ${share(folders.sorted, walk.length)}; in a Folder of their own topic: ${share(folders.pure, walk.length)} (bar: 90%).`,
     "",
     ...walk.map(

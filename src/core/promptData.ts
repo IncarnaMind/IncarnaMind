@@ -17,6 +17,7 @@ export const PROMPT_TAGS = [
   "figures",
   "focused-mind",
   "found-in-documents",
+  "heading",
   "help",
   "live-transcript",
   "mind",

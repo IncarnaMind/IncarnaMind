@@ -7,11 +7,15 @@
  */
 import { describe, expect, test } from "vitest";
 import type { MarkedCitation } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { type GenerateCall, type ReportedUsage, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type ReportedUsage,
+  scriptedModel,
+  unscripted,
+} from "../helpers/models";
 
 /** What one batch's reply reports it used: less than the meter reserves for it, as a real one is. */
 const BATCH_USAGE: ReportedUsage = {
@@ -56,7 +60,8 @@ async function answered(
     },
     {
       generate: (call) => {
-        if (call.system !== SENTENCE_BATCH_INSTRUCTIONS) return { text: '{"claims":[]}' };
+        if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (judging.failing) return { error: { status: 500, message: "The provider failed." } };
         batches.push(call);
         const count = [...call.prompt.matchAll(/<sentence number="\d+">/g)].length;
@@ -66,6 +71,7 @@ async function answered(
           verdict: "supported",
           roles: "same",
           time: "same",
+          quoted: "states",
           says: "The schedule says so.",
         }));
         return { text: JSON.stringify({ sentences }), usage };

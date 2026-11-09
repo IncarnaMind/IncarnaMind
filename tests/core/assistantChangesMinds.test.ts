@@ -30,7 +30,7 @@ import {
   writeMind,
 } from "../helpers/minds";
 import {
-  CLAIM_CHECK_OPENING,
+  judgesNothing,
   type ModelCall,
   promptOf,
   type ScriptedReply,
@@ -54,6 +54,7 @@ function toolModel(call: { tool: string; input: Record<string, unknown> } | null
     (model: ModelCall): ScriptedReply =>
       shortened(model) ??
       (call && model.results.length === 0 ? { calls: [call] } : { text: reply }),
+    { generate: judgesNothing },
   );
 }
 
@@ -129,14 +130,19 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
 
   // protects=a rewrite that is no shorter is reported that way to the model, with no keyword reading of the instruction; fails_when=the result says only the same count and lets a reply call it shortened; no_claim=whether the model heeds the result.
   test("a rewrite of the same length is reported as not shorter", async () => {
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (call.prompt.includes("<passage>")) {
-        return { text: "The quarter was quite good, and revenue was truly very robust." };
-      }
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }] }
-        : { text: "Shortened the summary." };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (call.prompt.includes("<passage>")) {
+          return { text: "The quarter was quite good, and revenue was truly very robust." };
+        }
+        return call.results.length === 0
+          ? {
+              calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }],
+            }
+          : { text: "Shortened the summary." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind } = await setUp(model);
 
     await ask(core, { text: "Shorten the summary", mindId: mind.id });
@@ -153,6 +159,7 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     );
     const quick = scriptedModel(
       (call: ModelCall): ScriptedReply => shortened(call) ?? { text: "" },
+      { generate: judgesNothing },
     );
     const core = startCore(await createTempDataFolder(), {
       createChatModel: (spec) => (spec.thinking === "off" ? quick : answering),
@@ -327,7 +334,8 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
         },
         {
           generate: (call) => {
-            if (call.system.includes(CLAIM_CHECK_OPENING)) records.push(call.prompt);
+            if (call.question !== "claimed-changes") return judgesNothing(call);
+            records.push(call.prompt);
             return { text: '{"claims":[]}' };
           },
         },
@@ -381,22 +389,25 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
   // protects=a request for a new note makes a Mind in the Search scope's Folder, its draft as Proposals with checked Citations; fails_when=the Mind is made elsewhere, its text is accepted outright, or a Citation isn't checked; no_claim=how a real model drafts.
   test("a request for a new note makes a Mind in the Folder, its draft as changes with checked Citations", async () => {
     const SPRING = "Spring tides happen just after a new moon or a full moon.";
-    const model = scriptedModel(({ results }): ScriptedReply => {
-      const search = results.find((result) => result.tool === "search_documents");
-      if (!search) {
-        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-      }
-      if (!results.some((result) => result.tool === "cite")) {
-        const [passage] = shownPassages(search.text);
-        const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
-        return { calls: [{ tool: "cite", input: { citations: [record] } }] };
-      }
-      if (!results.some((result) => result.tool === "create_mind")) {
-        const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
-        return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
-      }
-      return { text: "Made “Tide notes” from your Documents." };
-    });
+    const model = scriptedModel(
+      ({ results }): ScriptedReply => {
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        if (!results.some((result) => result.tool === "cite")) {
+          const [passage] = shownPassages(search.text);
+          const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+          return { calls: [{ tool: "cite", input: { citations: [record] } }] };
+        }
+        if (!results.some((result) => result.tool === "create_mind")) {
+          const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+          return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        return { text: "Made “Tide notes” from your Documents." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind } = await setUp(model);
     const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
     const sources = await createSourceFolder();
@@ -454,10 +465,13 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
       { title: "张瑜简历总结", content: "# 张瑜简历总结\n\n教育背景。" },
       { title: "工作经历", content: "## 工作经历\n\n2019 年至今。" },
     ];
-    const model = scriptedModel(({ results }): ScriptedReply => {
-      const page = pages[results.filter((result) => result.tool === "create_mind").length];
-      return page ? { calls: [{ tool: "create_mind", input: page }] } : { text: "Made both." };
-    });
+    const model = scriptedModel(
+      ({ results }): ScriptedReply => {
+        const page = pages[results.filter((result) => result.tool === "create_mind").length];
+        return page ? { calls: [{ tool: "create_mind", input: page }] } : { text: "Made both." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind } = await setUp(model);
     const answer = await ask(core, { text: "Make two notes", mindId: mind.id });
 
@@ -545,6 +559,7 @@ describe("Written again", { timeout: 30_000 }, () => {
               ],
             }
           : { text: "Done." }),
+      { generate: judgesNothing },
     );
     const { core, mind, client } = await setUp(model);
     const first = await ask(core, { text: "Shorten it and make notes", mindId: mind.id });
@@ -765,17 +780,22 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
   // protects=the model is told which sentences are no longer in the text, so what it says was removed is what was; fails_when=the result names none, or names a sentence that stays; no_claim=how the model words its reply.
   test("an edit's result names the sentences that are no longer in the text", async () => {
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
-      if (passage !== undefined) {
-        return {
-          text: `${passage.replace("Work is full time. ", "")}\n<why>Removed the hours.</why>`,
-        };
-      }
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: "Remove the part about hours" } }] }
-        : { text: "Done." };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          return {
+            text: `${passage.replace("Work is full time. ", "")}\n<why>Removed the hours.</why>`,
+          };
+        }
+        return call.results.length === 0
+          ? {
+              calls: [{ tool: "edit_mind", input: { instruction: "Remove the part about hours" } }],
+            }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     writeMind(client, [note("Pay is monthly. Work is full time. The post is senior.")]);
     await client.settled();
@@ -804,18 +824,21 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
   ])(
     "a paragraph the reply leaves out is told as gone only when it went: $asked",
     async ({ asked, stays, notes }) => {
-      const model = scriptedModel((call: ModelCall): ScriptedReply => {
-        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
-        if (passage !== undefined) {
-          const [first, second] = passage.split("\n\n");
-          return {
-            text: `${first} Noted.${stays ? "" : `\n\n<removed>${second}</removed>`}\n<why>Done.</why>`,
-          };
-        }
-        return call.results.length === 0
-          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-          : { text: "Done." };
-      });
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+          if (passage !== undefined) {
+            const [first, second] = passage.split("\n\n");
+            return {
+              text: `${first} Noted.${stays ? "" : `\n\n<removed>${second}</removed>`}\n<why>Done.</why>`,
+            };
+          }
+          return call.results.length === 0
+            ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+            : { text: "Done." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client } = await setUp(model);
       writeMind(client, [note(notes[0] as string), note(notes[1] as string)]);
       await client.settled();
@@ -851,17 +874,20 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     },
   ])("a list item the rewrite takes out is told as gone: $asked", async ({ asked, items }) => {
     const [kept, also, gone] = items as [string, string, string];
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
-      if (passage !== undefined) {
-        return {
-          text: `${passage.replace(`- ${gone}`, `<removed>- ${gone}</removed>`)}\n<why>Done.</why>`,
-        };
-      }
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-        : { text: "Done." };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          return {
+            text: `${passage.replace(`- ${gone}`, `<removed>- ${gone}</removed>`)}\n<why>Done.</why>`,
+          };
+        }
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     writeMind(client, [
       {
@@ -900,15 +926,18 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
   ])(
     "a quote the Note doesn't have changes nothing, and is told: $asked",
     async ({ asked, lines, quote }) => {
-      const model = scriptedModel((call: ModelCall): ScriptedReply => {
-        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
-        if (passage !== undefined) {
-          return { text: `${lines[0]} Noted.\n\n<removed>${quote}</removed>\n<why>Done.</why>` };
-        }
-        return call.results.length === 0
-          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-          : { text: "Done." };
-      });
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+          if (passage !== undefined) {
+            return { text: `${lines[0]} Noted.\n\n<removed>${quote}</removed>\n<why>Done.</why>` };
+          }
+          return call.results.length === 0
+            ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+            : { text: "Done." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client } = await setUp(model);
       writeMind(
         client,
@@ -947,18 +976,21 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     async (each) => {
       const passages: string[] = [];
       let misname = false;
-      const model = scriptedModel((call: ModelCall): ScriptedReply => {
-        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
-        if (passage !== undefined) {
-          passages.push(passage);
-          return {
-            text: `${misname ? each.named.replace("¶2", "¶7") : each.named}\n<why>Done.</why>`,
-          };
-        }
-        return call.results.length === 0
-          ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
-          : { text: "Done." };
-      });
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+          if (passage !== undefined) {
+            passages.push(passage);
+            return {
+              text: `${misname ? each.named.replace("¶2", "¶7") : each.named}\n<why>Done.</why>`,
+            };
+          }
+          return call.results.length === 0
+            ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
+            : { text: "Done." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client } = await setUp(model);
       writeMind(
         client,
@@ -1010,12 +1042,15 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
   ])(
     "a rewrite that names a paragraph wrongly is refused, the Note as it was: $reply",
     async ({ asked, lines, reply }) => {
-      const model = scriptedModel((call: ModelCall): ScriptedReply => {
-        if (call.prompt.includes("<passage>")) return { text: `${reply}\n<why>Done.</why>` };
-        return call.results.length === 0
-          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-          : { text: "Done." };
-      });
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          if (call.prompt.includes("<passage>")) return { text: `${reply}\n<why>Done.</why>` };
+          return call.results.length === 0
+            ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+            : { text: "Done." };
+        },
+        { generate: judgesNothing },
+      );
       const { core, mind, client } = await setUp(model);
       writeMind(
         client,
@@ -1056,12 +1091,15 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       went: "from 25 to 18 characters: 0.7 times as long",
     },
   ])("the length told counts what the reply left out and kept: $asked", async (each) => {
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (call.prompt.includes("<passage>")) return { text: each.reply };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
-        : { text: "Done." };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (call.prompt.includes("<passage>")) return { text: each.reply };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     writeMind(
       client,
@@ -1080,13 +1118,16 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
   // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
   test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>/.test(call.prompt))
-        return { text: "<why>The section was already removed.</why>" };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: "Tidy the section" } }] }
-        : { text: "Done." };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>/.test(call.prompt))
+          return { text: "<why>The section was already removed.</why>" };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: "Tidy the section" } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind, client } = await setUp(model);
     writeMind(client, [note("Pay is monthly."), note("Work is full time.")]);
     await client.settled();
@@ -1201,6 +1242,7 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
               pause: { after, until },
             }
           : { text: "Added a risks section." },
+      { generate: judgesNothing },
     );
   }
 
@@ -1274,7 +1316,7 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
                 pause: { after, until: new Promise(() => undefined) },
               }
             : { text: "Added." },
-        { chunkSize: 4 },
+        { generate: judgesNothing, chunkSize: 4 },
       ),
     );
     const plan = await core.createMind({ title: "Project plan" });
@@ -1397,7 +1439,7 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
           results.length === 0
             ? { calls: [{ tool: "add_to_mind", input, streamInput: true }] }
             : { text: "Added." },
-        { chunkSize: 4 },
+        { generate: judgesNothing, chunkSize: 4 },
       ),
     );
     const plan = await core.createMind({ title: "Project plan" });
@@ -1478,6 +1520,7 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
               cutOff: cut,
             }
           : { text: "Added a risks section." },
+      { generate: judgesNothing },
     );
   }
 
@@ -1772,6 +1815,7 @@ describe("A name that fits several places asks which one", { timeout: 30_000 }, 
                 ],
               }
             : { text: "Which one?" },
+        { generate: judgesNothing },
       );
       const set = await withBlocks(model, TWO_SUMMARIES());
 
@@ -1925,23 +1969,26 @@ describe("Arguments a model gets slightly wrong cost no extra step", { timeout: 
     ["an array written in JSON", (record: object) => JSON.stringify([record])],
     ["an array encoded twice", (record: object) => JSON.stringify(JSON.stringify([record]))],
   ])("cite given %s", async (_how, wrap) => {
-    const model = scriptedModel((call): ScriptedReply => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      const { results } = call;
-      const search = results.find((result) => result.tool === "search_documents");
-      if (!search)
-        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-      if (!results.some((result) => result.tool === "cite")) {
-        const [passage] = shownPassages(search.text);
-        const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
-        return { calls: [{ tool: "cite", input: { citations: wrap(record) } }] };
-      }
-      if (!results.some((result) => result.tool === "create_mind")) {
-        const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
-        return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
-      }
-      return { text: "Made “Tide notes”." };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const { results } = call;
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        if (!results.some((result) => result.tool === "cite")) {
+          const [passage] = shownPassages(search.text);
+          const record = { marker: 1, passage: passage?.id, pageFrom: 1, pageTo: 1, quote: SPRING };
+          return { calls: [{ tool: "cite", input: { citations: wrap(record) } }] };
+        }
+        if (!results.some((result) => result.tool === "create_mind")) {
+          const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+          return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+        }
+        return { text: "Made “Tide notes”." };
+      },
+      { generate: judgesNothing },
+    );
     const { core, mind } = await setUp(model);
     const sources = await createSourceFolder();
     const pdf = buildPdf([{ lines: ["Spring and neap tides", SPRING] }]);
@@ -1969,12 +2016,15 @@ describe("Arguments a model gets slightly wrong cost no extra step", { timeout: 
 describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, () => {
   /** A model whose edit_mind call is `asked`, and whose rewrite of the passage is `reply`. */
   const editing = (asked: string, reply: string) =>
-    scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-        : { text: "Done." };
-    });
+    scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
   const APPLIES = "It applies in the Note at once";
   const item = (text: string): JSONContent => ({
     type: "bulletList",
@@ -2588,12 +2638,15 @@ describe("Held-out shapes for when an edit waits (#2356), written before any run
   timeout: 30_000,
 }, () => {
   const editing = (asked: string, reply: string) =>
-    scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-        : { text: "Done." };
-    });
+    scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
   const APPLIES = "It applies in the Note at once";
   const WAITS = "waits there for them";
   const TRIP = {
@@ -2746,12 +2799,15 @@ describe("A line a reply without names adds beside one of the User's is said to 
   timeout: 30_000,
 }, () => {
   const editing = (asked: string, reply: string) =>
-    scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-        : { text: "Done." };
-    });
+    scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    );
   const ROOMS = [
     "Room 101 is booked for Monday.",
     "Room 102 is booked for Tuesday.",
@@ -2857,13 +2913,16 @@ describe("The reporter's request ends with one parking sentence gone (#2322)", {
 }, () => {
   /** A model whose edit_mind call is `asked`, whose rewrite is `reply`, and whose Answer says `said`. */
   const removing = (asked: string, reply: string, said: string) =>
-    scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>\n/.test(call.prompt))
-        return { text: `${reply}\n<why>Removed one sentence.</why>` };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
-        : { text: said };
-    });
+    scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt))
+          return { text: `${reply}\n<why>Removed one sentence.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: said };
+      },
+      { generate: judgesNothing },
+    );
   const sentences = (text: string) =>
     text.split(/(?<=[.!?。！？])\s*/u).filter((each) => each.trim() !== "");
 

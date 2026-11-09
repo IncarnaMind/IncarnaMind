@@ -29,7 +29,12 @@ import {
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, answerText } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { connectorTo, startWeb, webSearchingModel } from "../helpers/web";
 
 const fixture = (name: string) =>
@@ -53,35 +58,38 @@ const MADE_UP = "http://collector.example/?notes=lease+terms";
  * made up, cites the line on the Portuguese merchants, then answers.
  */
 function researcher(): MockLanguageModelV4 {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (!call.tools.includes("search_web")) return { text: "I didn't search the web." };
-    if (!call.results.some((result) => result.tool === "search_web")) {
-      return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
-    }
-    const reads = call.results.filter((result) => result.tool === "read_web_page");
-    if (reads.length === 0) {
-      return {
-        calls: [TEA, MEMBERS, MADE_UP].map((url) => ({
-          tool: "read_web_page",
-          input: { url, query: "Portuguese merchants" },
-        })),
-      };
-    }
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const passage = reads
-        .flatMap((result) => shownPassages(result.text))
-        .find((each) => each.text.includes(PORTUGUESE));
-      return {
-        calls: [
-          {
-            tool: "cite",
-            input: { citations: [{ marker: 1, passage: passage?.id, quote: PORTUGUESE }] },
-          },
-        ],
-      };
-    }
-    return { text: "Portuguese merchants met tea in China [^1]." };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (!call.tools.includes("search_web")) return { text: "I didn't search the web." };
+      if (!call.results.some((result) => result.tool === "search_web")) {
+        return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
+      }
+      const reads = call.results.filter((result) => result.tool === "read_web_page");
+      if (reads.length === 0) {
+        return {
+          calls: [TEA, MEMBERS, MADE_UP].map((url) => ({
+            tool: "read_web_page",
+            input: { url, query: "Portuguese merchants" },
+          })),
+        };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = reads
+          .flatMap((result) => shownPassages(result.text))
+          .find((each) => each.text.includes(PORTUGUESE));
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: passage?.id, quote: PORTUGUESE }] },
+            },
+          ],
+        };
+      }
+      return { text: "Portuguese merchants met tea in China [^1]." };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 /** Called each time the test web serves the tea page. */
@@ -216,7 +224,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     expect(onlyCitation(client, answerId)).toMatchObject({
       documentId: page?.id,
       location: { kind: "section", heading: "History", paragraphs: { from: 2, to: 2 } },
-      quote: PORTUGUESE,
+      quote: `${PORTUGUESE}, at which time it was termed chá.`,
       check: "found",
     });
     expect(finished.citations.map((each) => each.check)).toEqual(["found"]);
@@ -293,17 +301,20 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
   });
 
   test("a page read for words it doesn't have gives the Passages that match its title", async () => {
-    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (!call.results.some((result) => result.tool === "search_web")) {
-        return { calls: [{ tool: "search_web", input: { query: "茶的历史" } }] };
-      }
-      if (!call.results.some((result) => result.tool === "read_web_page")) {
-        return {
-          calls: [{ tool: "read_web_page", input: { url: TEA, query: "茶是怎么传到欧洲的" } }],
-        };
-      }
-      return { text: "读到了。" };
-    });
+    const answering = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (!call.results.some((result) => result.tool === "search_web")) {
+          return { calls: [{ tool: "search_web", input: { query: "茶的历史" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "read_web_page")) {
+          return {
+            calls: [{ tool: "read_web_page", input: { url: TEA, query: "茶是怎么传到欧洲的" } }],
+          };
+        }
+        return { text: "读到了。" };
+      },
+      { generate: judgesNothing },
+    );
     const { model } = webSearchingModel(answering, FOUND);
     const { core, client, mind } = await setUp(model);
 
@@ -323,15 +334,18 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
 
   test("a page saved already from this computer's network isn't reused when a search returns its address", async () => {
     let local = "";
-    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (!call.results.some((result) => result.tool === "search_web")) {
-        return { calls: [{ tool: "search_web", input: { query: "tea" } }] };
-      }
-      if (!call.results.some((result) => result.tool === "read_web_page")) {
-        return { calls: [{ tool: "read_web_page", input: { url: local } }] };
-      }
-      return { text: "Nothing to read." };
-    });
+    const answering = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (!call.results.some((result) => result.tool === "search_web")) {
+          return { calls: [{ tool: "search_web", input: { query: "tea" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "read_web_page")) {
+          return { calls: [{ tool: "read_web_page", input: { url: local } }] };
+        }
+        return { text: "Nothing to read." };
+      },
+      { generate: judgesNothing },
+    );
     const found: { url: string; title: string }[] = [];
     const { model } = webSearchingModel(answering, found);
     const { core, client, mind, web } = await setUp(model);
@@ -613,15 +627,18 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
         ),
       };
     };
-    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (!call.results.some((result) => result.tool === "search_web")) {
-        return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
-      }
-      if (!call.results.some((result) => result.tool === "read_web_page")) {
-        return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
-      }
-      return { text: "The page couldn't be read." };
-    });
+    const answering = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (!call.results.some((result) => result.tool === "search_web")) {
+          return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "read_web_page")) {
+          return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
+        }
+        return { text: "The page couldn't be read." };
+      },
+      { generate: judgesNothing },
+    );
     const { model } = webSearchingModel(answering, FOUND);
     const { core, mind, client } = await setUp(model, {}, { webPages: { fetch: userFetch } });
     const other = await core.createLibraryGroup({ name: "Other", description: "" });
@@ -669,18 +686,21 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     const searching = new Promise<void>((resolve) => {
       reached = resolve;
     });
-    const answering = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (!call.results.some((result) => result.tool === "search_web")) {
-        return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
-      }
-      if (!call.results.some((result) => result.tool === "read_web_page")) {
-        return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
-      }
-      if (!call.results.some((result) => result.tool === "read_mind")) {
-        return { calls: [{ tool: "read_mind", input: { mind: "Outside memo" } }] };
-      }
-      return { text: "I couldn't read that note." };
-    });
+    const answering = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (!call.results.some((result) => result.tool === "search_web")) {
+          return { calls: [{ tool: "search_web", input: { query: "how tea reached Europe" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "read_web_page")) {
+          return { calls: [{ tool: "read_web_page", input: { url: TEA } }] };
+        }
+        if (!call.results.some((result) => result.tool === "read_mind")) {
+          return { calls: [{ tool: "read_mind", input: { mind: "Outside memo" } }] };
+        }
+        return { text: "I couldn't read that note." };
+      },
+      { generate: judgesNothing },
+    );
     const { model } = webSearchingModel(answering, FOUND);
     const { core, folder, mind } = await setUp(model, { gate });
     const outside = await core.createLibraryGroup({ name: "Outside", description: "" });
@@ -742,7 +762,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
       };
     };
     const { model } = webSearchingModel(
-      scriptedModel(() => ({ text: "Nothing to do." })),
+      scriptedModel(() => ({ text: "Nothing to do." }), { generate: judgesNothing }),
       FOUND,
     );
     const { core } = await setUp(model, {}, { webPages: { fetch: userFetch } });

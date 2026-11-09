@@ -12,18 +12,21 @@
  * Only for a local model (the engine passes a window budget), at most once per
  * Answer, and only when a figure is in error and its marker is in the text.
  */
-import { jsonSchema, Output, streamText } from "ai";
+import { jsonSchema } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import { givenList, whole } from "./calculations";
 import { calculationsSchema } from "./calculationsSchema";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
+import { byKey, fieldsOf, judge, structured } from "./judge";
 import {
   FIGURE_RETRY_INSTRUCTIONS,
   type FigureToRetry,
+  figureRetryParts,
   figureRetryPrompt,
+  RETRY_TAGS,
   setAsideRowsMeaning,
 } from "./prompt";
-import { nearestExcerpt, replyJson } from "./quoteRetry";
+import { nearestExcerpt } from "./quoteRetry";
 import type { WindowBudget } from "./window";
 
 /** The most figures one request asks about: the first ones, by marker. */
@@ -37,6 +40,16 @@ const figuresSchema = jsonSchema<{ calculations: unknown }>({
   type: "object",
   properties: { calculations: calculationsSchema },
   required: ["calculations"],
+});
+
+/** The request's reply, in structured output: the figures given again. */
+export const FIGURES_REPLY = structured(figuresSchema, "calculations", (value) => {
+  // A provider may give the list as JSON text, as the Answer's own figures may come.
+  const reply = fieldsOf(value, {
+    calculations: (given) =>
+      Array.isArray(given) || typeof given === "string" ? givenList(given) : undefined,
+  });
+  return reply?.calculations ?? null;
 });
 
 /**
@@ -83,40 +96,30 @@ export async function* retryFigures(
 
   yield { type: "phase", phase: "checking-figures" };
   const started = Date.now();
-  let raw = "";
-  try {
-    const result = streamText({
-      model: request.model,
-      instructions: FIGURE_RETRY_INSTRUCTIONS,
-      prompt: figureRetryPrompt(asked),
-      temperature,
-      maxOutputTokens,
-      output: Output.object({ schema: figuresSchema, name: "calculations" }),
-      // One request, never more: a failure leaves the figures out, as they were.
-      maxRetries: 0,
-      abortSignal: signal,
-      onError: () => undefined,
-    });
-    for await (const part of result.fullStream) {
-      if (signal.aborted || part.type === "abort") return;
-      if (part.type === "text-delta") raw += part.text;
-      else if (part.type === "error") throw part.error;
-    }
-  } catch (error) {
-    if (signal.aborted) return;
-    console.error(
-      `The figures couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    // What came before the failure may be cut off (#2275): none of it is read.
-    raw = "";
-  }
-  if (signal.aborted) return;
   const markers = new Set(asked.map((figure) => figure.marker));
-  const reply = (await replyJson(raw)) as { calculations?: unknown } | undefined;
-  const fixed = givenList(reply?.calculations).filter((figure) => {
-    const marker = whole((figure as { marker?: unknown } | null)?.marker);
-    return marker !== null && markers.has(marker);
+  const judged = await judge({
+    model: request.model,
+    question: { id: "figure-retry", instructions: FIGURE_RETRY_INSTRUCTIONS },
+    parts: figureRetryParts(asked),
+    data: RETRY_TAGS,
+    reply: FIGURES_REPLY,
+    items: problems.length,
+    // One request, never more: a failure leaves the figures out, as they were.
+    retries: 0,
+    signal,
+    temperature,
+    stream: true,
   });
+  if (!judged.ok && judged.reason === "stopped") return;
+  if (!judged.ok && judged.error)
+    console.error(`The figures couldn't be asked for again: ${judged.error.message}`);
+  // A figure given twice stays out, as it was.
+  const fixed = [
+    ...byKey(judged.ok ? judged.value : [], (figure) => {
+      const marker = whole((figure as { marker?: unknown } | null)?.marker);
+      return marker !== null && markers.has(marker) ? marker : undefined;
+    }).values(),
+  ];
   if (fixed.length > 0) {
     try {
       documents.calculate(fixed, { structured: true });

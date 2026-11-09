@@ -22,14 +22,17 @@
  *   ("checking-quotes"), and its end reports it (`AnswerFinished.quoteRetry`),
  *   so the evaluation counts the requests, what they recovered and their time.
  */
-import { jsonSchema, Output, streamText } from "ai";
+import { jsonSchema } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
+import { byKey, fieldsOf, judge, list, structured } from "./judge";
 import { markedSentence, wordsOf } from "./markerPlacement";
 import {
   QUOTE_RETRY_INSTRUCTIONS,
   type QuoteToRetry,
+  quoteRetryParts,
   quoteRetryPrompt,
+  RETRY_TAGS,
   setAsideRowsMeaning,
 } from "./prompt";
 import { withLineMark } from "./sheetRows";
@@ -107,21 +110,24 @@ export function nearestExcerpt(
   return withLineMark(text, startOf(from), pieces.slice(from, to).join("").trim());
 }
 
-/** The new quotes in the model's reply, by marker: only those given as text. */
+/**
+ * The new quotes in the model's reply, by marker: only those given as text, and none for a marker
+ * it gives twice, which stays as it was.
+ */
 export function parseCorrections(value: unknown): Map<number, string> {
-  const quotes = new Map<number, string>();
   const list = (value as { quotes?: unknown } | undefined)?.quotes;
-  if (!Array.isArray(list)) return quotes;
-  for (const item of list) {
-    if (typeof item !== "object" || item === null) continue;
+  const given = (Array.isArray(list) ? list : []).flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
     const { marker, quote } = item as Record<string, unknown>;
     const number =
       typeof marker === "string" ? Number(/\d{1,4}/.exec(marker)?.[0] ?? Number.NaN) : marker;
-    if (typeof number === "number" && Number.isInteger(number) && typeof quote === "string") {
-      quotes.set(number, quote.trim());
-    }
-  }
-  return quotes;
+    return typeof number === "number" && Number.isInteger(number) && typeof quote === "string"
+      ? [{ marker: number, quote: quote.trim() }]
+      : [];
+  });
+  return new Map(
+    [...byKey(given, (each) => each.marker)].map(([marker, { quote }]) => [marker, quote]),
+  );
 }
 
 const correctionsSchema = jsonSchema<{ quotes: unknown }>({
@@ -146,28 +152,10 @@ const correctionsSchema = jsonSchema<{ quotes: unknown }>({
   required: ["quotes"],
 });
 
-/**
- * The reply's JSON, even inside a Markdown code fence, after thinking or among other words;
- * undefined if there is none that parses whole. JSON that is cut off is never repaired (#2275): a
- * repaired record would hold a quote or figure cut short.
- */
-export async function replyJson(raw: string): Promise<unknown> {
-  const json = raw
-    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "")
-    .replace(/^\s*```(?:json)?[ \t]*\n?/i, "")
-    .replace(/\n?```\s*$/, "");
-  const whole = (text: string) => {
-    try {
-      return { value: JSON.parse(text) as unknown };
-    } catch {
-      return null;
-    }
-  };
-  const start = json.search(/[[{]/);
-  const end = Math.max(json.lastIndexOf("}"), json.lastIndexOf("]"));
-  return (whole(json) ?? (start >= 0 && end > start ? whole(json.slice(start, end + 1)) : null))
-    ?.value;
-}
+/** The request's reply, in structured output: a new quote for each marker it gives one for. */
+export const CORRECTIONS_REPLY = structured(correctionsSchema, "quotes", (value) =>
+  fieldsOf(value, { quotes: list }) ? parseCorrections(value) : null,
+);
 
 /** The records to ask about, with their sentences in `answer`: those whose marker is in it. */
 function recordsToRetry(unfound: readonly UnfoundQuote[], answer: string) {
@@ -213,35 +201,23 @@ export async function* retryQuotes(
 
   yield { type: "phase", phase: "checking-quotes" };
   const started = Date.now();
-  let raw = "";
-  try {
-    const result = streamText({
-      model: request.model,
-      instructions: QUOTE_RETRY_INSTRUCTIONS,
-      prompt: quoteRetryPrompt(asked),
-      temperature,
-      maxOutputTokens,
-      output: Output.object({ schema: correctionsSchema, name: "quotes" }),
-      // One request, never more: a failure leaves the records as they are.
-      maxRetries: 0,
-      abortSignal: signal,
-      onError: () => undefined,
-    });
-    for await (const part of result.fullStream) {
-      if (signal.aborted || part.type === "abort") return;
-      if (part.type === "text-delta") raw += part.text;
-      else if (part.type === "error") throw part.error;
-    }
-  } catch (error) {
-    if (signal.aborted) return;
-    console.error(
-      `The quotes couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    // What came before the failure may be cut off (#2275): none of it is read.
-    raw = "";
-  }
-  if (signal.aborted) return;
-  const corrections = parseCorrections(await replyJson(raw));
+  const judged = await judge({
+    model: request.model,
+    question: { id: "quote-retry", instructions: QUOTE_RETRY_INSTRUCTIONS },
+    parts: quoteRetryParts(asked),
+    data: RETRY_TAGS,
+    reply: CORRECTIONS_REPLY,
+    items: records.length,
+    // One request, never more: a failure leaves the records as they are.
+    retries: 0,
+    signal,
+    temperature,
+    stream: true,
+  });
+  if (!judged.ok && judged.reason === "stopped") return;
+  if (!judged.ok && judged.error)
+    console.error(`The quotes couldn't be asked for again: ${judged.error.message}`);
+  const corrections = judged.ok ? judged.value : new Map<number, string>();
   let recovered = 0;
   for (const record of asked) {
     const quote = corrections.get(record.marker);

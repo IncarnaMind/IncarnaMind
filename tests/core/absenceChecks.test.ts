@@ -15,12 +15,17 @@ import { checkGenerate, checkReply, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 /** The two looks at the quote a whole read gives (#1554): asked by these instructions. */
-const looks = (call: { system: string }) =>
-  call.system.startsWith("A sentence the User wrote says something is absent");
+const looks = (call: Pick<GenerateCall, "question">) =>
+  call.question === "presence" || call.question === "strict-presence";
 
 /** Each look finds the quote states the very thing the sentence says is absent. */
 const THERE = { text: "Judgement: there" };
@@ -34,7 +39,7 @@ function absenceModel(verdict: "supported" | "contradicted", wholeReads: number[
     {
       generate: (call) => {
         if (looks(call)) return THERE;
-        if (call.system.startsWith("Read the whole Documents")) {
+        if (call.question === "absence-read") {
           wholeReads.push(1);
           if (verdict === "supported") return { text: JSON.stringify(HOLDS) };
           const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
@@ -95,8 +100,8 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
       generate: (call) => {
         if (looks(call)) return THERE;
         requests.push(call.system);
-        if (!call.system.startsWith("Read the whole Documents")) {
-          return call.system.startsWith("You sort the sentences")
+        if (call.question !== "absence-read") {
+          return call.question === "find-claims"
             ? checkGenerate({ [claim]: plan })(call)
             : { text: fields };
         }
@@ -143,7 +148,7 @@ describe("Checking an absence sentence", () => {
       {
         generate: (call) => {
           if (looks(call)) return THERE;
-          if (call.system.startsWith("Read the whole Documents")) return { text: wholeReply };
+          if (call.question === "absence-read") return { text: wholeReply };
           return checkGenerate({ [CLAIM]: { verdict: "supported", absence: true } })(call);
         },
       },
@@ -192,7 +197,7 @@ describe("Checking an absence sentence", () => {
       {
         generate: (call) => {
           if (looks(call)) return THERE;
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             wholeReads.push(1);
             return {
               text: JSON.stringify({ ...HOLDS, absent: "the $5 million loan" }),
@@ -326,7 +331,7 @@ describe("Checking an absence sentence", () => {
             looked.push(quote);
             return { text: `Judgement: ${quote === clause ? "there" : "not"}` };
           }
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             const asked = call.prompt.includes(review) ? unrelated : clause;
             const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
             return {
@@ -394,7 +399,7 @@ describe("Checking an absence sentence", () => {
             looked.push(document);
             return { text: `Judgement: ${call.prompt.includes(lease) ? "elsewhere" : "there"}` };
           }
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             const passage = [
               ...call.prompt.matchAll(/<passage id="([^"]+)"[^>]*>\n([\s\S]*?)<\/passage>/g),
             ].find(([, , text]) => text?.includes(dog))?.[1];
@@ -440,7 +445,7 @@ describe("Checking an absence sentence", () => {
       {
         generate: (call) => {
           if (looks(call)) return THERE;
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             wholeReads.push(1);
             return {
               text: JSON.stringify(contained("P999")),
@@ -591,7 +596,9 @@ describe("Checking an absence sentence", () => {
 
     expect(result).toMatchObject({ verdict: "supported", evidence: { quote: TERM } });
     // Processing the Document asks for its Tags; that request is no part of the check.
-    expect(requests.filter((system) => !system.startsWith("You tag Documents"))).toHaveLength(3);
+    expect(
+      requests.filter((system) => !system.startsWith("You tag a User's Documents")),
+    ).toHaveLength(3);
   });
 
   test("a clause the search found contradicts an absence on a scope too long to read whole", async () => {
@@ -600,7 +607,7 @@ describe("Checking an absence sentence", () => {
     const model = scriptedModel((call) => checkReply(call, { [CLAIM]: plan }), {
       generate: (call) => {
         if (looks(call)) return THERE;
-        if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
+        if (call.question === "absence-read") wholeReads.push(1);
         return checkGenerate({ [CLAIM]: plan })(call);
       },
     });
@@ -654,7 +661,7 @@ describe("Checking an absence sentence", () => {
         {
           generate: (call) => {
             if (looks(call)) return THERE;
-            if (call.system.startsWith("Read the whole Documents")) {
+            if (call.question === "absence-read") {
               reads.push(1);
               const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
               return { text: JSON.stringify(contained(passage)) };
@@ -722,7 +729,7 @@ describe("Checking an absence sentence", () => {
     const model = scriptedModel((call) => checkReply(call, { [claim]: plan }), {
       generate: (call) => {
         if (looks(call)) return THERE;
-        if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
+        if (call.question === "absence-read") wholeReads.push(1);
         return checkGenerate({ [claim]: plan })(call);
       },
     });
@@ -808,7 +815,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
         generate: (call) => {
           if (looks(call)) return each.look === undefined ? THERE : { text: each.look };
           requests.push(call.system);
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             reads.push({ system: call.system, prompt: call.prompt });
             const passage = shownPassages(call.prompt)[0]?.id;
             return {
@@ -846,7 +853,9 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     const part = (text: string) =>
       check?.parts?.find((one) => each.claim.slice(one.span.start, one.span.end) === text);
     const figure = (shown: string) => check?.figures?.find((each) => each.reading.chars === shown);
-    const checkRequests = requests.filter((system) => !system.startsWith("You tag Documents"));
+    const checkRequests = requests.filter(
+      (system) => !system.startsWith("You tag a User's Documents"),
+    );
     return { check, part, figure, reads, checkRequests };
   }
 
@@ -1181,7 +1190,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       const model = scriptedModel((call) => withParts(call, checkReply(call, plans), [claim]), {
         generate: (call) => {
           if (looks(call)) return THERE;
-          if (call.system.startsWith("Read the whole Documents")) {
+          if (call.question === "absence-read") {
             reads.push(1);
             return { text: JSON.stringify({ absent: "a second contract", absence: "holds" }) };
           }
@@ -1244,7 +1253,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       const gate = Promise.withResolvers<void>();
       const model = scriptedModel((call) => withParts(call, checkReply(call, plans), [claim]), {
         generate: (call) =>
-          call.system.startsWith("Read the whole Documents")
+          call.question === "absence-read"
             ? { text: JSON.stringify(HOLDS) }
             : checkGenerate(plans)(call),
       });
@@ -1330,7 +1339,7 @@ describe("A whole read that says the absence holds is judged with what it cites 
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) => {
         if (looks(call)) return THERE;
-        if (call.system.startsWith("Read the whole Documents")) {
+        if (call.question === "absence-read") {
           const passage = shownPassages(call.prompt).find((one) => one.text.includes(each.clause));
           return { text: read.replace("$PASSAGE", passage?.id ?? "P1") };
         }
@@ -1373,7 +1382,7 @@ describe("A whole read that is stopped (#2816)", () => {
     const plans = { [claim]: { verdict: "unsupported", absence: true } as const };
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate: (call) =>
-        call.system.startsWith("Read the whole Documents")
+        call.question === "absence-read"
           ? { text: JSON.stringify(HOLDS) }
           : checkGenerate(plans)(call),
     });

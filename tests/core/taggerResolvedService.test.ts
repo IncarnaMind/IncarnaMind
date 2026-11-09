@@ -11,6 +11,7 @@ import { createBackgroundQueue } from "../../src/core/backgroundQueue";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { createTags } from "../../src/core/tags";
 import type { TagClassifier } from "../../src/core/tags/classify";
+import { TAG_KINDS } from "../../src/core/tags/kinds";
 import { createTagger } from "../../src/core/tags/tagger";
 
 const ANTHROPIC: ExternalService = { id: "https://api.anthropic.com", name: "Anthropic" };
@@ -21,8 +22,7 @@ describe("The service a tagging request resolves to", () => {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
-    const tags = createTags(db, now);
-    tags.seedPresets("en");
+    createTags(db, now).seedPresets();
     const id = randomUUID();
     db.run(
       `INSERT INTO documents (id, content_hash, name, kind, size, status, created_at, updated_at)
@@ -46,7 +46,10 @@ describe("The service a tagging request resolves to", () => {
     const tagger = createTagger({
       db,
       now,
-      tags,
+      offered: () => [],
+      kinds: () => TAG_KINDS,
+      language: () => "en",
+      propose: () => {},
       background: createBackgroundQueue({
         reportError: (error) => {
           throw error;

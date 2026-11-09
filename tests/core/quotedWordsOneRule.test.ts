@@ -35,7 +35,12 @@ import { waitForProcessing } from "../helpers/documents";
 import { wholeParagraph } from "../helpers/editing";
 import { connectToMind } from "../helpers/mindClient";
 import { resolveChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { buildPdf, type PdfPage } from "../helpers/pdf";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
@@ -504,7 +509,7 @@ function modelFor(wanted: Case, language: "en" | "zh", sentence: string) {
       if (!call.results.some((result) => result.tool === "cite")) return { calls: [cite] };
       return { text: sentence };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
 }
 
@@ -581,10 +586,15 @@ async function rewrite(
 /** The verdict of each path on the first Citation of the sentence quoting `words`. */
 async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   const sentence = wanted.sentence(words);
-  const { core, documents, mind } = await setUpWithDocuments(modelFor(wanted, language, sentence), [
-    { name: wanted.name, contents: buildPdf(wanted.pages) },
-    ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
-  ]);
+  const { core, documents, mind } = await setUpWithDocuments(
+    modelFor(wanted, language, sentence),
+    [
+      { name: wanted.name, contents: buildPdf(wanted.pages) },
+      ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
+    ],
+    // Each path reads the quote as the case gives it, and `changedQuote` is its new version's.
+    { quotesAsGiven: () => true },
+  );
   const document = documents.find((each) => bare(each.name) === bare(wanted.name));
   if (!document) throw new Error("No Document.");
   const found: Record<string, string | undefined> = {};
@@ -762,7 +772,7 @@ async function answerCheck(language: "en" | "zh", answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [
     { name: fees.name, contents: buildPdf([...fees.pages]) },
@@ -873,7 +883,7 @@ async function outsideTheWall(words: string) {
       }
       return { text: sentence("[^1]") };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core, documents } = await setUpWithDocuments(model, [
     { name: "Minutes.md", contents: `# Minutes\n\n${minutes}\n` },
@@ -1002,7 +1012,7 @@ async function boardCheck(language: "en" | "zh", answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [...wanted.files]);
   const { citations } = await askAssistant(core, { text: "What happened?" });
@@ -1047,7 +1057,7 @@ async function contractCheck(answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, [CONTRACT]);
   const [citation] = (await askAssistant(core, { text: "Does the clause cover affiliates?" }))
@@ -1128,7 +1138,7 @@ async function costsBoardCheck(answer: string) {
       }
       return { text: answer };
     },
-    { judgesItsAnswers: true },
+    { generate: judgesNothing, judgesItsAnswers: true },
   );
   const { core } = await setUpWithDocuments(model, COSTS);
   const { citations } = await askAssistant(core, { text: "What do the costs cover?" });

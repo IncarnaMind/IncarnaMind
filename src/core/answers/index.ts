@@ -200,7 +200,7 @@ import { messageReference } from "../references";
 import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
-import type { GateDecision } from "../runs/engine";
+import type { GateDecision, TokenUsage } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -230,6 +230,7 @@ import { proposedText } from "../tools/commands/organize";
 import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
+import { proposedTagsText } from "../tools/commands/tagWithAi";
 import { commandTools } from "../tools/commands/tools";
 import {
   type MindsForTools,
@@ -329,6 +330,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { countingJudges } from "./judge";
 import {
   type LiveTranscript,
   listenedTokens,
@@ -403,6 +405,9 @@ export { createAiSdkAnswerEngine } from "./engine";
  * live, seldom enough not to store one Yjs update per token.
  */
 const ANSWER_WRITE_INTERVAL_MS = 50;
+
+/** The commands that only propose, whose reply the app writes (#1569, #2339). */
+const PROPOSES: ReadonlySet<string> = new Set(["documents.organize", "documents.tagWithAi"]);
 
 type Outcome = { status: "done" | "stopped" } | { status: "failed"; error: ProviderError };
 
@@ -649,6 +654,8 @@ export interface AnswersOptions {
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
+  /** See `CoreAdapters.quotesAsGiven`. */
+  quotesAsGiven?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -1438,6 +1445,12 @@ export function createAnswers(options: AnswersOptions) {
       cachedInputTokens: 0,
       cacheWriteTokens: 0,
     };
+    const count = (more: TokenUsage) => {
+      usage.inputTokens += more.inputTokens ?? 0;
+      usage.outputTokens += more.outputTokens ?? 0;
+      usage.cachedInputTokens += more.cachedInputTokens ?? 0;
+      usage.cacheWriteTokens += more.cacheWriteTokens ?? 0;
+    };
     const toolCalls: AnswerToolCall[] = [];
     // Its last Answer put in as it is ("make it a document") holds what that Answer covered.
     const wroteNewText = () =>
@@ -1598,6 +1611,7 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
+        quotesStateClaims: () => !options.quotesAsGiven?.(),
       },
       original
         ? {
@@ -2079,11 +2093,10 @@ export function createAnswers(options: AnswersOptions) {
     const analysisCalls = new Map<string, AnalysisCall>();
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
-    /** What else the User asked for beside an Organize that ran, as its call named it. */
+    /** What else the User asked for beside an Organize or a Tag with AI that ran, as its call named it. */
     const organizedAndAsked = () =>
-      [...commandsDone.values()].find(
-        (done) => done.command === "documents.organize" && done.alsoAsked,
-      )?.alsoAsked ?? null;
+      [...commandsDone.values()].find((done) => PROPOSES.has(done.command) && done.alsoAsked)
+        ?.alsoAsked ?? null;
     const commandProblems = new Map<string, CommandProblem>();
     /** A command's approval as it first asked, for asking again when its files changed (#2514). */
     const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
@@ -3375,12 +3388,6 @@ export function createAnswers(options: AnswersOptions) {
                         signal: controller.signal,
                       }),
                     );
-                    if (checked.usage) {
-                      usage.inputTokens += checked.usage.inputTokens ?? 0;
-                      usage.outputTokens += checked.usage.outputTokens ?? 0;
-                      usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
-                      usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
-                    }
                     // Any claim that stands, and a check that couldn't run, name what the turn
                     // refused as the User's alone, whatever the judge took a claim to be about, so
                     // none of it reads as done (#2407). Only a verdict asks again.
@@ -3436,7 +3443,7 @@ export function createAnswers(options: AnswersOptions) {
             if (text.trim() !== "" || asked === null) return null;
             return {
               claims: [],
-              note: `Your reply is empty. The User also asked, as the Organize call put it: “${asked}”. Answer that now, in the User's language, leaving organizing out.`,
+              note: `Your reply is empty. The User also asked, as the call put it: “${asked}”. Answer that now, in the User's language, leaving organizing and tagging out.`,
             };
           },
         },
@@ -3517,7 +3524,7 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-      for await (const event of engine.generate({
+      const events = engine.generate({
         instructions: (
           mode,
           {
@@ -3704,6 +3711,10 @@ export function createAnswers(options: AnswersOptions) {
             const folders = done.folders;
             if (done.command === "documents.organize" && folders && folders.length > 0)
               resultLines.push((each) => proposedText(each, folders));
+            const tags = done.tags;
+            const tagged = done.items.length;
+            if (done.command === "documents.tagWithAi" && tags && tags.length > 0)
+              resultLines.push((each) => proposedTagsText(each, tagged, tags));
             if (done.command === "documents.organize" && done.untouched) {
               const count = done.untouched;
               resultLines.push((each) =>
@@ -3725,7 +3736,7 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
             // Asked again and still nothing: the reply says what wasn't done, never nothing.
-            if (done.command === "documents.organize" && done.alsoAsked && reply.trim() === "") {
+            if (PROPOSES.has(done.command) && done.alsoAsked && reply.trim() === "") {
               const asked = done.alsoAsked;
               resultLines.push((each) =>
                 translate(each, "answer.commands.notDone", { asked: escapeMarkdownText(asked) }),
@@ -3762,7 +3773,9 @@ export function createAnswers(options: AnswersOptions) {
             : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
-      })) {
+      });
+      // A judge's call counts here as it is made, the claimed-change check's too (./judge).
+      for await (const event of countingJudges(events, count)) {
         if (finished) break;
         switch (event.type) {
           case "support":
@@ -3810,10 +3823,7 @@ export function createAnswers(options: AnswersOptions) {
             writeSoon();
             break;
           case "usage":
-            usage.inputTokens += event.usage.inputTokens ?? 0;
-            usage.outputTokens += event.usage.outputTokens ?? 0;
-            usage.cachedInputTokens += event.usage.cachedInputTokens ?? 0;
-            usage.cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
+            count(event.usage);
             break;
           case "reasoning":
             // Raw chain of thought is dropped: only a provider's own summary is kept.

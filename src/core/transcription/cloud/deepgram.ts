@@ -12,7 +12,7 @@
 import { isDeepgramHost } from "../../../shared/deepgram";
 import { cleanSpeech } from "../speechText";
 import { endsAfter, endsBefore } from "./lineEnds";
-import { closedLoss, createLiveStream, joinWords, pcmBytes } from "./live";
+import { closedLoss, createLiveStream, heldWords, joinWords, pcmBytes } from "./live";
 import type { CloudAuth } from "./socket";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
@@ -40,10 +40,12 @@ export const deepgramAuth = (url: string): CloudAuth => ({
 
 /**
  * The address with what is asked of the stream: 16 kHz PCM, interim results, speakers, any
- * language. Deepgram's own server is asked to leave the audio out of its model improvement, so
- * it keeps it only while transcribing (its Model Improvement Partnership Program page).
+ * language, and the meeting's words to know as key terms (#1031). Deepgram's own server is asked
+ * to leave the audio out of its model improvement, so it keeps it only while transcribing (its
+ * Model Improvement Partnership Program page), and to keep the key terms, people's names among
+ * them, out of its usage records (`redact_usage`).
  */
-export function deepgramUrl(server: string, model: string): string {
+export function deepgramUrl(server: string, model: string, words: readonly string[] = []): string {
   const url = new URL(server);
   const cloudflare = isCloudflare(server);
   const query: [string, string][] = [
@@ -62,6 +64,10 @@ export function deepgramUrl(server: string, model: string): string {
     ["diarize", "true"],
     ["utterance_end_ms", "1000"],
     ...(isDeepgramHost(url.hostname) ? [["mip_opt_out", "true"] as [string, string]] : []),
+    ...words.map((word) => ["keyterm", word] as [string, string]),
+    ...(isDeepgramHost(url.hostname) && words.length > 0
+      ? [["redact_usage", "true"] as [string, string]]
+      : []),
   ];
   for (const [name, value] of query) url.searchParams.append(name, value);
   return url.toString();
@@ -97,6 +103,7 @@ export function createDeepgramStream(
   options: CloudStreamOptions & { url: string },
 ): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   let line: Line | null = null;
   let nextId = 1;
   /** All audio before this has its final results. */
@@ -160,8 +167,11 @@ export function createDeepgramStream(
   }
 
   return createLiveStream(options, {
-    url: deepgramUrl(options.url, options.model),
+    get url() {
+      return deepgramUrl(options.url, options.model, words.now);
+    },
     auth: deepgramAuth(options.url),
+    words,
     opened(link) {
       link.ready();
     },

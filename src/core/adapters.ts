@@ -811,9 +811,11 @@ export interface SpeechSegment {
  * address is the host of the key's region: a key works in no other. Deepgram's is the server the
  * User gave (Deepgram's own, Cloudflare Workers AI or their own server); its key may be empty
  * for their own server. Gladia is told the languages the User speaks that it transcribes, as its
- * language detection needs a short list.
+ * language detection needs a short list. `words`: the meeting's words to know, as the service's
+ * own field takes them (#1031), sent with the session's setup; none when the User hasn't allowed
+ * them, or the meeting has none.
  */
-export type CloudStream =
+export type CloudStream = { words: string[] } & (
   | { service: "openai"; model: string; apiKey: string; vad: string }
   | { service: "soniox"; model: string; apiKey: string }
   | { service: "qwen"; model: string; apiKey: string; url: string }
@@ -823,7 +825,8 @@ export type CloudStream =
   | { service: "elevenlabs"; model: string; apiKey: string }
   | { service: "speechmatics"; model: string; apiKey: string }
   | { service: "gladia"; model: string; apiKey: string; languages: string[] }
-  | { service: "xai"; model: string; apiKey: string };
+  | { service: "xai"; model: string; apiKey: string }
+);
 
 /**
  * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), the
@@ -1375,6 +1378,12 @@ export interface CoreAdapters {
    * isn't. Only tests and the evaluation pass one.
    */
   helpFormJudged?: () => boolean | undefined;
+  /**
+   * Whether an Answer's found quotes show as the model gave them, and `cite` says nothing of two
+   * records with one quote, as before #2739; unset, they show their whole sentences. Only tests and
+   * the evaluation pass one.
+   */
+  quotesAsGiven?: () => boolean | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

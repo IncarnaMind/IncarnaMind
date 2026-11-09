@@ -261,8 +261,8 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
         const zh = language === "zh-CN";
         await expect(page.getByTestId("provider-sends")).toContainText(
           zh
-            ? "会把你的问题和文档内容发送给 DeepSeek。"
-            : "Sends your questions and document text to DeepSeek.",
+            ? "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 DeepSeek。"
+            : "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to DeepSeek.",
         );
         await expect(page.getByTestId("provider-page-key")).toHaveAttribute(
           "placeholder",

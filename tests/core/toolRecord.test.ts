@@ -235,6 +235,32 @@ describe("The record of an Answer's Tool calls", () => {
     );
   });
 
+  // protects=Tag with AI's record names the Tags it proposed and that none was added, and with none proposed says so rather than that Tags wait (#2339); fails_when=an empty run's record says Tags wait in Suggested Tags; no_claim=how a model reads it.
+  test("Tag with AI's record says what it proposed, or that it proposed nothing", () => {
+    const record = (tags: { name: string; count: number }[]) =>
+      toolRecordLines(
+        [
+          call({
+            tool: "run_command",
+            source: "commands",
+            command: {
+              command: "documents.tagWithAi",
+              run: "r",
+              items: [{ kind: "document", id: "d1", name: "Mill Lane" }],
+              tags,
+            } as never,
+          }),
+        ],
+        names,
+      ).at(0);
+    expect(record([{ name: "Contract", count: 1 }])).toBe(
+      "- run_command documents.tagWithAi: 1 item (“Mill Lane”); proposed Tags for them: “Contract” for 1 item; they wait in Suggested Tags for the User's Review, and no Tag was added to any Document",
+    );
+    expect(record([])).toBe(
+      "- run_command documents.tagWithAi: 1 item (“Mill Lane”); no Tag was proposed, and no Tag was added to any Document",
+    );
+  });
+
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.
   test("the Citations a change wrote, the markers it left out, and the reply's", () => {
     const made = call({

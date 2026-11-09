@@ -17,6 +17,17 @@ import {
   FINISH_TIMEOUT_MS,
 } from "./stream";
 
+/** About 30 s of 16 kHz PCM: a service that took the setup has answered long before. */
+const UNANSWERED_KEPT = 1_000_000;
+
+/**
+ * A close before the service answered that a setup it won't take can explain: the service closed
+ * the socket itself, or refused what the address asked. Not the key or its credit, and not a
+ * connection lost with no close (1006), which the words didn't cause.
+ */
+const turnedAway = (code: number) =>
+  code !== 1006 && code !== HANDSHAKE_REFUSED && code !== HANDSHAKE_NO_CREDIT;
+
 export interface LiveLink {
   /** Sent now once the service is ready for audio, else held until it is. */
   send(data: string | Uint8Array): void;
@@ -33,8 +44,36 @@ export interface LiveLink {
    * made at once, the route's setup runs again on it, and audio is held until it is ready.
    */
   renew(): void;
+  /**
+   * The service turned the session's setup away before it answered anything else: a new
+   * connection is made at once with no words to know in it, as `renew`, and is sent again first
+   * what the refused one was sent, so no word is lost and every time stays as it was said. False
+   * when its setup held none, so the route ends the stream as it would have.
+   */
+  retryWithoutWords(): boolean;
   readonly ended: boolean;
   readonly finishing: boolean;
+}
+
+/** The words to know a stream sends with its setup, until the service turns them away. */
+export interface HeldWords {
+  readonly now: readonly string[];
+  /** Leaves them out of every setup from now on; false when there were none to leave out. */
+  drop(): boolean;
+}
+
+export function heldWords(words: readonly string[]): HeldWords {
+  let now = words;
+  return {
+    get now() {
+      return now;
+    },
+    drop() {
+      if (now.length === 0) return false;
+      now = [];
+      return true;
+    },
+  };
 }
 
 /** Where a session's socket is, or why the service wouldn't start one. */
@@ -48,6 +87,11 @@ export interface LiveRoute {
    */
   url: string | (() => Promise<LiveSession>);
   auth?: CloudAuth;
+  /**
+   * The words to know its setup holds: a connection that closes before the stream is ready is
+   * made again once without them, so a list the service won't take never costs the stream.
+   */
+  words?: HeldWords;
   /** The socket opened: the session's setup, and `ready` when no message of the service confirms it. */
   opened(link: LiveLink): void;
   /** A message from the service, read as JSON; any other is left out. */
@@ -102,6 +146,17 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
   let isReady = false;
   let told = false;
   const waiting: (string | Uint8Array)[] = [];
+  /**
+   * What the connection was sent before the service answered anything, which a setup turned away
+   * leaves untranscribed: a route ready as soon as its socket opens (Soniox) sends audio before
+   * the service has read the setup. Kept up to `UNANSWERED_KEPT`, past which a refusal is no
+   * longer the setup's.
+   */
+  let unanswered: (string | Uint8Array)[] = [];
+  let unansweredSize = 0;
+  let answered = false;
+  /** What a connection turned away was sent, for the next one before anything newer. */
+  let again: (string | Uint8Array)[] = [];
   let ended = false;
   let finishing: { done: Promise<void>; resolve(): void } | null = null;
   let finishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -116,10 +171,25 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
     finishing?.resolve();
   }
 
+  function sent(data: string | Uint8Array): void {
+    socket?.send(data);
+    if (answered) return;
+    unanswered.push(data);
+    unansweredSize += typeof data === "string" ? data.length : data.byteLength;
+    if (unansweredSize > UNANSWERED_KEPT) heard();
+  }
+
+  /** The service answered: the setup was taken, and nothing sent before needs sending again. */
+  function heard(): void {
+    answered = true;
+    unanswered = [];
+    unansweredSize = 0;
+  }
+
   const link: LiveLink = {
     send(data) {
       if (ended) return;
-      if (isReady) socket?.send(data);
+      if (isReady) sent(data);
       else waiting.push(data);
     },
     setup(data) {
@@ -129,7 +199,7 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
       if (isReady || ended) return;
       isReady = true;
       if (connectTimer) clearTimeout(connectTimer);
-      for (const data of waiting.splice(0)) socket?.send(data);
+      for (const data of [...again.splice(0), ...waiting.splice(0)]) sent(data);
       if (told) return;
       told = true;
       report.opened();
@@ -151,6 +221,16 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
       connect();
       old?.close();
     },
+    retryWithoutWords() {
+      if (ended || answered || !route.words?.drop()) return false;
+      again = unanswered;
+      // The process has no logger of its own: its output goes to the app's log, which never holds the words.
+      console.error(
+        "The cloud service turned the words to know away: the stream goes on without them.",
+      );
+      link.renew();
+      return true;
+    },
     get ended() {
       return ended;
     },
@@ -162,6 +242,9 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
   function connect(): void {
     const own = ++connection;
     isReady = false;
+    answered = false;
+    unanswered = [];
+    unansweredSize = 0;
     if (connectTimer) clearTimeout(connectTimer);
     const { url } = route;
     if (typeof url === "string") {
@@ -188,6 +271,8 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
   function open(own: number, url: string, apiKey: string): void {
     if (connectTimer) clearTimeout(connectTimer);
     const current = () => own === connection && !ended;
+    // A connection given up for taking too long was closed here, not turned away by the service.
+    let timedOut = false;
     socket = options.connect(
       url,
       apiKey,
@@ -203,10 +288,14 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
           } catch {
             return;
           }
-          if (isRecord(message)) route.heard(message, link);
+          if (!isRecord(message)) return;
+          route.heard(message, link);
+          // An error before the stream is ready is the setup turned away, not taken.
+          if (current() && isReady) heard();
         },
         closed(code, reason) {
           if (!current()) return;
+          if (!finishing && !timedOut && turnedAway(code) && link.retryWithoutWords()) return;
           if (route.closed) route.closed(code, reason ?? "", link);
           else link.lose(closedLoss(code));
         },
@@ -215,7 +304,9 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
     );
     const opening = socket;
     connectTimer = setTimeout(() => {
-      if (!isReady && current()) opening.close();
+      if (isReady || !current()) return;
+      timedOut = true;
+      opening.close();
     }, CONNECT_TIMEOUT_MS);
   }
 

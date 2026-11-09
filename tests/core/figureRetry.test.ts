@@ -60,7 +60,7 @@ async function ask(retry?: object | string, cut = false) {
         : [],
   };
   const model = scriptedModel((call) =>
-    call.system.startsWith("You fix the calculated figures")
+    call.question === "figure-retry"
       ? {
           text: typeof retry === "string" ? retry : retry ? JSON.stringify(retry) : "I can't.",
           cutOff: cut,
@@ -109,6 +109,22 @@ describe("A local model's figures that couldn't be worked out", { timeout: 30_00
     expect(prompt).toContain(`Why it couldn't be worked out: ${PROBLEM}`);
     expect(prompt).toContain(`<passage id="P1">\n${MARGIN}\n</passage>`);
     expect(events.at(-1)).toEqual({ type: "finished" });
+  });
+
+  // protects=a figure the reply gives twice, two ways, is never worked out: it stays out, as it was, where one given once is taken (#2817); fails_when=either of the two is calculated.
+  test("stay out when the reply gives one figure twice, two ways", async () => {
+    const once = await ask({ calculations: [FIGURE] });
+    expect(once.given).toHaveLength(2);
+
+    const { events, given } = await ask({
+      calculations: [FIGURE, { ...FIGURE, formula: "gm2024 - gm2025" }],
+    });
+
+    expect(given).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "figures-retried",
+      retry: { figures: 1, recovered: 0, durationMs: expect.any(Number) },
+    });
   });
 
   test("stay out when the request gives nothing back", async () => {

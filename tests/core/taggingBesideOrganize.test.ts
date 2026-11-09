@@ -16,7 +16,7 @@ import { scriptedModels } from "../helpers/models";
 import { docxOf, xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 import { type ScriptedChat, scriptedChat } from "../helpers/scriptedChat";
-import { tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
 
 const LOCAL = { kind: "ollama", modelId: "local-model" } as const;
 const startOn = (dataDir: string, chat: ScriptedChat) =>
@@ -96,43 +96,45 @@ describe("with tagging and sorting by themselves off", () => {
     expect(await assignmentsOf(core)).toEqual([]);
   });
 
-  test("Organize, run by hand, tags and files them, and keeps a Tag the User added", async () => {
+  test("Organize, run by hand, proposes their Tags and Folder, and keeps a Tag the User added", async () => {
     const { core, chat, reports } = await start(false);
     const [first, second] = await add(core, {
       "One.txt": "The first report, about revenue.",
       "Two.txt": "The second report, about costs.",
     });
     if (!first || !second) throw new Error("Nothing was added.");
-    const book = await tagNamed(core, "Book");
-    const report = await tagNamed(core, "Report");
-    await core.addDocumentTag(first.id, book.id);
-    chat.organizeTags([report.id]);
+    await core.addDocumentTag(first.id, (await tagNamed(core, "Book")).id);
+    chat.organizeTags(["kind:report"]);
 
     await core.classifyDocuments();
     await filed(core, [first.id, second.id], reports.id);
 
-    expect((await tagNamesOf(core, first.id)).sort()).toEqual(["Book", "Report"]);
-    expect(await tagNamesOf(core, second.id)).toEqual(["Report"]);
+    // Its Tags wait in the Review with its Folder; the User's stays as it is.
+    expect(await proposedTagNamesOf(core, first.id)).toEqual(["Report"]);
+    expect(await proposedTagNamesOf(core, second.id)).toEqual(["Report"]);
+    expect(await tagNamesOf(core, first.id)).toEqual(["Book"]);
+    expect(await tagNamesOf(core, second.id)).toEqual([]);
     expect(chat.calls.map((call) => call.purpose)).toEqual(["organize", "organize"]);
   });
 
-  test("Discarding what that Organize run proposed leaves the Tags", async () => {
+  test("Discarding what that Organize run proposed adds no Tag", async () => {
     const { core, chat, reports } = await start(false);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
-    chat.organizeTags([(await tagNamed(core, "Contract")).id]);
+    chat.organizeTags(["kind:contract"]);
     await core.classifyDocuments([document.id]);
     await filed(core, [document.id], reports.id);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Contract"]);
 
     const { items } = await core.getOrganizeReview();
     await core.discardOrganizeReview(items.map((item) => item.id));
 
     expect(await proposedFor(core, document.id)).toBeNull();
-    expect(await tagNamesOf(core, document.id)).toEqual(["Contract"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+    expect(await tagNamesOf(core, document.id)).toEqual([]);
   });
 
-  test("Re-tag, asked for by hand, works the Tags out and doesn't move the Document", async () => {
+  test("Re-tag, asked for by hand, proposes the Tags and doesn't move the Document", async () => {
     const { core, chat } = await start(false);
     const [document] = await add(core, { "One.txt": "The first report, about revenue." });
     if (!document) throw new Error("Nothing was added.");
@@ -142,7 +144,8 @@ describe("with tagging and sorting by themselves off", () => {
     await waitForTagging(core, [document.id]);
 
     expect(chat.calls.map((call) => call.purpose)).toEqual(["tags"]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Report"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Report"]);
+    expect(await tagNamesOf(core, document.id)).toEqual([]);
     expect(await assignmentsOf(core)).toEqual([]);
   });
 

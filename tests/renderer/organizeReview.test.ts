@@ -14,7 +14,6 @@ import {
   type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
-import { translate } from "../../src/shared/i18n";
 import { undoLines } from "../helpers/undoLines";
 
 /*
@@ -196,16 +195,66 @@ describe("an Organize run", () => {
     expect(state()).toMatchObject({ open: false, run: null, count: 2 });
   });
 
-  test("that proposes nothing says so, and opens nothing", async () => {
+  test("that proposes nothing opens nothing, and the Library's top says how many it read", async () => {
     method("organizeLibrary").mockResolvedValue(planned(0));
 
     await flow.organize({});
-    expect(state()).toMatchObject({ open: false, run: null });
-    const told = useNotices.getState().confirmation?.message;
-    expect(told && translate("en", told)).toBe(
-      "Organize found no Folder to suggest for these Documents",
-    );
-    expect(told && translate("zh-CN", told)).toBe("未能为这些文档推荐文件夹");
+    expect(state()).toMatchObject({ open: false, run: null, apart: { count: 2, tags: false } });
+    expect(useNotices.getState().confirmation).toBeNull();
+  });
+
+  test("whose tagging failed keeps its line, with the provider's words, until dismissed", async () => {
+    method("organizeLibrary").mockResolvedValue({
+      ...planned(2),
+      taggingFailed: "Invalid API key.",
+    });
+
+    await flow.organize({});
+    expect(state().taggingFailed).toEqual({ details: "Invalid API key." });
+    flow.dismissTaggingFailed();
+    expect(state().taggingFailed).toBeNull();
+  });
+
+  test("with nothing to re-tag says why, not that no Tag fits", async () => {
+    method("tagDocuments").mockResolvedValue({ ...planned(0), documents: 0 });
+
+    await flow.tagDocuments();
+    expect(useNotices.getState().confirmation?.message).toBe("tags.dialog.retag.none");
+    expect(state().apart).toBeNull();
+  });
+
+  test("that proposes nothing with Folders there says no Folder fits, as a notice", async () => {
+    method("getLibrary").mockResolvedValue({
+      ...planning,
+      groups: [
+        {
+          id: "f1",
+          name: "Finance",
+          description: "",
+          parentId: null,
+          countsOwnFiles: false,
+          keepInside: false,
+          createdAt: "2026-11-01T00:00:00.000Z",
+          updatedAt: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+    });
+    method("organizeLibrary").mockResolvedValue(planned(0));
+
+    await flow.organize({});
+    expect(state()).toMatchObject({ open: false, run: null, apart: null });
+    expect(useNotices.getState().confirmation?.message).toBe("library.organize.noneFit");
+  });
+
+  test("a Re-tag that proposes nothing says no Tag fits, and the next run clears it", async () => {
+    method("tagDocuments").mockResolvedValue(planned(0));
+    await flow.tagDocuments(["d1", "d2"]);
+    expect(state()).toMatchObject({ open: false, run: null, apart: { count: 2, tags: true } });
+
+    method("organizeLibrary").mockResolvedValue(planned(2));
+    method("getOrganizeReview").mockResolvedValue(waiting);
+    await flow.organize({});
+    expect(state()).toMatchObject({ apart: null });
   });
 
   test("Stop ends it with how many it had read, and opens nothing", async () => {

@@ -1,10 +1,9 @@
 /**
  * Automatic tagging with TypeSafe Jev (spec #20, "Tagging"; ADR-0005). When
  * Jev is set up on this device, it decides each Tag for each Document with
- * the probability that the Tag applies, instead of the chat model:
- * - below the review band, the Tag isn't applied;
- * - in the band, it is applied and marked "needs review";
- * - above it, it is applied.
+ * the probability that the Tag applies, instead of the chat model: below the
+ * lowest probability the User suggests from, the Tag isn't proposed; from it
+ * up, it is proposed, and waits in the Review until the User confirms it (#2339).
  *
  * Jev's settings are per device, like its key (in the keychain, never in
  * SQLite). Its requests are the "tagging" data flow, to Jev's service:
@@ -154,7 +153,7 @@ export function decisionsFromProbabilities(
   return tags.flatMap((tag) => {
     const probability = probabilities[tag.id];
     if (probability === undefined || probability < band.low) return [];
-    return [{ tagId: tag.id, confidence: probability, needsReview: probability < band.high }];
+    return [{ tagId: tag.id, confidence: probability }];
   });
 }
 

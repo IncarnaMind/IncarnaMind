@@ -577,17 +577,21 @@ describe("What the judge says the sentence is about (#2194)", () => {
     }
   });
 
-  // protects=a provider that ignores the schema, and a judge that omits or invents about, cannot silently drop a real claim: no about, and an unknown one, flag as they did before the field, in English and Chinese; fails_when=a claim is lost because the field is missing or unknown; no_claim=how a provider ignores the schema.
-  test.each(["omitted", "unknown"] as const)("about %s flags", async (how) => {
-    for (const reply of [english, chinese]) {
-      const claim =
-        how === "omitted"
-          ? { sentence: reply, kind: "added", backed: false }
-          : { sentence: reply, kind: "added", about: "Mind", backed: false };
-      const result = await check(judge({ claims: [claim] }), reply);
-      expect(result.claims).toEqual(["added"]);
-    }
-  });
+  // protects=a claim whose about the judge leaves out or misspells can't be read: the check fails and flags nothing, never filling the field in as a Note's (#2817), in English and Chinese; fails_when=the claim is flagged as a Note's, or the check reads as clean; no_claim=how a provider ignores the schema.
+  test.each(["omitted", "unknown"] as const)(
+    "about %s can't be read: the check fails",
+    async (how) => {
+      for (const reply of [english, chinese]) {
+        const claim =
+          how === "omitted"
+            ? { sentence: reply, kind: "added", backed: false }
+            : { sentence: reply, kind: "added", about: "Mind", backed: false };
+        const result = await check(judge({ claims: [claim] }), reply);
+        expect(result.claims).toEqual([]);
+        expect(result.failed).toBe(true);
+      }
+    },
+  );
 });
 
 describe("A claim of something done in the app (#2407)", () => {
@@ -633,8 +637,8 @@ describe("A claim of something done in the app (#2407)", () => {
     expect(result.commands).toEqual(["privacy"]);
   });
 
-  // protects=a claim in the app counts whatever kind the judge gave it, and one item's unknown kind never voids the rest of the verdict, as a provider that doesn't hold the schema's enum sends; fails_when=a verdict with "opened" as a kind drops a real claim about Local mode; no_claim=none beyond protects.
-  test("an unknown kind voids nothing", async () => {
+  // protects=a kind that isn't one of the schema's words can't be read, a claim in the app's too: the check fails and flags nothing, never filling the kind in (#2817); fails_when=a verdict with "opened" as a kind is counted, or the check reads as clean; no_claim=none beyond protects.
+  test("an unknown kind can't be read: the check fails", async () => {
     const reply = "I opened Settings. Local mode is on now.";
     const result = await check(
       judge({
@@ -646,12 +650,12 @@ describe("A claim of something done in the app (#2407)", () => {
       }),
       reply,
     );
-    expect(result.commands).toEqual(["command", "privacy"]);
-    expect(result.claims).toEqual(["changed"]);
-    expect(result.failed).toBeUndefined();
+    expect(result.commands).toEqual([]);
+    expect(result.claims).toEqual([]);
+    expect(result.failed).toBe(true);
   });
 
-  // protects=an item that names an unbacked sentence of the reply but can't be placed (an unknown about with an unknown kind, no about with an unknown kind) fails the check, so a turn that refused something names it; "false" as a string is no backing; fails_when=such an item is dropped and the check reads as clean; no_claim=none beyond protects.
+  // protects=an item that names a sentence of the reply but can't be placed (an unknown about with an unknown kind, no about with an unknown kind) fails the check, backed or not, so a turn that refused something names it; "false" as a string is no backing; fails_when=such an item is dropped and the check reads as clean; no_claim=none beyond protects.
   test.each([
     { item: { kind: "enabled", about: "settings", backed: false }, failed: true, commands: [] },
     { item: { kind: "enabled", backed: false }, failed: true, commands: [] },
@@ -670,7 +674,7 @@ describe("A claim of something done in the app (#2407)", () => {
       judge({ claims: [{ sentence: english, ...item, backed: "true" }] }),
       english,
     );
-    expect(backed.failed).toBeUndefined();
+    expect(backed.failed).toBe(failed);
     expect(backed.commands).toEqual([]);
   });
 

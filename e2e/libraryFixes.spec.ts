@@ -189,6 +189,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);
     await expect(needs.getByTestId("library-organize-set-up")).toHaveCount(0);
     await expect(needs.getByTestId("library-organize-key")).toBeVisible();
+    await expect(needs.getByTestId("library-organize-key-key-sends")).toHaveText(
+      language === "en"
+        ? "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for."
+        : "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
+    );
     await expect(needs).toContainText(
       language === "en"
         ? "It sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to the model you set up, once you allow it."
@@ -225,8 +230,14 @@ for (const language of ["en", "zh-CN"] as const) {
       join(library, "Tides.txt"),
     );
     await pointAndClick(window, lib.getByTestId("library-organize"));
-    await expect(review).toBeVisible({ timeout: 30_000 });
-    await expect(review.getByTestId("organize-review-left-out-row")).toContainText("Tides");
+    // It fits no Folder and gets no Tag: nothing is proposed, so no Review opens (#2339).
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      language === "en"
+        ? "Organize found no Folder to suggest for these Documents"
+        : "未能为这些文档推荐文件夹",
+      { timeout: 30_000 },
+    );
+    await expect(review).toHaveCount(0);
     await expect(needs).toHaveCount(0);
     await app.close();
   });

@@ -45,6 +45,7 @@ import { addAndProcess, waitForDocuments, writeSourceFile } from "../helpers/doc
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import {
+  comparesAQuote,
   type GenerateCall,
   type ModelCall,
   promptText,
@@ -159,7 +160,7 @@ async function setUp(
     },
     {
       generate: (call) => {
-        const sorting = call.system.startsWith("You sort the sentences");
+        const sorting = call.question === "find-claims";
         if (sorting) finds.push(call);
         const reply = checkGenerate(PLANS)(call);
         if (sorting && "text" in reply) {
@@ -174,7 +175,7 @@ async function setUp(
           };
           return { text: JSON.stringify(decide ? decide(finds.length, call, explicit) : explicit) };
         }
-        return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
+        return billed?.judged && "text" in reply && comparesAQuote(call)
           ? { ...reply, usage: billed.judged }
           : reply;
       },
@@ -343,7 +344,7 @@ test.each([
     },
     {
       generate: (call) => {
-        if (call.system.startsWith("You sort the sentences")) {
+        if (call.question === "find-claims") {
           events.push("claims asked");
           // The load ends while the claims are named, as a real one would.
           loaded.resolve();
@@ -397,7 +398,7 @@ test("Check this note's claims step loads the reranker before it asks for the cl
   const fake = createFakeCrossEncoder();
   const model = scriptedModel((call) => checkReply(call, plans), {
     generate: (call) => {
-      if (call.system.startsWith("You sort the sentences")) events.push("claims asked");
+      if (call.question === "find-claims") events.push("claims asked");
       return checkGenerate(plans)(call);
     },
   });
@@ -1021,7 +1022,7 @@ describe("Check this note", () => {
       {
         generate: (call) => {
           // The claims are named, then the cap is reached before any is checked.
-          if (call.system.startsWith("You sort the sentences")) {
+          if (call.question === "find-claims") {
             void core?.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
           }
           return checkGenerate(PLANS)(call);

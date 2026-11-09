@@ -168,7 +168,7 @@ describe("Saving a web page", { timeout: 30_000 }, () => {
       documentName: "Tea - The Open Encyclopedia",
       contentHash: document.contentHash,
       location: { kind: "section", heading: "History", paragraphs: { from: 2, to: 2 } },
-      quote: PORTUGUESE,
+      quote: `${PORTUGUESE}, at which time it was termed chá.`,
       check: "found",
     });
   });
