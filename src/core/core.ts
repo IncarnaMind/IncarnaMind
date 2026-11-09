@@ -5149,10 +5149,18 @@ export function createCore(adapters: CoreAdapters): Core {
   const extracted = (documentId: string, ms: number) => settled(documentId, ms);
   /** Resolves once a Document's newest version is read: its Passages are then the file's text. */
   const processed = (documentId: string) => settled(documentId, null);
-  /** Where a Meeting's claims are checked: its Note's Folder, or every Document for one in none. */
-  const claimScope = (mindId: string): SearchScope | null => {
+  /**
+   * Where a Meeting's claims are checked: the Search scope the User chose for its Note, else the
+   * Note's Folder, never every Document by default. Null: a Note in no Folder, with none chosen,
+   * whose claims aren't checked (#2306). `scope` null: every Document, chosen.
+   */
+  const claimScope = (mindId: string): { scope: SearchScope | null } | null => {
     const { folderId } = minds.get(mindId);
-    return folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null;
+    const chosen = content.readSettings(mindId, mindScopeIn);
+    if (chosen === null) return folderId === null ? null : { scope: folderScope(folderId) };
+    if (hasSearchScope(chosen)) return { scope: constrainedScope(chosen, mindId) };
+    const wall = walledFolderId(folderId);
+    return { scope: wall === null ? null : folderScope(wall) };
   };
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
@@ -5199,16 +5207,22 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     answers,
     checkable({ mindId, transcriptId }) {
-      const scope = evidence.scope(mindId, scopeDocuments(claimScope(mindId)), {
+      const place = claimScope(mindId);
+      if (!place) return false;
+      // Read as the check reads it, so the two never disagree on whether there is anything.
+      const scope = evidence.scope(mindId, scopeDocuments(place.scope), {
         documentIds: [transcriptId],
       });
       return documents.searchableCount(scope.documentIds ?? undefined) > 0;
     },
     async supports({ claim, mindId, transcriptId, model, signal }) {
+      const place = claimScope(mindId);
+      // With no scope the fill never asks (`checkable`), and nothing is listed.
+      if (!place) return true;
       const result = await checks.checkClaim(
         {
           claim,
-          scope: claimScope(mindId),
+          scope: place.scope,
           mindId,
           checked: { documentIds: [transcriptId] },
           model,
