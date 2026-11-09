@@ -1359,7 +1359,7 @@ export const zhCN = {
   "claim.unsupported.covers.other": "引用支持{covered}，但不支持{uncovered}的部分。",
   "claim.unsupported.documentsCover": "你的文档支持{covered}，但不支持{uncovered}的部分。",
   "claim.unsupported.noReason": "核对没有给出原因",
-  "claim.unsupported.notConfirmed": "有段落的说法可能与此不同，但检查未能确认。",
+  "claim.unsupported.notConfirmed": "有段落的说法可能与此不同，但核对未能确认。",
   "claim.unsupported.currency.reason": "文档写的是 {amount}，没有注明币种。",
   "claim.unsupported.currency.covered": "金额 {amount}",
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
@@ -5031,9 +5031,9 @@ export const zhCN = {
   "export.comment.sentence.quoted": "{said}（“{quote}”，{source}）",
   "export.comment.sentence.unsupported.reason": "无依据：{reason}",
   "export.comment.sentence.unsupported.notConfirmed":
-    "无依据：有段落的说法可能与此不同，但检查未能确认。",
+    "无依据：有段落的说法可能与此不同，但核对未能确认。",
   "export.comment.sentence.unsupported.notConfirmed.reason":
-    "无依据：有段落的说法可能与此不同，但检查未能确认。{reason}",
+    "无依据：有段落的说法可能与此不同，但核对未能确认。{reason}",
   "export.comment.sentence.unsupported.plain": "无依据。",
   "export.comment.sentence.notFound": "未找到：未在“{scope}”中找到。",
   "export.comment.sentence.notFound.more": "未找到：未在“{scope}”等 {total} 项中找到。",

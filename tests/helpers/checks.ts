@@ -2,6 +2,7 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
+import type { Core } from "../../src/core";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { listedSentences } from "./claimSentences";
@@ -11,9 +12,12 @@ export { listedSentences } from "./claimSentences";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
 import { recordCiteTokens } from "../../src/core/recordCites/parser";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
 import { comparableSentence } from "../../src/shared/sentences";
 import { shownPassages } from "./citations";
+import type { MindClient } from "./mindClient";
+import { note, readMind, writeMind } from "./minds";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -408,4 +412,27 @@ export function checkingModel(
     },
     { generate: checkGenerate(plans, evidence) },
   );
+}
+
+/**
+ * Checks a Note of one sentence as the app does, its figures found in the Note's own text, and
+ * gives back the check its sentence shows.
+ */
+export async function checkedInNote(
+  { core, mind, client }: { core: Core; mind: { id: string }; client: MindClient },
+  sentence: string,
+) {
+  const block = note(sentence);
+  const blockId = String(block.attrs?.id);
+  writeMind(client, [block]);
+  await client.settled();
+  await core.checkSentences({
+    requestId: "check",
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId, offset: 0 },
+    to: { blockId, offset: sentence.length },
+  });
+  await client.settled();
+  return claimSpans(readMind(client)).find((each) => each.sentence.text.trim() === sentence)?.check;
 }
