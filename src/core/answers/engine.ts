@@ -122,6 +122,7 @@ import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import { withJsonFencesClosed } from "./jsonFences";
+import { replyJson } from "./judge";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -130,7 +131,7 @@ import {
   translateQueryPrompt,
   withPassageNotes,
 } from "./prompt";
-import { replyJson, retryQuotes } from "./quoteRetry";
+import { retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { type SmallCallModel, smallCallModel } from "./smallCalls";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
@@ -2595,7 +2596,7 @@ async function* structured(
     return;
   }
   if (signal.aborted) return;
-  const value = await replyJson(raw);
+  const value = replyJson(raw);
   const answer = (value as { answer?: unknown } | undefined)?.answer;
   // The model didn't answer in JSON after all: it can't do structured output.
   if (typeof answer !== "string" && !emitted) {

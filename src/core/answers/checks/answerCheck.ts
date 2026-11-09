@@ -8,7 +8,6 @@
  * result: found only when it is supported. A limit that stops the judgement stops it at a batch,
  * so the sentences it leaves are the last ones.
  */
-import { generateText } from "ai";
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
@@ -19,27 +18,30 @@ import type {
   MarkedCitation,
   MarkedFigure,
   Money,
+  ProviderError,
 } from "../../api";
 import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
 import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
-import { classifyProviderError } from "../../providers/providerErrors";
 import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
+import { json, judge } from "../judge";
 import { needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
+  BATCH_TAGS,
   type BatchPassage,
   type BatchSentence,
   type BatchVerdict,
   batchesOf,
+  batchParts,
   batchPrompt,
-  readBatchReply,
+  readBatch,
   SENTENCE_BATCH_INSTRUCTIONS,
 } from "./sentenceBatch";
 
@@ -176,8 +178,7 @@ async function supportOf(
 }
 
 /** The limit a failed batch met, if it was one. */
-function stopOf(error: unknown): JudgementStop | null {
-  const failure = classifyProviderError(error);
+function stopOf(failure: ProviderError): JudgementStop | null {
   if (failure.kind !== "cost-cap") return null;
   return failure.budget ? "answer-limit" : "monthly-limit";
 }
@@ -297,27 +298,28 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       most: number,
     ): Promise<Map<number, BatchVerdict> | JudgementStop | null> => {
       const id = ++sent;
-      const ended = AbortSignal.any([input.signal, AbortSignal.timeout(options.claimTimeLimitMs)]);
       open++;
       try {
-        const { text } = await generateText({
+        const judged = await judge({
           model: prepared.model,
-          instructions: SENTENCE_BATCH_INSTRUCTIONS,
-          prompt: batchPrompt(batch),
+          question: { id: "sentence-batch", instructions: SENTENCE_BATCH_INSTRUCTIONS },
+          parts: batchParts(batch),
+          data: BATCH_TAGS,
+          reply: json((value) => readBatch(value, batch.length)),
+          items: batch.length,
+          retries: 1,
+          signal: input.signal,
+          timeoutMs: options.claimTimeLimitMs,
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: outputTokens("sentence-batch", batch.length),
-          maxRetries: 1,
-          abortSignal: ended,
         });
-        const verdicts = await readBatchReply(text, batch.length);
-        if (verdicts.size === 0) {
+        if (judged.ok && judged.value.size > 0) return judged.value;
+        if (judged.ok || judged.reason === "unreadable" || judged.reason === "refused") {
           console.warn(
             `Batch ${id} of an Answer's ${batch.length} sentences had no readable reply.`,
           );
+          return new Map();
         }
-        return verdicts;
-      } catch (error) {
-        return stopOf(error);
+        return judged.error ? stopOf(judged.error) : null;
       } finally {
         outMost -= most;
         open--;
@@ -375,7 +377,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       return turn;
     };
 
-    const judge = async (batch: (typeof judged)[number][]) => {
+    const judgeBatch = async (batch: (typeof judged)[number][]) => {
       const most = stopped ? stopped : await admit(batch);
       if (typeof most === "string" || stopped || input.signal.aborted) {
         stopped ??= typeof most === "string" ? most : null;
@@ -401,7 +403,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const workers = Array.from(
       { length: Math.min(claimsAtOnce(prepared), queue.length) },
       async () => {
-        for (let batch = queue.shift(); batch; batch = queue.shift()) await judge(batch);
+        for (let batch = queue.shift(); batch; batch = queue.shift()) await judgeBatch(batch);
       },
     );
     await Promise.all(workers);

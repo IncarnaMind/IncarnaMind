@@ -27,6 +27,7 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, shifted, whole } from "../calculations";
+import { labelled, parseJson } from "../judge";
 import { linesSayFrame, namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
@@ -113,20 +114,12 @@ export function readFigureReply(
 ): FigureReply | null {
   if (reply.length > MAX_REPLY_CHARACTERS + figures.length * ITEM_CHARACTERS) return null;
   // The protocol's line is the JSON one: a model also writes "Figures: …" as prose before it.
-  const line = reply
-    .split(/\r?\n/)
-    .flatMap((each) => FIGURES.exec(each)?.[1] ?? [])
-    .findLast((rest) => rest.trimStart().startsWith("{"));
-  if (line === undefined) return null;
+  const line = labelled(reply.split(/\r?\n/), FIGURES, (rest) => rest.trimStart().startsWith("{"));
+  if (line === undefined || line === null) return null;
   const end = line.lastIndexOf("}") + 1;
   if (end === 0 || !/^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(line.slice(end))) return null;
-  let value: unknown;
-  try {
-    // A quote copied from a sheet row keeps its raw tabs, as in a Tool call's input (#1827).
-    value = JSON.parse(escapedInStrings(line.slice(0, end)));
-  } catch {
-    return null;
-  }
+  // A quote copied from a sheet row keeps its raw tabs, as in a Tool call's input (#1827).
+  const value = parseJson(escapedInStrings(line.slice(0, end)))?.value;
   if (!isRecord(value) || !Array.isArray(value.items) || value.items.length !== figures.length)
     return null;
   const ids = new Set(figures.map((figure) => figure.id));

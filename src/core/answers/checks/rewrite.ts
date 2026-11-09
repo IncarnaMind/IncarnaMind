@@ -8,7 +8,6 @@
  * sentence as it is.
  */
 
-import { generateText } from "ai";
 import { readFigures } from "../../../shared/figures";
 import {
   differing,
@@ -23,13 +22,13 @@ import {
 } from "../../../shared/rewriteWords";
 import type { Citation, ClaimCorrection, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments } from "../citations";
 import { answerTemperature } from "../engine";
+import { judge, lines } from "../judge";
 import { correctionFor, sameNumber } from "./claimCheck";
-import { confirmPrompt, readChangeLines } from "./prompt";
+import { CHECK_TAGS, confirmParts, readChangeLines } from "./prompt";
 
 /** The request: the sentence's words that differ, and the quote's own words for that same thing. */
 export const REWRITE_INSTRUCTIONS = [
@@ -122,17 +121,25 @@ export const REWRITE_TIMEOUT_MS = 120_000;
  * when every rule holds; "kept" when any rule doesn't hold. When the model found nothing to change:
  * "same" when the sentence already gives the quote's figure (`givesTheQuotedValue`), else "none".
  */
-export function rewriteOf(
+export const rewriteOf = (
   sentence: string,
   reply: string,
   evidence: Citation,
   documentDate: AnswerDocuments["documentDate"],
-): RewriteOutcome {
+): RewriteOutcome => readRewrite(sentence, reply, evidence, documentDate) ?? { kind: "kept" };
+
+/** `rewriteOf`'s outcome; null when the reply gives no one change to read. */
+export function readRewrite(
+  sentence: string,
+  reply: string,
+  evidence: Citation,
+  documentDate: AnswerDocuments["documentDate"],
+): RewriteOutcome | null {
   if (/^\s*Change 1:\s*none\s*$/imu.test(reply)) {
     return givesTheQuotedValue(sentence, evidence.quote) ? { kind: "same" } : { kind: "none" };
   }
   const read = readChangeLines(reply);
-  if (read?.choices.length !== 1) return { kind: "kept" };
+  if (read?.choices.length !== 1) return null;
   const found = correctionFor(
     sentence,
     sentence,
@@ -170,20 +177,19 @@ export async function rewriteFromPassage({
   documentDate: AnswerDocuments["documentDate"];
   signal: AbortSignal;
 }): Promise<RewriteOutcome> {
-  let reply: string;
-  try {
-    const { text } = await generateText({
-      model: model.model,
-      instructions: REWRITE_INSTRUCTIONS,
-      prompt: confirmPrompt({ claim: sentence, quote: evidence.quote, passage }),
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: outputTokens("comparison"),
-      maxRetries: 1,
-      abortSignal: signal,
-    });
-    reply = text;
-  } catch (error) {
-    return { kind: "failed", error: classifyProviderError(error) };
-  }
-  return rewriteOf(sentence, reply, evidence, documentDate);
+  const judged = await judge({
+    model: model.model,
+    question: { id: "rewrite", instructions: REWRITE_INSTRUCTIONS },
+    parts: confirmParts({ claim: sentence, quote: evidence.quote, passage }),
+    data: CHECK_TAGS,
+    reply: lines((reply) => readRewrite(sentence, reply, evidence, documentDate)),
+    retries: 1,
+    signal,
+    temperature: answerTemperature(model.capabilities.facts.temperature),
+  });
+  if (judged.ok) return judged.value;
+  // Its only stop is its time limit: past it, the rewrite failed.
+  if (judged.reason === "stopped")
+    return { kind: "failed", error: classifyProviderError(signal.reason) };
+  return judged.error ? { kind: "failed", error: judged.error } : { kind: "kept" };
 }

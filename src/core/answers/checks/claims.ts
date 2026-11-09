@@ -15,6 +15,7 @@
 
 import { readPartPlans } from "../../../shared/claimParts";
 import type { ClaimPartPlan, DocumentText } from "../../api";
+import { byKey, fieldsOf, labelled, list, parseJson, replyJson } from "../judge";
 
 /** A paragraph of the document, and the page it is on. */
 export interface DocumentParagraph {
@@ -199,35 +200,29 @@ export function readClaimDecisions(
   return decisions.size > 0 ? decisions : null;
 }
 
-export function readClaimParts(
-  reply: string,
+/**
+ * Each sentence's parts in a sorting reply, by its number among `sentences`: one the reply gives no
+ * readable parts for is undecided, and so is one it gives twice. Null when the reply decides none.
+ */
+export function claimPartsOf(
+  value: unknown,
   sentences: readonly { number: number; text: string }[],
 ): Map<number, readonly ClaimPartPlan[]> | null {
-  const start = reply.indexOf("{");
-  const end = reply.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(reply.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null || !("sentences" in parsed)) return null;
-  if (!Array.isArray(parsed.sentences)) return null;
+  const parsed = fieldsOf(value, { sentences: list });
+  if (!parsed) return null;
   const found = new Map<number, readonly ClaimPartPlan[]>();
-  const seen = new Set<number>();
-  for (const value of parsed.sentences) {
-    const record = recordOf(value, sentences);
-    if (!record) continue;
-    if (seen.has(record.number)) {
-      found.delete(record.number);
-      continue;
-    }
-    seen.add(record.number);
-    if (record.parts !== null) found.set(record.number, record.parts);
+  const records = parsed.sentences.flatMap((value) => recordOf(value, sentences) ?? []);
+  for (const [number, record] of byKey(records, (each) => each.number)) {
+    if (record.parts !== null) found.set(number, record.parts);
   }
   return found.size > 0 || parsed.sentences.length === 0 ? found : null;
 }
+
+/** A sorting reply as `claimPartsOf` reads it, its JSON taken from the reply's text. */
+export const readClaimParts = (
+  reply: string,
+  sentences: readonly { number: number; text: string }[],
+): Map<number, readonly ClaimPartPlan[]> | null => claimPartsOf(replyJson(reply), sentences);
 
 /** The sentence a sorting reply's record is for, and its parts (null when they can't be read); null for no sentence asked. */
 function recordOf(
@@ -273,12 +268,10 @@ export function claimPartsReader(sentences: readonly { number: number; text: str
       } else if (char === "}" || char === "]") {
         open.pop();
         if (char === "}" && open.length === 2 && record >= 0) {
-          try {
-            const found = recordOf(JSON.parse(reply.slice(record, at + 1)), sentences);
-            if (found?.parts) read.push({ number: found.number, parts: found.parts });
-          } catch {
-            // A record that isn't JSON: the whole reply, read at its end, decides its sentence.
-          }
+          // A record that isn't JSON: the whole reply, read at its end, decides its sentence.
+          const json = parseJson(reply.slice(record, at + 1));
+          const found = json && recordOf(json.value, sentences);
+          if (found?.parts) read.push({ number: found.number, parts: found.parts });
           record = -1;
         }
         ended = open.length === 0;
@@ -290,16 +283,9 @@ export function claimPartsReader(sentences: readonly { number: number; text: str
 
 /** The parts a check's own `Parts:` line gives its sentence; null when it has none that can be read. */
 export function readPartsLine(text: string, sentence: string): readonly ClaimPartPlan[] | null {
-  const line = text
-    .split("\n")
-    .map((each) => PARTS_LINE.exec(each)?.[1])
-    .findLast((each) => each !== undefined);
-  if (line === undefined) return null;
-  try {
-    return literalParts(JSON.parse(line), sentence);
-  } catch {
-    return null;
-  }
+  const line = labelled(text.split("\n"), PARTS_LINE);
+  const json = line ? parseJson(line) : null;
+  return json && literalParts(json.value, sentence);
 }
 
 const ABOUT_ITSELF = "about-this-text";

@@ -318,7 +318,10 @@ async function checkWith(options: {
     {
       generate(call) {
         const quote = options.recordWhenAsked;
-        if (quote !== undefined && call.system.startsWith("You checked a sentence")) {
+        if (
+          quote !== undefined &&
+          (call.question === "evidence" || call.question === "covered-evidence")
+        ) {
           const record = { passage: "P1", location: "p. 1", quote };
           const markers = /Missing Citation markers: (\[[^\]]*\])/.exec(call.prompt)?.[1];
           return {

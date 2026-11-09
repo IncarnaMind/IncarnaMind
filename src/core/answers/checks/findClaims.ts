@@ -3,21 +3,19 @@
  * the model is shown them numbered, in batches, and decides each. The
  * sentences stay exactly as they are, so each claim is a sentence of the Mind.
  */
-import { generateText, streamText, type TextStreamPart, type ToolSet } from "ai";
 import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
-import { classifyProviderError } from "../../providers/providerErrors";
 import { type Slots, slots } from "../../runs/stop";
 import { answerTemperature } from "../engine";
+import { json, judge } from "../judge";
 import {
   CLAIM_BATCH,
+  claimPartsOf,
   claimPartsReader,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
-  readClaimParts,
   type SortedText,
 } from "./claims";
 import { claimsAtOnce } from "./runChecks";
@@ -50,25 +48,6 @@ export interface SortAlong {
   named?(index: number, parts: readonly ClaimPartPlan[]): void;
 }
 
-/** A sorting reply, streamed: `named` hears each sentence's parts as its record closes. */
-async function streamedReply(
-  parts: AsyncIterable<TextStreamPart<ToolSet>>,
-  sentences: readonly { number: number; text: string }[],
-  named: (number: number, parts: readonly ClaimPartPlan[]) => void,
-  signal: AbortSignal,
-): Promise<string> {
-  const read = claimPartsReader(sentences);
-  let text = "";
-  for await (const part of parts) {
-    if (part.type === "text-delta") {
-      text += part.text;
-      for (const record of read(part.text)) named(record.number, record.parts);
-    } else if (part.type === "error") throw part.error;
-  }
-  signal.throwIfAborted();
-  return text;
-}
-
 /** Names the claims among `texts`: someone else's document's, or the User's own draft's, which leaves out their opinions. */
 export async function claimsAmong(
   prepared: PreparedChatModel,
@@ -84,41 +63,36 @@ export async function claimsAmong(
   const ended = new AbortController();
   const sorting = AbortSignal.any([signal, ended.signal]);
   type Batch = readonly ({ number: number } & SortedText)[];
+  const instructions =
+    whose === "someone-else"
+      ? FIND_CLAIMS_INSTRUCTIONS
+      : library
+        ? FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS
+        : FIND_OWN_CLAIMS_INSTRUCTIONS;
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     for (let tried = 0; tried < tries; tried++) {
-      try {
-        const asked = {
-          model: prepared.model,
-          instructions:
-            whose === "someone-else"
-              ? FIND_CLAIMS_INSTRUCTIONS
-              : library
-                ? FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS
-                : FIND_OWN_CLAIMS_INSTRUCTIONS,
-          prompt: findClaimsPrompt(batch),
-          temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxRetries: 1,
-          abortSignal: sorting,
-        };
-        const named = along.named;
-        const text = named
-          ? await streamedReply(
-              streamText({
-                ...asked,
-                maxOutputTokens: outputTokens("find-claims"),
-                onError: () => undefined,
-              }).fullStream,
-              batch,
-              (number, parts) => named(number - 1, parts),
-              sorting,
-            )
-          : (await generateText({ ...asked, maxOutputTokens: outputTokens("find-claims") })).text;
-        const parts = readClaimParts(text, batch);
-        if (parts) return { kind: "read", parts };
-      } catch (error) {
-        if (sorting.aborted) return { kind: "cancelled" };
-        return { kind: "failed", error: classifyProviderError(error) };
-      }
+      const { named } = along;
+      const early = named ? claimPartsReader(batch) : null;
+      const judged = await judge({
+        model: prepared.model,
+        question: { id: "find-claims", instructions },
+        // The sentences go as JSON in no tag, so the parts copied back are their own words.
+        parts: [{ text: findClaimsPrompt(batch) }],
+        data: [],
+        reply: json((value) => claimPartsOf(value, batch)),
+        retries: 1,
+        signal: sorting,
+        temperature: answerTemperature(prepared.capabilities.facts.temperature),
+        ...(named &&
+          early && {
+            onPartial: (delta: string) => {
+              for (const record of early(delta)) named(record.number - 1, record.parts);
+            },
+          }),
+      });
+      if (judged.ok) return { kind: "read", parts: judged.value };
+      if (judged.reason === "stopped") return { kind: "cancelled" };
+      if (judged.error) return { kind: "failed", error: judged.error };
     }
     return { kind: "unread" };
   };

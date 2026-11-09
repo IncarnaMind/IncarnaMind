@@ -43,7 +43,14 @@ import {
   shownWithAiText,
   writeMind,
 } from "../helpers/minds";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  judgesNothing,
+  type ModelCall,
+  questionOf,
+  scriptedModel,
+} from "../helpers/models";
 import {
   fakeSeparator,
   savedCues,
@@ -149,25 +156,30 @@ function fillingModel(
     error = { status: 500, message: "The model is overloaded." },
     held,
     seen,
+    generate,
   }: {
     failing?: () => boolean;
     /** What a failing fill request gets back. */
     error?: { status: number; message: string };
     held?: Promise<void>;
     seen?: (call: ModelCall) => void;
+    generate?: (call: GenerateCall) => GeneratedReply;
   } = {},
 ) {
-  return scriptedModel((call) => {
-    seen?.(call);
-    if (isCheckRun(call)) return checkReply(call, plans);
-    if (!isFill(call)) return { text: "OK" };
-    if (failing()) return { error };
-    const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
-    const citations = transcriptCitations(call, shown, quotes);
-    if (citations) return citations;
-    const text = typeof reply === "string" ? reply : reply(call.prompt);
-    return { text, ...(held && { pause: { after: 0, until: held } }) };
-  });
+  return scriptedModel(
+    (call) => {
+      seen?.(call);
+      if (isCheckRun(call)) return checkReply(call, plans);
+      if (!isFill(call)) return { text: "OK" };
+      if (failing()) return { error };
+      const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
+      const citations = transcriptCitations(call, shown, quotes);
+      if (citations) return citations;
+      const text = typeof reply === "string" ? reply : reply(call.prompt);
+      return { text, ...(held && { pause: { after: 0, until: held } }) };
+    },
+    { ...(generate && { generate }) },
+  );
 }
 
 /**
@@ -1224,6 +1236,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         seen: (call) => {
           if (isCheckRun(call)) checks.push(call.prompt);
         },
+        generate: judgesNothing,
       },
     );
     let noteFolder: string | undefined;
@@ -3221,7 +3234,7 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
             const said = JSON.stringify(params.prompt);
             asked.push({
               fill: said.includes("Fill them in from the transcript"),
-              cites: said.includes(CITE_RETRY_INSTRUCTIONS.slice(0, 40)),
+              cites: questionOf(params) === "unmarked-quotes",
               thinking: spec.thinking,
               limit: params.maxOutputTokens,
             });
