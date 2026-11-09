@@ -72,7 +72,7 @@ test.each([
   },
 );
 
-// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named other side is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; and a decision is written once, never inside another decision (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named person is never the other side, even where they give their name, and is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; a line no one can be told from carries no speaker; and a decision is written once, never inside another decision (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
@@ -84,7 +84,7 @@ test.each([
       "a figure, price, term or fact one side stated is never a decision, even when nobody objects, and takes no section",
     );
     expect(prompt).toContain(
-      "When one person speaks as Them and their name is known, that name is Them on every line",
+      "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one person speaks as Them and their name is known, every Them line is theirs, written with their name. When several do, name who speaks only where the line, or the line before it, makes clear who it is; otherwise write what was said without a speaker.",
     );
     expect(prompt).toContain(
       "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",

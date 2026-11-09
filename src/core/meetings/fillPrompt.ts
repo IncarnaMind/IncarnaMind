@@ -108,7 +108,7 @@ const rules = (spoken: CallLanguage | null, named: boolean) => [
 ];
 
 const everyoneElse =
-  "Name everyone else as they introduced themselves or were named in the call or in the User's notes, on either side: a named person is never the other side, 对方 or they. When one person speaks as Them and their name is known, that name is Them on every line; when several do, name a line only where it, or the line before it, makes clear who speaks. A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name. The speaker marks (Me, Them and numbered voices, or their translations) are not names: anyone else whose name is not known is the other side (对方), or in a recording of a room their numbered voice as marked.";
+  "Name everyone else as they introduced themselves or were named in the call or in the User's notes, on either side: a named person is never the other side, 对方 or they, not even on the line where they give their name. When one person speaks as Them and their name is known, every Them line is theirs, written with their name. When several do, name who speaks only where the line, or the line before it, makes clear who it is; otherwise write what was said without a speaker. A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name. The speaker marks (Me, Them and numbered voices, or their translations) are not names: anyone else who was never named is the other side (对方), or in a recording of a room their numbered voice as marked.";
 
 const userRule = (named: boolean) =>
   named
