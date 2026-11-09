@@ -7,9 +7,11 @@
  *   4.1%). Checked INCARNAMIND_LIVE_RUNS times: no figure that differs only by the stated unit may
  *   be Contradicted, and the planted error must be Contradicted in every run.
  * - "decoys": pairs of a Document and one sentence where Supported would be wrong: a figure that
- *   really is 1,000 times off, a unit stated for another table than the figure's, and a unit the
- *   sentence claims that the Document doesn't share. Each pair has its own Folder and Note, so a
- *   decoy's Document never backs another. None of them may read Supported.
+ *   really is 1,000 times off, a unit stated for another table than the figure's, a unit the
+ *   sentence claims that the Document doesn't share, and equal digits under a unit the Note states
+ *   in a heading or a line of its own that isn't the Document's. Each pair has its own Folder and
+ *   Note, so a decoy's Document never backs another. None of them, nor a Note's unit line, may read
+ *   Supported.
  *
  * The cases were written before the first measured run and are not the prompt's examples. Runs
  * only with INCARNAMIND_LIVE_ANTHROPIC_KEY, so `npx vitest run` makes no request without one.
@@ -155,9 +157,11 @@ const WALK: Record<Language, Walk> = {
 interface Decoy {
   name: string;
   language: Language;
-  kind: "thousand-times" | "another-table" | "unshared-unit";
+  kind: "thousand-times" | "another-table" | "unshared-unit" | "note-unit";
   document: readonly string[];
   sentence: string;
+  /** What the Note says above the sentence: a heading, or a line of its own, stating its unit. */
+  above?: { heading: string } | { line: string };
 }
 
 const DECOYS: readonly Decoy[] = [
@@ -506,6 +510,332 @@ const DECOYS: readonly Decoy[] = [
     document: ["长风银行", "净息差下降0.3个百分点。"],
     sentence: "净息差下降0.3%。",
   },
+  // Equal digits under a unit the Note states that isn't the Document's: a heading or a line of
+  // its own above the sentence says one unit, the Document another.
+  {
+    name: "EN Note says Key figures (GBP thousand) above Revenue for the year: 668.3",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Key figures (GBP thousand)" },
+    document: [
+      "Ardley Foods results",
+      "GBP million unless stated otherwise",
+      "Revenue for the year was 668.3.",
+    ],
+    sentence: "Revenue for the year: 668.3",
+  },
+  {
+    name: "EN Note says Figures are in GBP thousands. above Operating profit: 91.5",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Figures are in GBP thousands." },
+    document: ["Ardley Foods results", "(GBP million)", "Operating profit 91.5"],
+    sentence: "Operating profit: 91.5",
+  },
+  {
+    name: "EN Note says Results (US$ million) above Net debt: 528.9",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Results (US$ million)" },
+    document: ["Bexley Mills update", "GBP million", "Net debt was 528.9."],
+    sentence: "Net debt: 528.9",
+  },
+  {
+    name: "EN Note says All amounts below are in euros. above Capital spending: 44.2",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "All amounts below are in euros." },
+    document: ["Corran Shipping", "EUR million", "Capital spending was 44.2."],
+    sentence: "Capital spending: 44.2",
+  },
+  {
+    name: "EN Note says Summary (in thousands) above Cash: 12.8",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Summary (in thousands)" },
+    document: ["Dunholme Retail", "All figures in millions of US dollars", "Cash was 12.8."],
+    sentence: "Cash: 12.8",
+  },
+  {
+    name: "EN Note says Figures are in US$ thousands. above Order backlog: 302.6",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Figures are in US$ thousands." },
+    document: ["Elstow Aerospace", "US$ million", "Order backlog 302.6"],
+    sentence: "Order backlog: 302.6",
+  },
+  {
+    name: "EN Note says Group figures (£m) above Rent paid: 4,118.0",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Group figures (£m)" },
+    document: ["Farley Estates", "(£'000)", "Rent paid 4,118.0"],
+    sentence: "Rent paid: 4,118.0",
+  },
+  {
+    name: "EN Note says Amounts are in CHF million. above Sales: 77.4",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Amounts are in CHF million." },
+    document: ["Glenmore Watches", "EUR million", "Sales 77.4"],
+    sentence: "Sales: 77.4",
+  },
+  {
+    name: "EN Note says Key numbers (USD billion) above Total assets: 1,904.2",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Key numbers (USD billion)" },
+    document: ["Hartwell Energy", "USD million", "Total assets 1,904.2"],
+    sentence: "Total assets: 1,904.2",
+  },
+  {
+    name: "EN Note says All figures in this note are in thousands of pounds. above Pension deficit: 63.0",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "All figures in this note are in thousands of pounds." },
+    document: ["Inchcape Mutual", "All amounts in GBP million", "Pension deficit 63.0"],
+    sentence: "Pension deficit: 63.0",
+  },
+  {
+    name: "EN Note says Fleet costs (EUR thousand) above Fuel: 18.7",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Fleet costs (EUR thousand)" },
+    document: ["Jarrow Logistics", "EUR million unless stated otherwise", "Fuel 18.7"],
+    sentence: "Fuel: 18.7",
+  },
+  {
+    name: "EN Note says Numbers are in Canadian dollars, millions. above Royalties: 26.3",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Numbers are in Canadian dollars, millions." },
+    document: ["Kirkby Mining", "US$ million", "Royalties 26.3"],
+    sentence: "Royalties: 26.3",
+  },
+  {
+    name: "EN Note says Balance sheet (in millions) above Inventories: 5,620.4",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Balance sheet (in millions)" },
+    document: ["Lanark Textiles", "(in thousands)", "Inventories 5,620.4"],
+    sentence: "Inventories: 5,620.4",
+  },
+  {
+    name: "EN Note says Figures are in AUD million. above Freight income: 14.9",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Figures are in AUD million." },
+    document: ["Morven Freight", "NZD million", "Freight income 14.9"],
+    sentence: "Freight income: 14.9",
+  },
+  {
+    name: "EN Note says Half-year (GBP million) above Dividends paid: 2,250.5",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Half-year (GBP million)" },
+    document: ["Nairn Brewing", "(GBP thousands)", "Dividends paid 2,250.5"],
+    sentence: "Dividends paid: 2,250.5",
+  },
+  {
+    name: "EN Note says All amounts are in yen. above Licence fees: 840.2",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "All amounts are in yen." },
+    document: ["Oban Electronics", "JPY million", "Licence fees 840.2"],
+    sentence: "Licence fees: 840.2",
+  },
+  {
+    name: "EN Note says Costs (US$ thousand) above Research spending: 1.7",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Costs (US$ thousand)" },
+    document: ["Penrith Biotech", "US$ billion", "Research spending 1.7"],
+    sentence: "Research spending: 1.7",
+  },
+  {
+    name: "EN Note says Amounts are in euro thousands. above Service charges: 512.6",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Amounts are in euro thousands." },
+    document: ["Quorn Property", "(GBP thousands)", "Service charges 512.6"],
+    sentence: "Service charges: 512.6",
+  },
+  {
+    name: "EN Note says Statement (HK$ million) above Interest income: 33.1",
+    language: "en",
+    kind: "note-unit",
+    above: { heading: "Statement (HK$ million)" },
+    document: ["Rydal Holdings", "RMB million", "Interest income 33.1"],
+    sentence: "Interest income: 33.1",
+  },
+  {
+    name: "EN Note says Figures in this summary are in millions. above Market value: 2.45",
+    language: "en",
+    kind: "note-unit",
+    above: { line: "Figures in this summary are in millions." },
+    document: ["Selby Networks", "(in billions)", "Market value 2.45"],
+    sentence: "Market value: 2.45",
+  },
+  {
+    name: "ZH Note says 主要数字（单位：千元） above 营业收入：187.3",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "主要数字（单位：千元）" },
+    document: ["岷山食品年报摘要", "单位：人民币百万元", "营业收入为187.3。"],
+    sentence: "营业收入：187.3",
+  },
+  {
+    name: "ZH Note says 以下数字单位为万元。 above 净利润：42.6",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "以下数字单位为万元。" },
+    document: ["岷山食品年报摘要", "单位：百万元", "净利润为42.6。"],
+    sentence: "净利润：42.6",
+  },
+  {
+    name: "ZH Note says 经营数据（美元百万） above 销售费用：15.8",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "经营数据（美元百万）" },
+    document: ["汀州物流经营简报", "单位：人民币百万元", "销售费用为15.8。"],
+    sentence: "销售费用：15.8",
+  },
+  {
+    name: "ZH Note says 以下金额均以元为单位。 above 研发投入：9,870.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "以下金额均以元为单位。" },
+    document: ["汀州物流经营简报", "单位：千元", "研发投入为9,870.5。"],
+    sentence: "研发投入：9,870.5",
+  },
+  {
+    name: "ZH Note says 财务摘要（人民币亿元） above 总资产：3,410.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "财务摘要（人民币亿元）" },
+    document: ["沅江机械年报节选", "单位：人民币百万元", "总资产为3,410.5。"],
+    sentence: "总资产：3,410.5",
+  },
+  {
+    name: "ZH Note says 本笔记金额单位为港元百万元。 above 利息收入：33.1",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "本笔记金额单位为港元百万元。" },
+    document: ["沅江机械年报节选", "单位：人民币百万元", "利息收入为33.1。"],
+    sentence: "利息收入：33.1",
+  },
+  {
+    name: "ZH Note says 成本（单位：百万元） above 原材料成本：628.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "成本（单位：百万元）" },
+    document: ["涪陵茶业半年报", "单位：万元", "原材料成本为628.5。"],
+    sentence: "原材料成本：628.5",
+  },
+  {
+    name: "ZH Note says 以下数字以千美元计。 above 运费：4,410.2",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "以下数字以千美元计。" },
+    document: ["涪陵茶业半年报", "单位：千英镑", "运费为4,410.2。"],
+    sentence: "运费：4,410.2",
+  },
+  {
+    name: "ZH Note says 门店数据（万元） above 单店租金：46,500.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "门店数据（万元）" },
+    document: ["桐庐餐饮门店报表", "单位：元", "单店租金为46,500.5。"],
+    sentence: "单店租金：46,500.5",
+  },
+  {
+    name: "ZH Note says 数字单位为人民币千元。 above 营业收入：21.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "数字单位为人民币千元。" },
+    document: ["桐庐餐饮门店报表", "单位：人民币亿元", "营业收入为21.5。"],
+    sentence: "营业收入：21.5",
+  },
+  {
+    name: "ZH Note says 现金流（单位：亿元） above 经营活动现金流：8,215.3",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "现金流（单位：亿元）" },
+    document: ["婺源化工季报", "单位：万元", "经营活动现金流为8,215.3。"],
+    sentence: "经营活动现金流：8,215.3",
+  },
+  {
+    name: "ZH Note says 以下金额单位为欧元。 above 海外收入：57.9",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "以下金额单位为欧元。" },
+    document: ["婺源化工季报", "单位：百万欧元", "海外收入为57.9。"],
+    sentence: "海外收入：57.9",
+  },
+  {
+    name: "ZH Note says 资产负债（千元） above 应收账款：812.3",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "资产负债（千元）" },
+    document: ["黟县纺织年报", "金额单位：百万元", "应收账款为812.3。"],
+    sentence: "应收账款：812.3",
+  },
+  {
+    name: "ZH Note says 本表数字单位为百万日元。 above 授权费：740.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "本表数字单位为百万日元。" },
+    document: ["黟县纺织年报", "单位：百万韩元", "授权费为740.5。"],
+    sentence: "授权费：740.5",
+  },
+  {
+    name: "ZH Note says 利润表（单位：元） above 管理费用：1,436.2",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "利润表（单位：元）" },
+    document: ["歙州电子年报", "单位：人民币万元", "管理费用为1,436.2。"],
+    sentence: "管理费用：1,436.2",
+  },
+  {
+    name: "ZH Note says 下列数字以亿元计。 above 研发费用：96.4",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "下列数字以亿元计。" },
+    document: ["歙州电子年报", "单位：百万元", "研发费用为96.4。"],
+    sentence: "研发费用：96.4",
+  },
+  {
+    name: "ZH Note says 投资（美元千元） above 资本开支：23.7",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "投资（美元千元）" },
+    document: ["祁门矿业公告", "单位：美元百万元", "资本开支为23.7。"],
+    sentence: "资本开支：23.7",
+  },
+  {
+    name: "ZH Note says 数字单位为新台币百万元。 above 毛利：61.2",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "数字单位为新台币百万元。" },
+    document: ["祁门矿业公告", "单位：人民币百万元", "毛利为61.2。"],
+    sentence: "毛利：61.2",
+  },
+  {
+    name: "ZH Note says 负债（单位：万元） above 短期借款：5,120.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { heading: "负债（单位：万元）" },
+    document: ["绩溪地产半年报", "单位：千元", "短期借款为5,120.5。"],
+    sentence: "短期借款：5,120.5",
+  },
+  {
+    name: "ZH Note says 以下金额单位为人民币元。 above 物业管理收入：7,410.5",
+    language: "zh",
+    kind: "note-unit",
+    above: { line: "以下金额单位为人民币元。" },
+    document: ["绩溪地产半年报", "单位：人民币千元", "物业管理收入为7,410.5。"],
+    sentence: "物业管理收入：7,410.5",
+  },
 ];
 
 const textNode = (value: string): JSONContent => ({ type: "text", text: value });
@@ -653,7 +983,20 @@ describe.skipIf(!KEY)("figures in a unit their Document states (#2864)", () => {
           await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
           const mind = await core.createMind({ title: `decoy-${index + 1}`, folderId: folder.id });
           const client = await connectToMind(core, mind.id);
-          writeMind(client, [paragraph(decoy.sentence)]);
+          const above = decoy.above;
+          writeMind(client, [
+            ...(above && "heading" in above
+              ? [
+                  {
+                    type: "heading",
+                    attrs: { id: randomUUID(), level: 2 },
+                    content: [textNode(above.heading)],
+                  },
+                ]
+              : []),
+            ...(above && "line" in above ? [paragraph(above.line)] : []),
+            paragraph(decoy.sentence),
+          ]);
           await client.settled();
           await core.checkMind({
             requestId: `decoy-${language}-${index}`,
@@ -663,10 +1006,13 @@ describe.skipIf(!KEY)("figures in a unit their Document states (#2864)", () => {
           await client.settled();
           const check = checkOf(client, decoy.sentence);
           const schedule = await core.getFigureSchedule(mind.id);
+          // The Note's own unit line is a claim too: Supported, it would back the wrong unit.
+          const line = above && "line" in above ? checkOf(client, above.line) : null;
           const entry = {
             name: decoy.name,
             kind: decoy.kind,
             state: check?.state ?? "missing",
+            ...(line && { line: line.state }),
             figures: schedule.rows.map((row) => `${row.reading.chars}=${row.shown.state}`),
           };
           results.push(entry);
@@ -677,7 +1023,9 @@ describe.skipIf(!KEY)("figures in a unit their Document states (#2864)", () => {
       }
       const falseSupported = results.filter(
         (each) =>
-          each.state === "supported" || each.figures.some((one) => one.endsWith("=supported")),
+          each.state === "supported" ||
+          ("line" in each && each.line === "supported") ||
+          each.figures.some((one) => one.endsWith("=supported")),
       );
       await report({
         set: "decoys",
