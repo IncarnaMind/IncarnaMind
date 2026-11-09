@@ -61,7 +61,7 @@ export function useModelRoles(groups: readonly ChatModelGroup[]): ModelRoles | n
 const popUpWidth = "max-w-64";
 
 /**
- * Settings › Models: the same three rows as first run (#1922), each editable in place — your AI,
+ * Settings › Models: three rows, each editable in place — your AI,
  * where meetings are transcribed, and what sorts Documents and names meeting hints. Quick tasks
  * and reading images follow your AI model, with no row of their own. `services`: the page's one
  * read of the transcription services, which its row, the line under the list and Your providers'

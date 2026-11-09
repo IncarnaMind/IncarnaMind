@@ -225,7 +225,7 @@ async function removeAnthropic(window: Page): Promise<void> {
   });
 }
 
-/** What the sorting line shows to the User: its held rows are invisible and don't count. */
+/** What the sorting line shows to the User. */
 function sortingWords(scope: Locator): Promise<string> {
   return scope
     .getByTestId("models-sorting-line")
@@ -368,8 +368,8 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-// What step 3 and Settings › Models read to say what sorts: the core's models, with its answer for
-// the saved choice. The core is the only thing they ask, so it is the one read that can fail.
+// What Settings › Models reads to say what sorts: the core's models, with its answer for the
+// saved choice. The core is the only thing it asks, so it is the one read that can fail.
 const SORTING_READS = [
   { channel: "core:getTaggingModels", name: "the models that can sort", atFirst: true },
 ] as const;
@@ -489,6 +489,192 @@ const sonioxRow = (settings: Locator) =>
 async function closeSettingsDialog(window: Page): Promise<void> {
   await window.getByTestId("settings-close").click();
   await expect(window.getByTestId("settings")).toBeHidden();
+}
+
+test("Settings › Models offers a cloud route once a key is saved, says what choosing it sends before the choice, and this computer stays chosen until then", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1100, 900);
+    await acceptPlainTextKeys(window);
+    await setLocalChatModel(window);
+    await dismissChatSetup(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-a-test-key" });
+    });
+    const settings = await openSettings(window, "models");
+    const route = settings
+      .getByTestId("model-default-row-transcription")
+      .getByTestId("meetings-route");
+    await expect(route).toHaveValue("local");
+    await expect
+      .poll(() =>
+        route.evaluate((select) =>
+          [...select.children].flatMap((each) =>
+            each instanceof HTMLOptionElement ? [each.textContent] : [],
+          ),
+        ),
+      )
+      .toEqual(["On this computer", "Soniox"]);
+    // Choosing a cloud route is the consent, so its line is on screen first, and nothing is chosen.
+    const consent = settings.getByTestId("meetings-route-consent");
+    await expect(consent).toHaveText("A cloud service gets the meeting’s audio while you record.");
+    expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
+
+    await route.selectOption("soniox");
+    await expect(consent).toHaveText("Audio goes to Soniox while you record.");
+    await expect
+      .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+      .toBe("soniox");
+  } finally {
+    await app.close();
+  }
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Try again keeps the focus as a retry fails again (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await saveOpenAiAsDefault(window);
+      await dismissChatSetup(window);
+      await controlReads(app, SERVICES, { failing: true });
+      const meetings = (await settingsOnMeetings(window)).getByTestId("meetings-settings");
+      const retry = meetings.getByTestId("meetings-route-problem-retry");
+      await expect(retry).toBeVisible();
+
+      // Focused, Try again disables itself while the retry runs, and that failing too gives it back
+      // with the focus.
+      await retry.focus();
+      await controlReads(app, SERVICES, { failing: false, hold: 1 });
+      await window.keyboard.press("Enter");
+      await expect(retry).toBeDisabled();
+      await controlReads(app, SERVICES, { settle: "reject" });
+      await expect(retry).toBeEnabled();
+      await expect(retry).toBeFocused();
+      await expect(meetings.getByTestId("meetings-route-line")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a read that fails while the focus is elsewhere leaves it there, and the problem still shows (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test-a",
+          modelId: "claude-haiku-5-5",
+        });
+      });
+      await dismissChatSetup(window);
+
+      // Settings › Models is open, and the User is on the meeting transcription row.
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      await expect(settings.getByTestId("models-sorting")).toBeEnabled();
+      const elsewhere = settings
+        .getByTestId("model-default-row-transcription")
+        .getByTestId("meetings-route");
+      await elsewhere.focus();
+      await expect(elsewhere).toBeFocused();
+
+      // The sorting read is made again, as another model becomes the default, and fails: the
+      // problem shows, and the focus stays where the User put it.
+      await controlReads(app, "core:getTaggingModels", { failing: true });
+      await saveOpenAiAsDefault(window);
+      await expect(settings.getByTestId("models-sorting-problem")).toContainText(
+        translate(language, "setup.sorting.failed"),
+      );
+      await paints(window);
+      await expect(elsewhere).toBeFocused();
+      await expect(settings.getByTestId("models-sorting-problem-retry")).not.toBeFocused();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a read of the services that was overtaken changes nothing when it fails after a newer one has landed (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await saveOpenAiAsDefault(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ device: { transcriptionRoute: "openai" } });
+      });
+      await dismissChatSetup(window);
+
+      // Meetings opens and its read, A, is held. Settings is closed and opened again, and the
+      // read of this showing, B, lands. Then A fails, long after.
+      await controlReads(app, SERVICES, { hold: 1 });
+      await settingsOnMeetings(window);
+      await closeSettingsDialog(window);
+      const dialog = await settingsOnMeetings(window);
+      const meetings = dialog.getByTestId("meetings-settings");
+      const line = meetings.getByTestId("meetings-route-line");
+      await expect(line).toContainText(
+        translate(language, "meetings.route.cloudLine", { provider: "OpenAI" }),
+      );
+      await paints(window);
+      const before = await meetings.boundingBox();
+
+      await controlReads(app, SERVICES, { settle: "reject" });
+      await paints(window);
+      // The newer read stands: its list is drawn, nothing says a read failed, and nothing moved.
+      await expect(line).toContainText(
+        translate(language, "meetings.route.cloudLine", { provider: "OpenAI" }),
+      );
+      await expect(meetings.getByTestId("meetings-route-problem")).toHaveCount(0);
+      expect(await meetings.boundingBox()).toEqual(before);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a failed read stays with the view that asked: older reads landing with the list change neither its problem nor its Try again (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      await saveOpenAiAsDefault(window);
+      await dismissChatSetup(window);
+
+      // Meetings opens and its read is held. Settings goes to Models, whose own read is the one
+      // that fails.
+      await controlReads(app, SERVICES, { hold: 1 });
+      const dialog = await settingsOnMeetings(window);
+      await controlReads(app, SERVICES, { failNext: 1 });
+      await showSettingsPage(window, "models");
+      const models = dialog.getByTestId("model-defaults");
+      const problem = models.getByTestId("meetings-route-problem");
+      const retry = models.getByTestId("meetings-route-problem-retry");
+      await expect(problem).toContainText(translate(language, "setup.services.failed"));
+      await expect(retry).toBeEnabled();
+
+      // The older read lands with the list: the problem is the view's own, and stays.
+      await controlReads(app, SERVICES, { settle: "resolveAll" });
+      await paints(window);
+      await expect(problem).toBeVisible();
+      await expect(retry).toBeEnabled();
+
+      // Try again reads for this view, and the problem goes.
+      await pointAndClick(window, retry);
+      await expect(problem).toHaveCount(0);
+      await expect(models.getByTestId("meetings-route")).toBeEnabled();
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -906,7 +1092,7 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
   }
 });
 
-test("Local mode offers only choices on this computer, in step 1 and in Settings › Models", async () => {
+test("Local mode offers only choices on this computer, in the setup card and in Settings › Models", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -975,7 +1161,7 @@ test("the card holds at 900 px and 1,600 px, in English and Chinese", async () =
   }
 });
 
-test("a Question waiting for a model is kept if the app quits before step 1 works", async () => {
+test("a Question waiting for a model is kept if the app quits before a model works", async () => {
   const first = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(first.app, first.window, 1100, 900);
   await acceptPlainTextKeys(first.window);

@@ -179,6 +179,10 @@ test("first run: choosing a provider with a key is the consent for what runs by 
       1,
     );
   }
+  // Organize's consent is not among them: it asks when Organize first runs (#1569).
+  await expect(
+    service.locator('[data-testid="data-flow"][data-flow-id="classification"]'),
+  ).toHaveCount(0);
   await screenshot(window, "privacy-chosen-en");
 
   // Stopping OpenAI stops tagging too: the next Document waits, saying why, with Allow in place.
