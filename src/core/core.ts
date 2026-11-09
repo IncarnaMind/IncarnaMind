@@ -127,7 +127,6 @@ import {
   type EmbeddingModelStatus,
   type EmbeddingSettings,
   type ExportFile,
-  type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
   type FigureSchedule,
@@ -241,6 +240,7 @@ import { createExports, ExportChangedError, type ExportsDependencies } from "./e
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
+import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
@@ -307,7 +307,7 @@ import {
   type OrganizeReviewRun,
   organizeReviewCount,
 } from "./organizeReview";
-import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
+import { createOutputFiles, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
@@ -3419,50 +3419,6 @@ export function createCore(adapters: CoreAdapters): Core {
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
   });
-  const ownFileOf = (options: Pick<ExportMindOptions, "format">): OwnFileKind =>
-    options.format === "source-pack" ? "source-pack" : "export";
-  /**
-   * Each export saved since the app opened, by its path: the Note it came from, and the
-   * fingerprint of the bytes IncarnaMind last wrote there, so a file the User changed since is
-   * never written over (#110).
-   */
-  const exportFiles = new Map<
-    string,
-    { mindId: string; path: string; format: ExportFormat; wrote: string }
-  >();
-  /**
-   * Each Change of an export, by the path it wrote, newest last (#110): the id its Undo names, so
-   * an Undo refused on one side never makes the next one put back the wrong step; the bytes it
-   * replaced, null where it wrote a copy beside; and the Note's comment choice before it, null
-   * where it set none.
-   */
-  const rewrittenExports = new Map<
-    string,
-    { id: string; before: Uint8Array | null; comments: boolean | null }[]
-  >();
-  const keepStep = (path: string, before: Uint8Array | null, comments: boolean | null) => {
-    const id = crypto.randomUUID();
-    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
-    return id;
-  };
-  /**
-   * Changes and Undos of one export run one after another, each reading what the last one wrote,
-   * so two at once never both write over the same bytes (#110).
-   */
-  const exportTurns = new Map<string, Promise<void>>();
-  const inExportTurn = <T>(path: unknown, run: () => Promise<T>): Promise<T> => {
-    const key = typeof path === "string" ? path : "";
-    const turn = (exportTurns.get(key) ?? Promise.resolve()).then(run);
-    const settled = turn.then(
-      () => undefined,
-      () => undefined,
-    );
-    exportTurns.set(key, settled);
-    void settled.then(() => {
-      if (exportTurns.get(key) === settled) exportTurns.delete(key);
-    });
-    return turn;
-  };
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
   const setNoteComments = (mindId: string, on: boolean) => {
@@ -3577,6 +3533,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordOwnFile,
     log: adapters.log ?? silentLogger,
   });
+  const exportLedger = createExportLedger({ outputs, folderOf: folderOfNote });
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
    * export's pictures. The User let that folder take the export, so it takes these too.
@@ -7315,11 +7272,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return exported;
     },
     rewriteMindExport: (mindId, options, path, checkComments) =>
-      inExportTurn(path, async () => {
-        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-        if (!known || known.mindId !== mindId || known.format !== options?.format) {
-          throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
-        }
+      exportLedger.inTurn(path, async () => {
+        const known = exportLedger.known(path, mindId, options?.format);
         if (checkComments !== undefined && typeof checkComments !== "boolean") {
           throw new InvalidInputError({ key: "error.export.checkComments" });
         }
@@ -7344,31 +7298,7 @@ export function createCore(adapters: CoreAdapters): Core {
         // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
         // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
         await saveExportFiles(files, dirname(known.path), known.mindId);
-        const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
-        const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
-        let file: SavedFile;
-        let changedFile: string | undefined;
-        let step: string;
-        if (written.kind === "written") {
-          file = written.file;
-          step = keepStep(file.path, written.before, choiceBefore);
-        } else {
-          changedFile = basename(known.path);
-          try {
-            file = await outputs.save({
-              name: changedFile,
-              data,
-              ownFile: ownFile.kind,
-              fromFolder: ownFile.fromFolder,
-              folder: dirname(known.path),
-              approved: true,
-            });
-          } catch (error) {
-            throw fileProblem(changedFile, error);
-          }
-          step = keepStep(file.path, null, choiceBefore);
-        }
-        exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
+        const { file, step, changedFile } = await exportLedger.rewrite(known, data, choiceBefore);
         // Only once the file holds them, so the choice never says what the file doesn't.
         if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
         const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
@@ -7383,41 +7313,9 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }),
     restoreMindExport: (path, step) =>
-      inExportTurn(path, async () => {
-        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-        const steps = known ? rewrittenExports.get(known.path) : undefined;
-        const at = steps?.findIndex((each) => each.id === step) ?? -1;
-        const kept = steps?.[at];
-        if (!known || !steps || !kept) {
-          throw new InvalidInputError({
-            key: "error.export.restore.nothing",
-            values: { name: typeof path === "string" ? basename(path) : "" },
-          });
-        }
-        const values = { name: basename(known.path) };
-        const changed = new TranslatableError({ key: "error.export.restore.changed", values });
-        // A later Change wrote the file since: this step's bytes would take that one back too.
-        if (at < steps.length - 1) throw changed;
-        const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
-        const done = kept.before
-          ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
-          : await outputs.remove(known.path, known.wrote);
-        if (done.kind === "gone") {
-          // The copy can never come back to be taken away, so its step goes with it.
-          exportFiles.delete(known.path);
-          rewrittenExports.delete(known.path);
-          throw new TranslatableError({ key: "error.export.restore.copyGone" });
-        }
-        if (done.kind === "changed") throw changed;
-        if (done.kind === "read-only") {
-          throw new TranslatableError({ key: "error.export.rewrite.locked", values });
-        }
-        if (kept.before)
-          exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
-        else exportFiles.delete(known.path);
-        steps.pop();
-        if (steps.length === 0) rewrittenExports.delete(known.path);
-        if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
+      exportLedger.inTurn(path, async () => {
+        const { mindId, comments } = await exportLedger.restore(path, step);
+        if (comments !== null) setNoteComments(mindId, comments);
       }),
     setCheckComments: async (mindId, on) => {
       const mind = writableMind(mindId);
@@ -7456,12 +7354,7 @@ export function createCore(adapters: CoreAdapters): Core {
         await outputs.remove(saved.file.path, fingerprintOf(data)).catch(() => undefined);
         throw error;
       }
-      exportFiles.set(saved.file.path, {
-        mindId,
-        path: saved.file.path,
-        format: options.format,
-        wrote: fingerprintOf(data),
-      });
+      exportLedger.saved({ mindId, path: saved.file.path, format: options.format }, data);
       const sentKept = read === null || keepSent(mindId, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };
