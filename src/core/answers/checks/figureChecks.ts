@@ -604,7 +604,10 @@ function writtenBare(reading: Figure): boolean {
   );
 }
 
-const scaledBy = (value: number, scale: number) => shifted(value, Math.round(Math.log10(scale)));
+const scaledBy = (value: number, scale: number) => {
+  const exponent = Math.round(Math.log10(scale));
+  return 10 ** exponent === scale ? shifted(value, exponent) : value * scale;
+};
 
 /** `reading` with a scale and unit put on its digits, its shown precision scaled with it. */
 function readAt(
