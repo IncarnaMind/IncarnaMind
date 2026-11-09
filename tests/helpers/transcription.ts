@@ -18,6 +18,7 @@ import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
+  type CloudServing,
   createChannelTranscriber,
   type ServingOptions,
   serveTranscriber,
@@ -97,6 +98,8 @@ export function inProcessTranscriber(
   connect: CloudConnect = createFakeCloud(options.cloud),
   /** The idle unload (#2673): an engine that went idle ends this process, as the app's does. */
   serving: ServingOptions = {},
+  /** The requests a service needs before its socket (Gladia's session), to watch them. */
+  cloudFetch: CloudServing["fetch"] = createFakeCloudFetch(options.cloud),
 ) {
   let kill: (() => void) | null = null;
   let endIdle: (() => void) | null = null;
@@ -125,7 +128,7 @@ export function inProcessTranscriber(
       options.failover ? failingOver(port, options.failover) : port,
       {
         connect,
-        fetch: createFakeCloudFetch(options.cloud),
+        fetch: cloudFetch,
         detectors: async () => createFakeSpeechEngine(options).detector,
       },
       {
@@ -187,6 +190,7 @@ export async function transcribingCore(
     speakerModelSource = NO_SPEAKER_FILES,
     transcriptionModelSource = NO_TRANSCRIPTION_FILES,
     cloud,
+    cloudFetch,
     systemLanguages,
     answerPaths,
     notesBeforeSpeakers,
@@ -199,6 +203,8 @@ export async function transcribingCore(
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
     cloud?: CloudConnect;
+    /** Gladia's session requests, to watch them; the pretend service's by default. */
+    cloudFetch?: CloudServing["fetch"];
     /** The idle unload (#2673): a short wait, and what an idle engine's process ending looks like. */
     serving?: ServingOptions;
     /** Another engine than the fake one, e.g. one whose loading the test holds. */
@@ -245,6 +251,7 @@ export async function transcribingCore(
       }),
     cloud ?? createFakeCloud(engine.cloud),
     serving,
+    cloudFetch,
   );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
