@@ -48,6 +48,11 @@ export interface BatchVerdict {
   roles: "same" | "differs";
   /** Whether it has happened or is still to happen, as the Passages say it. */
   time: "same" | "differs";
+  /**
+   * Whether the words it cites say what it says, or stop before it or are about another claim
+   * though a Passage may say it elsewhere (#2739): a Citation shows those words beside its check.
+   */
+  quoted: "states" | "other";
   says: string | null;
 }
 
@@ -64,10 +69,11 @@ export const SENTENCE_BATCH_INSTRUCTIONS = [
   'kind: "fact" when the sentence asserts something the Documents could support or contradict, a statement attributed to someone included; "opinion" only when all of it is the writer\'s own opinion, advice or interpretation.',
   'roles: "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may; otherwise "same".',
   'time: "differs" only when one says it has already happened and the other that it is still to happen (already installed, installation in February); otherwise "same", a date only one of them gives included.',
+  'quoted: "states" when the words the sentence cites, read in their Passage, say what it says, in other words or another language included; "other" when they don\'t: they stop before its figure, date or clause, or are about another claim, even where another part of a Passage says it.',
   "says: one plain sentence in English saying what the Passages say about the sentence's own detail, whatever language the sentence and the Passages are in. Never mention the Passages, the Citations or how you read them.",
   "",
   "Reply with JSON only, one entry for each sentence, in their order:",
-  '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"…"}]}',
+  '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"…"}]}',
 ].join("\n");
 
 /** The batch's tags: none of them may be opened or closed by what they hold (#2423). */
@@ -114,6 +120,7 @@ const ENTRY = {
   verdict: word("supported", "unsupported", "contradicted"),
   roles: word("same", "differs"),
   time: word("same", "differs"),
+  quoted: word("states", "other"),
   says: textOrNull,
 };
 

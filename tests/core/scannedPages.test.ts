@@ -467,6 +467,81 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     ).toBeNull();
   });
 
+  test.each([
+    {
+      language: "English",
+      page: "en-clean",
+      unsure: "convenience",
+      quote: "9.1 Either party may terminate this Agreement",
+    },
+    {
+      language: "Chinese",
+      page: "zh-clean",
+      unsure: "季度",
+      quote: "一、该房屋月租金为人民币捌仟伍佰元整",
+    },
+  ])(
+    "in $language, a found quote whose sentence holds a word the scan may have misread shows only its own words (#2739)",
+    async ({ page, unsure, quote }) => {
+      const model = citingModel({
+        query: quote,
+        records: (passages) => [
+          { marker: 1, passage: passages[0]?.id ?? "", pageFrom: 1, pageTo: 1, quote },
+        ],
+        answer: "It says so [^1].",
+      });
+      const { recognizer } = countingRecognizer({
+        pages: { 1: { lines: linesOf(page), unsure: [unsure] } },
+      });
+      const { core, client, mind } = await setUpWithDocuments(
+        model,
+        [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture(page) }]) }],
+        scanning(recognizer),
+      );
+      const { answerId } = await askAndFinish(core, client, mind.id, "What does it say?");
+
+      expect(onlyCitation(client, answerId)).toMatchObject({ quote, check: "found" });
+    },
+  );
+
+  test.each([
+    {
+      language: "English",
+      page: "en-clean",
+      quote: "9.1 Either party may terminate this Agreement",
+      sentence: "ninety (90) days' written notice to the other party.",
+    },
+    {
+      language: "Chinese",
+      page: "zh-clean",
+      quote: "一、该房屋月租金为人民币捌仟伍佰元整",
+      sentence: "按季度支付。",
+    },
+  ])(
+    "in $language, the same found quote with no word the scan may have misread shows its whole sentence (#2739)",
+    async ({ page, quote, sentence }) => {
+      const model = citingModel({
+        query: quote,
+        records: (passages) => [
+          { marker: 1, passage: passages[0]?.id ?? "", pageFrom: 1, pageTo: 1, quote },
+        ],
+        answer: "It says so [^1].",
+      });
+      const { recognizer } = countingRecognizer({ pages: { 1: { lines: linesOf(page) } } });
+      const { core, client, mind } = await setUpWithDocuments(
+        model,
+        [{ name: "Agreement.pdf", contents: buildPdf([{ scan: picture(page) }]) }],
+        scanning(recognizer),
+      );
+      const { answerId } = await askAndFinish(core, client, mind.id, "What does it say?");
+
+      const citation = onlyCitation(client, answerId);
+      expect(citation).toMatchObject({ check: "found" });
+      expect(citation.quote?.startsWith(quote)).toBe(true);
+      expect(citation.quote?.endsWith(sentence)).toBe(true);
+    },
+  );
+
   test("a re-check asks for a look at the page for a scan's unsure word, and only for one (#535)", async () => {
     const { recognizer } = countingRecognizer({
       pages: { 1: { lines: linesOf("en-clean"), unsure: ["convenience"] } },
