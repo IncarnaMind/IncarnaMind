@@ -4,7 +4,7 @@
 
 ## What it runs
 
-The app's own code, without its database: the tagger (`chatClassifier` in `src/core/tags/classify.ts`) one Document at a time, with the preset Tags (`src/core/tags/presets.ts`) in the group's interface language. A new Tag a Document brings joins the list the next Document is offered, matched by `tagKey` and held to `NEW_TAG_LIMIT` (`src/core/tags/suggest.ts`), as the Library does. The walk's group then goes through Organize with no Folders: one proposal (`proposeFolders`), then a Folder for each Document (`organize`), in `src/core/library/classifier.ts`.
+The app's own code: each group tagged as one run of the app's (`tagInRun` in `src/core/tags/run.ts`, with `chatClassifier` in `src/core/tags/classify.ts`), as a Re-tag sends it (#2339): one kind each from the fixed list (`src/core/tags/kinds.ts`), named in the group's interface language, and a new topic Tag only where 3 Documents of the group share it, with none of the User's own Tags yet. The walk's files then go through Organize in a core on a temporary data folder, with no Folders (`organizeLibrary`), and what it proposes is read from the Review before anything is confirmed.
 
 ## The set
 
@@ -20,7 +20,7 @@ Each Document says whether the Invoice kind fits it (`invoice`), as the preset I
 
 ## Scores and bars
 
-Per group: non-invoices tagged Invoice (bar: none), invoices and receipts still tagged Invoice, Documents with a fitting Tag (bar: 90%), new Tags named in the language of the Document's text (bar: 95%), Chinese Documents with a Tag in Chinese (bar: 95%), the most Tags on one Document (bar: 3), and the new Tags made. Each report lists the Documents the word list scored as misses, with their Tags, to read by hand. On the walk: the quote, the notes and the registration not tagged Invoice, the workbook with a fitting Tag, 2 to 4 Folders proposed, and 90% of the Documents in a Folder of their own subject.
+Per group: non-invoices given the Invoice kind (bar: none), invoices and receipts given it, Documents with a fitting Tag (bar: 90%), new topic Tags named in the interface's language (bar: 95%), Chinese Documents with a Tag in the interface's language (reported), the most Tags on one Document, and the new topic Tags. Each report lists the Documents the word list scored as misses, with their Tags, to read by hand. On the walk: the quote, the notes and the registration not given the Invoice kind, the workbook with a fitting Tag, the Folders Organize proposes (it aims at 3 to 7), and 90% of the Documents in a Folder of their own subject.
 
 ## Running it
 

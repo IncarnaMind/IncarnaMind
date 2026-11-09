@@ -349,7 +349,7 @@ A person in a Transcript who is told apart from the others. A Speaker is named b
 _Avoid_: voice, participant, user
 
 **Words to know**:
-Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber on this computer is told them, with the names in its Note and its Folder's Documents.
+Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber is told them, with the User's name, the Meeting's Folder name, and the names in its Note, its calendar event and its Folder's Documents: the one on this computer, or the cloud route chosen, in that service's own field.
 _Avoid_: hotwords, vocabulary, dictionary
 
 ### Files
@@ -373,7 +373,7 @@ Anonymous events about using IncarnaMind, such as "a Question was asked with a l
 _Avoid_: telemetry, tracking
 
 **AI use record**:
-What the AI put into a Note, or proposed and the User turned down, and what became of it (kept, edited, deleted), and each sentence a model checked, kept per Note on this computer. It holds kinds, sizes, the model and times, never text, and is never sent, whatever the User chose about Usage data.
+What the AI put into a Note, or proposed and the User turned down, and what became of it (kept, edited, deleted), and each sentence a model checked, or replied to without a verdict, which left it Not checked, kept per Note on this computer. It holds kinds, sizes, the model and times, never text, and is never sent, whatever the User chose about Usage data.
 _Avoid_: AI log, AI history
 
 **Check record**:

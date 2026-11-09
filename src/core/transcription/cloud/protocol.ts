@@ -3,6 +3,8 @@ export const QWEN_REALTIME_PATH = "/api-ws/v1/inference";
 export const HANDSHAKE_REFUSED = 4401;
 /** The socket's close code when the handshake was refused because the account has no credit. */
 export const HANDSHAKE_NO_CREDIT = 4402;
+/** The socket's close code when the handshake was refused for what the address asked (a 400 or 422). */
+export const HANDSHAKE_BAD_REQUEST = 4400;
 
 export const DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen";
 export const DEEPGRAM_MODEL = "nova-3";

@@ -296,7 +296,7 @@ const DIGITS = /\d(?:[\d,.\u00a0\u202f' ]*\d)?/;
 export function writtenLike(like: Figure, value: number, decimals: number): string {
   const shares = like.unit.kind === "percent" || like.unit.kind === "points";
   const amount = Math.abs(value) * (shares ? 100 : 1 / like.scale);
-  const digits = DIGITS.exec(like.chars);
+  const digits = DIGITS.exec(like.chars) ?? numeralsOf(like);
   const comma = digits !== null && /\d,\d{1,2}$/.test(digits[0]) && like.decimals > 0;
   const number = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: decimals,
@@ -313,7 +313,18 @@ export function writtenLike(like: Figure, value: number, decimals: number): stri
         : `${/^[-−]/.exec(like.chars)?.[0] ?? "−"}${text}`;
   if (!digits) return signed(number);
   const around = like.chars.replace(/^[(\-−+]|[)]$/g, "");
-  return signed(around.replace(DIGITS, number));
+  return signed(around.replace(digits[0], number));
+}
+
+const NUMERALS = /[〇零一二两三四五六七八九十百千]+/u;
+
+/**
+ * A figure's Chinese numerals, without its scale word: 二百四十 of 二百四十万英镑, so the amount
+ * at its scale takes their place (#2081).
+ */
+function numeralsOf(like: Figure): RegExpExecArray | null {
+  const at = like.scaleWord ? like.chars.lastIndexOf(like.scaleWord) : -1;
+  return NUMERALS.exec(at > 0 ? like.chars.slice(0, at) : like.chars);
 }
 
 /** How many decimals `read` carries once written at the scale of `like`. */

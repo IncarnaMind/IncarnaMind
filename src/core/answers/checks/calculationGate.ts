@@ -2,6 +2,7 @@ import {
   currencyNamed,
   type Figure,
   type FigureContext,
+  type Reading,
   readFigures,
   readingsOf,
   readStatedUnits,
@@ -59,6 +60,23 @@ function rowStates(
       });
     });
   });
+}
+
+/**
+ * Each figure of `words`, quoted from `units`, with every reading of it: as written, and in the one
+ * unit its page states ("(£'000)") when it states one.
+ */
+export function figureReadings(words: string, units: readonly { text: string }[]): Reading[][] {
+  const context = documentFigureContext(units);
+  const statements = readStatedUnits(units.map((unit) => unit.text).join("\n"), context);
+  const header = statements.length === 1 ? statements[0]?.chars : undefined;
+  const alternatives = header ? figuresInClaim(words, { ...context, header }) : [];
+  return figuresInClaim(words, context).map((figure) => [
+    figure,
+    ...alternatives
+      .filter((each) => each.start === figure.start && each.end === figure.end)
+      .flatMap(readingsOf),
+  ]);
 }
 
 /**
@@ -140,22 +158,10 @@ export async function needsCalculation({
       ]),
     ).values(),
   ];
-  const sources = unique.map(({ citation, units }) => {
-    const context = documentFigureContext(units);
-    const statements = readStatedUnits(units.map((unit) => unit.text).join("\n"), context);
-    const header = statements.length === 1 ? statements[0]?.chars : undefined;
-    const figures = figuresInClaim(citation.quote, context);
-    const alternatives = header ? figuresInClaim(citation.quote, { ...context, header }) : [];
-    return {
-      citation,
-      figures: figures.map((figure) => [
-        figure,
-        ...alternatives
-          .filter((each) => each.start === figure.start && each.end === figure.end)
-          .flatMap(readingsOf),
-      ]),
-    };
-  });
+  const sources = unique.map(({ citation, units }) => ({
+    citation,
+    figures: figureReadings(citation.quote, units),
+  }));
   const quotedFigures = quotedWords.flatMap((words) => figuresInClaim(words, context));
   const available = [
     ...sources.flatMap(({ figures }) => figures.flat()),

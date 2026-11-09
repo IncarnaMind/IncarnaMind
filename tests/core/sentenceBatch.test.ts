@@ -12,6 +12,7 @@ const entry = (number: number, verdict: string) => ({
   verdict,
   roles: "same",
   time: "same",
+  quoted: "states",
   says: "The schedule says so.",
 });
 
@@ -72,24 +73,28 @@ describe("a batch's reply", () => {
     '{"sentences":[{"number":1,"verdict":"supported"}]}',
     '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"different","time":"same","says":"The slide says so."}]}',
     '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","says":"幻灯片这样写。"}]}',
-    '{"sentences":[{"number":1,"kind":"Fact","verdict":"supported","roles":"same","time":"same","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"Fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"yes","says":"幻灯片这样写。"}]}',
   ])(
-    "an entry whose kind, roles or time is missing or not one of its words is left unjudged, never same (#2816): %s",
+    "an entry whose kind, roles, time or quoted is missing or not one of its words is left unjudged, never same (#2816, #2739): %s",
     async (reply) => {
       expect((await readBatchReply(reply, 1)).has(1)).toBe(false);
     },
   );
 
   test.each([
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The slide says so."}]}',
+    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"other","says":"幻灯片这样写。"}]}',
   ])("an entry with every field is judged (#2816): %s", async (reply) => {
+    const entry = JSON.parse(reply).sentences[0];
     expect((await readBatchReply(reply, 1)).get(1)).toEqual({
       kind: "fact",
       verdict: "supported",
       roles: "same",
       time: "same",
-      says: JSON.parse(reply).sentences[0].says,
+      quoted: entry.quoted,
+      says: entry.says,
     });
   });
 

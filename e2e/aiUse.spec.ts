@@ -67,8 +67,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // Clear happens at once, with no question, and says how to take it back.
       await record.getByTestId("ai-use-clear").click();
       await expect(record.getByTestId("ai-use-cleared")).toHaveText(text.cleared);
-      await expect(record.getByTestId("ai-use-entries")).toHaveText(text.entries(0));
-      await expect(record.getByTestId("ai-use-clear")).toBeDisabled();
+      // Nothing is left to clear: neither its size nor its button is shown, and Undo has the focus.
+      await expect(record.getByTestId("ai-use-entries")).toHaveCount(0);
+      await expect(record.getByTestId("ai-use-clear")).toHaveCount(0);
+      await expect(record.getByTestId("ai-use-undo")).toBeFocused();
       // The line and its Undo fit inside the section at the narrowest window.
       const section = await record.boundingBox();
       const undo = await record.getByTestId("ai-use-undo").boundingBox();

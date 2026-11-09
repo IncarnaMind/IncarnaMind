@@ -1,6 +1,10 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import {
+  acceptPlainTextKeys,
   closeSettings,
   createDataFolder,
   dismissChatSetup,
@@ -12,8 +16,18 @@ import {
   removeDataFolder,
   runCommand,
   setLanguage,
+  setWindowSize,
+  showSettingsPage,
   startRecording,
 } from "./app";
+
+/** INCARNAMIND_SCREENSHOTS: a folder to also save screenshots in. */
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+async function shot(window: Page, name: string): Promise<void> {
+  if (!SCREENSHOTS) return;
+  await mkdir(SCREENSHOTS, { recursive: true });
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
 
 /**
  * Words to know in Settings › Meetings (#1031): names the transcriber on this computer is told at
@@ -156,4 +170,117 @@ test("⌘K opens Words to know with its field ready, and a word told there is wr
     timeout: 30_000,
   });
   await expect(transcript.getByText(/Donna/)).toHaveCount(0);
+});
+
+test("A route chosen before the words were sent says so under Words to know and on the Privacy row; Send sends them alone, in English and Chinese", async () => {
+  const first = await launchApp(dataDir);
+  await dismissChatSetup(first.window);
+  await acceptPlainTextKeys(first.window);
+  await first.window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
+    await bridge.updateSettings({ device: { transcriptionRoute: "soniox" } });
+  });
+  await first.app.close();
+  // The profile as one that chose Soniox before the words were sent: its consent names the audio alone.
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  db.run(
+    `UPDATE data_flow_consents SET data_kinds = '["meeting-audio"]'
+     WHERE flow = 'transcription' AND deleted_at IS NULL`,
+  );
+  db.close();
+
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    let settings = await openSettings(window, "meetings");
+    // While the words wait, the route's line says the audio goes alone, and the list is said once.
+    const routeLine = settings.getByTestId("meetings-route-line");
+    await expect(routeLine).toContainText("Audio goes to Soniox while you record.");
+    await expect(routeLine).not.toContainText("your name");
+    const waiting = settings.getByTestId("meeting-words-waiting");
+    await expect(waiting).toContainText(
+      "Soniox gets the audio but not these words: you chose it before they were sent. Send them, and with each meeting it also gets your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    );
+    await expect(settings.getByTestId("meeting-words")).toContainText(
+      "Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    );
+    await expect(settings.getByTestId("meeting-words")).not.toContainText(
+      "A cloud service you transcribe with",
+    );
+    await waiting.scrollIntoViewIfNeeded();
+    await shot(window, "words-waiting-en-1440");
+    await setWindowSize(app, window, 900, 720);
+    await waiting.scrollIntoViewIfNeeded();
+    await shot(window, "words-waiting-en-900");
+
+    await setLanguage(window, "zh-CN");
+    await expect(routeLine).toContainText("录音期间，音频会发送给 Soniox。");
+    await expect(routeLine).not.toContainText("你的名字");
+    await expect(waiting).toContainText(
+      "Soniox 目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，每场会议它还会收到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    );
+    await expect(waiting.getByTestId("meeting-words-send")).toHaveText("发送给 Soniox");
+    await waiting.scrollIntoViewIfNeeded();
+    await shot(window, "words-waiting-zh-CN-900");
+    await setWindowSize(app, window, 1440, 900);
+    await waiting.scrollIntoViewIfNeeded();
+    await shot(window, "words-waiting-zh-CN-1440");
+
+    // The Privacy row says what isn't sent until the User allows it.
+    settings = await showSettingsPage(window, "privacy");
+    const row = settings.locator(
+      '[data-testid="data-service"][data-service-id="https://stt-rt.soniox.com"]',
+    );
+    await expect(row.getByTestId("data-service-decision")).toContainText(
+      "允许之后才会发送：你的名字、要识别的词、每场会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字",
+    );
+    await row.scrollIntoViewIfNeeded();
+    await shot(window, "privacy-sends-more-zh-CN-1440");
+    await setLanguage(window, "en");
+    await expect(row.getByTestId("data-service-decision")).toContainText(
+      "Not sent until you allow it: Your name, your Words to know, each meeting’s folder name, and the names in its note, calendar event and folder’s documents",
+    );
+    await row.scrollIntoViewIfNeeded();
+    await shot(window, "privacy-sends-more-en-1440");
+    await setWindowSize(app, window, 900, 720);
+    await row.scrollIntoViewIfNeeded();
+    await shot(window, "privacy-sends-more-en-900");
+    await setWindowSize(app, window, 1440, 900);
+
+    // Send allows the words alone: the line goes, the route stays, and the flow is allowed whole.
+    settings = await showSettingsPage(window, "meetings");
+    const send = settings.getByTestId("meeting-words-send");
+    await expect(send).toHaveText("Send to Soniox");
+    await pointAndClick(window, send);
+    await expect(settings.getByTestId("meeting-words-waiting")).toHaveCount(0);
+    await expect(settings.getByTestId("meeting-words-field")).toBeFocused();
+    await expect(routeLine).toContainText(
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    );
+    await expect(settings.getByTestId("meeting-words")).toContainText(
+      "A cloud service you transcribe with gets them with the audio.",
+    );
+    await shot(window, "words-sent-en-1440");
+    const after = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return { settings: await bridge.getSettings(), flows: await bridge.listDataFlows() };
+    });
+    expect(after.settings.device.transcriptionRoute).toBe("soniox");
+    expect(after.flows.find((each) => each.flow.id === "transcription")).toMatchObject({
+      consent: "accepted",
+      flow: { sends: ["meeting-audio", "meeting-words"] },
+    });
+
+    // Deepgram's price with its key terms, as the cap counts it while the words go.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.setTranscriptionKey({ route: "deepgram", apiKey: "deepgram-test-key" });
+      await bridge.updateSettings({ device: { transcriptionRoute: "deepgram" } });
+    });
+    await expect(routeLine).toContainText("About $0.75 an hour");
+    await shot(window, "words-deepgram-price-en-1440");
+  } finally {
+    await app.close();
+  }
 });

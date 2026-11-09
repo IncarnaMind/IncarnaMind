@@ -38,7 +38,7 @@ import { queryWords } from "../matcher";
 import { meetingHitsOf } from "../meetingTranscript";
 import { organizeDocuments } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { openReview, useOrganizeReview } from "../organizeReview";
+import { openReview, useFoldersWaiting, useOrganizeReview } from "../organizeReview";
 import {
   DAY_ONE_DOCUMENTS,
   ownsATag,
@@ -289,8 +289,11 @@ export function LibraryPane() {
   const running = useOrganizeReview((state) => state.run !== null);
   const reviewOpen = useOrganizeReview((state) => state.open);
   const waiting = useOrganizeReview((state) => state.count) ?? snapshot?.reviewCount ?? 0;
+  const foldersWaiting = useFoldersWaiting(snapshot?.reviewCount ?? 0);
+  // A run that grouped none of them says so at the top: it doesn't say they are sorted too.
+  const apart = useOrganizeReview((state) => state.apart !== null);
   const sortIntoFolders =
-    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && waiting === 0
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && foldersWaiting === 0
       ? () => organizeDocuments(null).catch(useAppStore.getState().reportError)
       : null;
   const subOpen = useLibraryFolds((state) => state.subOpen);
@@ -465,7 +468,7 @@ export function LibraryPane() {
           <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
             <LibraryHeader
               count={headerCount}
-              sorted={allSorted && waiting === 0}
+              sorted={allSorted && waiting === 0 && !apart}
               organizeCount={looseOwn}
               onSortIntoFolders={sortIntoFolders}
               sorting={running}

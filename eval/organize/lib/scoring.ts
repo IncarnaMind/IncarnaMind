@@ -15,6 +15,7 @@ export interface Labelled {
   folder: string | null;
   alsoFolder?: string;
   tags: readonly string[];
+  kindLabels?: boolean;
 }
 
 export interface PredictedTag {
@@ -158,6 +159,18 @@ export function summarise(pairs: readonly { doc: Labelled; prediction: Predictio
 }
 
 export const ratio = (part: number, whole: number) => (whole === 0 ? 0 : part / whole);
+
+/**
+ * Whether part/whole is at least, or at most, num/den, in whole numbers: 24/30 is 0.8 exactly,
+ * which floating point puts just under. An empty whole is 0, as `ratio` has it.
+ */
+export const atLeast = (part: number, whole: number, num: number, den: number) =>
+  whole !== 0 && part * den >= whole * num;
+export const atMost = (part: number, whole: number, num: number, den: number) =>
+  whole === 0 || part * den <= whole * num;
+/** F1 against num/den, from its counts: 2tp / (2tp + fp + fn), which `f1` works out too. */
+export const f1AtLeast = (s: Pick<Summary, "tp" | "fp" | "fn">, num: number, den: number) =>
+  atLeast(2 * s.tp, 2 * s.tp + s.fp + s.fn, num, den);
 export const precision = (s: Pick<Summary, "tp" | "fp">) => ratio(s.tp, s.tp + s.fp);
 export const recall = (s: Pick<Summary, "tp" | "fn">) => ratio(s.tp, s.tp + s.fn);
 export function f1(s: Pick<Summary, "tp" | "fp" | "fn">): number {

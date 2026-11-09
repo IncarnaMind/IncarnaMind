@@ -273,6 +273,30 @@ describe("The record of AI use", () => {
     expect(await again.listAiUse()).toHaveLength(1);
   });
 
+  // protects=an entry of a kind this version doesn't know, written by a newer one or synced from another device, is left out of what the record lists and counts and is never read as another kind, so the AI use statement can't call it an Answer added (#2897); fails_when=it is listed, counted, or read as "answer-added"; no_claim=what a newer version means by the kind.
+  test("an entry of a kind this version doesn't know is left out, never read as another kind", async () => {
+    const { dataDir, core, mind } = await setUp();
+    await core.recordAiUse([{ mindId: mind.id, kind: "sentence-checked", characters: 0 }]);
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    const at = "2026-11-09T09:00:00.000Z";
+    db.run(
+      `INSERT INTO ai_use (id, mind_id, kind, outcome, provider_id, model_id, characters, blocks,
+         occurred_at, created_at, updated_at)
+       VALUES (?, ?, 'a-kind-from-a-newer-version', 'kept', NULL, NULL, 40, '[]', ?, ?, ?)`,
+      [randomUUID(), mind.id, at, at, at],
+    );
+    db.close();
+
+    const again = startCore(dataDir);
+
+    expect((await again.listAiUse()).map((entry) => entry.kind)).toEqual(["sentence-checked"]);
+    expect((await again.listAiUse(mind.id)).map((entry) => entry.kind)).toEqual([
+      "sentence-checked",
+    ]);
+    expect(await again.getAiUseStatus()).toEqual({ entries: 1 });
+  });
+
   test("bad input is refused and records nothing", async () => {
     const { core, mind } = await setUp();
     const good: RecordAiUseInput = { mindId: mind.id, kind: "answer-added", characters: 1 };

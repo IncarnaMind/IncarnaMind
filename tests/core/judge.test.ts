@@ -9,6 +9,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { ABSENCE_REPLY } from "../../src/core/answers/checks/absence";
 import { claimPartsOf } from "../../src/core/answers/checks/claims";
+import { readRestated } from "../../src/core/answers/checks/explanations";
 import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
 import {
   readEvidence,
@@ -80,7 +81,7 @@ const QUESTIONS: Record<
   "sentence-batch": {
     reply: json((value) => readBatch(value, 1)),
     right:
-      '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The lease says so."}]}',
+      '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The lease says so."}]}',
     read: new Map([
       [
         1,
@@ -89,6 +90,7 @@ const QUESTIONS: Record<
           verdict: "supported",
           roles: "same",
           time: "same",
+          quoted: "states",
           says: "The lease says so.",
         },
       ],
@@ -209,6 +211,14 @@ const QUESTIONS: Record<
     right: JSON.stringify({ parts: ["answer", "working"] }),
     read: ["answer", "working"],
     unreadable: JSON.stringify({ parts: ["answer", "workings"] }),
+  },
+  restate: {
+    reply: lines((reply) =>
+      readRestated(reply, "The lease gives the rent as $14,250 a month, not $12,500.", "zh-CN"),
+    ),
+    right: "租约写的月租金是 $14,250，不是 $12,500。",
+    read: "租约写的月租金是 $14,250，不是 $12,500。",
+    unreadable: "租约写的月租金是 $14,520，不是 $12,500。",
   },
 };
 

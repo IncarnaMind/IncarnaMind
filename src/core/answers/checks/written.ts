@@ -68,7 +68,6 @@ import {
   type ClaimPartPlan,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
-  type RecordAiUseInput,
   type RunStop,
   type WrittenCheckProgress,
 } from "../../api";
@@ -76,18 +75,21 @@ import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
-import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
+import { type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type NodeJSON, topLevelBlocks } from "../blocks";
-import {
-  type CheckedCitation,
-  type ClaimCheckRequest,
-  recordJudged,
-  runFailureOf,
-} from "./claimCheck";
+import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
+import {
+  type CheckOutcome,
+  type CheckRuns,
+  type CheckTry,
+  checkRunOf,
+  recordCheck,
+  runClaimChecks,
+} from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
   checkText,
@@ -107,7 +109,7 @@ const UNDONE_KEPT = 20;
 /** How long a write must stay gone from its Mind before its check is taken as undone. */
 const UNDONE_SETTLE_MS = 1_000;
 
-export interface WrittenCheckOptions {
+export interface WrittenCheckOptions extends CheckRuns {
   /**
    * The Answer's model prepared for the checks flow, whose consent each request then checks
    * as it is sent (ADR-0022); null when that flow may not send to it now. Never asks.
@@ -131,12 +133,9 @@ export interface WrittenCheckOptions {
   /** Reads the Mind's content, where what the assistant wrote already is. */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   retainEvidence(mindId: string): void;
-  recordAiUse(inputs: RecordAiUseInput[]): void;
   /** The quick model that looks first at a write's sentences under the checks' model (./fastPaths); null: none. */
   quickModel(prepared: PreparedChatModel): Promise<PreparedChatModel | null>;
   firstLook(look: FirstLook): Promise<FirstLookResult>;
-  /** How long one check may take, as contradiction watch gives one claim: a reply may never come. */
-  claimTimeLimitMs: number;
   /** Aborts once the claims sort has taken too long: a reply may never come. */
   sortTimeLimit(): AbortSignal;
   /** Registers a check under its request, so the Note's Stop and quitting reach it (./index `track`). */
@@ -145,7 +144,6 @@ export interface WrittenCheckOptions {
   settleStopped(mindId: string, request: string): void;
   /** How far a check is, as its marks land, and once more as it ends. */
   progress(event: WrittenCheckProgress): void;
-  now(): Date;
 }
 
 export interface CheckWrittenInput {
@@ -323,12 +321,9 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   return found;
 }
 
-/** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
+/** Who judged a sentence: the quick model or the checks' own model (./fastPaths). */
 interface Checked {
-  result: ClaimCheckResult;
   by: PreparedChatModel;
-  /** The quick model that read the sentence first and passed it on to its check. */
-  passedOn: PreparedChatModel | null;
 }
 
 /**
@@ -582,8 +577,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** The Minds a check's write looked gone from, waiting a moment to see if it stays gone. */
   const confirming = new Set<string>();
 
-  /** One sentence's check, given up on once it takes longer than the time limit. */
-  async function checkWithin(
+  function requestOf(
     sentence: Sentence,
     read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
     mindId: string,
@@ -591,36 +585,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     limit: Slots,
     signal: AbortSignal,
-  ): Promise<ClaimCheckResult> {
-    const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
-    const ended = AbortSignal.any([signal, timedOut]);
-    // A reply that never comes, even once aborted, is given up on all the same.
-    const givenUp = new Promise<null>((resolve) =>
-      ended.addEventListener("abort", () => resolve(null), { once: true }),
-    );
-    const replied = await Promise.race([
-      options.claimCheck({
-        ...read,
-        cited: options.citedNow(sentence.cited),
-        scope: scope.scope,
-        searched: scope.wanted,
-        model: prepared,
-        mindId,
-        recordClaim: sentence.rawText,
-        cacheKey: mindId,
-        opinionsLeftOut: true,
-        slots: limit,
-        signal: ended,
-      }),
-      givenUp,
-    ]);
-    if (replied !== null && !timedOut.aborted) return replied;
+  ): ClaimCheckRequest {
     return {
-      verdict: "not-checked",
-      reason: "failed",
-      detail: `No reply within ${Math.round(options.claimTimeLimitMs / 1000)} seconds.`,
-      versions: [],
-      excluded: [],
+      ...read,
+      cited: options.citedNow(sentence.cited),
+      scope: scope.scope,
+      searched: scope.wanted,
+      model: prepared,
+      mindId,
+      recordClaim: sentence.rawText,
+      cacheKey: mindId,
+      opinionsLeftOut: true,
+      slots: limit,
+      signal,
     };
   }
 
@@ -946,32 +923,26 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
-    const landed = (sentence: Sentence, outcome: ItemOutcome<Checked>) => {
-      if (over || signal.aborted || outcome.status === "stopped" || left.has(sentence)) return;
+    const run = checkRunOf(options, prepared, signal, mindId);
+    const checks = new Map<Sentence, Checked>();
+    const landed = (sentence: Sentence, outcome: CheckOutcome) => {
+      // A quick model that said no read the sentence too: a use of AI, whatever its check came to.
+      if (quick && looked.get(sentence)?.asked)
+        recordCheck(run.record, quick, "result" in outcome ? outcome.result : null);
+      if (over || signal.aborted || left.has(sentence)) return;
       // Taken away, its text may be back as it was: a verdict of the written words never lands there.
       if (writeGone(mindId, shape)) return;
-      if (outcome.status === "not-checked") {
-        failed(sentence, outcome.stop.reason, null);
+      if (!("result" in outcome)) {
+        failed(sentence, outcome.reason, outcome.detail);
         return;
       }
-      if (outcome.status === "failed") {
-        const rateLimited = outcome.error.kind === "rate-limit";
-        failed(
-          sentence,
-          rateLimited ? "rate-limit" : "failed",
-          rateLimited ? null : outcome.error.message,
-        );
-        return;
-      }
-      const { result, by, passedOn } = outcome.value;
+      const { result } = outcome;
+      const { by } = checks.get(sentence) ?? { by: prepared };
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landNow({ sentence, opinion: result.parts.map(planOf) }, "opinion");
         return;
       }
       const at = options.now().toISOString();
-      recordJudged(options.recordAiUse, mindId, by, result, at);
-      // A quick model that said no read the sentence too: a use of AI once the sentence is checked.
-      if (passedOn) recordJudged(options.recordAiUse, mindId, passedOn, result, at);
       if (result.verdict === "not-checked") {
         failed(sentence, result.reason, result.detail);
         return;
@@ -996,7 +967,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
-    const checkOne = (sentence: Sentence): Promise<Checked> =>
+    const checkOne = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
       asCheckWork(async () => {
         const own = new AbortController();
         stops.set(sentence, own);
@@ -1026,20 +997,25 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               ask: (asked, until) => quickLook(quick, asked, until),
               signal: AbortSignal.any([
                 ended,
-                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+                AbortSignal.timeout(run.timeLimitMs * FIRST_LOOK_SHARE),
               ]),
             })));
-        if (quick && first?.result) return { result: first.result, by: quick, passedOn: null };
+        if (quick && first?.result) {
+          recordCheck(run.record, quick, first.result);
+          checks.set(sentence, { by: quick });
+          return first.result;
+        }
         if (first) looked.set(sentence, first);
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, ended);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        return { result, by: prepared, passedOn: first?.asked ? quick : null };
+        checks.set(sentence, { by: prepared });
+        return attempt(
+          options.claimCheck,
+          requestOf(sentence, read, mindId, scope, prepared, limit, ended),
+        );
       });
     const checkAll = (items: readonly Sentence[]) =>
-      runItems(items, checkOne, {
+      runClaimChecks(items, checkOne, {
+        ...run,
         concurrency: claimsAtOnce(prepared),
-        signal,
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
         onOutcome(sentence, outcome) {

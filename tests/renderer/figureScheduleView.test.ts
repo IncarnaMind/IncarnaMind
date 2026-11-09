@@ -428,6 +428,9 @@ test("a row shows its source value and difference in the note's own terms", () =
   expect(differenceText(at("3.1×", "3.3×"), "en")).toBe("−0.2×");
   expect(differenceText(at("£20", "£20"), "en")).toBeNull();
   expect(writtenLike(pounds("1.2亿元"), 125_000_000, 2)).toBe("1.25亿元");
+  // Chinese numerals give way to the amount at their scale, the scale word and unit kept (#2081).
+  expect(writtenLike(pounds("二百四十万英镑"), 2_600_000, 0)).toBe("260万英镑");
+  expect(writtenLike(pounds("三百万元"), 3_500_000, 0)).toBe("350万元");
   // A source's sign is its own, written as the note writes a negative.
   expect(sourceValueText(at("£130m", "−£131m"))).toBe("−£131m");
   expect(sourceValueText(at("-£130m", "-£131m"))).toBe("-£131m");

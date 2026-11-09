@@ -98,6 +98,10 @@ const CONSENT_FACTS = [
   // A page loaded as a browser would reach every host it loads anything from (#2553).
   "webPages.keepLook.body",
   // What first run's key field and sorting choice send, and where (ADR-0022).
+  "setup.key.sends",
+  // What is sent where a service is chosen, and the GitHub sign-in's notice (#2900).
+  "providers.sendsLine",
+  "copilot.notice.sends",
   "needsModel.organize",
   "needsModel.compare",
   "needsModel.help",

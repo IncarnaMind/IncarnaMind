@@ -31,7 +31,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
-import { taggingModel, tagNamed, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, taggingModel, tagNamed, waitForTagging } from "../helpers/tags";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -492,6 +492,35 @@ describe("Restoring what was deleted", { timeout: 30_000 }, () => {
       wording: { key: "error.restore.unknown" },
     });
   });
+
+  test("a kind's Tag waits under its kind's name in the interface's language, and that name in either language is taken", async () => {
+    const { core, clock } = await start();
+    const paper = await tagNamed(core, "Paper");
+    clock.advance(1000);
+    await core.deleteTag(paper.id);
+    const listed = async () =>
+      (await core.listDeleted()).filter((each) => each.kind === "tag").map((each) => each.name);
+    expect(await listed()).toEqual(["Paper"]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await listed()).toEqual(["论文"]);
+
+    // Its English name, taken while it was away: it can't come back beside it.
+    const named = await core.createTag({ name: "Paper" });
+    await expect(core.restore([{ kind: "tag", id: paper.id }])).rejects.toMatchObject({
+      wording: { key: "error.restore.tagNameTaken", values: { name: "论文" } },
+    });
+
+    // The other way round: with the kind's Tag back, a Tag of its English name can't come back.
+    clock.advance(1000);
+    await core.deleteTag(named.id);
+    await core.restore([{ kind: "tag", id: paper.id }]);
+    await expect(core.restore([{ kind: "tag", id: named.id }])).rejects.toMatchObject({
+      wording: { key: "error.restore.tagNameTaken", values: { name: "Paper" } },
+    });
+    expect(
+      (await core.listTags()).filter((tag) => tag.kind === "paper").map((tag) => tag.name),
+    ).toEqual(["论文"]);
+  });
 });
 
 describe("Moving back and untagging", { timeout: 30_000 }, () => {
@@ -570,7 +599,7 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     expect(await proposedFor(core, invoice.id)).toBeNull();
   });
 
-  test("Tags put back as they were record no removal, so automatic tagging can still add them", async () => {
+  test("Tags put back as they were record no removal, so tagging can still propose them", async () => {
     const tagging = taggingModel([]);
     const { core } = await start({
       createChatModel: scriptedModels(tagging.model).createChatModel,
@@ -590,22 +619,9 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
 
     tagging.choose(["Paper"]);
     await core.retagDocuments([document.id]);
-    const [automatic] = await waitForTagging(core, [document.id], (each) =>
-      each.tags.some((link) => link.tagId === paper.id),
-    );
-    const link = automatic?.tags[0];
-    expect(link).toMatchObject({ tagId: paper.id, source: "automatic" });
-
-    await core.removeTagFromDocuments([document.id], paper.id);
-    await core.revertDocumentTags([
-      { documentId: document.id, tagId: paper.id, link: link ?? null },
-    ]);
-    expect((await documentOf(core, document.id))?.tags).toEqual(automatic?.tags);
-
-    // Still automatic, and not the User's: a re-tag takes it off again.
-    tagging.choose([]);
-    await core.retagDocuments([document.id]);
-    await waitForTagging(core, [document.id], (each) => each.tags.length === 0);
+    await waitForTagging(core, [document.id]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect((await documentOf(core, document.id))?.tags).toEqual([]);
   });
 
   test("restoring a merged Tag undoes the merge: both Tags and their links are as they were", async () => {
@@ -651,12 +667,8 @@ describe("Moving back and untagging", { timeout: 30_000 }, () => {
     // The removal the merge carried over to Findings is gone; the User's of Report stays.
     tagging.choose(["Findings", "Report"]);
     await core.retagDocuments([removed.id]);
-    await waitForTagging(core, [removed.id], (each) =>
-      each.tags.some((link) => link.tagId === findings.id),
-    );
-    expect((await documentOf(core, removed.id))?.tags.map((link) => link.tagId)).toEqual([
-      findings.id,
-    ]);
+    await waitForTagging(core, [removed.id]);
+    expect(await proposedTagNamesOf(core, removed.id)).toEqual(["Findings"]);
   });
 
   test("a merge and a Document deleted after it come back together, whatever the order", async () => {

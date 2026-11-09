@@ -18,6 +18,7 @@ import {
   type GenerateCall,
   type GeneratedReply,
   type ModelCall,
+  restatedAsQuoted,
   type ScriptedReply,
   scriptedModel,
   unscripted,
@@ -49,6 +50,8 @@ export interface Plan {
   /** What its figure items say the number measures; none by default. */
   measure?: { sentence: string; quote: string | null; match: "same" | "differs" };
   says?: string;
+  /** What it writes when asked for its explanation again in the interface's language (#2081). */
+  restated?: string;
   /** Its Roles line after the verdict: the sentence's words, " / ", the Passage's, and same, differs or other. */
   roles?: string;
   /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
@@ -370,6 +373,15 @@ export const checkGenerate =
         return { text: JSON.stringify({ claims: [] }) };
       case "sentence-batch":
         return { text: JSON.stringify({ sentences: [] }) };
+      case "restate": {
+        const asked = Object.values(plans).find(
+          (each) =>
+            each.restated !== undefined &&
+            each.says !== undefined &&
+            call.prompt.includes(each.says.split("\n")[0] ?? ""),
+        );
+        return { text: asked?.restated ?? restatedAsQuoted(call) };
+      }
       // A request that is no judge's question, such as a search query's rewrite.
       case undefined:
         return { text: evidence };

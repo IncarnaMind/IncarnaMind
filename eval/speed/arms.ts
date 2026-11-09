@@ -37,6 +37,8 @@ export interface Arm {
   notes?: { beforeSpeakers?: boolean };
   /** Whether call help's own form may be judged the model's working, as before #2778; unset: it isn't. */
   helpFormJudged?: boolean;
+  /** Whether found quotes show as the model gave them, as before #2739; unset: their whole sentences. */
+  quotesAsGiven?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -176,6 +178,12 @@ export const ARMS: readonly Arm[] = [
     helpFormJudged: true,
   },
   {
+    id: "quotes-as-given",
+    label:
+      "found quotes shown as the model gave them, and nothing said of two records with one quote, as before #2739",
+    quotesAsGiven: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -222,6 +230,7 @@ export function armSwitch() {
     checkPaths,
     notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
     helpFormJudged: () => current?.helpFormJudged,
+    quotesAsGiven: () => current?.quotesAsGiven,
     /** The prompts sent since it was last asked, oldest first. */
     takeSent: (): string[] => sent.splice(0),
     use(arm: Arm): void {

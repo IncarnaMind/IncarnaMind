@@ -18,6 +18,8 @@ declare module "sherpa-onnx-node" {
         tokenizer: string;
         hotwords?: string;
         maxNewTokens?: number;
+        /** The prompt, the audio and what is written, in tokens. */
+        maxTotalLen?: number;
       };
       tokens: string;
       numThreads: number;
@@ -37,7 +39,8 @@ declare module "sherpa-onnx-node" {
   export class OfflineRecognizer {
     static createAsync(config: OfflineRecognizerConfig): Promise<OfflineRecognizer>;
     createStream(): OfflineStream;
-    decodeAsync(stream: OfflineStream): Promise<{ text: string }>;
+    /** `tokens`: what the model wrote after its header, one string a token. */
+    decodeAsync(stream: OfflineStream): Promise<{ text: string; tokens?: string[] }>;
   }
 
   export interface VadConfig {

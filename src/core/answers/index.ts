@@ -230,6 +230,7 @@ import { proposedText } from "../tools/commands/organize";
 import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
+import { proposedTagsText } from "../tools/commands/tagWithAi";
 import { commandTools } from "../tools/commands/tools";
 import {
   type MindsForTools,
@@ -404,6 +405,9 @@ export { createAiSdkAnswerEngine } from "./engine";
  * live, seldom enough not to store one Yjs update per token.
  */
 const ANSWER_WRITE_INTERVAL_MS = 50;
+
+/** The commands that only propose, whose reply the app writes (#1569, #2339). */
+const PROPOSES: ReadonlySet<string> = new Set(["documents.organize", "documents.tagWithAi"]);
 
 type Outcome = { status: "done" | "stopped" } | { status: "failed"; error: ProviderError };
 
@@ -650,6 +654,8 @@ export interface AnswersOptions {
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
+  /** See `CoreAdapters.quotesAsGiven`. */
+  quotesAsGiven?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -1610,6 +1616,7 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
+        quotesStateClaims: () => !options.quotesAsGiven?.(),
       },
       original
         ? {
@@ -2087,11 +2094,10 @@ export function createAnswers(options: AnswersOptions) {
     const analysisCalls = new Map<string, AnalysisCall>();
     const commandsFound = new Map<string, CommandsFound>();
     const commandsDone = new Map<string, CommandDone>();
-    /** What else the User asked for beside an Organize that ran, as its call named it. */
+    /** What else the User asked for beside an Organize or a Tag with AI that ran, as its call named it. */
     const organizedAndAsked = () =>
-      [...commandsDone.values()].find(
-        (done) => done.command === "documents.organize" && done.alsoAsked,
-      )?.alsoAsked ?? null;
+      [...commandsDone.values()].find((done) => PROPOSES.has(done.command) && done.alsoAsked)
+        ?.alsoAsked ?? null;
     const commandProblems = new Map<string, CommandProblem>();
     /** A command's approval as it first asked, for asking again when its files changed (#2514). */
     const commandApprovals = new Map<string, Extract<ToolCallToApprove, { tool: "run_command" }>>();
@@ -3448,7 +3454,7 @@ export function createAnswers(options: AnswersOptions) {
             if (text.trim() !== "" || asked === null) return null;
             return {
               claims: [],
-              note: `Your reply is empty. The User also asked, as the Organize call put it: “${asked}”. Answer that now, in the User's language, leaving organizing out.`,
+              note: `Your reply is empty. The User also asked, as the call put it: “${asked}”. Answer that now, in the User's language, leaving organizing and tagging out.`,
             };
           },
         },
@@ -3716,6 +3722,10 @@ export function createAnswers(options: AnswersOptions) {
             const folders = done.folders;
             if (done.command === "documents.organize" && folders && folders.length > 0)
               resultLines.push((each) => proposedText(each, folders));
+            const tags = done.tags;
+            const tagged = done.items.length;
+            if (done.command === "documents.tagWithAi" && tags && tags.length > 0)
+              resultLines.push((each) => proposedTagsText(each, tagged, tags));
             if (done.command === "documents.organize" && done.untouched) {
               const count = done.untouched;
               resultLines.push((each) =>
@@ -3737,7 +3747,7 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
             // Asked again and still nothing: the reply says what wasn't done, never nothing.
-            if (done.command === "documents.organize" && done.alsoAsked && reply.trim() === "") {
+            if (PROPOSES.has(done.command) && done.alsoAsked && reply.trim() === "") {
               const asked = done.alsoAsked;
               resultLines.push((each) =>
                 translate(each, "answer.commands.notDone", { asked: escapeMarkdownText(asked) }),

@@ -10,7 +10,7 @@ import type { ChatModelSpec, Core, Document } from "../../src/core";
 import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
-import { tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, waitForTagging } from "../helpers/tags";
 
 const TEV1 = "tev1:4b";
 
@@ -66,7 +66,7 @@ describe("a model installed after Documents wait", () => {
 
     await waitForTagging(core, [first.id, second.id]);
     expect(ollama.requests).toHaveLength(2);
-    expect(await tagNamesOf(core, first.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, first.id)).toEqual(["Paper"]);
     expect((await core.listDocuments()).filter(waiting)).toEqual([]);
   });
 

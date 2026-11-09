@@ -25,6 +25,8 @@ export const OUTPUT_LIMITS = {
   "meeting-fill-retry": { most: 32_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },
+  // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).
+  "tag-batch": { most: 2_400, each: 160 },
   organize: { most: 512 },
   folders: { most: 1_024 },
   // Organize's plan at any size (../library/plan): a sample sorted, a batch placed, subfolders named.
@@ -65,6 +67,8 @@ export const OUTPUT_LIMITS = {
   "quick-check": { most: 2_048 },
   // One word for each part of a step's text: whether it is the Answer's or the model's working (#2371).
   "working-text": { most: 256 },
+  // One sentence of a check's card written again in the interface's language (#2081).
+  restate: { most: 400 },
 } as const satisfies Record<string, { most: number; each?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;

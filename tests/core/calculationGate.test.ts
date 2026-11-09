@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
 import { checkGenerate, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { checkClock } from "../helpers/heldClock";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
@@ -152,12 +153,17 @@ async function fixture({
       },
     },
   );
-  const { core } = await setUpWithDocuments(model, [
-    pdf
-      ? { name: "Invented accounts.pdf", contents: buildPdf([{ lines: [source] }]) }
-      : { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
-    ...(decidingSource ? [decidingSource] : []),
-  ]);
+  const { core } = await setUpWithDocuments(
+    model,
+    [
+      pdf
+        ? { name: "Invented accounts.pdf", contents: buildPdf([{ lines: [source] }]) }
+        : { ...DOCUMENT, contents: `# Invented accounts\n\n${source}\n` },
+      ...(decidingSource ? [decidingSource] : []),
+    ],
+    // A rate limit is waited out and sent again (#2897): its pauses end at once here.
+    { paceTimers: checkClock().timers },
+  );
   core.on("consent.requested", (event) => void core.respondToConsent(event.requestId, true));
   await core.saveChatProvider({
     kind: "anthropic",
@@ -277,9 +283,10 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
         verdict: "not-checked",
         reason: status === 429 ? "rate-limit" : "failed",
       });
+      // Once a try: a rate limit is sent again after each of the five pauses (#2897).
       expect(
         confirmationPrompts.filter((each) => each.includes("Quantity to confirm:")),
-      ).toHaveLength(1);
+      ).toHaveLength(status === 429 ? 6 : 1);
     },
   );
 

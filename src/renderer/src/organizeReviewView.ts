@@ -24,31 +24,51 @@ export interface ReviewCard {
   /** The Folder it is in, of the Library or proposed; null at the top level. */
   parentId: string | null;
   proposed: boolean;
+  /**
+   * Its Documents only get Tags (#2339): the card is the Folder they are in now, or Not in a
+   * Folder, nothing moves into it, and it can't be renamed or merged.
+   */
+  stays?: true;
   items: OrganizeReviewItem[];
 }
 
 /**
  * The Suggestions as the Review lays them out: the Library's Folders a Document would go into, in
  * the sidebar's order, then the Folders proposed by name, each subfolder straight after its
- * parent, then what is left out. `scope` is the Folder a Folder's own Organize sorted: every row
- * came from that run and its Documents are all in that Folder.
+ * parent, then the Documents that only get Tags, by the Folder they are in now, then what is left
+ * out. `scope` is the Folder a Folder's own Organize sorted: every row came from that run and its
+ * Documents are all in that Folder.
  */
 export interface ReviewLayout {
   scope: LibraryGroup | null;
   yours: ReviewCard[];
   proposed: ReviewCard[];
+  /** Documents that get Tags and stay where they are, one card per Folder they are in (#2339). */
+  tagsOnly: ReviewCard[];
+  /** Only Tags were asked for: "Suggested Tags", its cards with no section heads. */
+  onlyTags: boolean;
   leftOut: OrganizeReviewItem[];
   /** The rows Confirm acts on: every one the Review shows. */
   itemIds: string[];
 }
 
+/** A Folder's reason to leave a Document out, which says Folders were asked for. */
+const FOLDER_REASONS = new Set(["doesntFit", "staysInFolder", "walled"]);
+
+/** The card of Documents in no Folder that only get Tags. */
+export const NOT_IN_A_FOLDER = "not-in-a-folder";
+
 export function reviewLayout(
   review: OrganizeReview,
   folders: readonly LibraryGroup[],
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
+  notInAFolder = "",
 ): ReviewLayout {
   const placed = new Map<string, OrganizeReviewItem[]>();
   const leftOut: OrganizeReviewItem[] = [];
+  const staying = new Map<string, OrganizeReviewItem[]>();
+  const live = new Set(folders.map((folder) => folder.id));
+  const places = new Map(assignments.map((each) => [each.documentId, each.groupId]));
   for (const item of review.items) {
     const { placement } = item;
     const id =
@@ -58,6 +78,11 @@ export function reviewLayout(
           ? placement.newFolderId
           : null;
     if (placement.kind === "leftOut") leftOut.push(item);
+    if (placement.kind === "unchanged") {
+      const place = places.get(item.documentId) ?? null;
+      const key = place !== null && live.has(place) ? place : NOT_IN_A_FOLDER;
+      staying.set(key, [...(staying.get(key) ?? []), item]);
+    }
     if (id === null) continue;
     const list = placed.get(id);
     if (list) list.push(item);
@@ -72,7 +97,6 @@ export function reviewLayout(
     })),
   ];
   const ordered = flattenFolderTree(buildFolderTree(tree)).map((node) => node.folder.id);
-  const live = new Set(folders.map((folder) => folder.id));
   const proposedIds = new Set(review.folders.map((folder) => folder.id));
   const parents = new Map(tree.map((folder) => [folder.id, folder.parentId]));
   const cardOf = (id: string): ReviewCard => {
@@ -90,10 +114,38 @@ export function reviewLayout(
   };
   const yours = ordered.filter((id) => live.has(id) && placed.has(id)).map(cardOf);
   const proposed = ordered.filter((id) => proposedIds.has(id)).map(cardOf);
+  const stayCard = (id: string): ReviewCard =>
+    id === NOT_IN_A_FOLDER
+      ? {
+          id,
+          target: { kind: "folder", folderId: id },
+          name: notInAFolder,
+          parentPath: null,
+          parentId: null,
+          proposed: false,
+          stays: true,
+          items: staying.get(id) ?? [],
+        }
+      : { ...cardOf(id), stays: true, items: staying.get(id) ?? [] };
+  const tagsOnly = [
+    ...ordered.filter((id) => staying.has(id)).map(stayCard),
+    ...(staying.has(NOT_IN_A_FOLDER) ? [stayCard(NOT_IN_A_FOLDER)] : []),
+  ];
   return {
     scope: scopeOf(review.items, folders, assignments),
     yours,
     proposed,
+    tagsOnly,
+    onlyTags:
+      tagsOnly.length > 0 &&
+      yours.length === 0 &&
+      proposed.every((card) => card.items.length === 0) &&
+      leftOut.every(
+        (item) =>
+          item.placement.kind !== "leftOut" ||
+          item.placement.leftOut === null ||
+          !FOLDER_REASONS.has(item.placement.leftOut.reason),
+      ),
     leftOut,
     itemIds: review.items.map((item) => item.id),
   };
@@ -112,13 +164,21 @@ function scopeOf(
   return within.size === 1 && only ? (folders.find((folder) => folder.id === only) ?? null) : null;
 }
 
-/** What Confirm would do, from the ticks: how many Documents move, into how many Folders. */
+/**
+ * What Confirm would do, from the ticks: how many Documents move, into how many Folders, and how
+ * many others get Tags where they are.
+ */
 export function confirmCounts(layout: ReviewLayout): {
   documents: number;
   yours: number;
   proposed: number;
+  tagged: number;
 } {
   const ticked = (card: ReviewCard) => card.items.filter((item) => item.ticked).length;
+  const tagged = layout.tagsOnly.reduce(
+    (sum, card) => sum + card.items.filter((item) => item.ticked && item.tags.length > 0).length,
+    0,
+  );
   const yours = layout.yours.filter((card) => ticked(card) > 0);
   const proposed = layout.proposed.filter((card) => ticked(card) > 0);
   // A proposed parent is made with its subfolders, though no Document goes into it alone.
@@ -134,6 +194,7 @@ export function confirmCounts(layout: ReviewLayout): {
     documents: [...yours, ...proposed].reduce((sum, card) => sum + ticked(card), 0),
     yours: yours.length,
     proposed: made.size,
+    tagged,
   };
 }
 
@@ -141,9 +202,20 @@ export function confirmCounts(layout: ReviewLayout): {
 export const cardPath = (card: Pick<ReviewCard, "name" | "parentPath">) =>
   card.parentPath === null ? card.name : `${card.parentPath} › ${card.name}`;
 
-/** The Review's line under its title: "33 Documents will move into 5 new Folders. Nothing has moved yet." */
+/**
+ * The Review's line under its title: "33 Documents will move into 5 new Folders. Nothing has moved
+ * yet.", "12 Documents will get Tags. Nothing has changed yet.", or both at once (#2339).
+ */
 export function willMoveText(layout: ReviewLayout, t: Translate): string {
-  const { documents, yours, proposed } = confirmCounts(layout);
+  const { documents, yours, proposed, tagged } = confirmCounts(layout);
+  const count = (key: "organizeReview.documents" | "organizeReview.others", n: number) =>
+    key === "organizeReview.documents"
+      ? t(n === 1 ? "organizeReview.documents.one" : key, { count: n })
+      : t(n === 1 ? "organizeReview.others.one" : key, { count: n });
+  if (documents === 0 && (layout.onlyTags || tagged > 0))
+    return tagged === 0
+      ? t("organizeReview.willTag.none")
+      : t("organizeReview.willTag", { documents: count("organizeReview.documents", tagged) });
   if (documents === 0) return t("organizeReview.willMove.none");
   const sub = layout.scope !== null;
   const yoursText = t(
@@ -181,10 +253,14 @@ export function willMoveText(layout: ReviewLayout, t: Translate): string {
       : yours > 0
         ? yoursText
         : freshText(true);
+  if (tagged > 0)
+    return t("organizeReview.willMoveAndTag", {
+      documents: count("organizeReview.documents", documents),
+      into,
+      others: count("organizeReview.others", tagged),
+    });
   return t("organizeReview.willMove", {
-    documents: t(documents === 1 ? "organizeReview.documents.one" : "organizeReview.documents", {
-      count: documents,
-    }),
+    documents: count("organizeReview.documents", documents),
     into,
   });
 }
@@ -200,6 +276,8 @@ export function leftOutText(
   switch (leftOut.reason) {
     case "doesntFit":
       return t("organizeReview.leftOut.doesntFit");
+    case "tooFew":
+      return t("organizeReview.leftOut.tooFew");
     case "staysInFolder":
       return stays === null ? null : t("organizeReview.leftOut.stays", { folder: stays });
     case "noText":
@@ -208,5 +286,7 @@ export function leftOutText(
       return t("organizeReview.leftOut.unreachable", { service: leftOut.service });
     case "walled":
       return t("organizeReview.leftOut.walled", { folder: folderName(leftOut.folderId) });
+    case "noTag":
+      return t("organizeReview.leftOut.noTag");
   }
 }

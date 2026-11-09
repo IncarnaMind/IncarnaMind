@@ -15,7 +15,8 @@
       "*.json",
       "!**/package-lock.json",
       "!tests/fixtures/web",
-      "!tests/fixtures/formats/*.html"
+      "!tests/fixtures/formats/*.html",
+      "!tests/fixtures/organize-fresh"
     ]
   },
   "formatter": {

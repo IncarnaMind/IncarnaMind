@@ -36,6 +36,7 @@ type Sorted = { plans: readonly ClaimPartPlan[] } | { failed: ClaimCheckResult }
 const STOPS: readonly ClaimCheckFailure[] = [
   "stopped",
   "failed",
+  "timed-out",
   "rate-limit",
   "cost-cap",
   "read-budget",

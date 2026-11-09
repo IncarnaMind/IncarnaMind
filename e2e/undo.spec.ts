@@ -323,7 +323,7 @@ test("Tags: renamed, recoloured, merged and deleted in Manage Tags, each back wi
     const id = (name: string) => tags.find((tag) => tag.name === name)?.id ?? "";
     const [lab] = await core.listDocuments();
     if (lab) await core.addTagToDocuments([lab.id], id("Report"));
-    return { notes: id("Notes"), report: id("Report") };
+    return { notes: id("Meeting notes"), report: id("Report") };
   });
   const tags = () =>
     read(window, async (core) =>
@@ -366,15 +366,15 @@ test("Tags: renamed, recoloured, merged and deleted in Manage Tags, each back wi
   await redo(window);
   await expect.poll(tags).toEqual(edited);
 
-  // Merged into Notes: the Document carries Notes instead, until ⌘Z.
+  // Merged into Meeting notes: the Document carries Meeting notes instead, until ⌘Z.
   await manage();
   await pointAndClick(window, row(ids.report).getByTestId("merge-tag"));
-  await row(ids.report).getByTestId("merge-target").selectOption({ label: "Notes" });
+  await row(ids.report).getByTestId("merge-target").selectOption({ label: "Meeting notes" });
   await pointAndClick(window, row(ids.report).getByTestId("confirm-merge-tag"));
   await expect(row(ids.report)).toHaveCount(0);
   await done();
   await expect(undoLine(window).getByTestId("undo-message")).toHaveText(
-    "Merged “Reports” into Notes",
+    "Merged “Reports” into Meeting notes",
   );
   await expect.poll(labTags).toEqual([ids.notes]);
   await undo(window);

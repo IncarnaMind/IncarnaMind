@@ -29,7 +29,7 @@ import {
   type Core,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -143,9 +143,7 @@ function scripted(
     if (flow === "write") return params.tools?.some((tool) => tool.name === "create_mind") ?? false;
     if (flow !== "answer") return false;
     const prompt = params.prompt as { role: string; content: unknown }[];
-    return !prompt.some(
-      (message) => message.role === "system" && message.content === SENTENCE_BATCH_INSTRUCTIONS,
-    );
+    return !prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
   };
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",

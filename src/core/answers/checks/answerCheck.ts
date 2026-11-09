@@ -5,10 +5,11 @@
  * bottom in batches against the Passages their Citations quote (./sentenceBatch), on the model that
  * answered as its own request used it, a few batches at a time, each within the claim time limit;
  * none on a model on this computer too small to judge reliably (#680). Its Citations show the
- * result: found only when it is supported. A limit that stops the judgement stops it at a batch,
- * so the sentences it leaves are the last ones.
+ * result: found only when it is supported and the words it cites say so (#2739). A limit that
+ * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
+import type { Figure, FigureUnit } from "../../../shared/figures";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
@@ -23,6 +24,7 @@ import type {
 import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
 import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
+import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
 import { currentTask } from "../../runs/current";
@@ -30,7 +32,7 @@ import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
 import { json, judge } from "../judge";
-import { needsCalculation } from "./calculationGate";
+import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
@@ -42,7 +44,7 @@ import {
   batchParts,
   batchPrompt,
   readBatch,
-  SENTENCE_BATCH_INSTRUCTIONS,
+  sentenceBatchInstructions,
 } from "./sentenceBatch";
 
 /** What a checked sentence's result makes of each of its found Citations. */
@@ -80,6 +82,8 @@ export interface AnswerCheckInput {
 }
 
 export interface AnswerCheckOptions {
+  /** The interface language: what a sentence's result on its Citations is written in. */
+  language(): Language;
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
   prepare(choice: ChatModelChoice): Promise<PreparedChatModel | null>;
   scope(mindId: string | null, documentIds: readonly string[] | null): EvidenceScope;
@@ -161,6 +165,9 @@ async function supportOf(
   ) {
     return { check: "unsupported", verdict: verdict.says };
   }
+  // A Citation shows its words beside the check: a sentence they don't state is never green,
+  // whatever another part of the Passage says (#2739).
+  if (verdict.quoted === "other") return null;
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
@@ -172,9 +179,39 @@ async function supportOf(
     quotedWords: [
       ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
     ],
-    confirm: async () => false,
+    confirm: async (figure) => pinnedByModel(figure, sentence.found, units),
   });
   return calculation ? null : { check: "found", verdict: null };
+}
+
+const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
+  (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
+
+/**
+ * Whether the words the model quoted for a sentence, all its Citations' together, hold `figure` as
+ * their one figure of its unit (#2739), read as the figure rule reads a quote: in its page's figure
+ * context, a unit its page states included. A whole sentence shown around them may hold others of
+ * that unit, and only the model's own words say which it meant. With nothing widened they are the
+ * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
+ */
+function pinnedByModel(
+  figure: Figure,
+  cited: readonly Citation[],
+  units: AnswerCheckOptions["units"],
+): boolean {
+  const ofUnit = cited.flatMap((citation) =>
+    figureReadings(citation.given ?? citation.quote, units(citation)).filter((readings) =>
+      readings.some((each) => sameUnit(each.unit, figure.unit)),
+    ),
+  );
+  const [only] = ofUnit;
+  return (
+    ofUnit.length === 1 &&
+    only !== undefined &&
+    only.some((each) => sameUnit(each.unit, figure.unit) && each.value === figure.value)
+  );
 }
 
 /** The limit a failed batch met, if it was one. */
@@ -187,12 +224,12 @@ function stopOf(failure: ProviderError): JudgementStop | null {
  * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
  * one, and all the reply may write, so a limit of their sum lets every batch through (#1554).
  */
-function mostRequest(batch: readonly BatchSentence[]): EstimatedRequest {
+function mostRequest(batch: readonly BatchSentence[], instructions: string): EstimatedRequest {
   const asSent = {
     content: [{ type: "text", text: batchPrompt(batch), providerOptions: CACHED }],
   };
   return {
-    inputTokens: promptTokensOf([{ content: SENTENCE_BATCH_INSTRUCTIONS }, asSent]),
+    inputTokens: promptTokensOf([{ content: instructions }, asSent]),
     outputTokens: outputTokens("sentence-batch", batch.length),
   };
 }
@@ -220,14 +257,15 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
   function requests(input: Omit<AnswerCheckInput, "model" | "signal">): EstimatedRead | null {
     const batches = batchesOf(asked(input).filter((sentence) => sentence.passages.length > 0));
     if (batches.length === 0) return null;
+    const instructions = sentenceBatchInstructions(options.language());
     const inputTokens = (batch: BatchSentence[]) =>
-      estimateTokens(SENTENCE_BATCH_INSTRUCTIONS) + estimateTokens(batchPrompt(batch));
+      estimateTokens(instructions) + estimateTokens(batchPrompt(batch));
     return {
       likely: batches.map((batch) => ({
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
-      most: batches.map(mostRequest),
+      most: batches.map((batch) => mostRequest(batch, instructions)),
     };
   }
 
@@ -248,6 +286,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const scope = options.scope(input.mindId, input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
     const judged = asked(input);
+    const instructions = sentenceBatchInstructions(options.language());
 
     const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
@@ -302,7 +341,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       try {
         const judged = await judge({
           model: prepared.model,
-          question: { id: "sentence-batch", instructions: SENTENCE_BATCH_INSTRUCTIONS },
+          question: { id: "sentence-batch", instructions },
           parts: batchParts(batch),
           data: BATCH_TAGS,
           reply: json((value) => readBatch(value, batch.length)),
@@ -364,7 +403,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     };
     const admit = (batch: (typeof judged)[number][]): Promise<number | JudgementStop> => {
       const turn = admitted.then(async () => {
-        const reserved = options.mostOf(input.model, mostRequest(batch));
+        const reserved = options.mostOf(input.model, mostRequest(batch, instructions));
         while (passes(reserved) && open > 0) await settledAll();
         const stop = passes(reserved);
         if (stop) return stop;

@@ -29,7 +29,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
-import { CHECK_RUN, fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
+import { CHECK_RUN, fakeAbsence, fakePresence, fakeRestate, fakeSentenceBatch } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -52,6 +52,7 @@ import {
   SLOW_TAGGING_MS,
   tagsOutOfCredit,
   tagsRateLimited,
+  tagsRefused,
   tagsSlowly,
   tagsUnreachable,
 } from "./structured";
@@ -95,6 +96,7 @@ const overloadedOnce = new Set<string>();
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
   fakeSentenceBatch,
+  fakeRestate,
   fakeAbsence,
   fakePresence,
   fakePlan,
@@ -230,6 +232,15 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
         statusCode: 429,
         responseHeaders: { "retry-after": "600" },
         isRetryable: true,
+      });
+    }
+    if (tagsRefused(options)) {
+      throw new APICallError({
+        message: "Invalid API key.",
+        url: "https://fake.invalid/chat",
+        requestBodyValues: {},
+        statusCode: 401,
+        isRetryable: false,
       });
     }
     if (tagsOutOfCredit(options)) {
