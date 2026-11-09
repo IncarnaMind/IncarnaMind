@@ -4610,7 +4610,6 @@ export const zhCN = {
   "scripts.call.stderrTruncated": "已截断：只保留最后 {bytes} 字节。",
 
   "export.action": "导出",
-  "export.idle": "打开一篇笔记后才能导出",
   "export.menu": "导出…",
   "export.as": "导出为{format}",
   "export.keywords": "导出 下载 保存 PDF Word docx Markdown 引用页面 合集",
