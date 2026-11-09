@@ -1842,7 +1842,7 @@ export function createChecks(options: ChecksOptions) {
     ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
-    forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
+    forgetCheckWindow: (clientId: string) => mindCheck.forgetCheckWindow(clientId),
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),

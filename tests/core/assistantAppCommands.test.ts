@@ -2075,38 +2075,45 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
   timeout: 60_000,
 }, () => {
   // protects=a window that closes or reloads before it answers leaves its command not done, in plain words on the card, and the turn goes on to the model's reply; a late answer is refused; fails_when=the Answer waits, the call says done, or the turn ends there; no_claim=how the shell sees the window go.
-  test("a window gone before it answered: the step fails in plain words and the turn goes on", async () => {
-    const model = calling(run("mind.check", {}, false));
-    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    const late: Promise<boolean>[] = [];
-    core.on("command.windowRun", (request) => {
-      void core.forgetCommandWindow({ clientId: request.clientId }).then(() => {
+  test.each([
+    ["gone", "windowGone"],
+    ["reloaded", "windowReloaded"],
+  ] as const)(
+    "a window %s before it answered: the step fails in plain words and the turn goes on",
+    async (_how, ended) => {
+      const model = calling(run("mind.check", {}, false));
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      const late: Promise<boolean>[] = [];
+      core.windowCalled(1, "askInConversation", FROM_WINDOW);
+      core.on("command.windowRun", (request) => {
+        core[ended](1);
         late.push(core.answerWindowCommand(request.requestId, { ran: true, changed: false }));
       });
-    });
 
-    const answer = await askAssistant(core, {
-      text: "Check this Note",
-      mindId: mind.id,
-      ...FROM_WINDOW,
-    });
+      const answer = await askAssistant(core, {
+        text: "Check this Note",
+        mindId: mind.id,
+        ...FROM_WINDOW,
+      });
 
-    const [call] = commandCalls(answer);
-    expect(call?.status).toBe("failed");
-    expect(call?.commandProblem?.wording).toEqual({
-      key: "commands.window.unanswered",
-      values: { command: "mind.check" },
-    });
-    expect(answer.text).toBe("Done.");
-    expect(await Promise.all(late)).toEqual([false]);
-  });
+      const [call] = commandCalls(answer);
+      expect(call?.status).toBe("failed");
+      expect(call?.commandProblem?.wording).toEqual({
+        key: "commands.window.unanswered",
+        values: { command: "mind.check" },
+      });
+      expect(answer.text).toBe("Done.");
+      expect(await Promise.all(late)).toEqual([false]);
+    },
+  );
 
   // protects=a Question asked in one window has its window commands run by that window only; fails_when=another window's close settles them, or a Question naming no window has the window run anything; no_claim=which window the User looks at.
   test("only the asking window runs its commands, and one naming no window runs none", async () => {
     const model = calling(run("mind.check", {}, false));
     const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    core.windowCalled(2, "askInConversation", { clientId: "another-window" });
     const asked = windowOf(core, () => {
-      void core.forgetCommandWindow({ clientId: "another-window" });
+      core.windowGone(2);
       return { ran: true, changed: false };
     });
 
