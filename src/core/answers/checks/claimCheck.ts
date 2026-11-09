@@ -23,7 +23,6 @@
  */
 
 import { citedInputs } from "../../../shared/calculatedFigures";
-import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import { type FigureContext, FiguresNotRead, readFigures } from "../../../shared/figures";
 import { translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
@@ -58,18 +57,12 @@ import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
 import { type CalculationSession, documentFigureContext } from "../calculations";
-import {
-  type AnswerDocuments,
-  createCitationSession,
-  documentNamedAmong,
-  matchingOf,
-} from "../citations";
+import { type AnswerDocuments, matchingOf } from "../citations";
 import {
   type AnswerEngine,
   type AnswerTools,
   type DocumentLanguage,
   documentToolDefinitions,
-  type SearchResultForModel,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead } from "./absence";
@@ -84,6 +77,16 @@ import {
   UNBACKED,
   uniqueCitations,
 } from "./checkResults";
+import {
+  asPassage,
+  type CourtDecisions,
+  checkSession,
+  citedSources,
+  courtDecisions,
+  keptInside,
+  NO_DATE,
+  setUpRun,
+} from "./checkSetup";
 import { correctionFor, sameNumber, writtenAt } from "./correction";
 import {
   aboutSomeoneElse,
@@ -114,7 +117,6 @@ import {
 } from "./looks";
 import {
   type AbsenceAnswer,
-  CHECK_TAGS,
   changesItsMind,
   checkInstructions,
   claimPrompt,
@@ -224,12 +226,6 @@ export interface ClaimCheckRequest {
 
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
-
-/** A whole read's window, searched again: every search of it finds the same Passages. */
-const WINDOW_SHOWN: SearchResultForModel = {
-  text: "Every search in this check finds the same Passages, and an earlier search returned them all: answer with them.",
-  passageCount: 0,
-};
 
 export type AtomicClaimCheckResult = ClaimCheckResult & {
   checkedEvidence?: readonly Citation[];
@@ -402,39 +398,6 @@ function figuresReplied(
 }
 
 /**
- * A check reads only what a Document's words say: no date beside its Passages. The one Answers see
- * (#548) is its file's created or modified day, or the latest year its first page mentions, and a
- * check read it as the Document's own date: "dated 2026" was backed by a contract's delivery start,
- * "自 2026 年 11 月起" (#2311).
- */
-export const NO_DATE = (): null => null;
-
-/** Passages as every check shows them, and so counts them: with its prompt's tags defused (#2423). */
-export const checkSession = (documents: Parameters<typeof createCitationSession>[0]) =>
-  createCitationSession(documents, { onRecord: () => undefined, defuses: CHECK_TAGS });
-
-function citedSources(
-  cited: readonly CheckedCitation[],
-  scope: EvidenceScope,
-  documents: ClaimCheckDependencies["documents"],
-): CitationSource[] {
-  const found = new Map<string, CitationSource>();
-  for (const { passageId } of cited) {
-    const source = passageId ? documents.citationSource(passageId) : null;
-    if (
-      !source ||
-      source.documentDeleted ||
-      source.notCited ||
-      scope.excluded.has(source.documentId) ||
-      (scope.documentIds !== null && !scope.documentIds.includes(source.documentId))
-    )
-      continue;
-    found.set(source.passageId, source);
-  }
-  return [...found.values()];
-}
-
-/**
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
  * Document (#2226).
  */
@@ -499,14 +462,6 @@ function withDollarClause(
     ),
   };
 }
-
-const asPassage = (source: CitationSource): WindowedPassage => ({
-  ...source,
-  seq: 0,
-  position: 0,
-  windowFrom: 0,
-  windowTo: 0,
-});
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
@@ -589,147 +544,31 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
     const { scope, signal } = request;
-    const outsideCited = (request.cited ?? []).flatMap((citation) => {
-      const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
-      if (!source || deps.walledDocument(source.documentId) === null) return [];
-      const outside =
-        scope.documentIds === null ||
-        !scope.documentIds.includes(source.documentId) ||
-        scope.excluded.has(source.documentId);
-      return outside ? [{ citation, source }] : [];
-    });
-    if (request.cited && request.cited.length > 0 && outsideCited.length === request.cited.length) {
-      const [kept] = outsideCited;
-      if (!kept) throw new Error("An outside Citation is missing.");
-      return {
-        verdict: "not-checked",
-        reason: "kept-inside",
-        detail: deps.walledFolderName(kept.source.documentId) ?? kept.source.documentName,
-        versions: [],
-        excluded: [],
-      };
-    }
-    let searches = 0;
+    const kept = keptInside(deps, request);
+    if (kept) return kept;
     const results = createCheckResults(request);
     const { facts, workingsSayingIt, unchecked, notChecked, failedCheck, unjudged } = results;
-    const decisions = caseCitations(request.originalClaim ?? request.claim);
-    const scoped: AnswerDocuments = {
-      searchableCount: () => deps.documents.searchableCount(scope.documentIds),
-      // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
-      documentNamed: (name) =>
-        documentNamedAmong(
-          deps.documents
-            .searchableBySize(scope.documentIds)
-            .filter((each) => !scope.excluded.has(each.id)),
-          name,
-        ),
-      async search(query, searchSignal, within, options) {
-        const found = request.window
-          ? null
-          : await deps.evidence.search(
-              query,
-              within ? { ...scope, documentIds: [...within] } : scope,
-              searchSignal,
-            );
-        // A web search's result never settles a citation of a court decision.
-        const matched = (request.window ?? found?.passages ?? []).filter(
-          (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
-        );
-        const passages = [
-          ...matched,
-          ...(options?.properties && deps.fileProperties
-            ? deps.fileProperties.add(matched, within, options)
-            : []),
-          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
-        ];
-        if (!request.window) {
-          for (const passage of passages)
-            results.readVersion(passage.documentId, passage.contentHash);
-        }
-        for (const each of found?.excluded ?? []) results.leftOut(each);
-        return passages;
-      },
-      citationSource: (passageId) => deps.documents.citationSource(passageId),
-      pageTexts: (documentId, contentHash, from, to) =>
-        deps.documents.pageTexts(documentId, contentHash, from, to),
-      documentDate: NO_DATE,
-      passagesBetween: (documentId, from, to) =>
-        deps.documents.passagesBetween(documentId, from, to),
-    };
+    const setup = setUpRun(deps, request, results);
+    const { scoped, session, citedShown, looked } = setup;
     // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
     // host's own date for each, never shown to the model as the Document's words.
     const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
-    const session = checkSession(scoped);
-    // The words a Citation quotes don't say where they stand: a sheet row's year is in its
-    // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
-    const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
-    for (const passage of citedPassages)
-      results.readVersion(passage.documentId, passage.contentHash);
-    const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
-    passagesOf.set(request, () => [
-      ...citedPassages.map((passage) => passage.passageId),
-      ...session.shownPassages().map((passage) => passage.passageId),
-    ]);
-    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
-    const looked = () => searches > 0 || citedShown !== null;
+    passagesOf.set(request, setup.shownPassageIds);
     const { model } = request;
     const calculating = calculatesIn(model, request);
     const ledger = createCalculationLedger(request, scoped, session, calculating);
-    /** In a whole read's window: whether a search has returned the window, the searches in turn. */
-    let windowShown: Promise<boolean> = Promise.resolve(false);
-    const tools: AnswerTools = {
-      get documentCount() {
-        return session.tools.documentCount;
-      },
-      documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
-      ...(deps.fileProperties && { fileProperties: true }),
-      ...(deps.libraryFacts && { libraryFacts: true }),
-      // Only the model's searches count: looking up a cited court decision shows it nothing.
-      searchDocuments: (query, searchSignal, options) => {
-        searches++;
-        if (!request.window) {
-          const { fileProperties, libraryFacts } = deps;
-          return session.tools.searchDocuments(query, searchSignal, options).then((found) => {
-            const told =
-              options?.properties && fileProperties ? fileProperties.told(found, options) : found;
-            return options?.library && libraryFacts ? libraryFacts.told(told) : told;
-          });
-        }
-        // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
-        // search returned the whole window again: its verdict request carried it two or three
-        // times (#1554).
-        const found = windowShown.then((shown) =>
-          shown ? WINDOW_SHOWN : session.tools.searchDocuments(query, searchSignal, options),
-        );
-        windowShown = found.then(
-          (result) => result === WINDOW_SHOWN || result.passageCount > 0,
-          () => false,
-        );
-        return found;
-      },
-      cite: (records, options) => session.tools.cite(records, options),
-      hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
-      unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
-      correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
-      ...ledger.tools,
-    };
+    const tools = setup.tools(ledger.tools);
 
     let namedEvidence: Citation[] = [];
 
-    let opinions: Opinions;
+    let court: CourtDecisions;
     try {
-      opinions = await opinionsOf(decisions, scoped, signal);
+      court = await courtDecisions(setup.decisions, scoped, signal);
     } catch (error) {
       if (signal.aborted) return notChecked("stopped");
       throw error;
     }
-    const citedCase = (evidence: Citation | null) => ({
-      citedCaseUnchecked: opinions.missing,
-      citedCaseFound:
-        !opinions.missing &&
-        evidence !== null &&
-        opinions.documentIds.has(evidence.documentId ?? ""),
-    });
+    const { citedCase } = court;
     let fits: boolean | undefined;
     const readsWhole = () => {
       fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
@@ -863,7 +702,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
         // In a window of a whole read every search returns that window: the read is the search.
-        ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
+        ...(request.window ? [] : [searchAgain(setup.searches, readsWhole)]),
         ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
         ...(deps.libraryFacts
           ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
@@ -1440,7 +1279,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         nearest ||
         (!why.kind && (!why.covered || !why.uncovered)) ||
         (request.cited?.length ?? 0) > 0 ||
-        opinions.missing ||
+        court.missing ||
         workingsSayingIt().length > 0
           ? null
           : found === null
@@ -1911,42 +1750,6 @@ export function quoteStatesDetail(claim: string, quote: string): boolean {
   for (const word of words(own))
     if (/^\p{Script=Han}+$/u.test(word) && !text.includes(word)) return false;
   return true;
-}
-
-interface Opinions {
-  documentIds: ReadonlySet<string>;
-  missing: boolean;
-}
-
-function startOf(documents: AnswerDocuments, documentId: string, contentHash: string): string {
-  const [first] = documents.pageTexts(documentId, contentHash, 1, 1);
-  return first?.text ?? documents.pageTexts(documentId, contentHash, null, null)[0]?.text ?? "";
-}
-
-async function opinionsOf(
-  decisions: readonly CaseCitation[],
-  documents: AnswerDocuments,
-  signal: AbortSignal,
-): Promise<Opinions> {
-  const documentIds = new Set<string>();
-  let missing = false;
-  for (const decision of decisions) {
-    const query = [decision.name, decision.cite].filter(Boolean).join(" ");
-    const found = await documents.search(query, signal);
-    const candidates = new Map(found.map((each) => [each.documentId, each]));
-    const opinions = [...candidates.values()].filter((each) =>
-      isOpinionOf(
-        {
-          name: each.documentName,
-          start: startOf(documents, each.documentId, each.contentHash),
-        },
-        decision,
-      ),
-    );
-    if (opinions.length === 0) missing = true;
-    for (const each of opinions) documentIds.add(each.documentId);
-  }
-  return { documentIds, missing };
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));

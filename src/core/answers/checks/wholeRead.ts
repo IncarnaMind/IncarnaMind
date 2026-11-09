@@ -30,13 +30,8 @@ import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
 import { absencePrompt, WHOLE_READ } from "./absence";
 import { runFailureOf } from "./checkResults";
-import {
-  type AtomicClaimCheckResult,
-  type CheckStart,
-  type ClaimCheckRequest,
-  checkSession,
-  NO_DATE,
-} from "./claimCheck";
+import { checkSession, NO_DATE } from "./checkSetup";
+import type { AtomicClaimCheckResult, CheckStart, ClaimCheckRequest } from "./claimCheck";
 import { afterRun } from "./looks";
 import {
   confirmPrompt,
