@@ -53,7 +53,7 @@ export async function localModeChosen(
       also: {
         label: (t) => t("localMode.change"),
         testId: "undo-change-local-mode",
-        run: () => useAppStore.getState().openSettings("privacy", "local-mode"),
+        run: () => useAppStore.getState().openSettings("ai", "local-mode"),
       },
     }),
   });

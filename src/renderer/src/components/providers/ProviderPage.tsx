@@ -48,6 +48,9 @@ import {
   rowFieldClass,
   successTextClass,
 } from "../ui";
+import { ChatGptPlanRow } from "./ChatGptPlanSettings";
+import { ClaudePlanRow } from "./ClaudePlan";
+import { CopilotPlanRow } from "./CopilotPlan";
 import { KeyCheckLine, useKeyCheck } from "./keyCheck";
 import { LocalModeUnavailable } from "./LocalModeUnavailable";
 import { OtherModels } from "./OtherModels";
@@ -264,7 +267,7 @@ export function ProviderPage({
       data-provider-id={provider.id}
       className="flex flex-col gap-6"
     >
-      <SettingsBackLink label={t("settings.pages.models")} testId="models-back" onBack={onBack} />
+      <SettingsBackLink label={t("settings.pages.ai")} testId="models-back" onBack={onBack} />
       <header className="flex items-start gap-3">
         <ProviderLogo id={logoIdOf(provider)} large />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -289,6 +292,18 @@ export function ProviderPage({
       </header>
 
       {provider.service && provider.kind !== "ollama" && <LocalModeUnavailable />}
+
+      {plan && (
+        <SettingsGroup role="list">
+          {provider.kind === "chatgpt" ? (
+            <ChatGptPlanRow />
+          ) : provider.kind === "claude-account" ? (
+            <ClaudePlanRow />
+          ) : (
+            <CopilotPlanRow />
+          )}
+        </SettingsGroup>
+      )}
 
       <form onSubmit={(event) => void saveKey(event)}>
         <SettingsSection
@@ -719,7 +734,7 @@ function AddModelId({
 function ProviderCostLine({ providerId }: { providerId: string }) {
   const t = useT();
   const language = useLanguage();
-  const summary = useCostSummary("models");
+  const summary = useCostSummary("ai");
   const used = summary?.providers.find(
     (each) => each.providerId === providerId && each.billing === "per-token",
   );

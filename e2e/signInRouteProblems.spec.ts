@@ -98,11 +98,11 @@ test("an organization's policy stops a Copilot Answer: GitHub's line, an API key
   await screenshot(answer, "copilot-policy-line-zh");
 
   await pointAndClick(window, line.getByTestId("answer-error-action"));
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await app.close();
 });
 
-test("signed out of Copilot, the lines name GitHub Copilot with its ways back, and Sign in with GitHub opens its place in Settings › Models", async () => {
+test("signed out of Copilot, the lines name GitHub Copilot with its ways back, and Sign in with GitHub opens its place in Settings › AI", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 1100, 800);
@@ -128,8 +128,7 @@ test("signed out of Copilot, the lines name GitHub Copilot with its ways back, a
 
   await pointAndClick(window, refused.getByRole("button", { name: "Sign in with GitHub" }));
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
-  await expect(window.getByTestId("plans-settings")).toBeInViewport();
+  await expect(settings).toHaveAttribute("data-page", "ai");
   await expect(settings.getByRole("note")).toHaveText("You’re not signed in to GitHub Copilot.");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toBeInViewport();

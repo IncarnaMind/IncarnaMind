@@ -63,8 +63,8 @@ const VIA: Record<ModelGroup, MessageKey> = {
   cloud: "composer.model.via.cloud",
 };
 
-/** Where Settings sets the Answers default the foot names: by this page's own label (#2835 renames it). */
-const ANSWERS_PAGE: SettingsPage = "models";
+/** Where Settings sets the Answers default the foot names, by that page's own label. */
+const ANSWERS_PAGE: SettingsPage = "ai";
 
 /** The model a run in the Mind uses: the one in use, else the default the composer shows. */
 export function useRunModel(doc: Y.Doc | null): {

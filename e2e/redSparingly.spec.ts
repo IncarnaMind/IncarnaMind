@@ -71,7 +71,7 @@ test("a refused key and a variable with no name read in ink after the amber mark
       };
     });
 
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "openai");
     await form.getByLabel(/^API key/).fill("sk-proj-wrong-key");
     await form.getByTestId("provider-use-key").click();

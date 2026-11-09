@@ -11,8 +11,8 @@ import { organizeDocuments } from "./organizeDocuments";
 import { type ReviewProblemKind, unsettledProblemsOf } from "./reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "./store";
 
-/** Settings › Models › Advanced › Tagging: the one model choice for tagging and Organize. */
-const organizeModelSettings = () => useAppStore.getState().openSettings("models", "tagging");
+/** Settings › AI › Organize and Tags: the one model choice for tagging and Organize. */
+const organizeModelSettings = () => useAppStore.getState().openSettings("ai", "tagging");
 
 /** The Documents whose latest failure is this cause now, the list To review and ⌘K act on (#2308). */
 export function documentsOfCause(kind: ReviewProblemKind): readonly string[] {

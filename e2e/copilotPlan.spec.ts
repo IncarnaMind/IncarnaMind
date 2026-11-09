@@ -17,7 +17,8 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openSettings,
+  openDirectoryEntry,
+  openPlanPage,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -206,7 +207,7 @@ test("first run: an account GitHub says has no Copilot plan is told so where it 
   await app.close();
 });
 
-test("Settings › Models: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
+test("Settings › AI: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     copilot: github.origin,
@@ -217,14 +218,15 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   await acceptPlainTextKeys(window);
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("> Settings Models");
+  await window.keyboard.type("> Settings AI");
   await expect(window.getByTestId("palette").getByTestId("palette-item").first()).toContainText(
-    "Models",
+    "Settings: AI",
   );
   await window.keyboard.press("Enter");
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
-  const row = settings.getByTestId("plans-copilot");
+  await expect(settings).toHaveAttribute("data-page", "ai");
+  await openDirectoryEntry(settings, "plan:copilot");
+  const row = settings.getByTestId("ai-entry-page").getByTestId("plans-copilot");
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
 
@@ -268,7 +270,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   await app.close();
 });
 
-test("Settings › Models: signed in but with no model listed, the row says so with Try again, and isn't ready until a model is chosen", async () => {
+test("Settings › AI: signed in but with no model listed, the row says so with Try again, and isn't ready until a model is chosen", async () => {
   github.listedModels = [];
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -278,8 +280,7 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "models");
-  const row = settings.getByTestId("plans-copilot");
+  const row = await openPlanPage(window, "copilot");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -317,8 +318,8 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "models");
-  const row = settings.getByTestId("plans-copilot");
+  const row = await openPlanPage(window, "copilot");
+  const settings = window.getByTestId("settings");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
@@ -355,7 +356,7 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await setLanguage(window, "en");
   await line.getByTestId("answer-error-action").focus();
   await window.keyboard.press("Enter");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   await expect(row.getByTestId("plans-copilot-account")).toHaveText(
     `Signed in to GitHub as ${LOGIN}`,
   );

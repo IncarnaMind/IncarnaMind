@@ -225,16 +225,16 @@ function openYours(what: Yours): void {
   const app = useAppStore.getState();
   switch (what) {
     case "keys":
-      app.openSettings("models");
+      app.openSettings("ai");
       return;
     case "privacy":
-      app.openSettings("privacy", "local-mode");
+      app.openSettings("ai", "local-mode");
       return;
     case "approvals":
       app.openSettings("privacy");
       return;
     case "spending":
-      app.openSettings("general");
+      app.openSettings("ai", "spending-cap");
       return;
     case "permanent":
       app.openLibrary(LIBRARY_DELETED);

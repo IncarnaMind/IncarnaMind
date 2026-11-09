@@ -168,7 +168,7 @@ test("off by default: the box is unticked, a page saved is never loaded for its 
   await expect(viewer.getByTestId("viewer-web-look-failed")).toHaveCount(0);
   expect(heard.map((each) => each.path)).toEqual(["/report"]);
 
-  const settings = await openSettings(window, "search");
+  const settings = await openSettings(window, "general");
   const section = settings.getByTestId("saved-web-pages-settings");
   await expect(section).toContainText("Saved web pages");
   const keep = section.getByTestId("keep-web-page-look-switch");

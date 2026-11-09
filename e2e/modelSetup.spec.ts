@@ -225,10 +225,10 @@ async function removeAnthropic(window: Page): Promise<void> {
   });
 }
 
-/** What the sorting line shows to the User. */
-function sortingWords(scope: Locator): Promise<string> {
-  return scope
-    .getByTestId("models-sorting-line")
+/** What Settings › AI's Organize and Tags switch says each new Document sends, and to whom. */
+function organizeWords(settings: Locator): Promise<string> {
+  return settings
+    .getByTestId("tagging-automatic-sends")
     .evaluate((line) => (line as HTMLElement).innerText);
 }
 
@@ -241,7 +241,7 @@ const SORTING_MODELS = [
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const { modelId, model } of SORTING_MODELS) {
-    test(`Settings › Models says the same of ${model} saved for sorting when it isn't the chat default (${language})`, async () => {
+    test(`Settings › AI says the same of ${model} saved for sorting when it isn't the chat default (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -260,7 +260,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await saveOpenAiAsDefault(window);
         await dismissChatSetup(window);
         // The button that opens Settings is named in English until the language is changed inside it.
-        const settings = await openSettings(window, "models");
+        const settings = await openSettings(window, "ai");
         await setLanguage(window, language);
         await expect(
           settings
@@ -270,8 +270,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(settings.getByTestId("models-sorting").locator("option:checked")).toHaveText(
           model,
         );
-        const words = await sortingWords(settings);
-        expect(words).toContain(translate(language, "setup.sorting.chat", { model }));
+        const words = await organizeWords(settings);
         expect(words).toContain(
           translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
         );
@@ -281,9 +280,12 @@ for (const language of ["en", "zh-CN"] as const) {
         // line names Automatic's pick, never the model that is gone.
         await removeAnthropic(window);
         await expect
-          .poll(() => sortingWords(settings))
+          .poll(() => organizeWords(settings))
           .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "OpenAI" }));
-        const after = await sortingWords(settings);
+        await expect(
+          settings.getByTestId("models-sorting").locator("option:checked"),
+        ).not.toHaveText(model);
+        const after = await organizeWords(settings);
         expect(after).not.toContain(model);
         expect(after).not.toContain("Anthropic");
         const classifier = await window.evaluate(async () => {
@@ -299,7 +301,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
   for (const { modelId, shown, cloud } of OLLAMA_MODELS) {
     for (const chatDefault of ["the same", "another"] as const) {
-      test(`Settings › Models: a sorting choice on ${modelId}, ${cloud ? "a cloud model" : "a model on this computer"} of one Ollama server, with ${chatDefault} chat default, says what the core says of where it goes (${language})`, async () => {
+      test(`Settings › AI: a sorting choice on ${modelId}, ${cloud ? "a cloud model" : "a model on this computer"} of one Ollama server, with ${chatDefault} chat default, says what the core says of where it goes (${language})`, async () => {
         const { app, window } = await launchApp(dataDir, { fakeChat: true });
         try {
           await setWindowSize(app, window, 1280, 800);
@@ -310,11 +312,11 @@ for (const language of ["en", "zh-CN"] as const) {
           else await saveOpenAiAsDefault(window);
           await dismissChatSetup(window);
           // The button that opens Settings is named in English until the language is changed inside it.
-          const settings = await openSettings(window, "models");
+          const settings = await openSettings(window, "ai");
           await setLanguage(window, language);
           await expect(settings.getByTestId("models-sorting")).toBeEnabled();
-          await expect.poll(() => sortingWords(settings)).not.toBe("");
-          const words = await sortingWords(settings);
+          await expect.poll(() => organizeWords(settings)).not.toBe("");
+          const words = await organizeWords(settings);
           // The core's own answer: where the saved choice goes, and what it registers for tagging.
           const told = await window.evaluate(async () => {
             const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -340,12 +342,13 @@ for (const language of ["en", "zh-CN"] as const) {
             );
           } else {
             expect(told.answer?.kind).toBe("here");
-            expect(words).toContain(
-              translate(language, "setup.sorting.chatHere", { model: shown }),
+            // The same model as Answers reads as "Use your AI model"; another, by its name.
+            await expect(
+              settings.getByTestId("models-sorting").locator("option:checked"),
+            ).toContainText(
+              chatDefault === "the same" ? translate(language, "models.sorting.chat") : shown,
             );
-            expect(words).not.toContain(
-              translate(language, "setup.sorting.sendsWhenOn", { service: "" }),
-            );
+            expect(words).toBe(translate(language, "tagging.automatic.local"));
           }
 
           // Its provider is removed: sorting goes back to Automatic (#2693), and the line names
@@ -356,9 +359,9 @@ for (const language of ["en", "zh-CN"] as const) {
               .poll(async () => (await bridge(window).library()).classifier.kind)
               .toBe("automatic");
             await expect
-              .poll(() => sortingWords(settings))
+              .poll(() => organizeWords(settings))
               .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "OpenAI" }));
-            expect(await sortingWords(settings)).not.toContain(shown);
+            expect(await organizeWords(settings)).not.toContain(shown);
           }
         } finally {
           await app.close();
@@ -368,7 +371,7 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-// What Settings › Models reads to say what sorts: the core's models, with its answer for the
+// What Settings › AI reads to say what sorts: the core's models, with its answer for the
 // saved choice. The core is the only thing it asks, so it is the one read that can fail.
 const SORTING_READS = [
   { channel: "core:getTaggingModels", name: "the models that can sort", atFirst: true },
@@ -376,7 +379,7 @@ const SORTING_READS = [
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const { channel, name, atFirst } of SORTING_READS) {
-    test(`Settings › Models says in place when ${name} can't be read, ${atFirst ? "at first and " : ""}on a read again (${language})`, async () => {
+    test(`Settings › AI says in place when ${name} can't be read, ${atFirst ? "at first and " : ""}on a read again (${language})`, async () => {
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       try {
         await setWindowSize(app, window, 1280, 800);
@@ -396,7 +399,7 @@ for (const language of ["en", "zh-CN"] as const) {
         // At first: Settings opens while the core can't answer.
         // The button that opens Settings is named in English until the language is changed inside it.
         if (atFirst) await failReads(app, channel, true);
-        const settings = await openSettings(window, "models");
+        const settings = await openSettings(window, "ai");
         await setLanguage(window, language);
         if (atFirst) {
           await expect(problem).toContainText(words);
@@ -453,7 +456,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const meetings = again.getByTestId("meetings-settings");
       await expect(meetings.getByTestId("meetings-route-line")).toHaveCount(0);
       // The saved route is still OpenAI: nothing says it is on this computer.
-      await expect(meetings.getByTestId("meetings-route")).toHaveValue("openai");
+      const route = await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await core.getSettings()).device.transcriptionRoute;
+      });
+      expect(route).toBe("openai");
       await expect(meetings).not.toContainText(translate(language, "meetings.route.hereLine"));
 
       await controlReads(app, "core:listTranscriptionServices", { failing: false });
@@ -480,7 +487,7 @@ async function settingsOnMeetings(window: Page): Promise<Locator> {
 /** Opens Settings on Models with the keyboard, where Your providers keeps the transcription keys. */
 async function settingsOnModels(window: Page): Promise<Locator> {
   await window.keyboard.press("ControlOrMeta+,");
-  return showSettingsPage(window, "models");
+  return showSettingsPage(window, "ai");
 }
 
 const sonioxRow = (settings: Locator) =>
@@ -491,7 +498,7 @@ async function closeSettingsDialog(window: Page): Promise<void> {
   await expect(window.getByTestId("settings")).toBeHidden();
 }
 
-test("Settings › Models offers a cloud route once a key is saved, says what choosing it sends before the choice, and this computer stays chosen until then", async () => {
+test("Settings › AI offers a cloud route once a key is saved, says what choosing it sends before the choice, and this computer stays chosen until then", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await setWindowSize(app, window, 1100, 900);
@@ -502,7 +509,7 @@ test("Settings › Models offers a cloud route once a key is saved, says what ch
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-a-test-key" });
     });
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const route = settings
       .getByTestId("model-default-row-transcription")
       .getByTestId("meetings-route");
@@ -510,13 +517,18 @@ test("Settings › Models offers a cloud route once a key is saved, says what ch
     await expect
       .poll(() =>
         route.evaluate((select) =>
-          [...select.children].flatMap((each) =>
-            each instanceof HTMLOptionElement ? [each.textContent] : [],
-          ),
+          [...(select as HTMLSelectElement).options]
+            .filter((each) => !each.value.startsWith("set-up:"))
+            .map((each) => each.textContent),
         ),
       )
-      .toEqual(["On this computer", "Soniox"]);
-    // Choosing a cloud route is the consent, so its line is on screen first, and nothing is chosen.
+      .toEqual(["Soniox", "On this computer"]);
+    // Choosing a cloud route is the consent, so its group says what goes before it is chosen,
+    // and nothing is chosen yet.
+    await expect(route.locator("optgroup").first()).toHaveAttribute(
+      "label",
+      "Your keys · gets the meeting’s audio while you record",
+    );
     const consent = settings.getByTestId("meetings-route-consent");
     await expect(consent).toHaveText(
       "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
@@ -579,8 +591,8 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       await dismissChatSetup(window);
 
-      // Settings › Models is open, and the User is on the meeting transcription row.
-      const settings = await openSettings(window, "models");
+      // Settings › AI is open, and the User is on the meeting transcription row.
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       await expect(settings.getByTestId("models-sorting")).toBeEnabled();
       const elsewhere = settings
@@ -658,8 +670,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await controlReads(app, SERVICES, { hold: 1 });
       const dialog = await settingsOnMeetings(window);
       await controlReads(app, SERVICES, { failNext: 1 });
-      await showSettingsPage(window, "models");
-      const models = dialog.getByTestId("model-defaults");
+      await showSettingsPage(window, "ai");
+      const models = dialog.getByTestId("ai-jobs");
       const problem = models.getByTestId("meetings-route-problem");
       const retry = models.getByTestId("meetings-route-problem-retry");
       await expect(problem).toContainText(translate(language, "setup.services.failed"));
@@ -697,26 +709,23 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       // The picker's own routes, without the services its foot sets up.
       const offered = (scope: Locator) =>
-        scope
-          .getByTestId("meetings-route")
-          .evaluate((select) =>
-            [...select.children].flatMap((each) =>
-              each instanceof HTMLOptionElement ? [each.value] : [],
-            ),
-          );
+        scope.getByTestId("meetings-route").evaluate((select) =>
+          [...(select as HTMLSelectElement).options]
+            .map((each) => each.value)
+            .filter((value) => !value.startsWith("set-up:"))
+            .sort(),
+        );
 
-      // Every read of the list fails as Settings opens: Meetings says so once, and offers only the
-      // route that is saved.
+      // Every read of the list fails as Settings opens: Meetings says so once.
       await controlReads(app, SERVICES, { failing: true });
       const dialog = await settingsOnMeetings(window);
       const meetings = dialog.getByTestId("meetings-settings");
       const problem = meetings.getByTestId("meetings-route-problem");
       await expect(problem).toContainText(translate(language, "setup.services.failed"));
-      await expect.poll(() => offered(meetings)).toEqual(["local", "soniox"]);
-      // Settings › Models reads once for its page when it is first shown, and fails as well: its
+      // Settings › AI reads once for its page when it is first shown, and fails as well: its
       // picker offers the saved route, and Your providers lists no transcription key.
-      await showSettingsPage(window, "models");
-      const models = dialog.getByTestId("model-defaults");
+      await showSettingsPage(window, "ai");
+      const models = dialog.getByTestId("ai-jobs");
       const modelsProblem = models.getByTestId("meetings-route-problem");
       await expect(modelsProblem).toBeVisible();
       await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
@@ -730,11 +739,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(meetings.getByTestId("meetings-route-line")).toContainText(
         translate(language, "meetings.route.cloudLine", { provider: "Soniox" }),
       );
-      await expect.poll(() => offered(meetings)).toEqual(["local", "openai", "soniox"]);
 
-      // Settings › Models read for itself, so its failure stands until it is tried again; its
+      // Settings › AI read for itself, so its failure stands until it is tried again; its
       // Try again brings back the picker and the key row together.
-      await showSettingsPage(window, "models");
+      await showSettingsPage(window, "ai");
       await expect(modelsProblem).toBeVisible();
       await expect.poll(() => offered(models)).toEqual(["local", "soniox"]);
       await pointAndClick(window, models.getByTestId("meetings-route-problem-retry"));
@@ -1052,7 +1060,7 @@ test("with no key and no AI model, the Example still opens and Set up later retu
   }
 });
 
-test("Settings › Models shows the same three rows, editable in place, with Quick tasks and Reading images automatic", async () => {
+test("Settings › AI shows the jobs, editable in place, with Quick tasks following Answers", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -1067,14 +1075,16 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
       await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
       await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
     });
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
 
     await expect(settings.getByTestId("model-default-chatModel")).toBeVisible();
-    await expect(settings.getByTestId("model-default-quickTasksModel")).toHaveCount(0);
-    await expect(settings.getByTestId("model-default-imageModel")).toHaveCount(0);
-    await expect(settings.getByTestId("models-follow-answers")).toHaveText(
-      "Quick tasks and reading images are automatic.",
-    );
+    await expect(
+      settings.getByTestId("model-default-quickTasksModel").locator("option:checked"),
+    ).toHaveText(/^Follows Answers/);
+    // The model on this computer doesn't read images: the row says so rather than following it.
+    await expect(
+      settings.getByTestId("model-default-imageModel").locator("option:checked"),
+    ).toHaveText("No model reads images yet");
 
     // Meeting transcription, changed where it is shown: one line tall, as a field in its row.
     const meetings = settings.getByTestId("meetings-route");
@@ -1096,7 +1106,7 @@ test("Settings › Models shows the same three rows, editable in place, with Qui
   }
 });
 
-test("Local mode offers only choices on this computer, in the setup card and in Settings › Models", async () => {
+test("Local mode offers only choices on this computer, in the setup card and in Settings › AI", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -1118,12 +1128,13 @@ test("Local mode offers only choices on this computer, in the setup card and in 
 
     await setLocalChatModel(window);
     await expect(card).toHaveCount(0);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await expect(settings.getByTestId("meetings-route").locator("option")).toHaveText([
       "On this computer",
     ]);
     await expect(settings.getByTestId("models-sorting").locator("option")).toHaveText([
       "Use your AI model",
+      "Other model…",
     ]);
   } finally {
     await app.close();
@@ -1273,7 +1284,7 @@ test("Compare Documents with no model offers the key field in place, and the com
 // Choosing the model for Tags turns tagging on only where its line, saying what each new Document
 // sends and to whom, is on screen before the choice (#2308, ADR-0022's amendment).
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models' choice for sorting says what goes once tagging is on, and leaves the switch where it was (${language})`, async () => {
+  test(`Settings › AI' choice for sorting says what goes once tagging is on, and leaves the switch where it was (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
@@ -1291,15 +1302,15 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       await saveOpenAiAsDefault(window);
       await dismissChatSetup(window);
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       const select = settings.getByTestId("models-sorting");
       await expect(select.locator("option:checked")).toHaveText("Claude Haiku 5.5");
       // The line is drawn once the services are read, after the choice shows.
       await expect
-        .poll(() => sortingWords(settings))
+        .poll(() => organizeWords(settings))
         .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }));
-      expect(await sortingWords(settings)).not.toContain(
+      expect(await organizeWords(settings)).not.toContain(
         translate(language, "setup.sorting.sends", { service: "Anthropic" }),
       );
       expect((await bridge(window).library()).automatic).toBe(false);
@@ -1318,10 +1329,10 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// With tagging new Documents off, a model chosen in Settings › Models tags nothing: the row says
-// so, and Turn on… shows what goes before Use this turns it on (#2308).
+// With tagging new Documents off, a model chosen in Settings › AI tags nothing: its switch says
+// what each new Document would send, and to which service, before it is turned on (#2308).
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models says tagging new Documents is off, and Turn on… shows what goes before turning it on (${language})`, async () => {
+  test(`Settings › AI's Organize and Tags switch is off, and says what goes before it is turned on (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
@@ -1338,37 +1349,20 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toBe(1);
       // The button that opens Settings is named in English until the language is changed inside it.
       await setLanguage(window, "en");
-      const settings = await openSettings(window, "models");
+      const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
-      const row = settings.getByTestId("model-default-row-sorting");
-      const off = row.getByTestId("models-tagging-off");
-      await expect(off).toContainText(translate(language, "models.sorting.off"));
-      const turnOn = row.getByTestId("models-tagging-turn-on");
-      await expect(turnOn).toHaveText(translate(language, "models.sorting.turnOn"));
-
-      // By keyboard from the choice, Turn on… is next.
-      await row.getByTestId("models-sorting").focus();
-      await window.keyboard.press("Tab");
-      await expect(turnOn).toBeFocused();
-      await window.keyboard.press("Enter");
-      const consent = row.getByTestId("models-tagging-consent");
-      const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
-      expect(await sortingWords(consent)).toContain(sends);
+      const toggle = settings.getByTestId("tagging-automatic-organize");
+      await expect(toggle).not.toBeChecked();
+      await expect(settings.getByTestId("tagging-automatic-sends")).toHaveText(
+        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
+      );
       expect((await bridge(window).library()).automatic).toBe(false);
 
-      // Esc closes it, and nothing was turned on.
-      await window.keyboard.press("Escape");
-      await expect(consent).toHaveCount(0);
-      await expect(settings).toBeVisible();
-      expect((await bridge(window).library()).automatic).toBe(false);
-      await expect(off).toBeVisible();
-
-      // Use this, with the line on screen, turns it on, and the line that it's off goes.
-      await pointAndClick(window, turnOn);
-      expect(await sortingWords(consent)).toContain(sends);
-      await pointAndClick(window, row.getByTestId("models-tagging-use"));
+      // By keyboard: Space on the switch, with the line on screen, turns it on.
+      await toggle.focus();
+      await window.keyboard.press("Space");
       await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
-      await expect(off).toHaveCount(0);
+      await expect(toggle).toBeChecked();
       await closeSettingsDialog(window);
       expect(
         await paletteOffers(
@@ -1382,7 +1376,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  test(`⌘K's Turn on tagging opens the same line in Settings › Models, and Cancel leaves it off (${language})`, async () => {
+  test(`⌘K's Turn on tagging opens Settings › AI at the switch, which stays off until pressed (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
@@ -1391,14 +1385,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await setLanguage(window, language);
       await runCommand(window, "tagging.turnOn", translate(language, "command.tagging.turnOn"));
-      const consent = window.getByTestId("models-tagging-consent");
-      await expect(consent).toBeVisible();
-      await expect(window.getByTestId("models-tagging-use")).toBeFocused();
-      expect(await sortingWords(consent)).toContain(
-        translate(language, "setup.sorting.sends", { service: "Anthropic" }),
+      const toggle = window.getByTestId("tagging-automatic-organize");
+      await expect(toggle).toBeFocused();
+      await expect(window.getByTestId("tagging-automatic-sends")).toHaveText(
+        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
       );
-      await pointAndClick(window, window.getByTestId("models-tagging-cancel"));
-      await expect(consent).toHaveCount(0);
       expect((await bridge(window).library()).automatic).toBe(false);
     } finally {
       await app.close();

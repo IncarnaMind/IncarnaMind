@@ -163,7 +163,7 @@ test("an account out of credit, a refused key, a rate limit and no connection ea
 
   await runCommand(window, "answer.useAnotherKey", "Use another key");
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   await expect(settings.getByTestId("provider-page-title")).toHaveText("OpenAI");
   await expect(settings.getByTestId("provider-page-key")).toBeFocused();
   await expect(settings.getByTestId("provider-key-refused")).toHaveText("No credit on this key");
