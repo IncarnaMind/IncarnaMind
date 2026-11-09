@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   frontMindName,
   launchApp,
+  newMind,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -185,6 +186,14 @@ for (const language of LANGUAGES) {
       await pointAndClick(window, window.getByTestId("export-menu").getByTestId("export-as-docx"));
       await expect(window.getByTestId("export-result").getByTestId("export-done")).toBeVisible();
       await expect.poll(() => readdir(output)).toContain(`${w.named}.docx`);
+
+      // A note of the User's own that is still empty and unnamed takes the name the same way,
+      // with a number once another note has it.
+      await newMind(window);
+      const again = await askInAssistant(window, w.question);
+      await pointAndClick(window, again.getByTestId("answer-write-note"));
+      await expect(frontMindName(window)).toHaveText(`${w.named} 2`);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(2);
     } finally {
       await app.close();
       await removeDataFolder(output);
