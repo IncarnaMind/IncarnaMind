@@ -49,3 +49,12 @@ If a part fails, it doesn't ship; the numbers go on #2847.
 - The time to the first whole option and to the end (medians).
 - Every press with a false Supported on any arm, by kind.
 - The spend and the load.
+
+## Amendment, 2026-11-09, before any press of `call-help-twins`
+
+**What a smoke press showed.** A one-press Haiku smoke on the call-help set's en-answer-two ($0.02) gave no Citation on the branch. Haiku had written its reply with no Citation and called no `cite`. On main, the core asks the model once for the Citations such a reply left out (`citeUnmarked`), and Haiku's records come from that ask. The first try dropped that ask together with the core's own matches, which is why Haiku's Citations fell there.
+
+**So Part A keeps the ask.** The model's own answer to it is its own record, and it is placed like any unmarked record: only after words its quote holds. The core still matches no quotation or sentence itself.
+
+A unit test holds this in English and Chinese, and fails on main, where the asked records go at the end of the line the model names. The bar is unchanged.
+
