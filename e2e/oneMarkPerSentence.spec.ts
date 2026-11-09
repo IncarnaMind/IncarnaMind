@@ -62,7 +62,7 @@ const LANGUAGES = {
       "Needs a look · Contradicted",
       "Supported",
     ].map((state) => `Sentence check: ${state}`),
-    health: { look: "3 need a look", supported: "1 supported" },
+    health: { look: "4 need a look", supported: "1 supported" },
   },
   "zh-CN": {
     found: /已在.*找到引文/,
@@ -72,7 +72,7 @@ const LANGUAGES = {
     marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据"].map(
       (state) => `句子核对：${state}`,
     ),
-    health: { look: "3 句需要留意", supported: "1 句有依据" },
+    health: { look: "4 句需要留意", supported: "1 句有依据" },
   },
 } as const;
 
@@ -332,8 +332,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("claim-card")).toHaveCount(0);
 
-    // The card counts sentences, each once by its state, and no Citation (#2831): the supported
-    // sentence whose Citation isn't found needs a look, with the unsupported and contradicted ones.
+    // The card counts sentences, each once by its state, and no Citation (#2831): a sentence whose
+    // Citation isn't found needs a look, checked or not, with the unsupported and contradicted ones.
     // Each row goes round its sentences, the caret at the sentence's start.
     const caret = () =>
       editor.evaluate((dom) => {
@@ -351,7 +351,7 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     const next = async (row: "look" | "supported") =>
       pointAndClick(window, (await checkCard(window)).getByTestId(`health-${row}`));
-    for (const block of [1, 2, 3, 1]) {
+    for (const block of [1, 2, 3, 4, 1]) {
       await next("look");
       await expect.poll(caret).toEqual({ empty: true, block, start: true });
       await window.keyboard.press("Escape");
