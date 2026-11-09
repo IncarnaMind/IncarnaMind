@@ -738,6 +738,8 @@ describe("Organize the Library into the Review", () => {
     };
     const share = outputTokens("folder-plan", 6);
     const all = outputTokens("folder-plan", Number.POSITIVE_INFINITY);
+    // A sort of 6 gets 600 for its Folders and 40 a Document; the retry gets the kind's whole room.
+    expect([share, all]).toEqual([840, 4_000]);
 
     const roomy = await start({ sortRoom: share + 1 });
     await add(roomy.core, roomy.sources, files);
