@@ -33,13 +33,17 @@ const HEADING =
   /^\s*(?:\d+(?:\.\d+)*\.?\s|(?:section|chapter|clause|article|part|table|figure)\s+\d)/iu;
 /** A table's row: three numbers or more on one line. */
 const ROW_OF_FIGURES = /(?:\d[\d,.]*%?\D+){2,}\d/u;
+const MONTH = String.raw`(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\p{Ll}*\b`;
 /**
  * A line that starts a note, a footnote or a list's item: "*", "†", a superscript digit, a bullet
- * or dash, "(a)", "①", "（一）", "一、", "注：", or a number before a word with a capital ("1 The
- * respondent…", not "22 July" or "23 GB").
+ * or dash, "[1]", "(a)", "①", "（一）", "一、", "注："; a number before a bracket, a quotation mark or
+ * another number ("1 [2019] EWCA Civ 1", "1 （2019）最高法民终 1 号", "1 28 U.S.C."); or a number
+ * before a capitalised word, spaced or not ("1 The respondent", "1The", not "22 July" or "23 GB").
  */
-const NOTE_OR_ITEM =
-  /^\s*(?:[*†‡§¶•·▪◦–—-]|[⁰¹²³⁴⁵⁶⁷⁸⁹①-⑳]|\(?[a-z0-9]{1,3}\)\s|[(（][一二三四五六七八九十\d]{1,3}[)）]|[一二三四五六七八九十]{1,3}、|注[：:]|\d{1,3}\.?\s+(?!(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\p{Ll}*\b)\p{Lu}\p{Ll})/u;
+const NOTE_OR_ITEM = new RegExp(
+  String.raw`^\s*(?:[*†‡§¶•·▪◦–—-]|[⁰¹²³⁴⁵⁶⁷⁸⁹①-⑳]|\[\d{1,3}\]|\(?[a-z0-9]{1,3}\)\s|[(（][一二三四五六七八九十\d]{1,3}[)）]|[一二三四五六七八九十]{1,3}、|注[：:]|\d{1,3}(?:\.?\s+[\[(“"‘'「『《\d]|\s*[（［【〔])|\d{1,3}\.?\s*(?!${MONTH})\p{Lu}\p{Ll})`,
+  "u",
+);
 const CAPITAL = /\p{Lu}/u;
 /**
  * A sentence's end, with the closing marks and bracketed reference marks after it ("…提出的。[2]"):
@@ -65,8 +69,8 @@ function fullLength(lines: readonly string[]): number {
  * hold. The measure is the page's lines as printed, tabs and all. One after a comma always wraps.
  * Chinese and Japanese wraps were joined when the page was read, so a newline beside them was
  * printed on purpose; so was one after a sentence's end, a line well short of the measure, a table's
- * row or cells, a numbered heading or caption, or one before a note, a footnote or a list's item.
- * Other kinds of Units break their lines on purpose.
+ * row or cells, a numbered heading or caption, or one before a note, a footnote, a list's item or a
+ * table's cells. Other kinds of Units break their lines on purpose.
  */
 function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
   const cells = (line: string) => line.replaceAll("\t", "\n");
@@ -83,6 +87,7 @@ function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
         before !== "" &&
         after !== "" &&
         !line.includes("\t") &&
+        !next.includes("\t") &&
         !NOTE_OR_ITEM.test(next) &&
         !(HEADING.test(line) && CAPITAL.test(after)) &&
         !ROW_OF_FIGURES.test(line) &&

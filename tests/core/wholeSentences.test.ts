@@ -90,6 +90,36 @@ describe("a found quote's whole sentence", () => {
       "1 The respondent has since appealed the decision to the Court of Appeal sitting in Varne.",
     ],
     [
+      "a footnote that opens with a case's citation",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1 [2019] EWCA Civ 1, where the court held that the buyer must prove the delay itself.",
+    ],
+    [
+      "a footnote that opens with a year in brackets",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1 (1854) 9 Exch 341, where the court held that a loss must have been in view when contracting.",
+    ],
+    [
+      "a footnote that opens with a statute's number",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1 28 U.S.C. § 1782 lets a court order evidence to be given for use in a foreign tribunal.",
+    ],
+    [
+      "a footnote that opens with a quotation mark",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1 “Delay” means any day after the delivery date in clause 4 on which the goods are not delivered.",
+    ],
+    [
+      "a footnote's number in brackets",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "[1] The respondent has since appealed the decision to the Court of Appeal sitting in Varne.",
+    ],
+    [
+      "a footnote's number set against its word",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1The respondent has since appealed the decision to the Court of Appeal sitting in Varne.",
+    ],
+    [
       "a list's bullet, after a comma",
       "The tribunal found that the supplier had not shown that the delay was caused by the buyer,",
       "• the buyer must deliver its drawings within 14 days of the order, at its own cost and risk.",
@@ -110,6 +140,21 @@ describe("a found quote's whole sentence", () => {
       "① 被申请人已就该裁决提出上诉。",
     ],
     [
+      "a footnote that opens with a case's number, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "1 （2019）最高法民终 1 号判决认为，买方应自行证明延误。",
+    ],
+    [
+      "a footnote that opens with a case's number set against it, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "1（2019）最高法民终 1 号判决认为，买方应自行证明延误。",
+    ],
+    [
+      "a footnote's number in brackets, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "[1] 被申请人已就该裁决提出上诉。",
+    ],
+    [
       "a list's number, in Chinese",
       "仲裁庭认定，供应商未能证明延误由买方造成，",
       "（一）买方应在订单后 14 日内交付图纸。",
@@ -120,7 +165,7 @@ describe("a found quote's whole sentence", () => {
     expect(wholeSentences(page(line, note), quote)).toBe(quote);
   });
 
-  test("runs on into a line that only looks like a note: a date, a size, a number in words", () => {
+  test("runs on into a line that only looks like a note: a date, a section's number, a Chinese clause", () => {
     const line =
       "The tribunal found that the supplier had not shown that the delay was caused by the buyer on";
     expect(
@@ -129,12 +174,28 @@ describe("a found quote's whole sentence", () => {
         "The tribunal found",
       ),
     ).toBe(`${line} 22 July 2022, the day the drawings were due.`);
+    const section =
+      "The tribunal found that the supplier had not given the buyer the notice it owed under section";
+    expect(
+      wholeSentences(
+        page(section, "12(3) of the Act, which runs from the day of the order."),
+        "The tribunal found",
+      ),
+    ).toBe(`${section} 12(3) of the Act, which runs from the day of the order.`);
     expect(
       wholeSentences(
         page("仲裁庭认定，供应商未能证明延误由买方造成，", "买方应在订单后 14 日内交付图纸。"),
         "仲裁庭认定",
       ),
     ).toBe("仲裁庭认定，供应商未能证明延误由买方造成，买方应在订单后 14 日内交付图纸。");
+  });
+
+  test("never runs a sentence on into a table's cells on the next line", () => {
+    const line =
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer and";
+    const units = page(line, "Depot 1 was sold.\tClosed\t2019", "Depot 2 was let.\tOpen\t2021");
+
+    expect(wholeSentences(units, "The tribunal found")).toBe("The tribunal found");
   });
 
   test("measures a page's lines as printed, and never runs a table's row on into the text below it", () => {
