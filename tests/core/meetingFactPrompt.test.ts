@@ -72,7 +72,7 @@ test.each([
   },
 );
 
-// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named other side is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; and a decision is written once, not also as its proposal or inside another decision (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named other side is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; and a decision is written once, never inside another decision (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
@@ -90,7 +90,7 @@ test.each([
       "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",
     );
     expect(prompt).toContain(
-      "A proposal agreed as it stood is not a fact of its own, and a decision names only its own choice, never another decision's terms.",
+      "A decision names only its own choice, never another decision's terms.",
     );
   },
 );
