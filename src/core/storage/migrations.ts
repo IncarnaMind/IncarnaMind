@@ -2895,7 +2895,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 141,
+    version: 140,
     description:
       "Organize keeps no model of its own: the one it kept becomes the choice for Organize and Tags (#2835)",
     // Under Automatic (stored as {"kind":"automatic"}, null, or left out, which all read as it),
