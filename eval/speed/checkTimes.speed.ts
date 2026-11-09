@@ -447,6 +447,22 @@ async function answerFlow(
   return { checkStartMs: endedMs ?? doneMs, doneMs, landed };
 }
 
+/**
+ * With INCARNAMIND_EVAL_SPEED_LOAD_BAR="<1-minute>,<15-minute>", waits before each run until the
+ * computer's load is at or under both, checked every 5 s for at most 40 minutes, and says how long
+ * it waited; a run that starts above them is a timing other work on this computer made.
+ */
+async function loadBelowBar(log: (line: string) => void): Promise<number> {
+  const [one, fifteen] = (list("LOAD_BAR") ?? []).map(Number);
+  if (one === undefined || fifteen === undefined) return 0;
+  const started = Date.now();
+  const under = () => (loadavg()[0] ?? 0) <= one && (loadavg()[2] ?? 0) <= fifteen;
+  while (!under() && Date.now() - started < 40 * 60_000)
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  if (!under()) log(`  the load stayed over ${one} and ${fifteen} for 40 minutes`);
+  return Date.now() - started;
+}
+
 const wanted = list("CHECK_TIMES");
 const timedChecks = wanted ? test : test.skip;
 
@@ -542,10 +558,11 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               log(stopped);
               break matrix;
             }
+            const waitedMs = await loadBelowBar(log);
             const load = loadavg()[0] ?? 0;
             const load15 = loadavg()[2] ?? 0;
             log(
-              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
+              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes${waitedMs > 0 ? `, after ${seconds(waitedMs)} waiting for it` : ""}`,
             );
             current = { flow, items: CITED(language, flow) };
             const startedAt = new Date().toISOString();
