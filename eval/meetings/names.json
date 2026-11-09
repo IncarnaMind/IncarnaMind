@@ -226,6 +226,199 @@
         "星禾科技",
         "王宗"
       ]
+    },
+    {
+      "id": "en-orchard",
+      "language": "en",
+      "voices": {
+        "me": "Samantha",
+        "them": "Daniel"
+      },
+      "names": [
+        "Maren Okafor",
+        "Larkfield",
+        "Ilse Brannock",
+        "Teodor Vasquez",
+        "Daniel"
+      ],
+      "said": [
+        "Maren Okafor",
+        "Maren",
+        "Larkfield",
+        "Ilse Brannock",
+        "Teodor Vasquez",
+        "Daniel"
+      ],
+      "decoys": [
+        "Marin Oakford",
+        "Karen Okafor",
+        "Martin Okoro",
+        "Lakefield",
+        "Larkspur",
+        "Larkhill",
+        "Elsa Brennan",
+        "Ilsa Bannock",
+        "Ilse Brandt",
+        "Brannigan",
+        "Theodore Vance",
+        "Teodoro Velasquez",
+        "Teodor Vasile",
+        "Vasko",
+        "Danielle Brooks",
+        "Dana Okafor",
+        "Mara Oakes",
+        "Lark Valley",
+        "Okafo Farms",
+        "Brannock Hall"
+      ],
+      "sameSounding": [
+        "Marin Okafor",
+        "Ilsa Brannock",
+        "Theodor Vasquez",
+        "Danielle"
+      ],
+      "commonWords": [
+        "Press",
+        "Stall",
+        "Friday",
+        "Orchard",
+        "Grace"
+      ],
+      "lines": [
+        {
+          "side": "me",
+          "text": "Hi Daniel, I'm Maren Okafor from the Larkfield orchard. Today we need to settle the cider press and the festival stall."
+        },
+        {
+          "side": "them",
+          "text": "Thanks, Maren. The supplier's quote for the press came in at forty-two thousand five hundred pounds, installed."
+        },
+        {
+          "side": "me",
+          "text": "That fits our budget. Let's buy the press for forty-two thousand five hundred pounds, installed by the twelfth of March."
+        },
+        {
+          "side": "them",
+          "text": "Agreed. Last season we pressed eighteen hundred litres, so the new press doubles that."
+        },
+        {
+          "side": "me",
+          "text": "I'll send the signed purchase order to the supplier by Friday."
+        },
+        {
+          "side": "them",
+          "text": "Ilse Brannock will book the electrician by the twentieth of November."
+        },
+        {
+          "side": "me",
+          "text": "Good. For the festival stall, Teodor Vasquez drafts the stall budget by the first of December."
+        },
+        {
+          "side": "them",
+          "text": "One question is still open: who pays for delivery of the press?"
+        },
+        {
+          "side": "me",
+          "text": "Let's leave that open until the supplier answers. Thanks, Daniel."
+        }
+      ]
+    },
+    {
+      "id": "zh-coldstore",
+      "language": "zh",
+      "voices": {
+        "me": "Flo (Chinese (China mainland))",
+        "them": "Eddy (Chinese (China mainland))"
+      },
+      "names": [
+        "林晓雯",
+        "周志远",
+        "郑雅琪",
+        "周总"
+      ],
+      "said": [
+        "林晓雯",
+        "周志远",
+        "郑雅琪",
+        "周总"
+      ],
+      "decoys": [
+        "林晓燕",
+        "林小文",
+        "林效文",
+        "周致远",
+        "周智勇",
+        "周志强",
+        "郑雅婷",
+        "郑亚奇",
+        "邹总",
+        "赵总",
+        "林总",
+        "郑总",
+        "周远",
+        "林雯",
+        "晓雯科技",
+        "雅琪公司",
+        "志远集团",
+        "林晓东",
+        "周志明",
+        "郑雅文"
+      ],
+      "sameSounding": [
+        "林晓文",
+        "周致远",
+        "郑雅琦",
+        "邹总"
+      ],
+      "commonWords": [
+        "冷库",
+        "合同",
+        "培训",
+        "水果",
+        "电力"
+      ],
+      "lines": [
+        {
+          "side": "me",
+          "text": "周总你好，我是林晓雯。今天确认一下冷库改造的方案。"
+        },
+        {
+          "side": "them",
+          "text": "你好。冷库改造预算三十八万六千元，明年三月十五日之前完工。"
+        },
+        {
+          "side": "me",
+          "text": "进口压缩机另外报价两万四千英镑，这笔钱含在预算里吗？"
+        },
+        {
+          "side": "them",
+          "text": "不含。两万四千英镑需要单独付款。"
+        },
+        {
+          "side": "me",
+          "text": "明白。我会在本周五之前把合同发给施工方。"
+        },
+        {
+          "side": "them",
+          "text": "好的。周志远十一月二十日之前联系电力公司。"
+        },
+        {
+          "side": "me",
+          "text": "郑雅琪十二月一日之前准备培训方案。"
+        },
+        {
+          "side": "them",
+          "text": "还有一个问题没定：施工期间水果放在哪里？"
+        },
+        {
+          "side": "me",
+          "text": "这个下次再定。去年损耗一千二百箱，今年要少一些。"
+        },
+        {
+          "side": "them",
+          "text": "好的，再见。"
+        }
+      ]
     }
   ]
 }

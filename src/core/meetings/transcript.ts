@@ -164,7 +164,7 @@ interface Live {
   stream: string;
   engine: "local" | CloudTranscriptionRoute;
   /** `aheadMs`: audio counted against the cap and not sent yet. */
-  cloud: { stream: CloudStream; meter: CloudAudioMeter; aheadMs: number } | null;
+  cloud: { stream: CloudStream; meter: CloudAudioMeter; aheadMs: number; openMs: number } | null;
   /** Where to transcribe is being worked out: the audio waits meanwhile. */
   choosing: boolean;
   tracks: Tracks;
@@ -1038,7 +1038,9 @@ export function createTranscripts(options: TranscriptsOptions) {
         const samples = audio[source];
         return samples && live.streams[source] && !live.streams[source].waiting ? [samples] : [];
       });
-      const leaving = gateClosed(live) ?? (counted(live, msOf(sent)) ? null : "cap");
+      const opening = SOURCES.filter((source) => audio[source] && !live.streams[source]).length;
+      const setupMs = opening * (live.cloud?.openMs ?? 0);
+      const leaving = gateClosed(live) ?? (counted(live, msOf(sent) + setupMs) ? null : "cap");
       if (leaving) {
         leaveCloud(state, live, leaving);
         if (live.started) pushTracks(state, live, audio);
@@ -1157,7 +1159,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   function choose(state: State, live: Live, cloud: NonNullable<TranscriptsOptions["cloud"]>): void {
-    cloud.start().then(
+    cloud.start(meetingWords(state)).then(
       (start) => {
         if (closed || state.live !== live) return;
         live.choosing = false;
@@ -1173,7 +1175,12 @@ export function createTranscripts(options: TranscriptsOptions) {
           });
         } else if (start) {
           live.engine = start.route;
-          live.cloud = { stream: start.stream, meter: start.meter, aheadMs: 0 };
+          live.cloud = {
+            stream: start.stream,
+            meter: start.meter,
+            aheadMs: 0,
+            openMs: start.openMs,
+          };
           log.info("transcript.cloud", { meetingId: state.meetingId, route: start.route });
         }
         startEngine(state);

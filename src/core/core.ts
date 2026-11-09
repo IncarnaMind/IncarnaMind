@@ -4994,6 +4994,7 @@ export function createCore(adapters: CoreAdapters): Core {
         meetingWords({
           db,
           meetingId,
+          userName: settings.get().user.authorName,
           userWords: settings.get().user.meetingWords,
           folderName: (folderId) =>
             library.folders().find((folder) => folder.id === folderId)?.name ?? null,
@@ -7613,6 +7614,7 @@ export function createCore(adapters: CoreAdapters): Core {
       await dropped;
       return listed;
     },
+    allowTranscriptionWords: () => cloudTranscription.allowWords(),
     openAudioSettings: (source) => meetings.openSettings(source),
     askMeetingHelp,
     setMeetingTemplate: async (input) => {

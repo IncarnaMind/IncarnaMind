@@ -96,7 +96,8 @@ test("a key turned away at the handshake is told from a connection that failed",
   );
   expect(JSON.parse(output.trim().split("\n").at(-1) ?? "{}")).toEqual({
     wrong: "refused",
-    other: "closed 1006",
+    // A 400 that names no key is what the address asked, not the key (HANDSHAKE_BAD_REQUEST).
+    other: "closed 4400",
   });
 });
 

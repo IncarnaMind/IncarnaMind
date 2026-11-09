@@ -5,9 +5,9 @@
  */
 import { WebSocket } from "undici";
 import { OUT_OF_CREDIT } from "../../providers/creditWords";
-import { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
+import { HANDSHAKE_BAD_REQUEST, HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
 
-export { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
+export { HANDSHAKE_BAD_REQUEST, HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
 
 export interface CloudSocket {
   send(data: string | Uint8Array): void;
@@ -52,7 +52,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /**
  * A refused handshake's answer, read in the order the chat providers' errors are: no credit (a
  * 402, or any 4xx but a 401 in credit's words, as xAI's 403), then the key (a 401 or 403, or a 400
- * naming an API key, as xAI's), else neither (0).
+ * naming an API key, as xAI's), then what the address asked (any other 400 or 422), else none (0).
  */
 export function handshakeRefusalOf(status: number, body: string): number {
   if (
@@ -64,7 +64,7 @@ export function handshakeRefusalOf(status: number, body: string): number {
   if (status === 401 || status === 403 || (status === 400 && /api[ _-]?key/i.test(body))) {
     return HANDSHAKE_REFUSED;
   }
-  return 0;
+  return status === 400 || status === 422 ? HANDSHAKE_BAD_REQUEST : 0;
 }
 
 async function startOf(response: Response): Promise<string> {
