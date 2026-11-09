@@ -18,7 +18,7 @@
  * compare). A check compares samples to find the few Documents that may hold
  * the checked text, then decides each by the exact share, from both stored texts.
  */
-import { CJK, normaliseText } from "../../shared/text";
+import { CJK, foldRadicals, INVISIBLE } from "../../shared/text";
 import type { Database } from "../storage";
 
 /** #2216's measured pairs: copies hold 94.7% of the checked text and more, other Documents 84.7% and less. */
@@ -62,13 +62,28 @@ function finalise(hash: number): number {
   return (mixed ^ (mixed >>> 16)) >>> 0;
 }
 
+const INVISIBLE_CHARACTERS = new RegExp(
+  `[${[...INVISIBLE].map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("")}]`,
+  "gu",
+);
+const LINE_END_HYPHEN = /(\p{L})[-‐][^\S\n]*\n\s*(?=\p{Ll})/gu;
+
 /**
- * A text's shingles, as hashes, distinct and ascending. The text is normalised
- * as search normalises it and lowercased, so line wrapping, a hyphen that
- * splits a word across lines, spacing and punctuation don't count.
+ * A text's shingles, as hashes, distinct and ascending. Read as the text normaliser reads it for
+ * comparing (NFKC, CJK radicals folded, invisible characters dropped, a word split by a hyphen at a
+ * line's end joined) and lowercased, so line wrapping, spacing and punctuation don't count. Not by
+ * `normaliseText` itself, which keeps every character's offsets and takes 40 times as long.
  */
 export function shinglesOf(units: readonly { text: string }[]): Uint32Array {
-  const text = normaliseText(units.map((unit) => unit.text).join("\n")).toLowerCase();
+  const text = foldRadicals(
+    units
+      .map((unit) => unit.text)
+      .join("\n")
+      .normalize("NFKC"),
+  )
+    .replace(INVISIBLE_CHARACTERS, "")
+    .replace(LINE_END_HYPHEN, "$1")
+    .toLowerCase();
   const tokens = (text.match(TOKEN) ?? []).map(tokenHash);
   const count = tokens.length - SHINGLE_TOKENS + 1;
   if (count <= 0) return new Uint32Array(0);
