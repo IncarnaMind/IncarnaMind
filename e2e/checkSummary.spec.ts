@@ -21,7 +21,7 @@ import {
 /*
  * The card counts sentences, each once, by its one state (#2831): what needs a look, what is
  * supported, what is being checked and what isn't checked, each a row a click moves to (#2313),
- * and no row of Citations. "Everything checked" shows only when nothing is left. A sentence not
+ * and no row of Citations. The badge's "Checked" line shows only when nothing is left. A sentence not
  * checked yet has no mark on the page and opens from the card's row for it or from ⇧⌘K. The
  * checks are written into the page, so no model is involved.
  */
@@ -33,7 +33,7 @@ const TIDES = buildPdf([
 const WORDS = {
   en: {
     label: "Checks",
-    allChecked: "Everything checked",
+    allChecked: /^Checked \S/,
     supported: "4 supported",
     allSupported: "2 supported",
     lookOnly: "2 supported",
@@ -56,7 +56,7 @@ const WORDS = {
   },
   "zh-CN": {
     label: "核对",
-    allChecked: "已全部核对",
+    allChecked: /^已核对 \S/,
     supported: "4 句有依据",
     allSupported: "2 句有依据",
     lookOnly: "2 句有依据",

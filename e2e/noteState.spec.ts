@@ -398,8 +398,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const allDone = await checkCard(window);
+      // The card quotes the badge's line (#2313).
       await expect(allDone.getByTestId("health-all-checked")).toHaveText(
-        language === "en" ? "Everything checked" : "已全部核对",
+        language === "en" ? /^Checked \S/ : /^已核对 \S/,
       );
       await expect(allDone.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",
