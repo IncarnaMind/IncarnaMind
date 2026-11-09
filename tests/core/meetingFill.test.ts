@@ -9,6 +9,7 @@ import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
   ChatModelFactory,
+  CitationLocation,
   Core,
   Meeting,
   MeetingFill,
@@ -22,7 +23,8 @@ import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
-import { translate } from "../../src/shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { formatLocation } from "../../src/shared/locations";
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -40,7 +42,13 @@ import {
   writeMind,
 } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
-import { fakeSeparator, savedCues, transcribingCore, until } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  savedCues,
+  toldCues,
+  transcribingCore,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 const MY_LINES = [
@@ -312,8 +320,8 @@ const NOTES = [
 describe("After Stop, the notes are filled in from the Transcript (#142)", {
   timeout: 60_000,
 }, () => {
-  // protects=in a call, the notes start from the saved Transcript while its speakers are told apart (#2773), but nothing is written until the pass ends, and when it renames no one the notes are made once; fails_when=the fill waits for the pass before its request, writes before the pass ends, or is made twice; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
-  test("a call's notes start while its speakers are told apart and are written once the pass renames no one", async () => {
+  // protects=in a call, the notes start from the saved Transcript while its speakers are told apart (#2773), and are written as soon as they are ready, the pass still running, once (#2839); fails_when=the fill waits for the pass before its request or before writing, or is made twice; no_claim=the pass's labels, which tests/core/speakerPass.test.ts covers.
+  test("a call's notes are written as soon as they are ready, while its speakers are still told apart", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -340,20 +348,16 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       undefined,
       { speakerSeparator: separator, cloud: true },
     );
-    const before = shown(client);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    await vi.waitFor(() => expect(asked).toEqual([true]));
-    await vi.waitFor(() =>
-      expect(model.doStreamCalls.length + model.doGenerateCalls.length).toBeGreaterThanOrEqual(2),
-    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([true]);
+    expect((await until(core, meeting.id, (each) => each.state === "saved")).separating).toBe(true);
     await client.settled();
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
-    expect(shown(client)).toEqual(before);
+    expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
-    expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»");
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
     expect(asked).toEqual([true]);
     core.close();
   });
@@ -424,8 +428,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=when the speaker pass renames who spoke a line, notes made before it ended are dropped and made again from the renamed Transcript, so the Citations written name the final speakers (#2773, #138); fails_when=the notes made before the rename are written, or their Citations keep the old label; no_claim=the pass's labels.
-  test("a call whose pass renames a line is filled again from the renamed Transcript, its Citations naming the new speakers", async () => {
+  // protects=when the speaker pass renames who spoke a line after a call's notes are in, the notes stay as written, made once, and each of their Citations names the new speaker, read from the Transcript's who's who, with no new version for them to be checked against; one Undo takes them all back (#2839, #138); fails_when=the notes are made again, a Citation shows the old speaker, the Transcript's version changes under them, or Undo leaves some; no_claim=the pass's accuracy.
+  test("a call whose pass renames a line keeps its notes, and their Citations name the new speaker", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -464,25 +468,113 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       speakerSeparator: separator,
       cloud: true,
     });
+    const before = shown(client);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    await vi.waitFor(() => expect(asked).toEqual([true]));
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    const written = mindCitations(client).filter((each) => each.quote === said);
+    expect(written.length).toBeGreaterThan(0);
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(asked).toEqual([true, false]);
-    expect(marks).toEqual(["0:00 Them", "0:00 Speaker 1"]);
-    const final = (await savedCues(core, meeting.id)).find((cue) => cue.text === said);
+    const final = (await toldCues(core, meeting.id)).find((cue) => cue.text === said);
     expect(final?.speaker).toBe("Speaker 1");
+    expect(asked).toEqual([true]);
+    expect(marks).toEqual(["0:00 Them"]);
+    const transcriptId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+      ?.transcript?.documentId;
+    const transcript = (await core.listDocuments()).find((each) => each.id === transcriptId);
     const cited = mindCitations(client).filter((each) => each.quote === said);
-    expect(cited.length).toBeGreaterThan(0);
+    expect(cited).toEqual(written);
+    const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
     for (const citation of cited) {
-      expect(citation.location).toMatchObject({ kind: "time", speaker: "Speaker 1" });
+      expect(citation.contentHash).toBe(transcript?.contentHash);
+      const location = citation.location as CitationLocation;
+      expect(formatLocation(location, t, { speakers: transcript?.speakers ?? null })).toBe(
+        "Speaker 1 · 0:00",
+      );
     }
+    await core.undoMeetingFill(meeting.id);
+    await client.settled();
+    expect(shown(client)).toEqual(before);
     core.close();
   });
 
-  // protects=when the speaker pass renames a line while the notes made before it are checking their claims, those checks are stopped and the notes are made again at once, without waiting for them (#2773); fails_when=the second fill request waits for the first fill's claim checks to end; no_claim=what the checks would have said.
-  test("a pass that renames a line while the first notes check their claims makes them again at once", async () => {
+  // protects=a call's notes whose reply is still out when the speaker pass ends are checked against who's who as their model read it, so their records of "Them" lines are found and written, and their Citations then name the new speaker; without a rename the same holds (#2839); fails_when=a record is checked against who's who changed while its reply was out, so the notes fail or lose items; no_claim=the pass's accuracy.
+  test.each([
+    ["renames", undefined, "Speaker 1"],
+    ["renames no one", () => 0, "Them"],
+  ] as const)(
+    "notes whose reply is out when the pass %s are found and written",
+    async (_, voiceOf, speaker) => {
+      let release = () => {};
+      const holds = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let answer = () => {};
+      const held = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      let asked = 0;
+      const said = THEIR_LINES[0] as string;
+      const model = scriptedModel((call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!isFill(call)) return { text: "OK" };
+        if (fillRun(call)) {
+          asked++;
+          const passage = shownPassages(block(call.prompt, "live-transcript") ?? "").find((each) =>
+            each.text.includes(said),
+          );
+          const mark = passage?.text
+            .match(/\[(\d{1,2}:\d{2}) ([^\]]+)\] /g)
+            ?.find((each) => passage.text.includes(`${each}${said}`));
+          const citations = [
+            { marker: 1, passage: passage?.id, location: mark?.slice(1, -2) ?? "", quote: said },
+          ];
+          return {
+            calls: [{ tool: "cite", input: { citations } }],
+            pause: { after: 0, until: held },
+          };
+        }
+        return {
+          text: [
+            overview("The call covered the budget [^1]."),
+            fact("P1_budget", "budget", "The budget is approved for this year [^1].", {
+              sections: ["decisions"],
+            }),
+          ].join("\n\n"),
+        };
+      });
+      const { separator, requests } = fakeSeparator({ holds, ...(voiceOf && { voiceOf }) });
+      const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+        speakerSeparator: separator,
+        cloud: true,
+      });
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await vi.waitFor(() => expect(asked).toBe(1));
+      release();
+      await until(core, meeting.id, (each) => !each.separating);
+      answer();
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+      expect(asked).toBe(1);
+      const transcriptId = (await core.listMeetings()).find((each) => each.id === meeting.id)
+        ?.transcript?.documentId;
+      const transcript = (await core.listDocuments()).find((each) => each.id === transcriptId);
+      const cited = mindCitations(client).filter((each) => each.quote === said);
+      expect(cited.length).toBeGreaterThan(0);
+      const t = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+      for (const citation of cited) {
+        expect(citation.check).toBe("found");
+        expect(
+          formatLocation(citation.location as CitationLocation, t, {
+            speakers: transcript?.speakers ?? null,
+          }),
+        ).toBe(`${speaker} · 0:00`);
+      }
+      core.close();
+    },
+  );
+
+  // protects=a call's claims are checked while its speakers are told apart, the fill says how many while the checks run, and a pass that renames a line meanwhile leaves the checks and the notes as they are, made once (#2839); fails_when=the notes are made again, the checks are stopped, or no count is said while they run or one is left after; no_claim=what the checks say.
+  test("a call's claims are counted while they are checked, and a rename meanwhile doesn't make the notes again", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -541,12 +633,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       { speakerSeparator: separator, cloud: true },
     );
     await vi.waitFor(() => expect(checks).toBeGreaterThan(0));
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling", checking: 1 });
     passing = false;
     release();
-    await vi.waitFor(() => expect(asked).toEqual([true, false]));
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling", checking: 1 });
     answer();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    expect(asked).toEqual([true, false]);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", checking: 0 });
+    expect(asked).toEqual([true]);
     core.close();
   });
 
@@ -583,8 +677,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=a quit while a call's notes are made before its speakers are told apart writes nothing, and at the next start the notes wait for the pass to run again, then are filled in once (#2773); fails_when=the next start says the fill stopped, writes before the pass, or writes twice; no_claim=the pass's labels.
-  test("a quit while the notes are made before the speakers are told apart fills them in once the pass has run at the next start", async () => {
+  // protects=a quit while a call's notes are made during its speaker pass writes nothing; the next start says the fill stopped, as for any fill a quit cuts short, runs the pass again, and Try again fills the notes in once (#2839); fails_when=anything is written at the quit, the next start fills them in by itself or says nothing, or Try again writes twice; no_claim=the pass's labels.
+  test("a quit while a call's notes are made during its speaker pass says the fill stopped, and Try again fills them in once", async () => {
     let made = 0;
     const model = fillingModel(
       PRICING_REPLY,
@@ -601,38 +695,37 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     const before = shown(client);
     await vi.waitFor(() => expect(made).toBe(1));
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     core.close();
 
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let passing = true;
-    const asked: boolean[] = [];
-    const { separator: again } = fakeSeparator({ holds, voiceOf: () => 0 });
+    const asked: number[] = [];
+    const { separator: again, requests } = fakeSeparator({ holds, voiceOf: () => 0 });
     const { core: reopened } = await transcribingCore(dataDir, {
       model: fillingModel(
         PRICING_REPLY,
         { 1: MY_LINES[0] as string },
         {},
-        { seen: (call) => fillRun(call) && asked.push(passing) },
+        { seen: (call) => fillRun(call) && asked.push(1) },
       ),
       speakerSeparator: again,
       keychain,
     });
-    const writtenWhile: boolean[] = [];
-    reopened.on("meetings.changed", (meetings) => {
-      const fill = meetings.find((each) => each.id === meeting.id)?.fill;
-      if (fill?.state === "filled" && writtenWhile.length === 0) writtenWhile.push(passing);
-    });
     const shownAgain = await connectToMind(reopened, meeting.mindId);
     expect(shown(shownAgain)).toEqual(before);
-    expect((await fillOf(reopened, meeting.id))?.state).not.toBe("failed");
-    passing = false;
-    release();
+    expect(await fillOf(reopened, meeting.id)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(asked).toHaveLength(0);
+    await reopened.fillMeetingNotes(meeting.id);
     expect(await settledFill(reopened, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
+    release();
+    await until(reopened, meeting.id, (each) => !each.separating);
     expect(asked).toHaveLength(1);
     expect(
       shown(shownAgain).filter(
@@ -1659,8 +1752,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=a call's note deleted while its notes are made before its speakers are told apart, and brought back after the pass ends, gets its notes, as one deleted while it waited for the pass does (#2773); fails_when=the restored note says the fill stopped, or nothing is filled in; no_claim=a note deleted after the pass, which the tests around it cover.
-  test("a call's note deleted while its notes are made before the pass ends gets them once it is back", async () => {
+  // protects=a call's note deleted while its notes are made during its speaker pass stops them as any fill under way: brought back, it says the fill stopped, and Try again fills them in once (#1253, #2839); fails_when=the restored note fills itself in, says nothing, or Try again writes twice; no_claim=a note deleted after the notes are in, which the tests around it cover.
+  test("a call's note deleted while its notes are made comes back saying the fill stopped, and Try again fills them in once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1676,38 +1769,38 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       {},
       { held, seen: (call) => fillRun(call) && runs++ },
     );
-    const { separator: told } = fakeSeparator({ holds, voiceOf: () => 0 });
-    let answered = false;
-    const separator: SpeakerSeparator = {
-      async separate(request) {
-        const turns = await told.separate(request);
-        answered = true;
-        return turns;
-      },
-    };
+    const { separator } = fakeSeparator({ holds, voiceOf: () => 0 });
     const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
       speakerSeparator: separator,
       cloud: true,
     });
+    const before = shown(await connectToMind(core, meeting.mindId));
     await vi.waitFor(() => expect(runs).toBe(1));
     await core.deleteMind(meeting.mindId);
     reply();
-    release();
-    await vi.waitFor(() => expect(answered).toBe(true));
-    // The pass ends in the promise turns after its answer: the next task sees it ended.
-    await new Promise((resolve) => setTimeout(resolve, 0));
     await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    await core.fillMeetingNotes(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled", omitted: 0 }),
+    );
+    release();
+    await until(core, meeting.id, (each) => !each.separating);
     expect(
       shown(await connectToMind(core, meeting.mindId)).filter(
         (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       ),
     ).toHaveLength(1);
+    expect(runs).toBe(2);
     core.close();
   });
 
-  // protects=a call's note deleted and brought back while its speakers are still told apart, with its notes made before the pass, gets one set of notes once the pass ends, and a second delete and Undo leaves them as they are (#2773); fails_when=the restored note says the fill stopped, nothing is filled in, or the notes are written twice; no_claim=the pass's labels.
-  test("a call's note deleted and brought back before its pass ends gets its notes once, after the pass", async () => {
+  // protects=a call's note deleted and brought back after its notes are in, its speakers still told apart, keeps one set of notes, and a second delete and Undo leaves them as they are (#2839, #1253); fails_when=the notes are made again or written twice; no_claim=the pass's labels.
+  test("a call's note deleted and brought back after its notes are in keeps them once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1724,29 +1817,24 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       speakerSeparator: separator,
       cloud: true,
     });
-    await vi.waitFor(() => expect(runs).toBe(1));
-    await core.deleteMind(meeting.mindId);
-    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
-    release();
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
     const line = "«The enterprise price is 45 dollars a seat »\uFFFC«.»";
-    expect(
-      shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
-    ).toHaveLength(1);
-
-    await core.deleteMind(meeting.mindId);
-    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
-    expect(
-      shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
-    ).toHaveLength(1);
-    expect(runs).toBe(2);
+    for (let round = 0; round < 2; round++) {
+      await core.deleteMind(meeting.mindId);
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      if (round === 0) release();
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" });
+      expect(
+        shown(await connectToMind(core, meeting.mindId)).filter((each) => each === line),
+      ).toHaveLength(1);
+    }
+    await until(core, meeting.id, (each) => !each.separating);
+    expect(runs).toBe(1);
     core.close();
   });
 
-  // protects=notes made before a call's speakers are told apart and still being made once the pass ends say they are filling in, so deleting the note then stops them as any fill under way: Undo brings it back saying the fill stopped (#2773, #1253); fails_when=the notes still say they wait after the pass, or the restored note fills itself in; no_claim=none beyond protects.
-  test("notes made before the speakers are told apart and deleted after the pass come back saying the fill stopped", async () => {
+  // protects=notes made during a call's speaker pass and still being made once it ends say they are filling in from the start, so deleting the note then stops them as any fill under way: Undo brings it back saying the fill stopped (#2839, #1253); fails_when=the notes say they wait, or the restored note fills itself in; no_claim=none beyond protects.
+  test("notes made during a call's speaker pass and deleted after it ends come back saying the fill stopped", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1769,11 +1857,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     const before = shown(client);
     await vi.waitFor(() => expect(made).toBe(1));
-    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     release();
-    await vi.waitFor(async () =>
-      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" }),
-    );
+    await until(core, meeting.id, (each) => !each.separating);
 
     await core.deleteMind(meeting.mindId);
     reply();
@@ -1787,8 +1873,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=Try again pressed while a call's speakers are still told apart, after notes made early failed, says at once that the notes are under way again, and they are written once, after the pass (#2773); fails_when=the line keeps the old problem until the notes land, or they are written before the pass ends or twice; no_claim=which provider error it was.
-  test("Try again during the speaker pass, after notes made early failed, waits for the pass and fills them in once", async () => {
+  // protects=Try again pressed while a call's speakers are still told apart, after its notes failed, says at once that the notes are under way again, and they are written once, as soon as they are ready, as at Stop (#2773, #2839); fails_when=the line keeps the old problem until the notes land, or they wait for the pass, or are written twice; no_claim=which provider error it was.
+  test("Try again during the speaker pass, after a call's notes failed, fills them in at once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -1824,10 +1910,11 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       state: "waiting",
       problem: null,
     });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
+    expect(writtenWhile).toEqual([true]);
     passing = false;
     release();
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", omitted: 0 });
-    expect(writtenWhile).toEqual([false]);
+    await until(core, meeting.id, (each) => !each.separating);
     expect(
       shown(client).filter(
         (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
