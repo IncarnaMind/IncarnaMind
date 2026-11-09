@@ -88,8 +88,27 @@ const marked = (sentence: string, marker: number) =>
     ? `${sentence.slice(0, -1)}[^${marker}]${sentence.slice(-1)}`
     : `${sentence}[^${marker}]`;
 
-/** Searches for each quote, cites them, then writes the sentences: an Answer, or a new Note. */
-function scriptedTurn(call: ModelCall, items: ReturnType<typeof CITED>, into: "answer" | "note") {
+/**
+ * How a scripted turn writes its sentences: as an Answer; into a new Note; into a new Note with the
+ * second half written with no Citation; or into three new Notes, one after another (#2830).
+ */
+type Into = "answer" | "note" | "note-mixed" | "notes";
+
+const intoOf = (flow: string): Into =>
+  flow === "write"
+    ? "note"
+    : flow === "write-mixed"
+      ? "note-mixed"
+      : flow === "writes"
+        ? "notes"
+        : "answer";
+
+/** The held-out sentences a flow writes. */
+const itemsOf = (flow: string, language: Language) =>
+  flow === "write-mixed" ? CITED(language).slice(0, 20) : CITED(language);
+
+/** Searches for each quote, cites them, then writes the sentences: an Answer, or new Notes. */
+function scriptedTurn(call: ModelCall, items: ReturnType<typeof CITED>, into: Into) {
   const searches = call.results.filter((result) => result.tool === "search_documents");
   if (searches.length === 0)
     return {
@@ -108,21 +127,34 @@ function scriptedTurn(call: ModelCall, items: ReturnType<typeof CITED>, into: "a
     });
     return { calls: [{ tool: "cite", input: { citations } }] };
   }
-  const paragraphs = items.flatMap((each, index) => [
-    ...(each.paragraphBefore ? [each.paragraphBefore] : []),
-    [each.before, marked(each.sentence, index + 1)].filter(Boolean).join(" "),
-  ]);
-  if (into === "answer") return { text: paragraphs.join("\n\n") };
-  if (!call.results.some((result) => result.tool === "create_mind"))
+  const uncitedFrom = into === "note-mixed" ? items.length / 2 : items.length;
+  const paragraphsOf = (part: ReturnType<typeof CITED>, offset: number) =>
+    part.flatMap((each, at) => {
+      const index = offset + at;
+      const sentence = index < uncitedFrom ? marked(each.sentence, index + 1) : each.sentence;
+      return [
+        ...(each.paragraphBefore ? [each.paragraphBefore] : []),
+        [each.before, sentence].filter(Boolean).join(" "),
+      ];
+    });
+  if (into === "answer") return { text: paragraphsOf(items, 0).join("\n\n") };
+  const parts =
+    into === "notes" ? [0, 10, 20].map((start) => items.slice(start, start + 10)) : [items];
+  const made = call.results.filter((result) => result.tool === "create_mind").length;
+  const part = parts[made];
+  if (part)
     return {
       calls: [
         {
           tool: "create_mind",
-          input: { title: "Membership notes", content: ["## Notes", ...paragraphs].join("\n\n") },
+          input: {
+            title: parts.length > 1 ? `Membership notes ${made + 1}` : "Membership notes",
+            content: ["## Notes", ...paragraphsOf(part, made * 10)].join("\n\n"),
+          },
         },
       ],
     };
-  return { text: "Wrote them into a new note." };
+  return { text: "Wrote them into new notes." };
 }
 
 /**
@@ -136,11 +168,12 @@ function scripted(
   const answers = scriptedModel((call) => {
     const flow = current();
     if (!flow) return { text: "Nothing to write." };
-    return scriptedTurn(call, flow.items, flow.flow === "write" ? "note" : "answer");
+    return scriptedTurn(call, flow.items, intoOf(flow.flow));
   });
   const scriptsIt = (params: { tools?: readonly { name: string }[]; prompt: unknown }) => {
     const flow = current()?.flow;
-    if (flow === "write") return params.tools?.some((tool) => tool.name === "create_mind") ?? false;
+    if (flow?.startsWith("write"))
+      return params.tools?.some((tool) => tool.name === "create_mind") ?? false;
     if (flow !== "answer") return false;
     const prompt = params.prompt as { role: string; content: unknown }[];
     return !prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
@@ -296,10 +329,10 @@ async function searchDuring(
 async function writeFlow(
   core: Core,
   choice: ChatModelChoice,
-  language: Language,
+  items: ReturnType<typeof CITED>,
   recorder: ReturnType<typeof checkRecorder>,
 ) {
-  const sentences = CITED(language).map((each) => each.sentence);
+  const sentences = items.map((each) => each.sentence);
   const versions = await versionsOf(core);
   recorder.begin(sentences);
   const docs = new Map<string, Y.Doc>();
@@ -327,6 +360,8 @@ async function writeFlow(
   });
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
   await answerEnds(core, asked.conversation.id, asked.answerId);
+  // What it wrote is checked after the reply (#2830): its check's end is the end.
+  await writtenChecksEnd(core, asked.conversation.id, asked.answerId);
   const doneMs = recorder.since();
   stop();
   for (const watch of watches) watch.stop();
@@ -335,6 +370,20 @@ async function writeFlow(
     doneMs,
     landed: watches.flatMap((watch) => watch.landed),
   };
+}
+
+/** Resolves once no check of what the Answer wrote still runs. */
+async function writtenChecksEnd(core: Core, conversationId: string, answerId: string) {
+  await vi.waitFor(
+    async () => {
+      const { messages } = await core.getConversation(conversationId);
+      const found = messages.find((message) => message.id === answerId);
+      if (found?.kind !== "answer") throw new Error("No Answer.");
+      if (found.toolCalls.some((call) => call.mindChange?.selfCheck?.running))
+        throw new Error("What it wrote is still being checked.");
+    },
+    { timeout: 10 * 60_000, interval: 100 },
+  );
 }
 
 /** Resolves once the Answer has ended and none of its Citations is still being judged. */
@@ -505,7 +554,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             log(
               `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
             );
-            current = { flow, items: CITED(language) };
+            current = { flow, items: itemsOf(flow, language) };
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
@@ -514,8 +563,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             > =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
-                : flow === "write"
-                  ? await writeFlow(core, choice, language, recorder)
+                : flow.startsWith("write")
+                  ? await writeFlow(core, choice, itemsOf(flow, language), recorder)
                   : await answerFlow(core, choice, language, recorder);
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
@@ -570,6 +619,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const counts = new Map([
     ["note", 10],
     ["write", 30],
+    ["write-mixed", 20],
+    ["writes", 30],
     ["answer", 30],
   ]);
   const report = [
