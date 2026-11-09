@@ -49,32 +49,60 @@ export const NO_SPEAKER_FILES = {
   embedding: { baseUrl: "http://127.0.0.1/", files: [] },
 } as const;
 
+/** A voiceprint for each voice the fake hears: unlike every other's. */
+const printOf = (heard: number) => {
+  const print = new Float32Array(16);
+  print[heard % 16] = 1;
+  return print;
+};
+
 /**
  * A `SpeakerSeparator` that hears one voice per 10-second part of audio, by `voiceOf(the part's
- * place)`, answering once `holds` (if given) resolves; `fails` rejects as a failed pass does.
+ * place in the Meeting)`, answering once `holds` (if given) resolves, or `holdOf(the request)`
+ * when it is given; `fails` rejects as a failed pass does. Each request numbers its voices as
+ * first heard and gives each a voiceprint of its own, so stretches clustered apart join by it.
+ * A request whose signal aborts rejects at once.
  */
 export function fakeSeparator({
   voiceOf = (index: number) => index % 2,
   holds,
+  holdOf,
   fails,
 }: {
   voiceOf?: (index: number) => number;
   holds?: Promise<void>;
+  holdOf?: (request: Parameters<SpeakerSeparator["cluster"]>[0]) => Promise<void> | undefined;
   fails?: string;
 } = {}) {
-  const requests: Parameters<SpeakerSeparator["separate"]>[0][] = [];
+  const requests: Parameters<SpeakerSeparator["cluster"]>[0][] = [];
   const separator: SpeakerSeparator = {
-    async separate(request) {
+    async cluster(request) {
       requests.push(request);
-      await holds;
-      if (fails) throw new Error(fails);
-      return request.parts.map(
-        (part, index): VoiceTurn => ({
-          startMs: part.offsetMs,
-          endMs: part.offsetMs + 10_000,
-          voice: voiceOf(index),
-        }),
+      const { signal } = request;
+      const aborted = new Promise<void>((_, reject) =>
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
       );
+      aborted.catch(() => {});
+      await Promise.race([holdOf ? holdOf(request) : holds, aborted]);
+      signal?.throwIfAborted();
+      if (fails) throw new Error(fails);
+      const numbers = new Map<number, number>();
+      const seconds = new Map<number, number>();
+      const turns = request.parts.map((part): VoiceTurn => {
+        const heard = voiceOf(Math.floor(part.offsetMs / 10_000));
+        const voice = numbers.get(heard) ?? numbers.size;
+        numbers.set(heard, voice);
+        seconds.set(heard, (seconds.get(heard) ?? 0) + 10);
+        return { startMs: part.offsetMs, endMs: part.offsetMs + 10_000, voice };
+      });
+      return {
+        turns,
+        voices: [...numbers].map(([heard, voice]) => ({
+          voice,
+          print: printOf(heard),
+          seconds: seconds.get(heard) ?? 0,
+        })),
+      };
     },
   };
   return { separator, requests };

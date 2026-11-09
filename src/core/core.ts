@@ -7684,6 +7684,7 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.close();
       calendars.close();
       transcripts?.close();
+      speakerPass?.close();
       speakerModel?.close();
       // Notes being filled in are left as they were: the next start says so.
       meetingFill.close();

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
-import {
-  joinedVoices,
-  segmentsByWindow,
-  toMeetingTime,
-} from "../../src/core/transcription/diarization";
+import { segmentsByWindow, toMeetingTime } from "../../src/core/transcription/diarization";
+import { joinedTurns, joinedVoices } from "../../src/core/transcription/voiceprints";
 
 const SECOND_SAMPLES = 16_000;
 
@@ -70,6 +67,44 @@ describe("Voices joined by voiceprint after the engine's clustering (#138)", () 
     );
     expect(joined.get(2)).toBe(joined.get(1));
     expect(new Set(joined.values()).size).toBe(2);
+  });
+});
+
+describe("Stretches clustered apart, joined by voiceprint (#2839)", () => {
+  // protects=what was clustered during a call and the tail clustered at Stop give one set of voices: a voice heard in both is one, a voice heard only in the tail is new, numbered as first heard, and one voice's turns that meet become one; fails_when=the tail's voices keep their own numbers, a known voice becomes new, a new one takes an old one's number, or a turn cut at the stretches' edge stays two; no_claim=whether real voiceprints are alike enough, which the gate's label runs measure.
+  test("a voice heard in both stretches is one, a voice heard only in the later one is new", () => {
+    const turns = joinedTurns([
+      {
+        turns: [
+          { startMs: 0, endMs: 4000, voice: 0 },
+          { startMs: 4000, endMs: 8000, voice: 1 },
+          { startMs: 8000, endMs: 10_000, voice: 0 },
+        ],
+        voices: [
+          { voice: 0, print: print(1, 0, 0), seconds: 6 },
+          { voice: 1, print: print(0, 1, 0), seconds: 4 },
+        ],
+      },
+      {
+        turns: [
+          { startMs: 10_000, endMs: 12_000, voice: 0 },
+          { startMs: 12_000, endMs: 15_000, voice: 1 },
+          { startMs: 15_000, endMs: 18_000, voice: 2 },
+        ],
+        voices: [
+          { voice: 0, print: print(0.98, 0.05, 0), seconds: 2 },
+          { voice: 1, print: print(0, 0, 1), seconds: 3 },
+          { voice: 2, print: print(0.02, 1, 0), seconds: 3 },
+        ],
+      },
+    ]);
+    expect(turns).toEqual([
+      { startMs: 0, endMs: 4000, voice: 0 },
+      { startMs: 4000, endMs: 8000, voice: 1 },
+      { startMs: 8000, endMs: 12_000, voice: 0 },
+      { startMs: 12_000, endMs: 15_000, voice: 2 },
+      { startMs: 15_000, endMs: 18_000, voice: 1 },
+    ]);
   });
 });
 

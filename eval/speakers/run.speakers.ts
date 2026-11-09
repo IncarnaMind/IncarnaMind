@@ -30,12 +30,12 @@ import { labelled } from "../../src/core/meetings/speakerPass";
 import {
   CLUSTER_THRESHOLD,
   createSherpaSeparator,
-  SAME_PERSON,
   WINDOW_SECONDS,
 } from "../../src/core/transcription/diarization";
 import { SILERO_VAD } from "../../src/core/transcription/model";
 import { createSileroDetectors } from "../../src/core/transcription/sherpa";
 import { createSpeakerModel } from "../../src/core/transcription/speakerModel";
+import { SAME_PERSON } from "../../src/core/transcription/voiceprints";
 import { SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN } from "../../src/shared/speakers";
 import { evalCache } from "../lib/cache";
 

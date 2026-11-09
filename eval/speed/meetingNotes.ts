@@ -195,20 +195,34 @@ const PASS_PER_AUDIO_SECOND = 0.11;
 const partSeconds = (path: string) => Math.max(0, statSync(path).size - 44) / 2 / 16_000;
 
 /**
- * A stand-in for the speaker pass after Stop: it takes as long as the app's on the call's audio
- * and hears one voice on the other side, as in a call with one other person, so it renames no
- * line. The notes wait for it unless they start before it ends (#2773).
+ * A stand-in for the speaker pass: it takes as long as the app's on the audio it is given and
+ * hears one voice on the other side, as in a call with one other person, so it renames no line.
+ * The notes wait for it unless they start before it ends (#2773).
  */
 function standInSpeakerPass(perAudioSecond: number): SpeakerSeparator {
   return {
-    async separate({ parts }) {
+    async cluster({ parts, signal }) {
       const seconds = parts.reduce((sum, part) => sum + partSeconds(part.path), 0);
-      await new Promise((resolve) => setTimeout(resolve, seconds * perAudioSecond * 1000));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, seconds * perAudioSecond * 1000);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+      const startMs = Math.min(...parts.map((part) => part.offsetMs));
       const endMs = Math.max(
         0,
         ...parts.map((part) => part.offsetMs + partSeconds(part.path) * 1000),
       );
-      return [{ startMs: 0, endMs, voice: 0 }];
+      return {
+        turns: [{ startMs, endMs, voice: 0 }],
+        voices: [{ voice: 0, print: Float32Array.of(1), seconds }],
+      };
     },
   };
 }

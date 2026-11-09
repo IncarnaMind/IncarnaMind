@@ -70,7 +70,7 @@ const engines: { name: string; module: string; start(): void }[] = [
     module: "speaker.js",
     start: () =>
       void createUtilityProcessSeparator()
-        .separate({ parts: [], model: files })
+        .cluster({ parts: [], model: files })
         .catch(() => undefined),
   },
 ];

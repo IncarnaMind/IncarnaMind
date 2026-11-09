@@ -921,18 +921,35 @@ export interface VoiceTurn {
   voice: number;
 }
 
+/** A voice heard in one stretch of a recording, with the voiceprint that joins it to the voices of another stretch. */
+export interface HeardVoice {
+  /** The number its turns give it. */
+  voice: number;
+  print: Float32Array;
+  /** How long it speaks, in seconds. */
+  seconds: number;
+}
+
+/** The voices in one stretch of a recording as the engine clustered them there, not yet joined to any other stretch's. */
+export interface ClusteredVoices {
+  turns: VoiceTurn[];
+  voices: HeardVoice[];
+}
+
 /**
- * Tells the voices in one source's recording apart after the call (#138), off the core's
- * thread and at low priority: the desktop app runs it in a utility process of its own
+ * Clusters the voices in a stretch of one source's recording (#138), off the core's thread and
+ * at low priority: the desktop app runs it in a utility process of its own
  * (src/main/speakerSeparator.ts); tests pass a fake. `parts` are the source's WAV files
  * (16-bit PCM, mono, `MEETING_SAMPLE_RATE`), each with where it starts in the Meeting's time.
- * Rejects if the models can't load or the audio can't be read.
+ * The core joins stretches clustered apart by voiceprint, as a call's is during the call and at
+ * Stop (#2839). Rejects if the models can't load, the audio can't be read, or `signal` aborts.
  */
 export interface SpeakerSeparator {
-  separate(request: {
+  cluster(request: {
     parts: readonly { path: string; offsetMs: number }[];
     model: SpeakerModelFiles;
-  }): Promise<VoiceTurn[]>;
+    signal?: AbortSignal;
+  }): Promise<ClusteredVoices>;
 }
 
 /**
@@ -1414,8 +1431,8 @@ export interface CoreAdapters {
    */
   transcriber?: Transcriber;
   /**
-   * Tells a Meeting's speakers apart after the call (see `SpeakerSeparator`). Absent (tests
-   * that aren't about it): lines keep the labels of where they came from.
+   * Tells a Meeting's speakers apart (see `SpeakerSeparator`). Absent (tests that aren't about
+   * it): lines keep the labels of where they came from.
    */
   speakerSeparator?: SpeakerSeparator;
   /** Where the speaker models are downloaded from. Defaults to the pinned Hugging Face revisions. */

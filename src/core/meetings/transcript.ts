@@ -1411,10 +1411,8 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
-  const toldApart = (state: State) => {
-    const side = `:${sourceToSeparate(isCall(state.cues))}:`;
-    return Object.keys(state.voices ?? {}).some((key) => key.includes(side));
-  };
+  const toldApart = (state: State, source = sourceToSeparate(isCall(state.cues))) =>
+    Object.keys(state.voices ?? {}).some((key) => key.includes(`:${source}:`));
 
   // A Transcript whose who's who is set, by the User or by an earlier pass, keeps it: the User's
   // names and lines hang on its labels (#138), and a pass run again would move them.
@@ -1432,6 +1430,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       toldApart(state) ||
       named(state)
     ) {
+      pass.forget(state.meetingId);
       settle(state, "done");
       return;
     }
@@ -1737,6 +1736,13 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (!state?.live) return;
       feed(state, state.live.tracks.add(source, samples, atMs));
       if (state.live?.callSound()) heardCall(state);
+      if (
+        !state.memo &&
+        source === sourceToSeparate(state.callHeard === true) &&
+        !toldApart(state, source)
+      ) {
+        options.speakers?.recording(meetingId, source, atMs + samples.length / SAMPLE_RATE_MS);
+      }
     },
 
     /**
@@ -1802,6 +1808,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       const state = load(meetingId);
       if (state.savedPath || state.finishing) return;
       if (state.cues.length === 0 && state.pending.length === 0 && !state.ending) {
+        options.speakers?.forget(meetingId);
         state.state = "empty";
         persist(state);
         options.changed();
@@ -1809,6 +1816,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       }
       state.state = "finishing";
       state.finishing = (state.ending ?? Promise.resolve()).then(() => finish(state));
+      options.speakers?.stopped(meetingId);
       options.changed();
     },
 
@@ -1888,6 +1896,7 @@ export function createTranscripts(options: TranscriptsOptions) {
 
     /** The Meeting is gone for good: its Transcript's working state goes, and its working file. */
     forget(meetingId: string): void {
+      options.speakers?.forget(meetingId);
       const state = states.get(meetingId);
       if (state?.live) {
         dropStreams(state.live);
