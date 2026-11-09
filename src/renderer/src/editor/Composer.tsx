@@ -22,6 +22,7 @@ import {
   scopeIds,
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
+import { queueAsk } from "../askQueue";
 import { shortcutLabel } from "../commands/keymap";
 import { SearchIcon, StopIcon } from "../components/icons";
 import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
@@ -41,6 +42,7 @@ import {
 import {
   answerBeingWritten,
   askInAssistant,
+  noMoveSince,
   stopWriting,
   useAnswerBeingWritten,
   useConversations,
@@ -80,6 +82,7 @@ import { scopeOutsideWalls, wallsOf } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
+import { AskQueued } from "./AskQueued";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
 import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
@@ -94,6 +97,7 @@ import { type ChoiceListHandle, ScopeChoiceList } from "./ScopePicker";
 import { SkillChoiceList } from "./SkillChoiceList";
 import { SuggestionOffer } from "./SuggestionOffer";
 import { TaskTargetChip } from "./TaskTargetChip";
+import { useQueuedAsk } from "./useQueuedAsk";
 
 /** In the composer, a long Search scope shows this many chips, then "+N more". */
 const CHIPS_SHOWN = 3;
@@ -139,7 +143,8 @@ const isCommand = (event: { metaKey: boolean; ctrlKey: boolean }) =>
  * In its row: a Skill chosen with "/", the text, the quiet model chip, the
  * Search scope (a chip for each Folder, Tag or Document, or "All Documents";
  * "@" adds more), and the Ask button (an up arrow; Stop while an Answer is
- * written, which Enter waits for). Sending empties the text at once, and puts
+ * written, which Esc does too; Enter then queues the Question above the box,
+ * to be asked when the Answer is done). Sending empties the text at once, and puts
  * it back if the Question couldn't be asked. A Mind in a Folder starts
  * with the Folder's chip while the Folder holds a Document, and with All
  * Documents while it holds none (`mindSearchScope`). Why a Question couldn't be asked shows on one line above
@@ -618,9 +623,6 @@ export function Composer({
       else openResearch(key, topic, modelInUseOf(mind?.doc ?? null), webReach === "ready");
       return;
     }
-    // An Answer is being written, or its Question is on its way: Enter waits for it, as in
-    // ChatGPT and Claude, so a second press never asks the Question twice. The button is Stop.
-    if (answerBeingWritten() !== null) return;
     const draft =
       said === undefined
         ? current
@@ -650,7 +652,7 @@ export function Composer({
     setViewing(null);
     setPicking(null);
     // In the assistant's conversation: the Mind is read, what is selected in it first, never written to.
-    const asked = await askInAssistant({
+    const input = {
       mindId,
       text,
       focus: selection.focus(),
@@ -660,7 +662,26 @@ export function Composer({
       forcedSkill: draft.skill,
       ...(draft.analyse && { analyse: true }),
       quotes,
-    });
+    };
+    // An Answer is being written, or its Question is on its way: the Question waits above the
+    // box and is asked when it is done, so a second Enter never asks it twice (#2866). The
+    // button is Stop meanwhile.
+    if (answerBeingWritten() !== null) {
+      queueAsk({
+        input,
+        draft: {
+          text: draft.text,
+          pastes: draft.pastes,
+          skill: draft.skill,
+          analyse: draft.analyse === true,
+          quotes,
+        },
+        stayed: noMoveSince(),
+      });
+      selection.asked();
+      return;
+    }
+    const asked = await askInAssistant(input);
     if (asked) {
       selection.asked();
       return;
@@ -696,6 +717,7 @@ export function Composer({
     const waiting = takeExplain();
     if (waiting) void askInAssistant(waiting);
   }, [queuedExplain, writing, mindId]);
+  useQueuedAsk(key);
   const hasMessage = useHasMessage();
   const latestAsk = useRef(ask);
   latestAsk.current = ask;
@@ -811,6 +833,11 @@ export function Composer({
       event.preventDefault();
       stopEditing(mind.editor, mind.mindId);
     }
+    if (event.key === "Escape" && !editing && writing !== null) {
+      // Stops the Answer, as in ChatGPT and Claude (#2866); the next Esc is the assistant's.
+      event.preventDefault();
+      stopWriting();
+    }
     // Any other Esc goes on to the assistant, which gives the focus back to the Mind (`Assistant`).
   };
 
@@ -840,6 +867,7 @@ export function Composer({
           <ExplainQueued mindId={mind.mindId} />
         </>
       )}
+      <AskQueued draftKey={key} />
       {problem && (
         <AskProblem
           problem={problem}

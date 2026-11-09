@@ -5,9 +5,9 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { systemReason } from "../../shared/systemReasons";
 
 /**
- * What a failure says, split four ways: the core's own sentence, its wording for the interface
- * language, plain words when the sentence is the system's code, and what was being done, for the
- * plain words of a notice's "Details" (`errorDetails`).
+ * What a failure says, split between the notice's line, its "Details" in plain words
+ * (`errorDetails`) and the log: the core's own sentence, its wording for the interface language,
+ * plain words when the sentence is the system's code, and what was being done.
  */
 export interface ErrorDescription {
   /** The sentence the error carries, without Electron's wrapping, its class name or a stack. */
@@ -22,11 +22,24 @@ export interface ErrorDescription {
    */
   call: string | null;
   /**
-   * The call, the error's class, its sentence and its cause, for the log, never the screen: a
-   * method's or a class's name says nothing to the User.
+   * The call, the error's class, its sentence, its stack and its cause, for the log, never the
+   * screen: a method's or a class's name says nothing to the User.
    */
   log: string;
+  /**
+   * This window's own code threw a TypeError, ReferenceError and the like: its sentence names
+   * code, so the notice shows the plain Problem instead (#2823).
+   */
+  programError: boolean;
+  /** A call to a method the core doesn't have: a restart loads the window and the main process together. */
+  stale: boolean;
 }
+
+/** The failures this window's own code raises, whose sentences name code rather than what happened. */
+const PROGRAM_FAILURE = /^(?:TypeError|ReferenceError|RangeError|SyntaxError)$/;
+
+/** A call to a method that isn't there, which a restart fixes when the window and the main process differ. */
+const MISSING_METHOD = /\bis not a function\b/;
 
 /**
  * Electron rejects a call to the main process with the error written out:
@@ -56,16 +69,26 @@ export function describeError(error: unknown): ErrorDescription {
   const reason = systemReason(message);
   const call = /^core:(\w+)$/.exec(wrapped?.[1] ?? "")?.[1] ?? null;
   const said = `${className || "Error"}: ${message}`;
+  const programError =
+    !wrapped &&
+    wording === null &&
+    reason === null &&
+    error instanceof Error &&
+    PROGRAM_FAILURE.test(error.name);
+  const stale = programError && error instanceof TypeError && MISSING_METHOD.test(message);
   const cause =
     error instanceof Error && error.cause !== undefined
       ? `\nCaused by: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`
       : "";
+  const stack = programError && error instanceof Error && error.stack ? `\n${error.stack}` : "";
   return {
     message,
     wording,
     reason,
     call,
-    log: (wrapped?.[1] ? `${wrapped[1]}\n${said}` : said) + cause,
+    log: (wrapped?.[1] ? `${wrapped[1]}\n${said}` : said) + stack + cause,
+    programError,
+    stale,
   };
 }
 

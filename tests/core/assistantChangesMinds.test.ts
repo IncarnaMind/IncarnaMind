@@ -6,6 +6,7 @@ import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { ownTextRemoved } from "../../src/shared/askedChanges";
 import { translate } from "../../src/shared/i18n";
+import { mindModelOf } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
   answerRequests,
@@ -30,6 +31,7 @@ import {
 } from "../helpers/minds";
 import {
   type ModelCall,
+  promptOf,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
@@ -336,6 +338,27 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
       "+ Tides",
       "+ Spring tides come at new and full moon ⟨found⟩.",
     ]);
+  });
+
+  // protects=a Note the assistant makes goes on with the model its Question was asked with (#2836); fails_when=it has no pick of its own and follows the Answers default; no_claim=which model a User should pick.
+  test("a new note made from a conversation goes on with the model it was asked with", async () => {
+    const model = toolModel(
+      { tool: "create_mind", input: { title: "Tide notes", content: "Tides come twice a day." } },
+      "Made “Tide notes”.",
+    );
+    const { core } = await setUp(model);
+    const [ollama] = await core.listChatProviders();
+    const other = { providerId: ollama?.id ?? "", modelId: "other-model" };
+
+    const answer = await ask(core, {
+      text: "Make a new note on tides",
+      mindId: null,
+      model: other,
+    });
+
+    const [change] = changesIn(answer);
+    expect(change).toMatchObject({ created: true });
+    expect(mindModelOf((await connectToMind(core, change?.mindId ?? "")).doc)).toEqual(other);
   });
 
   // protects=a Mind the assistant makes starts with its title as a Heading 1, written with the Mind and not a change to accept, and a draft that begins with a heading of its own gets no second one (#908, the owner's résumé summary); fails_when=the title is missing, waits as a change, or shows twice; no_claim=how a real model titles a page.
@@ -1188,6 +1211,94 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
       conversationId: asked.conversation.id,
       answerId: asked.answerId,
     });
+  });
+
+  // protects=a write the User stops halfway is recorded for the next turn with the changes it kept and their fate, never "nothing changed", in English and Chinese (#2834); fails_when=the next turn reads nothing changed though the Note shows the kept Blocks; no_claim=none beyond protects.
+  test.each(["en", "zh-CN"] as const)(
+    "a write stopped halfway is recorded with what it kept (%s)",
+    async (language) => {
+      const after = JSON.stringify({ content: CONTENT }).indexOf("courier");
+      const model = scriptedModel((call): ScriptedReply => {
+        if (call.prompt.includes("<tool-record>")) {
+          return { text: "A risks section is waiting for you." };
+        }
+        return call.results.length === 0
+          ? {
+              calls: [{ tool: "add_to_mind", input: { content: CONTENT }, streamInput: true }],
+              pause: { after, until: new Promise(() => undefined) },
+            }
+          : { text: "Added a risks section." };
+      });
+      const { core, mind, client } = await setUp(model);
+      await core.updateSettings({ user: { language } });
+      const asked = await core.askInConversation({ text: "Add a risks section", mindId: mind.id });
+      if (!asked.asked) throw new Error("Not asked.");
+      const ended = answerEnded(core, asked.answerId);
+      await expect
+        .poll(() => shownWithChanges(client), { timeout: 10_000 })
+        .toContain("+ The supplier is late.");
+      await core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+      expect(await ended).toMatchObject({ payload: { status: "stopped" } });
+      // The Note keeps what the write put in it, and the next turn is told so.
+      expect(shownWithChanges(client)).toContain("+ The supplier is late.");
+      const next = await core.askInConversation({
+        conversationId: asked.conversation.id,
+        text: language === "en" ? "What did you change?" : "你改了什么？",
+        mindId: mind.id,
+      });
+      if (!next.asked) throw new Error("Not asked.");
+      const nextEnded = answerEnded(core, next.answerId);
+      await nextEnded;
+      const prompt = promptOf(model, 1)
+        .map((message) => message.text)
+        .join("\n");
+      expect(prompt).toContain(
+        "- add_to_mind “Q3 review”: proposed 2 new Blocks, waiting for the User, and it didn't finish",
+      );
+    },
+  );
+
+  test("a write stopped before any of it was kept still reads nothing changed", async () => {
+    const after = JSON.stringify({ content: CONTENT }).indexOf("Risks");
+    const model = scriptedModel((call): ScriptedReply => {
+      if (call.prompt.includes("<tool-record>")) return { text: "Nothing was added." };
+      return call.results.length === 0
+        ? {
+            calls: [{ tool: "add_to_mind", input: { content: CONTENT }, streamInput: true }],
+            pause: { after, until: new Promise(() => undefined) },
+          }
+        : { text: "Adding." };
+    });
+    const { core, mind } = await setUp(model);
+    const asked = await core.askInConversation({ text: "Add a risks section", mindId: mind.id });
+    if (!asked.asked) throw new Error("Not asked.");
+    const calls = async () => {
+      const { messages } = await core.getConversation(asked.conversation.id);
+      const answer = messages.find((message) => message.id === asked.answerId);
+      return answer?.kind === "answer" ? answer.toolCalls : [];
+    };
+    await expect.poll(calls, { timeout: 10_000 }).toHaveLength(1);
+    const ended = answerEnded(core, asked.answerId);
+    await core.stopConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+    });
+    expect(await ended).toMatchObject({ payload: { status: "stopped" } });
+    const next = await core.askInConversation({
+      conversationId: asked.conversation.id,
+      text: "What did you change?",
+      mindId: mind.id,
+    });
+    if (!next.asked) throw new Error("Not asked.");
+    const nextEnded = answerEnded(core, next.answerId);
+    await nextEnded;
+    const prompt = promptOf(model, 1)
+      .map((message) => message.text)
+      .join("\n");
+    expect(prompt).toMatch(/- add_to_mind [^\n]*: nothing changed/);
   });
 
   // protects=a model that writes its content before naming the Mind gets its Blocks taken back from the Mind in focus and written into the one it named, once each, with nothing left behind; fails_when=a streamed Block stays in the focused Mind, or one is written twice; no_claim=how long the take-back shows.

@@ -2,9 +2,10 @@ import { isMacOS } from "@tiptap/core";
 import { Children, type ReactNode, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import type { ChatGptPlanStatus, ChatModelChoice, ChatProvider } from "../../../core/api";
+import { billingOf } from "../../../core/providers/catalog/billing";
 import { isCloudModelName } from "../../../core/providers/ollamaCloud";
 import type { MessageKey } from "../../../shared/i18n";
-import { sameModel, setMindModel } from "../../../shared/mindModel";
+import { sameModel } from "../../../shared/mindModel";
 import { shortModelName } from "../../../shared/modelName";
 import { useAnswers } from "../answers";
 import { CheckLineIcon } from "../components/lineIcons";
@@ -19,18 +20,25 @@ import { usePopoverMenu } from "../components/usePopoverMenu";
 import { core } from "../core";
 import { useT } from "../i18n";
 import { turnOffLocalMode } from "../localMode";
-import { useModelInUse } from "../modelInUse";
+import { chooseModel, setAnswersModel, useAnswersModel, useModelInUse } from "../modelInUse";
 import { useModelMenuRequests } from "../modelMenu";
 import { useModelNames } from "../modelNames";
 import { usePlanStandIn } from "../planLimits";
+import { type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
 import { untestedHintKey } from "../untestedModels";
 import { ChevronDownSmallIcon } from "./icons";
 
-/** Where a model runs, as the menu groups them (DESIGN.md, Composer › Model). */
-type ModelGroup = "keys" | "plan" | "local" | "cloud";
+/** Who pays for a model, as the menu groups them (DESIGN.md, AI setup, the composer). */
+type ModelGroup = "plan" | "keys" | "local" | "cloud";
 
-const GROUPS: readonly ModelGroup[] = ["keys", "plan", "local", "cloud"];
+const GROUPS: readonly ModelGroup[] = ["plan", "keys", "local", "cloud"];
+
+const BILLED: Record<ReturnType<typeof billingOf>, ModelGroup> = {
+  plan: "plan",
+  "per-token": "keys",
+  free: "local",
+};
 
 /**
  * `cloud`: the model runs on ollama.com though its provider, Ollama, is on this
@@ -38,13 +46,7 @@ const GROUPS: readonly ModelGroup[] = ["keys", "plan", "local", "cloud"];
  * the model list's word comes first.
  */
 const groupOf = (provider: ChatProvider, cloud: boolean): ModelGroup =>
-  provider.kind === "chatgpt"
-    ? "plan"
-    : cloud
-      ? "cloud"
-      : provider.service === null
-        ? "local"
-        : "keys";
+  cloud ? "cloud" : BILLED[billingOf(provider.kind, provider.service)];
 
 const GROUP_NAMES: Record<ModelGroup, MessageKey> = {
   keys: "composer.model.group.keys",
@@ -53,13 +55,16 @@ const GROUP_NAMES: Record<ModelGroup, MessageKey> = {
   cloud: "composer.model.group.cloud",
 };
 
-/** How a model is reached, after its name in the chip's tooltip. */
+/** How a model is reached, after its name in the chip's tooltip; a plan's names the plan. */
 const VIA: Record<ModelGroup, MessageKey> = {
   keys: "composer.model.via.keys",
   plan: "composer.model.via.plan",
   local: isMacOS() ? "composer.model.via.localMac" : "composer.model.via.local",
   cloud: "composer.model.via.cloud",
 };
+
+/** Where Settings sets the Answers default the foot names: by this page's own label (#2835 renames it). */
+const ANSWERS_PAGE: SettingsPage = "models";
 
 /** The model a run in the Mind uses: the one in use, else the default the composer shows. */
 export function useRunModel(doc: Y.Doc | null): {
@@ -76,21 +81,17 @@ export function useRunModel(doc: Y.Doc | null): {
   return inUse ?? { providerId, modelId };
 }
 
-function chooseModel(doc: Y.Doc | null, choice: ChatModelChoice): void {
-  if (doc) setMindModel(doc, choice);
-  void useAppStore.getState().updateSettings({ device: { lastChatModel: choice } });
-}
-
 /**
  * The composer's quiet model chip, before the Search scope: the model the
  * Mind's next Questions are asked with, and a menu to choose another, grouped
- * by where it runs (your keys, the ChatGPT plan, this computer), with a hint
- * only on a model that needs one. A choice is remembered for the Mind (`setMindModel`) and as the
- * last pick (`DeviceSettings.lastChatModel`); a Mind with none of its own follows the last pick,
- * else the Answers default (`modelInUse`). The menu names at its foot the model a new Mind starts on.
- * Until the User is signed in with ChatGPT, the plan's group offers "Continue
- * with ChatGPT"; while its model is chosen, it says the plan is in use, with
- * "Manage usage". Not shown before any chat model is set up.
+ * by who pays (your plans, your keys, this computer), with a hint only on a
+ * model that needs one. A choice is for this Mind only (`chooseModel`); with no
+ * Mind in focus, for the conversation the assistant shows. "Use this for new notes too"
+ * makes the model in use the Answers default, which the foot names: a Mind with
+ * no pick of its own follows it (`modelInUse`, #2836). Until the User is
+ * signed in with ChatGPT, the plans' group offers "Continue with ChatGPT";
+ * while its model is chosen, it says the plan is in use, with "Manage usage".
+ * Not shown before any chat model is set up.
  */
 export function ModelChip({
   doc,
@@ -104,7 +105,7 @@ export function ModelChip({
 }) {
   const t = useT();
   const current = useModelInUse(doc);
-  const newMindModel = useModelInUse(null);
+  const newMindModel = useAnswersModel();
   const readiness = useAppStore((state) => state.chatReadiness);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const openSettings = useAppStore((state) => state.openSettings);
@@ -161,7 +162,11 @@ export function ModelChip({
       ? group.cloud.includes(modelId)
       : isCloudModelName(modelId) || (provider?.kind === "ollama" && provider.service !== null);
   };
-  const via = provider ? t(VIA[groupOf(provider, isCloud(provider.id, current.modelId))]) : null;
+  const via = provider
+    ? t(VIA[groupOf(provider, isCloud(provider.id, current.modelId))], {
+        plan: t(`providers.kind.${provider.kind}`),
+      })
+    : null;
   const shown = nameOf(current.modelId, current.providerId);
   const answering =
     standIn && provider?.kind === "chatgpt" && standIn.insteadOf === current.modelId
@@ -186,6 +191,8 @@ export function ModelChip({
   const label = via
     ? t("composer.model.label", { model: fullText, via })
     : t("composer.model.labelPlain", { model: fullText });
+  const heading = t(doc ? "composer.model.menu" : "composer.model.menuConversation");
+  const isDefault = sameModel(current, newMindModel);
 
   const choose = (choice: ChatModelChoice) => {
     // The User's own pick wins over a stand-in, for the model it stood in for too.
@@ -238,12 +245,15 @@ export function ModelChip({
       <div
         {...menu.menuProps}
         role="menu"
-        aria-label={t("composer.model.menu")}
+        aria-label={heading}
         data-testid="composer-model-menu"
-        className="model-menu"
+        className="model-menu composer-model-menu"
       >
         {menu.open && (
           <>
+            <p aria-hidden="true" data-testid="composer-model-heading" className="model-menu-title">
+              {heading}
+            </p>
             <div
               className="model-menu-list"
               onKeyDownCapture={(event) => {
@@ -297,6 +307,7 @@ export function ModelChip({
                             key={`${each.id}\n${modelId}`}
                             provider={each}
                             modelId={modelId}
+                            hint={untestedHintKey(each) ? t("providers.untested") : null}
                             checked={sameModel({ providerId: each.id, modelId }, current)}
                             unavailable={localMode}
                             onChoose={choose}
@@ -372,27 +383,31 @@ export function ModelChip({
                 </p>
               ) : null}
             </div>
-            <div className="model-menu-foot">
-              <span>
-                {newMindModel
-                  ? t("composer.model.default", {
-                      model: nameOf(newMindModel.modelId, newMindModel.providerId).name,
-                    })
-                  : t("composer.model.defaultUnset")}
-              </span>
-              <span aria-hidden="true"> · </span>
+            <div className="model-menu-end">
               <button
                 type="button"
                 role="menuitem"
-                data-testid="composer-model-settings"
+                aria-disabled={isDefault || undefined}
+                data-testid="composer-model-for-new"
                 onClick={() => {
-                  menu.close();
-                  openSettings("models");
+                  if (!isDefault) void setAnswersModel(current);
                 }}
-                className="model-menu-link"
+                className="model-menu-item"
               >
-                {t("composer.model.change")}
+                <span aria-hidden="true" />
+                <span className="model-menu-name">{t("composer.model.useForNew")}</span>
               </button>
+              <p data-testid="composer-model-default" className="model-menu-default">
+                <DefaultLine
+                  model={
+                    newMindModel ? nameOf(newMindModel.modelId, newMindModel.providerId).name : null
+                  }
+                  onOpenSettings={() => {
+                    menu.close();
+                    openSettings(ANSWERS_PAGE, "chat-model");
+                  }}
+                />
+              </p>
             </div>
           </>
         )}
@@ -457,8 +472,37 @@ function ModelItem({
 }
 
 /**
- * The ChatGPT plan's group: its models once signed in, with "Using ChatGPT
- * plan · Manage usage" while one is chosen, as OpenAI's guidelines ask; else
+ * What new Notes start on, "from Settings › {page}", which opens that page: the words around the
+ * link come from one sentence, so the link sits where each language puts it.
+ */
+function DefaultLine({ model, onOpenSettings }: { model: string | null; onOpenSettings(): void }) {
+  const t = useT();
+  const mark = "\u0000";
+  const said = model
+    ? t("composer.model.default", { model, settings: mark })
+    : t("composer.model.defaultUnset", { settings: mark });
+  const [before = "", after = ""] = said.split(mark);
+  return (
+    <>
+      {before}
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="composer-model-settings"
+        onClick={onOpenSettings}
+        className="model-menu-link"
+      >
+        {t("settings.title")} › {t(settingsPageLabels[ANSWERS_PAGE])}
+      </button>
+      {after}
+    </>
+  );
+}
+
+/**
+ * The plans' group: the models of each plan signed in to (ChatGPT, a Claude
+ * account, Copilot), with "Using ChatGPT plan · Manage usage" while ChatGPT's
+ * is chosen, as OpenAI's guidelines ask; until signed in with ChatGPT,
  * "Continue with ChatGPT", which signs in and chooses the plan for this Mind.
  */
 function PlanGroup({
@@ -481,17 +525,15 @@ function PlanGroup({
       <p aria-hidden="true" className="model-menu-heading">
         {t(GROUP_NAMES.plan)}
       </p>
+      {children}
       {signedIn ? (
-        <>
-          {children}
-          {inUse && (
-            <p data-testid="composer-model-plan-in-use" className="model-menu-intro">
-              {t("chatgpt.inUse")}
-              <span aria-hidden="true"> · </span>
-              <ManageUsageLink />
-            </p>
-          )}
-        </>
+        inUse && (
+          <p data-testid="composer-model-plan-in-use" className="model-menu-intro">
+            {t("chatgpt.inUse")}
+            <span aria-hidden="true"> · </span>
+            <ManageUsageLink />
+          </p>
+        )
       ) : sign.waiting || sign.failureText ? (
         <div className="model-menu-intro">
           <ChatGptSignInState sign={sign} retry />

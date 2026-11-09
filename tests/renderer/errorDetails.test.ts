@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { coreApiMethods, type SaveFailureReason } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
-import { errorDetails, errorDoing } from "../../src/renderer/src/errorDetails";
+import { errorDetails, errorDoing, errorLine } from "../../src/renderer/src/errorDetails";
 import { describeError } from "../../src/renderer/src/errors";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -83,13 +83,48 @@ describe("the Details of a notice", () => {
     );
   });
 
-  test("a failure that never crossed the bridge says what was asked, not what failed", () => {
+  test("a failure this window's own code raised says the plain Problem, not its sentence", () => {
     const notice = describeError(new TypeError("Cannot read properties of undefined"));
     expect(errorDetails(wordsIn("en"), "en", notice)).toEqual([
-      "Cannot read properties of undefined",
+      "Something went wrong inside IncarnaMind.",
       "IncarnaMind was doing what you asked when this happened.",
       "Try again. If it keeps happening, restart IncarnaMind.",
     ]);
+  });
+
+  // protects=what a renderer's own failure shows (its line and Details) names no method, class or core., in both languages; fails_when=a raw TypeError message, a method name or a class's name reaches either; no_claim=none beyond protects.
+  test.each(LANGUAGES)(
+    "a renderer's own TypeError shows no method, class or core. in %s",
+    (language) => {
+      const t = wordsIn(language);
+      const notice = describeError(new TypeError("core.startOrganize is not a function"));
+      const shown = [errorLine(t, notice), ...errorDetails(t, language, notice)].join("\n");
+      expect(shown).not.toContain("core.");
+      expect(shown).not.toContain("startOrganize");
+      expect(shown).not.toMatch(/\b\w*Error\b/);
+      // The technical text and its stack stay for the log.
+      expect(notice.log).toContain("core.startOrganize is not a function");
+      expect(notice.log).toMatch(/\n\s+at /);
+    },
+  );
+
+  test("a method the core doesn't have says to restart, in both languages", () => {
+    const notice = describeError(new TypeError("core.startOrganize is not a function"));
+    expect(errorLine(wordsIn("en"), notice)).toBe("That didn’t work.");
+    expect(errorDetails(wordsIn("en"), "en", notice)[2]).toBe(
+      "Restart IncarnaMind, then try again.",
+    );
+    expect(errorDetails(wordsIn("zh-CN"), "zh-CN", notice)).toEqual([
+      "IncarnaMind 内部出了问题。",
+      "出错时，IncarnaMind 正在执行你要求的操作。",
+      "请重启 IncarnaMind，然后重试。",
+    ]);
+  });
+
+  test("a plain failure this window wrote keeps its own words", () => {
+    const notice = describeError(new Error("The picture wasn’t drawn."));
+    expect(errorLine(wordsIn("en"), notice)).toBe("That didn’t work: The picture wasn’t drawn.");
+    expect(errorDetails(wordsIn("en"), "en", notice)[0]).toBe("The picture wasn’t drawn.");
   });
 
   // protects=no Details line shows the name of a core call or of an error's class, for any call; fails_when=a method of the core's interface leaks into a line in either language; no_claim=none beyond protects.

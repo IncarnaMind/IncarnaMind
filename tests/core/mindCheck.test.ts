@@ -36,6 +36,7 @@ import {
   listedSentences,
   type Plan,
   requestedFigures,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -552,7 +553,7 @@ describe("Check this note", () => {
     ).toBe(true);
   });
 
-  test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
+  test("the model it names is the one in use: a Mind with no pick follows the Answers default, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {
       const plan = await core.planMindCheck(mindId, "all");
@@ -573,23 +574,24 @@ describe("Check this note", () => {
       modelId: "gpt-6-luna",
       keepDefault: true,
     });
-    const last = { providerId: claude.id, modelId: "claude-haiku-5-5" };
+    const answers = { providerId: claude.id, modelId: "claude-haiku-5-5" };
     const own = { providerId: openai.id, modelId: "gpt-6-luna" };
 
-    await core.updateSettings({ device: { lastChatModel: last } });
-    expect(await named()).toEqual(last);
+    await core.updateSettings({ user: { chatModel: answers } });
+    expect(await named()).toEqual(answers);
 
     setMindModel(client.doc, own);
     await client.settled();
     expect(await named()).toEqual(own);
     await core.updateSettings({
-      device: { lastChatModel: { providerId: claude.id, modelId: "claude-sonnet-5-5" } },
+      user: { chatModel: { providerId: claude.id, modelId: "claude-sonnet-5-5" } },
     });
     expect(await named()).toEqual(own);
 
     await core.deleteChatProvider(openai.id);
     expect(await named()).toEqual({ providerId: claude.id, modelId: "claude-sonnet-5-5" });
-    await core.deleteChatProvider(claude.id);
+    // Its pick's provider gone, the Mind follows the Answers default wherever it moves.
+    await core.updateSettings({ user: { chatModel: defaultModel } });
     expect(await named()).toEqual(defaultModel);
   });
 
@@ -1481,7 +1483,7 @@ describe("Checking selected figures in one sentence", () => {
         const requested = requestedFigures(call);
         const positions: Record<string, number> = { "£20": 1, "£5": 2, "£7": 3 };
         const reply = {
-          text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
+          text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({
             items: requested.map(({ id, shown }) => {
               const position = positions[shown];
               if (!position) throw new Error(`Unknown fixture figure ${shown}.`);
