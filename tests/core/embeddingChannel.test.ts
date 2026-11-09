@@ -134,4 +134,34 @@ describe("The embedding model in another process", () => {
     expect(await embedded).toEqual(fakeVector("a long Passage"));
     expect(processes.started[0]?.stopped).toBe(true);
   });
+
+  // protects=a process closed with nothing of its own left to answer stops at once, while an earlier closed one still answers its text (#2830); fails_when=it waits for the earlier one's request, which it can never answer, keeping its model in memory until the time limit; no_claim=how long a real model takes.
+  test("a process closed with nothing of its own to answer stops at once, while an earlier one still answers", async () => {
+    let finish: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const fake = createFakeEmbedder();
+    const processes = fakeProcesses({
+      load: (files) => fake.load(files),
+      embed: async (text) => {
+        await held;
+        return fake.embed(text);
+      },
+      close: () => fake.close(),
+    });
+    const embedder = createChannelEmbedder(processes.start);
+    await embedder.load(FILES);
+    const embedded = embedder.embed("a long Passage");
+    embedder.close();
+
+    await embedder.load(FILES);
+    embedder.close();
+
+    expect(processes.started[1]?.stopped).toBe(true);
+    expect(processes.started[0]?.stopped).toBe(false);
+    finish();
+    expect(await embedded).toEqual(fakeVector("a long Passage"));
+    expect(processes.started[0]?.stopped).toBe(true);
+  });
 });

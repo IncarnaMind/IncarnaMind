@@ -36,7 +36,11 @@ export interface EmbedderChannel {
   stop(): void;
 }
 
-type Pending = { resolve(response: EmbedderResponse): void; reject(error: Error): void };
+type Pending = {
+  resolve(response: EmbedderResponse): void;
+  reject(error: Error): void;
+  on: EmbedderChannel;
+};
 
 /**
  * The core's `Embedder`, backed by a channel that `start` opens. The channel
@@ -76,7 +80,7 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
     const target = channel;
     const id = nextId++;
     return new Promise<EmbedderResponse>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      pending.set(id, { resolve, reject, on: target });
       target.send({ ...command, id });
     }).then((response) => {
       if (response.error !== undefined) throw new Error(response.error);
@@ -113,7 +117,9 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
       const stopping = channel;
       channel = undefined;
       loadedKey = undefined;
-      if (stopping) stops.close(stopping, new Set(pending.keys()));
+      if (!stopping) return;
+      const own = [...pending].flatMap(([id, each]) => (each.on === stopping ? [id] : []));
+      stops.close(stopping, new Set(own));
     },
   };
 }
