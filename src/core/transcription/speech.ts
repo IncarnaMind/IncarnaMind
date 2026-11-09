@@ -296,10 +296,9 @@ export function createSpeechHost(
   /**
    * How far the stream was heard with nothing owed before it but what the decoder hasn't read:
    * where it had got when its oldest final reading still due was queued. Speech still being said
-   * isn't owed, as its live words show it and it is queued within `longest`: falling behind is
-   * the engine not keeping up, not a long turn (#2902). Counted from the queueing rather than the
-   * piece's end, so it never goes back: the core keeps the furthest. An engine that reads a
-   * stretch only once it ends owes all of it, so its `doneOf`.
+   * isn't owed, as it is queued within `longest`: falling behind is the engine not keeping up,
+   * not a long turn (#2902). An engine that reads a stretch only once it ends owes all of it, so
+   * its `doneOf`.
    */
   function heardOf(stream: Stream): number {
     if (!Number.isFinite(longest)) return doneOf(stream);
@@ -324,11 +323,11 @@ export function createSpeechHost(
   function load(of: "work" | "liveWork" = "work"): number {
     let sum = 0;
     for (const stream of streams.values()) {
-      const heardMs = msOf(stream.received);
-      stream[of] = stream[of].filter((each) => each.atMs > heardMs - LOAD_WINDOW_MS);
-      if (heardMs < LOAD_FROM_MS) continue;
+      const receivedMs = msOf(stream.received);
+      stream[of] = stream[of].filter((each) => each.atMs > receivedMs - LOAD_WINDOW_MS);
+      if (receivedMs < LOAD_FROM_MS) continue;
       const busy = stream[of].reduce((total, each) => total + each.ms, 0);
-      sum += busy / Math.min(heardMs, LOAD_WINDOW_MS);
+      sum += busy / Math.min(receivedMs, LOAD_WINDOW_MS);
     }
     return sum;
   }
@@ -464,7 +463,8 @@ export function createSpeechHost(
         samples.length - at > longest
           ? at + cutOf(samples.subarray(at, at + longest))
           : samples.length;
-      stream.unfinished.set(start + at, stream.received);
+      // A piece can start where one still queued does (both at a cut): the older one is owed from earlier.
+      stream.unfinished.set(start + at, stream.unfinished.get(start + at) ?? stream.received);
       finals.push({
         stream: stream.name,
         id: partId,

@@ -10,7 +10,7 @@
  * { type: "dropCloud", id, streams }. The other end answers a load, a finish or
  * a dropCloud with { type: "done", id } or { type: "error", id,
  * message }, and reports { type: "segment", segment }, { type: "progress",
- * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
+ * stream, doneMs, heardMs }, { type: "failed", stream, message }, { type: "switched",
  * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
  * they happen.
  *

@@ -33,6 +33,7 @@ function owingEngine(decodeMs: (audioMs: number) => number, { cuts = true } = {}
   const heard: { samples: number }[] = [];
   let waiting: { at: number; done: () => void }[] = [];
   let recordedMs = 0;
+  let ended = 0;
   let instant = false;
   const engine: SpeechEngine = {
     ...fake,
@@ -65,6 +66,7 @@ function owingEngine(decodeMs: (audioMs: number) => number, { cuts = true } = {}
       recordedMs += ms;
       const due = waiting.filter((each) => each.at <= recordedMs);
       waiting = waiting.filter((each) => each.at > recordedMs);
+      ended += due.length;
       for (const each of due) each.done();
     },
     /** Every decode from now on ends at once, as after Stop nothing more is recorded. */
@@ -75,6 +77,8 @@ function owingEngine(decodeMs: (audioMs: number) => number, { cuts = true } = {}
     },
     /** Whether the transcription process has heard this much of the call, less the tracks' wait. */
     caughtUp: () => heard.some((each) => each.samples >= ((recordedMs - 400) * RATE) / SECOND),
+    /** How many decodes have ended while the call recorded: each gives a line. */
+    ended: () => ended,
     where: () =>
       `${recordedMs} ms recorded, heard ${heard.map((each) => (each.samples * SECOND) / RATE).join(", ")}`,
   };
@@ -114,10 +118,15 @@ async function owingCall(owing: ReturnType<typeof owingEngine>) {
           { timeout: 5 * SECOND, interval: 1 },
         );
         owing.advance(STEP);
-        for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
-        if (behindAt === null && (await transcriptOf(core, meeting.id)).state === "behind") {
-          behindAt = playedMs;
-        }
+        const transcript = await vi.waitFor(
+          async () => {
+            const now = await transcriptOf(core, meeting.id);
+            if (now.state === "behind" || now.lines >= owing.ended()) return now;
+            throw new Error(`${owing.ended()} decodes ended, ${now.lines} lines in`);
+          },
+          { timeout: 5 * SECOND, interval: 1 },
+        );
+        if (behindAt === null && transcript.state === "behind") behindAt = playedMs;
       }
       return behindAt;
     },
@@ -136,17 +145,26 @@ const THEM: Speaking = { system: true };
 const QUIET: Speaking = {};
 
 describe("Live text is behind only by what the engine owes (#2902)", { timeout: 60_000 }, () => {
-  test("both sides talking for 15 s on a computer that decodes at 0.85 of real time: live text stays up", async () => {
+  test("both sides talking for 15 s, then one for 75 s more, decoded at 0.85 of real time: live text stays up", async () => {
     const owing = owingEngine((audioMs) => audioMs * 0.85);
     const call = await owingCall(owing);
-    // Each side's first 15 s is read at once, one after the other: the second's line comes 40.4 s
-    // into the call, 25.4 s after it was read and 40.4 s after its speech began.
+    // Each side's first 15 s is queued at once, one decoded after the other: the second's line
+    // comes 40.4 s into the call, 25.4 s after it was queued and 40.4 s after its speech began.
+    // The one side going on is then queued every 15 s and decoded in 12.75 s.
     expect(await call.play(15 * SECOND, BOTH)).toBeNull();
-    expect(await call.play(30 * SECOND, ME)).toBeNull();
-    const transcript = await transcriptOf(call.core, call.meetingId);
-    expect(transcript.state).toBe("live");
+    expect(await call.play(75 * SECOND, ME)).toBeNull();
+    expect((await transcriptOf(call.core, call.meetingId)).state).toBe("live");
     const { cues } = await call.stopAndRead();
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+  });
+
+  test("the same call decoded at 1.2 times real time falls behind, once the second side's line is 30 s late", async () => {
+    const owing = owingEngine((audioMs) => audioMs * 1.2);
+    const call = await owingCall(owing);
+    await call.play(15 * SECOND, BOTH);
+    const behindAt = await call.play(75 * SECOND, ME);
+    expect(behindAt).toBeGreaterThanOrEqual(45 * SECOND);
+    expect(behindAt).toBeLessThanOrEqual(47 * SECOND);
   });
 
   test("the same call on an engine that reads each stretch whole keeps today's rule, and falls behind", async () => {
@@ -170,15 +188,20 @@ describe("Live text is behind only by what the engine owes (#2902)", { timeout: 
       const theirs = cues.filter((cue) => cue.speaker === speaker);
       expect(theirs[0]?.startMs).toBeLessThanOrEqual(1 * SECOND);
       expect(theirs.at(-1)?.endMs).toBeGreaterThanOrEqual(59 * SECOND);
+      // No stretch between is missing: each line starts where the one before it ended.
+      const holes = theirs
+        .slice(1)
+        .filter((cue, at) => cue.startMs > (theirs[at]?.endMs ?? 0) + SECOND);
+      expect(holes).toEqual([]);
     }
   });
 
   test.each([
-    [25, null],
-    [31, 46],
+    ["isn't behind", 25, null],
+    ["is behind from 46 s into the call", 31, 46],
   ] as const)(
-    "a 15 s turn whose line takes %i s once it is read: behind from %s s into the call",
-    async (decodeSeconds, behindFrom) => {
+    "a 15 s turn whose line takes so long once it is queued %s (%i s)",
+    async (_what, decodeSeconds, behindFrom) => {
       const owing = owingEngine((audioMs) => (audioMs > 10 * SECOND ? decodeSeconds * SECOND : 0));
       const call = await owingCall(owing);
       await call.play(15 * SECOND, THEM);
@@ -191,7 +214,7 @@ describe("Live text is behind only by what the engine owes (#2902)", { timeout: 
     },
   );
 
-  test("paused and resumed while a line is owed: live text stays up, and the line is in the Transcript", async () => {
+  test("paused and resumed while a line is owed: the line is in the Transcript", async () => {
     const owing = owingEngine((audioMs) => (audioMs > 10 * SECOND ? 25 * SECOND : 0));
     const call = await owingCall(owing);
     await call.play(15 * SECOND, THEM);
@@ -322,7 +345,7 @@ describe("What the speech host says it owes (#2902)", () => {
     // Ten seconds in, the turn started at 1 s is being said: nothing is owed, though nothing is final.
     expect(last("call")).toEqual({ stream: "call", doneMs: 700, heardMs: 10_000 });
     await push("call", 10);
-    // Cut at 15.7 s (the turn's first 15 s, from 0.7 s), its piece read then and not yet final.
+    // At 15.7 s (the turn's first 15 s, from 0.7 s) its piece is cut, at 15.65 s, and queued; not yet final.
     expect(last("call")).toEqual({ stream: "call", doneMs: 700, heardMs: 15_700 });
     held.shift()?.();
     await vi.waitFor(() => expect(last("call")?.heardMs).toBe(20_000));
@@ -345,6 +368,22 @@ describe("What the speech host says it owes (#2902)", () => {
     const quiet = heldHost([], 15 * SECOND);
     await quiet.push("me", 20);
     expect(quiet.last("me")).toEqual({ stream: "me", doneMs: 20_000, heardMs: 20_000 });
+  });
+
+  test("a stretch that starts where a piece still owed does, at a cut, leaves that piece owed from when it was queued", async () => {
+    // Cut at 15.65 s; the turn ends at 15.8 s, its last piece from the cut; the next starts 0.05 s
+    // later, inside the detector's lead-in, so its piece starts at the cut too.
+    const { held, push, last } = heldHost(
+      [
+        [1, 15.8],
+        [15.85, 20],
+      ],
+      15 * SECOND,
+    );
+    await push("call", 21);
+    held.shift()?.();
+    await vi.waitFor(() => expect(last("call")?.doneMs).toBe(15_650));
+    expect(last("call")?.heardMs).toBe(15_900);
   });
 
   test("what a stream owes is never more than what isn't final: heard is never short of done", async () => {
