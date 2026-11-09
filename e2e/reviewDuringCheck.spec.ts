@@ -69,7 +69,7 @@ const NOTES = [
 const WORDS = {
   en: {
     made: "Wrote “Tide summary”",
-    checking: /^Checking /,
+    checking: /^Checking: /,
     reviewChanges: "Review changes",
     open: "Open",
     table: "Add a revenue table for checking",
@@ -80,7 +80,7 @@ const WORDS = {
   },
   "zh-CN": {
     made: "已写入“Tide summary”",
-    checking: /^正在核对 /,
+    checking: /^正在核对：/,
     reviewChanges: "查看改动",
     open: "打开",
     table: "添加核对用的收入表格",

@@ -2820,10 +2820,13 @@ export function mindTools(options: MindToolsOptions): {
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
+      // A Note with no title is named by its first line, which this write may just have given it:
+      // the reply names the Note as the User and the record of changes find it now (#2830).
+      const now = minds.list().find((each) => each.id === mind.id)?.name ?? mind.name;
       return added(
-        mind,
+        now === mind.name ? mind : { ...mind, name: now },
         written,
-        `in “${mind.name}”, ${after ? `after “${after}”` : "at its end"}`,
+        `in “${now}”, ${after ? `after “${after}”` : "at its end"}`,
         checked,
       );
     },
