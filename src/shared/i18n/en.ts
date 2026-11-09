@@ -4829,7 +4829,6 @@ export const en = {
   "scripts.call.stderrTruncated": "Cut: only the last {bytes} bytes are kept.",
 
   "export.action": "Export",
-  "export.idle": "Open a note to export it",
   "export.menu": "Export…",
   "export.as": "Export as {format}",
   "export.keywords": "export download save PDF Word docx Markdown source pack cited pages",
