@@ -449,18 +449,62 @@ const withoutAbove = ({
 }: NonNullable<CheckFigure["analysisRecord"]>) => record;
 
 /**
+ * Every line of the Note that may state the unit of a figure in `block` (#2864), each whole: its
+ * section's, above and below it, each heading it is under, and the Note's opening lines before its
+ * first heading. A table, a chart and a table's caption state their own cells' units.
+ */
+function unitLinesOf(block: Y.XmlElement): string[] {
+  const lines = new Set<string>();
+  const said = (at: Y.XmlElement) => {
+    if (saysOfText(at)) lines.add(plainText(at).trim());
+  };
+  said(block);
+  let under = Number.POSITIVE_INFINITY;
+  let first: Y.XmlElement = block;
+  for (let at = block.prevSibling; at; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    first = at;
+    if (at.nodeName !== "heading") {
+      if (under === Number.POSITIVE_INFINITY) said(at);
+      continue;
+    }
+    const level = Number(at.getAttribute("level")) || 1;
+    if (level < under) {
+      under = level;
+      lines.add(plainText(at).trim());
+    }
+  }
+  for (let at = block.nextSibling; at; at = at.nextSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    if (at.nodeName === "heading") break;
+    said(at);
+  }
+  for (let at: unknown = first; at instanceof Y.XmlElement; at = at.nextSibling) {
+    if (at.nodeName === "heading") break;
+    said(at);
+  }
+  return [...lines].filter(Boolean);
+}
+
+/**
  * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
  * when a check sends its sentence (#2544): a heading or line typed above since the Block's
  * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
- * are kept, since the check's record keeps them.
+ * are kept, since the check's record keeps them. Every other figure carries each line of the Note
+ * that states a unit it may be in (`unitLinesOf`), read again the same way.
  */
 export function withAboveNow<Figure extends CheckFigure>(
   figures: readonly Figure[],
   element: Y.XmlElement,
 ): Figure[] {
-  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  if (figures.length === 0) return [];
   const block = topBlockOf(element);
   const framing = linesAbove(block).filter(statesAFrame);
+  const above = framing.length > 0 ? { above: framing.join("\n") } : {};
+  const units = figures.some((figure) => !figure.analysisRecord)
+    ? unitLinesOf(block).filter(statesAFrame)
+    : [];
+  const unitLines = units.length > 0 ? { unitLines: units.join("\n") } : {};
   return figures.map((figure) =>
     figure.analysisRecord
       ? {
@@ -468,10 +512,10 @@ export function withAboveNow<Figure extends CheckFigure>(
           analysisRecord: {
             ...withoutAbove(figure.analysisRecord),
             ...headingAbove(block),
-            ...(framing.length > 0 && { above: framing.join("\n") }),
+            ...above,
           },
         }
-      : figure,
+      : { ...figure, ...unitLines },
   );
 }
 

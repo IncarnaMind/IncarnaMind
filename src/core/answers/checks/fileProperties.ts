@@ -83,7 +83,7 @@ interface Source {
 }
 
 const VERSION = "file-properties:";
-const isPropertyPassage = (passageId: unknown): boolean =>
+export const isPropertyPassage = (passageId: unknown): boolean =>
   typeof passageId === "string" && passageId.startsWith(VERSION);
 
 const MOST_NAMED = 8;
