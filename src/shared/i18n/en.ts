@@ -6773,6 +6773,7 @@ export const en = {
     "Recording… Live text fell behind; the transcript catches up when you stop.",
   "meetings.transcript.behindPaused": "Not all transcribed yet; it catches up when you stop.",
   "meetings.transcript.finishing": "Finishing the transcript…",
+  "meetings.transcript.separating": "Telling the speakers apart…",
   "meetings.transcript.finishingDownload":
     "Finishing the transcript: downloading the speech model, {percent}% of {size}…",
   "meetings.transcript.saved": "Transcript saved",
@@ -6798,6 +6799,10 @@ export const en = {
   "meetings.fill.question.sections": "Write the notes of this call.",
   "meetings.fill.waiting": "The note is filled in once the transcript is saved…",
   "meetings.fill.filling": "Filling in the note…",
+  "meetings.fill.checking.one": "Checking {count} claim…",
+  "meetings.fill.checking": "Checking {count} claims…",
+  "meetings.fill.checkingLocal.one": "Checking {count} claim on this computer…",
+  "meetings.fill.checkingLocal": "Checking {count} claims on this computer…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
