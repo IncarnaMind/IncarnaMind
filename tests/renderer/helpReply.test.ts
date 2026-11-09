@@ -335,8 +335,12 @@ describe("A help reply", () => {
       false,
     ]);
     // Found by its quote, or judged as a Citation, it shows no ✓ without a place that passed.
-    const foundOnly = { check: "found" as const };
-    const judgedOnly = { check: "found" as const, judgedAt: "2026-11-09T20:00:00.000Z" };
+    const foundOnly = { check: "found" as const, passedAt: undefined };
+    const judgedOnly = {
+      check: "found" as const,
+      judgedAt: "2026-11-09T20:00:00.000Z",
+      passedAt: undefined,
+    };
     expect(sentencePassed(foundOnly, 0)).toBe(false);
     expect(sentencePassed(judgedOnly, 0)).toBe(false);
   });

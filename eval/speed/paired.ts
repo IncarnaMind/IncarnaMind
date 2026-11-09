@@ -122,6 +122,10 @@ export interface ArmRun {
     listed: number;
     listedChecked: number;
     settledMs: number | null;
+    /** The judge's own reply, as read: its grade and the numbers it listed. */
+    judge: { grade: string; unstated: number[] };
+    /** Each shown number: its Citation's check, its quote found, listed by the judge, and ✓ shown. */
+    numbers: { number: number; check: string; found: boolean; listed: boolean; passed: boolean }[];
   };
 }
 

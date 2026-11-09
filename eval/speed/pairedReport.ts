@@ -18,6 +18,10 @@ export interface PairedRow {
   first: 0 | 1;
   /** Both arms' first requests were the same, ids and times aside; set only when the run asks. */
   sameRequest?: boolean;
+  /** Their model, system prompt, Tools and parameters were the same, ids and times aside. */
+  sameSetup?: boolean;
+  /** Where their messages differed, ids and times aside: both sides around it; null when they didn't. */
+  messageDifference?: string | null;
   baseline: ArmRun;
   candidate: ArmRun;
 }
@@ -48,12 +52,23 @@ const PER_LIBRARY = [
   /file-modified=\\"[^"\\]*\\"/g,
 ];
 
+const masked = (prompt: string) =>
+  PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
+
 /** Whether two arms sent the same first request, what differs between their libraries aside. */
 export function sameRequestOf(baseline: string | null, candidate: string | null): boolean {
   if (baseline === null || candidate === null) return false;
-  const masked = (prompt: string) =>
-    PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
   return masked(baseline) === masked(candidate);
+}
+
+/** Where two arms' messages first differ, what differs between their libraries aside: each side's 60 characters from a little before it. Null: they don't. */
+export function messageDifference(baseline: string, candidate: string): string | null {
+  const [a, b] = [masked(baseline), masked(candidate)];
+  if (a === b) return null;
+  let at = 0;
+  while (at < a.length && a[at] === b[at]) at++;
+  const from = Math.max(0, at - 20);
+  return `${JSON.stringify(a.slice(from, from + 60))} / ${JSON.stringify(b.slice(from, from + 60))}`;
 }
 
 /** How many of `rows` each arm went first in, baseline then candidate. */

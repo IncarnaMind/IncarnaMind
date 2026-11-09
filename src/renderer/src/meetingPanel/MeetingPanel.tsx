@@ -7,7 +7,6 @@ import {
   MEETING_PANEL_BRIDGE_KEY,
   type MeetingPanelBridge,
   SAYS_HIDDEN_FROM_SHARES,
-  type ShownHelp,
 } from "../../../shared/meetingPanel";
 import { keysHere } from "../commands/keymap";
 import {
@@ -36,7 +35,6 @@ import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
-import { createOwnHelps } from "./ownHelps";
 
 declare global {
   interface Window {
@@ -45,26 +43,6 @@ declare global {
 }
 
 const bridge = window[MEETING_PANEL_BRIDGE_KEY];
-
-const ownHelps = createOwnHelps({
-  end: (help) =>
-    void core
-      .stopAnswerCheck(help)
-      .catch((error: unknown) => useAppStore.getState().reportError(error)),
-  tell: (helps) => bridge.showing(helps),
-});
-
-/**
- * The one way the panel asks, whatever is asked: a button, its shortcut, Try again, or a question
- * typed into the panel. Its reply becomes the panel's own, whose check ends once the panel no longer
- * shows it (#2847). An ask that skips this leaves the check of a reply it replaced running, and
- * main never ends it when the panel closes.
- */
-function askFromPanel(asking: Promise<ShownHelp | null>): void {
-  void asking.then((asked) => {
-    if (asked) ownHelps.asked(asked);
-  });
-}
 
 const ADDED_MS = 6000;
 
@@ -125,11 +103,6 @@ export function MeetingPanel() {
   );
   const latestPinned = pinned.some((each) => each.answerId === meeting?.help?.answerId);
   useEffect(() => bridge.state({ folded, pinned: latestPinned }), [folded, latestPinned]);
-  const shown = [
-    ...(meeting?.help ? [meeting.help.answerId] : []),
-    ...pinned.map((each) => each.answerId),
-  ].join(" ");
-  useEffect(() => ownHelps.showing(shown ? shown.split(" ") : []), [shown]);
 
   const meetingRef = useRef(meeting);
   meetingRef.current = meeting;
@@ -139,7 +112,7 @@ export function MeetingPanel() {
         const live = meetingRef.current;
         if (!live) return;
         setFolded(false);
-        askFromPanel(askHelp(live, kind));
+        void askHelp(live, kind);
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
@@ -353,7 +326,7 @@ function Panel({
         meeting={meeting}
         layout="grid"
         keys={keys}
-        onPress={(kind) => askFromPanel(askHelp(meeting, kind))}
+        onPress={(kind) => void askHelp(meeting, kind)}
       />
       {shownPinned.map((each) => (
         <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />
@@ -491,7 +464,7 @@ function Suggestion({
       <HelpSuggestion
         help={help}
         answer={answer}
-        onRetry={() => askFromPanel(askHelp(meeting, help.kind))}
+        onRetry={() => void askHelp(meeting, help.kind)}
       />
       {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">

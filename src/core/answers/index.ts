@@ -1155,8 +1155,6 @@ export function createAnswers(options: AnswersOptions) {
     return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
   };
 
-  /** Answers still being written whose check was ended (#2847): they aren't checked when they end. */
-  const checkEnded = new Set<string>();
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
   const judgements = new Map<
     string,
@@ -1972,10 +1970,8 @@ export function createAnswers(options: AnswersOptions) {
       settle();
       const judging = judgesItsSentences() && outcome.status !== "failed";
       if (judging) {
-        // A stopped Answer's sentences aren't judged, nor those of one whose check was ended: they
-        // wait for the User's Check again.
-        waitingAs =
-          outcome.status === "done" && !checkEnded.has(answerId) ? "checking" : "not-checked";
+        // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
+        waitingAs = outcome.status === "done" ? "checking" : "not-checked";
         const text = withoutFootnoteDefinitions(markdown);
         waiting = judgedMarkers({
           text,
@@ -1986,7 +1982,6 @@ export function createAnswers(options: AnswersOptions) {
           figures: placedFigures(text, true).figures,
         });
       }
-      checkEnded.delete(answerId);
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
       if (placed.figures.length > 0 || placed.missing.length > 0) {
@@ -2035,7 +2030,6 @@ export function createAnswers(options: AnswersOptions) {
       }, ANSWER_WRITE_INTERVAL_MS);
     };
 
-    checkEnded.delete(answerId);
     active.set(answerId, { home, model, finish, task: input.task === true });
     writingChanged();
     announce("answer.started", { ...place, answerId, questionId: input.questionId, model });
@@ -4852,17 +4846,6 @@ export function createAnswers(options: AnswersOptions) {
       const generation = active.get(answerId);
       if (generation?.home.place.conversationId === conversationId) {
         generation.finish({ status: "stopped" });
-      }
-      if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
-    },
-
-    /** See `CoreApi.stopAnswerCheck`. */
-    stopCheck(input: unknown): void {
-      if (!isRecord(input)) throw new InvalidInputError("stopAnswerCheck expects an object.");
-      const conversationId = parseId(input.conversationId, "A conversation id");
-      const answerId = parseId(input.answerId, "An Answer id");
-      if (active.get(answerId)?.home.place.conversationId === conversationId) {
-        checkEnded.add(answerId);
       }
       if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
     },

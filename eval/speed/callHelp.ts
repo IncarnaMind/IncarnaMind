@@ -465,7 +465,7 @@ function marksOf(
   listed: readonly ConversationAnswer["citations"][number][],
   showsCheck: (citation: ConversationAnswer["citations"][number]) => boolean,
   settledMs: number | null,
-): NonNullable<Measured["marks"]> {
+): Omit<NonNullable<Measured["marks"]>, "judge" | "numbers"> {
   const missed: Record<string, number> = {};
   let checked = 0;
   let judged = 0;
@@ -602,7 +602,27 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstWordsMs,
         firstOptionMs,
         requests,
-        ...(read && { marks: marksOf(held, listed, showsCheck, settledMs) }),
+        ...(read &&
+          judged && {
+            marks: {
+              ...marksOf(held, listed, showsCheck, settledMs),
+              judge: { grade: judged.grade, unstated: judged.unstated },
+              numbers: [...numbers].flatMap(([marker, number]) => {
+                const citation = answer.citations.find((each) => each.marker === marker);
+                return citation
+                  ? [
+                      {
+                        number,
+                        check: citation.check,
+                        found: quoteFound(citation),
+                        listed: judged.unstated.includes(number),
+                        passed: showsCheck(citation),
+                      },
+                    ]
+                  : [];
+              }),
+            },
+          }),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,

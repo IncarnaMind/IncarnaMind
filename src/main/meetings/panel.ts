@@ -39,7 +39,6 @@ import {
   MEETING_PANEL_ARGUMENT,
   MEETING_PANEL_CHANNELS,
   type PanelState,
-  type ShownHelp,
 } from "../../shared/meetingPanel";
 import { themeWindow, windowColour } from "../appearance";
 import { handle } from "../ipc";
@@ -111,8 +110,6 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
 
   /** What the panel's page last said of itself; reset when a panel opens. */
   let reported = { folded: false, pinned: false };
-  /** The replies the panel asked for itself and shows, as its page last said. */
-  let showing: readonly ShownHelp[] = [];
   const panelState = (): PanelState => ({ shown: !!panel, ...reported });
   const tellShown = () => {
     for (const window of options.appWindows()) {
@@ -249,7 +246,6 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     themeWindow(window, "sheet");
     panel = window;
     reported = { folded: false, pinned: false };
-    showing = [];
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,
@@ -287,19 +283,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       !!settings?.device.meetingPanel && (meeting?.status === "recording" || !!panel);
     const wanted = !!meeting && (choice?.meetingId === meeting.id ? choice.shown : byDefault);
     if (wanted && !panel) open();
-    else if (!wanted && panel) {
-      panel.destroy();
-      // The replies it asked for itself go with it, so their checks end; the replies themselves
-      // go on, and none asked in the assistant is touched (#2847).
-      for (const help of showing) {
-        core.stopAnswerCheck(help).catch((error: unknown) =>
-          options.log.error("meeting.helpCheckNotEnded", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        );
-      }
-      showing = [];
-    }
+    else if (!wanted && panel) panel.destroy();
     if (panel && settings) panel.setContentProtection(settings.device.meetingPanelHidden);
     holdKeys(keysWanted());
   }
@@ -366,14 +350,6 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     if (typeof folded !== "boolean" || typeof pinned !== "boolean") return;
     reported = { folded, pinned };
     tellShown();
-  });
-  ipcMain.on(MEETING_PANEL_CHANNELS.showing, (event, helps: unknown) => {
-    if (!fromPanel(event) || !Array.isArray(helps)) return;
-    showing = helps.flatMap((help): ShownHelp[] =>
-      isRecord(help) && typeof help.conversationId === "string" && typeof help.answerId === "string"
-        ? [{ conversationId: help.conversationId, answerId: help.answerId }]
-        : [],
-    );
   });
 
   app.on("browser-window-focus", () => holdKeys(keysWanted()));

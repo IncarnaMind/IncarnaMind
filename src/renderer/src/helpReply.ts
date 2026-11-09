@@ -182,10 +182,8 @@ export function citationNumbers(
  * sentence it is cited in there (#2847). A found quote alone shows none, nor does a line too short
  * to be judged, and a marker reused by a sentence that didn't pass keeps the ✓ its own earned.
  */
-export const sentencePassed = (
-  citation: Pick<MarkedCitation, "check" | "passedAt">,
-  at: number,
-): boolean => citation.passedAt?.includes(at) === true;
+export const sentencePassed = (citation: Pick<MarkedCitation, "passedAt">, at: number): boolean =>
+  citation.passedAt?.includes(at) === true;
 
 const CITATION_MARKER = /\[\^\d+\]/g;
 

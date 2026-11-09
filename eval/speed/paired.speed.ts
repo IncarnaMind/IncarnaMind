@@ -21,7 +21,7 @@ import type { Library } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
-import { armNamed, armSwitch } from "./arms";
+import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
 import { gradeAnswer } from "./judge";
@@ -46,6 +46,7 @@ import {
   armTurns,
   cellOf,
   itemTable,
+  messageDifference,
   newFalseSupported,
   outcomeOf,
   type PairedRow,
@@ -141,6 +142,18 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "meeting-notes":
       return meetingNotesSet();
   }
+}
+
+/** What a pair's first requests share: the whole prompt, the setup apart, and where the messages differ. */
+function sentPair(baseline: SentRequest | null, candidate: SentRequest | null) {
+  return {
+    sameRequest: sameRequestOf(baseline?.prompt ?? null, candidate?.prompt ?? null),
+    sameSetup: sameRequestOf(baseline?.setup ?? null, candidate?.setup ?? null),
+    messageDifference:
+      baseline && candidate
+        ? messageDifference(baseline.messages, candidate.messages)
+        : "a request missing",
+  };
 }
 
 /** The items asked: in the languages and with the ids named, then at most `each` of a kind, the languages taking turns. */
@@ -307,7 +320,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             loads.push(loadavg()[0] ?? 0);
             const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
             const done: ArmRun[] = [];
-            const firstSent: (string | null)[] = [null, null];
+            const firstSent: (SentRequest | null)[] = [null, null];
             for (const which of order) {
               const arm = arms[which];
               const { library } = opened[which];
@@ -333,9 +346,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               model: name,
               run: time,
               first: order[0],
-              ...(sameRequest && {
-                sameRequest: sameRequestOf(firstSent[0] ?? null, firstSent[1] ?? null),
-              }),
+              ...(sameRequest && sentPair(firstSent[0] ?? null, firstSent[1] ?? null)),
               baseline: done[0] as ArmRun,
               candidate: done[1] as ArmRun,
             };

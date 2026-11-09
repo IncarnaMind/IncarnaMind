@@ -17,7 +17,7 @@ import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { answerJudged, shownPassages } from "../helpers/citations";
-import { createTempDataFolder, nextTurn, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import {
   type GenerateCall,
@@ -372,6 +372,48 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     },
   );
 
+  test("while Check again judges, a ✓ the first check gave shows no more, and it doesn't come back", async () => {
+    let round = 0;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
+    const { core, meeting, batches } = await setUp({
+      reply,
+      judge: (call) =>
+        ++round === 1
+          ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
+          : { ...batchOf(call, [["", { verdict: "unsupported" }]]), until: held },
+    });
+    const first = await (await pressed(core, meeting, "answer")).judged();
+
+    const again = core.checkAnswerAgain({
+      conversationId: first.conversationId,
+      answerId: first.id,
+    });
+    await vi.waitFor(() => expect(batches).toHaveLength(2));
+    const checking = await answerOf(core, first.conversationId, first.id);
+    release();
+    await again;
+    const after = await answerJudged(core, first.conversationId, first.id);
+
+    expect(chips(first)).toEqual([
+      { marker: 1, passed: true },
+      { marker: 1, passed: false },
+    ]);
+    expect(checking.citations).toMatchObject([{ marker: 1, check: "checking" }]);
+    expect(chips(checking)).toEqual([
+      { marker: 1, passed: false },
+      { marker: 1, passed: false },
+    ]);
+    expect(after.citations).toMatchObject([{ marker: 1, check: "unsupported" }]);
+    expect(chips(after)).toEqual([
+      { marker: 1, passed: false },
+      { marker: 1, passed: false },
+    ]);
+  });
+
   test("Check again judges anew: a ✓ its first check gave a sentence goes once the second doesn't pass it", async () => {
     let round = 0;
     const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
@@ -410,7 +452,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
 
-  test("the next press and Stop on the Meeting leave a reply and its check alone: the core ends neither", async () => {
+  test("the next press and Stop on the Meeting leave a reply and its check alone: its ✓ arrives", async () => {
     const hold = holdingFirst();
     const { core, meeting, batches } = await setUp({ reply: ENGLISH, judge: hold.judge });
 
@@ -424,47 +466,6 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(marks(await second.judged())).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
 
-  test("ending a reply's check ends that and nothing else: a check under way ends Not checked, and a reply still written goes on to its end unchecked", async () => {
-    const hold = holdingFirst();
-    const checking = await setUp({ reply: ENGLISH, judge: hold.judge });
-    const ended = await pressed(checking.core, checking.meeting, "answer");
-    await vi.waitFor(() => expect(checking.batches).toHaveLength(1));
-    await checking.core.stopAnswerCheck(ended.ids);
-    const afterCheck = await ended.judged();
-    hold.release();
-    await nextTurn();
-
-    let resume = () => {};
-    const until = new Promise<void>((resolve) => {
-      resume = resolve;
-    });
-    const writing = await setUp({ reply: ENGLISH, pause: { after: 10, until } });
-    const finished = new Set<string>();
-    writing.core.on("answer.finished", ({ answerId }) => finished.add(answerId));
-    const asked = await writing.core.askMeetingHelp({
-      meetingId: writing.meeting.id,
-      kind: "answer",
-    });
-    if (!asked.asked) throw new Error("Not asked.");
-    const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
-    await vi.waitFor(async () => {
-      const answer = await answerOf(writing.core, ids.conversationId, ids.answerId);
-      if (answer.text.length === 0) throw new Error("Nothing written yet.");
-    });
-    await writing.core.stopAnswerCheck(ids);
-    resume();
-    await vi.waitFor(() => {
-      if (!finished.has(ids.answerId)) throw new Error("The reply hasn't ended.");
-    });
-    const afterWriting = await answerJudged(writing.core, ids.conversationId, ids.answerId);
-
-    expect(afterCheck).toMatchObject({ status: "done", text: ENGLISH });
-    expect(marks(afterCheck)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
-    expect(afterWriting).toMatchObject({ status: "done", text: ENGLISH });
-    expect(marks(afterWriting)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
-    expect(writing.batches).toHaveLength(0);
-  });
-
   test("Stop on the reply stops it and its check: no ✓", async () => {
     const hold = holdingFirst();
     const { core, meeting, batches } = await setUp({ reply: ENGLISH, judge: hold.judge });
@@ -474,8 +475,10 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     await core.stopConversationAnswer(ids);
     const after = await judged();
     hold.release();
-    await nextTurn();
+    // The next press's ✓ arrives once its own check ends: by then the held one has had its turn.
+    const next = await (await pressed(core, meeting, "say")).judged();
 
+    expect(marks(next)).toEqual([{ marker: 1, check: "found", passed: true }]);
     expect(marks(after)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
     expect(marks(await answerOf(core, ids.conversationId, ids.answerId))).toEqual([
       { marker: 1, check: "not-checked", passed: false },
@@ -493,12 +496,14 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
 
     core.close();
     hold.release();
-    await nextTurn();
     const later = startCore(dataDir, { createChatModel: models.createChatModel });
+    const reopened = await answerOf(later, ids.conversationId, ids.answerId);
+    // Check again then gives its ✓: Not checked came from the quit, not from the sentence.
+    await later.checkAnswerAgain(ids);
+    const again = await answerJudged(later, ids.conversationId, ids.answerId);
 
-    expect(marks(await answerOf(later, ids.conversationId, ids.answerId))).toEqual([
-      { marker: 1, check: "not-checked", passed: false },
-    ]);
+    expect(marks(reopened)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
+    expect(marks(again)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
 
   test("kept into the Note, a reply carries what its check settled, as an Answer added from the assistant does", async () => {
@@ -530,14 +535,20 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
 
   // protects=the evaluation's switch to main's path keeps call help's ✓ on a found quote alone and sends no check, so a paired run compares the two paths and nothing else; fails_when=the switch judges the sentences or leaves the Citation checking; no_claim=which path is right (#2847).
   test("with main's path, the evaluation's switch, a found quote is marked found at the end and nothing is judged", async () => {
-    const { core, meeting, batches } = await setUp({ reply: ENGLISH }, () => true);
+    let quoteOnly = true;
+    const { core, meeting, batches } = await setUp({ reply: ENGLISH }, () => quoteOnly);
 
     const { atEnd } = await pressed(core, meeting, "answer");
-    await nextTurn();
+    const sent = batches.length;
+    // The branch's path, pressed after it in the same core, is checked: a batch is seen when sent.
+    quoteOnly = false;
+    const judgedPress = await (await pressed(core, meeting, "answer")).judged();
 
     expect(atEnd.citations).toMatchObject([{ marker: 1, check: "found" }]);
     expect(atEnd.citations[0]?.judgedAt).toBeUndefined();
-    expect(batches).toHaveLength(0);
+    expect(sent).toBe(0);
+    expect(batches).toHaveLength(1);
+    expect(marks(judgedPress)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
 
   // protects=the paired gate reads the reply's end on both arms from the same event, and the check's request comes after it, so the check can't move the reply's measured end (#2847); fails_when=a check request starts before the reply's end is announced; no_claim=how long the check takes.

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
@@ -9,6 +9,7 @@ import {
   firstTranscriptLine,
   launchApp,
   panelOf,
+  panelOpen,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
@@ -58,6 +59,7 @@ const CALLS = [
     answer: "Answer their question",
     answerPasses: true,
     want: "What do they want?",
+    showPanel: "Show the call help panel",
   },
   {
     language: "Chinese",
@@ -69,8 +71,20 @@ const CALLS = [
     answer: "回答对方的问题",
     answerPasses: false,
     want: "对方想要什么？",
+    showPanel: "显示通话助手浮窗",
   },
 ];
+
+/** Holds the scripted model's sentence checks until set false, which lets every held one go. */
+async function holdChecks(app: ElectronApplication, hold: boolean): Promise<void> {
+  await app.evaluate((_electron, held) => {
+    const slow = (
+      globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
+    ).incarnamindSlowCheck;
+    slow.hold = held;
+    if (!held) slow.release();
+  }, hold);
+}
 
 async function pressIn(page: Page, name: string): Promise<Locator> {
   await pointAndClick(page, page.getByTestId("help-button").filter({ hasText: name }));
@@ -109,15 +123,30 @@ for (const call of CALLS) {
     await firstTranscriptLine(window);
     const panel = await panelOf(app);
 
-    // An option resting on the price sheet: ✓ only if the check passed its line.
+    // An option resting on the price sheet, its check held: the chip shows its number alone.
+    await holdChecks(app, true);
     const answer = await pressIn(panel, call.answer);
+    const chip = answer.getByTestId("help-citation").first();
+    await expect(chip).toHaveAttribute("data-check", "checking");
+    await expect(chip).toHaveAttribute("data-passed", "false");
+    const before = { chip: await chip.boundingBox(), reply: await answer.boundingBox() };
+    await shot(panel, `call-help-marks-checking-${call.interface}`);
+
+    // Its check ends: ✓ only if it passed that line, and nothing moves when the mark comes.
+    await holdChecks(app, false);
     const answerMarks = await expectMarksAsChecked(window, answer);
     expect(answerMarks[0]).toMatchObject(
       call.answerPasses
         ? { passed: true, check: "found" }
         : { passed: false, check: "unsupported" },
     );
-    const answerBox = await answer.getByTestId("help-citation").first().boundingBox();
+    const after = { chip: await chip.boundingBox(), reply: await answer.boundingBox() };
+    if (!before.chip || !after.chip || !before.reply || !after.reply) {
+      throw new Error("The reply isn't drawn.");
+    }
+    expect(Math.abs(after.chip.width - before.chip.width)).toBeLessThan(0.5);
+    expect(Math.abs(after.chip.x - before.chip.x)).toBeLessThan(0.5);
+    expect(Math.abs(after.reply.height - before.reply.height)).toBeLessThan(0.5);
     await shot(panel, `call-help-marks-answer-${call.interface}`);
 
     // A reading of what they said: its moment's chip shows what the check gave that line.
@@ -128,12 +157,21 @@ for (const call of CALLS) {
       type: "reading's moment",
       description: JSON.stringify(wantMarks),
     });
-    const wantBox = await want.getByTestId("help-citation").first().boundingBox();
     await shot(panel, `call-help-marks-want-${call.interface}`);
 
-    // The ✓ keeps its place whether it shows or not, so nothing moves when one comes.
-    if (!answerBox || !wantBox) throw new Error("A Citation isn't drawn.");
-    expect(Math.abs(answerBox.width - wantBox.width)).toBeLessThan(0.5);
+    // Closed and shown again, the panel shows the latest reply with the marks its check gave.
+    const close = panel.getByTestId("panel-close");
+    await close.hover();
+    // The window goes as the click lands, which a click Playwright waits on would call a failure.
+    await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
+    await expect.poll(() => panelOpen(app)).toBe(false);
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type(call.showPanel);
+    await window.keyboard.press("Enter");
+    const shown = await panelOf(app);
+    const again = shown.getByTestId("help-suggestion").last();
+    await expect(again.getByTestId("help-heading")).toContainText(call.want);
+    expect(await expectMarksAsChecked(window, again)).toEqual(wantMarks);
 
     await app.close();
   });

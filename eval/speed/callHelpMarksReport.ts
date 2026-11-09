@@ -119,7 +119,7 @@ export function marksSection(all: readonly PairedRow[]): string | null {
     );
     lines.push(
       `- **${model}**, ${own.length} presses: W0 ${before}, W1 ${after}, at most ${limit}: 1a ${verdict(after <= limit)}.`,
-      `  - ✓ among held numbers ${share(a, a + b)}, among listed ${share(c, c + d)}; Fisher one-sided p = ${p.toPrecision(3)}: 1b ${verdict(p < 0.05)}.`,
+      `  - ✓ among held numbers ${share(a, a + b)}, among listed ${share(c, c + d)}; ${c + d < 4 ? `1b not readable: ${c + d} listed, so 1a's rule for few stands` : `Fisher one-sided p = ${p.toPrecision(3)}: 1b ${verdict(p < 0.05)}`}.`,
       `  - Reported: main's arm gave a wrong ✓ in ${mainCount} presses (its flips ${mainFlips}), a fall of ${mainCount - after} between the arms; W0 on the branch's replies ${before} beside main's ${mainCount}.`,
     );
     const ownW1 = (language: string) =>
@@ -229,11 +229,36 @@ export function marksSection(all: readonly PairedRow[]): string | null {
       );
     }
   }
-  const same = rows.filter((row) => row.sameRequest === true).length;
+  const same = rows.filter((row) => row.sameSetup === true).length;
   lines.push(
     "",
-    `### Bar 4a: the same first request in ${same} of ${rows.length} pairs: ${verdict(same === rows.length)}.`,
+    `### Bar 4a: the same model, system prompt, Tools and parameters in ${same} of ${rows.length} pairs: ${verdict(same === rows.length)}.`,
     "",
   );
+  const differs = (row: PairedRow) => typeof row.messageDifference === "string";
+  const differing = rows.filter(differs);
+  lines.push(`Reported: ${differing.length} pairs whose messages differed.`);
+  for (const row of differing) {
+    lines.push(
+      `- ${row.model} · ${row.language} run ${row.run}, ${row.id}: ${row.messageDifference ?? "not compared"}`,
+    );
+  }
+  lines.push("");
+  const weak = models.flatMap((model) =>
+    languages.flatMap((language) => {
+      const count = cell(model, language).filter(differs).length;
+      return count > 3
+        ? [`${model} · ${language}: ${count} of ${cell(model, language).length}`]
+        : [];
+    }),
+  );
+  if (weak.length > 0) {
+    lines.splice(
+      2,
+      0,
+      `**More than 3 pairs of a cell had messages that differed, so 4b is weaker there:** ${weak.join("; ")}.`,
+      "",
+    );
+  }
   return lines.join("\n");
 }

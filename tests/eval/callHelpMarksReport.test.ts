@@ -10,7 +10,7 @@ import {
   signTestP,
 } from "../../eval/speed/callHelpMarksReport";
 import type { ArmRun } from "../../eval/speed/paired";
-import type { PairedRow } from "../../eval/speed/pairedReport";
+import { messageDifference, type PairedRow, sameRequestOf } from "../../eval/speed/pairedReport";
 
 type Marks = NonNullable<ArmRun["marks"]>;
 
@@ -46,6 +46,8 @@ const marks = (given: Partial<Marks>): Marks => ({
   listed: 0,
   listedChecked: 0,
   settledMs: 1500,
+  judge: { grade: "right", unstated: [] },
+  numbers: [],
   ...given,
 });
 
@@ -70,6 +72,8 @@ function rows(): PairedRow[] {
           run,
           first: press % 2 === 0 ? 0 : 1,
           sameRequest: true,
+          sameSetup: true,
+          messageDifference: null,
           baseline: arm({
             falseSupported: wrong ? 1 : 0,
             doneMs: 4000,
@@ -118,7 +122,10 @@ describe("the call-help marks gate's report", () => {
     expect(section).toContain("2, kept ✓: 18 of 20 (90%), at least a third: holds.");
     expect(section).toContain("the branch slower in 14 of 20 pairs, sign test p = 0.0577: holds.");
     expect(section).toContain("within 3 s 6 of 20 (30%), 5 s 10 of 20 (50%), 10 s 20 of 20 (100%)");
-    expect(section).toContain("Bar 4a: the same first request in 40 of 40 pairs: holds.");
+    expect(section).toContain(
+      "Bar 4a: the same model, system prompt, Tools and parameters in 40 of 40 pairs: holds.",
+    );
+    expect(section).toContain("Reported: 0 pairs whose messages differed.");
   });
 
   test("a check that shows no ✓, or one slower in 22 of 30 pairs, fails its bar", () => {
@@ -143,5 +150,62 @@ describe("the call-help marks gate's report", () => {
     expect(marksSection(slow)).toContain(
       "the branch slower in 22 of 30 pairs, sign test p = 0.00806: **fails**",
     );
+  });
+
+  test("bar 4a gates the setup in every pair, and lists pairs whose messages alone differ", () => {
+    const setup = JSON.stringify({
+      model: "anthropic/claude-sonnet-5-5",
+      system: ["Help"],
+      tools: [],
+    });
+    const sent = (transcript: string) => ({
+      setup,
+      messages: JSON.stringify([
+        { role: "user", content: `<live-transcript>${transcript}</live-transcript>` },
+      ]),
+    });
+    // One pair of each kind: the same messages, and messages a transcript line split otherwise.
+    const alike = [
+      sent("[0:04 Them] Can we start in June?"),
+      sent("[0:04 Them] Can we start in June?"),
+    ];
+    const split = [
+      sent("[0:04 Them] Can we start in June?"),
+      sent("[0:04 Them] Can we start\n[0:06 Them] in June?"),
+    ];
+    expect(messageDifference(alike[0]?.messages ?? "", alike[1]?.messages ?? "")).toBeNull();
+    const difference = messageDifference(split[0]?.messages ?? "", split[1]?.messages ?? "");
+    console.log(`A pair whose messages differ: ${difference}`);
+    expect(difference).toContain("start");
+    expect(sameRequestOf(split[0]?.setup ?? null, split[1]?.setup ?? null)).toBe(true);
+
+    const made = rows().map((row, index) =>
+      row.language === "en" && index < 4 ? { ...row, messageDifference: difference } : row,
+    );
+    const section = marksSection(made) ?? "";
+    expect(section).toContain("in 40 of 40 pairs: holds.");
+    expect(section).toContain("Reported: 4 pairs whose messages differed.");
+    expect(section).toContain(
+      "**More than 3 pairs of a cell had messages that differed, so 4b is weaker there:** anthropic/claude-sonnet-5-5 · en: 4 of 20.",
+    );
+    const changed = rows().map((row, index) => (index === 0 ? { ...row, sameSetup: false } : row));
+    expect(marksSection(changed)).toContain("in 39 of 40 pairs: **fails**.");
+  });
+
+  test("1b is not readable below 4 listed numbers, and 1a's rule for few stands", () => {
+    const few = rows().map((row) => ({
+      ...row,
+      candidate: {
+        ...row.candidate,
+        marks: {
+          ...(row.candidate.marks as Marks),
+          listed: row.id === "en-0" && row.run === 1 ? 2 : 0,
+          listedChecked: 0,
+        },
+      },
+    }));
+    const section = marksSection(few) ?? "";
+    expect(section).toContain("40 presses: W0 1, W1 0, at most 1: 1a holds.");
+    expect(section).toContain("1b not readable: 2 listed, so 1a's rule for few stands");
   });
 });

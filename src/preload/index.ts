@@ -199,7 +199,6 @@ if (process.argv.includes(MEETING_PANEL_ARGUMENT)) {
     onHelp: (listener) => listen<GeneralHelpKind>(MEETING_PANEL_CHANNELS.help, listener),
     state: (state) => send(MEETING_PANEL_CHANNELS.state, state),
     onCommand: (listener) => listen<PanelCommand>(MEETING_PANEL_CHANNELS.command, listener),
-    showing: (helps) => send(MEETING_PANEL_CHANNELS.showing, helps),
   };
   contextBridge.exposeInMainWorld(MEETING_PANEL_BRIDGE_KEY, panel);
 }
