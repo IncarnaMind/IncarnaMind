@@ -676,7 +676,7 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
   await again.app.close();
 });
 
-test("with a cloud tagging model, a dropped Document waits for Allow, which tags it, and the meeting's Transcript stays untagged", async () => {
+test("with a cloud tagging model, a dropped Document waits for Allow, which proposes its Tags, and the meeting's Transcript gets none", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
@@ -715,15 +715,24 @@ test("with a cloud tagging model, a dropped Document waits for Allow, which tags
 
   await pointAndClick(window, consent.getByTestId("sort-consent-allow"));
   await expect(consent).toHaveCount(0, { timeout: 15_000 });
-  await expect(window.getByRole("treeitem", { name: /^Report 1/ })).toBeVisible({
-    timeout: 30_000,
-  });
+  // Its Tags wait in the Review until the User confirms them (#2339).
+  const waiting = async () =>
+    (await core(window)).evaluate(async (bridge) =>
+      (await bridge.getOrganizeReview()).items.map((item) => ({
+        documentId: item.documentId,
+        tags: item.tags.map((tag) => tag.name),
+      })),
+    );
+  await expect
+    .poll(async () => (await waiting()).flatMap((item) => item.tags), { timeout: 30_000 })
+    .toContain("Report");
   const after = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
   const afterDoc = after.find((each) => each.name === "Research notes");
   expect(afterDoc?.tagging).toBe("tagged");
-  expect((afterDoc?.tags ?? []).length).toBeGreaterThan(0);
+  expect(afterDoc?.tags).toEqual([]);
   const transcript = after.find((each) => each.id === transcriptId);
   expect(transcript?.tagging).not.toBe("tagged");
   expect(transcript?.tags).toEqual([]);
+  expect((await waiting()).some((item) => item.documentId === transcriptId)).toBe(false);
   await app.close();
 });

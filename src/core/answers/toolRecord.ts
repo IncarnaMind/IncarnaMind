@@ -316,6 +316,17 @@ function commandLine(call: AnswerToolCall): string {
           ", ",
         )}; they wait in Suggested Folders for the User's Review, and nothing was filed or moved`
     : "";
+  // Tag with AI only proposes too (#2339): its Tags wait, and none is on a Document.
+  const tags =
+    done.command !== "documents.tagWithAi"
+      ? ""
+      : done.tags?.length
+        ? `; proposed Tags for them: ${done.tags
+            .map((tag) => `${quoted(tag.name)} for ${counted(tag.count, "item")}`)
+            .join(
+              ", ",
+            )}; they wait in Suggested Tags for the User's Review, and no Tag was added to any Document`
+        : "; no Tag was proposed, and no Tag was added to any Document";
   const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
   const considered =
     done.considered !== undefined ? `; read ${counted(done.considered, "item")}` : "";
@@ -329,7 +340,7 @@ function commandLine(call: AnswerToolCall): string {
   const what =
     setting && done.items.length === 0
       ? setting
-      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${unsorted}${considered}${file}${setting && `, ${setting}`}`;
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${tags}${unsorted}${considered}${file}${setting && `, ${setting}`}`;
   const window = done.window
     ? done.window.running
       ? ", started in the window and still going on"

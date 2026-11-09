@@ -11,7 +11,7 @@ import { classifierModel, proposedFor } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
 import {
   recordedMeeting,
   stoppedMeeting,
@@ -225,11 +225,11 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
 });
 
 describe("A meeting's Transcript has no Tags of its own", { timeout: 60_000 }, () => {
-  test("automatic tagging tags the User's new Document and leaves the Transcript, read before it, untagged", async () => {
-    const tagging = taggingModel(["Minutes"]);
+  test("automatic tagging proposes Tags for the User's new Document and none for the Transcript, read before it", async () => {
+    const tagging = taggingModel(["Pier"]);
     const models = scriptedModels(tagging.model);
     const { core, dataDir, meeting } = await recordedMeeting("en", {}, models.createChatModel);
-    await core.createTag({ name: "Minutes", description: "Notes of a meeting." });
+    await core.createTag({ name: "Pier", description: "Work on the pier." });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     await core.stopMeeting(meeting.id);
     const { documentId } = await until(core, meeting.id, (each) => each.state === "saved");
@@ -241,7 +241,8 @@ describe("A meeting's Transcript has no Tags of its own", { timeout: 60_000 }, (
     if (!own) throw new Error("No Document added.");
     await waitForTagging(core, [own.id]);
 
-    expect(await tagNamesOf(core, own.id)).toEqual(["Minutes"]);
+    expect(await proposedTagNamesOf(core, own.id)).toEqual(["Pier"]);
+    expect(await proposedTagNamesOf(core, transcript.id)).toEqual([]);
     expect(await tagNamesOf(core, transcript.id)).toEqual([]);
   });
 });

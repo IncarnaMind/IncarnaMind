@@ -51,7 +51,7 @@ const KINDS: readonly [RegExp, readonly ModelCallKind[]][] = [
   [/^You check one sentence/, ["check-step"]],
   [/^You turn a Question from the User's notebook/, ["search-query"]],
   [/^You translate a query/, ["search-query"]],
-  [/^You tag Documents/, ["tags"]],
+  [/^You tag a User's Documents/, ["tags", "tag-batch"]],
   [/^You propose Folders/, ["folders"]],
 ];
 

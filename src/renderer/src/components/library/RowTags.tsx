@@ -4,13 +4,12 @@ import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { chipsOf } from "../../tagEditing";
 import { DocumentTagFooter } from "../DocumentTags";
-import { CheckLineIcon, CloseLineIcon, PlusLineIcon, SparkLineIcon } from "../lineIcons";
+import { CloseLineIcon, PlusLineIcon, SparkLineIcon } from "../lineIcons";
 import { tagChipColour } from "../TagColour";
 import {
   chipClass,
   chipTitle,
   pickerLabel,
-  ReviewDot,
   TagPicker,
   tagPopoverClass,
   useTagPopover,
@@ -23,9 +22,9 @@ const VISIBLE_CHIPS = 3;
  * A Library row's Tags, edited where they are, as a Notion database's cell:
  * a click anywhere in the cell (a chip, its empty space, or the faint "+"
  * shown on hover) opens the Tag picker over the cell, and T or ⌥⌘T on the
- * row do the same. Pointed at, a chip offers × to take it off in one click;
- * a Tag automatic tagging wasn't sure of keeps ✓ and ×. Each change has its
- * own ⌘Z. Filtering by a Tag is the sidebar's, or + Filter's: a chip edits.
+ * row do the same. Pointed at, a chip offers × to take it off in one click.
+ * Each change has its own ⌘Z. Filtering by a Tag is the sidebar's, or
+ * + Filter's: a chip edits.
  */
 export function RowTags({ document }: { document: Document }) {
   const t = useT();
@@ -105,62 +104,36 @@ const chipButtonClass =
 
 /**
  * One Tag on a row: its name, a spark when tagging gave it, and, pointed at,
- * × over its end to take it off, so nothing moves under the pointer. One
- * awaiting review has the amber dot, and ✓ to keep it and × to take it off
- * once the row is pointed at.
+ * × over its end to take it off, so nothing moves under the pointer. It is wide enough that a
+ * two-character name (报告) still opens the picker where it is pointed at, not ×.
  */
 function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: DocumentTag }) {
   const t = useT();
-  const review = link.needsReview;
-  const store = useAppStore.getState;
-  const remove = (
-    <button
-      type="button"
-      data-testid={review ? "reject-document-tag" : "remove-document-tag"}
-      aria-label={t(review ? "tags.review.reject" : "tags.picker.remove", { tag: tag.name })}
-      title={t(review ? "tags.review.reject" : "tags.picker.remove", { tag: tag.name })}
-      onClick={() => void store().removeDocumentTag(document.id, tag.id)}
-      className={chipButtonClass}
-    >
-      <CloseLineIcon className="size-2.5" />
-    </button>
-  );
   return (
     <span
       data-testid="tag-chip"
       data-tag-id={tag.id}
       data-source={link.source}
-      data-needs-review={review ? "true" : undefined}
       data-colour={tag.colour}
       title={chipTitle(link, tag, t)}
-      className={`group/chip relative ${chipClass} ${tagChipColour(tag.colour)} min-w-0 shrink ${
-        review ? "pr-0.5" : ""
-      }`}
+      className={`group/chip relative ${chipClass} ${tagChipColour(tag.colour)} min-w-12 shrink`}
     >
-      {review && <ReviewDot />}
-      {link.source === "automatic" && !review && (
+      {link.source === "automatic" && (
         <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />
       )}
       <span className="min-w-0 truncate">{tag.name}</span>
-      {review ? (
-        <span className="hidden shrink-0 items-center group-focus-within/chip:inline-flex group-hover/row:inline-flex">
-          <button
-            type="button"
-            data-testid="confirm-document-tag"
-            aria-label={t("jev.chip.confirm", { tag: tag.name, name: document.name })}
-            title={t("tags.review.confirm", { tag: tag.name })}
-            onClick={() => void store().addDocumentTag(document.id, tag.id)}
-            className={chipButtonClass}
-          >
-            <CheckLineIcon className="size-3" />
-          </button>
-          {remove}
-        </span>
-      ) : (
-        <span className="absolute inset-y-0 right-0 hidden items-center rounded-r-sm bg-inherit pr-0.5 pl-0.5 group-focus-within/chip:flex group-hover/chip:flex">
-          {remove}
-        </span>
-      )}
+      <span className="absolute inset-y-0 right-0 hidden items-center rounded-r-sm bg-inherit pr-0.5 pl-0.5 group-focus-within/chip:flex group-hover/chip:flex">
+        <button
+          type="button"
+          data-testid="remove-document-tag"
+          aria-label={t("tags.picker.remove", { tag: tag.name })}
+          title={t("tags.picker.remove", { tag: tag.name })}
+          onClick={() => void useAppStore.getState().removeDocumentTag(document.id, tag.id)}
+          className={chipButtonClass}
+        >
+          <CloseLineIcon className="size-2.5" />
+        </button>
+      </span>
     </span>
   );
 }

@@ -14,6 +14,7 @@ import {
   openDocumentTags,
   openSettings,
   removeDataFolder,
+  runCommand,
   useLocalChatModel,
 } from "./app";
 
@@ -70,7 +71,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("with a Jev key, Jev tags Documents instead of the chat model, and an unsure Tag can be confirmed", async () => {
+test("with a Jev key, Jev tags Documents instead of the chat model, and its Tag waits in the Review until confirmed", async () => {
   const summary = join(sources, "Attention.txt");
   await writeFile(summary, "A report on attention: the dominant sequence transduction models.\n");
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -83,10 +84,9 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
   await section.getByTestId("jev-set-up").click();
   const form = section.getByTestId("jev-form");
   await form.getByLabel("Jev API key").fill(JEV_KEY);
-  await form.getByText("Server, model and review").click();
+  await form.getByText("Server, model and threshold").click();
   await form.getByLabel("Server URL (optional)").fill(jev.url);
-  await expect(form.getByLabel("Needs review from (%)")).toHaveValue("35");
-  await expect(form.getByLabel("to (%)")).toHaveValue("65");
+  await expect(form.getByLabel("Suggest from (%)")).toHaveValue("35");
   await form.getByRole("button", { name: "Test connection" }).click();
   await expect(form.getByTestId("connection-test")).toHaveText("Connected: the provider answered.");
   await acceptPlainTextKeys(window, form);
@@ -107,28 +107,21 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and an unsur
 
   await addDocuments(window, [summary]);
 
-  // Paper is likely; Report is unsure, so it is applied and marked for review. The
-  // Document's Tag picker shows its Tags.
+  // Paper is the likelier kind, and one kind a Document is proposed: it waits in the Review,
+  // and nothing is on the Document before Confirm (#2339).
   const item = window.getByTestId("document-list-item");
   await expect(item).toHaveAttribute("data-tagging", "tagged");
-  const tags = await openDocumentTags(item);
-  await expect(tags).toHaveCount(2);
-  const paper = tags.filter({ hasText: "Paper" });
-  const report = tags.filter({ hasText: "Report" });
-  await expect(paper).toHaveAttribute("title", "Paper: added automatically, 92% likely");
-  await expect(paper).not.toHaveAttribute("data-needs-review");
-  await expect(report).toHaveAttribute("data-needs-review", "true");
-  await expect(report).toHaveAttribute("title", /only 50% likely/);
-  await expect(report).toContainText("needs review");
-  // Only the unsure one can be confirmed.
-  const confirm = item.getByTestId("confirm-document-tag");
-  await expect(confirm).toHaveCount(1);
+  await expect(item.getByTestId("tag-chip")).toHaveCount(0);
+  await runCommand(window, "library.open", "Open the Library");
+  await window.getByTestId("organize-waiting-review").click();
+  const review = window.getByTestId("organize-review");
+  await expect(review.getByTestId("organize-review-title")).toHaveText("Suggested Tags");
+  await expect(review.getByTestId("organize-review-chip")).toHaveText(["Paper"]);
 
-  // Confirming it makes it the User's.
-  await item.getByRole("button", { name: "Confirm Report on Attention" }).click();
-  await expect(report).toHaveAttribute("data-source", "user");
-  await expect(report).not.toHaveAttribute("data-needs-review");
-  await expect(item.locator("[data-needs-review]")).toHaveCount(0);
-  await expect(confirm).toHaveCount(0);
+  // Confirming makes it the User's.
+  await review.getByTestId("organize-review-confirm").click();
+  const tags = await openDocumentTags(item);
+  await expect(tags).toHaveCount(1);
+  await expect(tags.filter({ hasText: "Paper" })).toHaveAttribute("data-source", "user");
   await app.close();
 });

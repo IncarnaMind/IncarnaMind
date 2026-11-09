@@ -7,6 +7,7 @@ import {
   dismissChatSetup,
   launchApp,
   openDocumentTags,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -35,13 +36,13 @@ async function addNote(window: Page, name: string, text: string): Promise<Locato
 
 const why = (item: Locator) => item.getByTestId("document-tagging-why");
 
-test("the Tag picker says why a Document has no Tags: no Tag fits, or no Tags yet with Add a Tag, and Tags come once one exists (#1129)", async () => {
+test("the Tag picker says why a Document has no Tags: no Tag fits, no Tags yet with Add a Tag, or Tags to confirm with Review, once one exists (#1129, #2339)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
-  // The scripted model applies a Tag only when its name is a word in the Document.
+  // The scripted model proposes a kind or a Tag only when its name is a word in the Document.
   const tides = await addNote(window, "Tide tables", "The harbour master publishes the tides.");
   await expect(tides).toHaveAttribute("data-tagging", "tagged");
   await openDocumentTags(tides);
@@ -93,9 +94,22 @@ test("the Tag picker says why a Document has no Tags: no Tag fits, or no Tags ye
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(dialog).toBeHidden();
 
-  // The Document that had no Tags to choose from is checked against the new one.
+  // The Document that had no Tags to choose from is checked against the new one, which waits
+  // in the Review: the line says so, and its Review opens there.
   await expect(quarterly).toHaveAttribute("data-tagging", "tagged");
-  const tokens = await openDocumentTags(quarterly);
+  let tokens = await openDocumentTags(quarterly);
+  await expect(tokens).toHaveCount(0);
+  await expect(line).toHaveText("Suggested Tags to confirm·Review");
+  await expect(line).toHaveAttribute("data-why", "waiting");
+  await setLanguage(window, "zh-CN");
+  await expect(line).toHaveText("建议的标签待确认·查看");
+  await setLanguage(window, "en");
+  await pointAndClick(window, quarterly.getByTestId("document-tagging-review"));
+  const review = window.getByTestId("organize-review");
+  await expect(review.getByTestId("organize-review-chip")).toHaveText(["Report"]);
+  await pointAndClick(window, review.getByTestId("organize-review-confirm"));
+  await expect(review).toBeHidden();
+  tokens = await openDocumentTags(quarterly);
   await expect(tokens).toHaveText(["Report"]);
   await expect(why(quarterly)).toHaveCount(0);
   await window.keyboard.press("Escape");

@@ -15,6 +15,7 @@ import { chatPlanModel } from "../../src/core/library/planModel";
 import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { suggestionSchema } from "../../src/core/suggestions/prompt";
 import { chatClassifier } from "../../src/core/tags/classify";
+import { TAG_KINDS } from "../../src/core/tags/kinds";
 
 /** Every call under src/core that makes a model reply to a schema, and the names of the schemas it sends. */
 export const SCHEMA_CALLS = {
@@ -24,7 +25,7 @@ export const SCHEMA_CALLS = {
   "answers/quoteRetry.ts": ["quotes"],
   "answers/unmarkedQuotes.ts": ["citations"],
   "answers/workingText.ts": ["parts"],
-  "library/classifier.ts": ["document_group", "folder_proposals"],
+  "library/classifier.ts": ["document_group"],
   "library/planModel.ts": ["folder_plan", "placements", "subfolders"],
   "suggestions/index.ts": ["suggestion"],
   "tags/classify.ts": ["document_tags"],
@@ -86,6 +87,15 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
   const tags = [{ id: "t-report", name: "Report", description: "A report of findings" }];
   const excerpt = { name: "QBR", kind: "pdf" as const, pageCount: 2, text: "Quarterly review." };
   await chatClassifier(model).decide({ tags, excerpt, signal });
+  await chatClassifier(model).decideMany?.({
+    documents: [
+      { ref: "D1", excerpt, tags },
+      { ref: "D2", excerpt: { ...excerpt, name: "QBR 2" }, tags: [] },
+    ],
+    kinds: TAG_KINDS,
+    language: "en",
+    signal,
+  });
   await chatGroupClassifier(model, false).organize(
     [
       {
@@ -96,12 +106,6 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
     ],
     tags,
     excerpt,
-    signal,
-  );
-  await chatGroupClassifier(model, false).proposeFolders?.(
-    [{ name: "QBR", type: "PDF, 2 pages", text: "Quarterly review." }],
-    [],
-    "en",
     signal,
   );
   const plan = chatPlanModel(model);

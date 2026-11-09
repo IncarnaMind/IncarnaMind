@@ -15,14 +15,12 @@ export interface TagOnDocuments {
   total: number;
   /** Every link to it is automatic tagging's. */
   automatic: boolean;
-  /** Automatic tagging wasn't sure on at least one of them. */
-  needsReview: boolean;
   /** Automatic tagging's confidence, on a single Document; otherwise null. */
   confidence: number | null;
 }
 
 /** What choosing a Tag in the picker does. */
-export type TagAction = "add" | "confirm" | "remove";
+export type TagAction = "add" | "remove";
 
 export function tagsOnDocuments(
   tags: readonly Tag[],
@@ -39,7 +37,6 @@ export function tagsOnDocuments(
       count,
       total: documents.length,
       automatic: count > 0 && links.every((link) => link.source === "automatic"),
-      needsReview: links.some((link) => link.needsReview),
       confidence: documents.length === 1 ? (links[0]?.confidence ?? null) : null,
     };
   });
@@ -47,13 +44,10 @@ export function tagsOnDocuments(
 
 /**
  * Choosing a Tag adds it where it's missing (to all, when only some have
- * it), takes it off when every Document has it, and, on one Document,
- * confirms it when automatic tagging asked for a review: then it stays on,
- * as the User's.
+ * it), and takes it off when every Document has it.
  */
 export function actionFor(state: TagOnDocuments): TagAction {
-  if (state.coverage !== "all") return "add";
-  return state.total === 1 && state.needsReview ? "confirm" : "remove";
+  return state.coverage === "all" ? "remove" : "add";
 }
 
 const fold = (text: string) => text.trim().toLocaleLowerCase();
@@ -82,23 +76,19 @@ export function pickerOptions(
 }
 
 /**
- * A Document's Tags as chips: those awaiting review first, then the rest in
- * name order. The Tags may come indexed by id (`tagIndex`), so a list of many
- * Documents looks each up without building the index again.
+ * A Document's Tags as chips, in the order of its links (name order). The
+ * Tags may come indexed by id (`tagIndex`), so a list of many Documents looks
+ * each up without building the index again.
  */
 export function chipsOf(
   links: readonly DocumentTag[],
   tags: readonly Tag[] | ReadonlyMap<string, Tag>,
 ): { tag: Tag; link: DocumentTag }[] {
   const byId = "get" in tags ? tags : tagIndex(tags);
-  const chips = links.flatMap((link) => {
+  return links.flatMap((link) => {
     const tag = byId.get(link.tagId);
     return tag ? [{ tag, link }] : [];
   });
-  return [
-    ...chips.filter((chip) => chip.link.needsReview),
-    ...chips.filter((chip) => !chip.link.needsReview),
-  ];
 }
 
 /** The Tags by id. */

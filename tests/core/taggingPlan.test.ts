@@ -296,7 +296,7 @@ async function onClaudePlan() {
 
 const claudeTagging = (fake: FakeAnthropic) =>
   fake.messages.filter((request) =>
-    JSON.stringify(request.body).includes("names of the existing Tags"),
+    JSON.stringify(request.body).includes("You tag a User's Documents"),
   );
 
 describe("Tagging on a Claude plan", () => {

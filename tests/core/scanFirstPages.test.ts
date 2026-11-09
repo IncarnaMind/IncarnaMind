@@ -137,7 +137,22 @@ function sortingModel(
         text = JSON.stringify({ groupId: folder?.id ?? null, tags: folder ? [tag.id] : [] });
       } else {
         asked.tags.push(prompt);
-        text = JSON.stringify({ tags: folder ? [tag.name] : [], newTags: [] });
+        const user = options.prompt.find((message) => message.role === "user");
+        const data = JSON.parse(
+          user && typeof user.content !== "string"
+            ? user.content.map((part) => ("text" in part ? part.text : "")).join("")
+            : "{}",
+        ) as { tags?: { id: string; name: string }[]; documents?: { ref: string }[] };
+        // The one Tag, by its name among those offered.
+        const offered = (data.tags ?? []).filter((each) => each.name === tag.name);
+        text = JSON.stringify({
+          tagged: (data.documents ?? []).map((document) => ({
+            ref: document.ref,
+            kind: "none",
+            tags: folder ? offered.map((each) => each.id) : [],
+            topic: { name: "", description: "" },
+          })),
+        });
       }
       if (gate) await gate;
       return {
@@ -166,6 +181,12 @@ function sortingModel(
     },
   };
 }
+
+/** The Tags waiting in the Review for a Document (#2339). */
+const waitingTags = async (core: Core, id: string) =>
+  (await core.getOrganizeReview()).items
+    .find((item) => item.documentId === id)
+    ?.tags.map((tag) => tag.tagId) ?? [];
 
 /** A PDF whose first page is text and whose other pages are scans. */
 const scan = (cover: PdfPage, pages: number) =>
@@ -257,8 +278,8 @@ describe("Dropped scans are classified from their first pages (#2308)", {
       // Still being read, every one of them, while its Folder is proposed and it is tagged.
       for (const status of await statusesOf(core, ids))
         expect(["queued", "extracting"]).toContain(status);
-      const listed = (await core.listDocuments()).filter((each) => ids.includes(each.id));
-      expect(listed.map((each) => each.tags.map((link) => link.tagId))).toEqual(
+      // Its Tag waits in the Review beside its Folder (#2339).
+      expect(await Promise.all(ids.map((id) => waitingTags(core, id)))).toEqual(
         Array(10).fill([tag.id]),
       );
       // Each one's 11 scanned first pages (its first page is text) were read once, while every
@@ -292,8 +313,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
       await waitForProcessing(core, ids, WAIT.timeout);
       expect(await statusesOf(core, ids)).toEqual(["ready", "ready"]);
       expect(await proposedIn()).toEqual(wanted);
-      const listed = (await core.listDocuments()).filter((each) => ids.includes(each.id));
-      expect(listed.map((each) => each.tags.map((link) => link.tagId))).toEqual([
+      expect(await Promise.all(ids.map((id) => waitingTags(core, id)))).toEqual([
         [tag.id],
         [tag.id],
       ]);
@@ -325,7 +345,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     });
     const [read] = await waitForProcessing(reopened, [document.id], WAIT.timeout);
     expect(read?.status).toBe("ready");
-    expect(read?.tags.map((link) => link.tagId)).toEqual([tag.id]);
+    expect(await waitingTags(reopened, document.id)).toEqual([tag.id]);
     expect(await proposedFor(reopened, document.id)).toBe(folders[0]?.id);
     // Only pages 13 and 14 were left to read; the first 12 were kept.
     expect([reader.asked.first, reader.asked.later]).toEqual([0, 2]);
@@ -372,12 +392,12 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     await vi.waitFor(async () => {
       const found = await listed();
       expect(found?.tagging).toBe("tagged");
-      expect(found?.tags.map((link) => link.tagId)).toEqual(wanted);
+      expect(await waitingTags(core, document.id)).toEqual(wanted);
     }, WAIT);
     expect(await statusesOf(core, [document.id])).not.toContain("ready");
     reader.release();
     await waitForProcessing(core, [document.id], WAIT.timeout);
-    expect((await listed())?.tags.map((link) => link.tagId)).toEqual(wanted);
+    expect(await waitingTags(core, document.id)).toEqual(wanted);
     expect(model.asked.tags).toHaveLength(1);
   });
 
@@ -445,7 +465,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
         "Quay report.pdf",
         buildPdf(
           Array.from({ length: 30 }, (_, index) => ({
-            lines: [`Page ${index + 1}. Every berth was surveyed by the Larkspur crew in March.`],
+            lines: [`Page ${index + 1}. Every berth is in the Larkspur crew's March survey.`],
           })),
         ),
       ],
@@ -454,7 +474,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     try {
       await vi.waitFor(async () => {
         const found = (await later.listDocuments()).find((each) => each.id === document.id);
-        expect(found?.tags.map((link) => link.tagId)).toEqual([own.id]);
+        expect(await waitingTags(later, document.id)).toEqual([own.id]);
         expect(found?.status).toBe("embedding");
       }, WAIT);
       expect(model.asked.tags).toHaveLength(1);
