@@ -384,6 +384,10 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         remember(service.route, key);
         const where = destination(service.route);
         const server = service.route === "deepgram" ? deepgramServerSaved() : null;
+        const refused =
+          key !== null &&
+          (strayKeyCharacter(key.apiKey) !== null ||
+            (await refusedNow(service.route)) === refusalOf(key.apiKey, where.url));
         return {
           route: service.route,
           name: service.name,
@@ -396,6 +400,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           key: service.key,
           providerId: service.key === "provider" ? (key?.providerId ?? null) : null,
           hasKey: key !== null,
+          refused,
           liveSpeakers: service.liveSpeakers,
           keyUrl: service.keyUrl ?? null,
           billingUrl: billingUrl(service.route, key),

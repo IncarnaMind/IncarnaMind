@@ -132,7 +132,7 @@ export function editProblemParts(
               label: t("edit.problem.chooseAnotherModel"),
               run: () => {
                 dismissEditProblem(mindId);
-                openSettings("models");
+                openSettings("ai");
               },
             },
             role: "alert",
@@ -144,7 +144,7 @@ export function editProblemParts(
           label: t("edit.problem.chooseModel"),
           run: () => {
             dismissEditProblem(mindId);
-            openSettings("models");
+            openSettings("ai");
           },
         },
         role: "alert",

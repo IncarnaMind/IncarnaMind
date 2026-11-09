@@ -92,7 +92,7 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
     await expect.poll(menuModels).toEqual(["gpt-6.1-sol", "gpt-6-luna", "gpt-9-not-found"]);
 
     // On OpenAI's page, closed at first: one row with the count.
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     const other = settings.getByTestId("other-models-settings");
     const toggle = other.getByTestId("other-models-toggle");
@@ -139,7 +139,7 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
       .toEqual(["gpt-6.1-sol", "gpt-6-luna", "gpt-9-not-found", "gpt-4-turbo"]);
 
     // Switch it off: it leaves the menu again.
-    await openSettings(window, "models");
+    await openSettings(window, "ai");
     await settings.getByTestId("provider-row").first().click();
     await toggle.click();
     await pointAndClick(window, rows.filter({ hasText: "GPT-4 Turbo" }).getByRole("switch"));
@@ -170,7 +170,7 @@ test("Other models: grouped by why, ticked into the model menu, with a wrong tic
       }),
     );
     await window.getByRole("button", { name: "设置" }).click();
-    const settingsZh = await showSettingsPage(window, "models");
+    const settingsZh = await showSettingsPage(window, "ai");
     await settingsZh.getByTestId("provider-row").first().click();
     const otherZh = settingsZh.getByTestId("other-models-settings");
     await expect(otherZh.getByTestId("other-models-toggle")).toHaveText("其他模型 · 5");

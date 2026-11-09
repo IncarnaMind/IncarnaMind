@@ -3639,6 +3639,8 @@ export interface TranscriptionServiceStatus {
   /** The saved chat provider whose key it uses, for a `key` "provider" route that has one; null otherwise. */
   providerId: string | null;
   hasKey: boolean;
+  /** The service refused the key it has now, and keeps refusing it until the key changes. */
+  refused: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
   /** Where credit is added to the account the key is for; null where none is known. */
@@ -5765,12 +5767,16 @@ export type EmbeddingConnectionTestResult =
  * its Passages, but vector search doesn't: vectors from different models are
  * never compared. Turning embeddings off ends it: nothing is embedded.
  */
+/** A job with a key of its own from before keys were one per company (#2835). */
+export type OlderKeyJob = "embeddings" | "rerank";
+
 export interface EmbeddingRebuild {
   /**
    * "provider-changed": the User turned embeddings on, or chose another embedding model.
    * "local-mode": local mode switched a cloud provider back to the built-in model.
+   * "key-removed": the User removed the last key of the company whose model it was.
    */
-  reason: "provider-changed" | "local-mode";
+  reason: "provider-changed" | "local-mode" | "key-removed";
   /** Documents with Passages to search. */
   total: number;
   /** Of those, the ones whose Passages are all embedded with the current model. */
@@ -5837,6 +5843,8 @@ export interface RerankSettings {
   enabled: boolean;
   /** The User hasn't chosen on this device: reranking is on with the built-in model, the default. */
   byDefault: boolean;
+  /** It went back to the built-in model when the last key of its company's account was removed (#2835). */
+  keyRemoved?: boolean;
   kind: RerankProviderKind | null;
   /** The model, e.g. "rerank-v3.5" or the built-in model's name; null when rerank isn't set up. */
   modelId: string | null;
@@ -12150,18 +12158,17 @@ export interface CoreApi {
   /**
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
-   * classifier of null is Automatic; `organizeWith` left out stays as it was.
+   * classifier of null is Automatic. A model lent to a run (`organizeWith`) is never saved.
    * `automatic` is the switch as shown, and a save can only turn it off.
    * `turnOn` turns it on, and records when, as the consent for the services
    * it sends to now (ADR-0022): only where the line says what goes, as
-   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * setup's Use this and Settings › AI's Organize and Tags switch do.
    * Turned on for one service, it reads off for another until it is turned
    * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
-      organizeWith?: TaggingClassifier | null;
       turnOn?: boolean;
     },
   ): Promise<void>;
@@ -13247,6 +13254,14 @@ export interface CoreApi {
   saveRerankSettings(input: SaveRerankSettingsInput): Promise<RerankSettings>;
   /** Turns reranking off on this device and removes a service's key: search keeps its own order. The built-in model's files are kept. */
   removeRerankSettings(): Promise<RerankSettings>;
+  /**
+   * The jobs that still send with a key typed for them before keys were one per company (#2835),
+   * where it isn't the account's key: Document search ("embeddings") and Best results first
+   * ("rerank").
+   */
+  getOlderKeys(): Promise<OlderKeyJob[]>;
+  /** Deletes `job`'s older key, so it uses the company's account key from now on. */
+  switchToAccountKey(job: OlderKeyJob): Promise<void>;
   /**
    * Reranks two fixed texts against a fixed query, nothing of the User's,
    * with the given service settings or the saved ones. The "rerank" flow
@@ -14871,6 +14886,8 @@ const methods: Record<CoreApiMethod, true> = {
   downloadRerankingModel: true,
   saveRerankSettings: true,
   removeRerankSettings: true,
+  getOlderKeys: true,
+  switchToAccountKey: true,
   testRerankConnection: true,
   listChatProviders: true,
   saveChatProvider: true,

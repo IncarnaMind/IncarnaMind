@@ -90,8 +90,7 @@ const EXPORT_FORMATS = ["markdown", "docx", "pdf", "source-pack", "html", "share
 /** The Settings pages (src/renderer/src/settingsPages.ts; a test keeps them the same). */
 export const SETTINGS_PAGES = [
   "general",
-  "models",
-  "search",
+  "ai",
   "meetings",
   "connectors",
   "skills",

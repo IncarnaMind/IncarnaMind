@@ -186,7 +186,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
   const does = {
     show: () => void showLook(check.mindId, check.request).catch(report),
     check: checkNow,
-    "change-cap": () => useAppStore.getState().openSettings("general"),
+    "change-cap": () => useAppStore.getState().openSettings("ai", "spending-cap"),
   };
   return (
     <div>

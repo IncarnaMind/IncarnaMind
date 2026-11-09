@@ -227,7 +227,7 @@ export function TaskProgress({
     if (has("plan") && plan) offer("plan", t("task.action.plan"), () => plan(task));
     if (has("tell") && tell && live) offer("tell", t("task.action.tell"), () => tell(task));
     if (task.status === "paused" && task.pausedReason === "cost-cap") {
-      offer("cap", t("answer.error.changeCap"), () => openSettings("general"));
+      offer("cap", t("answer.error.changeCap"), () => openSettings("ai", "spending-cap"));
     }
     if (taskOffers(task, "pause")) {
       offer("pause", t("task.pause"), () => void pauseTask(task.id));

@@ -8,6 +8,7 @@ import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
 import { AgentsSettings } from "./agents/AgentsSettings";
+import { AiSettings } from "./ai/AiSettings";
 import { BackgroundSettings } from "./BackgroundSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
 import { EvidenceSettings } from "./EvidenceSettings";
@@ -16,19 +17,15 @@ import { MeetingsSettings } from "./MeetingsSettings";
 import { MotionRow } from "./MotionSettings";
 import { OutputLocationSettings } from "./OutputLocationSettings";
 import { PrivacySettings } from "./PrivacySettings";
-import { EmbeddingSettingsSection } from "./providers/EmbeddingSettings";
-import { ModelsSettings } from "./providers/ModelsSettings";
-import { RerankSettingsSection } from "./providers/RerankSettings";
 import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
-import { SpendingCapSettings } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
+import { MovedToAi } from "./settings/MovedToAi";
 import { SettingsPopUpRow } from "./settings/PopUpButton";
 import { SettingsGroup, SettingsRowAction, SettingsSection } from "./settings/SettingsGroup";
 import { TaskNotificationSettings } from "./TaskNotificationSettings";
 import { dialogFrameClass, navRowClass } from "./ui";
 import { useBackdropClose, useModal } from "./useModal";
-import { WebSearchSettings } from "./WebSearchSettings";
 
 const languageOptions: readonly { value: LanguagePreference; label: MessageKey }[] = [
   { value: "system", label: "settings.language.system" },
@@ -40,7 +37,7 @@ const REPOSITORY_URL = "https://github.com/IncarnaMind/IncarnaMind";
 
 /**
  * Settings, in a native modal <dialog>: a list of pages on the frame on the
- * left (General, Models, Search, Meetings, Connectors, Skills, Privacy; Memory joins when a setting lands on it), and the chosen page on the right under its serif title.
+ * left (General, AI, Meetings, Connectors, Skills, Agents, Privacy), and the chosen page on the right under its title.
  */
 export function SettingsDialog() {
   const t = useT();
@@ -145,28 +142,20 @@ function PageContent({ page }: { page: SettingsPage }) {
       return (
         <Page>
           <InterfaceSettings />
-          <SpendingCapSettings />
+          <MovedToAi testId="spending-cap-moved" title="cost.cap.title" at="spending-cap" />
           <BackgroundSettings />
           <TaskNotificationSettings />
           <SuggestionSettings />
+          <SavedWebPagesSettings />
+          <EvidenceSettings />
           <OutputLocationSettings />
           <AuthorNameSettings />
           <DataFolderSettings />
           <AboutSettings />
         </Page>
       );
-    case "models":
-      return <ModelsSettings />;
-    case "search":
-      return (
-        <Page>
-          <EmbeddingSettingsSection />
-          <RerankSettingsSection />
-          <WebSearchSettings />
-          <SavedWebPagesSettings />
-          <EvidenceSettings />
-        </Page>
-      );
+    case "ai":
+      return <AiSettings />;
     case "meetings":
       return (
         <Page>

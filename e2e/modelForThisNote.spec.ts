@@ -161,7 +161,7 @@ test("a model picked in a note's chip is for that note only: a new note and an o
   await expect(menu).toHaveAccessibleName("This note uses");
   await expect(menu.getByTestId("composer-model-heading")).toHaveText("This note uses");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Sonnet 5.5, from Settings › Models.",
+    "New notes use Claude Sonnet 5.5, from Settings › AI.",
   );
   // The note already uses the Answers default: there is nothing to set.
   await expect(menu.getByTestId("composer-model-for-new")).toHaveAttribute("aria-disabled", "true");
@@ -204,7 +204,7 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   await pointAndClick(window, forNew);
   // The menu stays, so the foot says at once what new notes now use.
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Haiku 5.5, from Settings › Models.",
+    "New notes use Claude Haiku 5.5, from Settings › AI.",
   );
   await expect(forNew).toHaveAttribute("aria-disabled", "true");
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: HAIKU });
@@ -219,11 +219,11 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   menu = await openMenu(window);
   await pointAndClick(window, menu.getByTestId("composer-model-settings"));
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const answers = settings.getByTestId("model-default-chatModel");
   await expect(answers).toHaveValue(`${providerId}\n${HAIKU}`);
   await expect(answers).toHaveAccessibleDescription(
-    "New notes use this, as do notes and conversations with no model of their own.",
+    /New notes use this, as do notes and conversations with no model of their own\.$/,
   );
   await settings.getByRole("button", { name: "Close Settings" }).click();
 
@@ -233,12 +233,12 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   menu = await openMenu(window);
   await expect(menu).toHaveAccessibleName("这篇笔记使用");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Haiku 5.5，在“设置 › 模型”中设置。",
+    "新笔记使用 Claude Haiku 5.5，在“设置 › AI”中设置。",
   );
   await expect(forNew).toHaveText("新笔记也用这个");
   await pointAndClick(window, forNew);
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Opus 5.5，在“设置 › 模型”中设置。",
+    "新笔记使用 Claude Opus 5.5，在“设置 › AI”中设置。",
   );
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: OPUS });
   await closeMenu(window);
@@ -246,9 +246,9 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   await expect(chipOf(window)).toHaveText("Opus 5.5");
 
   await window.getByRole("button", { name: "设置" }).click();
-  const settingsZh = await showSettingsPage(window, "models");
+  const settingsZh = await showSettingsPage(window, "ai");
   await expect(settingsZh.getByTestId("model-default-chatModel")).toHaveAccessibleDescription(
-    "新笔记使用这个模型，没有自选模型的笔记和对话也使用它。",
+    /新笔记使用这个模型，没有自选模型的笔记和对话也使用它。$/,
   );
 });
 
@@ -270,7 +270,7 @@ test("the menu groups models by who pays: your plans, your keys, on this compute
     await expect(groups.nth(2).getByTestId("composer-model-option")).toHaveText([/fake-model/]);
     // The menu ends with what new notes use, in view however long the list: only the models scroll.
     const last = menu.getByRole("menuitem").last();
-    await expect(last).toHaveText("Settings › Models");
+    await expect(last).toHaveText("Settings › AI");
     await closeMenu(window);
     if (!running) throw new Error("The app isn't running.");
     await setWindowSize(running, window, 1100, 640);

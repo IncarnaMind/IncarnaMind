@@ -142,6 +142,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OlderKeyJob,
   type OpenAtLogin,
   type OrganizeStart,
   type OwnFileKind,
@@ -962,6 +963,7 @@ export function createCore(adapters: CoreAdapters): Core {
     createModel: adapters.createEmbeddingModel ?? createAiSdkEmbeddingModel,
     signal: lifetime.signal,
     onChange: () => embeddingChanged(),
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   // Usage data: only from a copy built to send it, only while the User agrees, never in local mode.
   const usageData = createUsageData({
@@ -1314,12 +1316,21 @@ export function createCore(adapters: CoreAdapters): Core {
     builtIn: rerankingModel,
     localOnly: () => embedding.localOnly(),
     signal: lifetime.signal,
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   const rerankChanged = async () => {
     const status = await rerank.status();
     if (!lifetime.signal.aborted) events.emit("rerank.changed", status);
     return status;
   };
+  // A key typed for search or reranking before keys were one per company (#2835) that is the
+  // account's key too changes nothing when it goes; one that differs stays, and its row says so.
+  void (async () => {
+    if ((await embedding.olderKey()) === "same") await embedding.forgetOlderKey();
+    if ((await rerank.olderKey()) === "same") await rerank.forgetOlderKey();
+  })().catch((error: unknown) => {
+    if (!lifetime.signal.aborted) console.error("Couldn't tidy the older search keys:", error);
+  });
   reportRerank = () => {
     if (!rerank.usesBuiltIn()) return;
     rerankChanged().catch((error: unknown) => {
@@ -4003,11 +4014,15 @@ export function createCore(adapters: CoreAdapters): Core {
     organizeModelOf(library.settings())
       ? null
       : ((await taggingModels()).automatic?.classifier ?? null);
-  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  /**
+   * Keeps `classifier`, the model Organize was offered, as the Library's one choice for Organize
+   * and Tags when none is chosen: Organize keeps no model of its own (#2835). It records no
+   * consent, and the switch for new Documents stays as shown.
+   */
   const keepOrganizeModel = async (classifier: TaggingClassifier) => {
     const saved = library.settings();
     if (organizeModelOf(saved)) return;
-    library.saveSettings({ ...saved, organizeWith: classifier });
+    library.saveSettings({ ...saved, classifier });
     await dataFlowsChanged();
     await taggingChanged();
   };
@@ -4387,7 +4402,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return hosts;
   };
   /**
-   * Before a key, workspace or chat provider goes, sorting, and Organize's kept model, stop
+   * Before a key, workspace or chat provider goes, sorting stops
    * naming what it reached (#1907, #2693): back to Automatic, which starts no host and turns
    * nothing on. The app never picks another host in its place, so nothing goes anywhere the User
    * hasn't allowed.
@@ -6444,6 +6459,19 @@ export function createCore(adapters: CoreAdapters): Core {
       await rerank.remove();
       return rerankChanged();
     },
+    getOlderKeys: async () => {
+      const jobs: OlderKeyJob[] = [];
+      if ((await embedding.olderKey()) === "other") jobs.push("embeddings");
+      if ((await rerank.olderKey()) === "other") jobs.push("rerank");
+      return jobs;
+    },
+    switchToAccountKey: async (job) => {
+      if (job === "embeddings") await embedding.forgetOlderKey();
+      else if (job === "rerank") {
+        await rerank.forgetOlderKey();
+        await rerankChanged();
+      } else throw new InvalidInputError({ key: "error.olderKey.job" });
+    },
     testRerankConnection: (input) => loggingTest("rerank")(rerank.test(input)),
 
     listChatProviders: () => chat.list(),
@@ -6466,7 +6494,17 @@ export function createCore(adapters: CoreAdapters): Core {
           (classifier.kind === "decision" && riding.includes(classifier.host)) ||
           (classifier.kind === "chat" && classifier.choice.providerId === id),
       );
+      const gone = (await chat.list()).find((each) => each.id === id);
       await chat.delete(id);
+      // As sorting does: search and reranking on that company's account go back to built-in.
+      const company = gone ? (gone.catalogId ?? gone.kind) : null;
+      if (company) {
+        if (await embedding.accountGone(company)) await dataFlowsChanged();
+        if (await rerank.accountGone(company)) {
+          await rerankChanged();
+          await dataFlowsChanged();
+        }
+      }
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       else if (forgot) await taggingChanged();
       // A transcription route that used this provider's key has none now.

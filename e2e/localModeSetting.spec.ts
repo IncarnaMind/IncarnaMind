@@ -31,51 +31,44 @@ const TURNED_ON = {
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`“Keep everything on this computer” is on Privacy, below the statement and the services it names, and nowhere else; turning it on offers Undo there (${language})`, async () => {
+  test(`“Keep everything on this computer” is in Settings › AI › Limits, and Privacy links there; turning it on offers Undo under it (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1100, 720);
     await setLanguage(window, language);
     await window.getByRole("button", { name: language === "en" ? "Settings" : "设置" }).click();
     const settings = window.getByTestId("settings");
-    await settings.getByTestId("settings-nav-privacy").click();
-    const page = settings.getByTestId("privacy-settings");
-    const setting = page.getByTestId("local-only-setting");
-    const flowsSection = page.getByTestId("consent-settings");
-    await expect(page.getByTestId("local-only")).toHaveCount(1);
 
-    const [flows, row, traffic] = await Promise.all([
-      flowsSection.boundingBox(),
-      setting.boundingBox(),
-      page.getByTestId("network-traffic").boundingBox(),
-    ]);
-    if (!flows || !row || !traffic) throw new Error("Privacy isn't laid out.");
-    // The statement is the services' help, under them; the switch comes after both.
-    await expect(flowsSection.getByTestId("privacy-flows-intro")).toHaveCount(1);
-    expect(row.y).toBeGreaterThanOrEqual(flows.y + flows.height);
-    expect(row.y + row.height).toBeLessThanOrEqual(traffic.y);
-
-    for (const other of ["search", "models", "general"] as const) {
+    // Privacy keeps the consent record, and a link where the switch went.
+    await showSettingsPage(window, "privacy");
+    const privacy = settings.getByTestId("settings-page-privacy");
+    await expect(privacy.getByTestId("local-only")).toHaveCount(0);
+    await pointAndClick(window, privacy.getByTestId("local-mode-moved-link"));
+    await expect(settings).toHaveAttribute("data-page", "ai");
+    const limits = settings.getByTestId("ai-limits");
+    const setting = limits.getByTestId("local-only-setting");
+    await expect(setting.getByTestId("local-only")).toBeFocused();
+    for (const other of ["general", "meetings"] as const) {
       await showSettingsPage(window, other);
       await expect(
         settings.getByTestId(`settings-page-${other}`).getByTestId("local-only"),
       ).toHaveCount(0);
     }
-    await showSettingsPage(window, "privacy");
+    await showSettingsPage(window, "ai");
 
-    await pointAndClick(window, page.getByTestId("local-only"));
+    await pointAndClick(window, setting.getByTestId("local-only"));
     await expect.poll(() => localOnly(window)).toBe(true);
     const undo = setting.getByTestId("undo-line-here");
     await expect(undo.getByTestId("undo-message")).toHaveText(TURNED_ON[language]);
     await expect(window.getByTestId("undo-line").getByTestId("undo-message")).toHaveCount(0);
     await pointAndClick(window, undo.getByTestId("undo-action"));
     await expect.poll(() => localOnly(window)).toBe(false);
-    await expect(page.getByTestId("local-only")).not.toBeChecked();
+    await expect(setting.getByTestId("local-only")).not.toBeChecked();
     await app.close();
   });
 }
 
-test("typing “local” in ⌘K finds it and opens Privacy at its switch, in English and Chinese", async () => {
+test("typing “local” in ⌘K finds it and opens Settings › AI at its switch, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   for (const [language, typed, label] of [
@@ -90,7 +83,7 @@ test("typing “local” in ⌘K finds it and opens Privacy at its switch, in En
     await expect(found).toHaveCount(1);
     await window.keyboard.press("Enter");
     const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "privacy");
+    await expect(settings).toHaveAttribute("data-page", "ai");
     await expect(settings.getByTestId("local-only")).toBeFocused();
     // Space turns it on or off, and the focus stays on it.
     const before = await localOnly(window);

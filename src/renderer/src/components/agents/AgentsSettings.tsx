@@ -129,7 +129,7 @@ export function AgentsSettings() {
           <span aria-hidden="true"> · </span>
           <button
             type="button"
-            onClick={() => openSettings("privacy", "local-mode")}
+            onClick={() => openSettings("ai", "local-mode")}
             className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
           >
             {t("agents.settings.paused.open")}

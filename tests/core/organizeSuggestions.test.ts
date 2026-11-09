@@ -563,9 +563,10 @@ describe("Organize suggests a Folder and waits for the User", () => {
     );
     const { automatic: offered } = await core.getTaggingModels();
     if (!offered) throw new Error("Automatic picked nothing.");
+    // Its "Use" makes the model the one choice for Organize and Tags (#2835).
     await core.saveLibrarySettings({
       ...(await core.getLibrary()).settings,
-      organizeWith: offered.classifier,
+      classifier: offered.classifier,
     });
     for (const document of [early, later]) {
       await vi.waitFor(async () => {
@@ -589,7 +590,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
     expect((await reopened.getLibrary()).settings).toEqual({
       classifier,
       automatic: false,
-      organizeWith: offered.classifier,
+      organizeWith: null,
       taggingStopped: [],
     });
     const third = await add(reopened, "Chapter 3");
