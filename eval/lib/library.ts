@@ -126,6 +126,8 @@ export interface LibraryOptions {
   notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
   /** Whether call help's own form may be judged the model's working, for an arm that decides it. */
   helpFormJudged?: CoreAdapters["helpFormJudged"];
+  /** Whether found quotes show as the model gave them, for an arm that decides it. */
+  quotesAsGiven?: CoreAdapters["quotesAsGiven"];
 }
 
 export interface EvalWebPage {
@@ -330,6 +332,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.checkPaths && { checkPaths: options.checkPaths }),
     ...(options.notesBeforeSpeakers && { notesBeforeSpeakers: options.notesBeforeSpeakers }),
     ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
+    ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
   });
   const close = async () => {
     core.close();

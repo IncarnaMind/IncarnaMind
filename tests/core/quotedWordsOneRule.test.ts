@@ -586,10 +586,15 @@ async function rewrite(
 /** The verdict of each path on the first Citation of the sentence quoting `words`. */
 async function verdicts(wanted: Case, language: "en" | "zh", words: string) {
   const sentence = wanted.sentence(words);
-  const { core, documents, mind } = await setUpWithDocuments(modelFor(wanted, language, sentence), [
-    { name: wanted.name, contents: buildPdf(wanted.pages) },
-    ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
-  ]);
+  const { core, documents, mind } = await setUpWithDocuments(
+    modelFor(wanted, language, sentence),
+    [
+      { name: wanted.name, contents: buildPdf(wanted.pages) },
+      ...(wanted.also ? [{ name: wanted.also.name, contents: wanted.also.contents }] : []),
+    ],
+    // Each path reads the quote as the case gives it, and `changedQuote` is its new version's.
+    { quotesAsGiven: () => true },
+  );
   const document = documents.find((each) => bare(each.name) === bare(wanted.name));
   if (!document) throw new Error("No Document.");
   const found: Record<string, string | undefined> = {};

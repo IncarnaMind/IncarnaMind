@@ -600,7 +600,10 @@ describe("outside agents", () => {
     expect(answered.status).toBe("done");
     expect(answered.unchecked).toBe(0);
     expect(answered.citations).toEqual([
-      expect.objectContaining({ document: "Tides", quote: SPRING }),
+      expect.objectContaining({
+        document: "Tides",
+        quote: `${SPRING}, when the sun and the moon pull in line.`,
+      }),
     ]);
     const token = answered.citations[0]?.cite ?? "";
     expect(answered.answer).toBe(`Spring tides come twice a month, at new and full moon ${token}.`);

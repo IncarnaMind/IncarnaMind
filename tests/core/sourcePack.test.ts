@@ -127,6 +127,8 @@ async function citedMind(plan: {
   const setup = await setUpWithDocuments(model, plan.files, {
     capturePage: viewerOf(plan.lines ?? {}),
     printer,
+    // The pages drawn here show only `lines`: each quote is marked as the record gives it.
+    quotesAsGiven: () => true,
     ...(plan.web && {
       webPages: {
         fetch: async () =>
@@ -371,6 +373,42 @@ describe("the source pack: each format's cited page, its quote highlighted", () 
     expect(sheet?.notes).toEqual([
       "1 · Quote not found on this page: “Neap tides come at the quarter moons.”",
     ]);
+  });
+
+  test("an Answer's quote shown as its whole sentence is marked on each line the sentence takes (#2739)", async () => {
+    const { core, mind, printed } = await citedMind({
+      files: [
+        {
+          name: "Tides.md",
+          contents:
+            "# Tides\n\nSpring tides happen at new moon and at full moon, when the Sun and Moon line up.\n",
+        },
+      ],
+      lines: {
+        Tides: [
+          "Tides",
+          "Spring tides happen at new moon and",
+          "at full moon, when the Sun and Moon line up.",
+        ],
+      },
+      query: "spring tides",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: byDocument(passages, "Tides"),
+          location: "§ Tides",
+          quote: "Spring tides happen at new moon",
+        },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+      adapters: { quotesAsGiven: () => false },
+    });
+
+    await core.exportMind(mind.id, { format: "source-pack" });
+
+    const [sheet] = pack(printed[0]?.body ?? "").sheets;
+    expect(sheet?.marks).toEqual([mark(1, 0, 35), mark(2, 0, 44)]);
+    expect(sheet?.notes).toEqual([]);
   });
 
   test("two Citations of one note whose quote the saved page doesn't show say it once", async () => {

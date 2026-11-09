@@ -224,7 +224,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     expect(onlyCitation(client, answerId)).toMatchObject({
       documentId: page?.id,
       location: { kind: "section", heading: "History", paragraphs: { from: 2, to: 2 } },
-      quote: PORTUGUESE,
+      quote: `${PORTUGUESE}, at which time it was termed chá.`,
       check: "found",
     });
     expect(finished.citations.map((each) => each.check)).toEqual(["found"]);
