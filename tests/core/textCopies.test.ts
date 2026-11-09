@@ -351,7 +351,7 @@ describe("A copy that changes", () => {
     expect(found.evidence).toEqual(new Set([reply.id]));
   }, 120_000);
 
-  test("Documents stored before fingerprints were are fingerprinted after the start, without a check; a check before that still leaves the copy out", async () => {
+  test("Documents stored before fingerprints were are fingerprinted after the start, one a turn, without a check; a check before that waits for them and leaves the copy out", async () => {
     const { core, dataDir, named, reply } = await library("en");
     const word = named("Services Agreement.docx");
     const pdf = named("Services Agreement.pdf");
@@ -369,6 +369,8 @@ describe("A copy that changes", () => {
 
     const again = startCore(dataDir);
     again.fillTextFingerprints();
+    // Nothing is fingerprinted in the call itself: each Document gets a turn of its own.
+    expect(fingerprints()).toBe(0);
     await vi.waitFor(() => expect(fingerprints()).toBe(stored), { timeout: 15_000 });
     again.close();
 
@@ -379,6 +381,7 @@ describe("A copy that changes", () => {
     const found = await checkOf(third, QUERIES.en.clause, word, [pdf, reply]);
     expect(found.leftOut).toEqual([["Services Agreement", "same-text"]]);
     expect(found.evidence).toEqual(new Set([reply.id]));
+    expect(fingerprints()).toBe(stored);
   }, 120_000);
 });
 

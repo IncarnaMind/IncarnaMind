@@ -299,7 +299,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {
@@ -1616,6 +1616,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    evidenceReady: () => options.evidence.ready(),
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1744,11 +1745,20 @@ export function createChecks(options: ChecksOptions) {
     newId: randomUUID,
   });
 
+  /** A check that may take a scope with a checked file in it: it waits until every copy can be told (#2216). */
+  const afterFingerprints =
+    <A extends unknown[], R>(check: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      await options.evidence.ready();
+      return check(...args);
+    };
+
   return {
     ...verify,
+    verifyClaims: afterFingerprints(verify.verifyClaims),
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten,
+    checkWritten: afterFingerprints(checkWritten),
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -1759,6 +1769,7 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async checkSentences(input: unknown): Promise<CheckSentencesResult> {
+      await options.evidence.ready();
       const parsed = parseCheck(input);
       options.requireMind(parsed.mindId);
       if (running.has(parsed.requestId)) {
@@ -1794,6 +1805,7 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async planDocumentCheck(input: unknown): Promise<DocumentCheckPlan> {
+      await options.evidence.ready();
       if (!isRecord(input)) throw new InvalidInputError("planDocumentCheck expects an object.");
       const mindId = parseMindId(input.mindId);
       options.requireMind(mindId);
@@ -1816,6 +1828,7 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async checkContradictions(input: unknown): Promise<CheckContradictionsResult> {
+      await options.evidence.ready();
       if (!isRecord(input) || typeof input.requestId !== "string" || input.requestId === "") {
         throw new InvalidInputError({ key: "error.contradictions.request" });
       }
@@ -1887,6 +1900,7 @@ export function createChecks(options: ChecksOptions) {
 
     /** `signal` stops the check, for a caller in the core; the API's callers can't pass one. */
     async checkClaim(input: unknown, signal?: AbortSignal): Promise<ClaimCheckResult> {
+      await options.evidence.ready();
       const parsed = parseClaim(input);
       const ready = await prepare(parsed.model ?? options.defaultModel());
       if (!ready.ok) {
@@ -1987,6 +2001,7 @@ export function createChecks(options: ChecksOptions) {
     },
 
     async chooseRecordCiteSource(value: unknown) {
+      await options.evidence.ready();
       const input = chooseInput(value);
       const stored = content.read(input.mindId, (blocks) =>
         checkedSentences(blocks).find(({ check }) => check.id === input.checkId),

@@ -1493,26 +1493,44 @@ export function createDocuments(options: DocumentsOptions) {
     next();
   }
 
-  let fingerprintFill: ReturnType<typeof setTimeout> | null = null;
+  let fingerprintTurn: ReturnType<typeof setTimeout> | null = null;
+  let fingerprintsFilled: { done: Promise<void>; settle(): void } | null = null;
+  let fingerprintsComplete = false;
 
   /**
    * Fingerprints the text of the Documents stored before fingerprints were (#2216), one a
-   * turn, so the window never waits; a check fingerprints any it meets first itself.
+   * turn, so nothing holds this thread for long: settles once every one is, or the core closes.
+   * Text stored after that is fingerprinted as it is stored.
    */
-  function fillTextFingerprints(): void {
-    if (closed || fingerprintFill) return;
+  function fillTextFingerprints(): Promise<void> {
+    if (closed || fingerprintsComplete) return Promise.resolve();
+    if (fingerprintsFilled) return fingerprintsFilled.done;
+    let settle = () => {};
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    fingerprintsFilled = { done, settle };
     const next = () => {
-      fingerprintFill = null;
-      if (closed) return;
+      fingerprintTurn = null;
+      let more = false;
+      let failed = false;
       try {
-        if (!textCopies.fillNext()) return;
+        more = !closed && textCopies.fillNext();
       } catch (error) {
+        // The check goes on without it; the next one tries again.
         reportError(error);
+        failed = true;
+      }
+      if (more) {
+        fingerprintTurn = setTimeout(next, 0);
         return;
       }
-      fingerprintFill = setTimeout(next, 0);
+      fingerprintsComplete = !closed && !failed;
+      fingerprintsFilled = null;
+      settle();
     };
-    fingerprintFill = setTimeout(next, 0);
+    fingerprintTurn = setTimeout(next, 0);
+    return done;
   }
 
   /** Writes one Document's upgraded keyword rows, or drops a result it is too late for. */
@@ -3932,7 +3950,8 @@ export function createDocuments(options: DocumentsOptions) {
 
     close(): void {
       closed = true;
-      if (fingerprintFill) clearTimeout(fingerprintFill);
+      if (fingerprintTurn) clearTimeout(fingerprintTurn);
+      fingerprintsFilled?.settle();
       library.close();
       embedding.close();
       processor.close();

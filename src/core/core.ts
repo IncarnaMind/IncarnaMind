@@ -442,8 +442,8 @@ export interface Core extends CoreApi, CoreEventSource {
   /**
    * Fingerprints the text of Documents stored before an older version kept fingerprints, so a
    * check can tell a copy of the file it checks by its text (#2216): one Document a turn, on
-   * this thread. The host calls it once the first window is up; a check fingerprints the
-   * Documents it meets first itself. Calling it again while it runs does nothing.
+   * this thread. The host calls it once the first window is up; a check started before it is
+   * done waits for it. Calling it again while it runs does nothing.
    */
   fillTextFingerprints(): void;
   /**
@@ -2051,6 +2051,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const evidence = createEvidence({
     db,
     textCopies: documents.textCopies,
+    textFingerprinted: () => documents.fillTextFingerprints(),
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
       documents.searchTool(query, {
@@ -5921,7 +5922,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return found;
     },
     upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
-    fillTextFingerprints: () => documents.fillTextFingerprints(),
+    fillTextFingerprints: () => void documents.fillTextFingerprints(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.
@@ -6421,6 +6422,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const scope = parseSearchScope(options?.scope);
       const mindId = typeof options?.mindId === "string" ? options.mindId : null;
+      await evidence.ready();
       const found = await evidence.search(
         query,
         evidence.scope(mindId, scopeDocuments(scope), parseCheckedDocument(options?.checked)),

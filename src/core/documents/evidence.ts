@@ -75,6 +75,8 @@ export interface EvidenceSearch {
 export interface EvidenceDependencies {
   db: Database;
   textCopies: Pick<TextCopies, "holding">;
+  /** Settles once every Document's text is fingerprinted (`fillTextFingerprints`). */
+  textFingerprinted(): Promise<void>;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
   /** The search Tool, reranked as Answers are (see ./searchTool). */
@@ -165,6 +167,13 @@ export function createEvidence(deps: EvidenceDependencies) {
       .map((row) => ({ documentId: row.document_id, contentHash: row.content_hash }));
 
   return {
+    /**
+     * Settles once `scope` can tell every copy of a checked file by its text. A check waits for
+     * it before taking its scope: after an upgrade, the Documents an older version stored are
+     * fingerprinted one a turn rather than all at once on this thread (#2216).
+     */
+    ready: (): Promise<void> => deps.textFingerprinted(),
+
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,
      * or null for every Document) without the Documents left out of its

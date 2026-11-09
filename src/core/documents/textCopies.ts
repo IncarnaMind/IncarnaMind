@@ -220,22 +220,20 @@ export function createTextCopies(db: Database, now: () => string) {
     return { shingles: shingles.length, sample };
   }
 
-  /** Current versions, of these Documents or of every live one, whose text is stored but not fingerprinted. */
-  function missing(documentIds: readonly string[] | null, limit?: number): TextVersion[] {
-    return db
-      .all<{ id: string; content_hash: string }>(
-        `SELECT d.id, d.content_hash FROM documents d
-         WHERE d.deleted_at IS NULL ${documentIds === null ? "" : `AND ${inList("d.id")}`}
-           AND EXISTS (SELECT 1 FROM document_pages p
-                       WHERE p.document_id = d.id AND p.content_hash = d.content_hash
-                         AND p.deleted_at IS NULL)
-           AND NOT EXISTS (SELECT 1 FROM text_fingerprints f
-                           WHERE f.document_id = d.id AND f.content_hash = d.content_hash
-                             AND f.deleted_at IS NULL)
-         ORDER BY d.created_at, d.rowid ${limit === undefined ? "" : `LIMIT ${limit}`}`,
-        documentIds === null ? [] : [JSON.stringify(documentIds)],
-      )
-      .map((row) => ({ documentId: row.id, contentHash: row.content_hash }));
+  /** A live Document's current version whose text is stored but not fingerprinted. */
+  function nextMissing(): TextVersion | null {
+    const row = db.get<{ id: string; content_hash: string }>(
+      `SELECT d.id, d.content_hash FROM documents d
+       WHERE d.deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM document_pages p
+                     WHERE p.document_id = d.id AND p.content_hash = d.content_hash
+                       AND p.deleted_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM text_fingerprints f
+                         WHERE f.document_id = d.id AND f.content_hash = d.content_hash
+                           AND f.deleted_at IS NULL)
+       ORDER BY d.created_at, d.rowid LIMIT 1`,
+    );
+    return row ? { documentId: row.id, contentHash: row.content_hash } : null;
   }
 
   function fingerprintOf(version: TextVersion): Fingerprint {
@@ -272,7 +270,7 @@ export function createTextCopies(db: Database, now: () => string) {
 
     /** Fingerprints the next Document whose text was stored before fingerprints were; false when none is left. */
     fillNext(): boolean {
-      const [next] = missing(null, 1);
+      const next = nextMissing();
       if (!next) return false;
       record(next, unitsOf(next));
       return true;
@@ -282,7 +280,8 @@ export function createTextCopies(db: Database, now: () => string) {
      * The Documents among `candidates` (null: every live one), but not in
      * `skip`, whose current version holds nearly all of the text of one of the
      * checked versions. A checked version shorter than `SAME_TEXT_SHORTEST`, or
-     * with no text stored, matches nothing.
+     * with no text stored, matches nothing. Only fingerprinted Documents are
+     * compared: a check waits for `fillNext` to reach every one first.
      */
     holding(
       checked: readonly TextVersion[],
@@ -301,7 +300,6 @@ export function createTextCopies(db: Database, now: () => string) {
         .map((version) => ({ version, fingerprint: fingerprintOf(version) }))
         .filter(({ fingerprint }) => fingerprint.shingles >= SAME_TEXT_SHORTEST);
       if (sources.length === 0) return [...remember(asked, [])];
-      for (const version of missing(candidates)) record(version, unitsOf(version));
       // A text with fewer shingles than the bar's share of the checked text's can't hold it.
       const enough = (fingerprint: Fingerprint) =>
         Math.ceil(fingerprint.shingles * SAME_TEXT_SHARE);

@@ -48,14 +48,14 @@ const CASES: readonly {
     ui: "en",
     name: "Services Agreement",
     copy: "Services Agreement (signed)",
-    line: "Also in “Services Agreement (signed)”, same text as this file: not counted",
+    line: "Also in “Services Agreement (signed)”, which holds nearly all of the checked document’s text: not counted",
   },
   {
     language: "zh",
     ui: "zh-CN",
     name: "技术服务合同",
     copy: "技术服务合同（签署版）",
-    line: "也出现在“技术服务合同（签署版）”（与此文件的文字相同）中，未计为依据",
+    line: "也出现在“技术服务合同（签署版）”（包含正在核对的文档的几乎全部文字）中，未计为依据",
   },
 ];
 
