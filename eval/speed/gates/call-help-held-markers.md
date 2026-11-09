@@ -58,3 +58,11 @@ If a part fails, it doesn't ship; the numbers go on #2847.
 
 A unit test holds this in English and Chinese, and fails on main, where the asked records go at the end of the line the model names. The bar is unchanged.
 
+## Second amendment, 2026-11-09, before any press of `call-help-twins`
+
+From the independent pre-review:
+
+- **The held rule is stricter.** Each clause of a run must have 0.7 of its own words in the quote, so a clause the quote doesn't hold never rides on one it does. Figures are read in words too ("sixty days", 百分之二十, 九五折, 六十人), and a negation reaches the next two words or character pairs (没有包含, "no longer available"). Chinese pairs with a character that says little alone (的, 们) count no more than "our" or "the" do. A record is placed only when its quote is found as given.
+- **The unit tests of the rule** had first used this slice's Document lines word for word. They were replaced with other made-up lines before any press. No run has seen the slice, and no constant was set from its presses, but the rule's first tests were written having read its Documents.
+- **`help-marks-as-before` is main's path except for one thing:** quotations are counted fairly there too, since that count is shared code. On that arm a Chinese quotation of four or five characters is no longer turned into a Citation in call help. This makes main's arm cleaner than main, so the bar only gets harder for the branch.
+
