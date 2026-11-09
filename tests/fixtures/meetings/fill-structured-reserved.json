@@ -4799,7 +4799,8 @@
         "subject": ["CV|résumé|resume|profile|shortlist"],
         "said": [7],
         "owner": "Priya|\\bShah\\b",
-        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b"
+        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b",
+        "misheard": "\\bShaw\\b"
       },
       {
         "name": "Candidates spoken to",
@@ -4807,7 +4808,8 @@
         "pattern": ["\\b(5|five)\\b", "candidates?|people|spoken|screened|talked"],
         "said": [3],
         "owner": "Priya|\\bShah\\b",
-        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b"
+        "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b",
+        "misheard": "\\bShaw\\b"
       },
       {
         "name": "Fee",
@@ -4865,7 +4867,8 @@
         "subject": ["效果图"],
         "said": [9],
         "owner": "王磊",
-        "forbid": "王雷|对方"
+        "forbid": "王雷|对方",
+        "misheard": "王雷"
       },
       {
         "name": "厨房尺寸",
@@ -4873,7 +4876,8 @@
         "pattern": ["厨房", "\\b(20) ?(公分|厘米|cm)|二十公分|0\\.2 ?米"],
         "said": [3],
         "owner": "王磊",
-        "forbid": "王雷|对方"
+        "forbid": "王雷|对方",
+        "misheard": "王雷"
       },
       {
         "name": "设计费",
