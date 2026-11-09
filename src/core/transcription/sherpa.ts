@@ -10,13 +10,33 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
-import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
+import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
-import { textOfResult, wordsOnly } from "./speechText";
+import { resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
+
+/**
+ * Qwen3-ASR's limits, sherpa-onnx's own defaults set here so the log can say when a reading
+ * reaches one: it writes at most `MAX_NEW_TOKENS`, its header "language Chinese<asr_text>"
+ * (`HEADER_TOKENS`) among them, and holds its prompt (`PROMPT_TOKENS` and the words it is told),
+ * the audio (`AUDIO_TOKENS_PER_SECOND`) and what it writes in `MAX_TOTAL_TOKENS`. Reaching the
+ * total, it stops with no word in sherpa-onnx's own log, and the end of the stretch is lost (#1031).
+ */
+const MAX_NEW_TOKENS = 128;
+const MAX_TOTAL_TOKENS = 512;
+const HEADER_TOKENS = 3;
+const PROMPT_TOKENS = 15;
+const AUDIO_TOKENS_PER_SECOND = 13;
+/**
+ * The most speech one reading takes, so that it reaches neither: 15 s of audio is 195 tokens,
+ * which leaves all 128 it may write with the prompt and the words told, and the densest speech of
+ * the meeting set, about 5.7 tokens a second, writes about 86 of them in it. On that set, 15 s
+ * read better than 12 s, whose extra cuts cost context (#1031).
+ */
+const LONGEST_READING_MS = 15_000;
 
 /**
  * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
@@ -66,7 +86,8 @@ function sileroDetector(sherpa: Sherpa, vadFile: string, minSpeech: number): Voi
         threshold: 0.5,
         minSpeechDuration: minSpeech,
         minSilenceDuration: 0.5,
-        // Long speech is cut, so its final text never waits long.
+        // Past this, sherpa-onnx only looks harder for a pause: a stretch can run on well beyond
+        // it, so the speech host cuts long speech itself (`longestMs`, #1031).
         maxSpeechDuration: 20,
         windowSize: WINDOW,
       },
@@ -194,6 +215,28 @@ async function liveReadingsOrNone(
   }
 }
 
+/**
+ * Says in the log when a reading reached one of Qwen3-ASR's limits, its words cut short: counted
+ * from the `tokens` its words took and the audio it read, erring high. None of its words are logged.
+ */
+function sayIfAtLimit(samples: Float32Array, words: readonly string[], tokens: number): void {
+  const written = tokens + HEADER_TOKENS;
+  const seconds = samples.length / MEETING_SAMPLE_RATE;
+  const total =
+    PROMPT_TOKENS + toldTokens(words) + Math.ceil(seconds * AUDIO_TOKENS_PER_SECOND) + written;
+  if (written < MAX_NEW_TOKENS && total < MAX_TOTAL_TOKENS) return;
+  // The process has no logger of its own: its output goes to the app's log.
+  console.warn(
+    "A reading of the speech model reached its token limit; its words may be cut short.",
+    {
+      limit: written >= MAX_NEW_TOKENS ? MAX_NEW_TOKENS : MAX_TOTAL_TOKENS,
+      seconds: Math.round(seconds * 10) / 10,
+      written,
+      total,
+    },
+  );
+}
+
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
@@ -213,6 +256,8 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         decoder: required("decoder"),
         tokenizer: required("tokenizer"),
         hotwords: "",
+        maxNewTokens: MAX_NEW_TOKENS,
+        maxTotalLen: MAX_TOTAL_TOKENS,
       },
       tokens: "",
       numThreads: model.threads,
@@ -228,21 +273,29 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     const stream = recognizer.createStream();
     if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
     stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+    let result: { text: string; tokens?: unknown };
     try {
-      return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+      result = await recognizer.decodeAsync(stream);
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
       // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
       const addon = await SHERPA_ADDON.load();
-      return writtenNumbers(
-        wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+      result = resultOf(addon.getOfflineStreamResultAsJson(stream.handle));
+    }
+    const said = untilEndOfText(result);
+    if (said.ranOn) {
+      console.warn(
+        "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
       );
     }
+    sayIfAtLimit(samples, words, said.tokens);
+    return writtenNumbers(wordsOnly(said.text));
   }
 
   return {
     detector,
     ...(live && { live }),
+    longestMs: LONGEST_READING_MS,
     recognizer: {
       async decode(samples, _stream, given) {
         const words = contextWords(given);
