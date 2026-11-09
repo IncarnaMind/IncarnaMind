@@ -1272,9 +1272,9 @@ export interface CoreAdapters {
   connectorSignInTimeoutMs?: number;
   connectorFetch?: typeof fetch;
   /**
-   * Contradiction watch's timings (#112), which tests shorten: how long after
-   * a new version of a Document its Folder's Minds are checked (30 seconds),
-   * and how long a background check of one claim may take (3 minutes).
+   * Timings tests shorten: how long after a new version of a Document its
+   * Folder's Minds are watched for contradictions (#112, 30 seconds), and how
+   * long a check of one claim may take, in every flow (3 minutes).
    */
   contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
   /**
@@ -1315,8 +1315,8 @@ export interface CoreAdapters {
   sourceProviders?: SourceProviderUrls;
   /**
    * How the core keeps requests to one service apart in time (arXiv's three
-   * seconds, NCBI's three a second): the real clock, unless a test passes
-   * one it moves itself.
+   * seconds, NCBI's three a second, a provider's rate limit waited out): the
+   * real clock, unless a test passes one it moves itself.
    */
   paceTimers?: PaceTimers;
   /**

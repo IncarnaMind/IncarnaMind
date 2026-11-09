@@ -1503,6 +1503,7 @@ export const en = {
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
   "claim.reason.out-of-credit": "The model’s service says the credit balance is too low.",
   "claim.reason.failed": "The check failed: {detail}",
+  "claim.reason.timed-out": "The model didn’t reply within {detail} seconds.",
   "claim.reason.stopped": "Stopped before it was checked.",
   "claim.reason.answer-failed": "The Answer stopped with an error before this was checked.",
   "claim.reason.too-many":
@@ -5004,6 +5005,7 @@ export const en = {
   "aiStatement.use.search-sources": "Searches of public scholarly sources (Find sources)",
   "aiStatement.use.search-web": "Web searches",
   "aiStatement.use.sentence-checked": "Sentences checked against the Documents",
+  "aiStatement.use.sentence-asked": "Sentences a model read to check, left Not checked",
   "aiStatement.text.heading": "AI text, by section",
   "aiStatement.text.none": "This note has no AI text.",
   "aiStatement.text.intro":

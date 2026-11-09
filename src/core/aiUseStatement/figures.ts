@@ -60,6 +60,7 @@ export const USES: readonly Use[] = [
   "search-sources",
   "search-web",
   "sentence-checked",
+  "sentence-asked",
 ];
 
 /** How often one model was used for one thing. `model` is null when the record doesn't say. */
