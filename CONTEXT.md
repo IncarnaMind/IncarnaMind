@@ -373,7 +373,7 @@ Anonymous events about using IncarnaMind, such as "a Question was asked with a l
 _Avoid_: telemetry, tracking
 
 **AI use record**:
-What the AI put into a Note, or proposed and the User turned down, and what became of it (kept, edited, deleted), and each sentence a model checked, kept per Note on this computer. It holds kinds, sizes, the model and times, never text, and is never sent, whatever the User chose about Usage data.
+What the AI put into a Note, or proposed and the User turned down, and what became of it (kept, edited, deleted), and each sentence a model checked, or was sent to check and left Not checked, kept per Note on this computer. It holds kinds, sizes, the model and times, never text, and is never sent, whatever the User chose about Usage data.
 _Avoid_: AI log, AI history
 
 **Check record**:

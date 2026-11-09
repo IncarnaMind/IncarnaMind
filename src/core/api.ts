@@ -9882,8 +9882,10 @@ export const aiUseKinds = [
   "comparison-table-accepted",
   /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
   "outside-agent-change-accepted",
-  /** A sentence of the Mind's checked against the Documents (#906). */
+  /** A sentence of the Mind's checked against the Documents (#906): its model gave a verdict. */
   "sentence-checked",
+  /** A sentence of the Mind's whose check a model replied to, left Not checked (#2897). */
+  "sentence-asked",
 ] as const;
 export type AiUseKind = (typeof aiUseKinds)[number];
 

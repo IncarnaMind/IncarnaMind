@@ -28,6 +28,7 @@ import {
   type CheckRecord,
   type CheckRuns,
   checkRunOf,
+  heardFrom,
   recordCheck,
   runClaimChecks,
 } from "./runCheck";
@@ -207,14 +208,7 @@ export function earlyChecks(
     readNow(): string;
   }
   const started = new Map<string, Early[]>();
-  // One the run doesn't take may have been judged already: still a use of AI.
-  const drop = (early: Early) => {
-    early.stop.abort();
-    early.result.then(
-      (result) => recordCheck(record, run.prepared, result),
-      () => undefined,
-    );
-  };
+  const drop = (early: Early) => early.stop.abort();
   return {
     /**
      * `readNow` says what the check reads besides its request (the Library, the Note's record
@@ -223,7 +217,13 @@ export function earlyChecks(
     start(claim: QueuedClaim, readNow: () => string): boolean {
       if (limit.free() === 0) return false;
       const stop = new AbortController();
-      const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
+      const heard = heardFrom(run.prepared);
+      const request = checkRequestOf(
+        claim,
+        { ...run, prepared: heard.prepared },
+        limit,
+        AbortSignal.any([run.signal, stop.signal]),
+      );
       const key = requestKey(request);
       const early: Early = {
         result: checkClaim(claimCheck, request),
@@ -231,6 +231,12 @@ export function earlyChecks(
         read: readNow(),
         readNow,
       };
+      // Recorded as it ends, whether the run takes it or not: the run's own record is of the
+      // checks it sends itself.
+      const ended = (result: ClaimCheckResult | null) => {
+        if (heard.replied()) recordCheck(record, run.prepared, result);
+      };
+      early.result.then(ended, () => ended(null));
       early.result.catch((error: unknown) => {
         // A check the run takes fails there, as any other does.
         if (stop.signal.aborted || !started.get(key)?.includes(early)) return;

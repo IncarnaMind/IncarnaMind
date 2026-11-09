@@ -933,6 +933,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const run = checkRunOf(options, prepared, signal, mindId);
     const checks = new Map<Sentence, Checked>();
     const landed = (sentence: Sentence, outcome: CheckOutcome) => {
+      // A quick model that said no read the sentence too: a use of AI, whatever its check came to.
+      if (quick && looked.get(sentence)?.asked)
+        recordCheck(run.record, quick, "result" in outcome ? outcome.result : null);
       if (signal.aborted) return;
       if (!("result" in outcome)) {
         failed(sentence, outcome.reason, outcome.detail);
@@ -1009,8 +1012,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             options.claimCheck,
             requestOf(sentence, read, mindId, scope, prepared, limit, signal),
           );
-          // A quick model that said no read the sentence too: a use of AI once the sentence is checked.
-          if (quick && first?.asked) recordCheck(run.record, quick, result);
           // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
           const uncovered =
             result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell

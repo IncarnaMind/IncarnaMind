@@ -67,7 +67,7 @@ type StreamResult = Awaited<ReturnType<Wrapped["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;
 
 /** The parts a stream opens with before any of its reply: nothing of them reaches the User. */
-const BEFORE_REPLY: ReadonlySet<StreamPart["type"]> = new Set<StreamPart["type"]>([
+export const BEFORE_REPLY: ReadonlySet<StreamPart["type"]> = new Set<StreamPart["type"]>([
   "stream-start",
   "response-metadata",
   "raw",

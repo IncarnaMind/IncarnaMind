@@ -152,6 +152,7 @@ import {
   type CheckOutcome,
   CLAIM_TIME_LIMIT_MS,
   checkRunOf,
+  heardFrom,
   recordCheck,
   resultOf,
   runCheck,
@@ -1338,17 +1339,18 @@ export function createChecks(options: ChecksOptions) {
         if (end.by) outcome = end.by;
         else {
           const reading = wholeRead.reader(input, read, prepared, atomic, current);
+          const heard = heardFrom(prepared);
           const result = withSpent(
             await currentTask.run(task, () =>
               withCites(createPartCheck(options, reading.readPart))({
-                ...checkRequest(queued, read.scope, prepared, mindId, signal),
+                ...checkRequest(queued, read.scope, heard.prepared, mindId, signal),
                 undecidedOnly: true,
               }),
             ),
             (currency) => options.readSpent(input.requestId, currency),
             "previous" in queued ? queued.previous : undefined,
           );
-          recordCheck(record, prepared, result);
+          if (heard.replied()) recordCheck(record, prepared, result);
           outcome = { result };
           pages = reading.pagesRead();
         }

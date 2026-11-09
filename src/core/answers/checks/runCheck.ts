@@ -10,11 +10,15 @@
  * - The monthly cap or a plan's limit is "stop": nothing more is sent, and the claim and every one
  *   after it are Not checked for its reason.
  * - A check with no reply within the time limit is given up on: "failed", timed out.
- * - Every check a model judged is a use of AI in its Note's record (#906), whether or not its
- *   result lands. One that came to no verdict isn't one.
+ * - Every check a model replied to is a use of AI in its Note's record (#906), whether or not its
+ *   result lands: "sentence-checked" with its verdict, "sentence-asked" with none. A check no
+ *   model replied to (refused before it was sent, at the cap, kept inside a wall) is none.
  */
+import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ClaimCheckFailure, ClaimCheckResult, RecordAiUseInput, RunStop } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import { BEFORE_REPLY } from "../../providers/modelRefusal";
+import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { type ItemOutcome, RunItemError, runItems } from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
@@ -81,18 +85,74 @@ export type CheckOutcome =
  */
 export type CheckTry = (check: ClaimCheck, request: ClaimCheckRequest) => Promise<ClaimCheckResult>;
 
-/** Records a check a model judged as a use of AI; one that came to no verdict isn't one. */
+type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
+type StreamPart =
+  Awaited<ReturnType<Wrapped["doStream"]>>["stream"] extends ReadableStream<infer Part>
+    ? Part
+    : never;
+
+/**
+ * `prepared`, and whether a reply from its model has begun: a request refused before it was
+ * sent, or one its provider turned away, began none.
+ */
+export function heardFrom(prepared: PreparedChatModel): {
+  prepared: PreparedChatModel;
+  replied(): boolean;
+} {
+  let replied = false;
+  const listen = (model: ChatLanguageModel) =>
+    wrapLanguageModel({
+      model,
+      middleware: {
+        specificationVersion: "v4",
+        wrapGenerate: async ({ doGenerate }) => {
+          const result = await doGenerate();
+          replied = true;
+          return result;
+        },
+        wrapStream: async ({ doStream }) => {
+          const result = await doStream();
+          const stream = result.stream.pipeThrough(
+            new TransformStream<StreamPart, StreamPart>({
+              transform(part, controller) {
+                if (part.type !== "error" && !BEFORE_REPLY.has(part.type)) replied = true;
+                controller.enqueue(part);
+              },
+            }),
+          );
+          return { ...result, stream };
+        },
+      },
+    });
+  let listened: ChatLanguageModel | null = null;
+  return {
+    prepared: {
+      ...prepared,
+      // Wrapped when a request first asks for it: a check may never send one.
+      get model() {
+        listened ??= listen(prepared.model);
+        return listened;
+      },
+    },
+    replied: () => replied,
+  };
+}
+
+/**
+ * Records a check a model replied to as a use of AI: checked when it came to a verdict, else
+ * asked. `result` is null for one that came to nothing, as a check that threw.
+ */
 export function recordCheck(
   record: CheckRecord | null,
   model: PreparedChatModel,
-  result: ClaimCheckResult,
+  result: ClaimCheckResult | null,
 ): void {
-  if (!record || result.verdict === "not-checked") return;
+  if (!record) return;
   try {
     record.recordAiUse([
       {
         mindId: record.mindId,
-        kind: "sentence-checked",
+        kind: result && result.verdict !== "not-checked" ? "sentence-checked" : "sentence-asked",
         providerId: model.provider.id,
         modelId: model.modelId,
         characters: 0,
@@ -126,7 +186,7 @@ const stopped = (): ClaimCheckResult => ({
   excluded: [],
 });
 
-/** The check, or `TimedOut` once the time limit passes; recorded when a model judged it. */
+/** The check, or `TimedOut` once the time limit passes; recorded when its model replied. */
 async function within(
   check: ClaimCheck,
   request: ClaimCheckRequest,
@@ -134,6 +194,8 @@ async function within(
 ): Promise<ClaimCheckResult> {
   const settled = new AbortController();
   const givenUp = new AbortController();
+  const heard = heardFrom(request.model);
+  let came: ClaimCheckResult | null = null;
   try {
     // A reply that never comes, even once its check is stopped, is given up on all the same.
     const ended = new Promise<ClaimCheckResult | TimedOut>((resolve) => {
@@ -151,14 +213,19 @@ async function within(
       });
     });
     const result = await Promise.race([
-      check({ ...request, signal: AbortSignal.any([request.signal, givenUp.signal]) }),
+      check({
+        ...request,
+        model: heard.prepared,
+        signal: AbortSignal.any([request.signal, givenUp.signal]),
+      }),
       ended,
     ]);
     if (result instanceof TimedOut) throw result;
-    recordCheck(run.record, run.model, result);
+    came = result;
     return result;
   } finally {
     settled.abort();
+    if (heard.replied()) recordCheck(run.record, run.model, came);
   }
 }
 

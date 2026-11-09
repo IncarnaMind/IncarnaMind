@@ -1,8 +1,8 @@
 /**
  * One runner takes each claim through its check in every flow (#2897): a provider that says to slow
  * down is waited out and sent again, the spending cap stops the run and marks every claim it
- * leaves, a check has one time limit, and every check a model judged is in the Note's record of
- * AI use. Each flow checks the same three claims, in English and Chinese. The models are scripted,
+ * leaves, a check has one time limit, and every check a model replied to is in the Note's record
+ * of AI use: checked when it gave a verdict, asked when it didn't. Each flow checks the same three claims, in English and Chinese. The models are scripted,
  * and the core's waits are on a clock the test holds (../helpers/heldClock).
  */
 import { writeFile } from "node:fs/promises";
@@ -83,6 +83,10 @@ interface Script {
   hangs?: number;
   /** The monthly cap is reached once the first claim's check has ended, as the next ones start. */
   cap?: true;
+  /** The monthly cap is reached before the flow sends any check. */
+  capFirst?: true;
+  /** The claim whose check's model replies in words no check can read. */
+  unreadable?: number;
   /** A reply of its own for a claim's check, by which of its Runs it is, from 1; null: the planned one. */
   reply?(claim: number, run: number, call: ModelCall, planned: ScriptedReply): ScriptedReply | null;
 }
@@ -110,6 +114,8 @@ interface Flow {
   apart?: true;
   /** The contradiction watch: only a contradiction is marked, and a claim it can't check says so on that mark. */
   watch?: true;
+  /** What the flow asks a model before its checks, held until the cap is reached when it comes first. */
+  asksFirst?: "sort" | "write";
   /** Done before the script applies. */
   setUp?(world: World): Promise<void>;
   run(world: World): Promise<void>;
@@ -223,6 +229,7 @@ const FLOWS: readonly Flow[] = [
   {
     name: "Check this Note",
     inTurn: false,
+    asksFirst: "sort",
     async run({ core, note }) {
       await core.checkMind({ requestId: crypto.randomUUID(), mindId: note.mindId, mode: "all" });
     },
@@ -261,6 +268,7 @@ const FLOWS: readonly Flow[] = [
   {
     name: "the assistant's writing",
     inTurn: false,
+    asksFirst: "write",
     async run(world) {
       const { core, folderId } = world;
       const answer = await askAssistant(
@@ -319,6 +327,14 @@ async function worldOf(example: Example, flow: Flow) {
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let reachCap: () => Promise<void> = async () => undefined;
+  let capReached: Promise<void> | null = null;
+  /** Holds a reply until the cap is reached, for a script that reaches it before any check. */
+  const beforeTheCap = <T extends object>(reply: T): T | (T & { until: Promise<void> }) => {
+    if (!script?.capFirst) return reply;
+    capReached ??= reachCap();
+    return { ...reply, until: capReached };
+  };
 
   const check = (call: ModelCall): ScriptedReply => {
     const reply = checkReply(call, plans);
@@ -336,6 +352,11 @@ async function worldOf(example: Example, flow: Flow) {
       return { error: { status: 429, message: "Too many requests." } };
     }
     if (index === script.hangs) return { text: "", pause: { after: 0, until: NEVER } };
+    if (
+      index === script.unreadable &&
+      call.results.some((each) => each.tool === "search_documents")
+    )
+      return { text: "It reads well to me." };
     // The later claims' checks are let through once the cap is reached (`capAfterFirst`).
     if (script.cap && index > 0 && first) return { ...reply, pause: { after: 0, until: released } };
     return reply;
@@ -359,13 +380,21 @@ async function worldOf(example: Example, flow: Flow) {
     if (!call.results.some((result) => result.tool === "create_mind")) {
       const body = example.claims.map((claim, index) => `${claim}[^${index + 1}]`).join(" ");
       const content = `## ${example.heading}\n\n${body}`;
-      return { calls: [{ tool: "create_mind", input: { title: example.heading, content } }] };
+      const create = {
+        calls: [{ tool: "create_mind", input: { title: example.heading, content } }],
+      };
+      if (!script?.capFirst) return create;
+      capReached ??= reachCap();
+      return { ...create, pause: { after: 0, until: capReached } };
     }
     return { text: "Wrote it from your Documents." };
   };
 
   const model = scriptedModel((call) => (isCheckRun(call) ? check(call) : write(call)), {
-    generate: checkGenerate(plans),
+    generate: (call) => {
+      const reply = checkGenerate(plans)(call);
+      return call.question === "find-claims" ? beforeTheCap(reply) : reply;
+    },
   });
   const clock = checkClock(LIMIT_MS);
   const background = flow.name === "the background watch";
@@ -377,6 +406,9 @@ async function worldOf(example: Example, flow: Flow) {
     // A watch's record says when it ran: each run's is a later second.
     now: tickingClock(),
   });
+  reachCap = async () => {
+    await started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
+  };
   started.on("consent.requested", (asked) => void started.respondToConsent(asked.requestId, true));
   const provider = await started.saveChatProvider({
     kind: "anthropic",
@@ -419,7 +451,7 @@ async function worldOf(example: Example, flow: Flow) {
     results: [null, null, null],
     ends: "finished",
   };
-  let judgedBefore = 0;
+  let judgedBefore = { checked: 0, asked: 0 };
   return {
     world,
     runs,
@@ -429,6 +461,7 @@ async function worldOf(example: Example, flow: Flow) {
       judgedBefore = await everyRecorded(started);
       script = next;
       left = [...(next.limited ?? [0, 0, 0])];
+      if (next.capFirst && !flow.asksFirst) await reachCap();
     },
     /**
      * Once the first claim's check has ended, judged, and the later ones have started (the one
@@ -437,7 +470,7 @@ async function worldOf(example: Example, flow: Flow) {
     async capAfterFirst() {
       await vi.waitFor(
         async () => {
-          expect((await everyRecorded(started)) - judgedBefore).toBe(1);
+          expect((await everyRecorded(started)).checked - judgedBefore.checked).toBe(1);
           expect(runs.slice(1)).toEqual(flow.inTurn ? [1, 0] : [1, 1]);
         },
         { timeout: 20_000 },
@@ -449,8 +482,13 @@ async function worldOf(example: Example, flow: Flow) {
 }
 
 /** Every check recorded as a use of AI, in any Note: the assistant's writes its own. */
-const everyRecorded = async (core: Core) =>
-  (await core.listAiUse()).filter((each) => each.kind === "sentence-checked").length;
+const everyRecorded = async (core: Core) => {
+  const entries = await core.listAiUse();
+  return {
+    checked: entries.filter((each) => each.kind === "sentence-checked").length,
+    asked: entries.filter((each) => each.kind === "sentence-asked").length,
+  };
+};
 
 /** What the User sees of each claim: its result, or none. */
 async function shown(world: World, flow: Flow): Promise<string[]> {
@@ -495,10 +533,16 @@ async function timedOutDetail(world: World, flow: Flow): Promise<string | null> 
   );
 }
 
-const recorded = async (world: World) =>
-  (await world.core.listAiUse()).filter(
-    (each) => each.kind === "sentence-checked" && each.mindId === world.note.mindId,
-  ).length;
+/** The Note's record of checks: those a model gave a verdict, and those it was sent and left Not checked. */
+async function recorded(world: World) {
+  const entries = (await world.core.listAiUse()).filter(
+    (each) => each.mindId === world.note.mindId,
+  );
+  return {
+    checked: entries.filter((each) => each.kind === "sentence-checked").length,
+    asked: entries.filter((each) => each.kind === "sentence-asked").length,
+  };
+}
 
 interface Case {
   name: string;
@@ -509,8 +553,8 @@ interface Case {
   runs(flow: Flow): readonly number[];
   /** The pauses waited, to the second. */
   pauses: readonly number[];
-  /** The checks a model judged, each a use of AI in the Note's record. */
-  recorded(flow: Flow): number;
+  /** The checks a model replied to, each a use of AI in the Note's record: checked, or asked. */
+  recorded(flow: Flow): { checked: number; asked: number };
 }
 
 const RL = "not-checked: rate-limit";
@@ -524,7 +568,7 @@ const CASES: readonly Case[] = [
     shows: () => ["ok", "ok", "ok"],
     runs: () => [1, 1, 1],
     pauses: [],
-    recorded: () => 3,
+    recorded: () => ({ checked: 3, asked: 0 }),
   },
   {
     name: "a rate limit that clears on the second try is waited out, and the claim lands",
@@ -532,7 +576,8 @@ const CASES: readonly Case[] = [
     shows: () => ["ok", "ok", "ok"],
     runs: () => [2, 1, 1],
     pauses: [1_000],
-    recorded: () => 3,
+    // A request the provider turned away had no reply: no model ran it.
+    recorded: () => ({ checked: 3, asked: 0 }),
   },
   {
     name: "a rate limit that never clears is tried after each pause, then Not checked for it",
@@ -541,7 +586,7 @@ const CASES: readonly Case[] = [
     shows: (flow) => (flow.inTurn && !flow.apart ? [RL, RL, RL] : [RL, "ok", "ok"]),
     runs: (flow) => (flow.inTurn && !flow.apart ? [6, 0, 0] : [6, 1, 1]),
     pauses: [1_000, 2_000, 4_000, 8_000, 16_000],
-    recorded: (flow) => (flow.inTurn && !flow.apart ? 0 : 2),
+    recorded: (flow) => ({ checked: flow.inTurn && !flow.apart ? 0 : 2, asked: 0 }),
   },
   {
     name: "the cap reached midway stops the run, and each claim left is Not checked for it",
@@ -549,7 +594,8 @@ const CASES: readonly Case[] = [
     shows: () => ["ok", CAP, CAP],
     runs: (flow) => (flow.inTurn ? [1, 1, 0] : [1, 1, 1]),
     pauses: [],
-    recorded: () => 1,
+    // A check whose model replied before the cap stopped its next request was sent: it was asked.
+    recorded: (flow) => ({ checked: 1, asked: flow.inTurn ? 1 : 2 }),
   },
   {
     name: "a check with no reply within the time limit is Not checked, and the next lands",
@@ -557,12 +603,28 @@ const CASES: readonly Case[] = [
     shows: () => ["ok", TIMED_OUT, "ok"],
     runs: () => [1, 1, 1],
     pauses: [],
-    recorded: () => 2,
+    recorded: () => ({ checked: 2, asked: 0 }),
+  },
+  {
+    name: "a check its model replied to in words no check can read is Not checked, and recorded as asked",
+    script: { unreadable: 1 },
+    shows: () => ["ok", "not-checked: malformed", "ok"],
+    runs: () => [1, 1, 1],
+    pauses: [],
+    recorded: () => ({ checked: 2, asked: 1 }),
+  },
+  {
+    name: "a check the cap stops before its first request is Not checked, and isn't recorded",
+    script: { capFirst: true },
+    shows: () => [CAP, CAP, CAP],
+    runs: () => [0, 0, 0],
+    pauses: [],
+    recorded: () => ({ checked: 0, asked: 0 }),
   },
 ];
 
 describe.each([EN, ZH])("every check flow, through one runner ($language)", (example) => {
-  // protects=each flow waits out a rate limit (1, 2, 4, 8, 16 s) and sends the claim again, ends Not checked on a limit no pause cleared, stops at the cap with every claim left Not checked for it, gives up a check after the one time limit with one message, and records every check a model judged in the Note's record, in English and Chinese (#2897); fails_when=a flow marks a rate limit at once, ends a whole read's part on it, keeps sending after the cap or leaves a claim unmarked, has no time limit, or leaves a check out of the record; no_claim=the verdicts, which the claim-check tests cover.
+  // protects=each flow waits out a rate limit (1, 2, 4, 8, 16 s) and sends the claim again, ends Not checked on a limit no pause cleared, stops at the cap with every claim left Not checked for it, gives up a check after the one time limit with one message, and records every check a model replied to in the Note's record, checked with a verdict or asked with none, and none a model never got, in English and Chinese (#2897); fails_when=a flow marks a rate limit at once, ends a whole read's part on it, keeps sending after the cap or leaves a claim unmarked, has no time limit, leaves a check a model ran out of the record, or records one no model ran; no_claim=the verdicts, which the claim-check tests cover.
   describe.each(FLOWS)("$name", (flow) => {
     test.each(CASES)("$name", async (each) => {
       const made = await worldOf(example, flow);
@@ -570,7 +632,8 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
       await flow.setUp?.(world);
       const before = await recorded(world);
       const pausedBefore = world.clock.pauses().length;
-      if (each.script.cap && flow.name === "the assistant's writing") world.ends = "failed";
+      if ((each.script.cap || each.script.capFirst) && flow.asksFirst === "write")
+        world.ends = "failed";
       await made.begin(each.script);
 
       const running = flow.run(world);
@@ -599,7 +662,11 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
           .slice(pausedBefore)
           .map((ms) => Math.ceil(ms / 1000) * 1000),
       ).toEqual(each.pauses);
-      expect((await recorded(world)) - before).toBe(each.recorded(flow));
+      const after = await recorded(world);
+      expect({
+        checked: after.checked - before.checked,
+        asked: after.asked - before.asked,
+      }).toEqual(each.recorded(flow));
       if (each.script.hangs !== undefined) {
         const detail = await timedOutDetail(world, flow);
         expect(detail).toBe("60");
