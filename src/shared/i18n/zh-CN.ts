@@ -2968,9 +2968,9 @@ export const zhCN = {
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
   "setup.sorting.sends":
-    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（使用聊天模型时还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（发给 Jev 和决策模型时除外，还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "setup.sorting.sendsWhenOn":
-    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（使用聊天模型时还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（发给 Jev 和决策模型时除外，还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "command.tagging.turnOn": "开启自动给新文档打标签…",
   "command.tagging.turnOn.keywords": "zidong dabiaoqian 自动打标签 标签 开启 设置",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
@@ -4326,7 +4326,7 @@ export const zhCN = {
   "cost.estimate.month": "本月已用{spent}，上限 {cap}",
   "cost.cap.title": "每月花费上限",
   "cost.cap.tip":
-    "计入你的密钥上聊天模型的花费：回答和写作、快速任务、读取图片，以及用聊天模型整理和标签。会议转写、文档搜索和“最相关的排在前面”不计入。订阅按自身额度计算。",
+    "计入你的密钥在回答和写作、快速任务、读取图片以及整理和标签上的花费。会议转写、文档搜索和“最相关的排在前面”不计入。订阅按自身额度计算。",
   "cost.cap.spent": "本月 API 密钥已花费：{spent}。",
   "cost.cap.spentOf": "本月 API 密钥已花费：{spent}，上限 {cap}。",
   "cost.cap.nothing": "本月 API 密钥尚无花费。",
@@ -5819,6 +5819,7 @@ export const zhCN = {
   "error.transcription.keyRefused": "{service} 不接受这个密钥。请重新复制后粘贴到这里。",
   "error.transcription.noOwnKey": "这个转写服务使用你在“设置 › AI”中设置的密钥。",
   "error.transcription.unknownService": "这不是转写服务。",
+  "error.olderKey.job": "只有文档搜索和“最相关的排在前面”有自己的密钥。",
   "error.transcription.serverScheme": "服务器地址必须以 wss:// 或 https:// 开头。",
   "error.transcription.serverEncrypted":
     "会议音频只能加密发送到其他电脑：请使用 wss:// 或 https:// 地址。",

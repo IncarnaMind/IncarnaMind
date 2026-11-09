@@ -148,7 +148,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
   );
   await closeSettings(window);
 

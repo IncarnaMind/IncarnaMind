@@ -6462,7 +6462,7 @@ export function createCore(adapters: CoreAdapters): Core {
       else if (job === "rerank") {
         await rerank.forgetOlderKey();
         await rerankChanged();
-      } else throw new InvalidInputError("switchToAccountKey expects embeddings or rerank.");
+      } else throw new InvalidInputError({ key: "error.olderKey.job" });
     },
     testRerankConnection: (input) => loggingTest("rerank")(rerank.test(input)),
 

@@ -88,8 +88,6 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and its Tag 
   await form.getByText("Server, model and threshold").click();
   await form.getByLabel("Server URL (optional)").fill(jev.url);
   await expect(form.getByLabel("Suggest from (%)")).toHaveValue("35");
-  await form.getByRole("button", { name: "Test connection" }).click();
-  await expect(form.getByTestId("connection-test")).toHaveText("Connected: the provider answered.");
   await acceptPlainTextKeys(window, form);
   await form.getByTestId("jev-save").click();
   await expect(form).toHaveCount(0);

@@ -3113,9 +3113,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.sendsWhenOn":
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
   "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
@@ -4520,7 +4520,7 @@ export const en = {
   "cost.estimate.month": "{spent} of {cap} used this month",
   "cost.cap.title": "Monthly spending cap",
   "cost.cap.tip":
-    "Counts what chat models on your keys spend: Answers and writing, quick tasks, reading images, and Organize and Tags on a chat model. Meeting transcription, Document search and Best results first aren’t counted. Plans keep their own limits.",
+    "Counts what your keys spend on Answers and writing, quick tasks, reading images, and Organize and Tags. Meeting transcription, Document search and Best results first aren’t counted. Plans keep their own limits.",
   "cost.cap.spent": "Spent this month: {spent} on your keys.",
   "cost.cap.spentOf": "Spent this month: {spent} of {cap} on your keys.",
   "cost.cap.nothing": "Nothing spent on your keys this month.",
@@ -6125,6 +6125,7 @@ export const en = {
   "error.transcription.noOwnKey":
     "That transcription service uses the key you set in Settings › AI.",
   "error.transcription.unknownService": "That isn’t a transcription service.",
+  "error.olderKey.job": "Only Document search and Best results first keep a key of their own.",
   "error.transcription.serverScheme": "The server address must start with wss:// or https://.",
   "error.transcription.serverEncrypted":
     "Meeting audio goes to another computer only encrypted: use a wss:// or https:// address.",
