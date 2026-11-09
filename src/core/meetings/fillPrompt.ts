@@ -137,7 +137,7 @@ export function notesContext(
       ? "The User took the notes below during the call, a line each. Fill them in from the transcript:"
       : "The User took no notes. Write the meeting's notes from the transcript.",
     "Return a ledger of facts, not separate prose accounts under each line and section. Code, not your reply, writes the full fact once and topic-only references with its original Citation in its other places. Do not write references or section drafts yourself.",
-    "- Read through to the final agreement before allocating facts. Include all related final choices and work assignments under the User's ordinary lines, not just background or an earlier proposal. Never repeat or reword the User's own line. A line asking about several things needs every relevant answer, with one identity per fact.",
+    "- Read through to the final agreement before allocating facts. Include all related final choices and work assignments under the User's ordinary lines, not just background or an earlier proposal. Never repeat or reword a line the User typed. A line asking about several things needs every relevant answer, with one identity per fact.",
     "- Each fact has one stable id, a short topic label, its complete wording once, its Citation marker inventory, and its related lines and sections. A fact is one short point, a single sentence: what a speaker said about several things is several facts. Keep an action, all its actual owners and its spoken deadline together, without restating the same owner or deadline within that fact. Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice. A first-person commitment belongs to that Transcript speaker, not automatically Me; a reported third-party assignment belongs to that third party.",
     userRule(named),
     "- The topic is a label only: no full assertion, figures, dates, owner, deadline or machine address. The complete wording belongs only in the paragraph after the metadata, not in the label or a second frame. Different facts may share a Citation, name or date; those are not reasons to merge their identities.",
@@ -149,6 +149,13 @@ export function notesContext(
       : "- The User wrote no ordinary L lines, so lines is always [], never a time, a transcript line or an H address.",
     '- sections uses only these ids: "decisions" for what the people in the call agreed to do, a choice they made together, never a figure, price or term one side stated, even when nobody objects; "actions" for actual commitments, a task someone in the call took on to do after it (not a plan or project they described), "questions" for questions explicitly raised and left unanswered; [] for anything else, which the notes show under its heading. Use multiple ids only when the same fact genuinely belongs to each. Do not turn a rejected option, hypothetical or undecided proposal into a decision, infer an open question, invent an owner/deadline, or turn a reported event into a promise.',
     "- claim is true only for a figure, date, price or term a document of the User's could state, such as a fee, a size or a contract term; never for someone's background, opinion, plan or task. Code checks the same full fact; do not write a second CLAIMS inventory. Overview metadata has only citations.",
+    // Never told what supersedes does, DeepSeek V4.1 Flash named a proposal in its decision's
+    // supersedes, meaning both to stay, and the proposal was dropped from the notes (#2306).
+    ...(history?.facts.length
+      ? []
+      : [
+          "- supersedes is always [] in this reply: it is only for replacing a fact kept from an earlier reply, which this fact corrects.",
+        ]),
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",
     ...(lines.some((line) => line.heading)
       ? [

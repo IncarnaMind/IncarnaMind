@@ -201,4 +201,19 @@ test("a later part is shown each kept fact's heading, so a topic keeps its words
   );
   expect(prompt).toContain("Use new ids P2_F1");
   expect(prompt).toContain('\\"heading\\":\\"价格与付款\\"');
+  expect(prompt).toContain("a correction names the prior ids in supersedes");
+  expect(prompt).not.toContain("supersedes is always []");
+});
+
+// protects=what the User said in the call is written like anyone's: only a line they typed is never repeated, so a point only the User made is not left out as "the User's own line"; and a first reply is told supersedes stays empty, so a decision no longer drops the proposal before it (#2306); fails_when=the rule reads as covering the User's spoken lines again, or a first reply may name a fact to replace; no_claim=a real model following it, which tests/live/meetingFillSections.live.test.ts measures.
+test.each([
+  ["no notes", []],
+  ["a typed line", [{ marker: "L1", text: "访谈对象", heading: false }]],
+] as const)("with %s, only a typed line is never repeated, and nothing is replaced", (_, lines) => {
+  const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+  expect(prompt).toContain("Never repeat or reword a line the User typed.");
+  expect(prompt).not.toContain("the User's own line");
+  expect(prompt).toContain(
+    "supersedes is always [] in this reply: it is only for replacing a fact kept from an earlier reply, which this fact corrects.",
+  );
 });
