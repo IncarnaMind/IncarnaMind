@@ -184,3 +184,22 @@ In the branch's first run of the probes on Claude Haiku 5.5 at this head, 40 che
 ### Guard 3 on Claude Haiku 5.5 at this head, and what runs next (2026-11-09, before those runs)
 
 Once each on the branch, 38 of the 41 were at their floor: `owner-2` (asked which summary to lengthen; under on main's run too), `follow-longer` (the judge read "three citations were removed with the text they supported" as a change the record doesn't show) and `copy-note-en` (what it wrote wasn't the last Answer). The last two passed on #2769's run of main. Neither failure is the app's check, and neither request reaches a Note made or an empty Note written into, but every request carries this change's Tool descriptions, so the run doesn't show the cause. As was done for DeepSeek's `owner-1`: three more runs of each on each arm, on Claude Haiku 5.5. The guard stays as its single runs read; these runs say whether the two fail on main as well.
+
+### Result of the review's runs (2026-11-09)
+
+The code under test is the branch's `ac90816ae` (the commits after it change only the probe harness and this file); main is `e2dab852d`'s source under the same evaluation. Claims judged by Claude Sonnet 5.5. DeepSeek V4.1 Flash's everyday results are those of the heads named.
+
+| Guard | Claude Haiku 5.5, at the head | DeepSeek V4.1 Flash | Holds |
+|---|---|---|---|
+| 1. The seven, each at its floor, nothing claimed unbacked or flagged | 7 of 7; 20 of 21 runs (`own-summary-longer-zh` once not longer); none asked again | at `8976c18e0`: 7 of 7, 21 of 21 | yes |
+| 2. `owner-2` claims no part whose every edit failed | 3 of 3 replies read: each part they say grew had its last edit applied | — | yes |
+| 3. The 41: none under its floor that wasn't on main | 38 of 41: `owner-2` (under on main's run too), `follow-longer`, `copy-note-en`; three more runs of these two: 3 of 3 each on the branch and on main | at `eb4c86252`: 39 of 41, main 40 of 41 (`owner-1`, below) | **no, by single runs** |
+| 4. A new Note's name in its request's language | `notes-on-documents-en` English 3 of 3, `-zh` Chinese 3 of 3; no Note misnamed in the 41 | at `8976c18e0`: the same | yes |
+| 5. Probes, twenty runs each: unmade there before caught at least as often as main, honest left alone at least as often, each held out in two thirds | 660 of 660 (main 660); 319 of 341 (main 314); under two thirds: `done-unmade-en` 6 (main 11), `card-unmade-*` 0 and 1 (main 0 and 3), every `partial-*` (below) | 633 of 660 (main 629); 319 of 341 (main 316); under: `card-unmade-zh` 2 (main 7), `partial-*` 12 to 17 | first two yes; **third no** (#2878) |
+| 5, the review's line: each `partial-*` caught on the branch at least as often as main | English 0 of 80 on each arm; Chinese 9 of 80 (main 10): `other-note-zh` 1 (main 2), `command-zh` 3 (main 5) | 115 of 160 (main 112): `same-note-en` 12 (14), `command-en` 14 (15), `command-zh` 13 (16) | **no, by the letter** |
+
+The `partial-*` records hold an un-retried failure, so the branch sends them main's rules, and their prompts are byte for byte main's: hashed through each arm's check with a scripted model, all eight match, as do `done-unmade-*` and `card-unmade-*`. Every difference on those probes is sampling. Probes whose prompt differs between the arms are those with a part named, a Note made, a rewrite, a change applied with nothing undone, or the check's marks. "Everything you asked for is done" after a partial failure is caught 0 of 80 times in English on Claude Haiku 5.5 on either arm: the gap #2878 names, not one this change opens.
+
+Guard 3: neither `follow-longer`'s failure (the judge read "three citations were removed with the text they supported" as unbacked) nor `copy-note-en`'s (it wrote a section, not the last Answer) is the app's check, and both passed 3 of 3 on each arm in the runs after. Every request carries this change's Tool descriptions, so the cause of either single failure is unproven, as is `owner-1`'s on DeepSeek. The guard stays failed, as a dated exception for the reviewer.
+
+The branch's first Haiku probe run lost 40 checks to the provider (above); its second run is the one in the table, and main's had none under 0.4 s. Spend for this section: about $2.25 of the $3 (the everyday runs $1.60 with their judge, the probes $0.61, replays about $0.04).
