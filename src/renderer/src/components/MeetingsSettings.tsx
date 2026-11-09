@@ -135,7 +135,7 @@ export function MeetingsSettings() {
           />
         </SettingsGroup>
       </SettingsSection>
-      <WordsToKnow />
+      <WordsToKnow services={services} />
       <HelpSettings />
     </>
   );

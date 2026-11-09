@@ -9,6 +9,7 @@ import {
   type CloudAuth,
   type CloudConnect,
   type CloudSocketEvents,
+  HANDSHAKE_BAD_REQUEST,
   HANDSHAKE_NO_CREDIT,
   HANDSHAKE_REFUSED,
   handshakeRefusalOf,
@@ -676,7 +677,8 @@ describe("A refused handshake, read from the service's answer", () => {
       HANDSHAKE_NO_CREDIT,
     ],
     ["a 429 for the rate", 429, "Rate limit reached.", 0],
-    ["another 400", 400, "Unsupported sample rate.", 0],
+    ["another 400", 400, "Unsupported sample rate.", HANDSHAKE_BAD_REQUEST],
+    ["a 422", 422, '{"message":"Invalid keyterm"}', HANDSHAKE_BAD_REQUEST],
     ["a 500", 500, "Insufficient credits.", 0],
   ] as const)("%s", (_, status, body, refusal) => {
     expect(handshakeRefusalOf(status, body)).toBe(refusal);

@@ -530,11 +530,15 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
       "Your keys · gets the meeting’s audio while you record",
     );
     const consent = settings.getByTestId("meetings-route-consent");
-    await expect(consent).toHaveCount(0);
+    await expect(consent).toHaveText(
+      "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    );
     expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
 
     await route.selectOption("soniox");
-    await expect(consent).toHaveText("Audio goes to Soniox while you record.");
+    await expect(consent).toHaveText(
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    );
     await expect
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("soniox");
@@ -1302,9 +1306,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const select = settings.getByTestId("models-sorting");
       await expect(select.locator("option:checked")).toHaveText("Claude Haiku 5.5");
-      expect(await organizeWords(settings)).toContain(
-        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
-      );
+      // The line is drawn once the services are read, after the choice shows.
+      await expect
+        .poll(() => organizeWords(settings))
+        .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }));
       expect(await organizeWords(settings)).not.toContain(
         translate(language, "setup.sorting.sends", { service: "Anthropic" }),
       );

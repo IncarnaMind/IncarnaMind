@@ -1,18 +1,22 @@
 /**
- * `npm run eval:meetings -- names` (eval/meetings/README.md, Words to know): two calls full of
- * names, one in English and one in Chinese, in synthetic speech (macOS `say`, the voices in
- * names.json), as #1031 measured the built app on them. Each call's two sides are the
- * microphone's and the computer sound's tracks, fed to the code the app runs (`createSpeechHost`,
- * Qwen3-ASR 0.6B with Silero VAD) in 100 ms frames, seven times: told no words, told the call's
- * own names (as its Note and Folder give them), told those and the other call's (as a User's list
- * holds both), told only the other call's names, told twenty names in the call's language that
- * sound like its own but are never said, told names that sound the same as its own but are other
- * people's (Danielle for Daniel), and told names that are also everyday words. Each run also
- * counts the stretches the engine would read twice: those whose plain reading holds a told name
- * misheard (`mayMend`).
+ * `npm run eval:meetings -- names` (eval/meetings/README.md, Words to know): calls full of names,
+ * in English and in Chinese, in synthetic speech (macOS `say`, the voices in names.json), as #1031
+ * measured the built app on them. Each call's two sides are the microphone's and the computer
+ * sound's tracks, fed to the code the app runs in 100 ms frames: on this computer
+ * (`createSpeechHost`, Qwen3-ASR 0.6B with Silero VAD), or to a cloud route through its own
+ * adapter at the pace it was spoken (./cloud). Each call is run seven times: told no words, told
+ * the call's own names (as the User's name, its Note and Folder give them), told those and the
+ * other call's (as a User's list holds both), told only the other call's names, told twenty names
+ * in the call's language that sound like its own but are never said, told names that sound the
+ * same as its own but are other people's (Danielle for Daniel), and told names that are also
+ * everyday words. On this computer, each run also counts the stretches the engine would read
+ * twice: those whose plain reading holds a told name misheard (`mayMend`). Every run counts the
+ * sums said in pounds and dollars and how each was written.
  *
  * The audio is made the first time into the evaluation's cache, `meetings/names/`; macOS only.
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-names-<date>).
+ * INCARNAMIND_EVAL_ROUTES: where, comma-separated: "local" (the default), "soniox", "openai".
+ * INCARNAMIND_EVAL_ARMS, INCARNAMIND_EVAL_CALLS: only these arms, only these calls.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -30,6 +34,7 @@ import { monoSamples } from "../lib/wav";
 import { FRAME, modelData } from "../transcription/clips";
 import { characters, errorRate, words } from "../transcription/scoring";
 import { meetingsCache } from "./cache";
+import { cloudModelOf, isCloudRoute, transcribeOnCloud } from "./cloud";
 import { scoreTerms, type TermScore } from "./terms";
 import type { Hypothesis, Reference, Track } from "./types";
 
@@ -60,6 +65,22 @@ const ARMS = [
   "common words",
 ] as const;
 type Arm = (typeof ARMS)[number];
+
+const ROUTES = (process.env.INCARNAMIND_EVAL_ROUTES ?? "local").split(",").filter(Boolean);
+const ONLY_ARMS = process.env.INCARNAMIND_EVAL_ARMS?.split(",").filter(Boolean);
+const ONLY_CALLS = process.env.INCARNAMIND_EVAL_CALLS?.split(",").filter(Boolean);
+
+/** Sums by the currency they are in, as said and as written. */
+const CURRENCIES = {
+  pounds: /£|\bpounds?\b|英镑/giu,
+  dollars: /\$|\bdollars?\b|美元/giu,
+  euros: /€|\beuros?\b|欧元/giu,
+} as const;
+type Currency = keyof typeof CURRENCIES;
+const currenciesIn = (text: string) =>
+  Object.fromEntries(
+    Object.entries(CURRENCIES).map(([name, pattern]) => [name, text.match(pattern)?.length ?? 0]),
+  ) as Record<Currency, number>;
 
 const GAP_SECONDS = 0.8;
 const YIELD_EVERY = 50;
@@ -122,115 +143,143 @@ async function layOut(call: Call) {
   return { tracks, reference };
 }
 
-describe("Words to know on two calls full of names (#1031)", () => {
+describe("Words to know on calls full of names (#1031)", () => {
   test("the names' error rate told and not told, and everything else's", async () => {
-    const { calls } = JSON.parse(await readFile(callsFile, "utf8")) as { calls: Call[] };
+    const { calls: all } = JSON.parse(await readFile(callsFile, "utf8")) as { calls: Call[] };
+    const calls = all.filter((call) => !ONLY_CALLS || ONLY_CALLS.includes(call.id));
+    const arms = ARMS.filter((arm) => !ONLY_ARMS || ONLY_ARMS.includes(arm));
     const date = new Date().toISOString().slice(0, 10);
     const out =
       process.env.INCARNAMIND_EVAL_OUT ??
       join(process.cwd(), "eval", "results", `meetings-names-${date}`);
     await mkdir(out, { recursive: true });
-    const engine = await createSherpaEngine(
-      transcriptionModelFiles(await modelData(), QWEN3_ASR_0_6B),
-    );
-    const results: {
-      call: string;
-      arm: Arm;
-      told: string[];
-      errors: ReturnType<typeof errorRate>;
-      names: TermScore;
-      lines: string[];
-      changed: number;
-      readTwice: number;
-    }[] = [];
+    const engine = ROUTES.includes("local")
+      ? await createSherpaEngine(transcriptionModelFiles(await modelData(), QWEN3_ASR_0_6B))
+      : null;
 
-    for (const call of calls) {
-      const other = calls.find((each) => each !== call) as Call;
-      const { tracks, reference } = await layOut(call);
-      for (const arm of ARMS) {
-        const toldIn: Record<Arm, string[]> = {
-          none: [],
-          own: call.names,
-          "own and other": [...call.names, ...other.names],
-          "other only": other.names,
-          decoys: call.decoys,
-          "same sounding": call.sameSounding,
-          "common words": call.commonWords,
-        };
-        const told = toldIn[arm];
-        const notSaid: Record<Arm, string[]> = {
-          none: [],
-          own: [],
-          "own and other": other.names,
-          "other only": other.names,
-          decoys: call.decoys,
-          "same sounding": call.sameSounding,
-          "common words": [],
-        };
-        const segments: SpeechSegment[] = [];
-        const host = createSpeechHost(engine, {
-          segment: (segment) => {
-            if (segment.final && segment.text) segments.push(segment);
-          },
-          progress: () => {},
-          failed: (stream, message) => console.error(`${call.id} ${stream}: ${message}`),
-        });
-        for (const track of ["mic", "system"] as const) host.words(track, told);
-        for (let at = 0, frames = 0; at < tracks.mic.length; at += FRAME, frames++) {
-          host.push("mic", tracks.mic.subarray(at, at + FRAME));
-          host.push("system", tracks.system.subarray(at, at + FRAME));
-          if (frames % YIELD_EVERY === 0) await new Promise((resolve) => setImmediate(resolve));
+    for (const route of ROUTES) {
+      if (route !== "local" && !isCloudRoute(route)) throw new Error(`No route "${route}".`);
+      const transcriber =
+        route === "local" ? QWEN3_ASR_0_6B.name : `${route} ${cloudModelOf(route)}`;
+      const results: {
+        call: string;
+        arm: Arm;
+        told: string[];
+        errors: ReturnType<typeof errorRate>;
+        names: TermScore;
+        lines: string[];
+        changed: number;
+        readTwice: number | null;
+        currencies: { said: Record<Currency, number>; written: Record<Currency, number> };
+      }[] = [];
+
+      for (const call of all.filter((each) => calls.includes(each))) {
+        const other = all.find((each) => each !== call) as Call;
+        const { tracks, reference } = await layOut(call);
+        for (const arm of arms) {
+          const toldIn: Record<Arm, string[]> = {
+            none: [],
+            own: call.names,
+            "own and other": [...call.names, ...other.names],
+            "other only": other.names,
+            decoys: call.decoys,
+            "same sounding": call.sameSounding,
+            "common words": call.commonWords,
+          };
+          const told = toldIn[arm];
+          const notSaid: Record<Arm, string[]> = {
+            none: [],
+            own: [],
+            "own and other": other.names,
+            "other only": other.names,
+            decoys: call.decoys,
+            "same sounding": call.sameSounding,
+            "common words": [],
+          };
+          const segments: SpeechSegment[] = [];
+          if (route === "local" && engine) {
+            const host = createSpeechHost(engine, {
+              segment: (segment) => {
+                if (segment.final && segment.text) segments.push(segment);
+              },
+              progress: () => {},
+              failed: (stream, message) => console.error(`${call.id} ${stream}: ${message}`),
+            });
+            for (const track of ["mic", "system"] as const) host.words(track, told);
+            for (let at = 0, frames = 0; at < tracks.mic.length; at += FRAME, frames++) {
+              host.push("mic", tracks.mic.subarray(at, at + FRAME));
+              host.push("system", tracks.system.subarray(at, at + FRAME));
+              if (frames % YIELD_EVERY === 0) await new Promise((resolve) => setImmediate(resolve));
+            }
+            await Promise.all([host.finish("mic"), host.finish("system")]);
+          } else if (isCloudRoute(route)) {
+            segments.push(...(await transcribeOnCloud(route, tracks, told)));
+          }
+          const hypothesis: Hypothesis = {
+            case: call.id,
+            transcriber: `${transcriber}, told ${arm}`,
+            segments: segments
+              .map((segment) => ({
+                start: segment.startMs / 1000,
+                end: segment.endMs / 1000,
+                text: segment.text,
+              }))
+              .sort((a, b) => a.start - b.start),
+          };
+          const split = call.language === "en" ? words : characters;
+          const text = (each: { text: string }[]) => each.map((segment) => segment.text).join(" ");
+          const lines = hypothesis.segments.map((segment) => segment.text);
+          const plain = results.find((each) => each.call === call.id && each.arm === "none");
+          results.push({
+            call: call.id,
+            arm,
+            told,
+            errors: errorRate(split(text(reference.segments)), split(text(hypothesis.segments))),
+            names: scoreTerms(call.language, reference, hypothesis, {
+              said: call.said,
+              notSaid: notSaid[arm],
+            }),
+            lines,
+            // Exactly, case and all: a told name may change only a word that is that name misheard.
+            changed: plain
+              ? Math.max(plain.lines.length, lines.length) -
+                lines.filter((line, at) => line === plain.lines[at]).length
+              : 0,
+            readTwice:
+              route === "local"
+                ? (plain?.lines ?? lines).filter((line) => mayMend(line, contextWords(told))).length
+                : null,
+            currencies: {
+              said: currenciesIn(text(reference.segments)),
+              written: currenciesIn(text(hypothesis.segments)),
+            },
+          });
+          console.log(`${route} ${call.id} ${arm}: done`);
         }
-        await Promise.all([host.finish("mic"), host.finish("system")]);
-        const hypothesis: Hypothesis = {
-          case: call.id,
-          transcriber: `${QWEN3_ASR_0_6B.name}, told ${arm}`,
-          segments: segments
-            .map((segment) => ({
-              start: segment.startMs / 1000,
-              end: segment.endMs / 1000,
-              text: segment.text,
-            }))
-            .sort((a, b) => a.start - b.start),
-        };
-        const split = call.language === "en" ? words : characters;
-        const text = (each: { text: string }[]) => each.map((segment) => segment.text).join(" ");
-        const lines = hypothesis.segments.map((segment) => segment.text);
-        const plain = results.find((each) => each.call === call.id && each.arm === "none");
-        results.push({
-          call: call.id,
-          arm,
-          told,
-          errors: errorRate(split(text(reference.segments)), split(text(hypothesis.segments))),
-          names: scoreTerms(call.language, reference, hypothesis, {
-            said: call.said,
-            notSaid: notSaid[arm],
-          }),
-          lines,
-          // Exactly, case and all: a told name may change only a word that is that name misheard.
-          changed: plain
-            ? Math.max(plain.lines.length, lines.length) -
-              lines.filter((line, at) => line === plain.lines[at]).length
-            : 0,
-          readTwice: (plain?.lines ?? lines).filter((line) => mayMend(line, contextWords(told)))
-            .length,
-        });
       }
-    }
-    engine.close();
 
-    const rows = [
-      "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing | Stretches read twice |",
-      "|---|---|---|---|---|---|---|---|",
-      ...results.map(
-        ({ call, arm, errors, names, changed, readTwice, lines }) =>
-          `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} | ${readTwice} of ${lines.length} |`,
-      ),
-    ];
-    const report = rows.join("\n");
-    await writeFile(join(out, "names.md"), `${report}\n`);
-    await writeFile(join(out, "names.json"), JSON.stringify(results, null, 2));
-    console.log(report);
-    expect(results.length).toBe(calls.length * ARMS.length);
+      const sums = (counts: Record<Currency, number>) =>
+        Object.entries(counts)
+          .filter(([, count]) => count > 0)
+          .map(([currency, count]) => `${count} ${currency}`)
+          .join(", ") || "none";
+      const rows = [
+        `**${transcriber}**`,
+        "",
+        "| Call | Told | Error rate | Names not written exactly | Other units' error rate | Told, never said, written | Lines unlike told nothing | Stretches read twice | Sums said | Sums written |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+        ...results.map(
+          ({ call, arm, errors, names, changed, readTwice, lines, currencies }) =>
+            `| ${call} | ${arm} | ${(100 * errors.rate).toFixed(1)}% (${errors.errors} of ${errors.total}) | ${names.wrong} of ${names.occurrences} | ${((100 * names.others.errors) / Math.max(1, names.others.total)).toFixed(1)}% | ${names.unsaid} | ${changed} | ${readTwice === null ? "–" : `${readTwice} of ${lines.length}`} | ${sums(currencies.said)} | ${sums(currencies.written)} |`,
+        ),
+      ];
+      const report = rows.join("\n");
+      const name = isCloudRoute(route) ? `names-${route}-${cloudModelOf(route)}` : "names";
+      await writeFile(join(out, `${name}.md`), `${report}\n`);
+      await writeFile(join(out, `${name}.json`), JSON.stringify(results, null, 2));
+      console.log(report);
+      expect(results.length).toBe(calls.length * arms.length);
+    }
+    engine?.close();
   });
 });

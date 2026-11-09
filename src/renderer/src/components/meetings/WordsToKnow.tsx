@@ -8,6 +8,7 @@ import {
 import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
+import type { ServicesView } from "../../transcriptionServices";
 import { useUndo } from "../../undo";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
@@ -21,6 +22,7 @@ import {
 import { rowActionButtonClass } from "../sidebarRows";
 import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, hintClass, rowFieldClass } from "../ui";
+import { useWordsWaiting, WordsWaitingLine } from "./WordsWaitingLine";
 
 const TARGET = ["meeting-words"] as const;
 const UNDO_PLACE = "settings:meetings:words";
@@ -93,13 +95,15 @@ function WordRow({
 }
 
 /**
- * Settings › Meetings › Words to know (#1031): names and terms the transcription on this computer
- * is told at each meeting's start, as a browser's own dictionary keeps the words it shouldn't
- * mark. A word is added at the top, renamed where it is (double-click or F2), and removed with
- * Undo.
+ * Settings › Meetings › Words to know (#1031): names and terms each meeting's transcriber is told
+ * at its start, on this computer or by the cloud route chosen, as a browser's own dictionary
+ * keeps the words it shouldn't mark. A word is added at the top, renamed where it is
+ * (double-click or F2), and removed with Undo. `services`: the section's one read of the
+ * transcription services, for the line of a route whose words wait.
  */
-export function WordsToKnow() {
+export function WordsToKnow({ services }: { services: ServicesView }) {
   const t = useT();
+  const waiting = useWordsWaiting(services);
   const words = useAppStore((state) => state.settings?.user.meetingWords);
   const [draft, setDraft] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -237,7 +241,9 @@ export function WordsToKnow() {
           ))}
         </SettingsGroup>
       )}
-      <SettingsHelp>{t("meetings.words.body")}</SettingsHelp>
+      {/* The waiting line names what goes; the help doesn't say it again. */}
+      <SettingsHelp>{t(waiting ? "meetings.words.bodyHere" : "meetings.words.body")}</SettingsHelp>
+      {waiting && <WordsWaitingLine service={waiting} onSent={() => field.current?.focus()} />}
       <UndoLineAt place={UNDO_PLACE} />
     </SettingsSection>
   );

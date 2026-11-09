@@ -9,7 +9,14 @@
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
+import {
+  closedLoss,
+  createLiveStream,
+  heldWords,
+  joinWords,
+  type LiveLink,
+  pcmBytes,
+} from "./live";
 import type { CloudAuth } from "./socket";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
@@ -20,7 +27,8 @@ export const ASSEMBLYAI_AUTH: CloudAuth = { header: "Authorization", prefix: "" 
 const CHUNK_SAMPLES = 1600;
 const SHORTEST_CHUNK_SAMPLES = 320;
 
-export function assemblyAiUrl(model: string): string {
+/** `words`: the meeting's words to know, as the key terms it is prompted with (#1031). */
+export function assemblyAiUrl(model: string, words: readonly string[] = []): string {
   const url = new URL(ASSEMBLYAI_URL);
   url.searchParams.set("speech_model", model);
   url.searchParams.set("sample_rate", "16000");
@@ -29,6 +37,7 @@ export function assemblyAiUrl(model: string): string {
   url.searchParams.set("language_detection", "true");
   // A meeting has long silences: a heartbeat says the service keeps up through them.
   url.searchParams.set("session_heartbeat", "true");
+  if (words.length > 0) url.searchParams.set("keyterms_prompt", JSON.stringify(words));
   return url.toString();
 }
 
@@ -129,10 +138,16 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
     pending = new Int16Array(0);
   }
 
+  const words = heldWords(options.words ?? []);
   return createLiveStream(options, {
-    url: assemblyAiUrl(options.model),
+    get url() {
+      return assemblyAiUrl(options.model, words.now);
+    },
     auth: ASSEMBLYAI_AUTH,
-    opened() {},
+    words,
+    opened() {
+      said = null;
+    },
     heard(message, link) {
       switch (message.type) {
         case "Begin":

@@ -415,7 +415,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
         flow: {
           id: "transcription",
           service: { id: "https://stt-rt.soniox.com", name: "Soniox" },
-          sends: ["meeting-audio"],
+          sends: ["meeting-audio", "meeting-words"],
         },
         consent: "accepted",
         chosen: true,

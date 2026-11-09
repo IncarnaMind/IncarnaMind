@@ -160,7 +160,6 @@ const TRANSCRIPTION: readonly SettingsTarget[] = ["transcription"];
 function TranscriptionRow({ id, services }: { id: string; services: ServicesView }) {
   const t = useT();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
-  const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   const setUp = useTranscriptionSetUp(id, services);
   const reached = useSettingsTarget<HTMLDivElement>(TRANSCRIPTION, true, () =>
     document.getElementById(id)?.focus(),
@@ -175,10 +174,8 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
       detail={
         <>
           <span className="block">{t("ai.jobs.transcription.line")}</span>
-          {/* Where the audio goes while a cloud service is chosen, or why the services can't be read. */}
-          {(route !== "local" || services.state === "failed") && (
-            <TranscriptionRouteConsent read={services} />
-          )}
+          {/* What a cloud service would get, before it is chosen; where the audio goes once it is. */}
+          <TranscriptionRouteConsent read={services} />
         </>
       }
       control={

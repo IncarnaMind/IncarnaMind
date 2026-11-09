@@ -38,6 +38,19 @@ describe("The transcriber on this computer knows the names in the call (#1031)",
     expect(lines.join(" ")).not.toContain("Leads");
   });
 
+  test("the User's name from Settings › General is told too, without being in Words to know", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
+    await core.updateSettings({ user: { authorName: "Dana" } });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("Dana is joining us from the Leads office.");
+    expect(lines.join(" ")).not.toContain("Donna");
+  });
+
   test("the names in the meeting's Note and the names its Folder's Documents use are told too", async () => {
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
       engine: MISHEARING,

@@ -106,6 +106,7 @@ const service = (
   recipient: { en: route, zh: route },
   model: "m",
   perHour: { currency: "USD", amount: 1 },
+  perHourWithWords: null,
   region: null,
   dataUse: null,
   key,
@@ -121,6 +122,7 @@ const service = (
   languages: [],
   missingLanguages: [],
   chooseAgain: false,
+  wordsWaiting: false,
 });
 
 const embeddingOf = (kind: EmbeddingProvider["kind"]): EmbeddingProvider => ({

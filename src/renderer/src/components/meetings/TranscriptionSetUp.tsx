@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { CloudTranscriptionRoute, TranscriptionServiceStatus } from "../../../../core/api";
-import { deepgramServer } from "../../../../core/providers/catalog/transcription";
+import { deepgramServer, perHourWithWords } from "../../../../core/providers/catalog/transcription";
 import { formatMoney, joinMeta } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
+import { ROUTE_LABELS, type ServicesView, shownPerHour } from "../../transcriptionServices";
 import { hintClass } from "../ui";
 import { CloudLine } from "./CloudLine";
 import { LanguagesLine } from "./LanguagesLine";
@@ -56,8 +56,14 @@ export function useTranscriptionSetUp(selectId: string, read: ServicesView) {
 function asTyped(service: TranscriptionServiceStatus, typed: string): TranscriptionServiceStatus {
   const address = typed.trim();
   if (service.route !== "deepgram" || address === "" || !URL.canParse(address)) return service;
-  const { recipient, dataUse, perHour } = deepgramServer(address);
-  return { ...service, recipient, dataUse, perHour };
+  const { recipient, dataUse, perHour, wordsCost } = deepgramServer(address);
+  return {
+    ...service,
+    recipient,
+    dataUse,
+    perHour,
+    perHourWithWords: perHourWithWords(perHour, wordsCost),
+  };
 }
 
 /**
@@ -83,7 +89,9 @@ export function TranscriptionSetUp({
         <p className={`${consentClass} tabular-nums`}>
           {shown.perHour.amount === 0
             ? t("meetings.setUp.ownServer")
-            : t("meetings.route.perHourFirst", { price: formatMoney(shown.perHour, language) })}
+            : t("meetings.route.perHourFirst", {
+                price: formatMoney(shownPerHour(shown), language),
+              })}
         </p>
         <LanguagesLine service={shown} className={consentClass} />
       </div>

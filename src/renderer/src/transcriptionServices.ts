@@ -22,6 +22,8 @@ interface TranscriptionServicesState {
   /** Keeps a service's own key, with Deepgram's server, once it accepts it; rejects with why it didn't. */
   setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<void>;
   removeKey(route: CloudTranscriptionRoute): Promise<void>;
+  /** Sends the chosen route the meeting's words to know too: the consent for them alone. */
+  allowWords(): Promise<void>;
 }
 
 /**
@@ -47,6 +49,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
         core.setTranscriptionKey({ route, apiKey, ...(server !== undefined && { server }) }),
       ),
     removeKey: (route) => change(() => core.removeTranscriptionKey(route)),
+    allowWords: () => change(() => core.allowTranscriptionWords()),
   };
 });
 
@@ -134,9 +137,16 @@ export function useAudioKeptKey(): MessageKey {
   return cloud ? "meetings.audio.keptCloud" : "meetings.audio.kept";
 }
 
+/**
+ * What an hour on the route costs as the monthly cap counts it: with the words to know's own
+ * price while they go with the audio, the audio's alone while they wait (#1031).
+ */
+export const shownPerHour = (service: TranscriptionServiceStatus) =>
+  (!service.wordsWaiting && service.perHourWithWords) || service.perHour;
+
 /** "gpt-live-transcribe · about $1.02 an hour · uses your OpenAI key". */
 export function serviceMeta(service: TranscriptionServiceStatus, t: Translate, language: Language) {
-  const price = formatMoney(service.perHour, language);
+  const price = formatMoney(shownPerHour(service), language);
   const named = service.key === "provider";
   return joinMeta([
     named ? service.model : "",

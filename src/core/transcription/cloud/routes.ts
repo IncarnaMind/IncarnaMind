@@ -6,8 +6,10 @@
  * Speechmatics and Gladia ask for their own, kept in the keychain. Deepgram's server can be
  * Cloudflare Workers AI's or the User's own.
  *
- * Choosing a service is the consent to send it meeting audio (ADR-0022): the "transcription"
- * flow. Every chunk of audio passes `sending` before it goes: the send gate (Local mode, the
+ * Choosing a service is the consent to send it meeting audio and the meeting's words to know
+ * (ADR-0022, #1031): the "transcription" flow. A route chosen before the words went keeps sending
+ * the audio, and its streams open without the words until the User allows them too; nothing asks
+ * meanwhile. Every chunk of audio passes `sending` before it goes: the send gate (Local mode, the
  * consent still standing), the route still the one chosen, and its key and server still there.
  * Any of them changing stops the cloud before the next chunk; a new key for the same place
  * opens the stream again on it. The audio is counted against the monthly cap before it is sent
@@ -32,10 +34,12 @@ import { readApiKey } from "../../providers/apiKey";
 import { billingUrlOf, catalogProvider, endpointOf } from "../../providers/catalog/providers";
 import {
   deepgramServer,
+  perHourWithWords,
   qwenRegion,
   TRANSCRIPTION_SERVICES,
   type TranscriptionDataUse,
   type TranscriptionService,
+  type WordsCost,
 } from "../../providers/catalog/transcription";
 import type { Localized } from "../../providers/catalog/types";
 import { isLoopbackHost } from "../../providers/service";
@@ -46,8 +50,11 @@ import { ASSEMBLYAI_AUTH } from "./assemblyai";
 import { ELEVENLABS_AUTH } from "./elevenlabs";
 import { DEEPGRAM_URL } from "./protocol";
 import { authHeaders, BEARER, type CloudAuth } from "./socket";
+import { cloudWords, tokensOf } from "./words";
 
-const SENDS = ["meeting-audio"] as const;
+const SENDS = ["meeting-audio", "meeting-words"] as const;
+const WORDS = ["meeting-words"] as const;
+const AUDIO = ["meeting-audio"] as const;
 
 interface KeyCheck {
   url: string;
@@ -128,7 +135,16 @@ export interface CloudAudioMeter {
  * sends somewhere the User hasn't chosen.
  */
 export type CloudStart =
-  | { route: CloudTranscriptionRoute; stream: CloudStream; meter: CloudAudioMeter }
+  | {
+      route: CloudTranscriptionRoute;
+      stream: CloudStream;
+      meter: CloudAudioMeter;
+      /**
+       * What each stream's setup costs besides, as audio time at the meter's price: Soniox bills
+       * the words to know as text, sent again with every stream it opens.
+       */
+      openMs: number;
+    }
   | { route: CloudTranscriptionRoute; refused: "cap" | "key" | "local-mode" | "moved" };
 
 /**
@@ -173,6 +189,7 @@ interface Destination {
   url: string | null;
   recipient: Localized;
   perHour: Money;
+  wordsCost: WordsCost | null;
   dataUse: TranscriptionDataUse | null;
   region: Localized | null;
 }
@@ -258,6 +275,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         url: region.url,
         recipient: service.recipient,
         perHour: region.perHour,
+        wordsCost: service.wordsCost ?? null,
         dataUse: service.dataUse ?? null,
         region: region.label,
       };
@@ -270,6 +288,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
         url: server.url,
         recipient: server.recipient,
         perHour: server.perHour,
+        wordsCost: server.wordsCost,
         dataUse: server.dataUse,
         region: null,
       };
@@ -280,9 +299,27 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       url: null,
       recipient: service.recipient,
       perHour: service.perHour,
+      wordsCost: service.wordsCost ?? null,
       dataUse: service.dataUse ?? null,
       region: null,
     };
+  }
+
+  /** Whether the User allowed the route's service the words to know; a server on this computer needs nothing. */
+  function wordsAllowed(route: CloudTranscriptionRoute): boolean {
+    const { service } = destination(route);
+    return service === null || consent.covers("transcription", service, WORDS);
+  }
+
+  /** Its audio goes, and the words wait: it was chosen before they were sent. */
+  function wordsWaiting(route: CloudTranscriptionRoute): boolean {
+    const { service } = destination(route);
+    return (
+      service !== null &&
+      chosen() === route &&
+      consent.covers("transcription", service, AUDIO) &&
+      !consent.covers("transcription", service, WORDS)
+    );
   }
 
   // A route chosen before the service was kept (OpenAI or Soniox, whose service never changes)
@@ -357,6 +394,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           recipient: where.recipient,
           model: service.model,
           perHour: where.perHour,
+          perHourWithWords: perHourWithWords(where.perHour, where.wordsCost),
           region: key ? where.region : null,
           dataUse: where.dataUse,
           key: service.key,
@@ -375,6 +413,7 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
           languages: [...service.languages],
           missingLanguages: spoken.filter((code) => !service.languages.includes(code)),
           chooseAgain: key !== null && moved === service.route,
+          wordsWaiting: key !== null && wordsWaiting(service.route),
         };
       }),
     );
@@ -580,10 +619,30 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
     },
 
     /**
-     * Where a stretch of recording starting now is transcribed: the chosen cloud service, ready
-     * to open streams, or null for this computer.
+     * The User allows the chosen route, already sent the audio, the meeting's words to know too:
+     * the consent for the words alone, recorded where its line says what goes. The route and its
+     * settings stay as they are.
      */
-    async start(): Promise<CloudStart | null> {
+    async allowWords(): Promise<TranscriptionServices> {
+      const route = chosen();
+      if (isCloudRoute(route)) {
+        remember(route, await keyOf(route));
+        const { service } = destination(route);
+        if (service && consent.covers("transcription", service, AUDIO)) {
+          consent.choose(["transcription"], service, AUDIO);
+          revision += 1;
+        }
+      }
+      return list();
+    },
+
+    /**
+     * Where a stretch of recording starting now is transcribed: the chosen cloud service, ready
+     * to open streams, or null for this computer. `words`: the meeting's words to know, the
+     * User's and the meeting's own first; its streams are sent as many as the service's field
+     * takes, once the User has allowed them.
+     */
+    async start(words: readonly string[] = []): Promise<CloudStart | null> {
       const route = chosen();
       if (!isCloudRoute(route)) return null;
       const service = TRANSCRIPTION_SERVICES[route];
@@ -602,26 +661,30 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
       if ((await refusedNow(route)) === refusalOf(key.apiKey, where.url)) {
         return { route, refused: "key" };
       }
-      const audio = meter.audio({
-        providerId: key.providerId,
-        modelId: service.model,
-        perHour: where.perHour,
-      });
+      const told = wordsAllowed(route) ? cloudWords(route, words) : [];
+      const cost = told.length > 0 ? where.wordsCost : null;
+      const perHour = perHourWithWords(where.perHour, cost) ?? where.perHour;
+      const audio = meter.audio({ providerId: key.providerId, modelId: service.model, perHour });
       if (!audio.add(0)) return { route, refused: "cap" };
+      const tokens = told.reduce((sum, word) => sum + tokensOf(word), 0);
+      const openMs =
+        cost?.perMillionTokens && perHour.amount > 0
+          ? Math.ceil(((tokens * cost.perMillionTokens) / 1e6 / perHour.amount) * 3_600_000)
+          : 0;
       const { model } = service;
       const { apiKey } = key;
       const url = where.url ?? "";
       const stream: CloudStream =
         route === "qwen"
-          ? { service: "qwen", model, apiKey, url }
+          ? { service: "qwen", model, apiKey, url, words: told }
           : route === "deepgram"
-            ? { service: "deepgram", model, apiKey, url }
+            ? { service: "deepgram", model, apiKey, url, words: told }
             : route === "openai"
-              ? { service: "openai", model, apiKey, vad: await options.vadFile() }
+              ? { service: "openai", model, apiKey, vad: await options.vadFile(), words: told }
               : route === "gladia"
-                ? { service: "gladia", model, apiKey, languages: spokenIn(service) }
-                : { service: route, model, apiKey };
-      return { route, stream, meter: audio };
+                ? { service: "gladia", model, apiKey, languages: spokenIn(service), words: told }
+                : { service: route, model, apiKey, words: told };
+      return { route, stream, meter: audio, openMs };
     },
   };
 }

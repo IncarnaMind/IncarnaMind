@@ -13,9 +13,10 @@
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import { createLiveStream, pcmBytes } from "./live";
+import { createLiveStream, heldWords, pcmBytes } from "./live";
 import { HANDSHAKE_REFUSED } from "./protocol";
 import { type CloudStreamHandle, type CloudStreamOptions, msOf } from "./stream";
+import { QWEN_WORDS_SEPARATOR } from "./words";
 
 /**
  * "InvalidApiKey": the key can't be used here, made in the other region, or wrong. "Arrearage":
@@ -52,7 +53,8 @@ function sentenceOf(payload: unknown): (Sentence & { ended: boolean }) | null {
 
 export function createQwenStream(options: CloudStreamOptions & { url: string }): CloudStreamHandle {
   const { stream, report } = options;
-  const taskId = crypto.randomUUID();
+  const words = heldWords(options.words ?? []);
+  let taskId = crypto.randomUUID();
   const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
   let received = 0;
   let answeredMs = 0;
@@ -92,7 +94,9 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
 
   return createLiveStream(options, {
     url: options.url,
+    words,
     opened(link) {
+      taskId = crypto.randomUUID();
       link.setup(
         JSON.stringify({
           header: header("run-task"),
@@ -103,7 +107,20 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
             model: options.model,
             // A meeting has long silences, which the service closes a quiet connection over.
             parameters: { format: "pcm", sample_rate: 16_000, heartbeat: true },
-            input: {},
+            // Its context holds earlier turns' text, a word list among them, in the User's turn.
+            input:
+              words.now.length > 0
+                ? {
+                    context: [
+                      {
+                        role: "user",
+                        content: [
+                          { type: "input_text", text: words.now.join(QWEN_WORDS_SEPARATOR) },
+                        ],
+                      },
+                    ],
+                  }
+                : {},
           },
         }),
       );
@@ -132,9 +149,12 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
           settle();
           link.complete();
           return;
-        case "task-failed":
-          link.lose(lossOf(String(event.error_code)));
+        case "task-failed": {
+          const loss = lossOf(String(event.error_code));
+          if (loss === "dropped" && link.retryWithoutWords()) return;
+          link.lose(loss);
           return;
+        }
       }
     },
     audio(samples, link) {
