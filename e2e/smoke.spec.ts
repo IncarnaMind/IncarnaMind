@@ -142,7 +142,8 @@ test("added files are processed, show as ready in the sidebar, and can be delete
     const reportItem = items.filter({ hasText: "Report" });
     await expect(notesItem).toHaveAttribute("data-status", "ready");
     await expect(reportItem).toHaveAttribute("data-status", "ready");
-    await expect(notesItem.getByTestId("document-status")).toHaveText("Ready");
+    // A ready Document says nothing of its state (#2870).
+    await expect(notesItem.getByTestId("document-status")).toHaveCount(0);
     await first.app.close();
 
     // After a restart both are still there. Deleting one (from its menu) asks nothing and removes it.

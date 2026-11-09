@@ -12,8 +12,9 @@
  *   never replacing it.
  * - Into a new Mind ("Write as a note" under the Answer, #1940): the empty Mind the
  *   User's own that the assistant reads, when there is one, as at its cursor; else a new
- *   Mind in the conversation's Folder, named by its first line (" 2" after a name another
- *   Mind has), with the Answer in it at once, opened in a new tab beside the focused one.
+ *   Mind in the conversation's Folder, with the Answer in it at once, opened in a new tab
+ *   beside the focused one. Either is named from the Answer's first heading, else its
+ *   Question (#2870), " 2" after a name another Mind has, unless the User named it.
  *   The example is never filled.
  *
  * Each says what it did under the Answer, with Undo (and ⌘Z), and what went
@@ -43,6 +44,7 @@ import { cutTitle, mindName, numberedName } from "../../shared/naming";
 import {
   citedTables,
   firstLineOfBlocks,
+  nameFromAnswer,
   recheckCitations,
   textLength,
   withoutIds,
@@ -234,18 +236,28 @@ const openBeside = (mindId: string) =>
   });
 
 /**
- * A new Mind for an Answer, in the conversation's Folder. It is named by its first line, like
- * any Mind; the conversation's name goes on it only when the User gave the conversation one,
- * never the name it takes from the first Question, which is an instruction (#1174). A table's
- * first cell is no name either, so "Open as a table" passes the Question as the title (#1345).
+ * A new Mind for an Answer, in the conversation's Folder, called `title` (see `titleForAnswer`).
  * It goes on with the model its Question was asked with (#2836).
  */
-const newMindFor = (added: AddedAnswer, title = added.conversation?.title ?? "") =>
+const newMindFor = (added: AddedAnswer, title: string) =>
   core.createMind({
     title,
     folderId: added.conversation?.folderId ?? null,
     model: questionOf(added.answer)?.model ?? null,
   });
+
+/**
+ * What a Mind made from an Answer is called: the name the User gave the conversation, else the
+ * Answer's first heading, else its Question (#2870), numbered when another Mind has the name.
+ * Never the first line of the Answer, which can be a sentence from the middle of it.
+ */
+function titleForAnswer(added: AddedAnswer, taken: readonly string[]): string {
+  const named =
+    added.conversation?.title || nameFromAnswer(added.blocks, questionOf(added.answer)?.text ?? "");
+  return numberedName(named, taken) ?? named;
+}
+
+const namesOfMinds = () => useAppStore.getState().minds.map((mind) => mindName(mind));
 
 const putIn = (mindId: string, added: AddedAnswer) =>
   core.addToNote({
@@ -267,15 +279,17 @@ async function addToNewMind(added: AddedAnswer): Promise<void> {
   const own = read && !exampleMindIds(useAppStore.getState()).includes(read.mindId) ? read : null;
   const empty =
     own && !own.editor.isDestroyed && holdsNothing(own.doc.getXmlFragment(MIND_CONTENT_FIELD));
-  if (own && empty && (await addToReadMind(added, own.mindId))) return;
-  // A name another Mind has gets a number, so a second Mind of the same Answer reads apart.
-  const given = added.conversation?.title ?? "";
-  const named = given || cutTitle(firstLineOfBlocks(added.blocks));
-  const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
-  const mind = await newMindFor(added, numberedName(named, taken) ?? given);
+  if (own && empty) {
+    const unnamed =
+      useAppStore.getState().minds.find((each) => each.id === own.mindId)?.title === "";
+    if (unnamed) await core.renameMind(own.mindId, titleForAnswer(added, namesOfMinds()));
+    if (await addToReadMind(added, own.mindId)) return;
+  }
+  const title = titleForAnswer(added, namesOfMinds());
+  const mind = await newMindFor(added, title);
   const { blockIds } = await putIn(mind.id, added);
   await openBeside(mind.id);
-  const name = nameOfMind(mind.id, added.blocks);
+  const name = mindName(mind) || title;
   let kept = 0;
   useUndo.getState().push({
     said: addedLine(true, name, added.blocks, mind.folderId),
@@ -301,8 +315,7 @@ export async function openTable(added: AddedAnswer): Promise<void> {
   openingTable = true;
   try {
     const asked = added.conversation?.title || cutTitle(questionOf(added.answer)?.text ?? "");
-    const taken = useAppStore.getState().minds.map((mind) => mindName(mind));
-    const mind = await newMindFor(added, numberedName(asked, taken) ?? asked);
+    const mind = await newMindFor(added, numberedName(asked, namesOfMinds()) ?? asked);
     await openBeside(mind.id);
     try {
       await putIn(mind.id, added);

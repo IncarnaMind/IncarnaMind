@@ -114,7 +114,7 @@ test("without a model, Documents are ready to search, and one notice, not one pe
   const items = window.getByTestId("document-list-item");
   await expect(items).toHaveCount(3);
   for (let index = 0; index < 3; index++) {
-    await expect(items.nth(index).getByTestId("document-status")).toHaveText("Ready");
+    await expect(items.nth(index)).toHaveAttribute("data-status", "ready");
     await expect(items.nth(index)).toHaveAttribute("data-tagging", "waiting-for-provider");
   }
   // No Tag anywhere yet: nothing names Tags, and the footer says nothing.
