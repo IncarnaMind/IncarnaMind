@@ -3818,11 +3818,8 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 fact.forbid?.test(unit.text) !== true,
             ),
           ).length,
-          misheard: owned.filter((fact) =>
-            units.some(
-              (unit) =>
-                unit.ai && related(fact, unit.text) && fact.misheard?.test(unit.text) === true,
-            ),
+          misheard: units.filter(
+            (unit) => unit.ai && call.facts.some((fact) => fact.misheard?.test(unit.text) === true),
           ).length,
           owned: owned.length,
           restated: scored
