@@ -419,30 +419,48 @@ function expectedSpeakers(cues: readonly Cue[], voiceOf: (index: number) => numb
 }
 
 describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => {
-  // protects=what is recorded of the other side is clustered during the call, again once max(60 s, a quarter of what was clustered) more is saved, so at Stop the tail left is short; fails_when=no run during the call, a run before 60 s more, a run before a quarter more once that is more, or a run given the microphone; no_claim=how long a run takes, which the gate in eval/speed/gates/speakers-during-call.md measures in the app.
-  test("is clustered again as the call grows: after 60 s more, then a quarter more", async () => {
+  // protects=what is recorded of the other side is clustered during the call, all of it again once max(60 s, a quarter of what was clustered) more is saved, and between those runs what was saved after the last of them once it grows by max(20 s, half of what that run took), so at Stop the tail left is short; fails_when=no run during the call, a run of everything before 60 s more or before a quarter more once that is more, no run of the tail, a tail run before 20 s more or before half more, a tail run reaching back before the last run of everything, or a run given the microphone; no_claim=how long a run takes, which the gate in eval/speed/gates/speakers-during-call.md measures in the app.
+  test("is clustered again as the call grows, all of it and, between those runs, its tail", async () => {
     const { separator, requests } = fakeSeparator();
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
       speakerSeparator: separator,
     });
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
-    for (let at = 0; at < 400; at += 10) {
+    for (let at = 0; at < 490; at += 10) {
       record(10 * SECOND);
       // A turn of the event loop: each run answers before the next ten seconds come, as on an
       // idle computer.
       await new Promise((resolve) => setImmediate(resolve));
     }
-    expect(requests.map((request) => request.parts.length)).toEqual([6, 12, 18, 24, 30, 38]);
+    const runs = requests.map((request) => ({
+      from: offsets(request)[0],
+      parts: request.parts.length,
+    }));
+    expect(runs.filter((run) => run.from === 0).map((run) => run.parts)).toEqual([
+      6, 12, 18, 24, 30, 38, 48,
+    ]);
+    expect(runs.filter((run) => run.from !== 0)).toEqual([
+      ...[60, 120, 180, 240].flatMap((s) => [
+        { from: s * SECOND, parts: 2 },
+        { from: s * SECOND, parts: 4 },
+      ]),
+      ...[300, 380].flatMap((s) => [
+        { from: s * SECOND, parts: 2 },
+        { from: s * SECOND, parts: 4 },
+        { from: s * SECOND, parts: 6 },
+      ]),
+      { from: 380 * SECOND, parts: 9 },
+    ]);
     expect(
       requests.every((request) => request.parts.every((part) => part.path.includes("system"))),
     ).toBe(true);
     core.close();
   });
 
-  // protects=Stop stops a run under way, and only what was saved after the last finished run is clustered then, its voices joined to the earlier ones by voiceprint: a voice heard before keeps its Speaker, a new one gets the next, across a pause; Stop pressed again clusters nothing more; fails_when=the run under way goes on, the tail starts before the finished run's end, a voice heard before gets a new Speaker, a new voice takes an old one's, or a second Stop runs another pass; no_claim=the engine's own voiceprints, which the gate's label runs measure.
-  test("Stop stops a run under way and clusters only the tail, its voices joined to the earlier ones", async () => {
-    const voices = [0, 1, 0, 1, 0, 1, 1, 0, 2, 2, 0, 1, 2];
+  // protects=Stop stops a run under way, and only what was saved after the last finished runs (of everything, and of the tail after it) is clustered then, the stretches' voices joined by voiceprint: a voice heard before keeps its Speaker, a new one gets the next, across a pause; Stop pressed again clusters nothing more; fails_when=the run under way goes on, what is clustered at Stop reaches back into a finished run, a voice heard before gets a new Speaker, a new voice takes an old one's, or a second Stop runs another pass; no_claim=the engine's own voiceprints, which the gate's label runs measure.
+  test("Stop stops a run under way and clusters only what came after the finished runs, joining their voices", async () => {
+    const voices = [0, 1, 0, 1, 0, 1, 1, 0, 2, 2, 0, 1, 2, 2];
     const voiceOf = (index: number) => voices[index] ?? 0;
     const pass = heldSeparator(voiceOf);
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
@@ -459,18 +477,21 @@ describe("The speaker pass during the call (#2839)", { timeout: 60_000 }, () => 
     await core.resumeMeeting(meeting.id);
     record(60 * SECOND);
     await vi.waitFor(() => expect(pass.requests).toHaveLength(2));
-    expect(offsets(pass.requests[1]).at(-1)).toBe(110 * SECOND);
+    expect(offsets(pass.requests[1])).toEqual([60, 70].map((s) => s * SECOND));
+    pass.letGo(1);
+    await vi.waitFor(() => expect(pass.answered).toEqual([0, 1]));
+    record(10 * SECOND);
+    await vi.waitFor(() => expect(pass.requests).toHaveLength(3));
+    expect(offsets(pass.requests[2])[0]).toBe(0);
 
     await core.stopMeeting(meeting.id);
-    expect(pass.requests[1]?.signal?.aborted).toBe(true);
-    await vi.waitFor(() => expect(pass.requests).toHaveLength(3));
-    expect(offsets(pass.requests[2])).toEqual(
-      [60, 70, 80, 90, 100, 110, 120].map((s) => s * SECOND),
-    );
+    expect(pass.requests[2]?.signal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(pass.requests).toHaveLength(4));
+    expect(offsets(pass.requests[3])).toEqual([80, 90, 100, 110, 120, 130].map((s) => s * SECOND));
     await expect(core.stopMeeting(meeting.id)).rejects.toThrow();
-    pass.letGo(2);
+    pass.letGo(3);
     const cues = await toldCues(core, meeting.id);
-    expect(pass.requests).toHaveLength(3);
+    expect(pass.requests).toHaveLength(4);
     const said = await savedCues(core, meeting.id);
     expect(cues.map((cue) => cue.speaker)).toEqual(expectedSpeakers(said, voiceOf));
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(

@@ -6,9 +6,10 @@
  * where it came from.
  *
  * While the Meeting records, what is saved of the side to tell apart is clustered again now and
- * then, kept in memory only, so at Stop only what came after the last run is left to cluster,
- * and its voices join the earlier ones by voiceprint (#2839). Fixed short windows lost lines'
- * speakers; clustering everything so far again held them.
+ * then, kept in memory only, and between those runs what was saved after the last of them is, so
+ * at Stop only what came after the last finished run is left to cluster. The stretches' voices
+ * are joined by voiceprint (#2839). Fixed short windows lost lines' speakers; clustering
+ * everything so far again held them.
  */
 import { numberedVoice, SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN } from "../../shared/speakers";
 import type { ClusteredVoices, Logger, SpeakerSeparator, VoiceTurn } from "../adapters";
@@ -84,10 +85,18 @@ export function labelled(
 const AGAIN_AFTER_MS = 60_000;
 /** …or a quarter as much again as was clustered, when that is more: a run's time grows with it. */
 const AGAIN_SHARE = 1 / 4;
+/**
+ * Between those runs, what was saved after the last of them is clustered again once this much
+ * more of it is, or half as much again when that is more, so the tail left at Stop is short.
+ */
+const TAIL_AGAIN_AFTER_MS = 20_000;
+const TAIL_AGAIN_SHARE = 1 / 2;
 /** Audio is saved a part at a time: until the part a run waits for is, the parts are looked at again this often. */
 const LOOK_AGAIN_MS = 1_000;
 
 const dueAfter = (doneMs: number) => doneMs + Math.max(AGAIN_AFTER_MS, doneMs * AGAIN_SHARE);
+const tailDueAfter = (tailMs: number) =>
+  tailMs + Math.max(TAIL_AGAIN_AFTER_MS, tailMs * TAIL_AGAIN_SHARE);
 
 const lengthOf = (parts: readonly AudioPart[]) =>
   parts.reduce((sum, part) => sum + part.durationMs, 0);
@@ -95,16 +104,24 @@ const lengthOf = (parts: readonly AudioPart[]) =>
 const requestParts = (parts: readonly AudioPart[]) =>
   parts.map((part) => ({ path: part.path, offsetMs: part.offsetMs }));
 
+interface Stretch {
+  parts: ReadonlySet<string>;
+  clustered: ClusteredVoices;
+}
+
 interface DuringCall {
   source: AudioSource;
-  /** The last run that finished, and the parts it clustered. */
-  done: { parts: ReadonlySet<string>; clustered: ClusteredVoices } | null;
-  /** How much audio the last run was given, finished or not. */
+  /** The last finished run over everything saved. */
+  done: Stretch | null;
+  /** The last finished run over what was saved after `done`'s parts. */
+  tail: Stretch | null;
+  /** How much audio the last run over everything, and over the tail, was given, finished or not. */
   doneMs: number;
+  tailMs: number;
   /** When to look at the saved parts again, in the Meeting's time. */
   nextMs: number;
   running: AbortController | null;
-  /** From Stop: the stretches the pass joins, the last of them what came after `done`. */
+  /** From Stop: the stretches the pass joins, in time order. */
   stretches: Promise<ClusteredVoices[] | null> | null;
 }
 
@@ -152,19 +169,32 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
     return result;
   }
 
-  function runDuring(meetingId: string, call: DuringCall, parts: AudioPart[]) {
+  function runDuring(meetingId: string, call: DuringCall, parts: AudioPart[], whole: boolean) {
     const running = new AbortController();
     call.running = running;
     const audioMs = lengthOf(parts);
+    const kept = (clustered: ClusteredVoices | null) => {
+      const stretch = clustered && { parts: new Set(parts.map((part) => part.path)), clustered };
+      if (whole) {
+        call.doneMs = audioMs;
+        if (!stretch) return;
+        call.done = stretch;
+        call.tail = null;
+        call.tailMs = 0;
+      } else {
+        call.tailMs = audioMs;
+        if (stretch) call.tail = stretch;
+      }
+    };
     const started = Date.now();
     void clustered(parts, running.signal)
       .then(
         (result) => {
           if (running.signal.aborted) return;
-          call.done = { parts: new Set(parts.map((part) => part.path)), clustered: result };
-          call.doneMs = audioMs;
+          kept(result);
           log.info("speakers.clusteredDuringCall", {
             meetingId,
+            whole,
             audioMs,
             ms: Date.now() - started,
           });
@@ -172,9 +202,10 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
         (error: unknown) => {
           if (running.signal.aborted) return;
           // Tried again once as much more is recorded: the pass after Stop says if it still fails.
-          call.doneMs = audioMs;
+          kept(null);
           log.warn("speakers.duringCallFailed", {
             meetingId,
+            whole,
             message: error instanceof Error ? error.message : String(error),
           });
         },
@@ -223,23 +254,41 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
       if (call?.stretches) return;
       if (!call || call.source !== source) {
         call?.running?.abort();
-        call = { source, done: null, doneMs: 0, nextMs: 0, running: null, stretches: null };
+        call = {
+          source,
+          done: null,
+          tail: null,
+          doneMs: 0,
+          tailMs: 0,
+          nextMs: 0,
+          running: null,
+          stretches: null,
+        };
         calls.set(meetingId, call);
       }
       if (call.running || afterStop > 0 || atMs < call.nextMs) return;
       const parts = sourceParts(meetingId, source);
       const short = dueAfter(call.doneMs) - lengthOf(parts);
-      if (short > 0) {
-        // Audio is saved no faster than the Meeting's time goes.
-        call.nextMs = atMs + Math.max(LOOK_AGAIN_MS, short);
+      if (short <= 0) {
+        call.nextMs = 0;
+        runDuring(meetingId, call, parts, true);
         return;
       }
-      call.nextMs = 0;
-      runDuring(meetingId, call, parts);
+      const done = call.done;
+      const after = done ? parts.filter((part) => !done.parts.has(part.path)) : [];
+      const tailShort = done ? tailDueAfter(call.tailMs) - lengthOf(after) : short;
+      if (tailShort <= 0) {
+        call.nextMs = 0;
+        runDuring(meetingId, call, after, false);
+        return;
+      }
+      // Audio is saved no faster than the Meeting's time goes.
+      call.nextMs = atMs + Math.max(LOOK_AGAIN_MS, Math.min(short, tailShort));
     },
     /**
      * The Meeting stopped: a run under way stops, and what was saved after the last finished
-     * one is clustered now. With no finished run, the whole recording is clustered at `run`.
+     * runs is clustered now. With no finished run over everything, the whole recording is
+     * clustered at `run`.
      */
     stopped(meetingId: string): void {
       const call = calls.get(meetingId);
@@ -251,19 +300,21 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
         calls.delete(meetingId);
         return;
       }
+      const tail = call.tail;
       call.stretches = queued(async () => {
-        const tail = sourceParts(meetingId, call.source).filter(
-          (part) => !done.parts.has(part.path),
+        const kept = [done.clustered, ...(tail ? [tail.clustered] : [])];
+        const rest = sourceParts(meetingId, call.source).filter(
+          (part) => !done.parts.has(part.path) && !tail?.parts.has(part.path),
         );
-        if (tail.length === 0) return [done.clustered];
+        if (rest.length === 0) return kept;
         const started = Date.now();
-        const rest = await clustered(tail);
+        const clusteredRest = await clustered(rest);
         log.info("speakers.tailClustered", {
           meetingId,
-          audioMs: lengthOf(tail),
+          audioMs: lengthOf(rest),
           ms: Date.now() - started,
         });
-        return [done.clustered, rest];
+        return [...kept, clusteredRest];
       }).catch((error: unknown) => {
         log.warn("speakers.tailFailed", {
           meetingId,
