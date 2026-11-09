@@ -13,6 +13,7 @@ import type {
   FigureCheckResult,
   FigureInput,
 } from "../../api";
+import type { PageText } from "../../documents/passages";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import type { AbsenceFor } from "./absence";
@@ -70,11 +71,12 @@ export async function figuresVerdict(
     unstatedUnit: UnitGate;
     absenceFor: AbsenceFor;
     newestFirst: AnswerDocuments["documentDate"];
+    unitsOf: (citation: Citation) => readonly PageText[];
   },
 ): Promise<AtomicClaimCheckResult> {
   const { scope, signal } = request;
   const { transcript, looked, session, scoped, ledger, results } = check;
-  const { citedCase, unstatedUnit, absenceFor, newestFirst } = check;
+  const { citedCase, unstatedUnit, absenceFor, newestFirst, unitsOf } = check;
   const { reply, askedAbout, askedForOwnWords, finished } = transcript;
   const { facts, unchecked, notChecked } = results;
   if (!finished || reply.trim() === "") return notChecked("empty");
@@ -304,7 +306,7 @@ export async function figuresVerdict(
     const corrected = (
       read: ReadCorrection | undefined,
       citation: (marker: number) => Citation | null,
-    ) => correctionFor(sentence, request.claim, read, citation, newestFirst, context);
+    ) => correctionFor(sentence, request.claim, read, citation, newestFirst, context, unitsOf);
     const stated = corrected(said?.correction, session.finalCitation);
     const owner = figures.find((figure) => figure.result.verdict === "contradicted");
     let found = stated;

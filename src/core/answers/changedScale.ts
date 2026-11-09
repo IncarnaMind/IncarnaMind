@@ -32,11 +32,16 @@ export interface ChangedScale {
   times: number;
 }
 
-interface Given {
+/** An amount a quote gives, as its Document says it is worth. */
+export interface Given {
   value: number;
   given: string;
   /** Its Document states its scale, not only its digits. */
   scaled: boolean;
+  /** How it is read: its value, unit, scale and decimals once its stated scale is applied. */
+  reading: Reading;
+  /** Where its digits start in the quote. */
+  start: number;
 }
 
 const isAmount = (figure: Figure) =>
@@ -82,10 +87,16 @@ function statedIn(where: string, quote: string, start: number, context: FigureCo
       `${read?.chars ?? ""} ${statements.find((each) => each.scale === reading.scale)?.chars ?? ""}`,
     ),
     scaled: true,
+    reading,
+    start,
   }));
 }
 
-function givenAmounts(quoted: QuotedText): Given[] {
+/**
+ * Each amount a quote gives, worth what its Document says once its scale is applied: its own, its
+ * row's unit cell, or the unit its line or page states.
+ */
+export function givenAmounts(quoted: QuotedText): Given[] {
   const context = documentFigureContext(quoted.units);
   const { quote } = quoted.citation;
   const lines = quotedLines(quoted);
@@ -96,10 +107,22 @@ function givenAmounts(quoted: QuotedText): Given[] {
         value: reading.value,
         given: shown(figure.chars),
         scaled,
+        reading,
+        start: figure.start,
       }));
     if (figure.scale !== 1) return own(true);
     const row = readOnItsLine(lines, figure, context);
-    if (row) return [{ value: row.value, given: shown(row.chars), scaled: true }];
+    if (row) {
+      return [
+        {
+          value: row.value,
+          given: shown(row.chars),
+          scaled: true,
+          reading: row,
+          start: figure.start,
+        },
+      ];
+    }
     for (const where of [lines, joinUnits(quoted.units).text]) {
       const stated = statedIn(where, quote, figure.start, context);
       // "$2.15" under "(in millions, except per share data)" may be either: both stand.

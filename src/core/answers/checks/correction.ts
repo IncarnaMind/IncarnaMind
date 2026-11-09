@@ -1,8 +1,11 @@
+import { writtenLike } from "../../../shared/figureSchedule";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { isPeriod } from "../../../shared/periods";
 import { NUMBERS } from "../../../shared/rewriteWords";
 import type { Citation, ClaimCorrection } from "../../api";
+import type { PageText } from "../../documents/passages";
 import { documentFigureContext } from "../calculations";
+import { givenAmounts } from "../changedScale";
 import type { AnswerDocuments } from "../citations";
 import type { ReadCorrection } from "./prompt";
 
@@ -319,9 +322,91 @@ function inPlace(before: string, after: string, wording: string): string {
 }
 
 /**
+ * Whether the Document's words for a figure are one bare number where the sentence's figure has a
+ * unit or a scale: "151.2" in place of 1.402 亿英镑 would leave 亿英镑 behind, or drop it (#2081).
+ */
+function dropsUnit(old: Figure, words: string, context: FigureContext): boolean {
+  const [now, ...more] = readFigures(words, context);
+  return (
+    now !== undefined &&
+    more.length === 0 &&
+    (old.unit.kind !== "plain" || old.scale !== 1) &&
+    now.unit.kind === "plain" &&
+    now.scale === 1
+  );
+}
+
+/**
+ * The Document's figure written as the sentence writes its own (#2081): "2.6 million pounds" in
+ * place of 二百四十万英镑 is 260万英镑, and "151.2" under "All figures in £ million" in place of
+ * 1.402 亿英镑 is 1.512 亿英镑. Its amount is the one its Document gives it, read as a changed
+ * scale is (../changedScale): with its own scale word, its row's unit or the unit its line or page
+ * states; a bare number with none of them has no amount to write. Null unless the old words and the
+ * Document's are one figure each, of one unit and sign, and the sentence then reads that amount where
+ * the old words stood. A Document's figure of no unit the reader knows ("pounds" may be a weight)
+ * takes the sentence's, as the check judged the two the same thing.
+ */
+function writtenAsSentence(
+  claim: string,
+  first: number,
+  from: string,
+  old: Figure,
+  words: string,
+  citation: Citation,
+  units: readonly PageText[],
+  context: FigureContext,
+): string | null {
+  const [quoted, ...more] = readFigures(words, documentFigureContext([{ text: words }]));
+  const at = placeIn(citation.quote, words);
+  if (
+    !quoted ||
+    more.length > 0 ||
+    at < 0 ||
+    quoted.rangeTo !== null ||
+    old.rangeTo !== null ||
+    old.ambiguous.length > 0
+  )
+    return null;
+  const given = givenAmounts({ citation: { quote: citation.quote }, units: [...units] }).filter(
+    (each) =>
+      each.start >= at &&
+      each.start < at + words.length &&
+      // A bare number is worth what its Document says only where it says its scale.
+      (each.scaled || (each.reading.scale === 1 && old.scale === 1)),
+  );
+  const [worth] = given;
+  if (!worth || given.some((each) => each.value !== worth.value)) return null;
+  const { reading } = worth;
+  const ofAmounts =
+    old.unit.kind === "currency" || old.unit.kind === "other" || old.unit.kind === "plain";
+  const sameUnit = JSON.stringify(reading.unit) === JSON.stringify(old.unit);
+  if (
+    (!sameUnit && !(reading.unit.kind === "plain" && ofAmounts)) ||
+    Math.sign(reading.value) !== Math.sign(old.value)
+  )
+    return null;
+  const shares = old.unit.kind === "percent" || old.unit.kind === "points";
+  const most = shares
+    ? reading.decimals
+    : Math.max(0, reading.decimals + Math.round(Math.log10(old.scale / reading.scale)));
+  // As few decimals as write the amount whole: 260 万英镑 is £2.6 million, not £2.60 million.
+  const amount = Math.abs(reading.value) * (shares ? 100 : 1 / old.scale);
+  const decimals =
+    [...Array(most + 1).keys()].find(
+      (places) => Math.abs(Number(amount.toFixed(places)) - amount) <= 1e-9 * Math.max(1, amount),
+    ) ?? most;
+  const written = writtenLike(old, reading.value, decimals);
+  const [read, ...others] = writtenAt(claim, first, from, written, context) ?? [];
+  return read && others.length === 0 && sameNumber(read, { value: reading.value, unit: old.unit })
+    ? written
+    : null;
+}
+
+/**
  * A confirmed contradiction's correction of `claim`, a part of `sentence` or all of it: old words
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
- * quote, keeping the sentence's named periods.
+ * quote, or that quote's figure written as the sentence writes its own, keeping the sentence's
+ * named periods.
  */
 export function correctionFor(
   sentence: string,
@@ -330,6 +415,8 @@ export function correctionFor(
   finalCitation: (marker: number) => Citation | null,
   documentDate: AnswerDocuments["documentDate"],
   context: FigureContext,
+  /** The stored text of the Units a Citation's Document holds, for the scale it states. */
+  units: (citation: Citation) => readonly PageText[] = () => [],
 ): { correction: ClaimCorrection; evidence: Citation } | null {
   if (!read || read.from === "" || read.choices.length < 1 || read.choices.length > 2) return null;
   const first = claim.indexOf(read.from);
@@ -343,7 +430,13 @@ export function correctionFor(
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
   const figure = figureOnly(read.from, context);
   const end = first + read.from.length;
-  for (const stated of read.choices) {
+  // The Document's own words first: a figure written again that says what they say is no choice.
+  const ownFirst = [...read.choices].sort(
+    (a, b) =>
+      Number(!inLanguageAt(claim, first, end, a.wording)) -
+      Number(!inLanguageAt(claim, first, end, b.wording)),
+  );
+  for (const stated of ownFirst) {
     const inPlaceOf = (words: string) =>
       inPlace(claim.slice(0, first), claim.slice(first + read.from.length), words);
     const citation = finalCitation(stated.marker);
@@ -355,11 +448,37 @@ export function correctionFor(
     // A figure takes the Document's figure of its own kind, not the words around it.
     const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
     const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
-    const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
-    // Another Document's words in another language are left out, as a choice no one could take.
-    if (!inLanguageAt(claim, first, end, choice.wording)) continue;
-    const place = placeIn(citation.quote, choice.wording);
-    if (place < 0 || !seamsHold(claim, first, read.from, choice.wording, citation.quote, place))
+    const quoted = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
+    // A figure in another language, or a bare number for one with a unit or scale, is written as
+    // the sentence writes its own (#2081); any other words in another language are left out, as a
+    // choice no one could take.
+    const own =
+      inLanguageAt(claim, first, end, quoted.wording) &&
+      !(figure && dropsUnit(figure, quoted.wording, context));
+    const written =
+      own || !figure
+        ? null
+        : writtenAsSentence(
+            claim,
+            first,
+            read.from,
+            figure,
+            quoted.wording,
+            citation,
+            units(citation),
+            context,
+          );
+    if (
+      !own &&
+      (written === null || !inLanguageAt(claim, first, end, written) || wordings.has(written))
+    )
+      continue;
+    const choice = written === null ? quoted : { ...quoted, wording: written };
+    const place = written === null ? placeIn(citation.quote, choice.wording) : 0;
+    if (
+      written === null &&
+      (place < 0 || !seamsHold(claim, first, read.from, choice.wording, citation.quote, place))
+    )
       return null;
     if (
       markers.has(choice.marker) ||
@@ -372,7 +491,8 @@ export function correctionFor(
       ) ||
       wordings.has(choice.wording) ||
       !namesPeriodsOf(claim, citation.quote) ||
-      !readsAsQuote(claim, first, read.from, choice.wording, citation.quote, context)
+      (written === null &&
+        !readsAsQuote(claim, first, read.from, choice.wording, citation.quote, context))
     )
       return null;
     markers.add(choice.marker);

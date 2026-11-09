@@ -24,6 +24,7 @@ import type {
 import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
 import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
+import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
 import { currentTask } from "../../runs/current";
@@ -43,7 +44,7 @@ import {
   batchParts,
   batchPrompt,
   readBatch,
-  SENTENCE_BATCH_INSTRUCTIONS,
+  sentenceBatchInstructions,
 } from "./sentenceBatch";
 
 /** What a checked sentence's result makes of each of its found Citations. */
@@ -81,6 +82,8 @@ export interface AnswerCheckInput {
 }
 
 export interface AnswerCheckOptions {
+  /** The interface language: what a sentence's result on its Citations is written in. */
+  language(): Language;
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
   prepare(choice: ChatModelChoice): Promise<PreparedChatModel | null>;
   scope(mindId: string | null, documentIds: readonly string[] | null): EvidenceScope;
@@ -221,12 +224,12 @@ function stopOf(failure: ProviderError): JudgementStop | null {
  * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
  * one, and all the reply may write, so a limit of their sum lets every batch through (#1554).
  */
-function mostRequest(batch: readonly BatchSentence[]): EstimatedRequest {
+function mostRequest(batch: readonly BatchSentence[], instructions: string): EstimatedRequest {
   const asSent = {
     content: [{ type: "text", text: batchPrompt(batch), providerOptions: CACHED }],
   };
   return {
-    inputTokens: promptTokensOf([{ content: SENTENCE_BATCH_INSTRUCTIONS }, asSent]),
+    inputTokens: promptTokensOf([{ content: instructions }, asSent]),
     outputTokens: outputTokens("sentence-batch", batch.length),
   };
 }
@@ -254,14 +257,15 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
   function requests(input: Omit<AnswerCheckInput, "model" | "signal">): EstimatedRead | null {
     const batches = batchesOf(asked(input).filter((sentence) => sentence.passages.length > 0));
     if (batches.length === 0) return null;
+    const instructions = sentenceBatchInstructions(options.language());
     const inputTokens = (batch: BatchSentence[]) =>
-      estimateTokens(SENTENCE_BATCH_INSTRUCTIONS) + estimateTokens(batchPrompt(batch));
+      estimateTokens(instructions) + estimateTokens(batchPrompt(batch));
     return {
       likely: batches.map((batch) => ({
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
-      most: batches.map(mostRequest),
+      most: batches.map((batch) => mostRequest(batch, instructions)),
     };
   }
 
@@ -282,6 +286,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const scope = options.scope(input.mindId, input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
     const judged = asked(input);
+    const instructions = sentenceBatchInstructions(options.language());
 
     const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
@@ -336,7 +341,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       try {
         const judged = await judge({
           model: prepared.model,
-          question: { id: "sentence-batch", instructions: SENTENCE_BATCH_INSTRUCTIONS },
+          question: { id: "sentence-batch", instructions },
           parts: batchParts(batch),
           data: BATCH_TAGS,
           reply: json((value) => readBatch(value, batch.length)),
@@ -398,7 +403,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     };
     const admit = (batch: (typeof judged)[number][]): Promise<number | JudgementStop> => {
       const turn = admitted.then(async () => {
-        const reserved = options.mostOf(input.model, mostRequest(batch));
+        const reserved = options.mostOf(input.model, mostRequest(batch, instructions));
         while (passes(reserved) && open > 0) await settledAll();
         const stop = passes(reserved);
         if (stop) return stop;

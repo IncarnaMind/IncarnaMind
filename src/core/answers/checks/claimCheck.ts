@@ -54,6 +54,7 @@ import { calculatesIn, createCalculationLedger, figureContextIn } from "./calcul
 import { createCheckResults, uniqueCitations } from "./checkResults";
 import { checkRun } from "./checkRun";
 import { type CourtDecisions, courtDecisions, keptInside, setUpRun } from "./checkSetup";
+import { explainedIn } from "./explanations";
 import { uncheckedFigureResults } from "./figureChecks";
 import { figuresVerdict } from "./figuresVerdict";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
@@ -242,7 +243,7 @@ async function checkSentence(
   // The Passages the check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   let shownPassageIds: () => readonly string[] = () => [];
-  try {
+  const decide = async (): Promise<AtomicClaimCheckResult> => {
     const kept = keptInside(deps, request);
     if (kept) return kept;
     const { signal } = request;
@@ -308,12 +309,23 @@ async function checkSentence(
       // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
       // host's own date for each, never shown to the model as the Document's words.
       newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
+      unitsOf: (citation: Citation) =>
+        deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
     };
     const { figures } = request;
-    const result = figures?.length
-      ? await figuresVerdict(deps, { ...request, figures }, verdicts)
-      : await plainVerdict(deps, request, verdicts);
-    return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
+    return figures?.length
+      ? figuresVerdict(deps, { ...request, figures }, verdicts)
+      : plainVerdict(deps, request, verdicts);
+  };
+  try {
+    const result = await decide();
+    return result.verdict === "supported"
+      ? withDollarClause(deps, request.claim, result)
+      : explainedIn(result, {
+          language: deps.language(),
+          model: request.model,
+          signal: request.signal,
+        });
   } catch (error) {
     if (!(error instanceof FiguresNotRead)) throw error;
     return figuresNotRead(deps, request, error, shownPassageIds());

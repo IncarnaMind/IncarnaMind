@@ -7,6 +7,7 @@ import type { FigureContext } from "../../../shared/figures";
 import { translate } from "../../../shared/i18n";
 import { sentenceSpans } from "../../../shared/sentences";
 import type { Citation, ClaimCheckResult, ProviderError, UnsupportedReason } from "../../api";
+import type { PageText } from "../../documents/passages";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import type { AbsenceFor } from "./absence";
@@ -37,7 +38,7 @@ import {
   nearestDifferent,
   notFailed,
   partOf,
-  RECHECK,
+  recheck,
 } from "./looks";
 import {
   ownDetailDiffers,
@@ -63,6 +64,7 @@ interface PlainVerdictCheck {
   figureContext: (citation: Citation) => FigureContext;
   absenceFor: AbsenceFor;
   newestFirst: AnswerDocuments["documentDate"];
+  unitsOf: (citation: Citation) => readonly PageText[];
 }
 
 type PlainVerdictRequest = Pick<
@@ -89,7 +91,7 @@ async function verdictOf(
 ): Promise<AtomicClaimCheckResult> {
   const { signal } = request;
   const { transcript, looked, session, ledger, results, court } = check;
-  const { unstatedUnit, figureContext, absenceFor, newestFirst } = check;
+  const { unstatedUnit, figureContext, absenceFor, newestFirst, unitsOf } = check;
   const { reply, askedForOwnWords, finished } = transcript;
   const { facts, workingsSayingIt, notChecked, failedCheck, unjudged } = results;
   const { citedCase } = court;
@@ -335,7 +337,14 @@ async function verdictOf(
       )?.why &&
       quoteStatesDetail(request.claim, stated.quote)
     ) {
-      const again = await compare(request, stated, session, signal, RECHECK, readRecheck);
+      const again = await compare(
+        request,
+        stated,
+        session,
+        signal,
+        recheck(deps.language()),
+        readRecheck,
+      );
       return again.ok ? rechecked(again.value, stated) : unjudged(again);
     }
     // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
@@ -473,7 +482,14 @@ async function verdictOf(
       evidence !== null &&
       quoteStatesDetail(request.claim, evidence.quote)
     ) {
-      const again = await compare(request, deciding, session, signal, RECHECK, readRecheck);
+      const again = await compare(
+        request,
+        deciding,
+        session,
+        signal,
+        recheck(deps.language()),
+        readRecheck,
+      );
       return again.ok ? rechecked(again.value, evidence) : unjudged(again);
     }
     // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
@@ -495,6 +511,7 @@ async function verdictOf(
           session.finalCitation,
           newestFirst,
           documentFigureContext([{ text: request.originalClaim ?? request.claim }]),
+          unitsOf,
         )
       : null;
   const decided = corrected?.evidence ?? evidence;

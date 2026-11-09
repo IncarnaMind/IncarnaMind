@@ -26,12 +26,12 @@ import {
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presenceParts,
-  RECHECK_INSTRUCTIONS,
   type ReadVerdict,
   readEvidence,
   readJudgement,
   readPart,
   readPresence,
+  recheckInstructions,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
@@ -55,7 +55,10 @@ interface Comparison {
   instructions: string;
 }
 
-export const RECHECK: Comparison = { id: "recheck", instructions: RECHECK_INSTRUCTIONS };
+export const recheck = (language: Language): Comparison => ({
+  id: "recheck",
+  instructions: recheckInstructions(language),
+});
 
 /**
  * The most requests a check sends once its Run has ended, beside a whole read's absence judgement
