@@ -97,7 +97,7 @@ async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
 }
 
 /**
- * Where a route's key is changed, in Settings › Models: a key of its own on its row in Your
+ * Where a route's key is changed, in Settings › AI: a key of its own on its row in Your
  * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
  * provider's key in Your providers.
  */
@@ -105,11 +105,11 @@ export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Pro
   const { openSettings } = useAppStore.getState();
   try {
     const service = (await servicesNow()).find((each) => each.route === route);
-    if (service?.key !== "own") openSettings("models");
-    else openSettings("models", service.hasKey ? `transcription-key:${route}` : "transcription");
+    if (service?.key !== "own") openSettings("ai");
+    else openSettings("ai", service.hasKey ? `transcription-key:${route}` : "transcription");
   } catch (error) {
     console.error("The transcription services couldn't be read.", error);
-    openSettings("models");
+    openSettings("ai");
   }
 }
 

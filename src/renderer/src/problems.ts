@@ -8,7 +8,7 @@ import {
 } from "../../core/providers/signInRoutes";
 import type { MessageKey } from "../../shared/i18n";
 import { CHATGPT_USAGE_URL } from "./chatGptUsage";
-import type { SettingsPage } from "./settingsPages";
+import type { SettingsPage, SettingsTarget } from "./settingsPages";
 
 /**
  * What a failed Answer says, and the one thing it offers (DESIGN.md,
@@ -17,7 +17,7 @@ import type { SettingsPage } from "./settingsPages";
  * on this computer, or nothing when none would help.
  */
 export type AnswerFix =
-  | { kind: "settings"; page: SettingsPage; label: MessageKey }
+  | { kind: "settings"; page: SettingsPage; at?: SettingsTarget; label: MessageKey }
   | { kind: "retry"; label: MessageKey }
   | { kind: "local-model"; label: MessageKey }
   /** `label` only where Ollama's app is here: `OllamaNotRunningLine` offers Get Ollama or Try again otherwise. */
@@ -37,22 +37,22 @@ export interface AnswerProblem {
 export const retry: AnswerFix = { kind: "retry", label: "answer.error.retry" };
 const chooseModel: AnswerFix = {
   kind: "settings",
-  page: "models",
+  page: "ai",
   label: "answer.error.chooseModel",
 };
 
 export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   auth: {
     line: "answer.error.auth",
-    fix: { kind: "settings", page: "models", label: "answer.error.checkKey" },
+    fix: { kind: "settings", page: "ai", label: "answer.error.checkKey" },
   },
   "api-key-unreadable": {
     line: "answer.error.apiKeyUnreadable",
-    fix: { kind: "settings", page: "models", label: "answer.error.checkKey" },
+    fix: { kind: "settings", page: "ai", label: "answer.error.checkKey" },
   },
   model: {
     line: "answer.error.model",
-    fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },
+    fix: { kind: "settings", page: "ai", label: "answer.error.chooseModel" },
   },
   // A declined data flow is allowed again on the Privacy page.
   "consent-declined": {
@@ -73,7 +73,7 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   // Only the organization's own setting, or another model, helps.
   "data-retention": {
     line: "answer.error.data-retention",
-    fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },
+    fix: { kind: "settings", page: "ai", label: "answer.error.chooseModel" },
   },
   "rate-limit": { line: "answer.error.rate-limit", fix: retry },
   network: { line: "answer.error.network", fix: retry },
@@ -102,12 +102,12 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   // The User's own monthly cap: raising it (or waiting for next month) is the way on.
   "cost-cap": {
     line: "answer.error.cost-cap",
-    fix: { kind: "settings", page: "general", label: "answer.error.changeCap" },
+    fix: { kind: "settings", page: "ai", at: "spending-cap", label: "answer.error.changeCap" },
   },
   // Only another model helps: a plan that can't be used in other apps stays so.
   blocked: {
     line: "answer.error.blocked",
-    fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },
+    fix: { kind: "settings", page: "ai", label: "answer.error.chooseModel" },
   },
 };
 
@@ -149,7 +149,7 @@ export function answerProblem(
   if (onSignInRoute && CHATGPT_ONLY.has(kind)) {
     return {
       line: "answer.error.provider",
-      fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },
+      fix: { kind: "settings", page: "ai", label: "answer.error.chooseModel" },
     };
   }
   if (kind === "plan-limit" && provider === "ollama") {

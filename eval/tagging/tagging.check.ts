@@ -189,7 +189,7 @@ async function organizeWalk(
     const { automatic } = await core.getTaggingModels();
     if (!automatic) throw new Error("Automatic offers no model to organize with.");
     const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({ ...settings, organizeWith: automatic.classifier });
+    await core.saveLibrarySettings({ ...settings, classifier: automatic.classifier });
     await core.organizeLibrary({ costAccepted: true });
     const review = await core.getOrganizeReview();
     const names = new Map(review.folders.map((folder) => [folder.id, folder.name]));

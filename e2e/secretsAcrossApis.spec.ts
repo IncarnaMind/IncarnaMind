@@ -69,7 +69,7 @@ test("a secret the synchronous safeStorage API wrote opens with the asynchronous
 test("a saved key that can't be opened says so where it is entered", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const form = await addProviderForm(settings, "openai");
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-test-0123456789-unreadable");
@@ -91,15 +91,16 @@ test("a saved key that can't be opened says so where it is entered", async () =>
 
   await window.reload();
   await window.getByTestId("plus-menu").waitFor();
-  const reopened = await openSettings(window, "models");
+  const reopened = await openSettings(window, "ai");
   await expect(
     reopened.getByText(
       "The saved API key for OpenAI on this device can’t be read. Enter it again.",
     ),
   ).toBeVisible();
-  await expect(reopened.getByTestId("provider-row-status").first()).toContainText(
-    "Can’t be read. Enter it again.",
-  );
+  // The row says so where its state is, and reads as a problem to fix.
+  const state = reopened.getByTestId("provider-row").first().getByTestId("account-state");
+  await expect(state).toHaveText("Can’t be read");
+  await expect(state).toHaveAttribute("data-tone", "problem");
   await reopened.locator(`[data-provider-id="${provider.id}"]`).click();
   const unreadable = reopened.getByTestId("provider-page");
   await expect(unreadable.getByTestId("provider-key-unreadable")).toHaveText(
@@ -114,7 +115,7 @@ test("a saved key that can't be opened says so where it is entered", async () =>
   await expect(
     reopened.getByText("无法读取这台设备上保存的 OpenAI API 密钥。请重新输入。"),
   ).toBeVisible();
-  await expect(reopened.getByTestId("provider-row-status").first()).toContainText(
-    "无法读取。请重新输入。",
-  );
+  await expect(
+    reopened.getByTestId("provider-row").first().getByTestId("account-state"),
+  ).toHaveText("无法读取");
 });

@@ -233,7 +233,7 @@ describe("⌘K's actions", () => {
     );
 
   test("are the registry's, found by their name or keywords in English or in Chinese", () => {
-    expect(actions("settings models")).toEqual([["actions", ["Settings: Models"]]]);
+    expect(actions("settings models")).toEqual([["actions", ["Settings: AI"]]]);
     expect(actions("new note")).toEqual([
       [
         "actions",
@@ -245,9 +245,9 @@ describe("⌘K's actions", () => {
         ],
       ],
     ]);
-    expect(actions("设置 模型")).toEqual([["actions", ["Settings: Models"]]]);
-    expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
-    expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
+    expect(actions("设置 模型")).toEqual([["actions", ["Settings: AI"]]]);
+    expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：AI"]]]);
+    expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：AI"]]]);
     expect(actions("zzqx")).toEqual([]);
   });
 

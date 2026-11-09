@@ -15,7 +15,7 @@ import { DetailsLine } from "./DetailsLine";
 import { ModelRuntimeFolderLine } from "./ModelRuntimeFolderLine";
 import { PrivacyServices, SERVICES_UNDO_PLACE } from "./PrivacyServices";
 import { ProblemLine } from "./ProblemLine";
-import { LocalOnlySetting } from "./providers/LocalOnlySetting";
+import { MovedToAi } from "./settings/MovedToAi";
 import {
   SettingsGroup,
   SettingsHelp,
@@ -129,7 +129,11 @@ export function PrivacySettings() {
         <UndoLineAt place={SERVICES_UNDO_PLACE} />
       </SettingsSection>
 
-      <LocalOnlySetting />
+      <MovedToAi
+        testId="local-mode-moved"
+        title="embeddingProviders.localOnly.label"
+        at="local-mode"
+      />
 
       <SettingsSection title={t("privacy.traffic.title")} testId="network-traffic">
         {traffic && traffic.length > 0 && (

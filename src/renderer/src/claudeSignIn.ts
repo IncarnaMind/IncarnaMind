@@ -114,12 +114,12 @@ export function cancelSignInWithClaude(): void {
 export const forgetClaudeSignInFailure = (): void => useClaudeSignIn.setState({ failure: null });
 
 /**
- * "Sign in again" from a problem line: Settings › Models opens at the Claude row, which waits
+ * "Sign in again" from a problem line: Settings › AI opens at the Claude row, which waits
  * there for the code Anthropic's page shows. True once signed in, so the Answer can be asked again.
  */
 export function signInToClaudeAgain(): Promise<boolean> {
   const signingIn = signInWithClaude({ keepDefault: true });
-  useAppStore.getState().openSettings("models", "claude-account");
+  useAppStore.getState().openSettings("ai", "claude-account");
   return signingIn;
 }
 

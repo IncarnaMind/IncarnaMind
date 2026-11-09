@@ -4,8 +4,8 @@ Nothing leaves the computer for a service the User hasn't chosen. The User choos
 
 - **Asked again** only when a flow starts sending a kind of data its line didn't name.
 - **Asked in place** for a service the User didn't pick (reference look-up), once, where the feature starts.
-- **Tagging and sorting new Documents by themselves are their own switch** (Settings › Tagging): off for a cloud model, on for one on this computer. They send each new Document's name and an excerpt without the User asking, so choosing the chat model does not allow them; turning the switch on does, and records it in Settings › Privacy. This changes the earlier rule, under which choosing the model covered Tags and organization. Organize and Re-tag asked for by hand still go.
-- **Page images are their own switch.** Organize reading a scan with no text sends its page pictures, which carry more than the text the chat line names, so choosing the chat model does not allow them: the User allows them per service, in Settings › Privacy or from the Document's Info. This changes the earlier rule, under which choosing the model covered them.
+- **Tagging and sorting new Documents by themselves are their own switch** (Settings › AI, under Organize and Tags): off for a cloud model, on for one on this computer. They send each new Document's name and an excerpt without the User asking, so choosing the chat model does not allow them; turning the switch on does, and records it in Settings › Privacy. This changes the earlier rule, under which choosing the model covered Tags and organization. Organize and Re-tag asked for by hand still go.
+- **Page images are their own switch.** Organize reading a scan with no text sends its page pictures, which carry more than the text the chat line names, so choosing the chat model does not allow them: the User allows them per service, under Organize and Tags in Settings › AI, in Settings › Privacy or from the Document's Info. This changes the earlier rule, under which choosing the model covered them.
 - **Never asked by background work,** which waits and says so.
 - **Revocable per flow** in Settings › Privacy, which lists every flow, the service it goes to and when it was allowed.
 - **Local mode** sends nothing to any cloud service, whatever was chosen.
@@ -45,3 +45,12 @@ Nothing the AI sorts or tags is kept until the User confirms it (ADR-0012). "Tag
 - **Consent is unchanged.** The same gates decide, per service, just before each send, and turning the switch off withdraws it as before. Only what happens after the answer changes.
 - **The row's Allow** (amendment of 2026-11-04) records the consent and turns the switch on as before. The Documents waiting are read at the press as the User's own Organize, and what it proposes opens for the User to confirm; nothing moves at the press.
 - **Background work still never asks.** Its proposals add to Suggestions, and a count on the Library's sidebar row says they wait.
+
+## Amendment: one page, Settings › AI (2026-11-09, #2835)
+
+Settings › Tagging and Settings › Models' sorting row are gone: the one choice for Organize and Tags is its row in Settings › AI, and its options sit under it.
+
+- **The switch** is "Sort and tag new Documents as they arrive", under the Organize and Tags row. While it is off, the line beside it says what each new Document would send and to which service, in the words above; turning it on is the consent for that service, recorded as Turn on… recorded it. Choosing the row's model never turns it on. ⌘K's "Turn on tagging new Documents…" opens Settings › AI at the switch. In Local mode its line says that nothing goes to a cloud model.
+- **Page images** are their own switch under the same row, "Read scans as page images", per service, as before.
+- **A reranking service the User's account already reaches** (Cohere on its account's key) asks before it is used: choosing it in Best results first shows what each search sends and to whom, and only Use this records the consent. While it is chosen, the row says where it sends. A service set up with a key of its own says so in its key form, as before.
+- **A company's last key going** sends Document search and Best results first on that company's account back to the built-in models, as sorting already went back to Automatic (#1907), so a key added later starts nothing on the old consent.

@@ -43,7 +43,7 @@ test("with “Keep everything on this computer” on, a key saved on Add a provi
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
   await setLocalOnly(window, true);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const form = await addProviderForm(settings, "openai");
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-proj-not-a-real-key");
@@ -67,7 +67,7 @@ test("with “Keep everything on this computer” on, a key saved on Add a provi
 test("a key replaced on a provider's page while the setting is on says it wasn't checked either", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const form = await addProviderForm(settings, "openai");
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-proj-not-a-real-key");

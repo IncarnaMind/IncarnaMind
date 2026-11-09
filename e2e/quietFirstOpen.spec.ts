@@ -200,7 +200,7 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
 
   await choose.focus();
   await window.keyboard.press("Enter");
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("settings")).toBeHidden();
 

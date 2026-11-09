@@ -96,7 +96,7 @@ describe("What Organize needs before it runs (#1569)", () => {
       declined: false,
       model: "chat",
     });
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
     expect(await consentOf(core)).toBe("not-asked");
     expect(models.sent("anthropic")).toBe(0);
   });
@@ -108,7 +108,7 @@ describe("What Organize needs before it runs (#1569)", () => {
 
     expect(await core.allowOrganize(ANTHROPIC.id)).toEqual({ ready: true, model: "chat" });
     expect(await consentOf(core)).toBe("accepted");
-    expect((await core.getLibrary()).settings.organizeWith).toMatchObject({ kind: "chat" });
+    expect((await core.getLibrary()).settings.classifier).toMatchObject({ kind: "chat" });
     expect(models.sent("anthropic")).toBe(0);
 
     await core.organizeLibrary({ forService: ANTHROPIC.id });
@@ -133,7 +133,7 @@ describe("What Organize needs before it runs (#1569)", () => {
     await core.saveChatProvider({ kind: "ollama", modelId: "main-chat" });
 
     expect(await core.startOrganize()).toEqual({ ready: true, model: "chat" });
-    expect((await core.getLibrary()).settings.organizeWith).toMatchObject({ kind: "chat" });
+    expect((await core.getLibrary()).settings.classifier).toMatchObject({ kind: "chat" });
   });
 
   // protects=Local mode sends nothing to a cloud service and asks nothing: the press says why; fails_when=it shows the card or sends; no_claim=the notice's place.
@@ -175,7 +175,7 @@ describe("What Organize needs before it runs (#1569)", () => {
     expect(models.sent("anthropic")).toBeGreaterThan(0);
     expect(await intoHarbour(core, ids)).toBe(3);
     expect(await consentOf(core)).toBe("declined");
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
     expect(await core.startOrganize()).toMatchObject({ needs: "consent", declined: true });
 
     // One Document at a time, with none named: every Document, once, and still nothing kept.
@@ -189,6 +189,6 @@ describe("What Organize needs before it runs (#1569)", () => {
       harbour.id,
     ]);
     expect(await consentOf(core)).toBe("declined");
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
   });
 });

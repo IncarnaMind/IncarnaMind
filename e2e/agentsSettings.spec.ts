@@ -462,8 +462,8 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
     );
     await shot(window, "agents-paused-zh-narrow");
     // Its link goes to where the switch is.
-    await page.getByTestId("agents-paused").getByRole("button", { name: "隐私设置" }).click();
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "privacy");
+    await page.getByTestId("agents-paused").getByRole("button", { name: "设置 › AI" }).click();
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await expect(window.getByTestId("local-only")).toBeFocused();
     await showSettingsPage(window, "agents");
     // The first-class agents and "Other agent" (其他智能体), and nothing spills out at either width.

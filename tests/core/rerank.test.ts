@@ -94,6 +94,58 @@ async function useCohere(core: Awaited<ReturnType<typeof setUp>>["core"]) {
   return saved;
 }
 
+describe("One key per company (#2835)", { timeout: 30_000 }, () => {
+  // protects=Cohere reranks with the key of the User's Cohere account (its chat provider) when reranking has none of its own, so the key isn't asked for twice; fails_when=it asks for a key, copies the account's, or sends another service's key to Cohere; no_claim=which order Cohere gives.
+  test("Cohere reranks with the Cohere account's key, and Voyage's own key is never sent to it", async () => {
+    const { core, rerankers, keychain, ask } = await setUp();
+    await core.saveRerankSettings({ kind: "voyage", apiKey: "voyage-key" });
+    await core.saveChatProvider({
+      kind: "openai-compatible",
+      catalogId: "cohere",
+      apiKey: "cohere-account-key",
+      modelId: "command-a-03-2025",
+      keepDefault: true,
+    });
+
+    const saved = await core.saveRerankSettings({ kind: "cohere" });
+    await ask();
+
+    expect(saved).toMatchObject({ kind: "cohere", hasApiKey: true });
+    expect(rerankers.calls.at(-1)?.spec).toMatchObject({
+      kind: "cohere",
+      apiKey: "cohere-account-key",
+    });
+    expect([...keychain.secrets.keys()].some((name) => name.startsWith("rerank"))).toBe(false);
+  });
+
+  // protects=removing the Cohere account's last key sends reranking on it back to the built-in model, and an older reranking key that differs from the account's is named until the User gives it up; fails_when=reranking stays on Cohere with no key, a later key resumes it, or the older key stays used after Use this account's key; no_claim=the order either model gives.
+  test("Cohere's account removed: back to the built-in model; an older key is named until given up", async () => {
+    const { core, rerankers, ask } = await setUp();
+    const cohere = {
+      kind: "openai-compatible",
+      catalogId: "cohere",
+      apiKey: "cohere-account-key",
+      modelId: "command-a-03-2025",
+      keepDefault: true,
+    } as const;
+    const account = await core.saveChatProvider(cohere);
+    await core.saveRerankSettings({ kind: "cohere", apiKey: "cohere-older-key" });
+    expect(await core.getOlderKeys()).toEqual(["rerank"]);
+    await core.switchToAccountKey("rerank");
+    expect(await core.getOlderKeys()).toEqual([]);
+    await ask();
+    expect(rerankers.calls.at(-1)?.spec).toMatchObject({ apiKey: "cohere-account-key" });
+
+    await core.deleteChatProvider(account.id);
+    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in", keyRemoved: true });
+    await core.saveChatProvider(cohere);
+    expect(await core.getRerankSettings()).toMatchObject({ kind: "built-in" });
+    // Chosen again by the User, it no longer says why it went back.
+    await core.saveRerankSettings({ kind: "built-in" });
+    expect(await core.getRerankSettings()).not.toHaveProperty("keyRemoved");
+  });
+});
+
 describe("Rerank", { timeout: 30_000 }, () => {
   test("is on by default, with the built-in model: no key, no consent, and nothing is sent", async () => {
     const weather = weatherCrossEncoder();

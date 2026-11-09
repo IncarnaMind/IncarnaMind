@@ -8,15 +8,18 @@ import {
 import { core } from "../core";
 import { formatMoney, formatSpent, setAsideText } from "../cost";
 import { useLanguage, useT } from "../i18n";
-import type { SettingsPage } from "../settingsPages";
+import type { SettingsPage, SettingsTarget } from "../settingsPages";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import { ProblemMark } from "./ProblemLine";
 import { PopUpSelect } from "./settings/PopUpButton";
-import { SettingsGroup, SettingsRow, SettingsSection } from "./settings/SettingsGroup";
+import { SettingsRow } from "./settings/SettingsGroup";
 import { errorTextClass, rowFieldClass } from "./ui";
 
 /** A first cap, when the User turns it on: about what a light month on a strong model costs. */
 const FIRST_CAP: Record<Currency, number> = { USD: 20, CNY: 150 };
+
+const TARGET: readonly SettingsTarget[] = ["spending-cap"];
 
 /**
  * This month's cost so far, read again each time Settings shows `page` and
@@ -35,17 +38,20 @@ export function useCostSummary(page: SettingsPage): CostSummary | null {
 }
 
 /**
- * Settings → General → Monthly spending cap (#83): what models billed per
+ * Settings › AI › Limits › Monthly spending cap (#83): what models billed per
  * token cost this month, and one optional cap, off by default. Its amount is
  * edited in place: Enter or leaving the field saves, Esc puts it back.
  */
-export function SpendingCapSettings() {
+export function SpendingCapRow() {
   const t = useT();
   const language = useLanguage();
   const cap = useAppStore((state) => state.settings?.user.monthlyCap);
   const updateSettings = useAppStore((state) => state.updateSettings);
-  const summary = useCostSummary("general");
+  const summary = useCostSummary("ai");
   const id = useId();
+  const reached = useSettingsTarget<HTMLDivElement>(TARGET, cap !== undefined, () =>
+    document.getElementById(id)?.focus({ preventScroll: true }),
+  );
   const [draft, setDraft] = useState("");
   const [showProblem, setShowProblem] = useState(false);
   const capAmount = cap?.amount;
@@ -101,115 +107,113 @@ export function SpendingCapSettings() {
         : t("cost.cap.nothing");
 
   return (
-    <SettingsSection title={t("cost.cap.title")} testId="spending-cap-settings">
-      <SettingsGroup>
-        <SettingsRow
-          label={t("cost.cap.switch")}
-          htmlFor={id}
-          tip={t("cost.cap.tip")}
-          tipId={`${id}-tip`}
-          detail={
-            (spentLine || setAside || interrupted > 0 || unpriced > 0) && (
-              <>
-                {spentLine && <p data-testid="spending-cap-spent">{spentLine}</p>}
-                {setAside && (
-                  <p data-testid="spending-cap-set-aside" title={t("cost.setAside.tip")}>
-                    {setAside}
-                  </p>
-                )}
-                {interrupted > 0 && (
-                  <p data-testid="spending-cap-interrupted">
-                    {interrupted === 1
-                      ? t("cost.cap.interrupted.one")
-                      : t("cost.cap.interrupted", { count: interrupted })}
-                  </p>
-                )}
-                {unpriced > 0 && (
-                  <p data-testid="spending-cap-unpriced">
-                    {t("cost.cap.unpriced", {
-                      tokens: new Intl.NumberFormat(language).format(unpriced),
-                    })}
-                  </p>
-                )}
-              </>
-            )
-          }
-          control={
+    <SettingsRow
+      ref={reached}
+      data-testid="spending-cap-settings"
+      label={t("cost.cap.title")}
+      htmlFor={id}
+      tip={t("cost.cap.tip")}
+      tipId={`${id}-tip`}
+      detail={
+        (spentLine || setAside || interrupted > 0 || unpriced > 0) && (
+          <>
+            {spentLine && <p data-testid="spending-cap-spent">{spentLine}</p>}
+            {setAside && (
+              <p data-testid="spending-cap-set-aside" title={t("cost.setAside.tip")}>
+                {setAside}
+              </p>
+            )}
+            {interrupted > 0 && (
+              <p data-testid="spending-cap-interrupted">
+                {interrupted === 1
+                  ? t("cost.cap.interrupted.one")
+                  : t("cost.cap.interrupted", { count: interrupted })}
+              </p>
+            )}
+            {unpriced > 0 && (
+              <p data-testid="spending-cap-unpriced">
+                {t("cost.cap.unpriced", {
+                  tokens: new Intl.NumberFormat(language).format(unpriced),
+                })}
+              </p>
+            )}
+          </>
+        )
+      }
+      control={
+        <>
+          {cap && (
             <>
-              {cap && (
-                <>
-                  <PopUpSelect
-                    aria-label={t("cost.cap.currency")}
-                    data-testid="spending-cap-currency"
-                    value={cap.currency}
-                    onChange={(event) => {
-                      if (!valid && !empty) {
-                        setShowProblem(true);
-                        return;
-                      }
-                      save({
-                        amount: valid ? typed : cap.amount,
-                        currency: event.target.value === "CNY" ? "CNY" : "USD",
-                      });
-                    }}
-                  >
-                    <option value="USD">$</option>
-                    <option value="CNY">¥</option>
-                  </PopUpSelect>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    max={MAX_MONTHLY_CAP}
-                    step="any"
-                    aria-label={t("cost.cap.amount")}
-                    aria-invalid={problem ? true : undefined}
-                    aria-describedby={problem ? `${id}-problem` : undefined}
-                    data-testid="spending-cap-amount"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onBlur={commit}
-                    onKeyDown={onKeyDown}
-                    className={`${rowFieldClass} w-24`}
-                  />
-                </>
-              )}
+              <PopUpSelect
+                aria-label={t("cost.cap.currency")}
+                data-testid="spending-cap-currency"
+                value={cap.currency}
+                onChange={(event) => {
+                  if (!valid && !empty) {
+                    setShowProblem(true);
+                    return;
+                  }
+                  save({
+                    amount: valid ? typed : cap.amount,
+                    currency: event.target.value === "CNY" ? "CNY" : "USD",
+                  });
+                }}
+              >
+                <option value="USD">$</option>
+                <option value="CNY">¥</option>
+              </PopUpSelect>
               <input
-                id={id}
-                type="checkbox"
-                role="switch"
-                aria-checked={cap !== null}
-                aria-describedby={`${id}-tip`}
-                data-testid="spending-cap-switch"
-                checked={cap !== null}
-                onChange={(event) =>
-                  save(
-                    event.target.checked
-                      ? { amount: valid && typed > 0 ? typed : FIRST_CAP[currency], currency }
-                      : null,
-                  )
-                }
-                className="switch"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                max={MAX_MONTHLY_CAP}
+                step="any"
+                aria-label={t("cost.cap.amount")}
+                aria-invalid={problem ? true : undefined}
+                aria-describedby={problem ? `${id}-problem` : undefined}
+                data-testid="spending-cap-amount"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={commit}
+                onKeyDown={onKeyDown}
+                className={`${rowFieldClass} w-24`}
               />
             </>
-          }
-        >
-          {problem && (
-            <p
-              id={`${id}-problem`}
-              role="alert"
-              data-testid="spending-cap-problem"
-              className={errorTextClass}
-            >
-              <ProblemMark />
-              {t("cost.cap.problem", {
-                max: new Intl.NumberFormat(language).format(MAX_MONTHLY_CAP),
-                cap: formatMoney(cap, language),
-              })}
-            </p>
           )}
-        </SettingsRow>
-      </SettingsGroup>
-    </SettingsSection>
+          <input
+            id={id}
+            type="checkbox"
+            role="switch"
+            aria-checked={cap !== null}
+            aria-describedby={`${id}-tip`}
+            data-testid="spending-cap-switch"
+            checked={cap !== null}
+            onChange={(event) =>
+              save(
+                event.target.checked
+                  ? { amount: valid && typed > 0 ? typed : FIRST_CAP[currency], currency }
+                  : null,
+              )
+            }
+            className="switch"
+          />
+        </>
+      }
+    >
+      {problem && (
+        <p
+          id={`${id}-problem`}
+          role="alert"
+          data-testid="spending-cap-problem"
+          className={errorTextClass}
+        >
+          <ProblemMark />
+          {t("cost.cap.problem", {
+            max: new Intl.NumberFormat(language).format(MAX_MONTHLY_CAP),
+            cap: formatMoney(cap, language),
+          })}
+        </p>
+      )}
+    </SettingsRow>
   );
 }

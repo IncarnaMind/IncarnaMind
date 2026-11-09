@@ -36,7 +36,7 @@ export function AddProvider({
       : keyProviderName(catalogId, t, language);
   return (
     <section data-testid="provider-add" data-catalog-id={catalogId} className="flex flex-col gap-6">
-      <SettingsBackLink label={t("settings.pages.models")} testId="models-back" onBack={onBack} />
+      <SettingsBackLink label={t("settings.pages.ai")} testId="models-back" onBack={onBack} />
       <header className="flex items-center gap-3">
         <ProviderLogo id={catalogProvider(catalogId) ? catalogId : null} large />
         <h4

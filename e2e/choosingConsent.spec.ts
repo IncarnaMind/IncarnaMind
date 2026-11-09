@@ -20,7 +20,7 @@ import {
   launchApp,
   makeTagOnDocument,
   newMind,
-  openAdvancedModels,
+  openPlanPage,
   openServiceList,
   openSettings,
   pointAndClick,
@@ -129,26 +129,26 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await form.getByTestId("provider-use-key").click();
   await expect(window.getByTestId("composer-input")).toBeVisible();
 
-  // Tags are turned on where they are set: Settings › Models says what goes before Turn on…
-  // does it (#2308). Then a Document is tagged without asking.
-  const sorting = (await openSettings(window, "models")).getByTestId("model-default-row-sorting");
-  await pointAndClick(window, sorting.getByTestId("models-tagging-turn-on"));
-  await pointAndClick(window, sorting.getByTestId("models-tagging-use"));
-  await expect(sorting.getByTestId("models-tagging-off")).toHaveCount(0);
+  // Tags are turned on where they are set: Settings › AI's switch says what goes before it is
+  // turned on (#2308). Then a Document is tagged without asking.
+  const jobs = (await openSettings(window, "ai")).getByTestId("ai-jobs");
+  const turnOn = jobs.getByTestId("tagging-automatic-organize");
+  await expect(jobs.getByTestId("tagging-automatic-sends")).toContainText("to OpenAI");
+  await pointAndClick(window, turnOn);
+  await expect(turnOn).toBeChecked();
   await closeSettings(window);
   await addDocuments(window, [await invoice("Invoice 40")]);
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
   ).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
-  const models = await openSettings(window, "models");
-  const tagging = await openAdvancedModels(models);
-  await tagging.scrollIntoViewIfNeeded();
+  const models = await openSettings(window, "ai");
+  const tagging = models.getByTestId("ai-jobs");
   const automatic = tagging.getByRole("switch", {
-    name: /^Tag and sort new Documents automatically/,
+    name: /^Sort and tag new Documents as they arrive/,
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
   );
   await closeSettings(window);
 
@@ -240,12 +240,10 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
   await app.close();
 });
 
-test("Settings › Models says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
+test("Settings › AI says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const settings = await openSettings(window, "models");
-
-  const plan = settings.getByTestId("chatgpt-settings");
+  const plan = await openPlanPage(window, "chatgpt");
   await expect(plan).toContainText("No key needed. Counts toward your plan’s limits.");
   const sends = plan.getByTestId("provider-sends");
   await expect(sends.locator("p")).toHaveText(
@@ -259,10 +257,10 @@ test("Settings › Models says in one line what the ChatGPT plan sends, with the
   await app.close();
 });
 
-test("in Chinese, adding a provider in Settings › Models says what goes to it above its button", async () => {
+test("in Chinese, adding a provider in Settings › AI says what goes to it above its button", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   await setLanguage(window, "zh-CN");
 
   const form = await addProviderForm(settings, "openai");

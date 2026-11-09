@@ -16,6 +16,8 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openDirectoryEntry,
+  openPlanPage,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -107,7 +109,7 @@ test("a refused key: Check the key opens its field with the refusal, and once a 
   const answer = await ask(window, "What is in my Documents?");
   await expect(answer).toHaveAttribute("data-status", "failed");
 
-  const models = await openSettings(window, "models");
+  const models = await openSettings(window, "ai");
   const health = models.getByTestId("model-health");
   await expect(health).toHaveText("The key for Claude Haiku 5.5 was refused · Check the key");
   const dot = health.getByTestId("model-health-dot");
@@ -127,7 +129,7 @@ test("a refused key: Check the key opens its field with the refusal, and once a 
 
   // Anthropic's key field, open, focused, with the refusal said beside it.
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const page = settings.getByTestId("provider-page");
   await expect(page.getByTestId("provider-page-title")).toHaveText("Anthropic");
   const key = page.getByTestId("provider-page-key");
@@ -223,7 +225,7 @@ test("a choice that can't be used right now says why, with its next step: Ollama
   await acceptPlainTextKeys(window);
   await setLocalMode(window, true);
 
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const ollama = await addProviderPage(settings, "ollama");
   await expect(ollama.getByTestId("ollama-status")).toHaveText(
     "Install and start Ollama from ollama.com to run models here.",
@@ -242,7 +244,7 @@ test("a choice that can't be used right now says why, with its next step: Ollama
 
   const hosted = await addProviderPage(settings, "anthropic");
   const hostedLine = hosted.getByTestId("local-mode-unavailable");
-  const plansLine = settings.getByTestId("plans-settings").getByTestId("local-mode-unavailable");
+  const plansLine = settings.getByTestId("ai-entry-page").getByTestId("local-mode-unavailable");
   const unavailable = "Unavailable: “Keep everything on this computer” is on · Allow cloud models";
   await expect(hostedLine).toHaveText(unavailable);
   await screenshot(settings, "why-unavailable-provider-en");
@@ -254,6 +256,8 @@ test("a choice that can't be used right now says why, with its next step: Ollama
   await setLanguage(window, "en");
   await settings.getByTestId("models-back").click();
 
+  // A plan's own page, from Add an account or key, says so too.
+  await openDirectoryEntry(settings, "plan:chatgpt");
   await expect(plansLine).toHaveText(unavailable);
   await screenshot(settings, "why-unavailable-plans-en");
   await plansLine.getByTestId("local-mode-turn-off").click();
@@ -320,7 +324,7 @@ test("the default model's failure line is about the model in use: another model 
   const answer = await ask(window, "What is in my Documents?");
   await expect(answer).toHaveAttribute("data-status", "failed");
 
-  const models = await openSettings(window, "models");
+  const models = await openSettings(window, "ai");
   const health = models.getByTestId("model-health");
   await expect(health).toHaveText(`Anthropic doesn’t know ${unknown} · Choose another model`);
   await setLanguage(window, "zh-CN");
@@ -341,8 +345,7 @@ test("signing in again to a plan clears its failure line before anything is aske
     await interceptOpenExternal(app);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
-    const row = settings.getByTestId("plans-copilot");
+    const row = await openPlanPage(window, "copilot");
     await row.getByTestId("plans-copilot-sign-in").focus();
     await window.keyboard.press("Enter");
     await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
@@ -365,7 +368,7 @@ test("signing in again to a plan clears its failure line before anything is aske
     const answer = await ask(window, "What does my plan cover?");
     await expect(answer).toHaveAttribute("data-status", "failed");
 
-    await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const health = settings.getByTestId("model-health");
     await expect(health).toHaveText(
       "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
@@ -387,13 +390,13 @@ test("signing in again to a plan clears its failure line before anything is aske
     github.replies.push(refusal, refusal, refusal, refusal);
     const refused = await ask(window, "Who pays for it?");
     await expect(refused).toHaveAttribute("data-status", "failed");
-    await openSettings(window, "models");
+    await openSettings(window, "ai");
     await expect(health).toBeVisible();
     await closeSettings(window);
     github.replies.length = 0;
     const answered = await ask(window, "Who owns it?");
     await expect(answered).toHaveAttribute("data-status", "done");
-    await openSettings(window, "models");
+    await openSettings(window, "ai");
     await expect(health).toHaveCount(0);
   } finally {
     await app.close();
@@ -413,7 +416,7 @@ test("with local mode on, a hosted provider's key can still be saved: its field 
   });
   await setLocalMode(window, true);
 
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   await settings.getByTestId("provider-row").first().click();
   const page = settings.getByTestId("provider-page");
   await expect(page.getByTestId("local-mode-unavailable")).toBeVisible();
