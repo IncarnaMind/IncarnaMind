@@ -331,3 +331,24 @@ Every mistake: a Document not filed, in a Folder mostly of another label, with a
 | en-sleep-preprint (en, markdown) | research; paper | –; 睡眠与记忆 (topic), 认知科学研究 (topic) | not filed; kind missing: paper |
 
 </details>
+
+## 2026-11-09: the plan's Folders, small Libraries and replies cut short (#2737)
+
+The new-User mode on Claude Haiku 5.5, scored by counts. Tuning runs only here: the tuning half (`INCARNAMIND_ORGANIZE_SPLIT=tune`), the 40 of the old held-out half, which are tuning Documents since the fresh set exists, and 500-sets of seeds 2 and 3. Each set also ran one language at a time (`INCARNAMIND_ORGANIZE_DOCUMENTS=en` with the interface in English, `zh` with it in Chinese), the shape of the fresh set's runs: 15 to 23 readable Documents, a few an area. `main` is 7b1b62a0a (b83d46fb0 for its seed 3 and second seed 2 run); the branch is its head at each run.
+
+| Set (readable) | Arm | Runs | Filed | Same-label pairs, split allowed | Different-label pairs |
+|---|---|---|---|---|---|
+| Tuning half, English only (21) and Chinese only (16) | `main` | 2 | 67%, 63% | 63%, 64% | 16%, 4% |
+| | branch | 4 | 100%, 100%, 94%, 94% | 100%, 100%, 79%, 100% | 9%, 9%, 9%, 21% |
+| Old held-out 40, English only (23) and Chinese only (15) | `main` | 2 | 83%, 60% | 81%, 90% | 7%, 0% |
+| | branch | 4 | 87%, 83%, 60%, 87% | 68%, 68%, 60%, 90% | 10%, 3%, 5%, 27% |
+| Tuning half (37), English and Chinese interface | `main` | 2 | 78%, 97% | 67%, 93% | 6%, 12% |
+| | branch | 4 | 100%, 97%, 97%, 97% | 84%, 78%, 93%, 70% | 5%, 6%, 2%, 7% |
+| Old held-out 40 (38), English and Chinese interface | `main` | 2 | 100%, 87% | 83%, 93% | 13%, 1% |
+| | branch | 4 | 100%, 100%, 95%, 100% | 88%, 93%, 77%, 84% | 9%, 11%, 7%, 14% |
+| 500, seeds 2 and 3 (493, 497) | `main` | 3 | 90%, 90%, 99% | 96%, 95%, 88% | 1%, 1%, 5% |
+| | branch | 5 | 84%, 99%, 100%, 89%, 100% | 79%, 84%, 88%, 95%, 95% | 1%, 1%, 5%, 1%, 0% |
+
+No run in this table ended in an error or with a reply cut short, and every Folder in it held at least 3.
+
+**What the prompt can and can't move.** Before choosing the sort's instructions, each Library was sorted five times by each of seven versions of them (the old one; without its sentence that joins Folders differing in kind; grouping by purpose; one area a name, never two joined by "and"; keep apart when unsure; without the kind sentence; broad areas, with and without it), scored before the rest of the plan. On the old held-out 40 every version gave 74% to 84% same-label pairs on average and passed all four bars in 0 to 3 sorts of 10; a consensus of the five sorts and a second request that checks the first didn't do better. What stays across all of them is the model's reading of a few Documents that the labels place by the starter Folders' descriptions: a project's status reports and kickoff deck go with its meetings, and financial statements and budgets with the business reports. The instructions keep the version closest to the old one with what was fitted to the tuning set taken out, which did best on the 40 (88% same-label pairs on average, 3 sorts of 10 passing).
