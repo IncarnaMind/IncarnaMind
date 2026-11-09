@@ -5316,7 +5316,7 @@
       {
         "name": "Board sign-off",
         "kind": "action",
-        "pattern": ["sign(s|ed)?[- ]?off|approv", "\\b19(th)?\\b|Thursday|\\bThu\\b"],
+        "pattern": ["sign(s|ed)?[- ]?off|approv", "\\b19(th)?\\b"],
         "said": [10]
       }
     ],
@@ -5406,7 +5406,7 @@
         "name": "分两天体检",
         "kind": "decision",
         "pattern": [
-          "两(天|批|个上午)|2 ?天",
+          "分(?:成|为|作)?(?:两|2 ?)(?:天|批|个上午)",
           "定|决定|同意|就用|选|就这么|确定|确认|采用|商定|敲定|拍板|一致"
         ],
         "said": [5, 6],
@@ -5415,7 +5415,7 @@
       {
         "name": "预约链接",
         "kind": "action",
-        "pattern": ["链接|预约", "13 ?[号日]|周五|星期五"],
+        "pattern": ["链接|预约", "13 ?[号日]"],
         "said": [9],
         "notBy": "孙悦|孙经理|小孙"
       },
