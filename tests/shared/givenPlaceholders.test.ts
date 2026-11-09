@@ -40,8 +40,8 @@ function calls(file: string): { key: string; missing: string[] }[] {
 }
 
 test("every string called with its values written out is given each of its placeholders", () => {
-  const setup = join(ROOT, "src/renderer/src/components/providers/SetupSteps.tsx");
-  expect(calls(setup)).toContainEqual({ key: "meetings.route.cloudLine", missing: [] });
+  const cloudLine = join(ROOT, "src/renderer/src/components/meetings/CloudLine.tsx");
+  expect(calls(cloudLine)).toContainEqual({ key: "meetings.route.cloudLine", missing: [] });
   const unfilled = sources(join(ROOT, "src")).flatMap((file) =>
     calls(file)
       .filter((call) => call.missing.length > 0)

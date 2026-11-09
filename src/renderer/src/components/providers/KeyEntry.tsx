@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { ChatProvider, ProviderError } from "../../../../core/api";
-import { serviceOfKey } from "../../../../core/providers/catalog/keyForms";
+import { formOfKey, type KeyTarget } from "../../../../core/providers/catalog/keyForms";
 import {
   billingUrlOf,
   catalogProvider,
@@ -14,17 +14,34 @@ import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { hintClass, inputClass } from "../ui";
-import { defaultRegion, testErrorKey } from "./shared";
+import { defaultRegion, shortProviderName, testErrorKey } from "./shared";
 
 type Problem =
   | { kind: "stray"; character: string }
   | { kind: "unrecognised" }
-  | { kind: "refused"; error: ProviderError; catalogId: string; endpoint: string | null };
+  /** A form that doesn't decide where the key goes: nothing is sent until the User says where. */
+  | { kind: "ask"; key: string; targets: readonly KeyTarget[] }
+  | {
+      kind: "refused";
+      error: ProviderError;
+      catalogId: string;
+      endpoint: string | null;
+      /** Where else the key's form may go, when the User chose this target for it. */
+      others: readonly KeyTarget[] | null;
+    };
+
+/** The question's name for a service whose region decides the host: the region goes with it. */
+const REGION_NAMES: Readonly<Record<string, Readonly<Record<string, MessageKey>>>> = {
+  glm: { cn: "setup.key.service.glm.cn", intl: "setup.key.service.glm.intl" },
+  qwen: { cn: "setup.key.service.qwen.cn", intl: "setup.key.service.qwen.intl" },
+};
 
 /**
- * The one key field of first run (#1922): a pasted key is named by its prefix, tested and saved
- * at once, with no provider list and no button between. A form no prefix names waits for the
- * User to say which service it is, through `unrecognised`; Enter does what a paste does.
+ * The one key field of first run (#1922): a key whose form names a service with one host is
+ * tested and saved at once, with no provider list and no button between. A form that leaves open
+ * where the key goes asks in one line about the likeliest place, naming its host, and its Use
+ * this key is the consent to send it there (#2865). A form no service issues waits for the User
+ * to say which service it is, through `unrecognised`; Enter does what a paste does.
  */
 export function KeyEntry({
   onSaved,
@@ -35,8 +52,11 @@ export function KeyEntry({
 }: {
   /** The saved provider, and the model it was saved with, for the work that waited on it. */
   onSaved(provider: ChatProvider, model: { providerId: string; modelId: string }): void;
-  /** The way on for a key whose form names no service we list, with the key as typed. */
-  unrecognised: { label: MessageKey; run(key: string): void };
+  /**
+   * The way on for a key whose form names no service we list, with the key as typed; after the
+   * User said the key doesn't go where it was asked about, the next likeliest place, if any.
+   */
+  unrecognised: { label: MessageKey; run(key: string, next?: KeyTarget): void };
   testId?: string;
   autoFocus?: boolean;
   /** Where another way in can lead the User: the field itself. */
@@ -60,22 +80,16 @@ export function KeyEntry({
     field.current?.select();
   };
 
-  const attempt = async (text: string) => {
+  const send = async (key: string, target: KeyTarget, others: readonly KeyTarget[] | null) => {
     if (busy) return;
-    const { key, stray } = checkApiKey(text);
-    if (key === "") return;
-    if (stray !== null) {
-      setProblem({ kind: "stray", character: stray });
-      return;
-    }
-    const named = serviceOfKey(key);
+    const named = target.service;
     const catalog = catalogProvider(named);
     const modelId = catalog?.roles.answers;
-    if (!named || !catalog || !modelId) {
+    if (!catalog || !modelId) {
       setProblem({ kind: "unrecognised" });
       return;
     }
-    const region = defaultRegion(named, language);
+    const region = target.region ?? defaultRegion(named, language);
     const endpoint = region === "" ? null : region;
     setProblem(null);
     setBusy(true);
@@ -89,7 +103,7 @@ export function KeyEntry({
       };
       const result = await core.testChatConnection(request);
       if (!result.ok) {
-        setProblem({ kind: "refused", error: result.error, catalogId: named, endpoint });
+        setProblem({ kind: "refused", error: result.error, catalogId: named, endpoint, others });
         return;
       }
       const provider = await core.saveChatProvider(request);
@@ -102,6 +116,31 @@ export function KeyEntry({
       setBusy(false);
     }
   };
+
+  const attempt = async (text: string) => {
+    if (busy) return;
+    const { key, stray } = checkApiKey(text);
+    if (key === "") {
+      setProblem(null);
+      return;
+    }
+    if (stray !== null) {
+      setProblem({ kind: "stray", character: stray });
+      return;
+    }
+    const form = formOfKey(key, language);
+    if (form.kind === "named") await send(key, { service: form.service, region: null }, null);
+    else if (form.kind === "ask") setProblem({ kind: "ask", key, targets: form.targets });
+    else setProblem({ kind: "unrecognised" });
+  };
+
+  const [asked, ...others] = problem?.kind === "ask" ? problem.targets : [];
+  const regionName = asked?.region ? REGION_NAMES[asked.service]?.[asked.region] : undefined;
+  const askedName = asked
+    ? regionName
+      ? t(regionName)
+      : shortProviderName(asked.service, t, language)
+    : "";
 
   const refusedCatalog = problem?.kind === "refused" ? catalogProvider(problem.catalogId) : null;
   const billing =
@@ -126,7 +165,7 @@ export function KeyEntry({
         id={`${id}-key`}
         type="password"
         value={value}
-        aria-invalid={problem !== null || undefined}
+        aria-invalid={(problem !== null && problem.kind !== "ask") || undefined}
         aria-describedby={`${id}-line`}
         autoComplete="off"
         spellCheck={false}
@@ -134,7 +173,9 @@ export function KeyEntry({
         data-testid={testId}
         onChange={(event) => {
           setValue(event.target.value);
-          if (problem !== null) setProblem(null);
+          // A paste reads the key in onInput, which runs first: what it found stays.
+          const pasted = (event.nativeEvent as InputEvent).inputType === "insertFromPaste";
+          if (problem !== null && !pasted) setProblem(null);
         }}
         onInput={(event) => {
           if ((event.nativeEvent as InputEvent).inputType === "insertFromPaste") {
@@ -148,9 +189,30 @@ export function KeyEntry({
         }}
         className={inputClass}
       />
-      <p id={`${id}-line`} data-testid={`${testId}-line`} className={hintClass}>
-        {busy ? t("setup.key.checking") : t("setup.key.recognised")}
-      </p>
+      {problem?.kind === "ask" && asked !== undefined ? (
+        <div id={`${id}-line`}>
+          <ProblemLine
+            testId={`${testId}-ask`}
+            role="status"
+            action={{
+              label: t("providers.form.useKey"),
+              testId: `${testId}-use`,
+              onClick: () => void send(problem.key, asked, others),
+            }}
+            also={{
+              label: t("setup.key.anotherService"),
+              testId: `${testId}-other-service`,
+              onClick: () => unrecognised.run(problem.key, others[0]),
+            }}
+          >
+            {t("setup.key.ask", { provider: askedName })}
+          </ProblemLine>
+        </div>
+      ) : (
+        <p id={`${id}-line`} data-testid={`${testId}-line`} className={hintClass}>
+          {busy ? t("setup.key.checking") : t("setup.key.recognised")}
+        </p>
+      )}
       {problem?.kind === "stray" && (
         <KeyCharacterLine id={`${id}-stray`} stray={problem.character} />
       )}
@@ -174,6 +236,15 @@ export function KeyEntry({
             testId: `${testId}-check`,
             onClick: chooseField,
           }}
+          also={
+            problem.others
+              ? {
+                  label: t("setup.key.anotherService"),
+                  testId: `${testId}-other-service`,
+                  onClick: () => unrecognised.run(checkApiKey(value).key, problem.others?.[0]),
+                }
+              : undefined
+          }
         >
           {t("setup.key.refused")}
         </ProblemLine>

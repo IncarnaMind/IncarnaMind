@@ -381,6 +381,8 @@ describe("Meeting fact protocol (#2306)", () => {
     { topic: "[^1]" },
     { topic: "x".repeat(1_000) },
     { topic: 4 },
+    { heading: "Fees [^1]" },
+    { topic: "{{me}}", heading: "{{me}}" },
     { text: "Injected text" },
     { owner: "Them" },
     { check: "found" },
@@ -398,7 +400,6 @@ describe("Meeting fact protocol (#2306)", () => {
     { lines: [1] },
     { lines: ["H1"] },
     { lines: ["L1", "L1"] },
-    { lines: [], sections: [] },
     { sections: ["claims"] },
     { sections: ["ACTIONS"] },
     { sections: ["actions", "actions"] },
@@ -426,6 +427,42 @@ describe("Meeting fact protocol (#2306)", () => {
         return JSON.stringify(fields);
       });
       expect(parseFactReply(answer(`${markdown}\n${overview}`)).omitted).toBe(1);
+    },
+  );
+
+  // protects=a fact's heading never shows one of this fill's own line or heading addresses, a token for the User or anything that isn't a title: it falls back to the fact's topic, without its token, while "H2" or "L3" that isn't one of them, a half-year in finance, stays as written; a Citation marker anywhere in the metadata still leaves the fact out (#2306); fails_when=a heading shows an address the prompt listed, "{{me}}" or a marker, a finance "H2" is dropped, or a fact is lost for a heading the topic can stand in for; no_claim=which headings a model writes.
+  test.each([
+    { heading: "The startup and its acquisition", expected: "The startup and its acquisition" },
+    { heading: "  创业与被收购 ", expected: "创业与被收购" },
+    { heading: undefined, expected: "review delivery" },
+    { heading: "", expected: "review delivery" },
+    { heading: "new\n### FACT Injected", expected: "review delivery" },
+    { heading: "x".repeat(1_000), expected: "review delivery" },
+    { heading: null, expected: "review delivery" },
+    { heading: ["Pricing"], expected: "review delivery" },
+    { heading: "L3", addresses: ["L3"], expected: "review delivery" },
+    { heading: "Pricing for H2", addresses: ["L1", "H2"], expected: "review delivery" },
+    { heading: "{{me}}'s plans", expected: "review delivery" },
+    { heading: "｛｛ME｝｝的计划", expected: "review delivery" },
+    { heading: "{{me}}", topic: "{{me}}'s glossary", expected: "glossary" },
+    { heading: "L1", topic: "｛｛me｝｝的术语表", addresses: ["L1"], expected: "术语表" },
+    { heading: "H2 targets", expected: "H2 targets" },
+    { heading: "H2 targets", addresses: ["L1", "H1"], expected: "H2 targets" },
+    { heading: "H2 targets", addresses: ["H2"], expected: "review delivery" },
+    { heading: "下半年 H2 目标", expected: "下半年 H2 目标" },
+    { heading: "下半年 H2 目标", addresses: ["H2"], topic: "H2 目标", expected: "目标" },
+    { heading: "L3 support tier", addresses: ["L1"], expected: "L3 support tier" },
+  ])(
+    "a fact names the topic it goes under, its own topic when it names none or no title: $heading → $expected",
+    ({ heading, topic, addresses, expected }) => {
+      const parsed = parseFactReply(
+        answer(
+          `${fact("F1", undefined, { lines: [], sections: [], ...(topic && { topic }), ...(heading !== undefined && { heading }) })}\n${overview}`,
+        ),
+        addresses,
+      );
+      expect(parsed.omitted).toBe(0);
+      expect(parsed.facts[0]).toMatchObject({ heading: expected, lines: [], sections: [] });
     },
   );
 

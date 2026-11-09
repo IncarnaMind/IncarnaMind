@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import { withJsonFencesClosed } from "./jsonFences";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -520,6 +521,11 @@ export interface AnswerRequest {
    * trips one, or one written without Tools, ends with "claims-unbacked".
    */
   turnChecks?: readonly TurnCheck[];
+  /**
+   * Told each time a turn check asks the model once more: the note it asks with, and the reply and
+   * the turns set aside after the search that it read. No turn is set aside across an ask.
+   */
+  onAsk?(note: string, reply: string, setAside: readonly string[]): void;
   /**
    * For a reply with a form of its own (a check's "Verdict: …"): whether a text is that reply.
    * A step that says it records a marker ("to record the quote for marker [^1]") beside `cite`
@@ -2137,6 +2143,11 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    if (request.meetingFacts) {
+      const fenced = withJsonFencesClosed(keptText);
+      yield* textEdits(keptText, fenced);
+      keptText = fenced;
+    }
     const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
     yield* textEdits(keptText, worded);
     keptText = worded;
@@ -2453,6 +2464,7 @@ async function* toolLoop(
           afterSearch,
         );
         if ("nudge" in settled) {
+          request.onAsk?.(settled.nudge, taken.text, afterSearch);
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
           standingFlags = settled.flags;

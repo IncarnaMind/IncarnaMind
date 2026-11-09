@@ -13,6 +13,7 @@ import {
   isCheckRun,
   type Plan,
   requestedFigures,
+  SAME_DETAIL,
 } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
@@ -95,6 +96,7 @@ function replying(each: Case, calls: ModelCall[]) {
         "Topic: found",
         ...(roles === "" ? [] : [`Roles: ${roles}`]),
         `Time: ${each.time ?? "none / none, same"}`,
+        SAME_DETAIL,
       ];
       if (!cited) {
         const passage = shownPassages(searched.at(-1)?.text ?? "").find((shown) =>
@@ -114,6 +116,7 @@ function replying(each: Case, calls: ModelCall[]) {
         ? [
             `Verdict: ${each.verdict}`,
             "Absence: no",
+            SAME_DETAIL,
             "The Document gives this to the Tenant [^1].",
             "Evidence: [1]",
           ]
@@ -132,6 +135,8 @@ function replying(each: Case, calls: ModelCall[]) {
             topic: "found",
             roles,
             time: each.time ?? "none / none, same",
+            duty: "none / none, same",
+            condition: "none / none, same",
             says: "The Document gives this to the Tenant.",
             evidence: [1],
           }),

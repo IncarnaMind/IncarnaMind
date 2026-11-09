@@ -36,6 +36,7 @@ import {
   listedSentences,
   type Plan,
   requestedFigures,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -1482,7 +1483,7 @@ describe("Checking selected figures in one sentence", () => {
         const requested = requestedFigures(call);
         const positions: Record<string, number> = { "£20": 1, "£5": 2, "£7": 3 };
         const reply = {
-          text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
+          text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({
             items: requested.map(({ id, shown }) => {
               const position = positions[shown];
               if (!position) throw new Error(`Unknown fixture figure ${shown}.`);
