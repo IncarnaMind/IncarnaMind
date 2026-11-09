@@ -25,7 +25,7 @@ node e2e/audit/bundle.mjs out /tmp/ui-audit/bundle.json
 ```
 
 - `AUDIT_OUT`: where screenshots (`screenshots/`, Tab-walk crops in `screenshots/focus/`) and `results.json` go. The default is `test-results/ui-audit`. Each run merges its numbers into `results.json` by key (`walk.*`, `speed.*`), so copy it aside between runs you want to compare.
-- The walk takes about 3 minutes and the speed script about 10, most of it with 2,000 Documents (it allows an hour, for an Organize that stalls). Run one test with `-g`, such as `-g B2`.
+- The walk takes about 3 minutes and the speed script about 7, two of them with 2,000 Documents (B3 allows an hour, for an Organize that stalls). Run one test with `-g`, such as `-g "B2 "`. A test of the speed script that fails doesn't stop the ones after it. B2b, typing with hundreds of changes waiting, is skipped until it can be set up again (#2926).
 - Timings depend on the machine's load: note the load average beside them, and compare runs made under the same conditions.
 - The renderer is minified, so its CPU profiles name functions only from source maps, hence `--sourcemap`; a build without them runs the audit the same way. The profiles and `bundle.mjs` read source maps with `source-map-js`, which comes with Vite.
 
