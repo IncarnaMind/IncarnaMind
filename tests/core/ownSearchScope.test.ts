@@ -12,7 +12,13 @@ import { checkReply, isCheckRun } from "../helpers/checks";
 import { answerEnded, citingModel, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
-import { type ModelCall, promptOf, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  promptOf,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 const DPA = {
   name: "DPA - Copperleaf.txt",
@@ -60,28 +66,33 @@ async function ask(
 
 /** Searches, then writes what it found into a new note, cited. */
 const makesANote = () =>
-  scriptedModel((call: ModelCall): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, {});
-    const search = call.results.find((result) => result.tool === "search_documents");
-    if (!search) {
-      return { calls: [{ tool: "search_documents", input: { query: "Copperleaf clause 3" } }] };
-    }
-    if (call.results.some((result) => result.tool === "create_mind")) return { text: "Made it." };
-    const passage = shownPassages(search.text).find((each) => each.document === "DPA - Copperleaf");
-    return {
-      calls: [
-        {
-          tool: "cite",
-          input: { citations: [{ marker: 1, passage: passage?.id, quote: CLAUSE }] },
-        },
-        {
-          tool: "create_mind",
-          input: { title: "DPA summary", content: `${CLAUSE} [^1]` },
-          streamInput: true,
-        },
-      ],
-    };
-  });
+  scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) {
+        return { calls: [{ tool: "search_documents", input: { query: "Copperleaf clause 3" } }] };
+      }
+      if (call.results.some((result) => result.tool === "create_mind")) return { text: "Made it." };
+      const passage = shownPassages(search.text).find(
+        (each) => each.document === "DPA - Copperleaf",
+      );
+      return {
+        calls: [
+          {
+            tool: "cite",
+            input: { citations: [{ marker: 1, passage: passage?.id, quote: CLAUSE }] },
+          },
+          {
+            tool: "create_mind",
+            input: { title: "DPA summary", content: `${CLAUSE} [^1]` },
+            streamInput: true,
+          },
+        ],
+      };
+    },
+    { generate: judgesNothing },
+  );
 
 const instructions = (model: ReturnType<typeof citing>) =>
   promptOf(model, 0).find((message) => message.role === "system")?.text ?? "";
@@ -219,6 +230,7 @@ describe("A Mind's own Search scope everywhere else", { timeout: 30_000 }, () =>
     const model = scriptedModel(
       (call: ModelCall): ScriptedReply =>
         isCheckRun(call) ? checkReply(call, {}) : { text: "No." },
+      { generate: judgesNothing },
     );
     const { core } = await setUpWithDocuments(model, [DPA]);
     const contracts = await core.createLibraryGroup({ name: "Contracts", description: "" });

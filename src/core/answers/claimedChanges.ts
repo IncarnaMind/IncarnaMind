@@ -4,7 +4,7 @@
  * nothing: it must never put a false "nothing was written" line under an
  * honest Answer.
  */
-import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
+import { jsonSchema } from "ai";
 import { sameWords } from "../../shared/commands";
 import {
   type AnswerToolCall,
@@ -14,16 +14,13 @@ import {
   type CommandDone,
   type MindProblem,
 } from "../api";
-import { isRecord } from "../errors";
-import { asData, type PromptTag, tagged } from "../promptData";
+import { asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
-import { outputTokens } from "../providers/outputLimits";
-import { tokenUsageOf } from "../providers/promptCache";
 import type { TokenUsage } from "../runs/engine";
 import { sentencesDone } from "../tools/minds/sentencesSaid";
 import type { BlockSpan } from "../tools/minds/tools";
 import type { UnmadeFixes } from "./claimedFixes";
-import { replyJson } from "./quoteRetry";
+import { fieldsOf, judge, list, structured, text, truth, word } from "./judge";
 import { type ChangeStates, type MindNames, toolRecordLines } from "./toolRecord";
 
 /**
@@ -132,6 +129,8 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- Record: run_command mind.check, outcome started. Reply: “I've started checking your note.” Back it.",
   "- Record: run_command documents.organize, outcome proposed, waiting for the User's Review: nothing filed or moved, proposedFolders “Invoices” for 2. Reply: “Both invoices are in the Invoices folder now.” kind: changed, about: app, backed: false: Organize only proposed it.",
   "- Record: run_command documents.organize, outcome proposed, waiting for the User's Review: nothing filed or moved, proposedFolders “Invoices” for 2. Reply: “Organize suggests an Invoices folder for both; nothing has moved yet.” Back it.",
+  "- Record: run_command documents.tagWithAi, outcome proposed, waiting for the User's Review: no Tag added, proposedTags “Contract” for 3. Reply: “我已经给三份租约都加上了“合同”标签。” kind: added, about: app, backed: false: it only proposed the Tag.",
+  "- Record: run_command documents.tagWithAi, outcome proposed, waiting for the User's Review: no Tag added, proposedTags “Contract” for 3. Reply: “The three leases are suggested as Contract; nothing is tagged until you confirm.” Back it.",
   "- Record: run_command document.openBeside, outcome done. Reply: “我在右边打开了这份租约，你可以对照着看。” Back it.",
   "- Record: run_command settings.change (localMode), outcome refused. Reply: “Everything now stays on this computer.” kind: changed, about: local_mode, backed: false.",
   "- Record: run_command document.delete, outcome not allowed by the User. Reply: “The old draft is gone.” kind: removed, about: app, backed: false.",
@@ -218,8 +217,6 @@ function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeState
   return undone.length === 0;
 }
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 function targetOf(call: AnswerToolCall, names: MindNames) {
   const problem: MindProblem | undefined = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
@@ -261,6 +258,8 @@ function outcomeOf(call: AnswerToolCall): string {
   if (call.status === "running" || call.command?.window?.running) return "started";
   if (call.command?.command === "documents.organize")
     return "proposed, waiting for the User's Review: nothing filed or moved";
+  if (call.command?.command === "documents.tagWithAi")
+    return "proposed, waiting for the User's Review: no Tag added";
   return "done";
 }
 
@@ -334,10 +333,20 @@ function unchangedParts(calls: readonly AnswerToolCall[], spans?: PartSpans): Se
 }
 
 /**
- * Organize only proposes (#1569): its record names the Folders it proposed and says nothing was
- * filed or moved, and never gives the Folder the request named as where Documents went.
+ * Organize and Tag with AI only propose (#1569, #2339): the record names what they proposed and
+ * says nothing was filed, moved or tagged, and never gives the Folder the request named as where
+ * Documents went.
  */
 function commandRecordOf(done: CommandDone) {
+  if (done.command === "documents.tagWithAi") {
+    const { tags, ...rest } = done;
+    return {
+      ...rest,
+      proposedTags: tags ?? [],
+      tagged:
+        "nothing: no Tag was added to any Document; they wait in Suggested Tags until the User confirms them",
+    };
+  }
   if (done.command !== "documents.organize") return done;
   const { into: _into, folders, ...rest } = done;
   return {
@@ -400,35 +409,29 @@ function recordOf(
   });
 }
 
-/**
- * The values that keep a claim from counting: a missing or unknown one counts as a Mind's, since
- * a provider may ignore the schema.
- */
-const NOT_COUNTED: readonly string[] = ["reply", "document", "offer_or_question", "negation"];
+/** What a claim is about that keeps it from counting. */
+const NOT_COUNTED: readonly ClaimAbout[] = ["reply", "document", "offer_or_question", "negation"];
 
-function inTheApp(about: unknown): ClaimedCommand | undefined {
-  const known = CLAIM_ABOUT.find((each) => each === about);
-  return known && IN_THE_APP[known];
-}
+/** Every field of a claim the judge returns: none is filled in when it's left out (#2817). */
+const CLAIM = {
+  sentence: text,
+  kind: word(...CLAIMED_CHANGES),
+  about: word(...CLAIM_ABOUT),
+  backed: truth,
+};
 
 interface Unbacked {
   claims: ClaimedChange[];
   commands: ClaimedCommand[];
 }
 
-/** A verdict's backing, also written as a word in any case, as a provider may send it; null for anything else. */
-function backingOf(backed: unknown): boolean | null {
-  if (typeof backed === "boolean") return backed;
-  const word = typeof backed === "string" ? backed.trim().toLowerCase() : null;
-  return word === "true" ? true : word === "false" ? false : null;
-}
-
 /**
- * `unsure`: an item the check can't hold to the reply: an unbacked claim whose sentence isn't in it,
- * whose backing can't be read, or that neither what it is about nor its kind places.
+ * `unsure`: an item the check can't hold to the reply: an unbacked claim with a field missing or
+ * not one of its words, or whose sentence isn't in it.
  */
 function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean }) | null {
-  if (!isRecord(value) || !Array.isArray(value.claims)) return null;
+  const verdict = fieldsOf(value, { claims: list });
+  if (!verdict) return null;
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
   // The judge read the reply with its prompts' tags written as data, and may copy them so.
@@ -436,31 +439,25 @@ function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean
   const replies = [reply, asData(reply, JUDGED_TAGS)].map(comparable);
   const inReply = (sentence: string) => replies.some((each) => each.includes(comparable(sentence)));
   let unsure = false;
-  for (const item of value.claims) {
-    if (!isRecord(item)) continue;
-    const { sentence, kind, about, backed } = item;
-    const backing = backingOf(backed);
-    if (backing === true || (typeof about === "string" && NOT_COUNTED.includes(about))) continue;
-    if (
-      backing === null ||
-      typeof sentence !== "string" ||
-      !sentence.trim() ||
-      !inReply(sentence)
-    ) {
+  for (const item of verdict.claims) {
+    const claim = fieldsOf(item, CLAIM);
+    if (claim?.backed === true || (claim && NOT_COUNTED.includes(claim.about))) continue;
+    if (!claim?.sentence.trim() || !inReply(claim.sentence)) {
       unsure = true;
       continue;
     }
     // A claim in the app counts whatever kind the judge gave it: none of the Notes' kinds fits
-    // "opened" or "turned on", and a provider may not hold the schema's enum.
-    const command = inTheApp(about);
-    const claimed = CLAIMED_CHANGES.find((claim) => claim === kind);
+    // "opened" or "turned on".
+    const command = IN_THE_APP[claim.about];
     if (command) commands.add(command);
-    else if (claimed) claims.add(claimed);
-    else if (about === "mind") claims.add("changed");
-    else unsure = true;
+    else claims.add(claim.kind);
   }
   return { claims: [...claims], commands: [...commands], unsure };
 }
+
+/** The judge's reply about `reply`, in structured output. */
+export const claimsReply = (reply: string) =>
+  structured(verdictSchema, "change-claims", (value) => verdictOf(value, reply));
 
 export interface ClaimCheckResult extends Unbacked {
   usage: TokenUsage | null;
@@ -496,69 +493,46 @@ export async function unbackedClaims(
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
   const record = recordOf(calls, named, focused, states, parts);
-  const prompt = [
-    tagged("tool-record", JSON.stringify(record, null, 2), "", JUDGED_TAGS),
-    tagged(
-      "focused-mind",
-      focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
-      "",
-      JUDGED_TAGS,
-    ),
-    tagged("reply", reply, "", JUDGED_TAGS),
-  ].join("\n");
-  let value: unknown;
-  let usage: TokenUsage | null = null;
-  try {
-    const result = await generateText({
-      model,
+  const judged = await judge({
+    model,
+    question: {
+      id: "claimed-changes",
       instructions: [
         doneByNoteChange(calls, states)
           ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
           : CLAIM_CHECK_INSTRUCTIONS,
         ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
       ].join("\n"),
-      prompt,
-      output: Output.object({ schema: verdictSchema, name: "change-claims" }),
-      maxOutputTokens: outputTokens("claimed-changes"),
-      maxRetries: 0,
-      abortSignal: signal,
-    });
-    value = result.output;
-    usage = tokenUsageOf(result.usage);
-  } catch (error) {
-    if (NoObjectGeneratedError.isInstance(error) && error.text) {
-      try {
-        value = await replyJson(error.text);
-      } catch {
-        value = null;
-      }
-    } else {
-      if (!signal.aborted) {
-        console.error(`The reply's change claims couldn't be checked: ${messageOf(error)}`);
-      }
-      return {
-        claims: [],
-        commands: [],
-        usage: null,
-        durationMs: Date.now() - started,
-        failed: true,
-      };
+    },
+    parts: [
+      { tag: "tool-record", text: JSON.stringify(record, null, 2) },
+      {
+        tag: "focused-mind",
+        text: focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+      },
+      { tag: "reply", text: reply },
+    ],
+    data: JUDGED_TAGS,
+    reply: claimsReply(reply),
+    retries: 0,
+    signal,
+  });
+  const { usage } = judged;
+  const durationMs = Date.now() - started;
+  if (!judged.ok) {
+    if (judged.reason !== "stopped") {
+      console.error(
+        judged.error
+          ? `The reply's change claims couldn't be checked: ${judged.error.message}`
+          : "The reply's change-claim check returned no readable verdict.",
+      );
     }
+    return { claims: [], commands: [], usage, durationMs, failed: true };
   }
-  const verdict = verdictOf(value, reply);
-  if (verdict === null) {
-    console.error("The reply's change-claim check returned no readable verdict.");
-    return { claims: [], commands: [], usage, durationMs: Date.now() - started, failed: true };
-  }
-  const { unsure, ...unbacked } = verdict;
+  const { unsure, ...unbacked } = judged.value;
   if (unsure)
     console.error("The reply's change-claim check gave a claim it couldn't hold to the reply.");
-  return {
-    ...unbacked,
-    usage,
-    durationMs: Date.now() - started,
-    ...(unsure && { failed: true as const }),
-  };
+  return { ...unbacked, usage, durationMs, ...(unsure && { failed: true as const }) };
 }
 
 const CLAIMED_WORDS: Record<ClaimedChange, string> = {

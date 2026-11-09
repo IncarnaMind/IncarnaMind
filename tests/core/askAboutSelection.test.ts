@@ -9,7 +9,7 @@ import type { AskedQuote, AskInConversationInput, Core } from "../../src/core";
 import { InvalidInputError } from "../../src/core/errors";
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { waitForProcessing } from "../helpers/documents";
-import { answerRequestIndex, promptOf, scriptedModel } from "../helpers/models";
+import { answerRequestIndex, judgesNothing, promptOf, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const REPEATED = "Margins recover within two quarters of each cut.";
@@ -33,18 +33,21 @@ function selectedIn(sent: string) {
 
 /** Cites the selected words from the first Passage given with them, where they say, then answers. */
 const citingSelection = () =>
-  scriptedModel((call) => {
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const { selected, passages } = selectedIn(call.prompt);
-      const [first] = selected;
-      const [passage] = passages;
-      if (!first || !passage) return { text: "Nothing was selected." };
-      const location = /location="([^"]+)"/.exec(first.attributes ?? "")?.[1];
-      const citation = { marker: 1, passage: passage.id, location, quote: first.words };
-      return { calls: [{ tool: "cite", input: { citations: [citation] } }] };
-    }
-    return { text: "They recover within two quarters.[^1]" };
-  });
+  scriptedModel(
+    (call) => {
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const { selected, passages } = selectedIn(call.prompt);
+        const [first] = selected;
+        const [passage] = passages;
+        if (!first || !passage) return { text: "Nothing was selected." };
+        const location = /location="([^"]+)"/.exec(first.attributes ?? "")?.[1];
+        const citation = { marker: 1, passage: passage.id, location, quote: first.words };
+        return { calls: [{ tool: "cite", input: { citations: [citation] } }] };
+      }
+      return { text: "They recover within two quarters.[^1]" };
+    },
+    { generate: judgesNothing },
+  );
 
 async function setUp() {
   const model = citingSelection();

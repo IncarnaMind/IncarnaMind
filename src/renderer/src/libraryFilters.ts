@@ -29,8 +29,6 @@ export interface LibraryFacet<T> {
   compare(a: string, b: string): number;
   /** An option's colour, shown as a dot before it (the Tags filter's); none by default. */
   colour?(value: string): string | null;
-  /** Whether an option stands for what awaits the User's review: a hollow ring marks it. */
-  review?(value: string): boolean;
 }
 
 /** The options chosen, by filter. A filter with none chosen is left out: it keeps everything. */
@@ -261,25 +259,17 @@ export const documentFacets: readonly LibraryFacet<LibraryDocument>[] = [
 
 // Tags -------------------------------------------------------------------------
 
-/**
- * The Tags filter's option for Documents with a Tag that automatic tagging
- * wasn't sure of: it is applied, marked "needs review" until the User
- * confirms or removes it. Never a Tag's id, which is a UUID.
- */
-export const NEEDS_REVIEW = "needs-review";
-
 type TaggedDocument = Pick<Document, "tags">;
 
-/** The Tags filter's options for a Document: its Tags, and `NEEDS_REVIEW` if one awaits review. */
+/** The Tags filter's options for a Document: its Tags. */
 export function tagValues({ tags }: TaggedDocument): string[] {
-  const values = tags.map((link) => link.tagId);
-  return tags.some((link) => link.needsReview) ? [NEEDS_REVIEW, ...values] : values;
+  return tags.map((link) => link.tagId);
 }
 
 /**
- * Each Tags filter option's Documents, in their order: a Tag's id, and
- * `NEEDS_REVIEW` for those with a Tag awaiting review. An option no Document
- * falls under isn't in it. One pass over the Documents (the sidebar's Tags view).
+ * Each Tags filter option's Documents, in their order, by Tag id. An option
+ * no Document falls under isn't in it. One pass over the Documents (the
+ * sidebar's Tags view).
  */
 export function documentsByTag<T extends TaggedDocument>(items: readonly T[]): Map<string, T[]> {
   const byTag = new Map<string, T[]>();
@@ -301,8 +291,8 @@ export const matchesTags = (item: TaggedDocument, chosen: readonly string[]): bo
   chosen.length === 0 || tagValues(item).some((value) => chosen.includes(value));
 
 /**
- * By Tag, named as the User named it: "Needs review" first, then the Tags in
- * name order. A Document with several Tags falls under each.
+ * By Tag, named as the User named it, in name order. A Document with several
+ * Tags falls under each.
  */
 export function tagFacet(
   tags: readonly (Pick<Tag, "id" | "name"> & Partial<Pick<Tag, "colour">>)[],
@@ -313,17 +303,9 @@ export function tagFacet(
     id: "tag",
     title: "tags.title",
     values: tagValues,
-    label: (value, t) =>
-      value === NEEDS_REVIEW ? t("tags.filter.review") : (names.get(value) ?? value),
+    label: (value) => names.get(value) ?? value,
     compare: (a, b) =>
-      a === NEEDS_REVIEW
-        ? -1
-        : b === NEEDS_REVIEW
-          ? 1
-          : (names.get(a) ?? a).localeCompare(names.get(b) ?? b, undefined, {
-              sensitivity: "base",
-            }),
+      (names.get(a) ?? a).localeCompare(names.get(b) ?? b, undefined, { sensitivity: "base" }),
     colour: (value) => colours.get(value) ?? null,
-    review: (value) => value === NEEDS_REVIEW,
   };
 }

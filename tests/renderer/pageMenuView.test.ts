@@ -57,6 +57,9 @@ vi.mock("../../src/renderer/src/components/ObjectMenu", () => ({
   ObjectMenu: ({ more }: { more?: (close: () => void) => ReactNode }) =>
     createElement("div", {}, more?.(ui.close)),
 }));
+vi.mock("../../src/renderer/src/components/tabs/TabMenus", () => ({
+  GroupMenuItems: () => null,
+}));
 vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({
   useTabPlace: () => ({ tabId: "meeting-tab", groupId: "group" }),
 }));

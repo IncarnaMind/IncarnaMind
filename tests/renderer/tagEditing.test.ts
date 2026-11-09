@@ -13,6 +13,7 @@ const tag = (name: string, description = ""): Tag => ({
   name,
   description,
   preset: false,
+  kind: null,
   madeByUser: true,
   colour: "gray",
   createdAt: "",
@@ -28,23 +29,18 @@ const link = (tagId: string, extra: Partial<DocumentTag> = {}): DocumentTag => (
 const tags = ["Contract", "Invoice", "Notes", "Report", "Slides"].map((name) => tag(name));
 
 describe("a Tag on the Documents being edited", () => {
-  test("on one Document: on or off, automatic, and needing review", () => {
+  test("on one Document: on or off, and automatic", () => {
     const states = tagsOnDocuments(tags, [
       {
-        tags: [
-          link("invoice", { source: "automatic", confidence: 0.62, needsReview: true }),
-          link("report", { source: "automatic", confidence: 0.91 }),
-          link("contract"),
-        ],
+        tags: [link("report", { source: "automatic", confidence: 0.91 }), link("contract")],
       },
     ]);
     const by = (id: string) => states.find((state) => state.tag.id === id);
-    expect(by("contract")).toMatchObject({ coverage: "all", automatic: false, needsReview: false });
-    expect(by("invoice")).toMatchObject({ coverage: "all", automatic: true, needsReview: true });
+    expect(by("contract")).toMatchObject({ coverage: "all", automatic: false });
     expect(by("report")).toMatchObject({ coverage: "all", automatic: true, confidence: 0.91 });
     expect(by("notes")).toMatchObject({ coverage: "none", count: 0, total: 1 });
-    // Enter confirms a Tag awaiting review, removes one that is on, and adds one that isn't.
-    expect(actionFor(by("invoice") ?? ({} as never))).toBe("confirm");
+    // Enter removes a Tag that is on, automatic or not, and adds one that isn't.
+    expect(actionFor(by("report") ?? ({} as never))).toBe("remove");
     expect(actionFor(by("contract") ?? ({} as never))).toBe("remove");
     expect(actionFor(by("notes") ?? ({} as never))).toBe("add");
   });
@@ -52,7 +48,7 @@ describe("a Tag on the Documents being edited", () => {
   test("on several Documents: all, some or none; some is added to all", () => {
     const states = tagsOnDocuments(tags, [
       { tags: [link("report"), link("slides")] },
-      { tags: [link("report", { source: "automatic", needsReview: true })] },
+      { tags: [link("report", { source: "automatic" })] },
       { tags: [link("report")] },
     ]);
     const report = states.find((state) => state.tag.id === "report");
@@ -60,7 +56,7 @@ describe("a Tag on the Documents being edited", () => {
     expect(report).toMatchObject({ coverage: "all", count: 3, total: 3, automatic: false });
     expect(slides).toMatchObject({ coverage: "some", count: 1, total: 3 });
     if (!report || !slides) throw new Error("missing");
-    // With several Documents, a Tag on all of them comes off; review is confirmed one at a time.
+    // With several Documents, a Tag on all of them comes off.
     expect(actionFor(report)).toBe("remove");
     expect(actionFor(slides)).toBe("add");
   });
@@ -103,20 +99,16 @@ describe("typing in the picker", () => {
 });
 
 describe("a Document's chips", () => {
-  test("put Tags awaiting review first, then the rest in name order, skipping deleted Tags", () => {
+  test("keep the order of the Document's Tags, skipping deleted Tags", () => {
     const chips = chipsOf(
-      [link("contract"), link("gone"), link("report", { needsReview: true }), link("slides")],
+      [link("contract"), link("gone"), link("report", { source: "automatic" }), link("slides")],
       tags,
     );
-    expect(chips.map((chip) => [chip.tag.name, chip.link.needsReview])).toEqual([
-      ["Report", true],
-      ["Contract", false],
-      ["Slides", false],
-    ]);
+    expect(chips.map((chip) => chip.tag.name)).toEqual(["Contract", "Report", "Slides"]);
   });
 
   test("are the same from the Tags indexed by id, as a long list looks them up", () => {
-    const links = [link("contract"), link("gone"), link("report", { needsReview: true })];
+    const links = [link("contract"), link("gone"), link("report", { source: "automatic" })];
     expect(chipsOf(links, tagIndex(tags))).toEqual(chipsOf(links, tags));
   });
 });

@@ -12,7 +12,6 @@ import {
   launchApp,
   openManageTags,
   removeDataFolder,
-  runCommand,
   setWindowSize,
   tabTo,
 } from "./app";
@@ -108,14 +107,6 @@ const rowOf = (library: Locator, name: string) =>
     .filter({ has: library.page().getByRole("button", { name, exact: true }) });
 
 const tokens = (popover: Locator) => popover.getByTestId("tag-token");
-
-/** Waits for Organize's Review to open with the four Documents, then leaves it with Not Now. */
-async function notNow(window: Page): Promise<void> {
-  const review = window.getByTestId("organize-review");
-  await expect(review.getByTestId("organize-review-row")).toHaveCount(4, { timeout: 15_000 });
-  await slideAndClick(window, review.getByTestId("organize-review-not-now"));
-  await expect(review).toHaveCount(0);
-}
 
 test("Tags are added, created and removed with the keyboard, on one Document and on several at once", async () => {
   const { app, window } = await launchApp(dataDir);
@@ -250,9 +241,8 @@ test("Tags are added, created and removed with the keyboard, on one Document and
   }
 });
 
-test("a Tag automatic tagging wasn't sure of is confirmed or removed in one click, and + Filter's Tags narrow the Library", async () => {
-  const decisions = await decisionServer();
-  const { server } = decisions;
+test("Organize's Tags are added at Confirm, a row's × takes one off, and + Filter's Tags narrow the Library", async () => {
+  const { server } = await decisionServer();
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -273,20 +263,24 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     await slideAndClick(window, window.getByTestId("open-library"));
     const library = window.getByTestId("library");
     await slideAndClick(window, library.getByTestId("library-organize"));
-    // The Folders Organize proposes wait in its Review, which fills the Library's page once it
-    // ends; Not Now goes back to the rows, where the Tags it chose already are.
-    await notNow(window);
+    // The Folders and Tags Organize proposes wait in its Review, which fills the Library's page
+    // once it ends; Confirm adds the Tags, as the User's (#2339).
+    const review = window.getByTestId("organize-review");
+    await expect(review.getByTestId("organize-review-row")).toHaveCount(4, { timeout: 15_000 });
+    const chips = review.getByTestId("organize-review-chip");
+    await expect(chips).toHaveCount(4);
+    await expect(chips.filter({ hasText: "Invoice" })).toHaveCount(2);
+    await expect(chips.filter({ hasText: "Report" })).toHaveCount(2);
+    await slideAndClick(window, review.getByTestId("organize-review-confirm"));
+    await expect(review).toHaveCount(0);
     const march = rowOf(library, "March invoice");
     const april = rowOf(library, "April invoice");
-    // Applied, with an amber mark, waiting for the User.
-    const marchInvoice = march.locator('[data-testid="tag-chip"][data-needs-review="true"]');
+    const marchInvoice = march.getByTestId("tag-chip");
     await expect(marchInvoice).toHaveText("Invoice", { timeout: 15_000 });
-    await expect(april.locator('[data-testid="tag-chip"][data-needs-review="true"]')).toHaveCount(
-      1,
-    );
+    await expect(marchInvoice).toHaveAttribute("data-source", "user");
     await expect(rowOf(library, "Q1 report").getByTestId("tag-chip")).toHaveAttribute(
       "data-source",
-      "automatic",
+      "user",
     );
     await screenshot(window, "library-review");
 
@@ -301,8 +295,7 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     const headerTags = viewer.getByTestId("viewer-header").getByTestId("document-tags");
     await expect(headerTags.getByTestId("tag-chip")).toHaveText(/Invoice/);
     await expect(headerTags.getByTestId("tag-chip")).toHaveAttribute("data-colour", "green");
-    // In the header, ✓ and × of a Tag awaiting review are always there, and the picker opens.
-    await expect(headerTags.getByTestId("confirm-document-tag")).toBeVisible();
+    // The header's picker opens from its Tags button.
     await slideAndClick(window, headerTags.getByTestId("document-tags-menu"));
     await expect(headerTags.getByTestId("tag-picker-input")).toBeFocused();
     await window.keyboard.press("Escape");
@@ -311,23 +304,11 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     await slideAndClick(window, window.getByTestId("document-tab").getByTestId("tab-close"));
     await expect(viewer).toBeHidden();
 
-    // ✓ and × show once the row is pointed at; ✓ keeps the Tag, as the User's.
-    await expect(marchInvoice.getByTestId("confirm-document-tag")).toBeHidden();
-    await slideTo(window, marchInvoice);
-    await slideAndClick(window, marchInvoice.getByTestId("confirm-document-tag"));
-    const kept = march.getByTestId("tag-chip");
-    await expect(kept).toHaveAttribute("data-source", "user");
-    await expect(kept).not.toHaveAttribute("data-needs-review");
-    // × removes it, and Organize doesn't bring it back.
+    // × shows once the chip is pointed at, and takes the Tag off.
     const aprilInvoice = april.getByTestId("tag-chip");
+    await expect(aprilInvoice.getByTestId("remove-document-tag")).toBeHidden();
     await slideTo(window, aprilInvoice);
-    await slideAndClick(window, aprilInvoice.getByTestId("reject-document-tag"));
-    await expect(april.getByTestId("tag-chip")).toHaveCount(0);
-    // They are still in no Folder: Organize from ⌘K reads all four again.
-    const asked = decisions.requests;
-    await runCommand(window, "library.organize", "Organize Documents not in a Folder");
-    await expect.poll(() => decisions.requests, { timeout: 15_000 }).toBe(asked + 4);
-    await notNow(window);
+    await slideAndClick(window, aprilInvoice.getByTestId("remove-document-tag"));
     await expect(april.getByTestId("tag-chip")).toHaveCount(0);
     await expect(march.getByTestId("tag-chip")).toHaveAttribute("data-source", "user");
 
@@ -347,13 +328,9 @@ test("a Tag automatic tagging wasn't sure of is confirmed or removed in one clic
     await expect(rows).toHaveCount(2);
     const tagsFilter = library.locator('[data-testid="library-filter"][data-facet="tag"]');
     await expect(tagsFilter).toHaveText("Tags: Report");
-    // Its options show each Tag's dot. Nothing awaits review now, so "Needs review" is gone
-    // (sidebarTags.spec shows it with its ring).
+    // Its options show each Tag's dot.
     await slideAndClick(window, tagsFilter.getByTestId("library-filter-chip"));
     const tagMenu = library.locator('[data-testid="library-filter-menu"][data-facet="tag"]');
-    await expect(
-      tagMenu.locator('[data-testid="library-filter-option"][data-value="needs-review"]'),
-    ).toHaveCount(0);
     await expect(
       tagMenu
         .getByTestId("library-filter-option")
@@ -421,7 +398,7 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     });
     const ids = await (await bridge(window)).evaluate(async (core) => {
       const tags = await core.listTags();
-      const notes = tags.find((tag) => tag.name === "Notes");
+      const notes = tags.find((tag) => tag.name === "Meeting notes");
       const report = tags.find((tag) => tag.name === "Report");
       if (!notes || !report) throw new Error("A preset is missing.");
       const documents = await core.listDocuments();
@@ -465,10 +442,10 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     ).toHaveAttribute("data-colour", "teal");
     await openManageTags(window);
 
-    // Merging Report into Notes: its Document keeps one Tag, Notes.
+    // Merging Report into Meeting notes: its Document keeps one Tag, Meeting notes.
     await slideAndClick(window, row("Report").getByTestId("merge-tag"));
-    await row("Report").getByTestId("merge-target").selectOption({ label: "Notes" });
-    await expect(row("Report")).toContainText("Its Documents get “Notes”");
+    await row("Report").getByTestId("merge-target").selectOption({ label: "Meeting notes" });
+    await expect(row("Report")).toContainText("Its Documents get “Meeting notes”");
     await slideAndClick(window, row("Report").getByTestId("confirm-merge-tag"));
     await expect(row("Report")).toHaveCount(0);
     await expect(row("Notes").getByTestId("tag-count")).toHaveText("2 Documents");
@@ -478,7 +455,7 @@ test("Manage Tags shows how many Documents carry each, edits, merges and deletes
     await slideAndClick(window, row("Notes").getByTestId("tag-count"));
     await expect(dialog).toBeHidden();
     await expect(library.locator('[data-testid="library-filter"][data-facet="tag"]')).toHaveText(
-      "Tags: Notes",
+      "Tags: Meeting notes",
     );
 
     // Deleting asks nothing: the Tag goes to Recently deleted.

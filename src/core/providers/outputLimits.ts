@@ -9,6 +9,7 @@
  * failures ("cut-short").
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
+import type { TokenUsage } from "../runs/engine";
 import type { ChatLanguageModel } from "./models";
 
 export const OUTPUT_LIMITS = {
@@ -24,6 +25,8 @@ export const OUTPUT_LIMITS = {
   "meeting-fill-retry": { most: 32_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },
+  // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).
+  "tag-batch": { most: 2_400, each: 160 },
   organize: { most: 512 },
   folders: { most: 1_024 },
   // Organize's plan at any size (../library/plan): a sample sorted, a batch placed, subfolders named.
@@ -37,7 +40,17 @@ export const OUTPUT_LIMITS = {
   "quote-retry": { most: 600, each: 100 },
   "figure-retry": { most: 1_800, each: 300 },
   evidence: { most: 4_000, each: 600 },
-  comparison: { most: 300 },
+  "covered-evidence": { most: 600 },
+  confirm: { most: 300 },
+  strict: { most: 300 },
+  "strict-figure": { most: 300 },
+  recheck: { most: 300 },
+  nearest: { most: 300 },
+  // Two phrases, which a record cite asks for too, as much room as its own judgement has.
+  parts: { most: 400 },
+  presence: { most: 300 },
+  "strict-presence": { most: 300 },
+  rewrite: { most: 300 },
   "record-cite": { most: 400 },
   "absence-read": { most: 400 },
   "sentence-batch": { most: 2_400, each: 300 },
@@ -49,7 +62,9 @@ export const OUTPUT_LIMITS = {
   "skill-draft": { most: 900 },
   edit: { most: 16_000 },
   "connection-test": { most: 64 },
-  "quick-check": { most: 64 },
+  // A yes or a no, after the thinking of a model that thinks first: DeepSeek V4.1 Flash, thinking,
+  // wrote up to 748 tokens before its word in 80 replies, and one in five passed 64 (#2817).
+  "quick-check": { most: 2_048 },
   // One word for each part of a step's text: whether it is the Answer's or the model's working (#2371).
   "working-text": { most: 256 },
 } as const satisfies Record<string, { most: number; each?: number }>;
@@ -69,11 +84,15 @@ export function outputTokens(kind: ModelCallKind, count = 1): number {
     : Math.min(limit.most, limit.each * Math.max(1, count));
 }
 
-/** A reply that reached its call's output limit. `wrote`: it had text before the limit, not only thinking. */
+/**
+ * A reply that reached its call's output limit. `wrote`: it had text before the limit, not only
+ * thinking. `usage`: the tokens its provider reported for it, which were spent all the same.
+ */
 export class CutShortError extends Error {
   constructor(
     readonly limit: number | undefined,
     readonly wrote: boolean,
+    readonly usage: TokenUsage | null = null,
   ) {
     super(
       `The model's reply reached its output limit${limit === undefined ? "" : ` of ${limit} tokens`} and was cut short.`,
@@ -87,6 +106,14 @@ type StreamPart =
   Awaited<ReturnType<Wrapped["doStream"]>>["stream"] extends ReadableStream<infer Part>
     ? Part
     : never;
+type ReportedUsage = Extract<StreamPart, { type: "finish" }>["usage"];
+
+const usageOf = (usage: ReportedUsage): TokenUsage => ({
+  inputTokens: usage.inputTokens.total,
+  outputTokens: usage.outputTokens.total,
+  cachedInputTokens: usage.inputTokens.cacheRead,
+  cacheWriteTokens: usage.inputTokens.cacheWrite,
+});
 
 /** The model, with each reply that reaches its output limit made a `CutShortError`: thrown, or the stream's error in place of its finish. */
 export function endsAtLimit(model: ChatLanguageModel): ChatLanguageModel {
@@ -100,7 +127,7 @@ export function endsAtLimit(model: ChatLanguageModel): ChatLanguageModel {
         const wrote = result.content.some(
           (part) => part.type === "text" && part.text.trim() !== "",
         );
-        throw new CutShortError(params.maxOutputTokens, wrote);
+        throw new CutShortError(params.maxOutputTokens, wrote, usageOf(result.usage));
       },
       wrapStream: async ({ doStream, params }) => {
         const result = await doStream();
@@ -112,7 +139,7 @@ export function endsAtLimit(model: ChatLanguageModel): ChatLanguageModel {
               if (part.type === "finish" && part.finishReason.unified === "length") {
                 controller.enqueue({
                   type: "error",
-                  error: new CutShortError(params.maxOutputTokens, wrote),
+                  error: new CutShortError(params.maxOutputTokens, wrote, usageOf(part.usage)),
                 });
                 return;
               }

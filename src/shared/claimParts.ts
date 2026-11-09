@@ -188,7 +188,8 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
   return {
     ...((value.kind === "forecast-certainty" ||
       value.kind === "unbacked-cause" ||
-      value.kind === "analysis-name") && {
+      value.kind === "analysis-name" ||
+      value.kind === "units") && {
       kind: value.kind,
     }),
     reason: text(value.reason),

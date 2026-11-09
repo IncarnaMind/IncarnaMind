@@ -27,6 +27,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, heading, note, question, writeMind } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -43,19 +44,22 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** Searches when it has no Passages yet (or `more` times in all), then writes and cites in one call. */
 function answering(more = 0) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    const searched = searches.at(-1);
-    if (!searched || searches.length <= more) {
-      return { calls: [{ tool: "search_documents", input: { query: "spring tides moon" } }] };
-    }
-    const passage =
-      shownPassages(searched.text).find((each) => each.text.includes(SPRING))?.id ?? "P1";
-    return {
-      text: ANSWER,
-      calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
-    };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      const searched = searches.at(-1);
+      if (!searched || searches.length <= more) {
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides moon" } }] };
+      }
+      const passage =
+        shownPassages(searched.text).find((each) => each.text.includes(SPRING))?.id ?? "P1";
+      return {
+        text: ANSWER,
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 /** As a model on both lists: it writes the Answer, then cites it. */
@@ -77,7 +81,7 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     ["English", "What were consolidated results?"],
     ["Chinese", "合并经营业绩是多少？Consolidated results"],
   ])("tells the model which pages the Question's own search covered (%s)", async (_, asked) => {
-    const model = scriptedModel(() => ({ text: "Read the result." }));
+    const model = scriptedModel(() => ({ text: "Read the result." }), { generate: judgesNothing });
     const filing = buildPdf(
       Array.from({ length: 30 }, (_, index) => ({
         lines: [
@@ -180,31 +184,34 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
   test("checks each Citation's quote on its page: one the page doesn't have goes back to the model, and the fixed one is found", async () => {
     const replies: string[] = [];
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      const searched = call.results.find((result) => result.tool === "search_documents");
-      const passage = shownPassages(searched?.text ?? "")[0]?.id ?? "P1";
-      const cited = call.results.filter((result) => result.tool === "cite");
-      if (cited.length > 0) {
-        replies.push(...cited.map((each) => each.text));
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const passage = shownPassages(searched?.text ?? "")[0]?.id ?? "P1";
+        const cited = call.results.filter((result) => result.tool === "cite");
+        if (cited.length > 0) {
+          replies.push(...cited.map((each) => each.text));
+          return {
+            calls: [{ tool: "cite", input: { citations: [{ marker: 2, passage, quote: NEAP }] } }],
+          };
+        }
         return {
-          calls: [{ tool: "cite", input: { citations: [{ marker: 2, passage, quote: NEAP }] } }],
-        };
-      }
-      return {
-        text: `${ANSWER} Neap tides come at the quarter moons[^2].`,
-        calls: [
-          {
-            tool: "cite",
-            input: {
-              citations: [
-                { marker: 1, passage, quote: SPRING },
-                { marker: 2, passage, quote: NOT_ON_THE_PAGE },
-              ],
+          text: `${ANSWER} Neap tides come at the quarter moons[^2].`,
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage, quote: SPRING },
+                  { marker: 2, passage, quote: NOT_ON_THE_PAGE },
+                ],
+              },
             },
-          },
-        ],
-      };
-    });
+          ],
+        };
+      },
+      { generate: judgesNothing },
+    );
     const { core, client, mind } = await setUp(model, true);
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
@@ -248,18 +255,21 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
   });
 
   test("after a refusal of Tools, the next way of answering reads the Passages searched first", async () => {
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (call.tools.length > 0) {
-        return { error: { status: 400, message: "this model does not support tools" } };
-      }
-      const passage = shownPassages(call.system).find((each) => each.text.includes(SPRING));
-      return {
-        text: JSON.stringify({
-          answer: ANSWER,
-          citations: passage ? [{ marker: 1, passage: passage.id, quote: SPRING }] : [],
-        }),
-      };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (call.tools.length > 0) {
+          return { error: { status: 400, message: "this model does not support tools" } };
+        }
+        const passage = shownPassages(call.system).find((each) => each.text.includes(SPRING));
+        return {
+          text: JSON.stringify({
+            answer: ANSWER,
+            citations: passage ? [{ marker: 1, passage: passage.id, quote: SPRING }] : [],
+          }),
+        };
+      },
+      { generate: judgesNothing },
+    );
     const { core, client, mind } = await setUp(model, true);
 
     const { answerId, finished } = await askAndFinish(
@@ -285,16 +295,20 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
   test("a model listed to retrieve first but not to write then cite keeps citing first: its records, then the Answer", async () => {
     const systems: string[] = [];
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      systems.push(call.system);
-      const searched = call.results.find((result) => result.tool === "search_documents");
-      if (call.results.some((result) => result.tool === "cite")) return { text: ANSWER };
-      const passage =
-        shownPassages(searched?.text ?? "").find((each) => each.text.includes(SPRING))?.id ?? "P1";
-      return {
-        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
-      };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        systems.push(call.system);
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (call.results.some((result) => result.tool === "cite")) return { text: ANSWER };
+        const passage =
+          shownPassages(searched?.text ?? "").find((each) => each.text.includes(SPRING))?.id ??
+          "P1";
+        return {
+          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+        };
+      },
+      { generate: judgesNothing },
+    );
     const { core, client, mind } = await setUpWithDocuments(
       model,
       [{ name: "Tides.md", contents: TIDES_MD }],
@@ -328,27 +342,30 @@ describe.skipIf(process.platform === "win32")(
     // leave the Run every Tool it had.
     test("the first call is offered run_code beside the Passages searched first, and the number its code printed is a figure calculated by code", async () => {
       const calls: ModelCall[] = [];
-      const model = scriptedModel((call: ModelCall): ScriptedReply => {
-        calls.push(call);
-        if (call.results.some((result) => result.tool === "run_code")) {
-          return { text: "The mean response time is 12.3 ms." };
-        }
-        const searched = call.results.find((result) => result.tool === "search_documents");
-        const passage = shownPassages(searched?.text ?? "")[0]?.id ?? "P1";
-        return {
-          calls: [
-            {
-              tool: "run_code",
-              input: {
-                title: "Mean response time",
-                language: "bash",
-                documents: [passage],
-                code: "printf 'mean %s\\n' 12.345",
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          calls.push(call);
+          if (call.results.some((result) => result.tool === "run_code")) {
+            return { text: "The mean response time is 12.3 ms." };
+          }
+          const searched = call.results.find((result) => result.tool === "search_documents");
+          const passage = shownPassages(searched?.text ?? "")[0]?.id ?? "P1";
+          return {
+            calls: [
+              {
+                tool: "run_code",
+                input: {
+                  title: "Mean response time",
+                  language: "bash",
+                  documents: [passage],
+                  code: "printf 'mean %s\\n' 12.345",
+                },
               },
-            },
-          ],
-        };
-      });
+            ],
+          };
+        },
+        { generate: judgesNothing },
+      );
       const core = startCore(await createTempDataFolder(), {
         createChatModel: scriptedModels(model).createChatModel,
         analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),

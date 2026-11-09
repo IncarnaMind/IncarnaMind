@@ -1379,6 +1379,12 @@ export interface CoreAdapters {
    */
   helpFormJudged?: () => boolean | undefined;
   /**
+   * Whether an Answer's found quotes show as the model gave them, and `cite` says nothing of two
+   * records with one quote, as before #2739; unset, they show their whole sentences. Only tests and
+   * the evaluation pass one.
+   */
+  quotesAsGiven?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

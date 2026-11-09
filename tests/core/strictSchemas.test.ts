@@ -210,10 +210,13 @@ describe("Every reply schema the app sends to an API that enforces strict mode",
 
   test("a call that makes a model reply to a schema is one of those the test sends", () => {
     const folder = path.join(__dirname, "../../src/core");
+    // A judge's question names its schema in `structured(schema, …)`; the module's own
+    // Output.object sends whichever schema it is given (src/core/answers/judge.ts).
+    const sends = /Output\.object\(|\bstructured\(\w+Schema\b/g;
     const found: Record<string, number> = {};
     for (const file of sourcesOf(folder)) {
-      const count =
-        readFileSync(path.join(folder, file), "utf8").split("Output.object(").length - 1;
+      if (file === "answers/judge.ts") continue;
+      const count = readFileSync(path.join(folder, file), "utf8").match(sends)?.length ?? 0;
       if (count > 0) found[file] = count;
     }
 

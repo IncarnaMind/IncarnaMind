@@ -255,7 +255,8 @@ describe("Drug labels: adding", () => {
 
     const { finished } = await askAndFinish(core, client, mind.id, "What does the label say?");
 
-    expect(finished.citations.map((each) => [each.quote === quote, each.check])).toEqual([
+    // The found one shows the whole sentence that holds the quote; the one not found, the quote.
+    expect(finished.citations.map((each) => [each.quote.includes(quote), each.check])).toEqual([
       [true, "found"],
       [true, "not-found"],
     ]);

@@ -2,7 +2,6 @@
  * Record cites (#1709): each cite in a sentence read on the exact Passage it names, and judged
  * against it on its own, apart from the sentence's overall check.
  */
-import { generateText } from "ai";
 import { keepRecordCites } from "../../../shared/claimChecks";
 import type { RecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { comparableSentence } from "../../../shared/sentences";
@@ -16,8 +15,6 @@ import { depositionMapper } from "../../documents/deposition";
 import { TranslatableError } from "../../errors";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
-import { classifyProviderError } from "../../providers/providerErrors";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import {
   type NoteParagraph,
@@ -27,10 +24,12 @@ import {
 } from "../../recordCites/referents";
 import { type ResolvableRecordCiteResult, resolveRecordCites } from "../../recordCites/resolver";
 import { answerTemperature } from "../engine";
+import { type Judged, type JudgeFailure, judge, lines } from "../judge";
 import { inCheck } from "./checkedText";
 import { type ClaimCheckRequest, failureOf } from "./claimCheck";
 import {
-  confirmPrompt,
+  CHECK_TAGS,
+  confirmParts,
   partInstructions,
   RECORD_CITE_INSTRUCTIONS,
   readPart,
@@ -72,18 +71,31 @@ export async function judgeRecordCite(
   language: Language,
 ): Promise<RecordCiteJudgement | NotJudged> {
   if (signal.aborted) return { stopped: true };
-  const first = await compare(model, claim, passage, RECORD_CITE_INSTRUCTIONS, signal);
-  if ("failed" in first) return signal.aborted ? { stopped: true } : first;
-  const judged = readRecordJudgement(first.reply);
-  if (judged === null) return { unreadable: true };
-  if (judged !== "partly") return { outcome: judged };
-  const part = await compare(model, claim, passage, partInstructions(language), signal);
-  if ("failed" in part) return signal.aborted ? { stopped: true } : part;
-  const { covered, uncovered } = readPart(part.reply);
-  return covered && uncovered
-    ? { outcome: "partly", covered, uncovered }
-    : { outcome: "unsupported" };
+  const first = await compare(
+    model,
+    claim,
+    passage,
+    { id: "record-cite", instructions: RECORD_CITE_INSTRUCTIONS },
+    readRecordJudgement,
+    signal,
+  );
+  if (!first.ok) return notJudgedOf(first.reason, first.error);
+  if (first.value !== "partly") return { outcome: first.value };
+  const part = await compare(
+    model,
+    claim,
+    passage,
+    { id: "parts", instructions: partInstructions(language) },
+    readPart,
+    signal,
+  );
+  if (!part.ok && (part.reason === "stopped" || part.error))
+    return notJudgedOf(part.reason, part.error);
+  return part.ok ? { outcome: "partly", ...part.value } : { outcome: "unsupported" };
 }
+
+const notJudgedOf = (reason: JudgeFailure, error: ProviderError | undefined): NotJudged =>
+  reason === "stopped" ? { stopped: true } : error ? { failed: error } : { unreadable: true };
 
 const notJudged = (why: NotJudged): { reason: ClaimCheckFailure; detail: string | null } =>
   "unreadable" in why
@@ -161,27 +173,24 @@ export async function judgeResolvedRecordCites(
   return { recordCites, ...(failure ? { failure } : {}) };
 }
 
-async function compare(
+function compare<T>(
   model: PreparedChatModel,
   claim: string,
   passage: string,
-  instructions: string,
+  question: { id: "record-cite" | "parts"; instructions: string },
+  read: (reply: string) => T | null,
   signal: AbortSignal,
-): Promise<{ reply: string } | { failed: ProviderError }> {
-  try {
-    const { text } = await generateText({
-      model: model.model,
-      instructions,
-      prompt: confirmPrompt({ claim, quote: passage, passage }),
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: outputTokens("record-cite"),
-      maxRetries: 1,
-      abortSignal: signal,
-    });
-    return { reply: text };
-  } catch (error) {
-    return { failed: classifyProviderError(error) };
-  }
+): Promise<Judged<T>> {
+  return judge({
+    model: model.model,
+    question,
+    parts: confirmParts({ claim, quote: passage, passage }),
+    data: CHECK_TAGS,
+    reply: lines(read),
+    retries: 1,
+    signal,
+    temperature: answerTemperature(model.capabilities.facts.temperature),
+  });
 }
 
 export interface RecordCiteDependencies {

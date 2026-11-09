@@ -19,6 +19,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -310,10 +311,13 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
       }),
     );
     const calls: { system: string; results: string[] }[] = [];
-    const model = scriptedModel((call): ScriptedReply => {
-      calls.push({ system: call.system, results: call.results.map((each) => each.text) });
-      return script(call);
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        calls.push({ system: call.system, results: call.results.map((each) => each.text) });
+        return script(call);
+      },
+      { generate: judgesNothing },
+    );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -805,15 +809,18 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
         return path;
       }),
     );
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.length > 0) return { text: "会议纪要里没有写王芳的年假。" };
-      return {
-        calls: ["劳动合同-王芳", "会议纪要（2026年第三季度）"].map((document) => ({
-          tool: "search_documents",
-          input: { query: "王芳 年假", document },
-        })),
-      };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.results.length > 0) return { text: "会议纪要里没有写王芳的年假。" };
+        return {
+          calls: ["劳动合同-王芳", "会议纪要（2026年第三季度）"].map((document) => ({
+            tool: "search_documents",
+            input: { query: "王芳 年假", document },
+          })),
+        };
+      },
+      { generate: judgesNothing },
+    );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -857,18 +864,21 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
     );
     const question = "会议纪要里说王芳的年假是几天？";
     let citing = false;
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "人事政策 同步" } }] };
-      }
-      const results = call.results.map((result) => result.text).join("\n");
-      const records = recordsFor(results, question);
-      if (!citing && records.length > 0) {
-        citing = true;
-        return { calls: [{ tool: "cite", input: { citations: records } }] };
-      }
-      return { text: "会议纪要里写道“王芳的年假为 15 天。”[^1]。" };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "人事政策 同步" } }] };
+        }
+        const results = call.results.map((result) => result.text).join("\n");
+        const records = recordsFor(results, question);
+        if (!citing && records.length > 0) {
+          citing = true;
+          return { calls: [{ tool: "cite", input: { citations: records } }] };
+        }
+        return { text: "会议纪要里写道“王芳的年假为 15 天。”[^1]。" };
+      },
+      { generate: judgesNothing },
+    );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -915,35 +925,38 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
     const question = "会议纪要里说王芳的年假是几天？";
     let found: ReturnType<typeof passagesIn> = [];
     let phase = 0;
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
-      }
-      const results = call.results.map((result) => result.text).join("\n");
-      if (phase === 0) {
-        phase = 1;
-        found = passagesIn(results);
-        const record = (at: number) => {
-          const passage = found[at];
-          return passage ? (recordFor(passage, question, 1)?.record ?? null) : null;
-        };
-        const first = record(0);
-        const second = record(1);
-        if (!first || !second) throw new Error("The search found fewer than two Passages.");
-        return {
-          calls: [
-            { tool: "cite", input: { citations: [first] } },
-            { tool: "cite", input: { citations: [second] } },
-          ],
-        };
-      }
-      if (phase === 1) {
-        phase = 2;
-        const taken = found[1] && recordFor(found[1], question, 1);
-        return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^1]。` };
-      }
-      return { text: "会议纪要里没有写王芳的年假。" };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
+        }
+        const results = call.results.map((result) => result.text).join("\n");
+        if (phase === 0) {
+          phase = 1;
+          found = passagesIn(results);
+          const record = (at: number) => {
+            const passage = found[at];
+            return passage ? (recordFor(passage, question, 1)?.record ?? null) : null;
+          };
+          const first = record(0);
+          const second = record(1);
+          if (!first || !second) throw new Error("The search found fewer than two Passages.");
+          return {
+            calls: [
+              { tool: "cite", input: { citations: [first] } },
+              { tool: "cite", input: { citations: [second] } },
+            ],
+          };
+        }
+        if (phase === 1) {
+          phase = 2;
+          const taken = found[1] && recordFor(found[1], question, 1);
+          return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^1]。` };
+        }
+        return { text: "会议纪要里没有写王芳的年假。" };
+      },
+      { generate: judgesNothing },
+    );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -972,26 +985,29 @@ describe("A name that fits two Documents, through the core (#1512)", { timeout: 
     const question = "会议纪要里说王芳的年假是几天？";
     let found: ReturnType<typeof passagesIn> = [];
     let phase = 0;
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
-      }
-      const results = call.results.map((result) => result.text).join("\n");
-      if (phase === 0) {
-        phase = 1;
-        found = passagesIn(results);
-        const first = found[0] && recordFor(found[0], question, 1)?.record;
-        const second = found[1] && recordFor(found[1], question, 2)?.record;
-        if (!first || !second) throw new Error("The search found fewer than two Passages.");
-        return { calls: [{ tool: "cite", input: { citations: [first, second] } }] };
-      }
-      if (phase === 1) {
-        phase = 2;
-        const taken = found[1] && recordFor(found[1], question, 2);
-        return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^2]。` };
-      }
-      return { text: "会议纪要里没有写王芳的年假。" };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "年假" } }] };
+        }
+        const results = call.results.map((result) => result.text).join("\n");
+        if (phase === 0) {
+          phase = 1;
+          found = passagesIn(results);
+          const first = found[0] && recordFor(found[0], question, 1)?.record;
+          const second = found[1] && recordFor(found[1], question, 2)?.record;
+          if (!first || !second) throw new Error("The search found fewer than two Passages.");
+          return { calls: [{ tool: "cite", input: { citations: [first, second] } }] };
+        }
+        if (phase === 1) {
+          phase = 2;
+          const taken = found[1] && recordFor(found[1], question, 2);
+          return { text: `会议纪要写道“${String(taken?.record.quote ?? "")}”[^2]。` };
+        }
+        return { text: "会议纪要里没有写王芳的年假。" };
+      },
+      { generate: judgesNothing },
+    );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -1034,7 +1050,9 @@ describe("A summary of each Document, with the examples there (#894)", { timeout
       const dataDir = await createTempDataFolder();
       const core = startCore(dataDir, {
         paths: { examples: EXAMPLES },
-        createChatModel: scriptedModels(scriptedModel(summarisingEveryDocument())).createChatModel,
+        createChatModel: scriptedModels(
+          scriptedModel(summarisingEveryDocument(), { generate: judgesNothing }),
+        ).createChatModel,
       });
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
       await core.createExamples();

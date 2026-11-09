@@ -20,18 +20,16 @@
  * - With no usable tagger (no chat model set up, a missing key or sign-in, or
  *   the flow not allowed) Documents wait as "waiting-for-provider", and are
  *   picked up again whenever that may have changed.
- * - Only automatic links change: Tags the User added or removed on a
- *   Document stay as they are (see `TagsStore.applyAutomatic`).
+ * - Nothing is put on a Document: what the model gives waits in the Review
+ *   (../organizeReview) until the User confirms it (#2339).
  * - Where the User stopped Tagging with AI, Documents are "stopped"
  *   and nothing is sent, unless the User asks to re-tag one.
  * - While Organize files new Documents by itself, the Documents it holds are
  *   its own. One it doesn't hold, such as one this tagger had when Organize
  *   began filing new Documents, is still tagged here.
- * - With no Tags defined, a tagger that only chooses from the list (Jev, a
- *   decision model) is skipped and a Document is "no-tags", not "tagged", so it
- *   is checked once a Tag exists (see `tagsDefined`). The chat model names Tags
- *   from what the Document says (./suggest), so it is asked anyway; one it
- *   gives no Tag is "no-tags" too.
+ * - With nothing to offer, every kind's Tag deleted and none of the User's
+ *   own Tags about it, nothing is sent and a Document is "no-tags", not
+ *   "tagged", so it is checked once a Tag exists (see `tagsDefined`).
  */
 import type { DocumentKind, ExternalService, ProviderError } from "../api";
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "../backgroundQueue";
@@ -44,7 +42,9 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
+import type { Language } from "../language";
 import { reachedPlanLimit } from "../library/planPace";
+import type { OrganizeReviewRun, TagsProposal } from "../organizeReview/store";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import type { PaceTimers } from "../sources/pace";
@@ -52,13 +52,15 @@ import type { Database } from "../storage";
 import {
   type DocumentExcerpt,
   excerptFromPassages,
+  kindDefinitions,
   type TagChoice,
   type TagClassifier,
+  type TagDefinition,
 } from "./classify";
 import { clearForService } from "./held";
-import { type TagsStore, tagsOfDocument } from "./index";
+import type { TagKind } from "./kinds";
+import { proposedTags } from "./proposals";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
-import { fallbackLine } from "./suggest";
 import { isTransient, RETRY_WAIT_MS } from "./transient";
 
 /** What the "tagging" flow sends to the tagger's service: the chat model's or Jev's. */
@@ -96,7 +98,17 @@ export interface TaggerOptions {
    * may not waits for the User, "off".
    */
   maySend(id: string, service: ExternalService, pressed: boolean): boolean;
-  tags: TagsStore;
+  /**
+   * The User's own Tags a Document is about, which its request may offer (./about), judged on
+   * `text`, what the request sends of it: a scan's first pages while the rest is read.
+   */
+  offered(id: string, text: string): TagDefinition[];
+  /** The kinds a request may offer (`offeredKinds` in ./about). */
+  kinds(): readonly TagKind[];
+  /** The interface's language, which a topic is named in. */
+  language(): Language;
+  /** Writes what tagging proposes into the Review, where it waits for the User (#2339). */
+  propose(run: OrganizeReviewRun, proposals: readonly TagsProposal[]): void;
   /** Whether the tagger in use can take a request now. Asks the User nothing. */
   canRun(): Promise<boolean>;
   /**
@@ -111,15 +123,8 @@ export interface TaggerOptions {
    * nothing is sent then.
    */
   prepare(): Promise<TagClassifier>;
-  /**
-   * Whether the tagger in use names Tags of its own (the chat model), with no waiting: then a
-   * Document is tagged even while no Tag exists.
-   */
-  namesTags?(): boolean;
   /** Pushes "documents.tagged" for these Documents. */
   announce(documentIds: readonly string[]): void;
-  /** Tagging made new Tags: the list of Tags is to be read again. */
-  tagsMade?(): void;
   reportError(error: unknown): void;
   /** The background model queue, in which tagging each Document takes one turn. */
   background: BackgroundQueue;
@@ -150,7 +155,7 @@ interface DocumentRow {
 
 export function createTagger(options: TaggerOptions) {
   const automatic = () => options.automatic?.() !== false;
-  const { db, now, tags, announce, background } = options;
+  const { db, now, announce, background } = options;
   const lifetime = new AbortController();
   const queue: string[] = [];
   /** The Document being tagged, if any. */
@@ -163,15 +168,8 @@ export function createTagger(options: TaggerOptions) {
    */
   const requests = new Map<string, number>();
   const asked = new Set<string>();
-  /**
-   * The Documents an Organize run finished with (#1569): its plan proposes only Folders, so their
-   * Tags come from here, as Organize's press tagged them before, with tagging by itself Off too.
-   * Walls and a stop hold as they do for background tagging, and no clearance is kept.
-   */
-  const afterOrganizing = new Set<string>();
-  // Handed here, or asked for by the User, a Document is the tagger's even where Organize holds it.
-  const organized = (id: string) =>
-    !asked.has(id) && !afterOrganizing.has(id) && options.organizing?.(id) === true;
+  // Asked for by the User, a Document is the tagger's even where Organize holds it.
+  const organized = (id: string) => !asked.has(id) && options.organizing?.(id) === true;
 
   // A Meeting's Transcript has no Tags of its own: it goes with its Note (#2528).
   const rowOf = (id: string) =>
@@ -261,14 +259,20 @@ export function createTagger(options: TaggerOptions) {
     const row = rowOf(id);
     // Tagged meanwhile: Organize did it, in its own turn.
     if (!row || !hasText(id, row) || row.tagging_status === "tagged") return;
-    const definitions = tags.list();
+    const definitions = [
+      ...kindDefinitions(options.kinds()),
+      ...options.offered(id, excerptOf(id, row).text),
+    ];
+    if (definitions.length === 0) {
+      if (setState(id, "no-tags")) announce([id]);
+      return;
+    }
     if (setState(id, "tagging")) announce([id]);
 
     let choice: TagChoice = { decisions: [], newTags: [] };
-    let modelAsked = false;
     /** The service the User's own re-tag of it went to, once it is tagged. */
     let askedOf: ExternalService | null = null;
-    if (definitions.length > 0 || options.namesTags?.() === true) {
+    {
       let tagger: TagClassifier;
       try {
         tagger = await options.prepare();
@@ -289,13 +293,12 @@ export function createTagger(options: TaggerOptions) {
         }
         return;
       }
-      modelAsked = definitions.length > 0 || tagger.namesTags === true;
       // Checked on the service this request resolved to: Automatic may pick another meanwhile.
       const service = tagger.service ?? null;
-      if (modelAsked && service) {
+      if (service) {
         if (asked.has(id)) {
           askedOf = service;
-        } else if (!options.maySend(id, service, afterOrganizing.has(id))) {
+        } else if (!options.maySend(id, service, false)) {
           if (setState(id, "off")) announce([id]);
           return;
         }
@@ -304,10 +307,13 @@ export function createTagger(options: TaggerOptions) {
       if (tagger.local) call.runsLocally();
       if (stale()) return;
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
-      const decide = async () =>
-        modelAsked
-          ? tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal })
-          : choice;
+      const decide = () =>
+        tagger.decide({
+          tags: definitions,
+          excerpt: excerptOf(id, row),
+          language: options.language(),
+          signal,
+        });
       try {
         try {
           choice = await decide();
@@ -349,21 +355,26 @@ export function createTagger(options: TaggerOptions) {
       options.rateLimit.succeeded();
     }
     if (stale()) return;
-    if (choice.fallback) console.info(fallbackLine(id));
 
-    const { changed, made } = db.transaction(() => {
+    // One Document is no run: its topic is never proposed as a new Tag (./proposals).
+    const proposed = proposedTags(new Map([[id, choice]])).get(id) ?? [];
+    const changed = db.transaction(() => {
       // Deleted, or processed again, meanwhile.
       const latest = rowOf(id);
-      if (!latest || !hasText(id, latest) || latest.content_hash !== row.content_hash)
-        return { changed: false, made: 0 };
-      const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
-      // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
-      const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
-      const settled = setState(id, modelAsked && found ? "tagged" : "no-tags");
+      if (!latest || !hasText(id, latest) || latest.content_hash !== row.content_hash) return false;
+      const retagged = asked.has(id);
+      options.propose({ origin: retagged ? "retag" : "background" }, [
+        {
+          documentId: id,
+          contentHash: latest.content_hash,
+          tags: proposed,
+          ...(retagged && { leftOut: { reason: "noTag" as const } }),
+        },
+      ]);
+      const settled = setState(id, "tagged");
       if (askedOf) clearForService(db, id, [askedOf], now());
-      return { changed: settled || applied.changed, made: applied.made };
+      return settled;
     });
-    if (made > 0) options.tagsMade?.();
     if (changed) announce([id]);
   }
 
@@ -389,8 +400,7 @@ export function createTagger(options: TaggerOptions) {
       }
       const id = queue.shift();
       if (id === undefined || organized(id)) return;
-      if ((options.stopped(id) || (!automatic() && !afterOrganizing.has(id))) && !asked.has(id)) {
-        afterOrganizing.delete(id);
+      if ((options.stopped(id) || !automatic()) && !asked.has(id)) {
         if (setState(id, automatic() ? "stopped" : "off")) announce([id]);
         return;
       }
@@ -408,7 +418,6 @@ export function createTagger(options: TaggerOptions) {
       } else if ((requests.get(id) ?? 0) === request) {
         // A Re-tag that came in meanwhile is the next turn's to answer, so its ask stays.
         asked.delete(id);
-        afterOrganizing.delete(id);
       }
     } catch (error) {
       if (lifetime.signal.aborted) return;
@@ -459,8 +468,7 @@ export function createTagger(options: TaggerOptions) {
    */
   function resume(only?: "no-tags"): void {
     if (lifetime.signal.aborted) return;
-    const checkable = tags.list().length > 0;
-    if (only && !checkable) return;
+    const checkable = options.kinds().length > 0;
     const statuses = only
       ? [only]
       : ["pending", "waiting-for-provider", "failed", "stopped", ...(checkable ? ["no-tags"] : [])];
@@ -477,9 +485,7 @@ export function createTagger(options: TaggerOptions) {
       .filter((row) => !organized(row.id));
     // Off, nothing goes by itself: only what the User asked for is tagged. A Document that
     // failed or was stopped keeps its line and its Retry; only one waiting to go by itself is off.
-    const held = automatic()
-      ? []
-      : found.filter((row) => !asked.has(row.id) && !afterOrganizing.has(row.id));
+    const held = automatic() ? [] : found.filter((row) => !asked.has(row.id));
     setStates(
       held
         .filter(
@@ -615,20 +621,6 @@ export function createTagger(options: TaggerOptions) {
       if (changed.length > 0) announce(changed);
       if (!ready) return;
       for (const { id, row } of askedFor) if (hasText(id, row)) enqueue(id, true);
-    },
-
-    /** Tags the Documents an Organize run finished with (see `afterOrganizing`). */
-    afterOrganize(ids: readonly string[]): void {
-      const rows = [...new Set(ids)].flatMap((id) => {
-        const row = rowOf(id);
-        return row && hasText(id, row) ? [id] : [];
-      });
-      for (const id of rows) afterOrganizing.add(id);
-      const ready = options.mightBeReady();
-      const changed = rows.filter((id) => setState(id, ready ? "pending" : "waiting-for-provider"));
-      if (changed.length > 0) announce(changed);
-      if (!ready) return;
-      for (const id of rows) enqueue(id, true);
     },
 
     /** The ready Documents whose tagging, or Organize's, couldn't reach the AI model, unless stopped. */

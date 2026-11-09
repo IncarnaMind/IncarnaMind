@@ -40,6 +40,7 @@ import {
 } from "../../src/core/providers/ollamaModels";
 import { openDatabase } from "../../src/core/storage";
 import { proposedText } from "../../src/core/tools/commands/organize";
+import { proposedTagsText } from "../../src/core/tools/commands/tagWithAi";
 import { type OfferedCommand, sameWords, type Yours, yoursLine } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
@@ -399,6 +400,8 @@ function appsLines(language: Language, done: ReturnType<typeof organizeRuns>[num
   return lines;
 }
 
+const tagRuns = (seen: Seen) => ran(seen).filter((done) => done.command === "documents.tagWithAi");
+
 /** The reply in the model's own words: what the app wrote after it taken out. */
 function ownWords(seen: Seen): { text: string; appAdded: boolean } {
   let text = seen.answer.text;
@@ -406,8 +409,48 @@ function ownWords(seen: Seen): { text: string; appAdded: boolean } {
     for (const language of LANGUAGES)
       for (const line of appsLines(language, done)) text = text.replace(line, "");
   }
+  for (const done of tagRuns(seen)) {
+    const tags = done.tags ?? [];
+    if (tags.length === 0) continue;
+    for (const language of LANGUAGES)
+      text = text.replace(proposedTagsText(language, done.items.length, tags), "");
+  }
   return { text: text.trim(), appAdded: text !== seen.answer.text };
 }
+
+/** How a reply says the proposed Tags wait for the User, as the app's own line does (#2339). */
+const SAYS_TAGS_WAIT = /No Tag has been added yet|还没有添加任何标签/;
+
+/**
+ * How a reply says Tags were put on the Documents, which they weren't: "I've tagged", "added the
+ * Tags", "are now tagged", "已为……添加了标签", "已打上标签".
+ */
+const SAYS_IT_TAGGED = new RegExp(
+  [
+    String.raw`${TAKEN_BACK}\b(?:has|have) been tagged\b`,
+    String.raw`${TAKEN_BACK}\bI(?:'ve| have)? (?:tagged|added|applied)\b`,
+    String.raw`${TAKEN_BACK}\b(?:added|applied|put) (?:the |these |those |\d+ )?(?:new )?tags?\b`,
+    String.raw`${TAKEN_BACK}\b(?:are|were|is|was) (?:now )?tagged\b`,
+    `已(?:经)?${NOT_PROPOSING}{0,40}?(?:打上|添加|加上|贴上)了?${NOT_PROPOSING}{0,10}标签`,
+    "已(?:经)?打(?:好|上)?了?标签",
+  ].join("|"),
+  "i",
+);
+
+/**
+ * "Tag my documents": Tag with AI runs and only proposes (#2339). No Document's Tags change, and
+ * the reply is the app's: it says the Tags wait for the User's Review, and the model's own words,
+ * if any, never say they were added. Nothing it says is flagged.
+ */
+const taggedWithAi: Check = (seen) => {
+  expect(tagRuns(seen).length).toBeGreaterThan(0);
+  expect(seen.after.documentTags).toEqual(seen.before.documentTags);
+  expect(seen.after.review).toBeGreaterThan(seen.before.review);
+  expect(seen.answer.text).toMatch(SAYS_TAGS_WAIT);
+  expect(ownWords(seen).text).not.toMatch(SAYS_IT_TAGGED);
+  expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
+  expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
+};
 
 /** The Folders the request's Organize proposed, as Suggestions shows them, each with its count. */
 const proposedBy = ({ before, after }: Pick<Seen, "before" | "after">) =>
@@ -757,7 +800,25 @@ const REQUESTS: {
   more?: readonly { name: string; contents: string }[];
   /** Folders its Library has, empty, before the request. */
   folders?: readonly string[];
+  /** The User allowed tagging for the model's service, so its requests go without asking (#2339). */
+  tagging?: boolean;
 }[] = [
+  // Tag with AI, written before any run (#2339).
+  { id: "tag-en", text: "Tag my documents", check: taggedWithAi, tagging: true },
+  {
+    id: "tag-leases-en",
+    text: "Add tags to the two lease documents",
+    check: taggedWithAi,
+    tagging: true,
+  },
+  {
+    id: "retag-en",
+    text: "Re-tag everything in the library with AI",
+    check: taggedWithAi,
+    tagging: true,
+  },
+  { id: "tag-zh", text: "帮我给这些文档打上标签", check: taggedWithAi, tagging: true },
+  { id: "retag-zh", text: "用 AI 重新给所有文件打标签", check: taggedWithAi, tagging: true },
   {
     id: "folder-en",
     text: "Create a folder named Tenancies and file both lease documents in it",
@@ -1385,7 +1446,8 @@ async function libraryFor(
     declined = false,
     more = [],
     folders = [],
-  }: Pick<(typeof REQUESTS)[number], "declined" | "more" | "folders"> = {},
+    tagging = false,
+  }: Pick<(typeof REQUESTS)[number], "declined" | "more" | "folders" | "tagging"> = {},
 ) {
   const dataDir = await createTempDataFolder();
   // The app gives the core a printer, so "save this note as a PDF" can be made here too.
@@ -1435,6 +1497,9 @@ async function libraryFor(
     classifier: { kind: "chat", choice: { providerId: provider.id, modelId: live.model } },
     automatic: settings.automatic,
   });
+  // Allowed for its service, as the Tagging switch allows it, with nothing tagged by itself.
+  const route = tagging ? await core.getTaggingRoute("tagging") : null;
+  if (route?.where === "cloud") await core.allowDataFlow("tagging", route.service.id);
   const sources = await createSourceFolder();
   const elsewhere = await createSourceFolder();
   const exportTo = await createSourceFolder();
@@ -1531,6 +1596,8 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             ...(answer.steps?.unbackedClaims ?? []).map((claim) => `note ${claim}`),
           ];
           line += `\n  lines under the reply: ${flagged.join(", ") || "none"}`;
+          if (tagRuns(seen).length > 0)
+            line += `\n  Tags on Documents ${JSON.stringify(seen.after.documentTags) === JSON.stringify(before.documentTags) ? "as before" : "changed"}; the model's own words say Tags were added: ${SAYS_IT_TAGGED.test(ownWords(seen).text) ? "yes" : "no"}`;
           try {
             request.check(seen);
             ranOnce(seen);

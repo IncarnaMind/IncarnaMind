@@ -108,11 +108,12 @@ export interface MeetingFillOptions {
     }): Promise<CellAnswer>;
   };
   /**
-   * Whether the Mind's Folder (every Document, for a Mind in none) holds a Document to check the
-   * call's claims against, leaving out the Transcript.
+   * Whether the Search scope chosen for the Mind, else its Folder, holds a Document to check the
+   * call's claims against, leaving out the Transcript: never, for a Mind in no Folder with none
+   * chosen.
    */
   checkable(input: { mindId: string; transcriptId: string }): boolean;
-  /** Whether the Mind's Folder (every Document, for a Mind in none) supports `claim`, leaving out the Transcript. */
+  /** Whether that scope supports `claim`, leaving out the Transcript. */
   supports(input: {
     claim: string;
     mindId: string;

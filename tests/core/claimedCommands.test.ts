@@ -11,12 +11,7 @@ import type { OfferedCommand } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
 import { answerRequests, askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
-import {
-  CLAIM_CHECK_OPENING,
-  type GenerateCall,
-  type ModelCall,
-  scriptedModel,
-} from "../helpers/models";
+import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 
 /**
  * A reply that says it did something in the app that no call did (#2407): the check of what a
@@ -107,7 +102,7 @@ function assistant(
     },
     {
       generate: (call) => {
-        if (!call.system.includes(CLAIM_CHECK_OPENING)) return { text: '{"claims":[]}' };
+        if (call.question !== "claimed-changes") return { text: '{"claims":[]}' };
         judged.push(call);
         order?.push("judge");
         if (judgeFails(judged.length)) return { error: { status: 503, message: "Offline." } };

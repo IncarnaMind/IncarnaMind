@@ -10,6 +10,7 @@ import { ChevronRightLineIcon } from "../components/lineIcons";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
 import { MoveToPicker } from "../components/MoveToPicker";
 import { ObjectMenu } from "../components/ObjectMenu";
+import { GroupMenuItems } from "../components/tabs/TabMenus";
 import { useTabPlace } from "../components/tabs/tabItems";
 import {
   menuClass,
@@ -62,6 +63,11 @@ export function PageMenu({
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const name = (mind && mindName(mind)) || t("mind.untitled");
   const tabId = useTabPlace()?.tabId;
+  // A group of one Note: the page's ⋯ is its pane's, and its strip has none (#2868).
+  const soloGroupId = useAppStore((state) => {
+    const group = state.layout?.groups.find((each) => each.tabs.some((tab) => tab.id === tabId));
+    return group?.tabs.length === 1 ? group.id : null;
+  });
   const holder = useRef<HTMLSpanElement>(null);
   const [moving, setMoving] = useState<HTMLElement | null>(null);
   const button = () =>
@@ -105,128 +111,142 @@ export function PageMenu({
         // The Mind is open on this page: nothing to open, and Style is below.
         without={["mind.open", "mind.openTab"]}
         more={
-          readOnly && !origin && !otherExamples
+          readOnly && !origin && !otherExamples && !soloGroupId
             ? undefined
             : (close) => (
                 <>
-                  {!readOnly && (
-                    <button
-                      {...style.itemProps}
-                      type="button"
-                      data-testid="page-style"
-                      className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
-                    >
-                      <span className="flex-1">{t("mindStyle.title")}</span>
-                      <span className="max-w-32 truncate pl-4 text-[13px] text-ink-meta">
-                        {styleValue}
-                      </span>
-                      <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
-                    </button>
-                  )}
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      data-testid="mind.citationStyle"
-                      onClick={() => {
-                        const anchor = button();
-                        close();
-                        requestAnimationFrame(() =>
-                          useCitationStylePicker.getState().show(mindId, anchor),
-                        );
-                      }}
-                      className={`${menuItemClass} pl-2`}
-                    >
-                      <span className="flex-1">{t("citationStyle.command")}</span>
-                    </button>
-                  )}
-                  {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
-                  {!readOnly && offersReview(editor) && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      data-testid="page-review-changes"
-                      onClick={() => {
-                        close();
-                        requestAnimationFrame(() => {
-                          revealEditor();
-                          reviewApplied(editor, { focus: true });
-                        });
-                      }}
-                      className={`${menuItemClass} pl-2`}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{t("edit.applied.review")}</span>
-                    </button>
-                  )}
-                  {origin && (
+                  {(!readOnly || origin || otherExamples) && (
                     <>
-                      {!readOnly && <div className={menuRuleClass} />}
-                      {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
+                      {!readOnly && (
+                        <button
+                          {...style.itemProps}
+                          type="button"
+                          data-testid="page-style"
+                          className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
+                        >
+                          <span className="flex-1">{t("mindStyle.title")}</span>
+                          <span className="max-w-32 truncate pl-4 text-[13px] text-ink-meta">
+                            {styleValue}
+                          </span>
+                          <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                        </button>
+                      )}
+                      {!readOnly && (
                         <button
                           type="button"
                           role="menuitem"
-                          data-testid="page-review"
+                          data-testid="mind.citationStyle"
                           onClick={() => {
+                            const anchor = button();
                             close();
-                            revealEditor();
-                            useReviewPanes.getState().open(mindId);
+                            requestAnimationFrame(() =>
+                              useCitationStylePicker.getState().show(mindId, anchor),
+                            );
                           }}
                           className={`${menuItemClass} pl-2`}
                         >
-                          <span className="min-w-0 flex-1 truncate">{t("review.menuItem")}</span>
+                          <span className="flex-1">{t("citationStyle.command")}</span>
                         </button>
                       )}
-                      {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        data-testid="page-from"
-                        aria-disabled={original ? undefined : true}
-                        title={
-                          origin.word
-                            ? wordFileTooltip(report, t, language)
-                            : t("verify.from.title", { name: origin.name })
-                        }
-                        onClick={() => {
-                          if (!original) return;
-                          close();
-                          if (origin.word) openOriginalAtCaret(original.id, editor, doc);
-                          else openDocumentBeside(original.id);
-                        }}
-                        className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {t(origin.word ? "wordImport.from" : "verify.from", {
-                            name: origin.name,
-                          })}
-                        </span>
-                      </button>
-                      {original && (
+                      {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
+                      {!readOnly && offersReview(editor) && (
                         <button
                           type="button"
                           role="menuitem"
-                          data-testid="page-show-original"
-                          aria-disabled={away ? true : undefined}
-                          title={away ? t(away.reason) : undefined}
+                          data-testid="page-review-changes"
                           onClick={() => {
-                            if (away) return;
                             close();
-                            files
-                              .showDocumentInFolder(original.id)
-                              .catch((error) => useAppStore.getState().reportError(error));
+                            requestAnimationFrame(() => {
+                              revealEditor();
+                              reviewApplied(editor, { focus: true });
+                            });
                           }}
-                          className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+                          className={`${menuItemClass} pl-2`}
                         >
-                          {t(showFileLabelKey(navigator.platform))}
+                          <span className="min-w-0 flex-1 truncate">
+                            {t("edit.applied.review")}
+                          </span>
                         </button>
+                      )}
+                      {origin && (
+                        <>
+                          {!readOnly && <div className={menuRuleClass} />}
+                          {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              data-testid="page-review"
+                              onClick={() => {
+                                close();
+                                revealEditor();
+                                useReviewPanes.getState().open(mindId);
+                              }}
+                              className={`${menuItemClass} pl-2`}
+                            >
+                              <span className="min-w-0 flex-1 truncate">
+                                {t("review.menuItem")}
+                              </span>
+                            </button>
+                          )}
+                          {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid="page-from"
+                            aria-disabled={original ? undefined : true}
+                            title={
+                              origin.word
+                                ? wordFileTooltip(report, t, language)
+                                : t("verify.from.title", { name: origin.name })
+                            }
+                            onClick={() => {
+                              if (!original) return;
+                              close();
+                              if (origin.word) openOriginalAtCaret(original.id, editor, doc);
+                              else openDocumentBeside(original.id);
+                            }}
+                            className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+                          >
+                            <span className="min-w-0 flex-1 truncate">
+                              {t(origin.word ? "wordImport.from" : "verify.from", {
+                                name: origin.name,
+                              })}
+                            </span>
+                          </button>
+                          {original && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              data-testid="page-show-original"
+                              aria-disabled={away ? true : undefined}
+                              title={away ? t(away.reason) : undefined}
+                              onClick={() => {
+                                if (away) return;
+                                close();
+                                files
+                                  .showDocumentInFolder(original.id)
+                                  .catch((error) => useAppStore.getState().reportError(error));
+                              }}
+                              className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+                            >
+                              {t(showFileLabelKey(navigator.platform))}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {otherExamples && (
+                        <>
+                          {(!readOnly || origin) && <div className={menuRuleClass} />}
+                          <p className={menuTitleClass}>{t("examples.banner.more")}</p>
+                          <ExampleChoices more={otherExamples} close={close} />
+                        </>
                       )}
                     </>
                   )}
-                  {otherExamples && (
+                  {soloGroupId && (
                     <>
-                      {(!readOnly || origin) && <div className={menuRuleClass} />}
-                      <p className={menuTitleClass}>{t("examples.banner.more")}</p>
-                      <ExampleChoices more={otherExamples} close={close} />
+                      <div className={menuRuleClass} />
+                      <GroupMenuItems groupId={soloGroupId} merged={false} close={close} />
                     </>
                   )}
                 </>

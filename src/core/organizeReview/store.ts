@@ -1,6 +1,12 @@
 import { sameName } from "../../shared/names";
+import { isTagColour } from "../../shared/tagColours";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
+import type { Language } from "../language";
 import type { Database } from "../storage";
+import { shownDescription, shownName } from "../tags";
+import { offeredKinds } from "../tags/about";
+import { isTagKind, KIND_COLOURS, kindName, kindOfName, type TagKind } from "../tags/kinds";
+import type { ProposedTag } from "../tags/proposals";
 import { tagKey } from "../tags/suggest";
 import type {
   OrganizeReview,
@@ -72,10 +78,12 @@ const COLUMNS: Record<Table, Record<string, Column>> = {
   tags: {
     item_id: "text",
     tag_id: "text?",
+    kind: "text?",
     name: "text",
     description: "text",
     added_by_user: "int",
     made: "int",
+    took_over: "int",
     link_before: "text?",
     created_at: "text",
     deleted_at: "text?",
@@ -124,11 +132,23 @@ export interface TagRow {
   id: string;
   item_id: string;
   tag_id: string | null;
+  /** The kind a new kind's Tag is made for; a kind's Tag the Library has says it too. */
+  kind: string | null;
   name: string;
   description: string;
   added_by_user: number;
   made: number;
+  /** Its Confirm made a Tag of the User's own the kind's Tag (`TagsStore.kindTag`). */
+  took_over: number;
   link_before: string | null;
+}
+
+/** A Tag a run may propose, as its row keeps it: the Library's, a kind's, or a new one by name. */
+interface ProposedRow {
+  tag_id: string | null;
+  kind: TagKind | null;
+  name: string;
+  description: string;
 }
 
 /** Who asked for a run, and on what. */
@@ -140,7 +160,7 @@ export interface OrganizeReviewRun {
   folderId?: string | null;
 }
 
-export type ProposedTag = { tagId: string } | { name: string; description: string };
+export type { ProposedTag } from "../tags/proposals";
 
 export interface OrganizeReviewProposal {
   documentId: string;
@@ -173,6 +193,8 @@ export interface TagsProposal {
   documentId: string;
   contentHash: string | null;
   tags: ProposedTag[];
+  /** Why a Document the User asked to tag gets nothing, for the Review's Left out (#2339). */
+  leftOut?: OrganizeReviewLeftOut;
 }
 
 /** A run the User started may replace what waits; one in the background or a migration only adds. */
@@ -214,7 +236,13 @@ const leftOutOf = (
   row: Pick<ItemRow, "left_out" | "left_out_detail">,
 ): OrganizeReviewLeftOut | null => {
   const { left_out: reason, left_out_detail: detail } = row;
-  if (reason === "doesntFit" || reason === "staysInFolder" || reason === "noText")
+  if (
+    reason === "doesntFit" ||
+    reason === "tooFew" ||
+    reason === "staysInFolder" ||
+    reason === "noText" ||
+    reason === "noTag"
+  )
     return { reason };
   if (reason === "unreachable" && detail !== null) return { reason, service: detail };
   if (reason === "walled" && detail !== null) return { reason, folderId: detail };
@@ -235,7 +263,13 @@ function parseLeftOut(input: unknown): OrganizeReviewLeftOut {
   const invalid = new InvalidInputError({ key: "error.organizeReview.invalid" });
   if (!isRecord(input)) throw invalid;
   const { reason } = input;
-  if (reason === "doesntFit" || reason === "staysInFolder" || reason === "noText")
+  if (
+    reason === "doesntFit" ||
+    reason === "tooFew" ||
+    reason === "staysInFolder" ||
+    reason === "noText" ||
+    reason === "noTag"
+  )
     return { reason };
   if (reason === "unreachable" && typeof input.service === "string" && input.service !== "")
     return { reason, service: input.service };
@@ -384,7 +418,12 @@ const sameValues = (a: Values, b: Values) =>
  * The stored Suggestions: what runs propose, what the User changes before Confirm, and what
  * Discard sets aside. Only the database; Confirm is ./index's.
  */
-export function createOrganizeReviewStore(db: Database, now: () => string) {
+/** `language`: the interface's, which a kind's Tag is named in. */
+export function createOrganizeReviewStore(
+  db: Database,
+  now: () => string,
+  language: () => Language = () => "en",
+) {
   /** The rows the edit under way touched, as each was before it. */
   let recording: Map<string, { table: Table; id: string; before: Values | undefined }> | null =
     null;
@@ -515,10 +554,25 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
   const siblingNamed = (parentId: string | null, name: string) =>
     liveGroups().find((each) => each.parent_id === parentId && sameName(each.name, name));
   const liveGroup = (id: string) => liveGroups().find((group) => group.id === id);
+  /** The Library's Tags as they show: a kind's in the interface's language. */
   const liveTags = () =>
-    db.all<{ id: string; name: string; description: string }>(
-      "SELECT id, name, description FROM tags WHERE deleted_at IS NULL",
-    );
+    db
+      .all<{
+        id: string;
+        name: string;
+        description: string;
+        kind: string | null;
+        colour: string;
+      }>("SELECT id, name, description, kind, colour FROM tags WHERE deleted_at IS NULL")
+      .map((row) => ({
+        id: row.id,
+        name: shownName(row, language()),
+        description: shownDescription(row, language()),
+        kind: isTagKind(row.kind) ? row.kind : null,
+        colour: isTagColour(row.colour) ? row.colour : null,
+      }));
+  /** How a kind is declined: by its kind, whatever its Tag is named. */
+  const kindDecline = (kind: TagKind) => `kind:${kind}`;
 
   const declineUntil = () =>
     new Date(Date.parse(now()) + DECLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -561,7 +615,11 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     }
     for (const tag of tagRowsOf(item.id)) {
       if (tag.added_by_user === 0)
-        targets.push({ kind: "tag", targetId: tag.made === 1 ? null : tag.tag_id, name: tag.name });
+        targets.push({
+          kind: "tag",
+          targetId: tag.made === 1 ? null : tag.tag_id,
+          name: isTagKind(tag.kind) ? kindDecline(tag.kind) : tag.name,
+        });
     }
     return targets;
   };
@@ -695,36 +753,60 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         )
         .map((row) => row.tag_id),
     );
-    // An uncertain Tag waits for the User like a new one; any other already applies.
     const applied = new Set(
       db
         .all<{ tag_id: string }>(
-          "SELECT tag_id FROM document_tags WHERE document_id = ? AND deleted_at IS NULL AND needs_review = 0",
+          "SELECT tag_id FROM document_tags WHERE document_id = ? AND deleted_at IS NULL",
           [documentId],
         )
         .map((row) => row.tag_id),
     );
-    const out: { tag_id: string | null; name: string; description: string }[] = [];
+    const kinds = new Set(offeredKinds(db));
+    const out: ProposedRow[] = [];
     const seen = new Set<string>();
     for (const each of proposed) {
-      let tag: { tag_id: string | null; name: string; description: string };
-      if ("tagId" in each) {
+      let tag: ProposedRow;
+      const kind = "kind" in each ? each.kind : "name" in each ? kindOfName(each.name) : null;
+      if (kind !== null) {
+        const existing = live.find((one) => one.kind === kind);
+        if (!kinds.has(kind)) continue;
+        tag = existing
+          ? { tag_id: existing.id, kind, name: "", description: "" }
+          : { tag_id: null, kind, name: "", description: "" };
+      } else if ("tagId" in each) {
         const existing = live.find((one) => one.id === each.tagId);
         if (!existing) continue;
-        tag = { tag_id: existing.id, name: existing.name, description: existing.description };
-      } else {
+        tag = {
+          tag_id: existing.id,
+          kind: existing.kind,
+          name: existing.name,
+          description: existing.description,
+        };
+      } else if ("name" in each) {
         const name = parseTagName(each.name);
         const existing = live.find((one) => tagKey(one.name) === tagKey(name));
         if (existing)
-          tag = { tag_id: existing.id, name: existing.name, description: existing.description };
+          tag = {
+            tag_id: existing.id,
+            kind: existing.kind,
+            name: existing.name,
+            description: existing.description,
+          };
         else if (deleted.has(tagKey(name))) continue;
-        else tag = { tag_id: null, name, description: parseTagDescription(each.description) };
-      }
-      const key = tag.tag_id ?? `new:${tagKey(tag.name)}`;
+        else
+          tag = {
+            tag_id: null,
+            kind: null,
+            name,
+            description: parseTagDescription(each.description),
+          };
+      } else continue;
+      const key = tag.tag_id ?? (tag.kind ? `kind:${tag.kind}` : `new:${tagKey(tag.name)}`);
       if (seen.has(key)) continue;
       seen.add(key);
       if (tag.tag_id !== null && (owned.has(tag.tag_id) || applied.has(tag.tag_id))) continue;
-      if (declined(documentId, "tag", tag.tag_id, tag.name)) continue;
+      const declinedAs = tag.kind ? kindDecline(tag.kind) : tag.name;
+      if (declined(documentId, "tag", tag.tag_id, declinedAs)) continue;
       out.push(tag);
     }
     return out;
@@ -767,20 +849,26 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     return { parentId: null, parentNewFolderId: parent.id };
   };
 
-  const addTags = (itemId: string, tags: ReturnType<typeof tagsFor>) => {
+  const addTags = (itemId: string, tags: readonly ProposedRow[]) => {
     const there = tagRowsOf(itemId);
     for (const tag of tags) {
       const already = there.some((row) =>
-        tag.tag_id !== null ? row.tag_id === tag.tag_id : tagKey(row.name) === tagKey(tag.name),
+        tag.tag_id !== null
+          ? row.tag_id === tag.tag_id
+          : tag.kind !== null
+            ? row.kind === tag.kind
+            : row.kind === null && tagKey(row.name) === tagKey(tag.name),
       );
       if (already) continue;
       insert("tags", {
         item_id: itemId,
         tag_id: tag.tag_id,
+        kind: tag.kind,
         name: tag.name,
         description: tag.description,
         added_by_user: 0,
         made: 0,
+        took_over: 0,
         link_before: null,
       });
     }
@@ -903,6 +991,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
           if (existing && !replaceable(run, existing, proposal.contentHash)) continue;
           const resolved = placementFor(run, proposal.documentId, proposal.placement);
           const tags = tagsFor(proposal.documentId, proposal.tags);
+          // Left out holds only what gets nothing: a Document with Tags waits for them where it is.
           const placement =
             "newFolder" in resolved
               ? {
@@ -910,7 +999,9 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
                   placement: "newFolder" as const,
                   folder_id: proposedFolder(resolved.newFolder),
                 }
-              : resolved;
+              : resolved.placement === "leftOut" && tags.length > 0
+                ? UNCHANGED
+                : resolved;
           // A run with an Undo sets the row it replaces aside, for that Undo to bring back.
           if (existing && run.runId)
             update("items", existing.id, { state: "discarded", discard_id: run.runId });
@@ -927,7 +1018,9 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
     /**
      * Writes the Tags a tagging run proposes, beside any Folder already proposed. A run the User
      * started replaces the Tags proposed before on a row they haven't edited; one in the
-     * background adds. Returns how many rows it wrote to.
+     * background adds. A Document the User asked to tag that gets nothing waits in Left out with
+     * `leftOut`'s reason; one that gets Tags leaves Left out, for they wait where it is. Returns
+     * how many rows it wrote to.
      */
     proposeTags(run: OrganizeReviewRun, proposals: readonly TagsProposal[]): number {
       return db.transaction(() => {
@@ -935,18 +1028,45 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
         for (const proposal of proposals) {
           if (!proposable(proposal.documentId)) continue;
           const tags = tagsFor(proposal.documentId, proposal.tags);
+          const leftOut =
+            tags.length === 0 && proposal.leftOut
+              ? { ...UNCHANGED, placement: "leftOut" as const, ...leftOutColumns(proposal.leftOut) }
+              : null;
           const existing = openItem(proposal.documentId);
           if (!existing) {
-            if (tags.length === 0) continue;
-            addTags(insertItem(run, proposal.documentId, proposal.contentHash, UNCHANGED), tags);
+            if (tags.length === 0 && !leftOut) continue;
+            const id = insertItem(
+              run,
+              proposal.documentId,
+              proposal.contentHash,
+              leftOut ?? UNCHANGED,
+            );
+            addTags(id, tags);
             written++;
             continue;
           }
           if (existing.edited !== 0) continue;
-          if (userStarted(run)) {
+          let rowId = existing.id;
+          if (userStarted(run) && run.runId) {
+            // A run with an Undo sets the row it replaces aside, for that Undo to bring back.
+            update("items", existing.id, { state: "discarded", discard_id: run.runId });
+            rowId = insertItem(run, proposal.documentId, proposal.contentHash, {
+              placement: existing.placement,
+              group_id: existing.group_id,
+              folder_id: existing.folder_id,
+              left_out: existing.left_out,
+              left_out_detail: existing.left_out_detail,
+            });
+          } else if (userStarted(run)) {
             for (const tag of tagRowsOf(existing.id)) remove("tags", tag.id);
           }
-          addTags(existing.id, tags);
+          if (tags.length > 0 && existing.placement === "leftOut")
+            update("items", rowId, { ...UNCHANGED });
+          else if (leftOut && userStarted(run) && existing.placement === "unchanged")
+            update("items", rowId, leftOut);
+          addTags(rowId, tags);
+          const now = openItemById(rowId);
+          if (now?.placement === "unchanged" && tagRowsOf(rowId).length === 0) dropItem(now);
           written++;
         }
         return written;
@@ -977,12 +1097,15 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
           tags: tagRowsOf(row.id).flatMap((tag): OrganizeReviewTag[] => {
             const live = tag.tag_id === null ? undefined : tags.get(tag.tag_id);
             if (tag.tag_id !== null && !live && tag.made === 0) return [];
+            const kind = live?.kind ?? (isTagKind(tag.kind) ? tag.kind : null);
             return [
               {
                 id: tag.id,
                 tagId: live?.id ?? null,
-                name: live?.name ?? tag.name,
+                kind,
+                name: live?.name ?? (kind ? kindName(kind, language()) : tag.name),
                 description: live?.description ?? tag.description,
+                colour: live?.colour ?? (kind ? KIND_COLOURS[kind] : null),
                 addedByUser: tag.added_by_user !== 0,
               },
             ];
@@ -1054,33 +1177,58 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
             if (!item) return;
             const wanted = edit.tag;
             const live = liveTags();
-            let tag: { tag_id: string | null; name: string; description: string };
+            const of = (one: (typeof live)[number]): ProposedRow => ({
+              tag_id: one.id,
+              kind: one.kind,
+              name: one.name,
+              description: one.description,
+            });
+            let tag: ProposedRow;
             if ("tagId" in wanted) {
               const chosen = live.find((one) => one.id === wanted.tagId);
               if (!chosen) throw new NotFoundError({ key: "error.tag.notFound" });
-              tag = { tag_id: chosen.id, name: chosen.name, description: chosen.description };
+              tag = of(chosen);
             } else {
-              const chosen = live.find((one) => tagKey(one.name) === tagKey(wanted.name));
+              // A kind's name, in either language, is that kind.
+              const kind = kindOfName(wanted.name);
+              const chosen = live.find((one) =>
+                kind ? one.kind === kind : tagKey(one.name) === tagKey(wanted.name),
+              );
               tag = chosen
-                ? { tag_id: chosen.id, name: chosen.name, description: chosen.description }
-                : { tag_id: null, name: wanted.name, description: wanted.description ?? "" };
+                ? of(chosen)
+                : kind
+                  ? { tag_id: null, kind, name: "", description: "" }
+                  : {
+                      tag_id: null,
+                      kind: null,
+                      name: wanted.name,
+                      description: wanted.description ?? "",
+                    };
             }
             const there = tagRowsOf(item.id).some((row) =>
               tag.tag_id !== null
                 ? row.tag_id === tag.tag_id
-                : tagKey(row.name) === tagKey(tag.name),
+                : tag.kind !== null
+                  ? row.kind === tag.kind
+                  : tagKey(row.name) === tagKey(tag.name),
             );
             if (there) return;
             insert("tags", {
               item_id: item.id,
               tag_id: tag.tag_id,
+              kind: tag.kind,
               name: tag.name,
               description: tag.description,
               added_by_user: 1,
               made: 0,
+              took_over: 0,
               link_before: null,
             });
-            undecline(item.document_id, { kind: "tag", targetId: tag.tag_id, name: tag.name });
+            undecline(item.document_id, {
+              kind: "tag",
+              targetId: tag.tag_id,
+              name: tag.kind ? kindDecline(tag.kind) : tag.name,
+            });
             update("items", item.id, { edited: 1 });
             return;
           }
@@ -1093,7 +1241,7 @@ export function createOrganizeReviewStore(db: Database, now: () => string) {
               decline(item.document_id, {
                 kind: "tag",
                 targetId: tag.made === 1 ? null : tag.tag_id,
-                name: tag.name,
+                name: isTagKind(tag.kind) ? kindDecline(tag.kind) : tag.name,
               });
             update("items", item.id, { edited: 1 });
             return;

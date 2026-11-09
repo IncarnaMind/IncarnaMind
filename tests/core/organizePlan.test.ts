@@ -657,6 +657,7 @@ describe("Organize the Library into the Review", () => {
         settings: () => settings,
         language: () => "en",
         isExampleDocument: () => false,
+        taggingOn: () => true,
         wallOf: () => null,
         embedding: { enabled: () => false, id: "none" },
         organizeService: () => null,
@@ -682,6 +683,8 @@ describe("Organize the Library into the Review", () => {
           estimate.billing === "per-token" ? (estimate.cost?.amount ?? null) : null,
         tokensOf: approximateTokens,
         propose: () => 0,
+        prepareTagging: async () => null,
+        proposeTags: () => 0,
         settled: () => undefined,
         progress: () => {},
       });
@@ -716,6 +719,7 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
       folders: () => [],
       settings: () => settings,
       language: () => "en",
+      taggingOn: () => true,
       isExampleDocument: () => false,
       wallOf: () => null,
       embedding: { enabled: () => false, id: "none" },
@@ -742,6 +746,8 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
         estimate.billing === "per-token" ? (estimate.cost?.amount ?? null) : null,
       tokensOf: approximateTokens,
       propose: () => 0,
+      prepareTagging: async () => null,
+      proposeTags: () => 0,
       settled: () => undefined,
       progress: () => {},
       ...overrides,
@@ -749,7 +755,7 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
     return { organizer, seen };
   };
 
-  test("the tagging the plan hands on counts toward the $1 its cost is shown above", async () => {
+  test("the run's own tagging counts toward the $1 its cost is shown above", async () => {
     const { core, dataDir, sources } = await start();
     await add(core, sources, {
       "Lease 1.txt": "Lease.",
@@ -764,7 +770,7 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
       expect(await alone.organizer.organize({})).toMatchObject({ status: "done" });
       expect(alone.seen.estimated).toEqual([1]);
 
-      // With a tagging request for each of the three: four, $1.20, so its cost comes first.
+      // With three tagging requests besides: four, $1.20, so its cost comes first.
       const asked: string[][] = [];
       const tagged = organizerOn(db, settings, {
         taggingRequests: (ids) => {

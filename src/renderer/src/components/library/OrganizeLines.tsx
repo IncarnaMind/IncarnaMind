@@ -6,6 +6,7 @@ import {
   acceptEstimate,
   dismissEstimate,
   dismissFailed,
+  dismissTaggingFailed,
   LIBRARY_UNDO_PLACE,
   openReview,
   retryFailed,
@@ -63,6 +64,8 @@ export function OrganizeLines() {
   const language = useLanguage();
   const run = useOrganizeReview((state) => state.run);
   const stopped = useOrganizeReview((state) => state.stopped);
+  const stoppedTagging = useOrganizeReview((state) => state.stoppedTagging);
+  const apart = useOrganizeReview((state) => state.apart);
   const estimate = useOrganizeReview((state) => state.estimate);
   const counted = useOrganizeReview((state) => state.count);
   const snapshotCount = useAppStore((state) => state.library?.reviewCount ?? 0);
@@ -84,7 +87,7 @@ export function OrganizeLines() {
       {run ? (
         <Line testId="organize-running">
           <span className="tabular-nums">
-            {t("organizeReview.running", {
+            {t(run.tags ? "organizeReview.tagging" : "organizeReview.running", {
               done: formatCount(run.done, language),
               total: formatCount(run.total, language),
             })}
@@ -129,7 +132,22 @@ export function OrganizeLines() {
         <>
           {stopped !== null && (
             <Line testId="organize-stopped">
-              <span>{t("organizeReview.stopped", { count: formatCount(stopped, language) })}</span>
+              <span>
+                {t(stoppedTagging ? "organizeReview.stoppedTagging" : "organizeReview.stopped", {
+                  count: formatCount(stopped, language),
+                })}
+              </span>
+            </Line>
+          )}
+          {apart !== null && (
+            <Line testId="organize-apart">
+              <span>
+                {apart.count === 1
+                  ? t(apart.tags ? "organizeReview.noTagFits.one" : "organizeReview.apart.one")
+                  : t(apart.tags ? "organizeReview.noTagFits" : "organizeReview.apart", {
+                      count: formatCount(apart.count, language),
+                    })}
+              </span>
             </Line>
           )}
           {count > 0 && (
@@ -156,7 +174,53 @@ export function OrganizeLines() {
         </>
       )}
       {!run && <FailedLine />}
+      {!run && <TaggingFailedLine />}
     </>
+  );
+}
+
+/**
+ * The last Organize proposed its Folders but its tagging failed (#2339): one line says so, with
+ * the provider's sentence under Details, until dismissed. The next run tries the Tags again.
+ */
+function TaggingFailedLine() {
+  const t = useT();
+  const failed = useOrganizeReview((state) => state.taggingFailed);
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  if (!failed) return null;
+  return (
+    <ProblemLine
+      role="alert"
+      testId="organize-tagging-failed"
+      className="mt-2"
+      action={{
+        label: t("organizeReview.dismiss"),
+        testId: "organize-tagging-failed-dismiss",
+        onClick: dismissTaggingFailed,
+      }}
+      disclosure={{
+        toggle: (
+          <button
+            type="button"
+            data-testid="organize-tagging-failed-details"
+            aria-expanded={open}
+            aria-controls={panel}
+            onClick={() => setOpen(!open)}
+            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          >
+            {t("error.details")}
+          </button>
+        ),
+        panel: open ? (
+          <p id={panel} className="mt-1 break-words text-ink-secondary">
+            {failed.details}
+          </p>
+        ) : null,
+      }}
+    >
+      {t("organizeReview.taggingFailed")}
+    </ProblemLine>
   );
 }
 

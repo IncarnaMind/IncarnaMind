@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import type { Document, Tag } from "../../../core/api";
 import { organizeHeld, organizesNewDocuments } from "../../../shared/libraryModels";
 import { useT } from "../i18n";
+import { openReview, refreshReview, tagDocuments, useOrganizeReview } from "../organizeReview";
 import { useAppStore } from "../store";
 import { taggingProblem } from "../taggingProblem";
 import { placeOf, resumeTagging } from "../taggingStop";
@@ -61,19 +62,22 @@ export function DocumentTagMenu({
   );
 }
 
-type NoTagsWhy = "stopped" | "noTags" | "noFit";
+type NoTagsWhy = "stopped" | "waiting" | "noTags" | "noFit";
 
 const whyKeys = {
   stopped: "status.taggingStopped",
+  waiting: "tags.state.waiting",
   noTags: "tags.state.noTags",
   noFit: "tags.state.noFit",
 } as const;
 
-function whyNoTags(item: Document, tags: readonly Tag[]): NoTagsWhy | null {
+/** `waiting`: Tags proposed for it wait in the Review (#2339). */
+function whyNoTags(item: Document, tags: readonly Tag[], waiting: boolean): NoTagsWhy | null {
   if (item.status !== "ready") return null;
   if (item.tagging === "stopped") return "stopped";
-  if (item.tags.length > 0 || (item.tagging !== "tagged" && item.tagging !== "no-tags"))
-    return null;
+  if (item.tags.length > 0) return null;
+  if (waiting) return "waiting";
+  if (item.tagging !== "tagged" && item.tagging !== "no-tags") return null;
   if (tags.length === 0) return "noTags";
   // Tagged before any Tag existed (before "no-tags" was kept), it was never checked against one.
   const firstTag = tags.reduce(
@@ -87,8 +91,8 @@ const footerButton =
   "h-7 shrink-0 rounded-md px-2 text-[12px] font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
 
 /**
- * Under a Document's Tag picker: why it has no Tags (Tagging stopped, no Tag
- * fits, no Tags yet), where automatic tagging is (waiting, working, failed)
+ * Under a Document's Tag picker: why it has no Tags (Tagging stopped, Tags
+ * waiting in the Review, no Tag fits, no Tags yet), where automatic tagging is (waiting, working, failed)
  * for those Organize doesn't hold, "Re-tag automatically" (Organize for those
  * it holds) and "Manage Tags…".
  */
@@ -96,7 +100,14 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
   const t = useT();
   const library = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
-  const why = whyNoTags(item, tags);
+  const review = useOrganizeReview((state) => state.review);
+  useEffect(() => {
+    if (review === null)
+      void refreshReview().catch((error: unknown) => useAppStore.getState().reportError(error));
+  }, [review]);
+  const waiting =
+    review?.items.some((each) => each.documentId === item.id && each.tags.length > 0) ?? false;
+  const why = whyNoTags(item, tags, waiting);
   const held = organizeHeld(library).has(item.id);
   const taggingLine =
     item.status !== "ready" || held
@@ -138,6 +149,22 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
               </button>
             </>
           )}
+          {why === "waiting" && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                data-testid="document-tagging-review"
+                onClick={() => {
+                  close();
+                  openReview();
+                }}
+                className={footerButton}
+              >
+                {t("library.review")}
+              </button>
+            </>
+          )}
           {why === "noTags" && (
             <>
               <span aria-hidden="true">·</span>
@@ -175,7 +202,13 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
             data-testid="retag-document"
             onClick={() => {
               close();
-              void useAppStore.getState().retagDocuments([item.id]);
+              // Organize re-sorts a Document it holds; any other is re-tagged into the Review (#2339).
+              if (held && organizesNewDocuments(library))
+                void useAppStore.getState().retagDocuments([item.id]);
+              else
+                void tagDocuments([item.id]).catch((error: unknown) =>
+                  useAppStore.getState().reportError(error),
+                );
             }}
             className={footerButton}
           >

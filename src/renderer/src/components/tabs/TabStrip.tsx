@@ -19,7 +19,7 @@ import { CloseLineIcon, PinLineIcon, PlusLineIcon, SplitLineIcon } from "../line
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
-import { ExportIdle, ExportMenu } from "./ExportMenu";
+import { ExportMenu } from "./ExportMenu";
 import { ShowAllTabs } from "./ShowAllTabs";
 import { GroupMenu, StripButton } from "./TabMenus";
 import { splitToTheRight } from "./tabActions";
@@ -132,8 +132,9 @@ export function TabStrip({
       <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
-      {shown?.item.kind === "mind" ? <ExportMenu mindId={shown.item.mindId} /> : <ExportIdle />}
-      {!merged && (
+      {/* A viewer pane has no Export and no split; Export is the Note's (#2868). */}
+      {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}
+      {!merged && shown?.item.kind === "mind" && (
         <span className="tab-split">
           <StripButton
             testId="split-group"
@@ -144,7 +145,11 @@ export function TabStrip({
           </StripButton>
         </span>
       )}
-      <GroupMenu groupId={group.id} merged={merged} />
+      {/* A group of one Note takes its ⋯ from the page's, so the pane shows one (#2868). A
+          merged strip holds every group's tabs, so its ⋯ stays. */}
+      {!(!merged && group.tabs.length === 1 && group.tabs[0]?.item.kind === "mind") && (
+        <GroupMenu groupId={group.id} merged={merged} />
+      )}
     </header>
   );
 }

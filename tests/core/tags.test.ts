@@ -14,12 +14,7 @@ import {
 } from "../../src/core";
 import { approximateTokens } from "../../src/core/documents/passages";
 import { openDatabase } from "../../src/core/storage";
-import {
-  EXCERPT_END,
-  EXCERPT_START,
-  EXCERPT_TOKENS,
-  excerptFromPassages,
-} from "../../src/core/tags/classify";
+import { EXCERPT_TOKENS, excerptFromPassages } from "../../src/core/tags/classify";
 import {
   createTempDataFolder,
   nextEvent,
@@ -37,12 +32,28 @@ import {
 } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
 import { scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
+import {
+  proposedTagNamesOf,
+  taggingModel,
+  tagNamed,
+  tagNamesOf,
+  waitForTagging,
+} from "../helpers/tags";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-const PRESETS_EN = ["Book", "Contract", "Invoice", "Notes", "Paper", "Report", "Slides"];
-const PRESETS_ZH = ["书籍", "合同", "幻灯片", "发票", "报告", "笔记", "论文"];
+const PRESETS_EN = [
+  "Book",
+  "Contract",
+  "Invoice",
+  "Letter",
+  "Meeting notes",
+  "Paper",
+  "Report",
+  "Slides",
+  "Statement",
+];
+const PRESETS_ZH = ["书籍", "合同", "幻灯片", "发票", "报告", "论文", "对账单", "会议记录", "信函"];
 
 const PAPER_TEXT = `Attention Is All You Need
 
@@ -60,6 +71,28 @@ const AT = "2026-09-01T09:00:00.000Z";
 const LOCAL: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
 
 const names = (items: readonly { name: string }[]) => items.map((item) => item.name);
+
+/** A link tagging applied by itself, as it did before Tags waited in the Review (#2339). */
+function automaticLink(dataDir: string, documentId: string, tagId: string): void {
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.run(
+      `INSERT INTO document_tags (id, document_id, tag_id, source, confidence, needs_review, created_at, updated_at)
+       VALUES (?, ?, ?, 'automatic', NULL, 0, ?, ?)`,
+      [randomUUID(), documentId, tagId, AT, AT],
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/** The Documents a tagging request sent: its data is the prompt's last line, as JSON. */
+const sentDocuments = (text: string) =>
+  (
+    JSON.parse(text.split("\n").at(-1) ?? "{}") as {
+      documents?: { name: string; type: string; text: string }[];
+    }
+  ).documents ?? [];
 const ids = (items: readonly { id: string }[]) => items.map((item) => item.id);
 
 /** A core whose chat models all answer tagging requests with `chosen`. */
@@ -92,7 +125,7 @@ async function retag(core: Core, documentIds: string[]): Promise<void> {
 }
 
 describe("Preset Tags", () => {
-  test("the first run creates the preset Tags, in English on an English system", async () => {
+  test("the first run creates the preset Tags, each its kind's, in English on an English system", async () => {
     const core = startCore(await createTempDataFolder(), {
       now: () => new Date("2026-10-06T12:00:00Z"),
     });
@@ -100,12 +133,24 @@ describe("Preset Tags", () => {
     const tags = await core.listTags();
 
     expect(names(tags)).toEqual(PRESETS_EN);
+    expect(tags.map((tag) => tag.kind)).toEqual([
+      "book",
+      "contract",
+      "invoice",
+      "letter",
+      "meeting-notes",
+      "paper",
+      "report",
+      "slides",
+      "statement",
+    ]);
     for (const tag of tags) {
       expect(tag).toEqual({
         id: expect.stringMatching(UUID_V4),
         name: tag.name,
         description: expect.stringMatching(/\w{4,}.*\./),
         preset: true,
+        kind: tag.kind,
         madeByUser: false,
         colour: expect.any(String),
         createdAt: "2026-10-06T12:00:00.000Z",
@@ -127,11 +172,11 @@ describe("Preset Tags", () => {
     expect(tags.every((tag) => tag.preset)).toBe(true);
   });
 
-  test("they keep the language they were created in, and aren't created again once deleted", async () => {
+  test("they follow the interface's language, and aren't created again once deleted", async () => {
     const dataDir = await createTempDataFolder();
     const first = startCore(dataDir);
     await first.updateSettings({ user: { language: "zh-CN" } });
-    expect(names(await first.listTags())).toEqual(PRESETS_EN);
+    expect(names(await first.listTags()).sort()).toEqual([...PRESETS_ZH].sort());
     for (const tag of await first.listTags()) await first.deleteTag(tag.id);
     first.close();
 
@@ -158,9 +203,10 @@ describe("Managing Tags", () => {
       name: "Quarterly",
       description: "Covers one quarter of a year.",
       preset: false,
+      kind: null,
       madeByUser: true,
-      // The one colour no preset has.
-      colour: "teal",
+      // Every colour is on a preset: the first in the palette of those on fewest.
+      colour: "red",
       createdAt: "2026-10-06T12:00:00.000Z",
       updatedAt: "2026-10-06T12:00:00.000Z",
     });
@@ -169,15 +215,17 @@ describe("Managing Tags", () => {
       "Book",
       "Contract",
       "Invoice",
-      "Notes",
+      "Letter",
+      "Meeting notes",
       "Paper",
       "Quarterly",
       "Report",
       "Slides",
+      "Statement",
     ]);
     expect(await core.createTag({ name: "receipts" })).toMatchObject({ description: "" });
     // Name order ignores case.
-    expect(names(await core.listTags()).indexOf("receipts")).toBe(6);
+    expect(names(await core.listTags()).indexOf("receipts")).toBe(7);
   });
 
   test("an edit makes a preset Tag the User's, and its Undo hides it at 0 again", async () => {
@@ -395,7 +443,7 @@ describe("Tags the User sets", { timeout: 30_000 }, () => {
 });
 
 describe("Automatic tagging", { timeout: 30_000 }, () => {
-  test("once a Document is embedded, the chat model chooses its Tags from the list, by structured output", async () => {
+  test("once a Document is embedded, the chat model proposes its kind, which waits in the Review (#2339)", async () => {
     const { core, tagging } = await startTagging(["Paper"]);
     let consentAsked = false;
     core.on("consent.requested", () => {
@@ -406,22 +454,28 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     const [tagged] = await waitForTagging(core, [document.id]);
 
-    const paper = await tagNamed(core, "Paper");
     expect(tagged).toMatchObject({ status: "ready", tagging: "tagged", taggingError: null });
-    expect(tagged?.tags).toEqual([
-      { tagId: paper.id, source: "automatic", confidence: null, needsReview: false },
-    ]);
+    expect(tagged?.tags).toEqual([]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     // A local model needs no consent.
     expect(consentAsked).toBe(false);
-    // One request: the Tags' names and descriptions, and the Document's excerpt.
+    // One request: the kinds, and the Document's name, type and excerpt; no Tag of the Library's.
     expect(tagging.requests).toHaveLength(1);
     const [request] = tagging.requests;
     expect(request?.json).toBe(true);
-    expect(request?.names.sort()).toEqual([...PRESETS_EN].sort());
-    expect(request?.text).toContain(`- Paper: ${paper.description}`);
-    expect(request?.text).toContain(`- Invoice: ${(await tagNamed(core, "Invoice")).description}`);
-    expect(request?.text).toContain("Name: Attention");
-    expect(request?.text).toContain("The dominant sequence transduction models");
+    expect(request?.names).toContain("Paper");
+    expect(request?.names).toContain("Invoice");
+    expect(request?.text).toContain('"code":"paper"');
+    expect(request?.text).not.toContain('"tags":[{');
+    expect(sentDocuments(request?.text ?? "")).toEqual([
+      {
+        ref: "d1",
+        name: "Attention",
+        type: "Markdown",
+        text: expect.stringContaining("The dominant sequence transduction models"),
+        tags: [],
+      },
+    ]);
   });
 
   test("tagging never holds up a Document: it is searchable once embedded, and its tagging shows apart", async () => {
@@ -442,7 +496,8 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     ]);
     tagging.release();
     const [tagged] = await waitForTagging(core, [document.id]);
-    expect(tagged).toMatchObject({ status: "ready", tags: [expect.anything()] });
+    expect(tagged).toMatchObject({ status: "ready", tagging: "tagged" });
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test("the model gets a bounded excerpt: the beginning of the Document, without repeats", async () => {
@@ -457,9 +512,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     const document = await addDocument(core, "Novel.txt", chapters);
     await waitForTagging(core, [document.id]);
 
-    const text = tagging.requests[0]?.text ?? "";
-    // The instructions name the markers too: the excerpt is between the last ones.
-    const excerpt = text.slice(text.lastIndexOf(EXCERPT_START), text.lastIndexOf(EXCERPT_END));
+    const excerpt = sentDocuments(tagging.requests[0]?.text ?? "")[0]?.text ?? "";
     expect(excerpt).toContain("Chapter 1.");
     expect(excerpt).not.toContain("Chapter 60.");
     expect(approximateTokens(excerpt)).toBeLessThan(EXCERPT_TOKENS + 50);
@@ -494,7 +547,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
 
     await core.saveChatProvider(LOCAL);
     const [tagged] = await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     expect(tagged?.tagging).toBe("tagged");
   });
 
@@ -509,24 +562,37 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     expect(tagging.requests).toHaveLength(1);
   });
 
-  test("with no Tags to choose from, the chat model names one from what the Document says", async () => {
-    const { core, tagging } = await startTagging([]);
+  test("with every Tag deleted, nothing is offered: no request goes, and nothing is made", async () => {
+    const { core, tagging } = await startTagging(["Meeting notes"]);
     tagging.name([{ name: "Attention", description: "Attention in neural networks." }]);
     await core.saveChatProvider(LOCAL);
     for (const tag of await core.listTags()) await core.deleteTag(tag.id);
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    const [tagged] = await waitForTagging(core, [document.id]);
+    const [unchecked] = await waitForTagging(
+      core,
+      [document.id],
+      (each) => each.tagging === "no-tags",
+    );
 
-    expect(tagged?.tagging).toBe("tagged");
-    expect(await tagNamesOf(core, document.id)).toEqual(["Attention"]);
-    expect(tagging.requests[0]?.text).toContain("Tags: none yet.");
-    expect(names(await core.listTags())).toEqual(["Attention"]);
-    // Automatic tagging made it, so it is not the User's.
-    expect((await core.listTags())[0]?.madeByUser).toBe(false);
+    expect(unchecked?.tagging).toBe("no-tags");
+    expect(tagging.requests).toHaveLength(0);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+    expect(await core.listTags()).toEqual([]);
   });
 
-  test("with no Tags to choose from, a decision model is skipped and the Document is checked once a Tag exists", async () => {
+  test("a kind whose Tag the User deleted isn't proposed while it waits in Recently deleted", async () => {
+    const { core } = await startTagging(["Paper"]);
+    await core.saveChatProvider(LOCAL);
+    await core.deleteTag((await tagNamed(core, "Paper")).id);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    await waitForTagging(core, [document.id]);
+
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+  });
+
+  test("a decision model is asked about the kinds, and the kind it gives waits in the Review", async () => {
     const jev = await startFakeJev({ apiKey: "ollama" });
     jev.answer({ Paper: 0.9 });
     const { core } = await startTagging([]);
@@ -534,54 +600,13 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
       classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
       automatic: true,
     });
-    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    const [waiting] = await waitForTagging(
-      core,
-      [document.id],
-      (each) => each.tagging === "no-tags",
-    );
-    expect(waiting).toMatchObject({ status: "ready", tags: [] });
-    expect(jev.requests).toEqual([]);
-
-    await core.createTag({ name: "Paper", description: "A research paper." });
     const [tagged] = await waitForTagging(core, [document.id]);
 
     expect(tagged?.tagging).toBe("tagged");
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     expect(jev.requests).toHaveLength(1);
-  });
-
-  test("a Document still waiting for a Tag when the app quits is checked at the next start, if a Tag exists by then", async () => {
-    const jev = await startFakeJev({ apiKey: "ollama" });
-    jev.answer({ Paper: 0.9 });
-    const dataDir = await createTempDataFolder();
-    const first = await startTagging([], dataDir);
-    await first.core.saveLibrarySettings({
-      classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
-      automatic: true,
-    });
-    for (const tag of await first.core.listTags()) await first.core.deleteTag(tag.id);
-    const document = await addDocument(first.core, "Attention.md", PAPER_TEXT);
-    await waitForTagging(first.core, [document.id], (each) => each.tagging === "no-tags");
-    first.core.close();
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    try {
-      db.run(
-        `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
-         VALUES (?, 'Paper', 'A research paper.', NULL, 'teal', ?, ?)`,
-        [randomUUID(), AT, AT],
-      );
-    } finally {
-      db.close();
-    }
-
-    const second = await startTagging([], dataDir);
-    const [tagged] = await waitForTagging(second.core, [document.id]);
-
-    expect(tagged?.tagging).toBe("tagged");
-    expect(await tagNamesOf(second.core, document.id)).toEqual(["Paper"]);
   });
 
   test("removing the chat model sends Documents not yet tagged back to waiting", async () => {
@@ -616,7 +641,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
 
     tagging.fail(null);
     await retag(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test("back online, the Documents that couldn't reach the model are tagged again, once however many windows say so", async () => {
@@ -648,7 +673,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     await waitForTagging(core, [offline.id]);
 
     expect(tagging.requests).toHaveLength(before + 1);
-    expect(await tagNamesOf(core, offline.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, offline.id)).toEqual(["Paper"]);
     expect((await core.listDocuments()).find((each) => each.id === unknownModel.id)?.tagging).toBe(
       "failed",
     );
@@ -684,7 +709,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
 
     expect(requests).toEqual([]);
     expect(tagging.requests).toHaveLength(1);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     // The Document that came in while it was off isn't tagged by turning it on.
     expect((await core.listDocuments()).find((each) => each.id === before.id)?.tagging).toBe("off");
     expect(await core.listDataFlows()).toContainEqual({
@@ -807,58 +832,50 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
 });
 
 describe("Re-tagging", { timeout: 30_000 }, () => {
-  test("Tags the User added or removed are never changed automatically", async () => {
-    const { core, tagging } = await startTagging(["Paper", "Report"]);
+  test("the Tags the User added or removed stand: a re-tag only proposes, and never one they decided on", async () => {
+    const { core, tagging } = await startTagging(["Paper"]);
     await core.saveChatProvider(LOCAL);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper", "Report"]);
-    const [paper, report, book] = await Promise.all(
-      ["Paper", "Report", "Book"].map((name) => tagNamed(core, name)),
-    );
-    if (!paper || !report || !book) throw new Error("A preset is missing.");
+    const [paper, book] = await Promise.all(["Paper", "Book"].map((name) => tagNamed(core, name)));
+    if (!paper || !book) throw new Error("A preset is missing.");
 
-    // The User takes an automatic Tag off, adds one, and keeps one automatic tagging chose.
-    await core.removeDocumentTag(document.id, report.id);
+    // The User takes the proposed kind off by hand and adds another.
+    await core.removeDocumentTag(document.id, paper.id);
     await core.addDocumentTag(document.id, book.id);
-    await core.addDocumentTag(document.id, paper.id);
 
-    // The same choices don't bring the removed Tag back.
+    // The same choice doesn't bring the removed Tag back.
     await retag(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Book", "Paper"]);
-    // Choosing nothing doesn't take the User's Tags away.
-    tagging.choose([]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual([]);
+    expect(await tagNamesOf(core, document.id)).toEqual(["Book"]);
+    // Choosing another kind proposes it, and takes nothing off.
+    tagging.choose(["Report"]);
     await retag(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Book", "Paper"]);
-    // Choosing everything adds only Tags the User hasn't decided on.
-    tagging.choose(["Book", "Notes", "Paper", "Report"]);
-    await retag(core, [document.id]);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Book", "Notes", "Paper"]);
-    const [current] = await core.listDocuments();
-    expect(current?.tags.map((link) => link.source)).toEqual(["user", "automatic", "user"]);
-    expect(tagging.requests).toHaveLength(4);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Report"]);
+    expect(await tagNamesOf(core, document.id)).toEqual(["Book"]);
+    expect(tagging.requests).toHaveLength(3);
   });
 
-  test("re-tagging recomputes only the automatic Tags, e.g. after a Tag's description changes", async () => {
-    const { core, tagging } = await startTagging();
-    tagging.choose((request) =>
-      request.text.includes("anything about attention") ? ["Paper"] : ["Notes"],
-    );
+  test("a re-tag offers the User's Tags as they read now, e.g. after a description changes", async () => {
+    const { core, tagging } = await startTagging([]);
     await core.saveChatProvider(LOCAL);
+    const mine = await core.createTag({ name: "Attention", description: "Neural networks." });
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
     await waitForTagging(core, [document.id]);
-    await core.addDocumentTag(document.id, (await tagNamed(core, "Book")).id);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Book", "Notes"]);
-    const paper = await tagNamed(core, "Paper");
+    tagging.choose((request) =>
+      request.text.includes("anything about attention") ? ["Attention"] : [],
+    );
 
-    await core.updateTag(paper.id, { description: "Papers, and anything about attention." });
+    await core.updateTag(mine.id, { description: "Papers, and anything about attention." });
     // Editing a Tag doesn't re-tag by itself.
     expect(tagging.requests).toHaveLength(1);
     await core.retagDocuments();
     await waitForTagging(core, [document.id]);
 
-    expect(await tagNamesOf(core, document.id)).toEqual(["Book", "Paper"]);
-    expect(tagging.requests[1]?.text).toContain("- Paper: Papers, and anything about attention.");
+    expect(tagging.requests[1]?.text).toContain(
+      '"description":"Papers, and anything about attention."',
+    );
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Attention"]);
   });
 
   test("re-tagging one Document leaves the others alone; re-tagging all does them all", async () => {
@@ -871,7 +888,9 @@ describe("Re-tagging", { timeout: 30_000 }, () => {
 
     await retag(core, [second.id]);
     expect(tagging.requests).toHaveLength(3);
-    expect(tagging.requests[2]?.text).toContain("Name: Second");
+    expect(sentDocuments(tagging.requests[2]?.text ?? "").map((each) => each.name)).toEqual([
+      "Second",
+    ]);
 
     const pending = nextEvent(core, "documents.tagged");
     await core.retagDocuments();
@@ -938,12 +957,12 @@ describe("Tagging many Documents at once", { timeout: 30_000 }, () => {
     expect(ids(await core.listDocuments({ tagId: paper.id }))).toEqual([c.id]);
   });
 
-  test("adding a Tag automatic tagging applied makes it the User's, as confirming it does", async () => {
-    const { core } = await startTagging(["Paper"]);
-    await core.saveChatProvider(LOCAL);
+  test("adding a Tag applied automatically before makes it the User's", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    await waitForTagging(core, [document.id]);
     const paper = await tagNamed(core, "Paper");
+    automaticLink(dataDir, document.id, paper.id);
     expect((await core.listDocuments())[0]?.tags[0]?.source).toBe("automatic");
     const [confirmed] = await core.addTagToDocuments([document.id], paper.id);
     expect(confirmed?.tags).toEqual([
@@ -954,9 +973,8 @@ describe("Tagging many Documents at once", { timeout: 30_000 }, () => {
 
 describe("Merging Tags", { timeout: 30_000 }, () => {
   test("merging moves every Document to the other Tag, keeps who chose it, and deletes the merged Tag", async () => {
-    const { core, tagging } = await startTagging();
-    // Automatic tagging applies Report to the paper only.
-    tagging.choose((request) => (request.text.includes("Attention") ? ["Report"] : []));
+    const dataDir = await createTempDataFolder();
+    const { core, tagging } = await startTagging([], dataDir);
     await core.saveChatProvider(LOCAL);
     const auto = await addDocument(core, "Auto.md", PAPER_TEXT);
     const user = await addDocument(core, "User.txt", "Notes about the user, kept for later.");
@@ -964,6 +982,8 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     const removed = await addDocument(core, "Removed.txt", "Notes about removal, kept.");
     await waitForTagging(core, [auto.id, user.id, both.id, removed.id]);
     const report = await tagNamed(core, "Report");
+    // Report on the paper, as tagging applied it before Tags waited in the Review.
+    automaticLink(dataDir, auto.id, report.id);
     const findings = await core.createTag({ name: "Findings", description: "Results written up" });
     await core.addDocumentTag(removed.id, report.id);
     await core.addDocumentTag(user.id, findings.id);
@@ -992,10 +1012,11 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     // The Tag kept is the User's from now on.
     expect(merged.tag?.madeByUser).toBe(true);
 
-    // A removal the User made carries over: re-tagging doesn't put Findings on that one.
+    // A removal the User made carries over: re-tagging doesn't propose Findings for that one.
     tagging.choose(["Findings"]);
     await retag(core, [removed.id]);
     expect(await tagsOf(removed.id)).toEqual([]);
+    expect(await proposedTagNamesOf(core, removed.id)).toEqual([]);
 
     await expect(core.mergeTags(findings.id, findings.id)).rejects.toThrow(InvalidInputError);
     await expect(core.mergeTags(report.id, findings.id)).rejects.toThrow(NotFoundError);
@@ -1172,10 +1193,11 @@ describe("Filtering by Tag", { timeout: 30_000 }, () => {
 describe("Restarting", { timeout: 30_000 }, () => {
   test("Tags, the Tags on Documents and the User's removals survive a restart", async () => {
     const dataDir = await createTempDataFolder();
-    const first = await startTagging(["Paper", "Report"], dataDir);
+    const first = await startTagging(["Report"], dataDir);
     await first.core.saveChatProvider(LOCAL);
     const document = await addDocument(first.core, "Attention.md", PAPER_TEXT);
     await waitForTagging(first.core, [document.id]);
+    await first.core.addDocumentTag(document.id, (await tagNamed(first.core, "Paper")).id);
     await first.core.removeDocumentTag(document.id, (await tagNamed(first.core, "Report")).id);
     await first.core.addDocumentTag(document.id, (await tagNamed(first.core, "Book")).id);
     await first.core.createTag({ name: "Quarterly", description: "One quarter of a year." });
@@ -1187,14 +1209,15 @@ describe("Restarting", { timeout: 30_000 }, () => {
     const documents = await first.core.listDocuments();
     first.core.close();
 
-    const second = await startTagging(["Paper", "Report"], dataDir);
+    const second = await startTagging(["Report"], dataDir);
 
     expect(await second.core.listTags()).toEqual(tags);
     expect(await second.core.listDocuments()).toEqual(documents);
     expect(await tagNamesOf(second.core, document.id)).toEqual(["Book", "Paper"]);
-    // The removal is remembered: re-tagging after the restart leaves Report off.
+    // The removal is remembered: re-tagging after the restart doesn't propose Report again.
     await retag(second.core, [document.id]);
     expect(await tagNamesOf(second.core, document.id)).toEqual(["Book", "Paper"]);
+    expect(await proposedTagNamesOf(second.core, document.id)).toEqual([]);
     expect(second.tagging.requests).toHaveLength(1);
   });
 
@@ -1209,7 +1232,7 @@ describe("Restarting", { timeout: 30_000 }, () => {
     expect((await second.core.listDocuments())[0]?.tagging).toBe("waiting-for-provider");
     await second.core.saveChatProvider(LOCAL);
     await waitForTagging(second.core, [document.id]);
-    expect(await tagNamesOf(second.core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(second.core, document.id)).toEqual(["Paper"]);
   });
 
   test("tagging a quit interrupted starts again at the next launch", async () => {
@@ -1227,6 +1250,6 @@ describe("Restarting", { timeout: 30_000 }, () => {
 
     const second = await startTagging(["Paper"], dataDir);
     await waitForTagging(second.core, [document.id]);
-    expect(await tagNamesOf(second.core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(second.core, document.id)).toEqual(["Paper"]);
   });
 });

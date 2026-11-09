@@ -169,7 +169,7 @@ function checking(replies: (call: ModelCall) => Reply, calls: ModelCall[]) {
     {
       // Asked which sentences make claims, each is one fact.
       generate: (call) =>
-        call.system.startsWith("You sort the sentences")
+        call.question === "find-claims"
           ? {
               text: JSON.stringify({
                 sentences: listedSentences(call.prompt).map(({ number, text }) => ({

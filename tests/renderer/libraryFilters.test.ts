@@ -11,7 +11,6 @@ import {
   type LibraryFacet,
   libraryStatus,
   matchesTags,
-  NEEDS_REVIEW,
   NO_DATE,
   statusFacet,
   tagFacet,
@@ -275,33 +274,28 @@ describe("the Tags filter", () => {
     { id: "t-report", name: "Report" },
     { id: "t-invoice", name: "invoice" },
   ];
-  const link = (tagId: string, needsReview = false) => ({
+  const link = (tagId: string) => ({
     tagId,
     source: "automatic" as const,
     confidence: null,
-    needsReview,
+    needsReview: false,
   });
   type Tagged = Shape & Pick<Document, "tags">;
   const tagged: Tagged[] = [
-    { ...doc(), tags: [link("t-report"), link("t-invoice", true)] },
+    { ...doc(), tags: [link("t-report"), link("t-invoice")] },
     { ...doc({ kind: "docx" }), tags: [link("t-report")] },
     { ...doc(), tags: [] },
   ];
   const facet = tagFacet(tags);
   const facets = [...(documentFacets as readonly LibraryFacet<Tagged>[]), facet];
 
-  test("offers each Tag by name, and Needs review first, with counts", () => {
+  test("offers each Tag by name, with counts", () => {
     expect(options(tagged, facet, {}, facets)).toEqual([
-      [NEEDS_REVIEW, 1, false],
       ["t-invoice", 1, false],
       ["t-report", 2, false],
     ]);
     expect(facet.label("t-invoice", en)).toBe("invoice");
-    expect(facet.label(NEEDS_REVIEW, en)).toBe("Needs review");
-    expect(facet.label(NEEDS_REVIEW, zh)).toBe("待确认");
-    // "Needs review" is marked by the review ring, a Tag by its colour's dot.
-    expect(facet.review?.(NEEDS_REVIEW)).toBe(true);
-    expect(facet.review?.("t-report")).toBe(false);
+    expect(facet.label("t-report", zh)).toBe("Report");
   });
 
   test("keeps Documents with any Tag chosen, combined with the other filters", () => {
@@ -309,7 +303,7 @@ describe("the Tags filter", () => {
       tagged[0],
       tagged[1],
     ]);
-    expect(filterLibrary(tagged, facets, { tag: [NEEDS_REVIEW] }).shown).toEqual([tagged[0]]);
+    expect(filterLibrary(tagged, facets, { tag: ["t-invoice"] }).shown).toEqual([tagged[0]]);
     expect(filterLibrary(tagged, facets, { tag: ["t-report"], format: ["docx"] }).shown).toEqual([
       tagged[1],
     ]);
@@ -317,23 +311,21 @@ describe("the Tags filter", () => {
     expect(matchesTags({ tags: [] }, ["t-report"])).toBe(false);
   });
 
-  test("lists each Tag's Documents, and Needs review's, in one pass, in their order", () => {
+  test("lists each Tag's Documents in one pass, in their order", () => {
     const byTag = documentsByTag(tagged);
-    expect([...byTag.keys()].sort()).toEqual([NEEDS_REVIEW, "t-invoice", "t-report"].sort());
+    expect([...byTag.keys()].sort()).toEqual(["t-invoice", "t-report"]);
     expect(byTag.get("t-report")).toEqual([tagged[0], tagged[1]]);
     expect(byTag.get("t-invoice")).toEqual([tagged[0]]);
-    expect(byTag.get(NEEDS_REVIEW)).toEqual([tagged[0]]);
     // A Tag no Document has isn't there; the sidebar shows it with 0.
     expect(byTag.has("t-unused")).toBe(false);
   });
 
   test("lists 2,000 Documents' Tags in one pass", () => {
     const many = Array.from({ length: 2_000 }, (_, index) => ({
-      tags: [link(`t-${index % 7}`), link(`t-${(index + 3) % 7}`, index % 50 === 0)],
+      tags: [link(`t-${index % 7}`), link(`t-${(index + 3) % 7}`)],
     }));
     const byTag = documentsByTag(many);
     expect(byTag.get("t-0")).toHaveLength(572);
-    expect(byTag.get(NEEDS_REVIEW)).toHaveLength(40);
   });
 
   test("reads each Document's Tags as often in a big Library as in a small one", () => {
@@ -341,7 +333,7 @@ describe("the Tags filter", () => {
       readsPerDocument(size, (n) => {
         const many = counted(
           Array.from({ length: n }, (_, index) => ({
-            tags: [link(`t-${index % 7}`), link(`t-${(index + 3) % 7}`, index % 50 === 0)],
+            tags: [link(`t-${index % 7}`), link(`t-${(index + 3) % 7}`)],
           })),
         );
         documentsByTag(many.items);

@@ -883,7 +883,7 @@ describe("Check against a Document, part by part", () => {
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+          if (call.question !== "find-claims") return checkGenerate({})(call);
           const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
             number,
             parts: (said === example.sentence ? [example.found, example.missing] : [said]).map(
@@ -1045,7 +1045,7 @@ describe("The cost a whole read asks", () => {
       },
       {
         generate(call) {
-          if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+          if (call.question !== "find-claims") return checkGenerate({})(call);
           const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
             number,
             parts: (said === sentence ? [rent, cat] : [said]).map((words) => ({
@@ -1450,10 +1450,10 @@ describe("Check against a Document, on a sentence that says something is absent"
       {
         generate: (call) => {
           // Each look at the quote finds the clause there.
-          if (call.system.startsWith("A sentence the User wrote says something is absent")) {
+          if (call.question === "presence" || call.question === "strict-presence") {
             return { text: `Judgement: ${call.prompt.includes(example.clause) ? "there" : "not"}` };
           }
-          if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
+          if (call.question !== "absence-read") return checkGenerate(plan)(call);
           judged.push(call.prompt);
           const holding = shownPassages(call.prompt).find((each) =>
             each.text.includes(example.clause),
@@ -1664,7 +1664,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
       },
       {
         generate: (call) => {
-          if (call.system.startsWith("You sort the sentences")) {
+          if (call.question === "find-claims") {
             const sorted = listedSentences(call.prompt).map(({ number, text: said }) => ({
               number,
               parts: (said === sentence && parts ? parts : [said]).map((words) => ({
@@ -1674,12 +1674,12 @@ describe("A whole read's windows, on a sentence that says something is absent", 
             }));
             return { text: JSON.stringify({ sentences: sorted }) };
           }
-          if (call.system.startsWith("A sentence the User wrote says something is absent")) {
+          if (call.question === "presence" || call.question === "strict-presence") {
             looks.push({ system: call.system, prompt: call.prompt });
             const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
             return { text: `Judgement: ${look(quote)}` };
           }
-          if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
+          if (call.question !== "absence-read") return checkGenerate(plan)(call);
           // The check that sorts the parts first leaves them to the read.
           if (!reading) return { text: "not a judgement" };
           judged.push({ system: call.system, prompt: call.prompt });

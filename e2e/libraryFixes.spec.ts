@@ -225,8 +225,14 @@ for (const language of ["en", "zh-CN"] as const) {
       join(library, "Tides.txt"),
     );
     await pointAndClick(window, lib.getByTestId("library-organize"));
-    await expect(review).toBeVisible({ timeout: 30_000 });
-    await expect(review.getByTestId("organize-review-left-out-row")).toContainText("Tides");
+    // It fits no Folder and gets no Tag: nothing is proposed, so no Review opens (#2339).
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      language === "en"
+        ? "Organize found no Folder to suggest for these Documents"
+        : "未能为这些文档推荐文件夹",
+      { timeout: 30_000 },
+    );
+    await expect(review).toHaveCount(0);
     await expect(needs).toHaveCount(0);
     await app.close();
   });

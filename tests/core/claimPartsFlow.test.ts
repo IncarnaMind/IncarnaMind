@@ -72,7 +72,7 @@ async function setUpParts(example: (typeof CASES)[number]) {
     },
     {
       generate(call) {
-        if (!call.system.startsWith("You sort the sentences")) return checkGenerate(plans)(call);
+        if (call.question !== "find-claims") return checkGenerate(plans)(call);
         sorts.push(call.prompt);
         const sentences = listedSentences(call.prompt).flatMap(({ number, text }) => {
           const parts = inventories.get(text);

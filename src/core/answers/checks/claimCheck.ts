@@ -22,7 +22,6 @@
  * verdict on the rest of the sentence still stands.
  */
 
-import { generateText } from "ai";
 import { citedInputs } from "../../../shared/calculatedFigures";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import {
@@ -75,7 +74,6 @@ import type { Language } from "../../language";
 import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
-import { classifyProviderError } from "../../providers/providerErrors";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
 import {
@@ -103,6 +101,7 @@ import {
   documentToolDefinitions,
   type SearchResultForModel,
 } from "../engine";
+import { fieldsOf, type Judged, json, judge, lines, list, type NotJudged } from "../judge";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
@@ -128,12 +127,14 @@ import {
   CHECK_TAGS,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
+  changesItsMind,
   checkInstructions,
   claimPrompt,
-  confirmPrompt,
+  confirmParts,
   deniesItself,
   EVIDENCE_INSTRUCTIONS,
-  evidencePrompt,
+  evidenceParts,
+  givesNoEvidence,
   heldDetailLines,
   NEAREST_INSTRUCTIONS,
   namesNothing,
@@ -142,7 +143,7 @@ import {
   ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
-  presencePrompt,
+  presenceParts,
   RECHECK_INSTRUCTIONS,
   type ReadCorrection,
   type ReadVerdict,
@@ -150,6 +151,7 @@ import {
   readJudgement,
   readPart,
   readPresence,
+  readRecheck,
   readsAsRefusal,
   readVerdict,
   replyAcrossTurns,
@@ -638,6 +640,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
         request.library === true,
+        request.claim,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -1104,6 +1107,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
     };
+    /** A judge's question that came to no reading, as the sentence's result says it. */
+    const unjudged = (failure: NotJudged): ClaimCheckResult => {
+      if (failure.reason === "stopped") return notChecked("stopped");
+      if (failure.error) return failedCheck(failure.error);
+      return notChecked(failure.reason === "refused" ? "refused" : "malformed");
+    };
 
     let opinions: Opinions;
     try {
@@ -1158,7 +1167,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         scoped.pageTexts(citation.documentId, citation.contentHash, null, null),
       );
     const confirmations = new Map<string, Promise<boolean>>();
-    let confirmationFailure: ProviderError | null = null;
+    let confirmationFailure: NotJudged | null = null;
     const requiresCalculation = async (verdict: ReadVerdict | null): Promise<boolean> => {
       if (!calculating || !verdict) return false;
       session.check();
@@ -1197,14 +1206,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             quoted,
             session,
             signal,
-            STRICT_INSTRUCTIONS,
+            { id: "strict-figure", instructions: STRICT_INSTRUCTIONS },
+            readJudgement,
             figure,
           ).then((result) => {
-            if ("failed" in result) {
-              confirmationFailure = result.failed;
-              return false;
-            }
-            return readJudgement(result.reply) === "same";
+            if (!result.ok && (result.error || result.reason === "stopped"))
+              confirmationFailure = result;
+            return result.ok && result.value === "same";
           });
           confirmations.set(key, confirmed);
           return confirmed;
@@ -1393,6 +1401,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       const written = across(reply, setAside);
+      // Its last word changed its mind: neither verdict, nor an earlier reply's, stands (#2817).
+      if (changesItsMind(written)) return notChecked("malformed");
       // Asked about its Figures line, a model that can't do what it was asked may write prose
       // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
       // One that writes only its Figures line again leaves its verdict on the sentence standing.
@@ -1516,6 +1526,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           uncovered: null,
           found: true,
         }),
+        unitsMayDiffer: (amount) => ({
+          kind: "units",
+          reason: translate(deps.language(), "claim.unsupported.unitsMayDiffer", { amount }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         keptInside: (documentId) =>
           deps.walledDocument(documentId) !== null &&
           (scope.documentIds === null ||
@@ -1578,6 +1595,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           (verdict.verdict === "contradicted"
             ? await askForEvidence(request, verdict, session, signal, null, unrecorded(verdict))
             : null);
+        if (signal.aborted) return unchecked("stopped");
         if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
         const failure = failureOf(evidence.failed);
         return unchecked(failure.reason, failure.detail);
@@ -1585,7 +1603,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (signal.aborted) return result;
       const figureResult = oneVerdict(
         said
-          ? await withSentenceVerdict(result, () => sentence(said))
+          ? await withSentenceVerdict(result, () => sentence(said), said.correction?.from ?? null)
           : // Figures that all check out never make a sentence Supported without a verdict to read.
             result.verdict === "supported"
             ? await withSentenceVerdict(result, async () => unchecked("malformed"))
@@ -1713,7 +1731,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const absence = await absenceFor(said?.absence ?? null, figureResult.verdict);
       return absence ?? withCorrection(figureResult);
     }
-    if (confirmationFailure) return failedCheck(confirmationFailure);
+    if (confirmationFailure) return unjudged(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
     const checked = calculated(request.claim, figures, stated, figureContext);
     retainedEvidence = uniqueCitations(
@@ -1788,9 +1806,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         ...(result.checkedEvidence ?? []),
       ]);
       for (const citation of cited.filter((each) => givenAfter.has(citationKey(each)))) {
-        const judged = await compare(request, citation, session, signal, STRICT_INSTRUCTIONS);
-        if (!signal.aborted && "reply" in judged && readJudgement(judged.reply) === "same")
-          continue;
+        const judged = await compare(
+          request,
+          citation,
+          session,
+          signal,
+          { id: "strict", instructions: STRICT_INSTRUCTIONS },
+          readJudgement,
+        );
+        if (judged.ok && judged.value === "same") continue;
         // The Not checked result shows none of those quotes either.
         retainedEvidence = notGiven(retainedEvidence);
         if (retainedCoverage) {
@@ -1804,7 +1828,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           };
         }
         if (signal.aborted) return notChecked("stopped");
-        if ("failed" in judged) return failedCheck(judged.failed);
+        if (!judged.ok && judged.error) return failedCheck(judged.error);
         return notChecked("no-evidence");
       }
       return result;
@@ -1868,7 +1892,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
-      return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
+      return confirmationFailure ? unjudged(confirmationFailure) : notChecked("no-evidence");
     // A worked figure settles its number alone: never Supported over a reply that records another
     // duty or a dropped condition, or gives neither line (#1766, #1708).
     const byCalculation: ClaimCheckResult | null =
@@ -1885,7 +1909,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
               ...facts(),
             }
         : null;
-    if (confirmationFailure) return failedCheck(confirmationFailure);
+    if (confirmationFailure) return unjudged(confirmationFailure);
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (
       why: UnsupportedReason = { reason: null, covered: null, uncovered: null },
@@ -1938,10 +1962,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // checked, as an inconsistent one is: on held-out sentences whose Passage gives only a goal, a
     // draft or another contract's terms, it called them supported with every field the same (#2816).
     const rechecked = async (
-      again: ReadVerdict | null,
+      again: ReadVerdict,
       shown: Citation | null,
     ): Promise<ClaimCheckResult> =>
-      again && (ownDetailDiffers(again) || again.scope === "wider")
+      ownDetailDiffers(again) || again.scope === "wider"
         ? unsupported(
             {
               reason: again.says,
@@ -1991,10 +2015,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         )?.why &&
         quoteStatesDetail(request.claim, stated.quote)
       ) {
-        const again = await compare(request, stated, session, signal, RECHECK_INSTRUCTIONS);
-        if (signal.aborted) return notChecked("stopped");
-        if ("failed" in again) return failedCheck(again.failed);
-        return rechecked(readVerdict(again.reply), stated);
+        const again = await compare(request, stated, session, signal, RECHECK, readRecheck);
+        return again.ok ? rechecked(again.value, stated) : unjudged(again);
       }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
@@ -2088,7 +2110,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const nearest = differs ? undefined : null;
       if (part.covered && part.uncovered)
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
-      if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
+      // Parts that can't be read still leave the sentence wider than its Passage: never Supported.
+      return unsupported({ ...UNBACKED, reason: verdict.says });
     }
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
@@ -2130,10 +2153,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         evidence !== null &&
         quoteStatesDetail(request.claim, evidence.quote)
       ) {
-        const again = await compare(request, deciding, session, signal, RECHECK_INSTRUCTIONS);
-        if (signal.aborted) return notChecked("stopped");
-        if ("failed" in again) return failedCheck(again.failed);
-        return rechecked(readVerdict(again.reply), evidence);
+        const again = await compare(request, deciding, session, signal, RECHECK, readRecheck);
+        return again.ok ? rechecked(again.value, evidence) : unjudged(again);
       }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
       // called the parties the other way round the same (#1668, #2313).
@@ -2353,10 +2374,15 @@ function calculated(
  * compared with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the
  * nearest line, and for a sentence with figures the rest's two looks and one for each figure.
  */
-export function afterRun(figures: number): { evidence: number[]; comparisons: number } {
+export function afterRun(figures: number): {
+  evidence: number[];
+  comparisons: number;
+  comparing: number;
+} {
   return {
     evidence: [OUTPUT_LIMITS.evidence.most, outputTokens("evidence")],
     comparisons: 4 + (figures > 0 ? 2 + figures : 0),
+    comparing: Math.max(...COMPARISONS.map((id) => outputTokens(id))),
   };
 }
 
@@ -2378,24 +2404,6 @@ async function askForEvidence(
 ): Promise<Citation | null | Failed> {
   const passages = session.shownPassages();
   if (passages.length === 0) return null;
-  const { model } = request;
-  let reply: string;
-  try {
-    ({ text: reply } = await generateText({
-      model: model.model,
-      instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
-      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: outputTokens("evidence", markers.length),
-      maxRetries: 1,
-      abortSignal: signal,
-    }));
-  } catch (error) {
-    if (!signal.aborted)
-      console.error(`A check's evidence couldn't be asked for again: ${messageOf(error)}`);
-    return { failed: classifyProviderError(error) };
-  }
-  const records: CitationRecordInput[] = [];
   // Asked for the one marker its reply names, Claude Haiku 5.5 gave the record alone, as an ask for
   // no marker takes it, for a quote it had written into its reply instead of calling cite (#2184).
   // Beside other markers, a record alone may be another one's copied.
@@ -2409,49 +2417,83 @@ async function askForEvidence(
     markers.length === 1 && asked !== undefined && named.size === 1 && named.has(asked)
       ? asked
       : undefined;
-  const alone = markers.length === 0 || only !== undefined ? readEvidence(reply) : null;
-  if (alone) {
-    records.push({ marker: only ?? EVIDENCE_MARKER, ...alone });
-  } else if (markers.length === 0) {
-    return null;
-  } else {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1));
-    } catch {
-      return null;
-    }
-    if (
-      !isRecord(parsed) ||
-      !Array.isArray(parsed.citations) ||
-      parsed.citations.length !== markers.length
-    )
-      return null;
-    const missing = new Set(markers);
-    for (const given of parsed.citations) {
-      if (!isRecord(given) || typeof given.marker !== "number" || !missing.delete(given.marker))
-        return null;
-      const record = readEvidence(JSON.stringify(given));
-      if (!record) return null;
-      records.push({ marker: given.marker, ...record });
-    }
+  const judged = await judge({
+    model: request.model.model,
+    question:
+      covered === null
+        ? { id: "evidence", instructions: EVIDENCE_INSTRUCTIONS }
+        : { id: "covered-evidence", instructions: COVERED_EVIDENCE_INSTRUCTIONS },
+    parts: evidenceParts({ claim: request.claim, ...verdict, covered, passages, markers }),
+    data: CHECK_TAGS,
+    reply: json((value) => {
+      const alone =
+        markers.length === 0 || only !== undefined
+          ? oneRecord(value, only ?? EVIDENCE_MARKER)
+          : null;
+      return alone ?? (markers.length === 0 ? null : markedRecords(value, markers));
+    }),
+    items: markers.length,
+    retries: 1,
+    signal,
+    temperature: answerTemperature(request.model.capabilities.facts.temperature),
+  });
+  if (!judged.ok) {
+    if (judged.reason === "stopped" || !judged.error) return null;
+    console.error(`A check's evidence couldn't be asked for again: ${judged.error.message}`);
+    return { failed: judged.error };
   }
+  const records = judged.value;
+  if (records.length === 0) return null;
   session.tools.cite(records, { structured: true });
   session.check();
   const citations = records.map((record) => session.finalCitation(record.marker));
   return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
 }
 
+/** The record a reply gives alone, as `marker`'s; none for `{"passage": null}`; null otherwise. */
+function oneRecord(value: unknown, marker: number): CitationRecordInput[] | null {
+  if (givesNoEvidence(value)) return [];
+  const record = readEvidence(value);
+  return record ? [{ marker, ...record }] : null;
+}
+
+/** Each asked marker's record, every one once and none else; null otherwise. */
+function markedRecords(value: unknown, markers: readonly number[]): CitationRecordInput[] | null {
+  const reply = fieldsOf(value, { citations: list });
+  if (!reply || reply.citations.length !== markers.length) return null;
+  const missing = new Set(markers);
+  const records: CitationRecordInput[] = [];
+  for (const given of reply.citations) {
+    const marker = isRecord(given) ? given.marker : undefined;
+    if (typeof marker !== "number" || !missing.delete(marker)) return null;
+    const record = readEvidence(given);
+    if (!record) return null;
+    records.push({ marker, ...record });
+  }
+  return records;
+}
+
+/** The questions a judge is asked about a sentence and one quote, read in its Passage. */
+const COMPARISONS = ["confirm", "strict", "strict-figure", "recheck", "nearest", "parts"] as const;
+
+interface Comparison {
+  id: (typeof COMPARISONS)[number];
+  instructions: string;
+}
+
+const RECHECK: Comparison = { id: "recheck", instructions: RECHECK_INSTRUCTIONS };
+
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
 // another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
-async function compare(
+async function compare<T>(
   request: ClaimCheckRequest,
   quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
-  instructions: string,
+  question: Comparison,
+  read: (reply: string) => T | null,
   quantity?: Figure,
-): Promise<{ reply: string } | { failed: ProviderError }> {
+): Promise<Judged<T>> {
   const citations: readonly Citation[] = "quote" in quoted ? [quoted] : quoted;
   const passages = citations.map(
     (citation) =>
@@ -2459,25 +2501,21 @@ async function compare(
       citation.quote,
   );
   const { model } = request;
-  try {
-    const { text } = await generateText({
-      model: model.model,
-      instructions,
-      prompt: confirmPrompt({
-        claim: request.claim,
-        quote: citations.map((citation) => citation.quote).join("\n"),
-        passage: passages.join("\n"),
-        quantity,
-      }),
-      temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: outputTokens("comparison"),
-      maxRetries: 1,
-      abortSignal: signal,
-    });
-    return { reply: text };
-  } catch (error) {
-    return { failed: classifyProviderError(error) };
-  }
+  return judge({
+    model: model.model,
+    question,
+    parts: confirmParts({
+      claim: request.claim,
+      quote: citations.map((citation) => citation.quote).join("\n"),
+      passage: passages.join("\n"),
+      quantity,
+    }),
+    data: CHECK_TAGS,
+    reply: lines(read),
+    retries: 1,
+    signal,
+    temperature: answerTemperature(model.capabilities.facts.temperature),
+  });
 }
 
 interface Failed {
@@ -2593,17 +2631,30 @@ async function confirmContradiction(
   | { kind: "unrelated" | "states" | "doubt" | "confirmed" | "malformed" | "stopped" }
   | { failed: ProviderError }
 > {
-  const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
+  const first = await compare(
+    request,
+    quoted,
+    session,
+    signal,
+    { id: "confirm", instructions: CONFIRM_INSTRUCTIONS },
+    readJudgement,
+  );
   if (signal.aborted) return { kind: "stopped" };
-  if ("failed" in first) return first;
-  const judged = readJudgement(first.reply);
+  if (!first.ok && first.error) return { failed: first.error };
+  const judged = first.ok ? first.value : null;
   if (judged === "neither") return { kind: "unrelated" };
   if (judged === "same") return { kind: "states" };
-  const strict = await compare(request, quoted, session, signal, STRICT_INSTRUCTIONS);
+  const strict = await compare(
+    request,
+    quoted,
+    session,
+    signal,
+    { id: "strict", instructions: STRICT_INSTRUCTIONS },
+    readJudgement,
+  );
   if (signal.aborted) return { kind: "stopped" };
-  if ("failed" in strict) return strict;
-  const strictly = readJudgement(strict.reply);
-  return { kind: strictly === null ? "malformed" : strictly === "neither" ? "doubt" : "confirmed" };
+  if (!strict.ok) return strict.error ? { failed: strict.error } : { kind: "malformed" };
+  return { kind: strict.value === "neither" ? "doubt" : "confirmed" };
 }
 
 /**
@@ -2622,34 +2673,34 @@ async function lookForPresence(
     session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
     quoted.quote;
   const { model } = request;
-  const looks = first
-    ? [PRESENCE_INSTRUCTIONS]
-    : [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS];
-  for (const instructions of looks) {
-    let reply: string;
-    try {
-      ({ text: reply } = await generateText({
-        model: model.model,
-        instructions,
-        prompt: presencePrompt({
-          claim: request.claim,
-          absent,
-          quote: quoted.quote,
-          document: quoted.documentName ?? "",
-          passage,
-        }),
-        temperature: answerTemperature(model.capabilities.facts.temperature),
-        maxOutputTokens: outputTokens("comparison"),
-        maxRetries: 1,
-        abortSignal: signal,
-      }));
-    } catch (error) {
-      if (signal.aborted) return { kind: "stopped" };
-      return { failed: classifyProviderError(error) };
+  const looks = [
+    { id: "presence" as const, instructions: PRESENCE_INSTRUCTIONS },
+    ...(first
+      ? []
+      : [{ id: "strict-presence" as const, instructions: STRICT_PRESENCE_INSTRUCTIONS }]),
+  ];
+  for (const question of looks) {
+    const looked = await judge({
+      model: model.model,
+      question,
+      parts: presenceParts({
+        claim: request.claim,
+        absent,
+        quote: quoted.quote,
+        document: quoted.documentName ?? "",
+        passage,
+      }),
+      data: CHECK_TAGS,
+      reply: lines(readPresence),
+      retries: 1,
+      signal,
+      temperature: answerTemperature(model.capabilities.facts.temperature),
+    });
+    if (!looked.ok) {
+      if (looked.reason === "stopped") return { kind: "stopped" };
+      return looked.error ? { failed: looked.error } : { kind: "malformed" };
     }
-    if (signal.aborted) return { kind: "stopped" };
-    const word = readPresence(reply);
-    if (word !== "there") return { kind: word ?? "malformed" };
+    if (looked.value !== "there") return { kind: looked.value };
   }
   return { kind: "there" };
 }
@@ -2660,12 +2711,19 @@ async function partOf(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   language: Language,
-): Promise<ReturnType<typeof readPart> | Failed> {
-  const asked = await compare(request, quoted, session, signal, partInstructions(language));
-  if ("reply" in asked) return readPart(asked.reply);
-  if (!signal.aborted)
-    console.error(`A sentence's parts couldn't be asked for: ${asked.failed.message}`);
-  return { failed: asked.failed };
+): Promise<{ covered: string | null; uncovered: string | null } | Failed> {
+  const asked = await compare(
+    request,
+    quoted,
+    session,
+    signal,
+    { id: "parts", instructions: partInstructions(language) },
+    readPart,
+  );
+  if (asked.ok) return asked.value;
+  if (!asked.error) return { covered: null, uncovered: null };
+  console.error(`A sentence's parts couldn't be asked for: ${asked.error.message}`);
+  return { failed: asked.error };
 }
 
 interface Opinions {
@@ -2728,13 +2786,17 @@ async function nearestDifferent(
   session.check();
   const citation = session.finalCitation(NEAREST_MARKER);
   if (citation?.check !== "found") return null;
-  const judged = await compare(request, citation, session, signal, NEAREST_INSTRUCTIONS);
-  if ("failed" in judged) {
-    if (!signal.aborted)
-      console.error(`A nearest line couldn't be judged: ${judged.failed.message}`);
-    return null;
-  }
-  return readJudgement(judged.reply) === "conflict" ? citation : null;
+  const judged = await compare(
+    request,
+    citation,
+    session,
+    signal,
+    { id: "nearest", instructions: NEAREST_INSTRUCTIONS },
+    readJudgement,
+  );
+  if (!judged.ok && judged.error)
+    console.error(`A nearest line couldn't be judged: ${judged.error.message}`);
+  return judged.ok && judged.value === "conflict" ? citation : null;
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
