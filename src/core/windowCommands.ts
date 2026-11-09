@@ -138,10 +138,7 @@ export function createWindowCommands(events: ReturnType<typeof createEventHub>) 
     },
 
     /** The window is gone, or its page started again: what it hadn't started isn't done. */
-    forget(clientId: unknown): void {
-      if (typeof clientId !== "string") {
-        throw new InvalidInputError({ key: "error.commands.windowAnswer" });
-      }
+    forget(clientId: string): void {
       for (const entry of [...open.values()]) {
         if (entry.clientId !== clientId) continue;
         entry.end(

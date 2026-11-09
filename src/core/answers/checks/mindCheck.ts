@@ -962,11 +962,11 @@ export function createMindCheck(options: MindCheckOptions) {
       return true;
     },
 
-    /** See `CoreApi.forgetCheckWindow`. */
-    forgetCheckWindow(clientId: unknown): void {
-      if (typeof clientId !== "string" || clientId === "") {
-        throw new InvalidInputError({ key: "error.mindCheck.request" });
-      }
+    /**
+     * The window is gone, or its page started again (#2240): a Note its Check was being planned
+     * on, and hadn't run, is free again for another window's Check.
+     */
+    forgetCheckWindow(clientId: string): void {
       for (const [mindId, held] of checking)
         if (held.clientId === clientId) {
           // A running Check keeps the Note: only the claims end can free it, having lost its window.

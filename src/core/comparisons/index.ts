@@ -2207,12 +2207,6 @@ export function createComparisons(options: ComparisonsOptions) {
     }
   }
 
-  async function forgetWindow(raw: unknown): Promise<void> {
-    if (isRecord(raw) && typeof raw.clientId === "string" && raw.clientId !== "") {
-      forgetClient(raw.clientId);
-    }
-  }
-
   /** Where the table goes: after the Block named, or before it when it is an empty paragraph. */
   function placeOf(blocks: Y.XmlFragment, afterBlockId: string | null): number {
     if (!afterBlockId) return blocks.length;
@@ -2374,7 +2368,7 @@ export function createComparisons(options: ComparisonsOptions) {
     watchMind: (input: unknown) => watchComparison(input),
     unwatchMind: (input: unknown) => unwatchComparison(input),
     acknowledge: (input: unknown) => acknowledgeStructure(input),
-    forgetWindow: (input: unknown) => forgetWindow(input),
+    forgetWindow: forgetClient,
 
     async stop(input: unknown): Promise<void> {
       const ref = parseStop(input);

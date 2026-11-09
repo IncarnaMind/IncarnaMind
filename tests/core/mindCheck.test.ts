@@ -474,21 +474,17 @@ describe("Check this note", () => {
   test("a planned Check keeps its Note until it runs, is dropped, or its window goes", async () => {
     const { core, mindId, finds } = await setUp();
     const planned = request(mindId, "all", "planned");
+    const first = { requestId: planned.requestId, mindId, clientId: "first-window" };
 
-    expect(
-      await core.holdMindCheck({
-        requestId: planned.requestId,
-        mindId,
-        clientId: "first-window",
-      }),
-    ).toBe(true);
+    core.windowCalled(1, "holdMindCheck", first);
+    expect(await core.holdMindCheck(first)).toBe(true);
     expect(
       await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
     ).toBe(false);
 
     // A window gone frees a Check still being planned, never one that is running.
     const running = core.checkMind(planned);
-    await core.forgetCheckWindow({ clientId: "first-window" });
+    core.windowGone(1);
     expect(await core.checkMind(request(mindId, "all", "while-running"))).toEqual({
       kind: "running",
     });
@@ -497,14 +493,31 @@ describe("Check this note", () => {
       await core.holdMindCheck({ requestId: "after", mindId, clientId: "second-window" }),
     ).toBe(true);
     await core.cancelCheck("after");
-    expect(await core.holdMindCheck({ requestId: "third", mindId, clientId: "first-window" })).toBe(
-      true,
-    );
-    await core.forgetCheckWindow({ clientId: "first-window" });
+    const third = { requestId: "third", mindId, clientId: "first-window" };
+    core.windowCalled(1, "holdMindCheck", third);
+    expect(await core.holdMindCheck(third)).toBe(true);
+    core.windowGone(1);
     expect(
       await core.holdMindCheck({ requestId: "later", mindId, clientId: "second-window" }),
     ).toBe(true);
     expect(finds).toHaveLength(1);
+  });
+
+  // protects=a window whose page starts again no longer keeps the Note its Check was planned on, while another window's page starting again frees nothing; fails_when=a reload leaves the Note kept until the window closes, or any window's reload frees it; no_claim=what the reloaded page shows.
+  test("a page that starts again frees the Note its window kept for a Check", async () => {
+    const { core, mindId } = await setUp();
+    const first = { requestId: "planned", mindId, clientId: "first-window" };
+    const second = { requestId: "second", mindId, clientId: "second-window" };
+    core.windowCalled(1, "holdMindCheck", first);
+    expect(await core.holdMindCheck(first)).toBe(true);
+    core.windowCalled(2, "holdMindCheck", second);
+    expect(await core.holdMindCheck(second)).toBe(false);
+
+    core.windowReloaded(2);
+    expect(await core.holdMindCheck(second)).toBe(false);
+
+    core.windowReloaded(1);
+    expect(await core.holdMindCheck(second)).toBe(true);
   });
 
   // protects=a planning run stopped while a window held its Note frees it; fails_when=the Note stays held until the window goes; no_claim=what the model would name.
