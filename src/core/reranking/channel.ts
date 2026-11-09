@@ -10,6 +10,7 @@
  * or { id, error }, taking one request at a time, in order.
  */
 import type { CrossEncoder, RerankingDevice, RerankingModelFiles } from "../adapters";
+import { channelStops } from "../channelStop";
 
 export type CrossEncoderCommand =
   | { type: "load"; files: RerankingModelFiles }
@@ -47,6 +48,7 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
   let loaded: { key: string; device: RerankingDevice } | undefined;
   let loading: { key: string; done: Promise<RerankingDevice> } | undefined;
   const pending = new Map<number, Pending>();
+  const stops = channelStops<CrossEncoderChannel>();
   let nextId = 1;
 
   function open(): CrossEncoderChannel {
@@ -55,6 +57,7 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
       const waiting = pending.get(response.id);
       pending.delete(response.id);
       waiting?.resolve(response);
+      stops.answered(started, response.id);
     });
     started.onExit((code) => {
       if (channel !== started) return;
@@ -116,9 +119,10 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
       loaded = undefined;
       // Its exit is no longer heard: what waits on it fails now, so the searches behind it go on.
       const error = new Error("The reranking model was stopped.");
+      const inFlight = new Set(pending.keys());
       for (const waiting of pending.values()) waiting.reject(error);
       pending.clear();
-      stopping?.stop();
+      if (stopping) stops.close(stopping, inFlight);
     },
   };
 }

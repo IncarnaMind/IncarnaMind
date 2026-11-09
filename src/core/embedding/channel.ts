@@ -11,6 +11,7 @@
  * most the Passage in progress.
  */
 import type { Embedder, EmbeddingModelFiles } from "../adapters";
+import { channelStops } from "../channelStop";
 
 export type EmbedderCommand =
   | { type: "load"; files: EmbeddingModelFiles }
@@ -48,6 +49,7 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
   const pending = new Map<number, Pending>();
+  const stops = channelStops<EmbedderChannel>();
   let nextId = 1;
 
   function open(): EmbedderChannel {
@@ -56,6 +58,7 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
       const waiting = pending.get(response.id);
       pending.delete(response.id);
       waiting?.resolve(response);
+      stops.answered(started, response.id);
     });
     started.onExit((code) => {
       if (channel !== started) return;
@@ -110,7 +113,7 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
       const stopping = channel;
       channel = undefined;
       loadedKey = undefined;
-      stopping?.stop();
+      if (stopping) stops.close(stopping, new Set(pending.keys()));
     },
   };
 }

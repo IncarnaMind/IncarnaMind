@@ -120,4 +120,18 @@ describe("The embedding model in another process", () => {
     expect(processes.started[0]?.stopped).toBe(true);
     await expect(embedder.embed("text")).rejects.toThrow("isn't loaded");
   });
+
+  // protects=closing while a text is embedded stops the process only once it has answered, as stopping a Node worker thread under onnxruntime aborts the whole process (#2830: a check of what the assistant wrote may still search as the core closes); fails_when=close stops it under the run; no_claim=how a real worker aborts.
+  test("closing while a text is embedded stops the process once it has answered", async () => {
+    const processes = fakeProcesses(createFakeEmbedder({ delayMs: 20 }));
+    const embedder = createChannelEmbedder(processes.start);
+    await embedder.load(FILES);
+
+    const embedded = embedder.embed("a long Passage");
+    embedder.close();
+    expect(processes.started[0]?.stopped).toBe(false);
+
+    expect(await embedded).toEqual(fakeVector("a long Passage"));
+    expect(processes.started[0]?.stopped).toBe(true);
+  });
 });
