@@ -19,7 +19,7 @@ import {
 
 /**
  * The live routes with a key of their own (#866), with the pretend services every smoke test's
- * fake transcriber has: Deepgram's server kept with its key in Settings › Models, and an
+ * fake transcriber has: Deepgram's server kept with its key in Settings › AI, and an
  * account out of credit as one line in the meeting bar. Set INCARNAMIND_SCREENSHOTS to a folder
  * to also save screenshots.
  */
@@ -64,14 +64,16 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
     });
   }, CLOUDFLARE);
 
-  // Choosing Deepgram in Settings › Meetings sends the audio to Cloudflare, as its line says.
-  let settings = await openSettings(window, "meetings");
+  // Choosing Deepgram in Settings › AI sends the audio to Cloudflare, as Meetings' line says.
+  let settings = await openSettings(window, "ai");
   const route = settings.getByTestId("meetings-route");
-  await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
-    "On this computer",
+  await expect(route.locator("option:not([hidden]):not([value^='set-up:'])")).toHaveText([
     "Deepgram",
+    "On this computer",
   ]);
   await route.selectOption("deepgram");
+  await expect(route).toHaveValue("deepgram");
+  settings = await showSettingsPage(window, "meetings");
   const line = settings.getByTestId("meetings-route-line");
   await expect(line).toContainText(
     "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
@@ -92,14 +94,14 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   );
   await shot(window, "settings-meetings-deepgram-cloudflare-en-1600");
 
-  settings = await showSettingsPage(window, "models");
+  settings = await showSettingsPage(window, "ai");
   const row = settings.locator('[data-testid="transcription-key-row"][data-host="deepgram"]');
   const status = row.getByTestId("transcription-key-status");
   await expect(status).toHaveText(
-    "For meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
+    "Your key · Used for meeting transcription · sent to wss://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
   );
 
-  // In Chinese, at the narrowest width, the address is cut inside its row, whole in its tooltip.
+  // In Chinese, at the narrowest width, the address wraps inside its row, whole in its tooltip too.
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
   await expect(status).toContainText("用于会议转写 · 发送到 wss://api.cloudflare.com");
@@ -117,7 +119,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   await setLanguage(window, "en");
 
   // Change key opens with the server saved; Esc closes the form and keeps what was saved.
-  await showSettingsPage(window, "models");
+  await showSettingsPage(window, "ai");
   await row.getByTestId("transcription-key-change").click();
   await expect(row.getByTestId("transcription-key-input")).toBeFocused();
   await expect(row.getByRole("textbox", { name: "Server" })).toHaveValue(
@@ -137,8 +139,8 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await useOutputLocation(window, sources);
   await acceptPlainTextKeys(window);
 
-  // AssemblyAI set up from Settings › Meetings' fold: Use this keeps the key and chooses it.
-  const settings = await openSettings(window, "meetings");
+  // AssemblyAI set up from Meeting transcription's picker: Use this keeps the key and chooses it.
+  let settings = await openSettings(window, "ai");
   await settings.getByTestId("meetings-route").selectOption("set-up:assemblyai");
   const form = settings.getByTestId("transcription-key-form-assemblyai");
   await expect(form.getByRole("textbox", { name: "Server" })).toHaveCount(0);
@@ -146,6 +148,7 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await form.getByTestId("transcription-key-save").click();
   await expect(form).toHaveCount(0);
   await expect(settings.getByTestId("meetings-route")).toHaveValue("assemblyai");
+  settings = await showSettingsPage(window, "meetings");
   await expect(settings.getByTestId("meetings-route-line")).toContainText(
     "Audio goes to AssemblyAI while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
   );
@@ -178,7 +181,7 @@ test("each service set up from the picker says whether Save checks its key; Glad
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
 
-  let settings = await openSettings(window, "models");
+  let settings = await openSettings(window, "ai");
   const row = settings.getByTestId("model-default-row-transcription");
   const picker = row.getByTestId("meetings-route");
   for (const name of ["ElevenLabs", "Speechmatics", "AssemblyAI"]) {

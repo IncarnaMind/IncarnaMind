@@ -58,9 +58,9 @@ export function chooseModel(doc: Y.Doc | null, choice: ChatModelChoice): void {
   else pickForConversation(choice);
 }
 
-/** Makes `choice` the Answers default, which new Notes start on (Settings › Models, the chip). */
+/** Makes `choice` the Answers default, which new Notes start on (Settings › AI, the chip). */
 export function setAnswersModel(choice: ChatModelChoice): Promise<void> {
-  // Quick tasks and reading images are automatic, with no row of their own (#1922).
+  // Quick tasks and reading images go back to following it.
   return useAppStore
     .getState()
     .updateSettings({ user: { chatModel: choice, quickTasksModel: null, imageModel: null } });

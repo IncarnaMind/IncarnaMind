@@ -15,7 +15,7 @@ const consentClass = "text-[12px] leading-5 text-ink-meta";
 
 /**
  * The Meeting transcription picker's "Set up another transcription service", wherever the picker
- * is a setting (Settings › Models › Defaults, Settings › Meetings): the services with a key of
+ * is a setting (Settings › AI): the services with a key of
  * their own that has none yet, at the picker's foot, and the one chosen there set up in place
  * under it. None in Local mode: each is a cloud service. `selectId`: the picker, which takes the
  * focus back when the setup closes.
@@ -70,7 +70,7 @@ function asTyped(service: TranscriptionServiceStatus, typed: string): Transcript
  * A service chosen from the picker's foot: what it is, its key (and Deepgram's server), and where
  * the audio goes and what an hour costs above Use this, which keeps the key and chooses the service.
  */
-function TranscriptionSetUp({
+export function TranscriptionSetUp({
   service,
   onDone,
 }: {

@@ -131,9 +131,9 @@ export interface LibrarySettings {
   /** The one model choice for automatic tagging and Organize; "automatic" until the User picks one. */
   classifier: LibraryClassifier;
   /**
-   * While `classifier` is "automatic", the model Organize uses: Automatic's pick when Organize
-   * first ran on it, or the User allowed it on Organize's card, kept from then on; null until
-   * then. Automatic covers tagging only.
+   * While `classifier` is "automatic", the model lent to one Organize run the User allowed alone
+   * (#2252), for as long as it runs; null otherwise. It is never kept: a model Organize keeps
+   * becomes `classifier`, the one choice for Organize and Tags (#2835).
    */
   organizeWith: TaggingClassifier | null;
   /**

@@ -983,7 +983,7 @@ function useStatuses(): Status[] {
       action: {
         label: t("signInRoute.wayBack.pasteApiKey"),
         testId: "tagging-paused-use-key",
-        run: () => openSettings("models"),
+        run: () => openSettings("ai"),
       },
     });
   } else if (taggingWaits && taggingNeedsOk) {
@@ -1014,7 +1014,7 @@ function useStatuses(): Status[] {
       action: {
         label: t("status.choose"),
         testId: "tagging-waiting-setup",
-        run: () => openSettings("models", "tagging"),
+        run: () => openSettings("ai", "tagging"),
       },
     });
   }
@@ -1058,7 +1058,11 @@ function useStatuses(): Status[] {
       total: rebuild.total,
     });
     const reason =
-      rebuild.reason === "local-mode" ? `${t("embeddingProviders.rebuild.localMode")}\n` : "";
+      rebuild.reason === "local-mode"
+        ? `${t("embeddingProviders.rebuild.localMode")}\n`
+        : rebuild.reason === "key-removed"
+          ? `${t("embeddingProviders.rebuild.keyRemoved")}\n`
+          : "";
     statuses.push({
       testId: "embedding-rebuild-notice",
       tone: "progress",

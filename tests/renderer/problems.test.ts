@@ -109,7 +109,7 @@ describe("a failed Answer's problem line", () => {
   test("the monthly cap says so, and Change cap opens General, where the cap is", () => {
     expect(ANSWER_PROBLEMS["cost-cap"]).toEqual({
       line: "answer.error.cost-cap",
-      fix: { kind: "settings", page: "general", label: "answer.error.changeCap" },
+      fix: { kind: "settings", page: "ai", at: "spending-cap", label: "answer.error.changeCap" },
     });
     expect(translate("en", "answer.error.cost-cap")).toBe("Could pass your monthly cap");
     expect(translate("en", "answer.error.changeCap")).toBe("Change cap");
@@ -212,7 +212,7 @@ describe("a failed Answer's problem line", () => {
     const hosted = answerProblem("too-long", "anthropic", false, { local: false });
     expect(hosted.fix).toEqual({
       kind: "settings",
-      page: "models",
+      page: "ai",
       label: "answer.error.chooseModel",
     });
     expect(translate("en", hosted.line, { model: "Claude Haiku 5.5" })).toBe(
@@ -228,8 +228,8 @@ describe("a failed Answer's problem line", () => {
   });
 
   test("what the User can fix in Settings opens the page that fixes it", () => {
-    expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "models" });
-    expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "models" });
+    expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "ai" });
+    expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "ai" });
     // A declined data flow is allowed again on the Privacy page.
     expect(ANSWER_PROBLEMS["consent-declined"].fix).toMatchObject({
       kind: "settings",
@@ -300,7 +300,7 @@ describe("a failed Answer's problem line", () => {
     expect(shown("unknown", "zh-CN")).toEqual(["Anthropic 出了问题，原因不明", "重试"]);
     expect(ANSWER_PROBLEMS.refused.fix).toEqual({
       kind: "settings",
-      page: "models",
+      page: "ai",
       label: "answer.error.chooseModel",
     });
   });

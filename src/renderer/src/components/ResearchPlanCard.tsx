@@ -471,7 +471,7 @@ function PlanProblem({
             ? {
                 label: t("answer.error.chooseModel"),
                 // The chip's model is the plan's: Settings' default can't change it.
-                onClick: chosen ? requestModelMenu : () => openSettings("models"),
+                onClick: chosen ? requestModelMenu : () => openSettings("ai"),
               }
             : { label: t("research.plan.tryAgain"), onClick: again }
         }

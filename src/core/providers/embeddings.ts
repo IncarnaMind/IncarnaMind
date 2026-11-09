@@ -64,6 +64,12 @@ const kinds: Record<ApiEmbeddingProviderKind, KindInfo> = {
 const isEmbeddingProviderKind = (value: unknown): value is EmbeddingProviderKind =>
   embeddingProviderKinds.some((kind) => kind === value);
 
+/** The kinds that are a company's own API, whose key is the User's account with that company. */
+export type HostedEmbeddingKind = "openai" | "google";
+
+export const isHostedKind = (kind: ApiEmbeddingProviderKind): kind is HostedEmbeddingKind =>
+  kind === "openai" || kind === "google";
+
 export const embeddingKeyRequired = (kind: ApiEmbeddingProviderKind) =>
   kinds[kind].apiKey === "required";
 const embeddingKeyAccepted = (kind: ApiEmbeddingProviderKind) => kinds[kind].apiKey !== "none";

@@ -42,7 +42,7 @@ describe("a key problem's next action", () => {
       at: "2026-10-12T09:00:00.000Z",
       kind: "out-of-credit",
     });
-    expect(calls.settings).toHaveBeenCalledWith("models");
+    expect(calls.settings).toHaveBeenCalledWith("ai");
     expect(calls.open).not.toHaveBeenCalled();
   });
 
@@ -69,6 +69,6 @@ describe("a key problem's next action", () => {
     calls.providers.mockRejectedValueOnce(error);
     await useKeyRefusals.getState().check(provider.id, "model", null, "out-of-credit");
     expect(calls.error).toHaveBeenCalledWith(error);
-    expect(calls.settings).toHaveBeenCalledWith("models");
+    expect(calls.settings).toHaveBeenCalledWith("ai");
   });
 });

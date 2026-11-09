@@ -4,7 +4,6 @@ import {
   type EmbeddingProvider,
   type EmbeddingProviderKind,
   type EmbeddingSettings,
-  embeddingProviderKinds,
   type SaveEmbeddingProviderInput,
   type SecretStorageStatus,
   SUGGESTED_EMBEDDING_MODELS,
@@ -16,14 +15,8 @@ import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemMark } from "../ProblemLine";
-import { SettingsAdvanced } from "../SettingsAdvanced";
 import { PopUpSelect } from "../settings/PopUpButton";
-import {
-  SettingsGroup,
-  SettingsHelp,
-  SettingsRow,
-  SettingsSection,
-} from "../settings/SettingsGroup";
+import { SettingsGroup, SettingsHelp, SettingsRow } from "../settings/SettingsGroup";
 import {
   buttonClass,
   buttonStyle,
@@ -40,12 +33,16 @@ import {
 } from "../ui";
 import { useModal } from "../useModal";
 import { SecretStorageNotice, TestResult } from "./ProviderForm";
-import { testErrorKey, useProviderKey } from "./shared";
+import { useProviderKey } from "./shared";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /** Ollama's default local address, shown as the URL's placeholder. */
 const OLLAMA_URL = "http://127.0.0.1:11434";
+
+/** A server of the User's own: the only kinds whose address, and key, the form asks for. */
+export type ServerEmbeddingKind = Extract<EmbeddingProviderKind, "ollama" | "openai-compatible">;
+const SERVER_KINDS: readonly ServerEmbeddingKind[] = ["ollama", "openai-compatible"];
 
 /** Providers whose requests always leave this computer. */
 const CLOUD_KINDS: ReadonlySet<EmbeddingProviderKind> = new Set(["openai", "google"]);
@@ -69,8 +66,8 @@ function isOnThisComputer(url: string): boolean {
 /** Kinds that take no server, key or model name: embeddings off, and the built-in model. */
 const isPlainKind = (kind: EmbeddingProviderKind) => kind === "off" || kind === "built-in";
 
-/** Where a provider the form describes would send Document text, or null when it stays here. */
-function cloudServiceOf(kind: EmbeddingProviderKind, baseUrl: string, t: Translate) {
+/** Where a provider would send Document text, or null when it stays here. */
+export function cloudServiceOf(kind: EmbeddingProviderKind, baseUrl: string, t: Translate) {
   if (CLOUD_KINDS.has(kind)) return t(`embeddingProviders.kind.${kind}`);
   if (isPlainKind(kind)) return null;
   const url = baseUrl.trim() || (kind === "ollama" ? OLLAMA_URL : "");
@@ -97,121 +94,26 @@ export function embeddingProviderLabel(provider: EmbeddingProvider, t: Translate
 }
 
 /**
- * Settings → Search: search by meaning, off by default, or the model that
- * finds Documents by it (the built-in one, or a provider chosen instead),
- * turning it on or off or switching model with a warning, its error and
- * rebuild. The model's own name and facts wait under Advanced (#763).
+ * A search model on a server of the User's own: Ollama at another address, or an
+ * OpenAI-compatible server, with its optional key and the model's name; tested, then switched to
+ * after the warning. A company's own API takes its key from Accounts and keys instead.
  */
-export function EmbeddingSettingsSection() {
-  const t = useT();
-  const embedding = useAppStore((state) => state.embedding);
-  const retry = useAppStore((state) => state.retryEmbedding);
-  const [editing, setEditing] = useState(false);
-
-  if (!embedding) return null;
-  const { provider, error, rebuild } = embedding;
-  const off = provider.kind === "off";
-  return (
-    <SettingsSection title={t("embeddingProviders.settings.title")} testId="embedding-settings">
-      <SettingsGroup>
-        <SettingsRow
-          label={
-            <span data-testid="embedding-state">
-              {off
-                ? `${t("embeddingProviders.settings.off")} · ${t("embeddingProviders.settings.download")}`
-                : provider.service
-                  ? t("embeddingProviders.settings.stateSent", { service: provider.service.name })
-                  : t("embeddingProviders.settings.stateOn")}
-            </span>
-          }
-          detail={
-            (rebuild || error) && (
-              <>
-                {rebuild && (
-                  <p data-testid="embedding-rebuild">
-                    {t("embeddingProviders.rebuild.title", {
-                      done: rebuild.done,
-                      total: rebuild.total,
-                    })}
-                  </p>
-                )}
-                {error && (
-                  <p role="alert" className={errorTextClass} title={error.message}>
-                    <ProblemMark />
-                    {t("embeddingProviders.settings.error", {
-                      reason: t(testErrorKey(error.kind)),
-                    })}
-                  </p>
-                )}
-              </>
-            )
-          }
-          control={
-            <>
-              {error && (
-                <button
-                  type="button"
-                  onClick={() => void retry()}
-                  className={buttonStyle("secondary", "sm")}
-                >
-                  {t("embeddingProviders.settings.retry")}
-                </button>
-              )}
-              {!editing && (
-                <button
-                  type="button"
-                  data-testid="embedding-change"
-                  onClick={() => setEditing(true)}
-                  className={buttonStyle("secondary", "sm")}
-                >
-                  {off
-                    ? t("embeddingProviders.settings.turnOn")
-                    : t("embeddingProviders.settings.change")}
-                </button>
-              )}
-            </>
-          }
-        />
-      </SettingsGroup>
-      <SettingsHelp data-testid="embedding-plain">
-        {t("embeddingProviders.settings.plain")}
-      </SettingsHelp>
-
-      <SettingsAdvanced testId="embedding-advanced">
-        <SettingsGroup>
-          <SettingsRow
-            label={
-              <span data-testid="embedding-current">
-                {t("embeddingProviders.settings.current")}
-                {embeddingProviderLabel(provider, t)}
-              </span>
-            }
-            detail={
-              off
-                ? t("embeddingProviders.settings.offNote")
-                : provider.service
-                  ? t("embeddingProviders.settings.sendsTo", { service: provider.service.name })
-                  : t("embeddingProviders.settings.local")
-            }
-          />
-        </SettingsGroup>
-      </SettingsAdvanced>
-
-      {editing && <EmbeddingForm current={embedding} onDone={() => setEditing(false)} />}
-    </SettingsSection>
-  );
-}
-
-/** Pick a provider, a key, a server and a model; test; then switch, after a warning. */
-function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone(): void }) {
+export function EmbeddingServerForm({
+  current,
+  onDone,
+}: {
+  current: EmbeddingSettings;
+  onDone(): void;
+}) {
   const t = useT();
   const id = useId();
-  const [kind, setKind] = useState<EmbeddingProviderKind>(current.provider.kind);
-  const [baseUrl, setBaseUrl] = useState(current.provider.baseUrl ?? "");
+  const savedKind = SERVER_KINDS.find((each) => each === current.provider.kind);
+  const [kind, setKind] = useState<ServerEmbeddingKind>(savedKind ?? "ollama");
+  const [baseUrl, setBaseUrl] = useState(savedKind ? (current.provider.baseUrl ?? "") : "");
   const key = useProviderKey();
   const { apiKey } = key;
   const [modelId, setModelId] = useState(
-    isPlainKind(current.provider.kind) ? "" : current.provider.modelId,
+    savedKind ? current.provider.modelId : SUGGESTED_EMBEDDING_MODELS.ollama,
   );
   const [busy, setBusy] = useState<"testing" | "saving" | null>(null);
   const [test, setTest] = useState<EmbeddingConnectionTestResult | null>(null);
@@ -226,49 +128,33 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
   const saved = current.provider;
   const sameServer =
     saved.kind === kind && (saved.baseUrl ?? "") === baseUrl.trim().replace(/\/+$/, "");
-  const takesKey = kind === "openai" || kind === "google" || kind === "openai-compatible";
-  const keyRequired = kind === "openai" || kind === "google";
-  const hasKey = key.text !== "" || (sameServer && saved.hasApiKey);
+  const takesKey = kind === "openai-compatible";
   const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
   const complete =
-    isPlainKind(kind) ||
-    (key.stray === null &&
-      modelId.trim() !== "" &&
-      (kind !== "openai-compatible" || baseUrl.trim() !== "") &&
-      (!keyRequired || hasKey));
-  const unchanged =
-    sameServer && key.text === "" && (isPlainKind(kind) || modelId.trim() === saved.modelId);
+    key.stray === null &&
+    modelId.trim() !== "" &&
+    (kind !== "openai-compatible" || baseUrl.trim() !== "");
+  const unchanged = sameServer && key.text === "" && modelId.trim() === saved.modelId;
   const cloudService = cloudServiceOf(kind, baseUrl, t);
   // A server elsewhere, in local mode: said as the address is typed, not refused at the end.
   const outsideLocalMode = current.localOnly && cloudService !== null;
 
-  const choose = (next: EmbeddingProviderKind) => {
-    // A key typed for one provider is never sent to another.
+  const choose = (next: ServerEmbeddingKind) => {
+    // A key typed for one server is never sent to another.
     if (next !== kind) key.clear();
     setKind(next);
     setBaseUrl(next === saved.kind ? (saved.baseUrl ?? "") : "");
-    setModelId(
-      next === "off" || next === "built-in"
-        ? ""
-        : next === saved.kind
-          ? saved.modelId
-          : SUGGESTED_EMBEDDING_MODELS[next],
-    );
+    setModelId(next === saved.kind ? saved.modelId : SUGGESTED_EMBEDDING_MODELS[next]);
     setTest(null);
     setError(null);
   };
 
-  const input = (): SaveEmbeddingProviderInput =>
-    isPlainKind(kind)
-      ? { kind }
-      : {
-          kind,
-          modelId: modelId.trim(),
-          ...((kind === "openai-compatible" || kind === "ollama") && baseUrl.trim()
-            ? { baseUrl: baseUrl.trim() }
-            : {}),
-          ...(takesKey && key.text ? { apiKey: key.text } : {}),
-        };
+  const input = (): SaveEmbeddingProviderInput => ({
+    kind,
+    modelId: modelId.trim(),
+    ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+    ...(takesKey && key.text ? { apiKey: key.text } : {}),
+  });
 
   const runTest = async () => {
     setBusy("testing");
@@ -317,80 +203,65 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
   const modelFieldId = `${id}-model`;
 
   return (
-    <form data-testid="embedding-form" onSubmit={submit} className="mt-4 flex flex-col gap-3">
+    <form data-testid="embedding-form" onSubmit={submit} className="flex flex-col gap-3">
       <div>
         <SettingsGroup>
           <SettingsRow
-            label={t("embeddingProviders.form.label")}
+            label={t("embeddingProviders.form.server")}
             htmlFor={kindId}
-            detail={
-              kind === "off"
-                ? t("embeddingProviders.form.offHint")
-                : kind === "built-in"
-                  ? t("embeddingProviders.form.builtInHint")
-                  : undefined
-            }
             control={
               <PopUpSelect
                 id={kindId}
                 value={kind}
                 onChange={(event) => {
-                  const next = embeddingProviderKinds.find((each) => each === event.target.value);
+                  const next = SERVER_KINDS.find((each) => each === event.target.value);
                   if (next) choose(next);
                 }}
               >
-                {embeddingProviderKinds.map((option) => (
-                  <option
-                    key={option}
-                    value={option}
-                    disabled={current.localOnly && CLOUD_KINDS.has(option)}
-                  >
+                {SERVER_KINDS.map((option) => (
+                  <option key={option} value={option}>
                     {t(`embeddingProviders.kind.${option}`)}
                   </option>
                 ))}
               </PopUpSelect>
             }
           />
-
-          {(kind === "openai-compatible" || kind === "ollama") && (
-            <SettingsRow
-              label={
-                kind === "ollama"
-                  ? t("embeddingProviders.form.ollamaUrl")
-                  : t("providers.form.baseUrl")
-              }
-              htmlFor={urlId}
-              control={
-                <input
-                  id={urlId}
-                  type="url"
-                  required={kind === "openai-compatible"}
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  onBlur={() => key.leftAddress(baseUrl)}
-                  placeholder={kind === "ollama" ? OLLAMA_URL : "https://"}
-                  spellCheck={false}
-                  className={`${rowFieldClass} w-64`}
-                />
-              }
-            >
-              {outsideLocalMode ? (
-                <p role="alert" data-testid="embedding-local-only" className={hintClass}>
-                  {t("embeddingProviders.form.localOnlyServer")}
-                </p>
-              ) : (
-                <p className={hintClass}>
-                  {kind === "ollama"
-                    ? t("embeddingProviders.form.ollamaHint")
-                    : t("providers.form.baseUrlHint")}
-                </p>
-              )}
-            </SettingsRow>
-          )}
-
+          <SettingsRow
+            label={
+              kind === "ollama"
+                ? t("embeddingProviders.form.ollamaUrl")
+                : t("providers.form.baseUrl")
+            }
+            htmlFor={urlId}
+            control={
+              <input
+                id={urlId}
+                type="url"
+                required={kind === "openai-compatible"}
+                value={baseUrl}
+                onChange={(event) => setBaseUrl(event.target.value)}
+                onBlur={() => key.leftAddress(baseUrl)}
+                placeholder={kind === "ollama" ? OLLAMA_URL : "https://"}
+                spellCheck={false}
+                className={`${rowFieldClass} w-64`}
+              />
+            }
+          >
+            {outsideLocalMode ? (
+              <p role="alert" data-testid="embedding-local-only" className={hintClass}>
+                {t("embeddingProviders.form.localOnlyServer")}
+              </p>
+            ) : (
+              <p className={hintClass}>
+                {kind === "ollama"
+                  ? t("embeddingProviders.form.ollamaHint")
+                  : t("providers.form.baseUrlHint")}
+              </p>
+            )}
+          </SettingsRow>
           {takesKey && (
             <SettingsRow
-              label={keyRequired ? t("providers.form.apiKey") : t("providers.form.apiKeyOptional")}
+              label={t("providers.form.apiKeyOptional")}
               htmlFor={keyId}
               control={
                 <input
@@ -416,23 +287,20 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
               )}
             </SettingsRow>
           )}
-
-          {!isPlainKind(kind) && (
-            <SettingsRow
-              label={t("embeddingProviders.form.model")}
-              htmlFor={modelFieldId}
-              control={
-                <input
-                  id={modelFieldId}
-                  required
-                  value={modelId}
-                  onChange={(event) => setModelId(event.target.value)}
-                  spellCheck={false}
-                  className={`${rowFieldClass} w-64`}
-                />
-              }
-            />
-          )}
+          <SettingsRow
+            label={t("embeddingProviders.form.model")}
+            htmlFor={modelFieldId}
+            control={
+              <input
+                id={modelFieldId}
+                required
+                value={modelId}
+                onChange={(event) => setModelId(event.target.value)}
+                spellCheck={false}
+                className={`${rowFieldClass} w-64`}
+              />
+            }
+          />
         </SettingsGroup>
         <SettingsHelp>
           <p data-testid="embedding-trade-off">{t("embeddingProviders.form.tradeOff")}</p>
@@ -453,22 +321,18 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
         >
           {busy === "saving"
             ? t("providers.form.saving")
-            : kind === "off"
-              ? t("embeddingProviders.form.turnOff")
-              : saved.kind === "off"
-                ? t("embeddingProviders.form.turnOn")
-                : t("embeddingProviders.form.switch")}
+            : saved.kind === "off"
+              ? t("embeddingProviders.form.turnOn")
+              : t("embeddingProviders.form.switch")}
         </button>
-        {!isPlainKind(kind) && (
-          <button
-            type="button"
-            disabled={!complete || outsideLocalMode || busy !== null}
-            onClick={() => void runTest()}
-            className={buttonStyle("secondary", "sm")}
-          >
-            {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
-          </button>
-        )}
+        <button
+          type="button"
+          disabled={!complete || outsideLocalMode || busy !== null}
+          onClick={() => void runTest()}
+          className={buttonStyle("secondary", "sm")}
+        >
+          {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
+        </button>
         <button type="button" onClick={onDone} className={buttonStyle("ghost", "sm")}>
           {t("providers.settings.cancel")}
         </button>
@@ -491,12 +355,8 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
 
       <SwitchConfirmation
         open={confirming}
-        provider={
-          isPlainKind(kind)
-            ? t(`embeddingProviders.kind.${kind}`)
-            : `${t(`embeddingProviders.kind.${kind}`)} · ${modelId.trim()}`
-        }
-        change={kind === "off" ? "turn-off" : saved.kind === "off" ? "turn-on" : "switch"}
+        provider={`${t(`embeddingProviders.kind.${kind}`)} · ${modelId.trim()}`}
+        change={saved.kind === "off" ? "turn-on" : "switch"}
         cloudService={cloudService}
         onCancel={() => setConfirming(false)}
         onConfirm={() => void save()}
@@ -511,7 +371,7 @@ function EmbeddingForm({ current, onDone }: { current: EmbeddingSettings; onDone
  * search; turned off, search goes by words alone, and the vectors stay.
  * Cancelling changes nothing.
  */
-function SwitchConfirmation({
+export function SwitchConfirmation({
   open,
   provider,
   change,
