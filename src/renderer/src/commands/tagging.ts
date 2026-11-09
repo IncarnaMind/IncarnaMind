@@ -14,7 +14,7 @@ export const taggingCommands: readonly Command[] = [
     group: "open",
     when: () => store().library?.settings.automatic === false,
     reversible: true,
-    run: () => store().openSettings("models", "turn-on-tagging"),
+    run: () => store().openSettings("ai", "turn-on-tagging"),
   },
   {
     id: "tagging.stop",

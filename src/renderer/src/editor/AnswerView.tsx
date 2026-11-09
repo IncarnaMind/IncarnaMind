@@ -60,7 +60,7 @@ import { useOnline } from "../online";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
-import type { SettingsPage } from "../settingsPages";
+import type { SettingsPage, SettingsTarget } from "../settingsPages";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
@@ -377,7 +377,7 @@ export function AnswerError({
     askedFrom?: { mindId: string | null; deleted?: boolean } | null;
     folderAskedIn?: string;
   } | null;
-  onOpenSettings(page: SettingsPage): void;
+  onOpenSettings(page: SettingsPage, at?: SettingsTarget): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -481,7 +481,7 @@ export function AnswerError({
       />
     );
   }
-  const chooseModel = fix.kind === "settings" && fix.page === "models";
+  const chooseModel = fix.kind === "settings" && fix.page === "ai" && fix.at === undefined;
   const action =
     chooseModel && pickedModel && onRetryWith
       ? { label: t("answer.error.askAgain"), onClick: () => onRetryWith(pickedModel) }
@@ -499,7 +499,9 @@ export function AnswerError({
               ? {
                   label: t(fix.label),
                   onClick: () =>
-                    chooseModel && chooseHere ? requestModelMenu() : onOpenSettings(fix.page),
+                    chooseModel && chooseHere
+                      ? requestModelMenu()
+                      : onOpenSettings(fix.page, fix.at),
                 }
               : fix.kind === "sign-in"
                 ? {

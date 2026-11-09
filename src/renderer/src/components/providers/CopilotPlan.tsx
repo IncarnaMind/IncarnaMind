@@ -52,7 +52,7 @@ const linkClass =
 
 type Place = "setup" | "settings";
 
-function useOfferedWay(): { status: CopilotStatus; experimental: boolean } | null {
+export function useOfferedWay(): { status: CopilotStatus; experimental: boolean } | null {
   const status = useCopilotStatus();
   const way = status && copilotWay(status.profiles);
   return status && way ? { status, experimental: way.experimental } : null;
@@ -389,7 +389,7 @@ function Failure({
   const signIn = () => void signInWithCopilot({ keepDefault });
   const anotherModel = () => {
     closeCopilotNotice();
-    if (place === "settings") openSettings("models", "chat-model");
+    if (place === "settings") openSettings("ai", "chat-model");
   };
   const run: Record<RouteWayBack, (() => void) | undefined> = {
     "sign-in": signIn,

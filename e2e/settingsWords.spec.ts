@@ -7,7 +7,6 @@ import {
   openSettings,
   removeDataFolder,
   setWindowSize,
-  showSettingsPage,
 } from "./app";
 
 /**
@@ -25,19 +24,40 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: {
-    models: ["Defaults", "Your providers"],
-    search: ["Search model"],
-    gone: [/chat model/i, /embedding/i, /rerank/i, /\bindex/i, /local mode(?!l)/i],
+    ai: [
+      "What each job uses",
+      "Accounts and keys",
+      "Limits",
+      "Document search",
+      "On this computer",
+    ],
+    gone: [
+      /chat model/i,
+      /embedding/i,
+      /rerank/i,
+      /\bindex/i,
+      /local mode(?!l)/i,
+      /Your providers/,
+      /Defaults/,
+      /Already pay for a plan/,
+    ],
   },
   "zh-CN": {
-    models: ["默认模型", "已添加的服务"],
-    search: ["搜索模型"],
-    gone: [/对话模型/, /提供商/, /嵌入/, /重排序|重新排序/, /本地模式/],
+    ai: ["各项任务使用的模型", "账户和密钥", "限制", "文档搜索", "在这台电脑上"],
+    gone: [
+      /对话模型/,
+      /提供商/,
+      /嵌入/,
+      /重排序|重新排序/,
+      /本地模式/,
+      /在本机运行/,
+      /已添加的服务/,
+    ],
   },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Models and Search say it in the glossary's words (${language})`, async () => {
+  test(`Settings › AI says it in the glossary's words (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await setWindowSize(app, window, 1100, 800);
     await dismissChatSetup(window);
@@ -48,18 +68,14 @@ for (const language of ["en", "zh-CN"] as const) {
     }, language);
     const words = WORDS[language];
 
-    const settings = await openSettings(window, "models");
+    await openSettings(window, "ai");
     await window.evaluate(async (chosen) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateSettings({ user: { language: chosen } });
     }, language);
-    const chat = window.getByTestId("models-settings");
-    for (const word of words.models) await expect(settings).toContainText(word);
-    for (const gone of words.gone) await expect(chat).not.toContainText(gone);
-
-    await showSettingsPage(window, "search");
-    for (const word of words.search) await expect(settings).toContainText(word);
-    for (const gone of words.gone) await expect(settings).not.toContainText(gone);
+    const page = window.getByTestId("models-settings");
+    for (const word of words.ai) await expect(page).toContainText(word);
+    for (const gone of words.gone) await expect(page).not.toContainText(gone);
     await app.close();
   });
 }

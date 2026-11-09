@@ -1,9 +1,9 @@
 /**
  * Which model tags and organizes Documents: one choice for automatic
- * tagging and Organize, Automatic unless the User picks one by hand. Automatic
- * covers tagging only: Organize asks once in the Library and keeps the model
- * the User said yes to (`LibrarySettings.organizeWith`). Automatic picks from
- * what the User has set up, in this order:
+ * tagging and Organize, Automatic unless the User picks one by hand. Under
+ * Automatic, Organize asks once in the Library, and the model the User says
+ * yes to becomes the choice (#2835). Automatic picks from what the User has
+ * set up, in this order:
  *
  * 1. TypeSafe Jev, when a Jev key is saved;
  * 2. the tagging model of the User's chat provider: its `tagging` role in the

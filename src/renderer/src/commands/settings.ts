@@ -12,7 +12,9 @@ export const settingsPageCommands: readonly Command[] = [
       (page): Command => ({
         id: `settings.${page}`,
         label: (_ctx, t) => t("command.settings.page", { page: t(settingsPageLabels[page]) }),
-        keywords: ["settings.title"],
+        // Models and Search are found where they went.
+        keywords:
+          page === "ai" ? ["settings.title", "command.settings.ai.keywords"] : ["settings.title"],
         group: "open",
         reversible: true,
         run: () => useAppStore.getState().openSettings(page),
@@ -36,7 +38,7 @@ export const settingsPageCommands: readonly Command[] = [
     keywords: ["settings.title", "command.settings.localMode.keywords"],
     group: "open",
     reversible: true,
-    run: () => useAppStore.getState().openSettings("privacy", "local-mode"),
+    run: () => useAppStore.getState().openSettings("ai", "local-mode"),
   },
   {
     id: "settings.meetingWords",
@@ -74,14 +76,10 @@ export const settingsPageCommands: readonly Command[] = [
     id: "settings.transcription",
     assistant: { never: "keys" },
     label: "command.settings.transcription",
-    keywords: [
-      "settings.title",
-      "settings.pages.models",
-      "command.settings.transcription.keywords",
-    ],
+    keywords: ["settings.title", "settings.pages.ai", "command.settings.transcription.keywords"],
     group: "open",
     reversible: true,
-    run: () => useAppStore.getState().openSettings("models", "transcription"),
+    run: () => useAppStore.getState().openSettings("ai", "transcription"),
   },
   {
     id: "settings.background",
@@ -103,9 +101,9 @@ export const settingsPageCommands: readonly Command[] = [
     id: "settings.addProvider",
     assistant: { never: "keys" },
     label: "command.settings.addProvider",
-    keywords: ["settings.title", "settings.pages.models"],
+    keywords: ["settings.title", "settings.pages.ai"],
     group: "open",
     reversible: true,
-    run: () => useAppStore.getState().openSettings("models", "add-provider"),
+    run: () => useAppStore.getState().openSettings("ai", "add-provider"),
   },
 ];

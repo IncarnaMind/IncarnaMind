@@ -94,17 +94,17 @@ describe("The line under a reply that says it did something in the app", () => {
     ).toEqual([
       {
         what: "privacy",
-        text: "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+        text: "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › AI and Settings › Privacy",
         retry: false,
       },
       {
         what: "keys",
-        text: "Keys and sign-ins weren’t changed. Only you can change them, in Settings › Models",
+        text: "Keys and sign-ins weren’t changed. Only you can change them, in Settings › AI",
         retry: false,
       },
       {
         what: "spending",
-        text: "The monthly spending cap wasn’t changed. Only you can change it, in Settings › General",
+        text: "The monthly spending cap wasn’t changed. Only you can change it, in Settings › AI",
         retry: false,
       },
       {
@@ -145,7 +145,7 @@ describe("The line under a reply that says it did something in the app", () => {
       ]),
     ).toEqual([
       [
-        "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › 隐私”里更改",
+        "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › AI”和“设置 › 隐私”里更改",
         false,
       ],
       ["助手没有在应用中完成这条回答说的全部操作", true],
@@ -160,7 +160,7 @@ describe("The line under a reply that says it did something in the app", () => {
         content: [
           {
             type: "text",
-            text: "密钥和登录没有更改。只有你能在“设置 › 模型”里更改",
+            text: "密钥和登录没有更改。只有你能在“设置 › AI”里更改",
             marks: [{ type: "italic" }],
           },
         ],

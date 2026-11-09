@@ -1,6 +1,6 @@
 /**
  * A refused key leads somewhere (#765): "Check the key" on a refused Answer
- * opens that company's key field in Settings › Models, with the refusal said
+ * opens that company's key field in Settings › AI, with the refusal said
  * beside it, and once a key for it is saved the Answer offers to ask again.
  */
 import { create } from "zustand";
@@ -13,7 +13,7 @@ import {
 import { core } from "./core";
 import { useAppStore } from "./store";
 
-/** The refusal Settings › Models opens on. */
+/** The refusal Settings › AI opens on. */
 export interface KeyRefusal {
   catalogId: string;
   kind: "auth" | "out-of-credit";
@@ -26,7 +26,7 @@ export interface KeyRefusal {
 }
 
 interface KeyRefusalsState {
-  /** The refusal Settings › Models shows, from "Check the key"; null once it is done with. */
+  /** The refusal Settings › AI shows, from "Check the key"; null once it is done with. */
   showing: KeyRefusal | null;
   /** When a key was last saved here for each provider, by id: Answers it refused before then can be asked again. */
   savedAt: Readonly<Record<string, string>>;
@@ -85,7 +85,7 @@ export const useKeyRefusals = create<KeyRefusalsState>()((set, get) => ({
     } catch (error) {
       reportError(error);
     }
-    openSettings("models");
+    openSettings("ai");
   },
 
   async checkService(serviceId) {

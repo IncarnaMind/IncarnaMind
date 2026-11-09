@@ -1070,8 +1070,7 @@ export async function acceptPlainTextKeys(window: Page, form?: Locator): Promise
 /** The pages in Settings' list. */
 export type SettingsPage =
   | "general"
-  | "models"
-  | "search"
+  | "ai"
   | "meetings"
   | "connectors"
   | "skills"
@@ -1092,34 +1091,54 @@ export async function showSettingsPage(window: Page, page: SettingsPage): Promis
   return settings;
 }
 
-/** In Settings › Models, opens Add a provider and the page that adds `catalogId` (#179). */
-export async function addProviderPage(settings: Locator, catalogId: string): Promise<Locator> {
+/**
+ * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
+ * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
+ */
+export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
   await settings.getByTestId("models-add-provider").click();
-  await settings
-    .getByTestId("provider-directory")
-    .locator(`[data-catalog-id="${catalogId}"]`)
+  const sheet = settings.getByTestId("ai-add-sheet");
+  await expect(sheet).toBeVisible();
+  await sheet
+    .locator(entry.includes(":") ? `[data-entry="${entry}"]` : `[data-catalog-id="${entry}"]`)
     .first()
     .click();
+  await expect(sheet).toBeHidden();
+}
+
+/** In Settings › AI, opens Add an account or key and the page that adds `catalogId` (#179). */
+export async function addProviderPage(settings: Locator, catalogId: string): Promise<Locator> {
+  await openDirectoryEntry(settings, catalogId);
   const page = settings.getByTestId("provider-add");
   await expect(page).toHaveAttribute("data-catalog-id", catalogId);
   return page;
 }
 
 /**
- * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
- * be open, as it is once first run has chosen what sorts (#1922).
+ * In Settings › AI, the page of a plan the User signs in to (#2835), from Add an account or key:
+ * returns the plan's own card (`chatgpt-settings`, `plans-claude-account`, `plans-copilot`).
  */
-export async function openAdvancedModels(settings: Locator): Promise<Locator> {
-  const advanced = settings.getByTestId("models-advanced");
-  const toggle = advanced.getByTestId("models-advanced-toggle");
-  await expect(toggle).toBeVisible();
-  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
-    await toggle.click();
-  }
-  await expect(advanced).toHaveAttribute("open", "");
-  const tagging = advanced.getByTestId("tagging-settings");
-  await expect(tagging).toBeVisible();
-  return tagging;
+export async function openPlanPage(
+  window: Page,
+  plan: "chatgpt" | "claude-account" | "copilot",
+): Promise<Locator> {
+  const settings = await openSettings(window, "ai");
+  await openDirectoryEntry(settings, `plan:${plan}`);
+  const card = {
+    chatgpt: "chatgpt-settings",
+    "claude-account": "plans-claude-account",
+    copilot: "plans-copilot",
+  }[plan];
+  return settings.getByTestId("ai-entry-page").getByTestId(card);
+}
+
+/** Settings › AI's Organize and Tags row and its options under it (#2835). */
+export function organizeRow(settings: Locator): { picker: Locator; automatic: Locator } {
+  const jobs = settings.getByTestId("ai-jobs");
+  return {
+    picker: jobs.getByTestId("models-sorting"),
+    automatic: jobs.getByTestId("tagging-automatic-organize"),
+  };
 }
 
 /** As `addProviderPage`, returning that page's key form. */
@@ -1531,7 +1550,7 @@ export async function signInWithChatGpt(
   openai: FakeOpenAIServer,
 ): Promise<void> {
   await interceptOpenExternal(app);
-  const plan = (await openSettings(window, "models")).getByTestId("chatgpt-settings");
+  const plan = await openPlanPage(window, "chatgpt");
   await acceptPlainTextKeys(window, plan);
   await plan.getByTestId("chatgpt-continue").click();
   await expect.poll(() => urlsOpened(app)).toHaveLength(1);

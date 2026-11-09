@@ -6,8 +6,7 @@ import type { MessageKey } from "../../shared/i18n";
 /** The pages of the Settings dialog, in the order its list shows them. */
 export const settingsPages = [
   "general",
-  "models",
-  "search",
+  "ai",
   "meetings",
   "connectors",
   "skills",
@@ -23,6 +22,8 @@ export type SettingsTarget =
   | "output-location"
   | "author-name"
   | "local-mode"
+  | "spending-cap"
+  | "web-search"
   | "chat-model"
   | "add-provider"
   | "tagging"
@@ -41,8 +42,7 @@ export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filte
 /** Each page's name: in the dialog's list, as its title, and in ⌘K. */
 export const settingsPageLabels: Record<SettingsPage, MessageKey> = {
   general: "privacy.tabs.general",
-  models: "settings.pages.models",
-  search: "settings.pages.search",
+  ai: "settings.pages.ai",
   meetings: "settings.pages.meetings",
   connectors: "connectors.settings.title",
   skills: "skills.settings.title",
@@ -51,7 +51,12 @@ export const settingsPageLabels: Record<SettingsPage, MessageKey> = {
 };
 
 /** Pages that were renamed or folded into another; a link to one opens where its settings went. */
-const movedPages: Record<string, SettingsPage> = { tools: "privacy", notifications: "general" };
+const movedPages: Record<string, SettingsPage> = {
+  tools: "privacy",
+  notifications: "general",
+  models: "ai",
+  search: "ai",
+};
 
 export const resolveSettingsPage = (page: unknown): SettingsPage =>
   isSettingsPage(page) && offeredSettingsPages.includes(page)
