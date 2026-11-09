@@ -884,6 +884,43 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     expect(calculateCall(answer)).toBeUndefined();
   });
 
+  test("an input of a marker reads the words the model quoted, not the whole sentence its Citation shows (#2739)", async () => {
+    const quoted = "Revenue was $1,482.6 million in 2025";
+    const model = calculatingModel({
+      queries: ["revenue"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "Acme"),
+                  location: "p. 1",
+                  quote: quoted,
+                },
+              ],
+            },
+          },
+          { tool: "calculate", input: { figures: GROWTH({ revenue: 1, margin: 1 }).slice(0, 1) } },
+        ],
+      ],
+      answer: "Revenue was $1,482.6 million in 2025[^1].",
+    });
+    const { core } = await setUpCalculating(model, [ACME]);
+
+    const { answer } = await askAndRead(core, "How much did revenue grow?");
+
+    expect(told(model, "calculate")[0]?.split("\n")).toEqual([
+      "Nothing was recorded.",
+      "Fix these with another calculate call:",
+      '- [=1] rev2024: the quote has no number "$1,231.0 million"; it has $1,482.6 million.',
+    ]);
+    expect(answer.citations.find((each) => each.marker === 1)?.quote).toBe(REVENUE);
+    expect(answer.figures).toEqual([]);
+  });
+
   test("a number the model wrote right before its marker is shown once when it is the figure, and kept and flagged when it isn't; markers in code stay, and one with no figure goes", async () => {
     const model = calculatingModel({
       queries: ["revenue gross margin"],

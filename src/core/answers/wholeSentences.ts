@@ -33,6 +33,13 @@ const HEADING =
   /^\s*(?:\d+(?:\.\d+)*\.?\s|(?:section|chapter|clause|article|part|table|figure)\s+\d)/iu;
 /** A table's row: three numbers or more on one line. */
 const ROW_OF_FIGURES = /(?:\d[\d,.]*%?\D+){2,}\d/u;
+/**
+ * A line that starts a note, a footnote or a list's item: "*", "†", a superscript digit, a bullet
+ * or dash, "(a)", "①", "（一）", "一、", "注：", or a number before a word with a capital ("1 The
+ * respondent…", not "22 July" or "23 GB").
+ */
+const NOTE_OR_ITEM =
+  /^\s*(?:[*†‡§¶•·▪◦–—-]|[⁰¹²³⁴⁵⁶⁷⁸⁹①-⑳]|\(?[a-z0-9]{1,3}\)\s|[(（][一二三四五六七八九十\d]{1,3}[)）]|[一二三四五六七八九十]{1,3}、|注[：:]|\d{1,3}\.?\s+(?!(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\p{Ll}*\b)\p{Lu}\p{Ll})/u;
 const CAPITAL = /\p{Lu}/u;
 /**
  * A sentence's end, with the closing marks and bracketed reference marks after it ("…提出的。[2]"):
@@ -55,25 +62,28 @@ function fullLength(lines: readonly string[]): number {
 /**
  * `text` with each newline a PDF page wrapped at read as a space, so the sentences run on across
  * it, and each tab between a table's cells as a newline, so they don't; same length, so offsets
- * hold. One after a comma always wraps. Chinese and Japanese wraps were joined when the page was
- * read, so a newline beside them was printed on purpose; so was one after a sentence's end, a line
- * well short of the page's measure, a numbered heading or caption, or a table's row. Other kinds of
- * Units break their lines on purpose.
+ * hold. The measure is the page's lines as printed, tabs and all. One after a comma always wraps.
+ * Chinese and Japanese wraps were joined when the page was read, so a newline beside them was
+ * printed on purpose; so was one after a sentence's end, a line well short of the measure, a table's
+ * row or cells, a numbered heading or caption, or one before a note, a footnote or a list's item.
+ * Other kinds of Units break their lines on purpose.
  */
 function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
-  const cells = text.replaceAll("\t", "\n");
-  if (!units.every((unit) => (unit.kind ?? "page") === "page")) return cells;
-  const lines = cells.split("\n");
+  const cells = (line: string) => line.replaceAll("\t", "\n");
+  if (!units.every((unit) => (unit.kind ?? "page") === "page")) return cells(text);
+  const lines = text.split("\n");
   const full = fullLength(lines) * FULL_LINE;
   return lines
     .map((line, index) => {
       const next = lines[index + 1];
-      if (next === undefined) return line;
+      if (next === undefined) return cells(line);
       const before = line.trimEnd().at(-1) ?? "";
       const after = next.trimStart()[0] ?? "";
       const wraps =
         before !== "" &&
         after !== "" &&
+        !line.includes("\t") &&
+        !NOTE_OR_ITEM.test(next) &&
         !(HEADING.test(line) && CAPITAL.test(after)) &&
         !ROW_OF_FIGURES.test(line) &&
         (RUNS_ON.test(before) ||
@@ -81,7 +91,7 @@ function wrapsAsSpaces(text: string, units: readonly PageText[]): string {
             !isCjk(before) &&
             !isCjk(after) &&
             line.trim().length >= full));
-      return wraps ? `${line} ` : `${line}\n`;
+      return wraps ? `${cells(line)} ` : `${cells(line)}\n`;
     })
     .join("");
 }

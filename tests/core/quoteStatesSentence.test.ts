@@ -110,6 +110,38 @@ describe("a Citation's shown quote states its sentence, or the sentence has no g
   );
 });
 
+describe("a figure among others of its unit ends as the model's own words leave it, read in their page's unit", () => {
+  const IN_THOUSANDS = [
+    "Results for the year (£'000)",
+    "Turnover was 1,250 and fees were £800 in the year.",
+  ];
+  const SENTENCE = "Turnover was 1,250 and fees were £800 in the year.";
+  const of = (quote: string, ends: Case["ends"]): Case => ({
+    name: quote,
+    lines: IN_THOUSANDS,
+    sentence: "Fees were £800.",
+    quote,
+    states: ["£800"],
+    ends,
+  });
+
+  test.each([
+    [
+      "quoted whole, so shown as given, holds the turnover in £'000 too",
+      of(SENTENCE, "not-checked"),
+    ],
+    [
+      "quoted up to its figure, holds the turnover in £'000 too",
+      of("Turnover was 1,250 and fees were £800", "not-checked"),
+    ],
+    ["quoted as the fees alone, holds the one figure", of("fees were £800 in the year", "found")],
+  ])("the sentence %s", async (_, each) => {
+    const citation = await asked(each, false);
+
+    expect(citation).toMatchObject({ quote: SENTENCE, check: each.ends });
+  });
+});
+
 describe("cite says when two records give one quote", () => {
   const LINES = [
     "The method is usually credited to Ilsa Marrow, who first proposed it in 1847.",

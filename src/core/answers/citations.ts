@@ -2222,8 +2222,11 @@ export function createCitationSession(
     if (marker > 0 && events.quotesStateClaims?.() && check(record).check === "found") {
       const shown = wholeSentences(citedText(record), quote, matchingFor(source));
       // Words around the quote may hold a scan's word that may be misread: the check reads them too.
+      // The Location stays the quote's: a page's is its Units', and a sentence ends at any other
+      // Unit's line break, so the shown one never leaves the quote's line, paragraph, figure or
+      // comment.
       if (shown !== quote && check({ ...record, quote: shown }).check === "found") {
-        record = { ...record, shown, location: locationFor({ ...record, quote: shown }) };
+        record = { ...record, shown };
       }
     }
     return { ok: true, record, source, passageUnits };

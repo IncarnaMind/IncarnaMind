@@ -78,6 +78,89 @@ describe("a found quote's whole sentence", () => {
     );
   });
 
+  test.each([
+    [
+      "a footnote's mark",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "* Not followed in later cases, where the court held that the buyer must prove the delay itself.",
+    ],
+    [
+      "a footnote's number",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer's late",
+      "1 The respondent has since appealed the decision to the Court of Appeal sitting in Varne.",
+    ],
+    [
+      "a list's bullet, after a comma",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer,",
+      "• the buyer must deliver its drawings within 14 days of the order, at its own cost and risk.",
+    ],
+    [
+      "a list's letter, after a comma",
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer,",
+      "(a) the buyer must deliver its drawings within 14 days of the order, at its own cost and risk.",
+    ],
+    [
+      "a note's mark, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "* 注：此后的案件未采纳这一观点。",
+    ],
+    [
+      "a footnote's number, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "① 被申请人已就该裁决提出上诉。",
+    ],
+    [
+      "a list's number, in Chinese",
+      "仲裁庭认定，供应商未能证明延误由买方造成，",
+      "（一）买方应在订单后 14 日内交付图纸。",
+    ],
+  ])("never runs on into %s on the next line", (_, line, note) => {
+    const quote = line.startsWith("The") ? "The tribunal found that the supplier" : "仲裁庭认定";
+
+    expect(wholeSentences(page(line, note), quote)).toBe(quote);
+  });
+
+  test("runs on into a line that only looks like a note: a date, a size, a number in words", () => {
+    const line =
+      "The tribunal found that the supplier had not shown that the delay was caused by the buyer on";
+    expect(
+      wholeSentences(
+        page(line, "22 July 2022, the day the drawings were due."),
+        "The tribunal found",
+      ),
+    ).toBe(`${line} 22 July 2022, the day the drawings were due.`);
+    expect(
+      wholeSentences(
+        page("仲裁庭认定，供应商未能证明延误由买方造成，", "买方应在订单后 14 日内交付图纸。"),
+        "仲裁庭认定",
+      ),
+    ).toBe("仲裁庭认定，供应商未能证明延误由买方造成，买方应在订单后 14 日内交付图纸。");
+  });
+
+  test("measures a page's lines as printed, and never runs a table's row on into the text below it", () => {
+    const rows = Array.from(
+      { length: 12 },
+      (_, index) => `Depot ${index + 1}\tOpen\tStaffed\tLeased since 2019`,
+    );
+    const heading = page(
+      ...rows,
+      "Revenue recognition",
+      "Revenue is recognised over the term of each contract as the services are delivered.",
+    );
+    expect(wholeSentences(heading, "Revenue is recognised over the term")).toBe(
+      "Revenue is recognised over the term of each contract as the services are delivered.",
+    );
+
+    const prose = page(
+      ...rows,
+      "The depots are run by Halden Logistics under a ten-year contract.",
+    );
+    expect(wholeSentences(prose, "The depots are run by")).toBe(
+      "The depots are run by Halden Logistics under a ten-year contract.",
+    );
+    expect(wholeSentences(prose, "Leased since 2019")).toBe("Leased since 2019");
+  });
+
   test("keeps the quote as given when it is whole already, too long, or in rows or a Transcript", () => {
     const whole = section("The fee is 3% per week. It applies after ten days.");
     expect(wholeSentences(whole, "The fee is 3% per week.")).toBe("The fee is 3% per week.");

@@ -29,11 +29,9 @@ import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
-import { documentFigureContext } from "../calculations";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
-import { figuresInClaim } from "./calculated";
-import { needsCalculation } from "./calculationGate";
+import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
@@ -176,7 +174,7 @@ async function supportOf(
     quotedWords: [
       ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
     ],
-    confirm: async (figure) => pinnedByModel(figure, sentence.found),
+    confirm: async (figure) => pinnedByModel(figure, sentence.found, units),
   });
   return calculation ? null : { check: "found", verdict: null };
 }
@@ -188,18 +186,27 @@ const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
 
 /**
  * Whether the words the model quoted for a sentence, all its Citations' together, hold `figure` as
- * their one figure of its unit (#2739). A whole sentence shown around them may hold others of that
- * unit, and only the model's own words say which it meant; words that hold several leave the
- * sentence unjudged, as they always have.
+ * their one figure of its unit (#2739), read as the figure rule reads a quote: in its page's figure
+ * context, a unit its page states included. A whole sentence shown around them may hold others of
+ * that unit, and only the model's own words say which it meant. With nothing widened they are the
+ * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
  */
-function pinnedByModel(figure: Figure, cited: readonly Citation[]): boolean {
-  const ofUnit = cited.flatMap(({ given, quote }) => {
-    const words = given ?? quote;
-    return figuresInClaim(words, documentFigureContext([{ text: words }])).filter((each) =>
-      sameUnit(each.unit, figure.unit),
-    );
-  });
-  return ofUnit.length === 1 && ofUnit[0]?.value === figure.value;
+function pinnedByModel(
+  figure: Figure,
+  cited: readonly Citation[],
+  units: AnswerCheckOptions["units"],
+): boolean {
+  const ofUnit = cited.flatMap((citation) =>
+    figureReadings(citation.given ?? citation.quote, units(citation)).filter((readings) =>
+      readings.some((each) => sameUnit(each.unit, figure.unit)),
+    ),
+  );
+  const [only] = ofUnit;
+  return (
+    ofUnit.length === 1 &&
+    only !== undefined &&
+    only.some((each) => sameUnit(each.unit, figure.unit) && each.value === figure.value)
+  );
 }
 
 /** The limit a failed batch met, if it was one. */

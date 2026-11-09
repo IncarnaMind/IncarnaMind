@@ -2870,7 +2870,10 @@ export interface CitationAttributes {
    * for Citations made before Locations: their label comes from the pages.
    */
   location: CitationLocation | null;
-  /** The quote the model gave, which it was asked to copy word for word from the Passage. */
+  /**
+   * The words the card shows: the quote the model copied word for word from the Passage, or, for
+   * an Answer's found quote, the whole sentence around it (#2739).
+   */
   quote: string | null;
   /**
    * Set when it quotes a snapshot of a Mind, the User's own note (#335): when that
