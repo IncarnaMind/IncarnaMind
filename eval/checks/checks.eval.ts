@@ -23,15 +23,15 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { chatGenerate } from "../lib/rewrites";
+import { watchRequests } from "../repeats/requests";
 import { corePipeline } from "./lib/pipeline";
-import { type ChecksReport, summaryLines, writeChecksReport } from "./lib/report";
 import {
-  gates,
-  type SentenceResult,
-  scoreFindSupport,
-  scoreVerify,
-  type VerifiedDocument,
-} from "./lib/scoring";
+  type ChecksReport,
+  type ReportedSentence,
+  summaryLines,
+  writeChecksReport,
+} from "./lib/report";
+import { gates, scoreFindSupport, scoreVerify, type VerifiedDocument } from "./lib/scoring";
 import { type FindSupportItem, readChecksSet, type VerifyItem } from "./lib/set";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -74,11 +74,13 @@ test("checks evaluation: Find support and verify", async () => {
   log(
     `Checks: ${findSupport.length} sentences and ${verify.length} claims, over ${set.folder.length} Folder Documents and ${set.received.length} received documents`,
   );
+  const watch = watchRequests([]);
   const library = await openLibrary({
     name: "checks",
     embedder: createWorkerEmbedder(),
     modelCache: join(config.cacheDir, "models"),
     reranker: createWorkerCrossEncoder(),
+    chatModels: watch.chatModels,
     documents: files.map((document) => ({
       key: document.name,
       path: join(root, document.path),
@@ -123,11 +125,17 @@ test("checks evaluation: Find support and verify", async () => {
       scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
       nameOf: (passage) => names.get(passage.documentId) ?? passage.documentName,
       citedName: (citation) => names.get(citation.documentId) ?? citation.documentName,
+      watch,
     });
 
-    const sentences: SentenceResult[] = [];
+    const sentences: ReportedSentence[] = [];
     for (const item of findSupport) {
-      sentences.push({ id: item.id, outcome: await pipeline.check(item.sentence) });
+      sentences.push({
+        id: item.id,
+        sentence: item.sentence,
+        label: item.label,
+        outcome: await pipeline.check(item.sentence),
+      });
       if (sentences.length % 25 === 0) {
         log(`Find support: ${sentences.length} of ${findSupport.length} checked`);
       }
