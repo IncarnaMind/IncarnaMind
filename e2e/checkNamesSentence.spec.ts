@@ -267,11 +267,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(outlined).toHaveCount(0);
 
       if (kind === "not-checked") {
-        // A claim not checked yet has no mark on the page (#1941): it draws no icon and stays
-        // unseen, and its card opens from the badge's row for it.
+        // A claim not checked has no mark on the page (#1941): it draws no icon and stays unseen,
+        // and its card opens from the badge's row for it, the one a check couldn't settle (#2313).
         await expect(mark).toBeHidden();
         await expect(mark.locator("svg")).toHaveCount(0);
-        await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+        await pointAndClick(window, (await checkCard(window)).getByTestId("health-cantCheck"));
       } else {
         await pointAndClick(window, mark);
       }

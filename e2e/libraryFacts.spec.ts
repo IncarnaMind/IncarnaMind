@@ -344,8 +344,9 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await inside(folderRow, card)).toBe(true);
       await window.keyboard.press("Escape");
 
-      // A sentence not checked has no mark on the page: the health card's Next opens its card.
-      await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+      // A sentence not checked has no mark on the page: the health card's row for the sentences
+      // a check can't settle opens its card (#2313).
+      await pointAndClick(window, (await checkCard(window)).getByTestId("health-cantCheck"));
       await expect(card).toHaveAttribute("data-check", "not-checked");
       await expect(card.getByTestId("claim-reason")).toHaveText(words.reason);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);

@@ -336,7 +336,11 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
     CONTRADICTED,
   );
   await expect((await checkCard(window)).getByTestId("health-look")).toContainText("1 句需要留意");
-  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText("1 句未核对");
+  // The check ran and couldn't settle it: it is a sentence that can't be checked, not one to check (#2313).
+  await expect((await checkCard(window)).getByTestId("health-cantCheck")).toContainText(
+    "1 句无法核对",
+  );
+  await expect((await checkCard(window)).getByTestId("health-toCheck")).toHaveCount(0);
   await screenshot(window, "check-results-zh-narrow");
   // In a narrow window the card covers the margin: Esc puts it away.
   await window.keyboard.press("Escape");
@@ -354,13 +358,13 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await screenshot(window, "check-contradicted-card-zh-narrow");
   await window.keyboard.press("Escape");
 
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-cantCheck"));
   await expect(card.getByTestId("claim-reason")).toHaveText("模型的回复是空的。");
   await expect(card.getByTestId("claim-check-again")).toHaveText("重新核对");
 
   // Each row of the badge's card moves to its sentence.
   await window.keyboard.press("Escape");
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-cantCheck"));
   await expect(window.getByTestId("mind-editor")).toBeFocused();
 });
 
@@ -762,7 +766,7 @@ test("an absence over 40 pages is Not checked, with the plain reason in Chinese"
 
   await checkAll(window, line, "The lease", "clause.", "check-against-documents");
 
-  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-cantCheck"));
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-reason")).toHaveText(
     "说某样东西不存在的句子，需要通读文档才能核对。",

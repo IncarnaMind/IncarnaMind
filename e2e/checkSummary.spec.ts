@@ -189,7 +189,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // A claim no check covers yet is named too, and has no mark on the page.
     await insert([
-      paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "refused" })),
+      paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "stopped" })),
     ]);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     // Each count shows once in the card: the row names the one not checked yet (#2313).

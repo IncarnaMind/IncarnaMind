@@ -19,6 +19,7 @@ const health = (parts: Partial<NoteHealth> = {}): NoteHealth => ({
   contradicted: [],
   toCheck: [],
   failed: [],
+  notSent: [],
   uncheckable: [],
   notRecalculated: [],
   recheck: [],

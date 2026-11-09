@@ -95,6 +95,8 @@ export interface NoteHealth {
   contradicted: number[];
   toCheck: number[];
   failed: number[];
+  /** Of the failed: the sentences no check reached, which Check again sends (`NOT_SENT`). */
+  notSent: number[];
   /** The failed checks running again cannot settle: a Citation kept inside another Folder. */
   uncheckable: number[];
   /**
@@ -118,6 +120,24 @@ export interface NoteHealth {
   checkedAt: string | null;
   unexamined: number[];
 }
+
+/**
+ * Why a check never reached its sentence: a Stop, a limit or a cap, the User's own choice of what
+ * may be sent, a reply that failed before it, or more than one write checks. Such a sentence is
+ * not checked yet, not one a check couldn't settle (#2313).
+ */
+const NOT_SENT: ReadonlySet<string> = new Set([
+  "stopped",
+  "rate-limit",
+  "cost-cap",
+  "plan-limit",
+  "out-of-credit",
+  "consent-revoked",
+  "local-mode",
+  "consent-widened",
+  "answer-failed",
+  "too-many",
+]);
 
 /** A check that landed a verdict: an edit of its sentence is a re-check, not an upgrade of one that never ran. */
 const RAN: ReadonlySet<string> = new Set(["supported", "unsupported", "contradicted"]);
@@ -323,6 +343,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     contradicted: [],
     toCheck: [],
     failed: [],
+    notSent: [],
     uncheckable: [],
     notRecalculated: [],
     recheck: [],
@@ -367,6 +388,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         health.toCheck.push(from);
         if (state.why === "failed") {
           health.failed.push(from);
+          if (claim?.shown.state === "not-checked" && NOT_SENT.has(claim.shown.reason))
+            health.notSent.push(from);
           if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
           if (claim?.shown.state === "not-checked" && ANALYSIS_REASONS.has(claim.shown.reason))
             health.notRecalculated.push(from);
@@ -455,10 +478,10 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * The check card's rows (#2831): its sentences, each in one row by its one state, so the rows add
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
- * back named under it (`ownNotes`, of the supported), what is being checked, what a check
- * couldn't settle (`cantCheck`, its reason in each sentence's own card, #2313) and what isn't
- * checked, the sentences the last whole check couldn't sort among them (named on that check's
- * line too). Each counts once, in its worst state: needs a look, then not checked, then
+ * back named under it (`ownNotes`, of the supported), what is being checked, what a check ran on
+ * and couldn't settle (`cantCheck`, its reason in each sentence's own card, #2313) and what isn't
+ * checked, no check having reached it (`NOT_SENT`), with the sentences the last whole check
+ * couldn't sort among them (named on that check's line too). Each counts once, in its worst state: needs a look, then not checked, then
  * supported, so an Analysis table with a column not recalculated is one not checked. Rows with
  * none are left out.
  */
@@ -475,8 +498,9 @@ export type CheckRow = (typeof CHECK_ROWS)[number];
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
   const look = new Set(health.lookClaims);
   const recalculated = new Set(health.notRecalculated);
+  const notSent = new Set(health.notSent);
   const cantCheck = [...new Set(health.failed)].filter(
-    (pos) => !look.has(pos) && !recalculated.has(pos),
+    (pos) => !look.has(pos) && !recalculated.has(pos) && !notSent.has(pos),
   );
   const cant = new Set(cantCheck);
   const toCheck = [...new Set(health.toCheck)].filter((pos) => !look.has(pos) && !cant.has(pos));

@@ -602,6 +602,21 @@ describe("The check card's rows (#2831)", () => {
     expect(say("zh-CN", "ownNotes", 1)).toBe("1 句仅以你的笔记为依据");
   });
 
+  // protects=a sentence no check reached (a Stop, the spending cap, a plan's limit, the User's choice of what may be sent) is not checked yet, and Check again sends it; one a check ran on and couldn't settle is a sentence that can't be checked (#2313); fails_when=a stopped or capped sentence reads as one that can't be checked, or a refused reply reads as not checked yet; no_claim=the words of each sentence's own card.
+  test("a sentence no check reached is not checked yet; one a check couldn't settle can't be checked", () => {
+    const doc = docOf(
+      paragraph(checked("The ferry runs twice a day.", "not-checked", "refused")),
+      paragraph(checked("The harbour floods every winter here.", "not-checked", "stopped")),
+      paragraph(checked("Sea levels rose by a metre in a century.", "not-checked", "cost-cap")),
+      paragraph(checked("Neap tides are twice as strong.", "not-checked", "consent-widened")),
+    );
+
+    expect(checkRows(healthOf(doc)).map(({ row, places }) => [row, places.length])).toEqual([
+      ["cantCheck", 1],
+      ["toCheck", 3],
+    ]);
+  });
+
   // protects=rows with nothing don't show: a Note checked whole, all supported, has the supported row alone (#2831); fails_when=an empty row shows, or Citations found make a row; no_claim=none beyond protects.
   test("rows with nothing don't show", () => {
     const doc = docOf(
@@ -775,7 +790,7 @@ describe("The check card's rows (#2831)", () => {
     expect(words("zh-CN")).toEqual([expect.stringMatching(/^已核对 \S/), "1 句无法核对"]);
   });
 
-  // protects=a check that may settle next time (a busy service) keeps the Note Not checked, under can't be checked with its reason in its card (#2313); fails_when=it reads Checked; no_claim=none beyond protects.
+  // protects=a check a busy service turned away keeps the Note Not checked, its sentence not checked yet, for Check again to send (#2313); fails_when=it reads Checked, or as a sentence that can't be checked; no_claim=none beyond protects.
   test("a check a retry may settle keeps the Note Not checked", () => {
     const doc = docOf(
       paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
@@ -784,7 +799,7 @@ describe("The check card's rows (#2831)", () => {
     const health = healthOf(doc);
     expect(rowsOf(health)).toEqual([
       ["supported", 1],
-      ["cantCheck", 1],
+      ["toCheck", 1],
     ]);
     expect(noteStateOf(health)?.kind).toBe("not-checked");
   });

@@ -141,7 +141,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(check).toHaveText("Check 4 claims");
   await expect(ask).toContainText("Check it against your Documents?");
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Claims and Citations: 4 claims not checked yet",
+    "Checks: 4 sentences not checked yet",
   );
   // A model on this computer costs nothing: no estimate.
   await expect(ask.getByTestId("verify-estimate")).toHaveCount(0);
