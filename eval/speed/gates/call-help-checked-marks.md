@@ -1,0 +1,44 @@
+# The gate for call help's ✓ only where the sentence check passed (#2847)
+
+Written and committed on 2026-11-09, with its fresh slice (`../callHelpMarks.ts`), before any run it gates, pilots included.
+
+## The change
+
+On main, a Citation in call help's reply shows ✓ when its quote is found on the page, though no check read the sentence: the judged runs on #2526 and #2847 found a ✓ beside a sentence its cited line doesn't hold in 23 of 45 Chinese presses and 12 of 45 English on Claude Sonnet 5.5. Here the reply shows at once, as before, with its Citations plain; once it ends, its cited sentences get the check an Answer's sentences get (#2311: `judgeAnswer` and `checks/answerCheck.ts`, on the model that wrote the reply, on the chat flow already allowed), and a ✓ shows only beside a sentence that check passed. The reply's request, prompt and stream don't change: `tests/core/callHelpMarks.test.ts` holds them byte for byte. No prompt, Tool, rule or wording changes.
+
+## The runs
+
+- **Arms, paired** as `../README.md` › Paired runs says, the order turning within each cell: `help-marks-quote-only`, main's path (the core's evaluation switch `helpMarksQuoteOnly`: a ✓ beside every found quote, nothing judged, which `tests/core/callHelpMarks.test.ts` holds to main's behaviour), against `today`, this branch.
+- **The slice:** `call-help-marks`, 15 English presses each with a Chinese twin, about an office-cleaning contract, every case with Documents of its own and its own Meeting and Note, committed with this file. No run has read it. The call-help set and the earlier slices (`callHelpCases.ts`, and the twins and Chinese slices of the earlier tries) have all been run and read: they are for building and pilots only.
+- **Models:** Claude Sonnet 5.5 and Claude Haiku 5.5 as the Answers model (call help on Same as Answers, the default), each on a direct Anthropic key; the judge Claude Opus 5.5 for both arms (`INCARNAMIND_EVAL_SPEED_JUDGE=anthropic/claude-opus-5-5`), as the earlier call-help gates had. One route: if the key runs out of credit, the second direct Anthropic key, same models and endpoint, with a dated line here; never another route or model.
+- **Samples:** two runs of all 30 presses on each model (`INCARNAMIND_EVAL_SPEED_RUNS=2`), false Supported counted over the set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`), the first requests compared (`INCARNAMIND_EVAL_SPEED_SAME_REQUEST=1`). A press waits for its marks to settle, up to 20 s after the reply ends (`answerEnded`); one that doesn't settle by then counts as failed to run.
+- **Load:** each run starts only once the 15-minute load is 24 or less, and the load goes in the result.
+- **Spend:** about $5 (a Sonnet pair about $0.07 with the judge and the check, a Haiku pair about $0.02). The lane's cap is $8 over its pilot and runs, held by one ledger (`INCARNAMIND_EVAL_SPEED_LEDGER`) and `INCARNAMIND_EVAL_SPEED_STOP_USD`.
+- **The pilot,** before the first run: at most 8 presses of the call-help set on Claude Sonnet 5.5, one run, both arms, at most $0.60, to try the wiring and to read whether the check misreads call help's sentences (a line to say aloud, a reading of what they said). If it misreads them, nothing runs here: the examples go on #2847 first.
+
+## What is read, per press, from `report.json`
+
+- **A wrong ✓:** the judge lists a shown Citation's number, its sentence stating as so something its quoted words don't say, and that Citation shows ✓ as the arm's panel draws it: on main, a found quote; here, a sentence the check passed. A press with one or more counts once (`falseSupported` above 0).
+- **Kept ✓:** of the Citations the panel shows whose quote was found and whose number the judge doesn't list, the share that show ✓ (`marks.checked` of `marks.held`), pooled over the cell. A press whose judge reply couldn't be read has no `marks`.
+- **The reply:** expected Passages cited, judged right, every Citation found. On both arms a quote counts as found when its quote check found it, whatever its sentence's check then said, and the judge is shown it as found, so the two arms' replies are read alike.
+- **Speed:** the first words the panel shows and the reply's end (`firstWordsMs`, `doneMs`), unchanged by a check that runs after the end.
+
+## The bars, set from main's own spread before any run
+
+Main's spread, from the runs on main's path published on #2526 and #2847, each run 15 presses of a language, the judge Claude Opus 5.5: presses with a wrong ✓ ranged 3–5 (English) and 6–9 (Chinese) over three runs of the call-help set on Sonnet 5.5, and 6–10 and 7–8 on Haiku 5.5; one run each on other slices gave 1–7. Cited ranged 15–15 on Sonnet and 12–15 on Haiku, every Citation found 14–15 and 13–15, judged right 14–15 on Sonnet and 9–13 on Haiku in Chinese. The reply's end on Sonnet 5.5 had medians of 4.50 to 5.02 s across the call-help slices, and on Haiku 5.5 2.73 and 2.87 s.
+
+A cell is a model and a language; its counts are pooled over the two runs, 30 presses an arm.
+
+1. **Wrong ✓ falls.** In every cell the branch's count of presses with a wrong ✓ is below main's and at most half of it, rounded down; and on each model, Chinese is no higher than English on the branch. Why half: one run's count on main moves by up to 4 presses of 15 by chance, so a fall smaller than that could be noise; half of main's pooled count is beyond it wherever main gives 4 or more. A cell where main gives fewer than 2 over both runs can't show a fall; there the bar is that the branch gives none.
+2. **Kept ✓ holds.** In every cell, at least 83% of the Citations the judge says their lines hold show ✓ in English, and 78% in Chinese. Why: the check's known rate on an Answer's one-fact sentences is 119 of 129 (92%) in English and 115 of 132 (87%) in Chinese on Claude Haiku 5.5 (#2515, as shipped); less 9 points, the spread (two standard deviations) of a share near 90% over the 40–50 Citations a cell holds. A branch that shows no ✓ has 0% and fails.
+3. **The reply holds.** In every cell, expected Passages cited and every Citation found are no lower than main's by more than 2, and judged right by more than 4. Why: those are main's widest ranges of one run on these measures (12–14 and 13–15 for cited and found, 9–13 for judged right, on Haiku in Chinese). The reply's request is the same on both arms, so a larger fall would be the harness, not the reply.
+4. **The reply is as fast.** In every cell, the median of the paired differences (branch less main) in first words and in the reply's end is within ±0.5 s on Sonnet 5.5 and ±0.3 s on Haiku 5.5. Why: main's end medians spread over 0.52 s across the call-help slices on Sonnet, and 0.14 s on Haiku, doubled for two runs.
+
+Every bar must hold. A bar that fails keeps the change from shipping, and the numbers go on #2847. No bar moves after a run.
+
+## Reported, not gated
+
+- How long after the reply's end every mark had settled (`marks.settledMs`): the median, the 90th percentile, and the share within 3 s and within 5 s, per cell.
+- What a press costs the User: its requests and their input and output tokens, from the press until its marks settled (`requests`), the median per press on each arm.
+- The same first request: in how many pairs the two arms' first requests were the same, their libraries' ids aside.
+- Each press with a wrong ✓ on either arm, with its sentence; the load at each run's start and during it; the spend, the judge's share apart.
