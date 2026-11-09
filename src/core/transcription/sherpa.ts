@@ -13,6 +13,7 @@ import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
 import { resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
+import { borrowedInto, shareAWord, spokenLanguageOf, writtenOutside } from "./spokenLanguage";
 import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
@@ -37,6 +38,15 @@ const AUDIO_TOKENS_PER_SECOND = 13;
  * read better than 12 s, whose extra cuts cost context (#1031).
  */
 const LONGEST_READING_MS = 15_000;
+/**
+ * Qwen3-ASR guesses a reading's language from its audio, and with under about 3 s of it guesses
+ * wrong: a short English "yeah" comes back as "对。", a Mandarin "那就这样" as Cantonese (#1031).
+ * Such a reading is told its stream's language, as `AGREEING` of the stream's latest readings of
+ * at least `LANGUAGE_FROM_MS` show it in their words: from that length the model's guess holds.
+ */
+const TOLD_LANGUAGE_UNDER_MS = 3000;
+const LANGUAGE_FROM_MS = 4000;
+const AGREEING = 2;
 
 /**
  * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
@@ -269,9 +279,30 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
   const live = model.live && (await liveReadingsOrNone(model.live));
 
-  async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
+  /** Each stream's language, as its latest readings long enough to show one have it (null: they don't). */
+  const heard = new Map<string, (string | null)[]>();
+
+  function languageOf(stream: string): string | undefined {
+    const latest = heard.get(stream) ?? [];
+    const [first] = latest;
+    return latest.length === AGREEING && first && latest.every((each) => each === first)
+      ? first
+      : undefined;
+  }
+
+  function learn(stream: string, text: string): void {
+    if (!/\p{L}/u.test(text)) return;
+    heard.set(stream, [...(heard.get(stream) ?? []), spokenLanguageOf(text)].slice(-AGREEING));
+  }
+
+  async function read(
+    samples: Float32Array,
+    words: readonly string[],
+    language?: string,
+  ): Promise<string> {
     const stream = recognizer.createStream();
     if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
+    if (language) stream.setOption("language", language);
     stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
     let result: { text: string; tokens?: unknown };
     try {
@@ -297,13 +328,27 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     ...(live && { live }),
     longestMs: LONGEST_READING_MS,
     recognizer: {
-      async decode(samples, _stream, given) {
+      async decode(samples, name, given) {
         const words = contextWords(given);
-        const plain = await read(samples, []);
+        const short = samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000;
+        const language = short ? languageOf(name) : undefined;
+        const plain = await read(samples, [], language);
+        if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(name, plain);
+        if (language && writtenOutside(plain, language) && !borrowedInto(plain, language)) {
+          // Told the call's language, it still wrote another: kept only if its own guess agrees,
+          // as a word of another language said alone (a name) reads the same both ways.
+          if (!shareAWord(plain, await read(samples, []))) {
+            console.warn(
+              "The speech model read a short stretch in another language than the call's, and differently each time; it is left out.",
+              { language },
+            );
+            return "";
+          }
+        }
         if (!mayMend(plain, words)) return plain;
         let told: string;
         try {
-          told = await read(samples, words);
+          told = await read(samples, words, language);
         } catch (error) {
           // The second reading only mends names: the stretch keeps the reading it has.
           console.warn(

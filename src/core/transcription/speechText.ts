@@ -34,7 +34,7 @@ const END_OF_TEXT = "<|endoftext|>";
 
 /**
  * A result's words up to the model's end-of-text token, and how many tokens they took; `ranOn`
- * when the model wrote more after it.
+ * when the model wrote more after it than space.
  */
 export function untilEndOfText(result: { text: string; tokens?: unknown }): {
   text: string;
@@ -45,7 +45,11 @@ export function untilEndOfText(result: { text: string; tokens?: unknown }): {
   const end = result.text.indexOf(END_OF_TEXT);
   if (end < 0) return { text: result.text, tokens: tokens.length, ranOn: false };
   const at = tokens.findIndex((token) => typeof token === "string" && token.includes(END_OF_TEXT));
-  return { text: result.text.slice(0, end), tokens: at < 0 ? tokens.length : at, ranOn: true };
+  return {
+    text: result.text.slice(0, end),
+    tokens: at < 0 ? tokens.length : at,
+    ranOn: result.text.slice(end + END_OF_TEXT.length).trim() !== "",
+  };
 }
 
 /**
@@ -55,9 +59,16 @@ export function untilEndOfText(result: { text: string; tokens?: unknown }): {
  * it, is taken off; one further in belongs to words that can't be told from it.
  */
 const HEADER = /^(?:\S{1,16}\n)?language[ \t]+\p{L}+<asr_text>/u;
+/**
+ * A reading that is only the model's header ("language Chinese", "language None") or its prompt's
+ * word ("system", "<asr_text>system"), which it writes for a short or quiet stretch instead of
+ * words: nothing was said (#1031).
+ */
+const PROMPT_ONLY = /^(?:language[ \t]+\p{L}+|system)?[\s\p{P}]*$/iu;
 
 export function wordsOnly(text: string): string {
-  return text.replace(HEADER, "");
+  const words = text.replace(HEADER, "").replace(/^\s*<asr_text>/u, "");
+  return PROMPT_ONLY.test(words) ? "" : words;
 }
 
 /**
