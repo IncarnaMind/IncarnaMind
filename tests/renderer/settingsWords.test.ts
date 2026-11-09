@@ -98,6 +98,7 @@ const CONSENT_FACTS = [
   // A page loaded as a browser would reach every host it loads anything from (#2553).
   "webPages.keepLook.body",
   // What first run's key field and sorting choice send, and where (ADR-0022).
+  "setup.key.sends",
   "needsModel.organize",
   "needsModel.compare",
   "needsModel.help",
