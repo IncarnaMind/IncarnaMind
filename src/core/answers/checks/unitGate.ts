@@ -111,3 +111,5 @@ export function unitGate(
     });
   };
 }
+
+export type UnitGate = ReturnType<typeof unitGate>;
