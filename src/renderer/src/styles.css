@@ -2322,6 +2322,10 @@
     padding: 8px 12px 0 11px;
     user-select: none;
   }
+  .composer-model-removed {
+    padding: 0 12px 8px 11px;
+    user-select: none;
+  }
   .composer-row {
     display: flex;
     flex-wrap: wrap;

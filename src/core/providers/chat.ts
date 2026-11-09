@@ -523,6 +523,12 @@ export function createChat(options: {
       [id],
     );
 
+  const removedRowById = (id: string) =>
+    db.get<ProviderRow>(
+      `SELECT ${ROW_COLUMNS} FROM chat_providers WHERE id = ? AND deleted_at IS NOT NULL`,
+      [id],
+    );
+
   const rowByServer = ({ kind, baseUrl, endpoint, catalogId }: ParsedServer) =>
     db.get<ProviderRow>(
       `SELECT ${ROW_COLUMNS} FROM chat_providers
@@ -966,6 +972,23 @@ export function createChat(options: {
       return modelInUse(
         { own, fallback: settings.get().user.chatModel },
         (id) => rowById(id) !== undefined,
+      );
+    },
+
+    /**
+     * Whether background work in a Note whose own pick is `own` waits for the User (#2853): the
+     * pick's provider was removed, its model ran on this computer, and the default the Note falls
+     * back to is a cloud service the User never chose for this Note. Picking a model in the Note,
+     * or closing the composer's line that says the model is gone, leaves it no pick to lose.
+     */
+    waitsForRemovedModel(own: ChatModelChoice | null): boolean {
+      if (!own || rowById(own.providerId)) return false;
+      const gone = removedRowById(own.providerId);
+      const fallback = settings.get().user.chatModel;
+      const now = fallback && rowById(fallback.providerId);
+      if (!gone || !isKnownRow(gone) || !fallback || !now || !isKnownRow(now)) return false;
+      return (
+        knownService(gone, own.modelId) === null && knownService(now, fallback.modelId) !== null
       );
     },
 

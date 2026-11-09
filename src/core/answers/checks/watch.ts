@@ -108,6 +108,8 @@ export interface WatchOptions extends CheckRuns {
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
+  /** Whether a Note whose own pick is `own` waits for the User before background work uses the default (#2853). */
+  waitsForRemovedModel(own: ChatModelChoice | null): boolean;
   /** The model to check with, or why not; the consent dialog shows before anything is sent. */
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
@@ -340,10 +342,11 @@ export function createContradictionWatch(options: WatchOptions) {
     };
   }
 
+  const ownModelOf = (mindId: string): ChatModelChoice | null =>
+    content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null));
+
   const modelOf = (mindId: string): ChatModelChoice | null =>
-    options.modelInUse(
-      content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null)),
-    );
+    options.modelInUse(ownModelOf(mindId));
 
   // In the background ---------------------------------------------------------------------------
 
@@ -415,6 +418,10 @@ export function createContradictionWatch(options: WatchOptions) {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
+    if (options.waitsForRemovedModel(ownModelOf(mindId))) {
+      options.log.info("contradictions.waitingForModel", { mindId });
+      return;
+    }
     const prepared = await options.prepareQuietly(modelOf(mindId));
     if (!prepared && !closed && (await options.waitsForConsent(modelOf(mindId)))) {
       // Background work never asks, nor stops without a word (ADR-0022): the line says it waits.
