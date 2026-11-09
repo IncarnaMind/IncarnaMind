@@ -640,6 +640,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
         request.library === true,
+        request.claim,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -1525,6 +1526,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           uncovered: null,
           found: true,
         }),
+        unitsMayDiffer: (amount) => ({
+          kind: "units",
+          reason: translate(deps.language(), "claim.unsupported.unitsMayDiffer", { amount }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         keptInside: (documentId) =>
           deps.walledDocument(documentId) !== null &&
           (scope.documentIds === null ||
@@ -1595,7 +1603,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (signal.aborted) return result;
       const figureResult = oneVerdict(
         said
-          ? await withSentenceVerdict(result, () => sentence(said))
+          ? await withSentenceVerdict(result, () => sentence(said), said.correction?.from ?? null)
           : // Figures that all check out never make a sentence Supported without a verdict to read.
             result.verdict === "supported"
             ? await withSentenceVerdict(result, async () => unchecked("malformed"))

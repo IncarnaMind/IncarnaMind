@@ -540,7 +540,7 @@ const UNSETTLED: Readonly<Record<string, (chars: string) => string>> = {
 };
 
 /** `value` times 10^`exponent`, without the noise of the multiplication. */
-const shifted = (value: number, exponent: number) =>
+export const shifted = (value: number, exponent: number) =>
   exponent === 0 ? value : Number((value * 10 ** exponent).toPrecision(15));
 
 /** The power of ten one value is of another: 4 for 15,234,056 over 1,523.4056. */

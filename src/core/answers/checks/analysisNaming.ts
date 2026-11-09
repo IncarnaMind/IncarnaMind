@@ -477,6 +477,29 @@ function ownFrames(figure: CheckFigure): Frame[] {
 const backedBy = (frame: Frame, own: readonly Frame[]) =>
   own.some((each) => sameFrame(frame, each));
 
+/**
+ * Whether every one of `lines` that says a scale, currency or percent says the one a number of
+ * `scale` and `unit` is in (#2864). A line that names no scale says units, and a scale it may mean
+ * ("in K") is none it says. Null when no line says one.
+ */
+export function linesSayFrame(
+  lines: readonly string[],
+  scale: number,
+  unit: FigureUnit,
+): boolean | null {
+  const own: Frame[] = [
+    { kind: "scale", exponent: Math.round(Math.log10(scale)) },
+    ...unitFrames(unit),
+  ];
+  const saying = lines.map(framesIn).filter((said) => said.length > 0);
+  if (saying.length === 0) return null;
+  return saying.every(
+    (said) =>
+      (scale === 1 || said.some((frame) => frame.kind === "scale")) &&
+      said.every((frame) => backedBy(frame, own)),
+  );
+}
+
 /** What of `clause` no label word, word of the Analysis's or linking word accounts for. */
 function unaccounted(clause: string, known: readonly { term: string; exact: boolean }[]): string[] {
   const words = tokensOf(clause).filter(
