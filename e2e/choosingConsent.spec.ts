@@ -36,7 +36,7 @@ async function screenshot(window: Page, name: string): Promise<void> {
 }
 
 const SENDS_EN = {
-  lead: "Sends your questions and document text to OpenAI. · Details",
+  lead: "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
   onRequest:
     "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, your own Tags’ names and descriptions and your interface language, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
@@ -47,7 +47,7 @@ const SENDS_EN = {
   ],
 };
 const SENDS_ZH = {
-  lead: "会把你的问题和文档内容发送给 OpenAI。 · 详情",
+  lead: "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 OpenAI。 · 详情",
   onRequest:
     "给文档打标签和整理，会发送每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹的名称和描述、文档类别、你自己的标签的名称和描述以及你的界面语言；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   items: [
@@ -249,7 +249,7 @@ test("Settings › Models says in one line what the ChatGPT plan sends, with the
   await expect(plan).toContainText("No key needed. Counts toward your plan’s limits.");
   const sends = plan.getByTestId("provider-sends");
   await expect(sends.locator("p")).toHaveText(
-    "Sends your questions and document text to OpenAI. · Details",
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
   );
   await sends.getByTestId("provider-sends-details").click();
   await expect(sends.getByRole("listitem")).toHaveText(SENDS_EN.items);
