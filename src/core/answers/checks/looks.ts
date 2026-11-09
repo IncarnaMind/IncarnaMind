@@ -36,7 +36,6 @@ import {
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 
-/** What a look asks about: the sentence, and the model that judges it. */
 export type LookRequest = Pick<ClaimCheckRequest, "claim" | "model">;
 
 export interface Failed {

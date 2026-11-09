@@ -91,7 +91,7 @@ export function keptInside(
 }
 
 export function setUpRun(
-  deps: ClaimCheckDependencies,
+  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "fileProperties" | "libraryFacts">,
   request: Pick<ClaimCheckRequest, "claim" | "originalClaim" | "cited" | "scope" | "window">,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
 ) {
@@ -153,7 +153,6 @@ export function setUpRun(
     session,
     decisions,
     citedShown,
-    /** The Passages the check was given or shown. */
     shownPassageIds: (): readonly string[] => [
       ...citedPassages.map((passage) => passage.passageId),
       ...session.shownPassages().map((passage) => passage.passageId),
@@ -161,7 +160,6 @@ export function setUpRun(
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     looked: () => searches > 0 || citedShown !== null,
-    /** The Run's Tools, with `calculate` when it is offered. */
     tools: (
       calculation: Pick<AnswerTools, "calculate" | "calculationFailed"> | null,
     ): AnswerTools => ({

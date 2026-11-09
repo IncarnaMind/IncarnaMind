@@ -46,7 +46,6 @@ export const calculatesIn = (
     request.figures?.length && request.figures.every((figure) => figure.calculated?.figure.analysis)
   );
 
-/** Each figure's context, as its Citation's Document gives it. */
 export const figureContextIn =
   (documents: Pick<AnswerDocuments, "pageTexts">) => (citation: Citation) =>
     documentFigureContext(

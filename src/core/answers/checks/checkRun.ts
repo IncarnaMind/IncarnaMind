@@ -302,7 +302,6 @@ export function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: b
 
 /** What the verdicts are read from once the Run has ended. */
 export interface RunTranscript {
-  /** The Run's last reply. */
   reply: string;
   /** That reply read across its turns, with the Duty and Condition lines held back across an ask. */
   written(): string;
