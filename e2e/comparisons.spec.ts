@@ -837,6 +837,9 @@ test("a key saved while a large run is being confirmed keeps the question, and M
   await expect(needs).toBeVisible();
   await expect(ask).toBeVisible();
   const field = needs.getByTestId("compare-sheet-needs-model-key");
+  await expect(needs.getByTestId("compare-sheet-needs-model-key-sends")).toHaveText(
+    "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+  );
   await field.fill("sk-ant-api03-a-test-key-for-first-run");
   await field.press("Enter");
 

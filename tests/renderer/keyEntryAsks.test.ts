@@ -186,6 +186,25 @@ test("a GLM key asks about the language's platform by name, and Use this key sen
   ]);
 });
 
+test("says what a key sends under the field before a paste, and keeps it under the question (#2883)", async () => {
+  await open("en");
+  expect(find("setup-key-sends")?.textContent).toBe(
+    "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+  );
+  await paste(SHARED_KEY);
+  expect(find("setup-key-ask")).not.toBeNull();
+  // Nothing goes before the User's Use: the line changes no request.
+  expect(carrying(SHARED_KEY)).toEqual([]);
+  expect(find("setup-key-sends")?.textContent).toBe(
+    "Your questions, and the parts of your Documents they need, go to the service your key is for.",
+  );
+
+  await open("zh-CN");
+  expect(find("setup-key-sends")?.textContent).toBe(
+    "你的问题，以及回答所需的文档内容，会发送到密钥所属的服务。",
+  );
+});
+
 test("in English a GLM key asks about Z.ai, and Another service offers the other platform without sending", async () => {
   await open("en");
   await paste(GLM_KEY);
