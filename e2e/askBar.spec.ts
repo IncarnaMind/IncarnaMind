@@ -228,12 +228,28 @@ test("ask bar: the shortcuts run their prompts while the list is open, and a tem
   ]);
   for (const each of await fits())
     expect(each, each.text ?? "").toMatchObject({ cut: false, outside: false });
+  await expect(panel.locator("[data-testid=help-prompt][title]")).toHaveCount(0);
 
   await setLanguage(window, "zh-CN");
   await expect(more).toHaveText("更多…");
   await expect(rows.first()).toHaveText("追问一个问题");
   for (const each of await fits())
     expect(each, each.text ?? "").toMatchObject({ cut: false, outside: false });
+  await expect(panel.locator("[data-testid=help-prompt][title]")).toHaveCount(0);
+  await app.close();
+});
+
+test("ask bar: a row's tooltip is its whole label and key, and shows only while the label is cut short", async () => {
+  test.setTimeout(60_000);
+  const { app, panel } = await openPanel();
+  const first = panel.getByTestId("ask-bar").getByTestId("help-prompt").first();
+  await expect(first).toHaveText(/^What should I say\?/);
+  await expect(first).not.toHaveAttribute("title");
+
+  const narrow = await panel.addStyleTag({ content: ".ask-label { max-width: 48px; }" });
+  await expect(first).toHaveAttribute("title", /^What should I say\? \(.*1\)$/);
+  await narrow.evaluate((style) => style.parentNode?.removeChild(style));
+  await expect(first).not.toHaveAttribute("title");
   await app.close();
 });
 

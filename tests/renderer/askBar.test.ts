@@ -119,6 +119,19 @@ const promptsIn = (scope: Element) =>
     each.querySelector('[data-testid="help-prompt-keys"]')?.textContent ?? null,
   ]);
 
+/** The labels with these words are wider than their row; every other label fits, as measured in a browser. */
+function cutLabelsOf(names: string[]) {
+  const wide = (element: Element) => names.includes(element.textContent ?? "");
+  const prototype = window.HTMLElement.prototype;
+  Object.defineProperty(prototype, "scrollWidth", {
+    configurable: true,
+    get(this: Element) {
+      return wide(this) ? 200 : 100;
+    },
+  });
+  Object.defineProperty(prototype, "clientWidth", { configurable: true, get: () => 100 });
+}
+
 const fire = (target: Element, type: string) =>
   act(async () => {
     target.dispatchEvent(new window.Event(type, { bubbles: true }));
@@ -148,6 +161,39 @@ describe("the ask bar", () => {
       ["want", null],
     ]);
     expect(one("help-more").textContent).toBe("More…");
+  });
+
+  test("a row has no tooltip while its label fits", async () => {
+    await show();
+    await fire(one("help-more"), "click");
+    expect(all("help-prompt").map((each) => each.getAttribute("title"))).toEqual(
+      Array(7).fill(null),
+    );
+  });
+
+  test("a row whose label is cut short has the whole label and its key as its tooltip", async () => {
+    cutLabelsOf(["What should I say?", "Say no politely"]);
+    await show();
+    await fire(one("help-more"), "click");
+    const titles = all("help-prompt").map((each) => [
+      each.getAttribute("data-kind"),
+      each.getAttribute("title"),
+    ]);
+    expect(titles).toEqual([
+      ["say", "What should I say? (⌃⌥1)"],
+      ["answer", null],
+      ["want", null],
+      ["sum", null],
+      ["no", "Say no politely (⌃⌥5)"],
+      ["ask", null],
+      ["check", null],
+    ]);
+  });
+
+  test("a cut label with no key has the label alone as its tooltip", async () => {
+    cutLabelsOf(["What should I say?"]);
+    await show(null, {});
+    expect(one("help-prompt").getAttribute("title")).toBe("What should I say?");
   });
 
   test("is in Chinese in a Chinese interface", async () => {

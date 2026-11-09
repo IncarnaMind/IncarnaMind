@@ -77,30 +77,6 @@ export function AskBar({
     close();
     onAsk(kind);
   };
-  const prompt = (kind: MeetingHelpKind, role?: "menuitem") => {
-    const name = t(helpLabel(kind));
-    const shortcut = keys[kind];
-    return (
-      <button
-        key={kind}
-        type="button"
-        role={role}
-        data-testid="help-prompt"
-        data-kind={kind}
-        title={shortcut ? t("meetings.help.button", { name, shortcut }) : name}
-        onClick={() => choose(kind)}
-        className={role ? "editor-menu-item" : "ask-row"}
-      >
-        <span className="ask-label">{name}</span>
-        {shortcut && (
-          <kbd data-testid="help-prompt-keys" className="ask-key">
-            {shortcut}
-          </kbd>
-        )}
-      </button>
-    );
-  };
-
   return (
     <fieldset
       ref={root}
@@ -108,7 +84,9 @@ export function AskBar({
       data-testid="ask-bar"
       className="ask-bar"
     >
-      {bar.map((kind) => prompt(kind))}
+      {bar.map((kind) => (
+        <Prompt key={kind} kind={kind} shortcut={keys[kind]} onChoose={choose} />
+      ))}
       <div ref={anchor} className="ask-anchor">
         <button
           type="button"
@@ -130,10 +108,63 @@ export function AskBar({
             data-testid="help-more-list"
             className="editor-menu ask-list"
           >
-            {more.map((kind) => prompt(kind, "menuitem"))}
+            {more.map((kind) => (
+              <Prompt key={kind} kind={kind} shortcut={keys[kind]} menu onChoose={choose} />
+            ))}
           </div>
         )}
       </div>
     </fieldset>
+  );
+}
+
+/** A row of the bar or its list. Its tooltip, the label whole and its key, shows only while the label is cut short. */
+function Prompt({
+  kind,
+  shortcut,
+  menu = false,
+  onChoose,
+}: {
+  kind: MeetingHelpKind;
+  shortcut: string | undefined;
+  menu?: boolean;
+  onChoose(kind: MeetingHelpKind): void;
+}) {
+  const t = useT();
+  const name = t(helpLabel(kind));
+  const label = useRef<HTMLSpanElement>(null);
+  const [cut, setCut] = useState(false);
+  const measure = useCallback(() => {
+    const element = label.current;
+    if (element) setCut(element.scrollWidth > element.clientWidth);
+  }, []);
+  // After every render, as the words (another language) and the key can change what fits.
+  useLayoutEffect(measure);
+  useLayoutEffect(() => {
+    const element = label.current;
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure]);
+  return (
+    <button
+      type="button"
+      role={menu ? "menuitem" : undefined}
+      data-testid="help-prompt"
+      data-kind={kind}
+      title={cut ? (shortcut ? t("meetings.help.button", { name, shortcut }) : name) : undefined}
+      onClick={() => onChoose(kind)}
+      className={menu ? "editor-menu-item" : "ask-row"}
+    >
+      <span ref={label} className="ask-label">
+        {name}
+      </span>
+      {shortcut && (
+        <kbd data-testid="help-prompt-keys" className="ask-key">
+          {shortcut}
+        </kbd>
+      )}
+    </button>
   );
 }
