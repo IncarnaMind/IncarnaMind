@@ -2897,24 +2897,13 @@ export const migrations: readonly Migration[] = [
   {
     version: 140,
     description:
-      "Organize keeps no model of its own: the one it kept becomes the choice for Organize and Tags (#2835)",
-    // Under Automatic (stored as {"kind":"automatic"}, null, or left out, which all read as it),
-    // Organize used the model it kept, `organizeWith`, while tagging followed Automatic's pick.
-    // That kept model becomes the Library's one choice, so Organize goes on with the model it used,
-    // and tagging now follows it. A choice the User made already wins: Organize used it, and its
-    // kept model was never read. Nothing else in the record changes, the switch and its turn-ons
-    // included, and no consent is recorded.
+      "Organize keeps no model of its own: the one it kept is dropped, and the Library's choice stays as it was (#2835)",
+    // Under Automatic, only Organize used the model it kept, `organizeWith`; tagging followed
+    // Automatic's pick. Making the kept model the choice would move Tags to another service in the
+    // background, so it is dropped instead: Tags stay where they were, and Organize follows the
+    // choice, asking for consent when the User runs it. Nothing else in the record changes, the
+    // switch and its turn-ons included, and no consent is recorded.
     sql: `
-      UPDATE device_settings
-        SET value = json_set(value, '$.classifier', json(json_extract(value, '$.organizeWith'))),
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE key = 'library' AND deleted_at IS NULL AND json_valid(value)
-          AND json_type(value, '$.organizeWith') = 'object'
-          AND (
-            json_type(value, '$.classifier') IS NULL
-            OR json_type(value, '$.classifier') = 'null'
-            OR json_extract(value, '$.classifier.kind') = 'automatic'
-          );
       UPDATE device_settings
         SET value = json_remove(value, '$.organizeWith'),
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
