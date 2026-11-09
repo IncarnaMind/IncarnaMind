@@ -6231,7 +6231,6 @@ export const zhCN = {
   "approvals.tools.off": "关闭",
   "approvals.settings.title": "批准",
   "approvals.settings.body": "你改过默认设置的工具和技能。",
-  "approvals.settings.empty": "没有改过默认设置。",
   "approvals.settings.revoke": "恢复默认",
   "approvals.settings.revokeLabel": "将 {name} 恢复默认",
   "approvals.settings.skillScripts": "{skill} 的脚本",

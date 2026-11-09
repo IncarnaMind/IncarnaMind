@@ -6578,7 +6578,6 @@ export const en = {
   "approvals.tools.off": "Off",
   "approvals.settings.title": "Approvals",
   "approvals.settings.body": "Tools and Skills you changed from the default.",
-  "approvals.settings.empty": "Nothing changed from the default.",
   "approvals.settings.revoke": "Reset",
   "approvals.settings.revokeLabel": "Reset {name} to its default",
   "approvals.settings.skillScripts": "Scripts of {skill}",

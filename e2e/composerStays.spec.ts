@@ -462,7 +462,9 @@ test("with the Library in front and no Mind open, a Question is answered from Al
   const picker = window.getByTestId("add-to-picker");
   await expect(picker).toBeVisible();
   await pointAndClick(window, picker.getByTestId("add-to-option").last());
-  await expect(answer.getByTestId("answer-added")).toHaveCount(0);
+  await expect(answer.getByTestId("answer-added")).toContainText(
+    "Wrote “When do spring tides happen”",
+  );
 
   // A Mind holding the Answer opened beside the Library, which is still there.
   await expect(window.getByTestId("library-tab")).toHaveCount(1);
