@@ -15,7 +15,11 @@ import {
  */
 
 const LANGUAGES = ["en", "zh-CN"] as const;
-const WAYS = ["setup-chatgpt", "way-claude", "way-local"] as const;
+/** The ways in without a key. In Chinese the plans wait under Other ways, itself a way in (#2865). */
+const WAYS = {
+  en: ["setup-chatgpt", "way-claude", "way-local"],
+  "zh-CN": ["way-local", "setup-other"],
+} as const;
 
 /** Where the card's first screen ends: its own bottom, or the window's, whichever comes first. */
 async function fold(card: Locator): Promise<{ top: number; bottom: number } | null> {
@@ -30,10 +34,13 @@ async function fold(card: Locator): Promise<{ top: number; bottom: number } | nu
  * overflows and cuts a way at the fold. Only a keyless store lengthens the card past the room a
  * dock may take, so anywhere else a cut way is a regression, not the scroll sign (#2270).
  */
-async function firstScreenShows(card: Locator): Promise<boolean> {
+async function firstScreenShows(
+  card: Locator,
+  language: (typeof LANGUAGES)[number],
+): Promise<boolean> {
   const screen = await fold(card);
   if (screen === null) return false;
-  const ways = await Promise.all(WAYS.map((way) => card.getByTestId(way).boundingBox()));
+  const ways = await Promise.all(WAYS[language].map((way) => card.getByTestId(way).boundingBox()));
   if (ways.some((box) => box === null)) return false;
   const whole = ways.every(
     (box) => box !== null && box.y >= screen.top - 0.5 && box.y + box.height <= screen.bottom + 0.5,
@@ -64,9 +71,9 @@ for (const language of LANGUAGES) {
       await setWindowSize(app, window, 900, 900);
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
-      for (const way of WAYS) await expect(card.getByTestId(way)).toBeVisible();
+      for (const way of WAYS[language]) await expect(card.getByTestId(way)).toBeVisible();
       // The dock takes its room a frame after the card comes, so the first screen is read once it settles.
-      await expect.poll(() => firstScreenShows(card), { timeout: 5_000 }).toBe(true);
+      await expect.poll(() => firstScreenShows(card, language), { timeout: 5_000 }).toBe(true);
       // The Note keeps its room above the dock: a click in its text lands there, not on the card.
       await pointAndClick(window, window.getByTestId("mind-editor"));
       expect(

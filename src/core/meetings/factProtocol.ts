@@ -8,6 +8,8 @@ import { type FillSection, textOf } from "./fillPrompt";
 export interface MeetingFact {
   id: string;
   topic: string;
+  /** The topic of the call it is written under, shared word for word by that topic's facts. */
+  heading: string;
   lines: string[];
   sections: FillSection[];
   claim: boolean;
@@ -43,6 +45,7 @@ export interface FactReply {
 
 interface FactMetadata {
   topic: string;
+  heading: string;
   citations: number[];
   lines: string[];
   sections: FillSection[];
@@ -62,7 +65,7 @@ const FACT_ID = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const MAX_ITEMS = 128;
 const MAX_METADATA = 16_384;
 const MAX_BODY = 32_768;
-const FACT_KEYS = ["topic", "citations", "lines", "sections", "claim", "supersedes"];
+const FACT_KEYS = ["topic", "heading", "citations", "lines", "sections", "claim", "supersedes"];
 const SECTIONS: readonly FillSection[] = ["summary", "decisions", "actions", "questions"];
 const TEXT_MARKS = new Set([GENERATED_MARK, "bold", "italic", "strike", "link"]);
 
@@ -118,15 +121,47 @@ function metadata(node: NodeJSON | undefined): Record<string, unknown> | null {
   }
 }
 
-function factMetadata(value: Record<string, unknown>): FactMetadata | null {
+const label = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.trim() !== "" &&
+  value.length <= 240 &&
+  !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value);
+
+/** What a heading never shows: a Citation marker or a token for the User. */
+const NOT_A_TITLE = /\[\^\d*\]|[{｛][^{}｛｝]*[}｝]/u;
+/** A token for the User, with the possessive after it: what a topic loses to become a title. */
+const TOKEN = /[{｛]+[^{}｛｝]*[}｝]+(?:['’]s\b|\s*的)?/gu;
+const ADDRESS = /\b[LH]\d+\b/gu;
+
+/**
+ * The heading a fact goes under: its own, else its topic's words without markers or tokens.
+ * `addresses` are the User's lines and headings as the model was shown them ("L3", "H2"): only
+ * those are machine addresses, so a half-year such as "H2 targets" stays a title (#2306).
+ */
+function titleOf(heading: unknown, topic: string, addresses: ReadonlySet<string>): string | null {
+  const addressed = (text: string) =>
+    [...text.matchAll(ADDRESS)].some((match) => addresses.has(match[0]));
+  if (label(heading) && !NOT_A_TITLE.test(heading) && !addressed(heading)) return heading.trim();
+  const words = topic
+    .replace(TOKEN, "")
+    .replace(/\[\^\d*\]/gu, "")
+    .replace(ADDRESS, (address) => (addresses.has(address) ? "" : address))
+    .replace(/\s+/gu, " ")
+    .trim();
+  return words !== "" && !NOT_A_TITLE.test(words) ? words : null;
+}
+
+function factMetadata(
+  value: Record<string, unknown>,
+  addresses: ReadonlySet<string>,
+): FactMetadata | null {
   if (Object.keys(value).some((key) => !FACT_KEYS.includes(key))) return null;
   const { topic, citations, lines, sections, claim } = value;
   const supersedes = Object.hasOwn(value, "supersedes") ? value.supersedes : [];
+  const heading = label(topic) ? titleOf(value.heading, topic, addresses) : null;
   if (
-    typeof topic !== "string" ||
-    topic.trim() === "" ||
-    topic.length > 240 ||
-    /[\p{Cc}\p{Zl}\p{Zp}]/u.test(topic) ||
+    !label(topic) ||
+    heading === null ||
     !inventory(citations) ||
     !strings(lines, /^L[1-9]\d{0,5}$/) ||
     !Array.isArray(sections) ||
@@ -135,12 +170,11 @@ function factMetadata(value: Record<string, unknown>): FactMetadata | null {
       SECTIONS.some((allowed) => section === allowed),
     ) ||
     new Set(sections).size !== sections.length ||
-    (lines.length === 0 && sections.length === 0) ||
     typeof claim !== "boolean" ||
     !strings(supersedes, FACT_ID)
   )
     return null;
-  return { topic, citations, lines, sections, claim, supersedes };
+  return { topic, heading, citations, lines, sections, claim, supersedes };
 }
 
 function heading(node: NodeJSON | undefined): string | null {
@@ -297,10 +331,15 @@ function checkedBody(
   return citations.length > 0 ? { body: generated, citations } : "noCitation";
 }
 
-/** Known invalid fact IDs count once; unknown frames are separate, and the overview is required. */
+/**
+ * Known invalid fact IDs count once; unknown frames are separate, and the overview is required.
+ * `addresses`: the User's lines and headings as the model was shown them ("L1", "H2").
+ */
 export function parseFactReply(
   answer: Pick<CellAnswer, "markdown" | "blocks" | "citations">,
+  addresses: readonly string[] = [],
 ): FactReply {
+  const known = new Set(addresses);
   if (answer.markdown.length > 2_000_000 || answer.blocks.length > 20_000)
     return {
       facts: [],
@@ -336,7 +375,7 @@ export function parseFactReply(
       }
       continue;
     }
-    const fields = value ? factMetadata(value) : null;
+    const fields = value ? factMetadata(value, known) : null;
     const checked = fields ? checkedBody(frame, fields.citations, receipts) : "metadata";
     if (!fields || typeof checked === "string") {
       facts.set(frame.id, typeof checked === "string" ? checked : "metadata");

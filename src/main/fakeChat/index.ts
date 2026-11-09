@@ -130,6 +130,19 @@ const slowCheck = {
 };
 (globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
 
+/**
+ * Every request a model was sent, with where it would have gone and the key it carried, so a
+ * window test can see that a key reaches no service before the User chooses one (#2865).
+ */
+const requestsSent: {
+  /** The catalog id, or the kind of provider where it has none. */
+  service: string;
+  endpoint: string | null;
+  apiKey: string | null;
+}[] = [];
+(globalThis as { incarnamindFakeChatRequests?: typeof requestsSent }).incarnamindFakeChatRequests =
+  requestsSent;
+
 /** A sort's reply that waits, after the first sentence it names, for the test to release it. */
 function heldAfterFirstClaim(
   streamed: ReturnType<typeof streamedText>,
@@ -151,6 +164,12 @@ function heldAfterFirstClaim(
 }
 
 export const createFakeChatModel: ChatModelFactory = (spec) => {
+  const sent = () =>
+    requestsSent.push({
+      service: spec.catalogId ?? spec.kind,
+      endpoint: spec.endpoint ?? null,
+      apiKey: spec.apiKey,
+    });
   const generate = async (
     options: GenerateOptions,
   ): Promise<Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>> => {
@@ -257,8 +276,12 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
     modelId: spec.modelId,
     // Structured output (automatic tagging) gets its Tags as JSON; Edit with AI its new text;
     // anything else (a connection test) gets "OK".
-    doGenerate: generate,
+    doGenerate: (options) => {
+      sent();
+      return generate(options);
+    },
     doStream: async (options) => {
+      sent();
       const { prompt, tools, abortSignal, responseFormat } = options;
       // A Note's sort streams its reply (#2532): it is answered as when it was generated.
       if (findsClaims(options)) {

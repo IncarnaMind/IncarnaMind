@@ -15,6 +15,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setLanguage,
+  setupWay,
   setWindowSize,
   urlsOpened,
 } from "./app";
@@ -86,7 +87,7 @@ for (const { language, width, height } of [
     try {
       const card = await askFirstQuestion(window);
 
-      await pointAndClick(window, card.getByTestId("setup-chatgpt"));
+      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
 
       const line = card.getByTestId("chatgpt-error");
       await expect(line).toContainText(
@@ -103,7 +104,7 @@ for (const { language, width, height } of [
       expect((await readFile(secretsFile)).equals(before)).toBe(true);
 
       // The same choice, this time finished: only now does the record change.
-      await pointAndClick(window, card.getByTestId("setup-chatgpt"));
+      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
       await expect(window.getByTestId("chatgpt-error")).toContainText(
         translate(language, "chatgpt.signIn.error.record-unreadable"),
       );
@@ -112,8 +113,8 @@ for (const { language, width, height } of [
       const [authorize] = (await urlsOpened(app)).slice(-1);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      // A model works: the composer is back, the steps left wait in their line above it.
-      await expect(window.getByTestId("assistant-setup-line")).toBeVisible({ timeout: 15_000 });
+      // A model works: the composer is back.
+      await expect(window.getByTestId("composer-input")).toBeVisible({ timeout: 15_000 });
 
       expect((await readFile(secretsFile)).equals(before)).toBe(false);
       const plan = await window.evaluate(() =>
@@ -138,7 +139,7 @@ for (const { language, width, height } of [
     try {
       const card = await askFirstQuestion(window);
 
-      await pointAndClick(window, card.getByTestId("setup-chatgpt"));
+      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
 
       const line = card.getByTestId("chatgpt-error");
       await expect(line).toContainText(
@@ -149,7 +150,7 @@ for (const { language, width, height } of [
       expect((await readFile(secretsFile)).equals(before)).toBe(true);
 
       // Asking again still cannot fix the file, and still opens nothing.
-      await pointAndClick(window, card.getByTestId("setup-chatgpt"));
+      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
       await expect(line).toContainText(
         translate(language, "chatgpt.signIn.error.store-unreadable"),
       );
