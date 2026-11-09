@@ -47,7 +47,15 @@ export const MEETING_PANEL_CHANNELS = {
   state: "meetingPanel:state",
   /** Main → page: ⌘K asked for a `PanelCommand`. */
   command: "meetingPanel:command",
+  /** Page → main: the replies it asked that it shows now (`ShownHelp`), whose checks end when it closes. */
+  showing: "meetingPanel:showing",
 } as const;
+
+/** A help reply the panel asked for itself and shows: a press of its own, never one from the assistant. */
+export interface ShownHelp {
+  conversationId: string;
+  answerId: string;
+}
 
 export interface MeetingPanelBridge {
   resize(width: number, height: number): void;
@@ -58,4 +66,5 @@ export interface MeetingPanelBridge {
   onHelp(listener: (kind: GeneralHelpKind) => void): () => void;
   state(state: Omit<PanelState, "shown">): void;
   onCommand(listener: (command: PanelCommand) => void): () => void;
+  showing(helps: readonly ShownHelp[]): void;
 }

@@ -14,6 +14,7 @@ import {
   sentencePassed,
   shownItems,
 } from "../../src/renderer/src/helpReply";
+import { citedSentences } from "../../src/shared/citedSentences";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
@@ -304,15 +305,39 @@ describe("A help reply", () => {
     ]);
   });
 
-  // protects=a ✓ shows only where the sentence check passed its sentence, which alone writes judgedAt (#2847); fails_when=a found quote alone, or a verdict that isn't a pass, shows ✓; no_claim=what the check decides.
-  test("a Citation shows ✓ only once the sentence check passed its sentence, never for its found quote alone", () => {
-    const at = "2026-11-09T20:00:00.000Z";
-    expect(sentencePassed({ check: "found", judgedAt: at })).toBe(true);
-    expect(sentencePassed({ check: "found" })).toBe(false);
-    for (const check of ["checking", "not-checked", "unsupported", "contradicted"] as const) {
-      expect(sentencePassed({ check })).toBe(false);
-      expect(sentencePassed({ check, judgedAt: at })).toBe(false);
-    }
-    expect(sentencePassed({ check: "not-found" })).toBe(false);
+  // protects=a ✓ shows only where the sentence check passed the sentence a chip is cited in, counted as the core counts its markers (#2847); fails_when=a found or judged Citation alone shows ✓, a short line takes the ✓ its marker earned elsewhere, or the panel's places and the core's disagree; no_claim=what the check decides.
+  test("a Citation shows ✓ only where the check passed the sentence it is cited in, the places counted as the core counts them", () => {
+    const text =
+      "## Notes\n★ Yes, Enterprise is $45 a seat [^1]\n→ Same price [^1]\n\nI'll confirm it in writing today [^2][^1]\n→ buys time\n[^9]: a definition";
+    const chips = readHelpReply(text).flatMap((item) =>
+      [item.lead, ...item.notes, item.effect ?? []]
+        .flat()
+        .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
+    );
+    expect(chips.map(({ marker, at }) => [marker, at])).toEqual([
+      [1, 0],
+      [1, 1],
+      [2, 2],
+      [1, 3],
+    ]);
+    // The core's count: the judged sentences hold the first and last two places, the short line none.
+    expect(citedSentences(text).map((each) => each.at)).toEqual([[0], [2, 3]]);
+
+    const judged = {
+      check: "unsupported" as const,
+      judgedAt: "2026-11-09T20:00:00.000Z",
+      passedAt: [0],
+    };
+    expect(chips.map((chip) => sentencePassed(judged, chip.at))).toEqual([
+      true,
+      false,
+      false,
+      false,
+    ]);
+    // Found by its quote, or judged as a Citation, it shows no ✓ without a place that passed.
+    const foundOnly = { check: "found" as const };
+    const judgedOnly = { check: "found" as const, judgedAt: "2026-11-09T20:00:00.000Z" };
+    expect(sentencePassed(foundOnly, 0)).toBe(false);
+    expect(sentencePassed(judgedOnly, 0)).toBe(false);
   });
 });

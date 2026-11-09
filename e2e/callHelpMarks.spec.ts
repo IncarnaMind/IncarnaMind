@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
   dismissChatSetup,
+  expectMarksAsChecked,
   firstTranscriptLine,
   launchApp,
   panelOf,
@@ -19,11 +20,11 @@ import {
 } from "./app";
 
 /**
- * In call help, a Citation shows ✓ only beside a sentence the sentence check passed (#2847), on the
- * scripted chat model, whose check passes a sentence its quote states and not one that says a
- * thing is already done. A reading of what they said rests on their line and passes; an option
- * whose line says more doesn't, and its Citation stays plain, the ✓'s place kept, in English and
- * Chinese. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * In call help, a Citation shows ✓ only beside a line the sentence check passed (#2847), on the
+ * scripted chat model, whose check passes a sentence unless it says a thing is already done. Each
+ * chip's ✓ is read against what the core recorded of the check; an option resting on a plain line
+ * of the price sheet takes ✓, one whose line says more stays plain with the ✓'s place kept, in
+ * English and Chinese. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(page: Page, name: string): Promise<void> {
@@ -51,20 +52,23 @@ const CALLS = [
       "Can you do thirty-five dollars a seat for Enterprise?",
       "How much is the Enterprise plan per seat, and does it include single sign-on?",
     ],
-    // The option cites the line that shares the most words with their newest one.
+    // The option cites the line that shares the most words with their newest one: a plain one.
     sheet:
-      "Price sheet 2026\n\nTeam plan: $25 per seat a month.\nEnterprise plan: $45 per seat a month, and setting it up for you it is already done.\n",
-    want: "What do they want?",
+      "Price sheet 2026\n\nTeam plan: $25 per seat a month.\nEnterprise plan: $45 per seat a month, single sign-on included.\n",
     answer: "Answer their question",
+    answerPasses: true,
+    want: "What do they want?",
   },
   {
     language: "Chinese",
     interface: "zh-CN" as const,
     buyer: ["企业版能不能每个席位 35 美元？", "企业版每个席位多少钱，含不含单点登录？"],
-    // A Chinese line shares no word the scripted model counts, so the option cites the first.
+    // A Chinese line shares no word the scripted model counts, so the option cites the first,
+    // which says the thing is already done.
     sheet: "企业版：每个席位每月 45 美元，开通这件事已经完成。\n团队版：每个席位每月 25 美元。\n",
-    want: "对方想要什么？",
     answer: "回答对方的问题",
+    answerPasses: false,
+    want: "对方想要什么？",
   },
 ];
 
@@ -105,26 +109,31 @@ for (const call of CALLS) {
     await firstTranscriptLine(window);
     const panel = await panelOf(app);
 
-    // A reading rests on their own line, which the check passes: ✓ comes after the reply.
-    const want = await pressIn(panel, call.want);
-    const passed = want.getByTestId("help-option-note").first().getByTestId("help-citation");
-    await expect(passed).toHaveAttribute("data-passed", "true");
-    await expect(passed.getByTestId("help-citation-check")).toBeVisible();
-    const passedBox = await passed.boundingBox();
-    await shot(panel, `call-help-marks-passed-${call.interface}`);
-
-    // An option whose line says more: its quote is found, the check doesn't pass it, no ✓.
+    // An option resting on the price sheet: ✓ only if the check passed its line.
     const answer = await pressIn(panel, call.answer);
-    const plain = answer.getByTestId("help-option-say").first().getByTestId("help-citation");
-    await expect(plain).toHaveAttribute("data-check", "unsupported");
-    await expect(plain).toHaveAttribute("data-passed", "false");
-    await expect(plain.getByTestId("help-citation-check")).toBeHidden();
-    await expect(answer.getByTestId("help-source")).toHaveCount(1);
+    const answerMarks = await expectMarksAsChecked(window, answer);
+    expect(answerMarks[0]).toMatchObject(
+      call.answerPasses
+        ? { passed: true, check: "found" }
+        : { passed: false, check: "unsupported" },
+    );
+    const answerBox = await answer.getByTestId("help-citation").first().boundingBox();
+    await shot(panel, `call-help-marks-answer-${call.interface}`);
+
+    // A reading of what they said: its moment's chip shows what the check gave that line.
+    const want = await pressIn(panel, call.want);
+    const wantMarks = await expectMarksAsChecked(window, want);
+    expect(wantMarks.length).toBeGreaterThan(0);
+    test.info().annotations.push({
+      type: "reading's moment",
+      description: JSON.stringify(wantMarks),
+    });
+    const wantBox = await want.getByTestId("help-citation").first().boundingBox();
+    await shot(panel, `call-help-marks-want-${call.interface}`);
+
     // The ✓ keeps its place whether it shows or not, so nothing moves when one comes.
-    const plainBox = await plain.boundingBox();
-    if (!plainBox || !passedBox) throw new Error("A Citation isn't drawn.");
-    expect(Math.abs(plainBox.width - passedBox.width)).toBeLessThan(0.5);
-    await shot(panel, `call-help-marks-plain-${call.interface}`);
+    if (!answerBox || !wantBox) throw new Error("A Citation isn't drawn.");
+    expect(Math.abs(answerBox.width - wantBox.width)).toBeLessThan(0.5);
 
     await app.close();
   });

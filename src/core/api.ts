@@ -8642,6 +8642,13 @@ export interface MarkedCitation extends Citation {
    * and not the quote check alone (#2313).
    */
   judgedAt?: string;
+  /**
+   * Where in the text its marker sits in a sentence the judgement passed: its place among the
+   * Answer's Citation markers, from 0. Call help draws its ✓ by sentence from these (#2847), so a
+   * marker that another sentence reuses keeps the mark where its own sentence passed. Kept with an
+   * Answer's Citations, not in a Note.
+   */
+  passedAt?: number[];
 }
 
 /**
@@ -12564,6 +12571,12 @@ export interface CoreApi {
   /** Stops an Answer of a conversation being written, keeping what it has, or the judgement of its sentences. */
   stopConversationAnswer(input: ConversationAnswerInput): Promise<void>;
   /**
+   * Ends the check of an Answer's sentences and nothing else: its Citations still waiting are not
+   * checked, and one still being written isn't checked when it ends, which it goes on to do. For
+   * call help's panel, once it no longer shows the reply (#2847).
+   */
+  stopAnswerCheck(input: ConversationAnswerInput): Promise<void>;
+  /**
    * Judges again the sentences of an ended Answer whose Citations are not checked (#2311), on the
    * model that wrote it: Check again on such a Citation's card, and Check the rest past a limit.
    * `limit`: the most it may spend, as `estimateAnswerCheck` gave it; the Answer's own limit when
@@ -14764,6 +14777,7 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
+  stopAnswerCheck: true,
   checkAnswerAgain: true,
   estimateAnswerCheck: true,
   usualAnswerWait: true,

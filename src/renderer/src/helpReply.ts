@@ -15,10 +15,13 @@ import {
   RECOMMENDED_MARK,
 } from "../../shared/meetingHelp";
 
-/** A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). */
+/**
+ * A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). A Citation's `at`
+ * is its marker's place among the reply's Citation markers, from 0, as the core counts them.
+ */
 export type ReplyPiece =
   | { kind: "text"; text: string }
-  | { kind: "citation"; marker: number }
+  | { kind: "citation"; marker: number; at: number }
   | { kind: "figure"; marker: number };
 
 export interface ReplyItem {
@@ -35,20 +38,22 @@ export interface ReplyItem {
 
 const DEFINITION = /^\[\^\d+\]:/;
 
-export function pieces(text: string): ReplyPiece[] {
+/** The pieces of `text`, whose first Citation marker is the reply's `first`. */
+export function pieces(text: string, first = 0): ReplyPiece[] {
   const found: ReplyPiece[] = [];
-  let at = 0;
+  let from = 0;
+  let cited = first;
   for (const match of text.matchAll(/\[\^(\d+)\]|\[=(\d+)\]/g)) {
-    const before = text.slice(at, match.index);
+    const before = text.slice(from, match.index);
     if (before) found.push({ kind: "text", text: before });
     found.push(
       match[1] !== undefined
-        ? { kind: "citation", marker: Number(match[1]) }
+        ? { kind: "citation", marker: Number(match[1]), at: cited++ }
         : { kind: "figure", marker: Number(match[2]) },
     );
-    at = match.index + match[0].length;
+    from = match.index + match[0].length;
   }
-  const rest = text.slice(at);
+  const rest = text.slice(from);
   if (rest) found.push({ kind: "text", text: rest });
   return found;
 }
@@ -173,21 +178,28 @@ export function citationNumbers(
 }
 
 /**
- * Whether a help reply's Citation shows ✓: the sentence check passed its sentence (#2847), the one
- * thing that writes `judgedAt` on a found Citation. A found quote alone, its sentence unjudged,
- * shows none.
+ * Whether a help reply's Citation shows ✓ where it is cited (`at`): the sentence check passed the
+ * sentence it is cited in there (#2847). A found quote alone shows none, nor does a line too short
+ * to be judged, and a marker reused by a sentence that didn't pass keeps the ✓ its own earned.
  */
-export const sentencePassed = (citation: Pick<MarkedCitation, "check" | "judgedAt">): boolean =>
-  citation.check === "found" && citation.judgedAt !== undefined;
+export const sentencePassed = (
+  citation: Pick<MarkedCitation, "check" | "passedAt">,
+  at: number,
+): boolean => citation.passedAt?.includes(at) === true;
+
+const CITATION_MARKER = /\[\^\d+\]/g;
 
 export function readHelpReply(markdown: string): ReplyItem[] {
   const items: ReplyItem[] = [];
+  let cited = 0;
   for (const raw of markdown.split("\n")) {
+    const first = cited;
+    cited += raw.match(CITATION_MARKER)?.length ?? 0;
     const line = plainLine(raw);
     if (line === "" || DEFINITION.test(line) || /^#+\s/.test(line)) continue;
     const current = items.at(-1);
     if (EFFECT_MARK.test(line)) {
-      const effect = pieces(line.replace(EFFECT_MARK, ""));
+      const effect = pieces(line.replace(EFFECT_MARK, ""), first);
       if (current && current.effect === null) current.effect = effect;
       else items.push({ recommended: false, bullet: false, lead: [], notes: [], effect });
       continue;
@@ -196,10 +208,10 @@ export function readHelpReply(markdown: string): ReplyItem[] {
     const bullet = LINE_MARK.test(line);
     const text = line.replace(RECOMMENDED_MARK, "").replace(LINE_MARK, "");
     if (!recommended && !bullet && current && current.effect === null && current.lead.length > 0) {
-      current.notes.push(pieces(text));
+      current.notes.push(pieces(text, first));
       continue;
     }
-    items.push({ recommended, bullet, lead: pieces(text), notes: [], effect: null });
+    items.push({ recommended, bullet, lead: pieces(text, first), notes: [], effect: null });
   }
   // One recommendation: a second star a model adds is dropped.
   const first = items.findIndex((item) => item.recommended);

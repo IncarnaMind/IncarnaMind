@@ -35,6 +35,7 @@ import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
+import { createOwnHelps } from "./ownHelps";
 
 declare global {
   interface Window {
@@ -43,6 +44,21 @@ declare global {
 }
 
 const bridge = window[MEETING_PANEL_BRIDGE_KEY];
+
+const ownHelps = createOwnHelps({
+  end: (help) =>
+    void core
+      .stopAnswerCheck(help)
+      .catch((error: unknown) => useAppStore.getState().reportError(error)),
+  tell: (helps) => bridge.showing(helps),
+});
+
+/** Asks a button's help from the panel: its reply is the panel's own (`ownHelps`). */
+function askHere(meeting: Meeting, kind: MeetingHelpKind): void {
+  void askHelp(meeting, kind).then((asked) => {
+    if (asked) ownHelps.asked(asked);
+  });
+}
 
 const ADDED_MS = 6000;
 
@@ -103,6 +119,11 @@ export function MeetingPanel() {
   );
   const latestPinned = pinned.some((each) => each.answerId === meeting?.help?.answerId);
   useEffect(() => bridge.state({ folded, pinned: latestPinned }), [folded, latestPinned]);
+  const shown = [
+    ...(meeting?.help ? [meeting.help.answerId] : []),
+    ...pinned.map((each) => each.answerId),
+  ].join(" ");
+  useEffect(() => ownHelps.showing(shown ? shown.split(" ") : []), [shown]);
 
   const meetingRef = useRef(meeting);
   meetingRef.current = meeting;
@@ -112,7 +133,7 @@ export function MeetingPanel() {
         const live = meetingRef.current;
         if (!live) return;
         setFolded(false);
-        void askHelp(live, kind);
+        askHere(live, kind);
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
@@ -326,7 +347,7 @@ function Panel({
         meeting={meeting}
         layout="grid"
         keys={keys}
-        onPress={(kind) => void askHelp(meeting, kind)}
+        onPress={(kind) => askHere(meeting, kind)}
       />
       {shownPinned.map((each) => (
         <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />
@@ -461,11 +482,7 @@ function Suggestion({
   };
   return (
     <div className="panel-suggestion" data-pinned={pinned}>
-      <HelpSuggestion
-        help={help}
-        answer={answer}
-        onRetry={() => void askHelp(meeting, help.kind)}
-      />
+      <HelpSuggestion help={help} answer={answer} onRetry={() => askHere(meeting, help.kind)} />
       {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">
           <button

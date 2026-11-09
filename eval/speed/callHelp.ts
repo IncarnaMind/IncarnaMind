@@ -428,11 +428,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     words: "item",
     async run({ library, claimsJudge, meeting, choice, arm }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
-      // A ✓ as each arm's panel draws it: main's beside a found quote, the branch's only where the
-      // sentence check passed (#2847).
       const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
-      const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
-        quoteOnly ? citation.check === "found" : sentencePassed(citation);
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();
@@ -455,6 +451,19 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       const citations = [...numbers.keys()].flatMap(
         (marker) => answer.citations.find((citation) => citation.marker === marker) ?? [],
       );
+      const places = shown.flatMap((each) =>
+        [each.lead, ...each.notes, each.effect ?? []]
+          .flat()
+          .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
+      );
+      // A Citation shows ✓ as each arm's panel draws it, on any line it is shown on: main's beside a
+      // found quote, the branch's only where the sentence check passed that line's sentence (#2847).
+      const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
+        quoteOnly
+          ? citation.check === "found"
+          : places.some(
+              (place) => place.marker === citation.marker && sentencePassed(citation, place.at),
+            );
       const found = citations.filter(quoteFound);
       const reply = shownReply(answer, shown, numbers);
       const judged = done

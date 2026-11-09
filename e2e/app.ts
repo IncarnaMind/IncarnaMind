@@ -504,6 +504,49 @@ export async function panelOf(app: ElectronApplication): Promise<Page> {
   return page;
 }
 
+/**
+ * Each Citation a help suggestion shows has its ✓ exactly where the sentence check passed the line
+ * it is cited on, as the core recorded it once every mark settled (#2847): never from a found quote
+ * alone. Returns each chip's check, for a spec that names what the check gave a line.
+ */
+export async function expectMarksAsChecked(
+  window: Page,
+  suggestion: Locator,
+): Promise<{ at: number; check: string; passed: boolean }[]> {
+  const help = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const live = (await bridge.listMeetings()).find(
+      (meeting) => meeting.status === "recording" || meeting.status === "paused",
+    );
+    return live?.help ?? null;
+  });
+  if (!help) throw new Error("The meeting has no help reply.");
+  const settled = async () =>
+    window.evaluate(async ({ conversationId, answerId }) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { messages } = await bridge.getConversation(conversationId);
+      const answer = messages.find((message) => message.id === answerId);
+      if (answer?.kind !== "answer" || answer.status === "streaming") return null;
+      if (answer.citations.some((citation) => citation.check === "checking")) return null;
+      return answer.citations.map(({ check, passedAt }) => ({ check, passedAt: passedAt ?? [] }));
+    }, help);
+  await expect.poll(settled, { timeout: 20_000 }).not.toBeNull();
+  const citations = (await settled()) ?? [];
+  const chips = suggestion.getByTestId("help-citation");
+  const shown: { at: number; check: string; passed: boolean }[] = [];
+  for (let index = 0; index < (await chips.count()); index++) {
+    const chip = chips.nth(index);
+    const at = Number(await chip.getAttribute("data-at"));
+    const passed = citations.some((citation) => citation.passedAt.includes(at));
+    await expect(chip).toHaveAttribute("data-passed", String(passed));
+    await (passed
+      ? expect(chip.getByTestId("help-citation-check")).toBeVisible()
+      : expect(chip.getByTestId("help-citation-check")).toBeHidden());
+    shown.push({ at, check: (await chip.getAttribute("data-check")) ?? "", passed });
+  }
+  return shown;
+}
+
 export async function expectBarOneRow(bar: Locator): Promise<void> {
   await expect
     .poll(() =>

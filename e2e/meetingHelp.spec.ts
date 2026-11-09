@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
+  expectMarksAsChecked,
   firstTranscriptLine,
   heldGlobalKeys as held,
   launchApp,
@@ -196,9 +197,11 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await expect(want.getByTestId("help-heading")).toHaveText(
     "What do they want? · Read from what they said",
   );
+  // Its moment cites their line; its ✓ is wherever the check passed that line (#2847).
   await expect(
     want.getByTestId("help-option-note").first().getByTestId("help-citation"),
-  ).toHaveAttribute("data-check", "found");
+  ).toHaveCount(1);
+  await expectMarksAsChecked(window, want);
 
   // What to ask next writes options; Check what was said, up to three lines.
   await expectOptions(await pressIn(panel, "What to ask next"));
@@ -474,7 +477,8 @@ test("help during the call: Answer their question cites the price sheet, checked
 
   const answer = await pressIn(panel, "Answer their question");
   await expect(answer.getByTestId("help-option-say").first()).toContainText("$45 per seat");
-  await expect(answer.getByTestId("help-citation").first()).toHaveAttribute("data-check", "found");
+  // The price line states it, so the check passes the option's sentence: ✓ (#2847).
+  expect((await expectMarksAsChecked(window, answer))[0]).toMatchObject({ passed: true });
   await expect(answer.getByTestId("help-source")).toHaveText([/^1 · Price sheet · /]);
   await shot(panel, "help-panel-answer-en");
 

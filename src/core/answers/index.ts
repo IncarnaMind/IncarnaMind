@@ -62,6 +62,7 @@ import { appliedAsAsked, appliedRequests } from "../../shared/askedChanges";
 import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
+import type { CitedSentence } from "../../shared/citedSentences";
 import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
@@ -1154,6 +1155,8 @@ export function createAnswers(options: AnswersOptions) {
     return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
   };
 
+  /** Answers still being written whose check was ended (#2847): they aren't checked when they end. */
+  const checkEnded = new Set<string>();
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
   const judgements = new Map<
     string,
@@ -1193,6 +1196,16 @@ export function createAnswers(options: AnswersOptions) {
       model: answer.model,
     });
     let citations = answer.citations;
+    /** By marker, where in the text each of its sentences the check passed cites it (#2847). */
+    const passedAt = new Map<number, number[]>();
+    const passed = (sentence: CitedSentence, result: SupportResult | null) => {
+      if (result?.check !== "found") return;
+      for (const [index, marker] of sentence.markers.entries()) {
+        const at = sentence.at[index];
+        if (at !== undefined && waiting.has(marker))
+          passedAt.set(marker, [...(passedAt.get(marker) ?? []), at]);
+      }
+    };
     const judged = (
       marker: number | null,
       result: SupportResult | null,
@@ -1202,13 +1215,16 @@ export function createAnswers(options: AnswersOptions) {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
           return citation;
         }
-        if (!result) return { ...citation, check: "not-checked", checkReason: stop };
+        const places = passedAt.get(citation.marker);
+        const where = places && { passedAt: places };
+        if (!result) return { ...citation, check: "not-checked", checkReason: stop, ...where };
         return {
           ...citation,
           check: result.check,
           checkReason: null,
           judgedAt: new Date().toISOString(),
           ...(result.verdict && { verdict: result.verdict }),
+          ...where,
         };
       });
       if (judgements.get(answer.id)?.controller === controller) {
@@ -1231,6 +1247,7 @@ export function createAnswers(options: AnswersOptions) {
             model,
             signal: controller.signal,
             onJudged: judged,
+            onSentence: passed,
             onStop: (stop) => judged(null, null, stop),
           }),
         );
@@ -1953,8 +1970,10 @@ export function createAnswers(options: AnswersOptions) {
       settle();
       const judging = judgesItsSentences() && outcome.status !== "failed";
       if (judging) {
-        // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
-        waitingAs = outcome.status === "done" ? "checking" : "not-checked";
+        // A stopped Answer's sentences aren't judged, nor those of one whose check was ended: they
+        // wait for the User's Check again.
+        waitingAs =
+          outcome.status === "done" && !checkEnded.has(answerId) ? "checking" : "not-checked";
         const text = withoutFootnoteDefinitions(markdown);
         waiting = judgedMarkers({
           text,
@@ -1965,6 +1984,7 @@ export function createAnswers(options: AnswersOptions) {
           figures: placedFigures(text, true).figures,
         });
       }
+      checkEnded.delete(answerId);
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
       if (placed.figures.length > 0 || placed.missing.length > 0) {
@@ -2013,6 +2033,7 @@ export function createAnswers(options: AnswersOptions) {
       }, ANSWER_WRITE_INTERVAL_MS);
     };
 
+    checkEnded.delete(answerId);
     active.set(answerId, { home, model, finish, task: input.task === true });
     writingChanged();
     announce("answer.started", { ...place, answerId, questionId: input.questionId, model });
@@ -4829,6 +4850,17 @@ export function createAnswers(options: AnswersOptions) {
       const generation = active.get(answerId);
       if (generation?.home.place.conversationId === conversationId) {
         generation.finish({ status: "stopped" });
+      }
+      if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
+    },
+
+    /** See `CoreApi.stopAnswerCheck`. */
+    stopCheck(input: unknown): void {
+      if (!isRecord(input)) throw new InvalidInputError("stopAnswerCheck expects an object.");
+      const conversationId = parseId(input.conversationId, "A conversation id");
+      const answerId = parseId(input.answerId, "An Answer id");
+      if (active.get(answerId)?.home.place.conversationId === conversationId) {
+        checkEnded.add(answerId);
       }
       if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
     },

@@ -77,6 +77,11 @@ export interface AnswerCheckInput {
    * couldn't be, with the limit that stopped it, if one did.
    */
   onJudged?(marker: number, result: SupportResult | null, stop: JudgementStop | null): void;
+  /**
+   * Each sentence's own result as it is judged, before its markers' (`onJudged`), which are their
+   * sentences' worst; null when it couldn't be judged. It changes no Citation's result.
+   */
+  onSentence?(sentence: CitedSentence, result: SupportResult | null): void;
   /** Why nothing was judged, when no batch was reached: the model can't judge the sentence. */
   onStop?(stop: JudgementStop): void;
 }
@@ -302,6 +307,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       support: SupportResult | null,
       stop: JudgementStop | null,
     ) => {
+      input.onSentence?.(sentence, support);
       for (const { marker } of waitingIn(sentence)) {
         const before = worst.get(marker);
         if (!support) unjudged.set(marker, unjudged.get(marker) ?? stop);

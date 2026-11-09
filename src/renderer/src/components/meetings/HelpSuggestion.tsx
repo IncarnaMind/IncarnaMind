@@ -55,19 +55,28 @@ export function useHelpAnswer(
 }
 
 /**
- * A Citation's number, with ✓ only where the sentence check passed its sentence (#2847): a found
- * quote alone earns none. The ✓ keeps its place whether it shows or not, so nothing moves when it
- * comes after the reply.
+ * A Citation's number, with ✓ only where the sentence check passed the sentence it is cited in at
+ * `at` (#2847): a found quote alone earns none. The ✓ keeps its place whether it shows or not, so
+ * nothing moves when it comes after the reply.
  */
-function CitationChip({ citation, number }: { citation?: MarkedCitation; number: number }) {
+function CitationChip({
+  citation,
+  number,
+  at,
+}: {
+  citation?: MarkedCitation;
+  number: number;
+  at: number;
+}) {
   const t = useT();
   const where = citation ? citedLocation(citation, t) : null;
-  const passed = citation !== undefined && sentencePassed(citation);
+  const passed = citation !== undefined && sentencePassed(citation, at);
   return (
     <span
       data-testid="help-citation"
       data-check={citation?.check ?? "checking"}
       data-passed={passed}
+      data-at={at}
       title={citation ? [citation.documentName, where].filter(Boolean).join(", ") : undefined}
       className="help-citation"
     >
@@ -103,7 +112,7 @@ function Pieces({
         const number = numbers.get(piece.marker);
         // A marker with no Citation is left out, as the assistant shows an Answer.
         if (number === undefined) return null;
-        return <CitationChip key={key} citation={citation} number={number} />;
+        return <CitationChip key={key} citation={citation} number={number} at={piece.at} />;
       })}
     </>
   );
