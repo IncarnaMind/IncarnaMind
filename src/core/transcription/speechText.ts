@@ -34,7 +34,7 @@ const END_OF_TEXT = "<|endoftext|>";
 
 /**
  * A result's words up to the model's end-of-text token, and how many tokens they took; `ranOn`
- * when the model wrote more after it.
+ * when the model wrote more after it than space.
  */
 export function untilEndOfText(result: { text: string; tokens?: unknown }): {
   text: string;
@@ -45,7 +45,11 @@ export function untilEndOfText(result: { text: string; tokens?: unknown }): {
   const end = result.text.indexOf(END_OF_TEXT);
   if (end < 0) return { text: result.text, tokens: tokens.length, ranOn: false };
   const at = tokens.findIndex((token) => typeof token === "string" && token.includes(END_OF_TEXT));
-  return { text: result.text.slice(0, end), tokens: at < 0 ? tokens.length : at, ranOn: true };
+  return {
+    text: result.text.slice(0, end),
+    tokens: at < 0 ? tokens.length : at,
+    ranOn: result.text.slice(end + END_OF_TEXT.length).trim() !== "",
+  };
 }
 
 /**
@@ -55,10 +59,23 @@ export function untilEndOfText(result: { text: string; tokens?: unknown }): {
  * it, is taken off; one further in belongs to words that can't be told from it.
  */
 const HEADER = /^(?:\S{1,16}\n)?language[ \t]+\p{L}+<asr_text>/u;
+/**
+ * A reading that is only the model's header ("language Chinese", "language None"), which it
+ * writes for a short or quiet stretch instead of words: nothing was said (#1031).
+ */
+const HEADER_ONLY = /^(?:language[ \t]+\p{L}+)?[\s\p{P}]*$/iu;
 
 export function wordsOnly(text: string): string {
-  return text.replace(HEADER, "");
+  const words = text.replace(HEADER, "").replace(/^\s*<asr_text>/u, "");
+  return HEADER_ONLY.test(words) ? "" : words;
 }
+
+/**
+ * Whether a reading is only the word "system", which the model takes from its own prompt for a
+ * short stretch it misread ("是的" in a Mandarin call, #1031). In an English call it can also be
+ * the answer someone gave, so only the engine, knowing the call's language, can leave it out.
+ */
+export const onlyPromptWord = (text: string): boolean => /^\s*system[\s\p{P}]*$/iu.test(text);
 
 /**
  * What a stretch of speech said, kept: a break (a newline, a tab) is a space, any other control
