@@ -3,6 +3,7 @@
  * calls and tokens, the candidate against the baseline item by item, and the quality guards, each
  * held or not; then every item, both arms side by side.
  */
+import type { SentRequest } from "./arms";
 import type { ArmRun, Language, RequestTiming, SetId } from "./paired";
 import { percentile } from "./report";
 
@@ -45,8 +46,12 @@ export function armTurns(): (cell: string) => readonly [0 | 1, 0 | 1] {
 export const cellOf = (row: Pick<PairedRow, "model" | "set" | "language">) =>
   `${row.model} · ${row.set} · ${row.language}`;
 
-/** What tells two arms' libraries apart in a request: ids, and the times files were made. */
+/**
+ * What tells two arms' libraries apart in a request: ids, the times files were made, and the hash
+ * of each one's own conversation that names its prompt cache.
+ */
 const PER_LIBRARY = [
+  /"promptCacheKey":"[0-9a-f]+"/g,
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
   /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
   /file-modified=\\"[^"\\]*\\"/g,
@@ -427,4 +432,16 @@ export function timeTable(rows: readonly PairedRow[], names: [string, string]): 
     time("Reasoning, all requests", reasoning),
     tokens("Input tokens, first request", (run) => own(run)[0]?.inputTokens ?? null),
   ].join("\n");
+}
+
+/** What a pair's first requests share: the whole prompt, the setup apart, and where the messages differ. */
+export function sentPair(baseline: SentRequest | null, candidate: SentRequest | null) {
+  return {
+    sameRequest: sameRequestOf(baseline?.prompt ?? null, candidate?.prompt ?? null),
+    sameSetup: sameRequestOf(baseline?.setup ?? null, candidate?.setup ?? null),
+    messageDifference:
+      baseline && candidate
+        ? messageDifference(baseline.messages, candidate.messages)
+        : "a request missing",
+  };
 }

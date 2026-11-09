@@ -62,7 +62,7 @@ import { appliedAsAsked, appliedRequests } from "../../shared/askedChanges";
 import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
-import type { CitedSentence } from "../../shared/citedSentences";
+import { type CitedSentence, citedSentences } from "../../shared/citedSentences";
 import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
@@ -1196,11 +1196,14 @@ export function createAnswers(options: AnswersOptions) {
     let citations = answer.citations;
     /** By marker, where in the text each of its sentences the check passed cites it (#2847). */
     const passedAt = new Map<number, number[]>();
+    const foundBefore = new Set(
+      answer.citations.filter((each) => each.check === "found").map((each) => each.marker),
+    );
     const passed = (sentence: CitedSentence, result: SupportResult | null) => {
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
         const at = sentence.at[index];
-        if (at !== undefined && waiting.has(marker))
+        if (at !== undefined && (waiting.has(marker) || foundBefore.has(marker)))
           passedAt.set(marker, [...(passedAt.get(marker) ?? []), at]);
       }
     };
@@ -1211,7 +1214,12 @@ export function createAnswers(options: AnswersOptions) {
     ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
-          return citation;
+          // A found Citation another judged sentence cites keeps its check, and takes the
+          // places this judgement passed there, which Check again took off it first.
+          const more = citation.check === "found" ? passedAt.get(citation.marker) : undefined;
+          if (!more) return citation;
+          const places = [...new Set([...(citation.passedAt ?? []), ...more])];
+          return { ...citation, passedAt: places.sort((a, b) => a - b) };
         }
         // The places this judgement passed, never an earlier one's: Check again judges anew.
         const { passedAt: _earlier, ...judging } = citation;
@@ -4861,10 +4869,24 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question);
+      // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
+      // cite, until this judgement passes them again (#2847).
+      const again = new Set(
+        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
+      );
+      const rejudged = new Set(
+        citedSentences(answer.text, answer.figures)
+          .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
+          .flatMap((each) => each.at),
+      );
       const waiting = answer.citations.map((citation): MarkedCitation => {
-        if (citation.check !== "not-checked") return citation;
-        const { passedAt: _earlier, ...again } = citation;
-        return { ...again, check: "checking" };
+        const { passedAt: earlier, ...rest } = citation;
+        const kept = (earlier ?? []).filter((at) => !rejudged.has(at));
+        return {
+          ...rest,
+          ...(citation.check === "not-checked" && { check: "checking" }),
+          ...(kept.length > 0 && { passedAt: kept }),
+        };
       });
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
       await judgeAnswer(

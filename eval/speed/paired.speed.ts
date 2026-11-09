@@ -46,13 +46,12 @@ import {
   armTurns,
   cellOf,
   itemTable,
-  messageDifference,
   newFalseSupported,
   outcomeOf,
   type PairedRow,
   pairedSection,
-  sameRequestOf,
   seconds,
+  sentPair,
   timeTable,
   wentFirst,
   wentFirstByCell,
@@ -142,18 +141,6 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "meeting-notes":
       return meetingNotesSet();
   }
-}
-
-/** What a pair's first requests share: the whole prompt, the setup apart, and where the messages differ. */
-function sentPair(baseline: SentRequest | null, candidate: SentRequest | null) {
-  return {
-    sameRequest: sameRequestOf(baseline?.prompt ?? null, candidate?.prompt ?? null),
-    sameSetup: sameRequestOf(baseline?.setup ?? null, candidate?.setup ?? null),
-    messageDifference:
-      baseline && candidate
-        ? messageDifference(baseline.messages, candidate.messages)
-        : "a request missing",
-  };
 }
 
 /** The items asked: in the languages and with the ids named, then at most `each` of a kind, the languages taking turns. */

@@ -8,11 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
-import { newestStretch } from "../../eval/speed/arms";
+import { armSwitch, newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
+import { sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../helpers/citations";
@@ -100,6 +101,8 @@ async function pressed(
   quote: string,
   judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
   arm: "today" | "help-marks-quote-only" = "today",
+  /** The arm switch a paired run sends through, to read the requests as it records them. */
+  through?: ReturnType<typeof armSwitch>,
 ) {
   const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
   const item = group?.items[0];
@@ -119,7 +122,7 @@ async function pressed(
     log: () => undefined,
     embeddings: false,
     recordTimings: true,
-    chatModels: () => () => model,
+    chatModels: () => (through ? through.chatModels(() => model) : () => model),
     ...(arm === "help-marks-quote-only" && { helpMarksQuoteOnly: () => true }),
   });
   try {
@@ -231,6 +234,18 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     // "$45 a seat" against a quote of "$25": the check leaves it unjudged, so it shows no ✓.
     expect(branch.falseSupported).toBe(0);
     expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
+  });
+
+  // protects=bar 4a of the call-help marks gate reads the same setup from two arms' own cores, each library's ids and the hash naming its prompt cache aside (#2847); fails_when=anything per library makes every pair's setup differ; no_claim=what a model does with either request.
+  test("two cores' first requests of one press have the same model, system prompt, Tools and parameters through the arm switch", async () => {
+    const switches = [armSwitch(), armSwitch()];
+    const judge = { grade: "right", unstated: [] };
+    for (const each of switches) await pressed("en-answer-sso", ENTERPRISE, judge, "today", each);
+    const [first, second] = switches.map((each) => each.takeSent()[0] ?? null);
+
+    expect(first?.setup).toContain("promptCacheKey");
+    expect(first?.setup).not.toBe(second?.setup);
+    expect(sentPair(first ?? null, second ?? null)).toMatchObject({ sameSetup: true });
   });
 
   test("a judge that answers in words first is asked once more, and the JSON it gives then counts", async () => {

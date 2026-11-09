@@ -414,6 +414,63 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     ]);
   });
 
+  test.each([
+    {
+      name: "doesn't pass it again",
+      verdict: "unsupported" as const,
+      after: [false, false, false],
+    },
+    { name: "passes it again", verdict: "supported" as const, after: [true, true, false] },
+  ])(
+    "Check again on a marker the found one shares a sentence with: its ✓ goes while that sentence is judged, and comes back only if it $name",
+    async ({ verdict, after: shown }) => {
+      let round = 0;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reply =
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+      const { core, meeting, batches } = await setUp({
+        reply,
+        records: [
+          { marker: 1, from: "sheet" },
+          { marker: 2, from: "sheet" },
+        ],
+        judge: (call) =>
+          ++round === 1
+            ? batchOf(call, [["answers at once", { verdict: "supported", kind: "opinion" }]])
+            : {
+                ...batchOf(call, [
+                  ["Enterprise", { verdict }],
+                  ["answers at once", { verdict: "supported", kind: "opinion" }],
+                ]),
+                until: held,
+              },
+      });
+      const first = await (await pressed(core, meeting, "answer")).judged();
+
+      const checking = core.checkAnswerAgain({
+        conversationId: first.conversationId,
+        answerId: first.id,
+      });
+      await vi.waitFor(() => expect(batches).toHaveLength(2));
+      const during = await answerOf(core, first.conversationId, first.id);
+      release();
+      await checking;
+      const after = await answerJudged(core, first.conversationId, first.id);
+
+      expect(first.citations).toMatchObject([
+        { marker: 1, check: "found" },
+        { marker: 2, check: "not-checked" },
+      ]);
+      expect(chips(first).map((chip) => chip.passed)).toEqual([true, true, false]);
+      expect(chips(during).map((chip) => chip.passed)).toEqual([false, false, false]);
+      expect(after.citations[0]).toMatchObject({ marker: 1, check: "found" });
+      expect(chips(after).map((chip) => chip.passed)).toEqual(shown);
+    },
+  );
+
   test("Check again judges anew: a ✓ its first check gave a sentence goes once the second doesn't pass it", async () => {
     let round = 0;
     const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
@@ -539,14 +596,12 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     const { core, meeting, batches } = await setUp({ reply: ENGLISH }, () => quoteOnly);
 
     const { atEnd } = await pressed(core, meeting, "answer");
-    const sent = batches.length;
     // The branch's path, pressed after it in the same core, is checked: a batch is seen when sent.
     quoteOnly = false;
     const judgedPress = await (await pressed(core, meeting, "answer")).judged();
 
     expect(atEnd.citations).toMatchObject([{ marker: 1, check: "found" }]);
     expect(atEnd.citations[0]?.judgedAt).toBeUndefined();
-    expect(sent).toBe(0);
     expect(batches).toHaveLength(1);
     expect(marks(judgedPress)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });

@@ -159,19 +159,33 @@ for (const call of CALLS) {
     });
     await shot(panel, `call-help-marks-want-${call.interface}`);
 
-    // Closed and shown again, the panel shows the latest reply with the marks its check gave.
+    // Its check held, the panel closed and its check let go while it is closed: the check runs
+    // on, and the panel shown again has the reply with the mark its check gave.
+    await holdChecks(app, true);
+    const pressed = await pressIn(panel, call.answer);
+    await expect(pressed.getByTestId("help-citation").first()).toHaveAttribute(
+      "data-check",
+      "checking",
+    );
     const close = panel.getByTestId("panel-close");
     await close.hover();
     // The window goes as the click lands, which a click Playwright waits on would call a failure.
     await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
     await expect.poll(() => panelOpen(app)).toBe(false);
+    await holdChecks(app, false);
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type(call.showPanel);
     await window.keyboard.press("Enter");
     const shown = await panelOf(app);
-    const again = shown.getByTestId("help-suggestion").last();
-    await expect(again.getByTestId("help-heading")).toContainText(call.want);
-    expect(await expectMarksAsChecked(window, again)).toEqual(wantMarks);
+    const latest = shown.getByTestId("help-suggestion").last();
+    await expect(latest.getByTestId("help-heading")).toContainText(call.answer);
+    const reopened = await expectMarksAsChecked(window, latest);
+    expect(reopened[0]).toMatchObject(
+      call.answerPasses
+        ? { passed: true, check: "found" }
+        : { passed: false, check: "unsupported" },
+    );
+    await shot(shown, `call-help-marks-reopened-${call.interface}`);
 
     await app.close();
   });

@@ -10,7 +10,7 @@ import {
   signTestP,
 } from "../../eval/speed/callHelpMarksReport";
 import type { ArmRun } from "../../eval/speed/paired";
-import { messageDifference, type PairedRow, sameRequestOf } from "../../eval/speed/pairedReport";
+import { type PairedRow, sentPair } from "../../eval/speed/pairedReport";
 
 type Marks = NonNullable<ArmRun["marks"]>;
 
@@ -158,26 +158,32 @@ describe("the call-help marks gate's report", () => {
       system: ["Help"],
       tools: [],
     });
-    const sent = (transcript: string) => ({
-      setup,
-      messages: JSON.stringify([
+    const sent = (transcript: string, temperature = 0) => {
+      const messages = JSON.stringify([
         { role: "user", content: `<live-transcript>${transcript}</live-transcript>` },
-      ]),
+      ]);
+      const asSet = setup.replace(/}$/, `,"temperature":${temperature}}`);
+      return { prompt: `${asSet}${messages}`, setup: asSet, messages };
+    };
+    // One pair of each kind, as the runner records it: the same messages, and messages a
+    // transcript line split otherwise; and a setup that changed, which 4a fails.
+    const asked = "[0:04 Them] Can we start in June?";
+    const alike = sentPair(sent(asked), sent(asked));
+    const split = sentPair(sent(asked), sent("[0:04 Them] Can we start\n[0:06 Them] in June?"));
+    const otherSetup = sentPair(sent(asked), sent(asked, 1));
+    console.log(`The same messages: ${JSON.stringify(alike)}`);
+    console.log(`Messages a split line changed: ${JSON.stringify(split)}`);
+    expect(alike).toEqual({ sameRequest: true, sameSetup: true, messageDifference: null });
+    expect(split).toMatchObject({ sameRequest: false, sameSetup: true });
+    expect(split.messageDifference).toContain("Can we start in June?");
+    expect(split.messageDifference).toContain("[0:06 Them] in June?");
+    expect(otherSetup).toMatchObject({ sameSetup: false, messageDifference: null });
+    expect(sentPair(sent(asked), null)).toEqual({
+      sameRequest: false,
+      sameSetup: false,
+      messageDifference: "a request missing",
     });
-    // One pair of each kind: the same messages, and messages a transcript line split otherwise.
-    const alike = [
-      sent("[0:04 Them] Can we start in June?"),
-      sent("[0:04 Them] Can we start in June?"),
-    ];
-    const split = [
-      sent("[0:04 Them] Can we start in June?"),
-      sent("[0:04 Them] Can we start\n[0:06 Them] in June?"),
-    ];
-    expect(messageDifference(alike[0]?.messages ?? "", alike[1]?.messages ?? "")).toBeNull();
-    const difference = messageDifference(split[0]?.messages ?? "", split[1]?.messages ?? "");
-    console.log(`A pair whose messages differ: ${difference}`);
-    expect(difference).toContain("start");
-    expect(sameRequestOf(split[0]?.setup ?? null, split[1]?.setup ?? null)).toBe(true);
+    const difference = split.messageDifference;
 
     const made = rows().map((row, index) =>
       row.language === "en" && index < 4 ? { ...row, messageDifference: difference } : row,
@@ -185,6 +191,7 @@ describe("the call-help marks gate's report", () => {
     const section = marksSection(made) ?? "";
     expect(section).toContain("in 40 of 40 pairs: holds.");
     expect(section).toContain("Reported: 4 pairs whose messages differed.");
+    expect(section).toContain(`- anthropic/claude-sonnet-5-5 · en run 1, en-0: ${difference}`);
     expect(section).toContain(
       "**More than 3 pairs of a cell had messages that differed, so 4b is weaker there:** anthropic/claude-sonnet-5-5 · en: 4 of 20.",
     );
@@ -207,5 +214,39 @@ describe("the call-help marks gate's report", () => {
     const section = marksSection(few) ?? "";
     expect(section).toContain("40 presses: W0 1, W1 0, at most 1: 1a holds.");
     expect(section).toContain("1b not readable: 2 listed, so 1a's rule for few stands");
+  });
+
+  test("bar 3 allows main's chance range and no more, and bar 5 fails a press the branch alone didn't finish", () => {
+    const fewer = (cited: number, right: number) =>
+      rows().map((row, index) =>
+        row.language === "en"
+          ? {
+              ...row,
+              candidate: {
+                ...row.candidate,
+                cited: index >= cited,
+                grade: index >= right ? row.candidate.grade : ("wrong" as const),
+              },
+            }
+          : row,
+      );
+    // Sonnet in English allows 2 fewer: 2 holds, 3 fails, on cited and on judged right alike.
+    expect(marksSection(fewer(2, 0))).toContain(
+      "cited 20 → 18 (≥ −2), judged right 20 → 20 (≥ −2), every Citation found 20 → 20 (≥ −2): holds.",
+    );
+    expect(marksSection(fewer(3, 0))).toContain("cited 20 → 17 (≥ −2)");
+    expect(marksSection(fewer(3, 0))).toContain("(≥ −2): **fails**.");
+    expect(marksSection(fewer(0, 3))).toContain("judged right 20 → 17 (≥ −2)");
+
+    const failed = rows().map((row, index) =>
+      index === 0 ? { ...row, candidate: { ...row.candidate, status: "failed" as const } } : row,
+    );
+    const section = marksSection(failed) ?? "";
+    expect(section).toContain(
+      "5, presses that failed on the branch where main finished: 1: **fails**.",
+    );
+    expect(section).toContain(
+      "5, presses that failed on the branch where main finished: 0: holds.",
+    );
   });
 });
