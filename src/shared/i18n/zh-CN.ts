@@ -2832,7 +2832,7 @@ export const zhCN = {
   "jev.waiting.permission": "允许把文档文字发送给 {service} 后再打标签。",
   "jev.chip.likely": "{tag}：自动添加，可能性 {percent}%",
   "jev.settings.title": "TypeSafe Jev",
-  "jev.settings.body": "用 TypeSafe Jev 打标签，拿不准的会标出供你确认。",
+  "jev.settings.body": "用 TypeSafe Jev 建议标签，每个标签都要等你确认。",
   "jev.settings.inUse": "已保存你的 Jev 密钥。",
   "jev.settings.server": "服务器：{server}",
   "jev.settings.hosted": "TypeSafe",

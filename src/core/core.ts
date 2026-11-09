@@ -4250,8 +4250,11 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     // Tagging after the plan (`settled`) goes on the Organize model when tagging picks no other.
     // The run's tagging goes on the Organize model when tagging picks no other, `TAG_BATCH` a request.
+    // Automatic may tag on a paid chat model of its own: counted on Organize's, the $1 gate asks
+    // early rather than miss it.
     taggingRequests: (ids) => {
-      if (library.settings().classifier.kind !== "chat") return [];
+      const { kind } = library.settings().classifier;
+      if (kind !== "chat" && kind !== "automatic") return [];
       const listed = approximateTokens(
         [TAGGING_INSTRUCTIONS, JSON.stringify(tagRequest([], settings.get().language))].join("\n"),
       );

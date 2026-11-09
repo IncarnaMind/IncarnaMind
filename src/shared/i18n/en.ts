@@ -2970,7 +2970,7 @@ export const en = {
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
   "jev.chip.likely": "{tag}: added automatically, {percent}% likely",
   "jev.settings.title": "TypeSafe Jev",
-  "jev.settings.body": "Tags with TypeSafe Jev; uncertain ones go to review.",
+  "jev.settings.body": "Suggests Tags with TypeSafe Jev; each waits for you to confirm it.",
   "jev.settings.inUse": "Your Jev key is saved.",
   "jev.settings.server": "Server: {server}",
   "jev.settings.hosted": "TypeSafe",
