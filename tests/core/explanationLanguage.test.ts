@@ -27,12 +27,16 @@ describe("The language a check's explanation is written in (#2081)", () => {
     expect(explanationLanguage(text)).toBe("zh-CN");
   });
 
-  test.each(["171.6", "GBP 1,180.4m", "38.6%（Q3）", ""])(
-    "neither, when its grammar says nothing: %j",
-    (text) => {
-      expect(explanationLanguage(text)).toBeNull();
-    },
-  );
+  test.each([
+    "171.6",
+    "GBP 1,180.4m",
+    "38.6%（Q3）",
+    "",
+    // A clause of each, as Claude Haiku 5.5 wrote one on main: no card's language.
+    ", because the Document gives 2024 财年营业利润 as 171.6 百万英镑, not 1.786 亿英镑. 文件显示2024财年营业利润为171.6百万英镑，与句子所称1.786亿英镑不符。",
+  ])("neither, when its grammar says nothing: %j", (text) => {
+    expect(explanationLanguage(text)).toBeNull();
+  });
 });
 
 describe("What a card shows of an explanation without asking again (#2081)", () => {
@@ -46,6 +50,15 @@ describe("What a card shows of an explanation without asking again (#2081)", () 
     expect(explanationIn("Document: The lease gives the rent as $14,250.", "en")).toBe(
       "The lease gives the rent as $14,250.",
     );
+    expect(explanationIn("Then, for the Document: the lease gives $14,250.", "en")).toBe(
+      "The lease gives $14,250.",
+    );
+    expect(explanationIn("Then, the lease gives the rent as $14,250.", "en")).toBe(
+      "The lease gives the rent as $14,250.",
+    );
+    expect(explanationIn("Verdict note: 文件称预算为 260 万英镑。", "zh-CN")).toBe(
+      "文件称预算为 260 万英镑。",
+    );
   });
 
   test("one in the other language, or that names the check's workings, is none", () => {
@@ -57,6 +70,15 @@ describe("What a card shows of an explanation without asking again (#2081)", () 
       explanationIn('Citation 1 (P1, §哈尔登年度数据): "2022 财年 | 1,142.0 | 151.2"', "zh-CN"),
     ).toBeNull();
     expect(explanationIn("Reason kind: none", "en")).toBeNull();
+  });
+
+  test("one with a clause of each is none", () => {
+    expect(
+      explanationIn(
+        "文件显示营业利润为 171.6 百万英镑, because the Document gives it as 171.6, not 178.6.",
+        "zh-CN",
+      ),
+    ).toBeNull();
   });
 
   test("one whose grammar says nothing is shown as it is", () => {

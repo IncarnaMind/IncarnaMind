@@ -8,7 +8,7 @@
  * is read by its grammar (`explanationLanguage`): English around Chinese labels and units is
  * English, a Chinese sentence naming an English company is Chinese, and one it can't tell fails.
  * Every claim states a wrong figure, so none comes back Supported, and a Contradicted sentence
- * gives the Document's own value. The held-out sets, and the sets whose Document is in the other
+ * gives the Document's own value, with no label, field or marker of the check's own. The held-out sets, and the sets whose Document is in the other
  * language, are no prompt's examples.
  */
 import { appendFile, utimes } from "node:fs/promises";
@@ -150,6 +150,13 @@ const explanationOf = (result: ClaimCheckResult): string | null =>
 
 const EXPECTED: Record<Language, string> = { en: "English", "zh-CN": "Chinese" };
 
+/**
+ * What the card must never show (#2081): a label before the sentence ("Verdict note: ", "Then: ",
+ * "Chinese explanation: "), the reply form's "Then, ", a field, a Passage's id or a Citation's marker.
+ */
+const WORKINGS =
+  /^\s*(?:then\b|[\p{Script=Latin}][\p{Script=Latin} -]{0,40}[:：])|reason kind|\bP\d{1,4}\b|\b(?:citation|marker)\s+\d/iu;
+
 describe.each(SETS)("claim check language, live: $title, $language", (set) => {
   test.skipIf(KEY === undefined)(
     `${set.title} in ${set.language} come back in ${EXPECTED[set.language]}`,
@@ -197,6 +204,8 @@ describe.each(SETS)("claim check language, live: $title, $language", (set) => {
         ) {
           wrong.push(`${claim.text}: no Document value: ${explanation}`);
         }
+        if (WORKINGS.test(explanation))
+          wrong.push(`${claim.text}: the check's workings: ${explanation}`);
         expect(explanation, "no date, and none of our words for how it was found").not.toMatch(
           /2000|\bindex|passage|metadata|索引|段落|元数据/i,
         );

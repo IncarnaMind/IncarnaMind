@@ -56,7 +56,9 @@ for (const [language, width] of [
         : "第三季度毛利率降至 36.8%，主要拖累来自线上业务。";
     const pane = window.getByTestId("mind-pane");
     const editor = pane.getByTestId("mind-editor");
-    const line = editor.locator("p", { hasText: language === "en" ? "Gross margin" : "毛利率" });
+    const line = editor.locator("p", {
+      hasText: language === "en" ? "Gross margin fell" : "第三季度毛利率降至",
+    });
     await expect(line).toContainText(sentence);
     const mark = pane.getByTestId("claim-mark");
     await expect(mark).toHaveAttribute("data-check", "contradicted");

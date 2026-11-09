@@ -35,25 +35,47 @@ const QUOTED = /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』|‘[^’]*’/
 const LATIN_WORD = /\p{Script=Latin}+/gu;
 const HAN = /\p{Script=Han}/gu;
 
-/**
- * The language a check's explanation is written in, by its grammar rather than its script: the
- * one whose grammar words outnumber the other's. Null when it can't tell, as for "171.6".
- */
-export function explanationLanguage(text: string): Language | null {
+/** How many grammar words of each language a text has outside its quotation marks. */
+function grammarOf(text: string) {
   const unquoted = text.replace(QUOTED, " ");
   const latin = unquoted.toLowerCase().match(LATIN_WORD) ?? [];
-  const english = latin.filter((word) => ENGLISH_GRAMMAR.has(word)).length;
   const han = unquoted.match(HAN)?.length ?? 0;
-  const chinese = han < 2 ? 0 : (unquoted.match(CHINESE_GRAMMAR)?.length ?? 0);
+  return {
+    latin: latin.length,
+    han,
+    english: latin.filter((word) => ENGLISH_GRAMMAR.has(word)).length,
+    chinese: han < 2 ? 0 : (unquoted.match(CHINESE_GRAMMAR)?.length ?? 0),
+  };
+}
+
+/**
+ * The language a check's explanation is written in, by its grammar rather than its script.
+ * English: its English grammar words outnumber its Chinese ones. Chinese: it has Chinese grammar
+ * and at most one English grammar word, as an English name's "of" ("Bank of China 的…"). Null when
+ * it can't tell, as for "171.6", or when it holds a clause of each.
+ */
+export function explanationLanguage(text: string): Language | null {
+  const { latin, han, english, chinese } = grammarOf(text);
   if (english >= 2 && english > chinese) return "en";
-  if (han === 0 && english >= 1 && latin.length >= 2) return "en";
-  if (chinese >= 1 && chinese >= english) return "zh-CN";
+  if (han === 0 && english >= 1 && latin >= 2) return "en";
+  if (chinese >= 1 && english <= 1) return "zh-CN";
   return null;
 }
 
-/** A label a model put before the sentence: "Document: ", "Sentence-level note: ", "说明：". */
+/** Whether a card in `language` can show it as it is: it holds no clause of the other language. */
+function readsIn(text: string, language: Language): boolean {
+  const written = explanationLanguage(text);
+  if (written !== null) return written === language;
+  const { english, chinese } = grammarOf(text);
+  return (language === "zh-CN" ? english : chinese) < 2;
+}
+
+/**
+ * A label a model put before the sentence: "Document: ", "Sentence-level note: ", "Then, for the
+ * Document: ", "说明："; or the "Then, " of the reply form it copied.
+ */
 const LABEL =
-  /^\s*(?:(?:[\p{Script=Latin}-]+\s+){0,3}(?:explanation|note|summary|document)\s*(?:\([^)]*\))?|说明|解释|备注)\s*[:：]\s*(?=\S)/iu;
+  /^\s*(?:(?:(?:[\p{Script=Latin}-]+,?\s+){0,3}(?:explanation|note|summary|document)\s*(?:\([^)]*\))?|then|说明|解释|备注)\s*[:：]|then,)\s*(?=\S)/iu;
 
 /**
  * The check's own workings, which no card shows: a Passage's id, a Citation's marker, one of the
@@ -68,13 +90,14 @@ const WORKINGS =
  */
 export function explanationIn(text: string | null, language: Language): string | null {
   const said = shownOf(text);
-  if (said === null) return null;
-  const written = explanationLanguage(said);
-  return written === null || written === language ? said : null;
+  return said !== null && readsIn(said, language) ? said : null;
 }
 
 const shownOf = (text: string | null): string | null => {
-  const said = text?.replace(LABEL, "").trim() ?? "";
+  const whole = text?.trim() ?? "";
+  const unlabelled = whole.replace(LABEL, "");
+  const said =
+    unlabelled === whole ? whole : unlabelled.replace(/^\p{Ll}/u, (first) => first.toUpperCase());
   return said === "" || WORKINGS.test(said) ? null : said;
 };
 
@@ -145,8 +168,7 @@ async function restated(said: string, ask: ExplanationAsk): Promise<string | nul
 async function shownIn(text: string | null, ask: ExplanationAsk): Promise<string | null> {
   const said = shownOf(text);
   if (said === null) return null;
-  const written = explanationLanguage(said);
-  return written === null || written === ask.language ? said : restated(said, ask);
+  return readsIn(said, ask.language) ? said : restated(said, ask);
 }
 
 /**
