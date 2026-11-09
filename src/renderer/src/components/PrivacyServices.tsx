@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { DataFlowId, RegisteredDataFlow } from "../../../core/api";
+import type { DataFlowId, DataKind, RegisteredDataFlow } from "../../../core/api";
 import { formatDate } from "../../../shared/dates";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
@@ -12,6 +12,13 @@ import { SettingsGroup, SettingsRow } from "./settings/SettingsGroup";
 import { buttonStyle } from "./ui";
 
 export const SERVICES_UNDO_PLACE = "settings:privacy:services";
+
+/** A flow allowed before it sent more asks again, naming what it sends now that wasn't allowed. */
+function sendsMoreLine(t: ReturnType<typeof useT>, added: readonly DataKind[]): string {
+  if (added.length === 0) return t("consent.settings.status.sendsMore");
+  const what = added.map((kind) => t(`consent.data.${kind}`)).join("; ");
+  return t("consent.settings.status.sendsMoreWhat", { what });
+}
 
 const reportError = (failure: unknown) => useAppStore.getState().reportError(failure);
 
@@ -146,7 +153,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
       case "partly":
         return t("privacy.flows.partly");
       case "sendsMore":
-        return t("consent.settings.status.sendsMore");
+        return sendsMoreLine(t, [...new Set(uses.flatMap((use) => use.status.added ?? []))]);
       case "not-asked":
         return t("consent.settings.status.not-asked");
     }
@@ -238,12 +245,12 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   );
 }
 
-const waitingStatus = (use: ServiceUse) =>
+const waitingStatus = (use: ServiceUse, t: ReturnType<typeof useT>) =>
   use.status.consent === "declined"
-    ? "consent.settings.status.declined"
+    ? t("consent.settings.status.declined")
     : use.status.decidedAt !== null
-      ? "consent.settings.status.sendsMore"
-      : "consent.settings.status.not-asked";
+      ? sendsMoreLine(t, use.status.added ?? [])
+      : t("consent.settings.status.not-asked");
 
 function Uses({
   uses,
@@ -280,7 +287,7 @@ function Uses({
             </ul>
             {eachOwn && (
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                {waiting && <span className="text-ink-meta">{t(waitingStatus(use))}</span>}
+                {waiting && <span className="text-ink-meta">{waitingStatus(use, t)}</span>}
                 <button
                   type="button"
                   data-testid={allowed ? "data-flow-revoke" : "data-flow-allow"}

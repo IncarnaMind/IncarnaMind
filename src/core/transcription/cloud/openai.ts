@@ -14,7 +14,7 @@
 import type { CloudLoss } from "../../adapters";
 import { createLeveler, toFloat, type VoiceDetector } from "../speech";
 import { cleanSpeech } from "../speechText";
-import { base64Pcm, createLiveStream, type LiveLink } from "./live";
+import { base64Pcm, createLiveStream, heldWords, type LiveLink } from "./live";
 import { type CloudStreamHandle, type CloudStreamOptions, msOf, samplesOf } from "./stream";
 
 export const OPENAI_TRANSCRIPTION_URL = "wss://api.openai.com/v1/realtime?intent=transcription";
@@ -86,6 +86,8 @@ export function createOpenAiStream(
   options: CloudStreamOptions & { detector: VoiceDetector },
 ): CloudStreamHandle {
   const { stream, report, detector } = options;
+  const words = heldWords(options.words ?? []);
+  let sessionReady = false;
   const level = createLeveler();
   let received = 0;
   /** The latest audio, for the lead-in: `kept` starts at sample `keptFrom`. */
@@ -148,6 +150,7 @@ export function createOpenAiStream(
   function heard(event: ServerEvent, link: LiveLink): void {
     switch (event.type) {
       case "session.updated":
+        sessionReady = true;
         link.ready();
         return;
       case "input_audio_buffer.committed": {
@@ -203,6 +206,8 @@ export function createOpenAiStream(
         const loss = typeof code === "string" ? STOPS[code] : undefined;
         // The service may keep the socket open after it, transcribing nothing.
         if (loss) link.lose(loss);
+        // A session update it won't take, for a keyword it refuses, is an error and no session.
+        else if (!sessionReady) link.retryWithoutWords();
         return;
       }
     }
@@ -271,7 +276,9 @@ export function createOpenAiStream(
 
   return createLiveStream(options, {
     url: OPENAI_TRANSCRIPTION_URL,
+    words,
     opened(link) {
+      sessionReady = false;
       link.setup(
         JSON.stringify({
           type: "session.update",
@@ -280,7 +287,13 @@ export function createOpenAiStream(
             audio: {
               input: {
                 format: { type: "audio/pcm", rate: SERVICE_RATE },
-                transcription: { model: options.model, languages: LANGUAGES },
+                // Keywords, not a prompt: the docs keep `keywords` for names and other literal
+                // terms, and `prompt` for describing the recording.
+                transcription: {
+                  model: options.model,
+                  languages: LANGUAGES,
+                  ...(words.now.length > 0 && { keywords: words.now }),
+                },
                 turn_detection: null,
               },
             },

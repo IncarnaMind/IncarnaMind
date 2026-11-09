@@ -33,8 +33,35 @@ export interface LiveLink {
    * made at once, the route's setup runs again on it, and audio is held until it is ready.
    */
   renew(): void;
+  /**
+   * The service turned the session's setup away before the stream began: a new connection is
+   * made at once with no words to know in it, as `renew`. False when its setup held none, so the
+   * route ends the stream as it would have.
+   */
+  retryWithoutWords(): boolean;
   readonly ended: boolean;
   readonly finishing: boolean;
+}
+
+/** The words to know a stream sends with its setup, until the service turns them away. */
+export interface HeldWords {
+  readonly now: readonly string[];
+  /** Leaves them out of every setup from now on; false when there were none to leave out. */
+  drop(): boolean;
+}
+
+export function heldWords(words: readonly string[]): HeldWords {
+  let now = words;
+  return {
+    get now() {
+      return now;
+    },
+    drop() {
+      if (now.length === 0) return false;
+      now = [];
+      return true;
+    },
+  };
 }
 
 /** Where a session's socket is, or why the service wouldn't start one. */
@@ -48,6 +75,11 @@ export interface LiveRoute {
    */
   url: string | (() => Promise<LiveSession>);
   auth?: CloudAuth;
+  /**
+   * The words to know its setup holds: a connection that closes before the stream is ready is
+   * made again once without them, so a list the service won't take never costs the stream.
+   */
+  words?: HeldWords;
   /** The socket opened: the session's setup, and `ready` when no message of the service confirms it. */
   opened(link: LiveLink): void;
   /** A message from the service, read as JSON; any other is left out. */
@@ -151,6 +183,15 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
       connect();
       old?.close();
     },
+    retryWithoutWords() {
+      if (ended || !route.words?.drop()) return false;
+      // The process has no logger of its own: its output goes to the app's log, which never holds the words.
+      console.error(
+        "The cloud service turned the words to know away: the stream goes on without them.",
+      );
+      link.renew();
+      return true;
+    },
     get ended() {
       return ended;
     },
@@ -207,6 +248,7 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
         },
         closed(code, reason) {
           if (!current()) return;
+          if (!isReady && !finishing && link.retryWithoutWords()) return;
           if (route.closed) route.closed(code, reason ?? "", link);
           else link.lose(closedLoss(code));
         },

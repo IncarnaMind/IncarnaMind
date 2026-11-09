@@ -31,6 +31,8 @@ export interface CloudStreamOptions {
   stream: string;
   model: string;
   apiKey: string;
+  /** The meeting's words to know, as the service's field takes them (./words): none, no field. */
+  words?: readonly string[];
   connect: CloudConnect;
   report: CloudStreamReport;
 }

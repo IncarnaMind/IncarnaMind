@@ -11,7 +11,14 @@
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import { endsAfter, endsBefore } from "./lineEnds";
-import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
+import {
+  closedLoss,
+  createLiveStream,
+  heldWords,
+  joinWords,
+  type LiveLink,
+  pcmBytes,
+} from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export { SPEECHMATICS_MODEL } from "./protocol";
@@ -72,6 +79,7 @@ const textOf = (words: readonly Word[]) => cleanSpeech(joinWords(words.map((word
 
 export function createSpeechmaticsStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   let line: Line | null = null;
   let nextId = 1;
   let finalMs = 0;
@@ -80,18 +88,20 @@ export function createSpeechmaticsStream(options: CloudStreamOptions): CloudStre
   let chunks = 0;
   let said: CloudLoss | null = null;
 
-  const start = JSON.stringify({
-    message: "StartRecognition",
-    audio_format: { type: "raw", encoding: "pcm_s16le", sample_rate: 16_000 },
-    transcription_config: {
-      language: LANGUAGE_PACK,
-      model: options.model,
-      diarization: "speaker",
-      enable_partials: true,
-      max_delay: 2,
-      conversation_config: { end_of_utterance_silence_trigger: 1 },
-    },
-  });
+  const start = () =>
+    JSON.stringify({
+      message: "StartRecognition",
+      audio_format: { type: "raw", encoding: "pcm_s16le", sample_rate: 16_000 },
+      transcription_config: {
+        language: LANGUAGE_PACK,
+        model: options.model,
+        diarization: "speaker",
+        enable_partials: true,
+        max_delay: 2,
+        conversation_config: { end_of_utterance_silence_trigger: 1 },
+        ...(words.now.length > 0 && { additional_vocab: words.now }),
+      },
+    });
 
   function close(): void {
     const done = line;
@@ -156,8 +166,9 @@ export function createSpeechmaticsStream(options: CloudStreamOptions): CloudStre
 
   return createLiveStream(options, {
     url: SPEECHMATICS_URL,
+    words,
     opened(link) {
-      link.setup(start);
+      link.setup(start());
     },
     heard(message, link) {
       switch (message.message) {

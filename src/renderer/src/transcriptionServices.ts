@@ -22,6 +22,8 @@ interface TranscriptionServicesState {
   /** Keeps a service's own key, with Deepgram's server, once it accepts it; rejects with why it didn't. */
   setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<void>;
   removeKey(route: CloudTranscriptionRoute): Promise<void>;
+  /** Sends the chosen route the meeting's words to know too: the consent for them alone. */
+  allowWords(): Promise<void>;
 }
 
 /**
@@ -47,6 +49,7 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
         core.setTranscriptionKey({ route, apiKey, ...(server !== undefined && { server }) }),
       ),
     removeKey: (route) => change(() => core.removeTranscriptionKey(route)),
+    allowWords: () => change(() => core.allowTranscriptionWords()),
   };
 });
 

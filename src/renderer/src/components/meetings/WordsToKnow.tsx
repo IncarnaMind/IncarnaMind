@@ -8,6 +8,7 @@ import {
 import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
+import type { ServicesView } from "../../transcriptionServices";
 import { useUndo } from "../../undo";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
@@ -21,6 +22,7 @@ import {
 import { rowActionButtonClass } from "../sidebarRows";
 import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, hintClass, rowFieldClass } from "../ui";
+import { WordsWaitingLine } from "./WordsWaitingLine";
 
 const TARGET = ["meeting-words"] as const;
 const UNDO_PLACE = "settings:meetings:words";
@@ -98,7 +100,8 @@ function WordRow({
  * mark. A word is added at the top, renamed where it is (double-click or F2), and removed with
  * Undo.
  */
-export function WordsToKnow() {
+/** `services`: the section's one read of the transcription services, for the route's line. */
+export function WordsToKnow({ services }: { services: ServicesView }) {
   const t = useT();
   const words = useAppStore((state) => state.settings?.user.meetingWords);
   const [draft, setDraft] = useState("");
@@ -238,6 +241,7 @@ export function WordsToKnow() {
         </SettingsGroup>
       )}
       <SettingsHelp>{t("meetings.words.body")}</SettingsHelp>
+      <WordsWaitingLine read={services} onSent={() => field.current?.focus()} />
       <UndoLineAt place={UNDO_PLACE} />
     </SettingsSection>
   );

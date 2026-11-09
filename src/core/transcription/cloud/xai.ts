@@ -14,7 +14,14 @@ import type { CloudLoss } from "../../adapters";
 import { OUT_OF_CREDIT } from "../../providers/creditWords";
 import { cleanSpeech } from "../speechText";
 import { endsAfter, endsBefore } from "./lineEnds";
-import { closedLoss, createLiveStream, joinWords, type LiveLink, pcmBytes } from "./live";
+import {
+  closedLoss,
+  createLiveStream,
+  heldWords,
+  joinWords,
+  type LiveLink,
+  pcmBytes,
+} from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export { XAI_STT_MODEL } from "./protocol";
@@ -33,13 +40,15 @@ interface Line {
   speaker: string | null;
 }
 
-export function xaiUrl(model: string): string {
+/** `words`: the meeting's words to know, each a key term it leans towards (#1031). */
+export function xaiUrl(model: string, words: readonly string[] = []): string {
   const url = new URL(XAI_STT_URL);
   url.searchParams.set("model", model);
   url.searchParams.set("sample_rate", "16000");
   url.searchParams.set("encoding", "pcm");
   url.searchParams.set("interim_results", "true");
   url.searchParams.set("diarize", "true");
+  for (const word of words) url.searchParams.append("keyterm", word);
   return url.toString();
 }
 
@@ -73,6 +82,7 @@ const textOf = (words: readonly Word[]) => cleanSpeech(joinWords(words.map((word
 
 export function createXaiStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   let line: Line | null = null;
   let nextId = 1;
   /** All audio before this has its final results. */
@@ -155,7 +165,10 @@ export function createXaiStream(options: CloudStreamOptions): CloudStreamHandle 
   }
 
   return createLiveStream(options, {
-    url: xaiUrl(options.model),
+    get url() {
+      return xaiUrl(options.model, words.now);
+    },
+    words,
     opened() {},
     heard(message, link) {
       switch (message.type) {

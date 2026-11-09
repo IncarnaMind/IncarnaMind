@@ -3553,6 +3553,8 @@ export const en = {
   "consent.flow.transcription": "Meeting transcription",
   "consent.flow.transcription.purpose": "turn what’s said in your meetings into text",
   "consent.data.meeting-audio": "Meeting audio while you record, other people’s voices included",
+  "consent.data.meeting-words":
+    "Your name and the names in each meeting’s note, calendar event and folder, with your Words to know",
   "consent.flow.calendars": "Calendars",
   "consent.flow.calendars.purpose": "show the meetings coming up from your calendar",
   "consent.data.calendar-request":
@@ -3684,6 +3686,7 @@ export const en = {
   "consent.settings.status.declined": "Not allowed",
   "consent.settings.status.not-asked": "Not asked yet",
   "consent.settings.status.sendsMore": "Asks again: it sends more now",
+  "consent.settings.status.sendsMoreWhat": "Asks again. Now it also sends: {what}",
   "consent.settings.revoke": "Stop allowing",
   "consent.settings.askAgain": "Ask again",
 
@@ -3907,16 +3910,18 @@ export const en = {
   "meetings.route.wayRow": "{provider} · your key",
   "meetings.route.use": "Use {provider}",
   "meetings.route.waysNote":
-    "Choosing one sends the meeting’s audio to that service while you record. Change it in Settings › Meetings.",
+    "Choosing one sends the meeting’s audio to that service while you record, with your name, the names in the meeting’s note, calendar event and folder, and your Words to know. Change it in Settings › Meetings.",
   "meetings.route.cloudOn": "Transcribe with {provider}",
-  "meetings.route.cloudLine": "Audio goes to {provider} while you record.",
+  "meetings.route.cloudLine":
+    "Audio goes to {provider} while you record, with your name, the names in the meeting’s note, calendar event and folder, and your Words to know.",
   "meetings.route.agreement": "Agreement",
   "meetings.route.useHere": "Use this computer",
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
   "meetings.route.slowNoKey": "Live text may fall behind on this computer.",
   "meetings.route.settingsLink": "Settings › Models",
-  "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
+  "meetings.route.consent":
+    "A cloud service gets the meeting’s audio while you record, with your name, the names in the meeting’s note, calendar event and folder, and your Words to know.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
   "meetings.route.chooseAgain":
     "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
@@ -6993,7 +6998,10 @@ export const en = {
   "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
   "meetings.words.title": "Words to know",
   "meetings.words.body":
-    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+    "Names and terms that transcription writes as you do: people, companies, products. Each meeting adds your name and the names in its note, calendar event and folder. A cloud service you transcribe with gets them with the audio.",
+  "meetings.words.waiting":
+    "{provider} gets the audio but not these words: you chose it before they were sent. Send them, and it also gets your name, the names in each meeting’s note, calendar event and folder, and your Words to know.",
+  "meetings.words.send": "Send to {provider}",
   "meetings.words.field": "Add a word to know",
   "meetings.words.placeholder": "A name or a term",
   "meetings.words.add": "Add",

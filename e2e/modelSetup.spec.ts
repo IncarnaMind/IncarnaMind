@@ -518,11 +518,15 @@ test("Settings › Models offers a cloud route once a key is saved, says what ch
       .toEqual(["On this computer", "Soniox"]);
     // Choosing a cloud route is the consent, so its line is on screen first, and nothing is chosen.
     const consent = settings.getByTestId("meetings-route-consent");
-    await expect(consent).toHaveText("A cloud service gets the meeting’s audio while you record.");
+    await expect(consent).toHaveText(
+      "A cloud service gets the meeting’s audio while you record, with your name, the names in the meeting’s note, calendar event and folder, and your Words to know.",
+    );
     expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
 
     await route.selectOption("soniox");
-    await expect(consent).toHaveText("Audio goes to Soniox while you record.");
+    await expect(consent).toHaveText(
+      "Audio goes to Soniox while you record, with your name, the names in the meeting’s note, calendar event and folder, and your Words to know.",
+    );
     await expect
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("soniox");

@@ -3631,6 +3631,11 @@ export interface TranscriptionServiceStatus {
    * again sends it there.
    */
   chooseAgain: boolean;
+  /**
+   * It is the route chosen, and the User chose it before it was sent the meeting's words to know
+   * (#1031): its audio goes, and the words wait until the User allows them.
+   */
+  wordsWaiting: boolean;
 }
 
 /**
@@ -9400,6 +9405,7 @@ export const dataKinds = [
   "references",
   "connector-search",
   "meeting-audio",
+  "meeting-words",
   "document-names",
   "other-minds",
   "live-transcript",
@@ -9467,8 +9473,11 @@ export type DataKind = (typeof dataKinds)[number];
  *   (#148). Asked the first time they search; none in local mode.
  * - "transcription": a Meeting's audio while it records, other people's
  *   voices included, to the cloud transcription service the User chose in
- *   Settings › Meetings or on the first-meeting sheet (#141). Choosing it
- *   allows it; none in local mode.
+ *   Settings › Meetings or on the first-meeting sheet (#141), with the
+ *   meeting's words to know in that service's own field (#1031): the User's
+ *   name, the names in the meeting's Note, calendar event and Folder, and
+ *   Words to know. Choosing it allows both; a route chosen before the words
+ *   went sends them only once the User allows them. None in local mode.
  * - "scan-images": when Organize or the Library's automatic grouping meets a
  *   PDF with no text after reading and OCR (a scan), up to 3 of its page
  *   images, to the service of the model that reads them (the chosen model's,
@@ -9563,6 +9572,8 @@ export interface DataFlowStatus {
    * it (ADR-0022), rather than in a dialog or in Settings › Privacy.
    */
   chosen: boolean;
+  /** What the flow sends now that the User's acceptance didn't cover, when it has grown since. */
+  added?: DataKind[];
 }
 
 /** A registered external data flow, for the Privacy page: what it sends, and where. */
@@ -14268,6 +14279,11 @@ export interface CoreApi {
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
   removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
+   * The User allows the chosen route, already sent meeting audio, the meeting's words to know too
+   * (#1031): the consent for the words alone, with the route and its settings as they were.
+   */
+  allowTranscriptionWords(): Promise<TranscriptionServices>;
+  /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
    */
@@ -15063,6 +15079,7 @@ const methods: Record<CoreApiMethod, true> = {
   listTranscriptionServices: true,
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
+  allowTranscriptionWords: true,
   getTranscriptionSpeed: true,
   getTranscriptionModel: true,
   retryTranscript: true,
