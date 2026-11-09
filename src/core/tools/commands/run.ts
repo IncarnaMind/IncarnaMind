@@ -31,7 +31,6 @@ import type {
   SavedFile,
   TaggingClassifier,
   TaggingRoute,
-  TagLinkChange,
   UserAnswer,
   UserQuestion,
   WindowCommandEnd,
@@ -126,7 +125,7 @@ export interface CommandsHost {
     wall: string | null,
     permit: CloudReadPermit | undefined,
     runId: string,
-  ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
+  ): Promise<{ failed: unknown | null; untouched: number }>;
   /**
    * Plans these Documents as the Library's Organize does, at any size, with the run's permit, and
    * proposes into Suggestions under `runId`, into Folders outside every wall (#1569). Null when
@@ -138,6 +137,17 @@ export interface CommandsHost {
     permit: CloudReadPermit | undefined,
     runId: string,
   ): Promise<OrganizeLibraryResult | null>;
+  /** Tagging is on for this Document: the Tagging switch, and not stopped where it is (#2308). */
+  taggingOn(id: string): boolean;
+  /**
+   * Tags these Documents as the Library's Re-tag does, through the tagging flow, and proposes
+   * their Tags into Suggestions under `runId` (#2339). Throws what keeps tagging from running.
+   */
+  tagByRun(
+    ids: readonly string[],
+    signal: AbortSignal,
+    runId: string,
+  ): Promise<OrganizeLibraryResult>;
   /** Proposes a Folder by name, made only when the User confirms it; null when one has that name. */
   proposeFolder(name: string, about: string): OrganizeReviewFolder | null;
   /**

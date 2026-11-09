@@ -128,7 +128,7 @@ describe("the Organize benchmark's scoring", () => {
     expect(high?.r).toBeCloseTo(1 / 4);
   });
 
-  test("uses the app's own starter Folders and preset Tags, in either language", () => {
+  test("uses the app's own starter Folders, in either language, and the kinds the app tags with", () => {
     const english = definitions("en");
     expect(english.folders.map((folder) => folder.id)).toEqual([
       "research",
@@ -138,7 +138,7 @@ describe("the Organize benchmark's scoring", () => {
       "meetings",
     ]);
     expect(english.folders[3]?.name).toBe("Finance");
-    expect(english.tags.map((tag) => tag.id)).toContain("invoice");
-    expect(definitions("zh-CN").tags.find((tag) => tag.id === "invoice")?.name).toBe("发票");
+    expect(english.tags.map((tag) => tag.id)).toContain("kind:invoice");
+    expect(definitions("zh-CN").tags).toEqual(english.tags);
   });
 });

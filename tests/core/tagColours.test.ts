@@ -7,7 +7,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { tagNamed } from "../helpers/tags";
 
 describe("Tag colours", () => {
-  test("the preset Tags come with their own colours, all different", async () => {
+  test("the preset Tags come with their kinds' colours: eight colours for nine kinds, so Letter shares Book's", async () => {
     const core = startCore(await createTempDataFolder());
     const colours = Object.fromEntries(
       (await core.listTags()).map((tag) => [tag.name, tag.colour]),
@@ -16,21 +16,22 @@ describe("Tag colours", () => {
       Book: "orange",
       Contract: "red",
       Invoice: "green",
-      Notes: "gray",
+      Letter: "orange",
+      "Meeting notes": "gray",
       Paper: "purple",
       Report: "blue",
       Slides: "yellow",
+      Statement: "teal",
     });
   });
 
   test("a new Tag takes the colour fewest Tags have, unless the User chooses one", async () => {
     const core = startCore(await createTempDataFolder());
-    // Only teal is unused by the presets.
-    expect((await core.createTag({ name: "Urgent" })).colour).toBe("teal");
-    // Then every colour is on one Tag: the first in the palette again.
-    expect((await core.createTag({ name: "Later" })).colour).toBe("red");
+    // Every colour is on a preset, orange on two: the earliest in the palette of the fewest.
+    expect((await core.createTag({ name: "Urgent" })).colour).toBe("red");
+    expect((await core.createTag({ name: "Later" })).colour).toBe("yellow");
     expect((await core.createTag({ name: "Travel", colour: "green" })).colour).toBe("green");
-    expect((await core.createTag({ name: "Ideas" })).colour).toBe("orange");
+    expect((await core.createTag({ name: "Ideas" })).colour).toBe("teal");
     await expect(core.createTag({ name: "Odd", colour: "magenta" as never })).rejects.toThrow(
       InvalidInputError,
     );
@@ -40,7 +41,7 @@ describe("Tag colours", () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const report = await tagNamed(core, "Report");
-    const notes = await tagNamed(core, "Notes");
+    const notes = await core.createTag({ name: "Notes" });
     expect(await core.updateTag(report.id, { colour: "teal" })).toMatchObject({
       colour: "teal",
       name: "Report",

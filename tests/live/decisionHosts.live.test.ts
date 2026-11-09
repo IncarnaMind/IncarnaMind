@@ -4,12 +4,13 @@
  * organized into Folders, and nothing sent to the host before the choice. Liquid AI with its own
  * key (LIQUID_API_KEY), Decider through OpenRouter (OPENROUTER_API_KEY) and GPT-6 Luna Decisions
  * through OpenAI (OPENAI_API_KEY); each runs only with its key in the environment. Under a cent.
+ * Their Tags wait in the Review (#2339).
  */
 import { describe, expect, test, vi } from "vitest";
 import { type Core, createAiSdkChatModel, type TaggingClassifier } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, waitForTagging } from "../helpers/tags";
 
 const KEYS = {
   liquid: process.env.LIQUID_API_KEY,
@@ -82,8 +83,8 @@ describe("decision model hosts, live", () => {
           (each) => ["tagged", "no-tags", "failed"].includes(each.tagging),
           240_000,
         );
-        const paperTags = await tagNamesOf(core, paper.id);
-        const invoiceTags = await tagNamesOf(core, invoice.id);
+        const paperTags = await proposedTagNamesOf(core, paper.id);
+        const invoiceTags = await proposedTagNamesOf(core, invoice.id);
         console.info(
           `liquid d1-ultra: paper ${paperTags}, invoice ${invoiceTags}; ${requests.sent.length} requests`,
         );
@@ -144,8 +145,8 @@ describe("decision model hosts, live", () => {
           },
           { timeout: 240_000, interval: 500 },
         );
-        const paperTags = await tagNamesOf(core, paper.id);
-        const invoiceTags = await tagNamesOf(core, invoice.id);
+        const paperTags = await proposedTagNamesOf(core, paper.id);
+        const invoiceTags = await proposedTagNamesOf(core, invoice.id);
         console.info(
           `openrouter decider: paper ${paperTags}, invoice ${invoiceTags}; ${requests.sent.length} requests`,
         );
@@ -182,8 +183,8 @@ describe("decision model hosts, live", () => {
           (each) => ["tagged", "no-tags", "failed"].includes(each.tagging),
           240_000,
         );
-        const paperTags = await tagNamesOf(core, paper.id);
-        const invoiceTags = await tagNamesOf(core, invoice.id);
+        const paperTags = await proposedTagNamesOf(core, paper.id);
+        const invoiceTags = await proposedTagNamesOf(core, invoice.id);
         console.info(
           `openai gpt-6-luna: paper ${paperTags}, invoice ${invoiceTags}; ${requests.sent.length} requests`,
         );

@@ -139,7 +139,10 @@ describe("Migrations", () => {
         )
         .map((row) => row.linked_folder_id);
 
-    migrate(db, migrations);
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 140),
+    );
     const after = descriptions();
     expect(baselines()).toEqual(["00000000-0000-4000-8000-000000000004"]);
     db.exec(migrations.find((migration) => migration.version === 121)?.sql ?? "");
@@ -151,6 +154,10 @@ describe("Migrations", () => {
       "Supplier bills for the shop.",
     ]);
     expect(descriptions()).toEqual(after);
+
+    // As kinds (#2339), the seeded words give way to the kind's own, and the User's stay.
+    migrate(db, migrations);
+    expect(descriptions()).toEqual(["", "", "Supplier bills for the shop."]);
     db.close();
   });
 

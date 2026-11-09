@@ -1,0 +1,503 @@
+{
+  "version": 2,
+  "folders": [
+    "research",
+    "reports",
+    "contracts",
+    "finance",
+    "meetings"
+  ],
+  "tags": [
+    "contract",
+    "invoice",
+    "statement",
+    "report",
+    "paper",
+    "book",
+    "slides",
+    "meeting-notes",
+    "letter"
+  ],
+  "documents": [
+    {
+      "id": "f01",
+      "file": "files/f01-Scan_0003.pdf",
+      "language": "en",
+      "kind": "pdf",
+      "scanned": true,
+      "folder": "finance",
+      "tags": [
+        "statement"
+      ],
+      "split": "heldout",
+      "sha256": "2e31a9084b5e2a24b924f5a06d1e8e8f3e80c334a212eec4cab9786ebda3789d"
+    },
+    {
+      "id": "f02",
+      "file": "files/f02-signed vendor doc.pdf",
+      "language": "en",
+      "kind": "pdf",
+      "scanned": true,
+      "folder": "contracts",
+      "tags": [
+        "contract"
+      ],
+      "split": "heldout",
+      "sha256": "c2cb0a39ac94e374ba185540dc2083d3530abdf2feb4621aa8c34a2259a97e3a"
+    },
+    {
+      "id": "f03",
+      "file": "files/f03-Brightwater Supply - Oct.pdf",
+      "language": "en",
+      "kind": "pdf",
+      "scanned": true,
+      "folder": "finance",
+      "tags": [
+        "invoice",
+        "statement"
+      ],
+      "split": "heldout",
+      "sha256": "0711fb5e6012df23c9adea899d0d512e93792b007774607cf24b88770d0675fa"
+    },
+    {
+      "id": "f04",
+      "file": "files/f04-zhou_kaplan_delgado_2025_spacing.pdf",
+      "language": "en",
+      "kind": "pdf",
+      "folder": "research",
+      "tags": [
+        "paper"
+      ],
+      "split": "heldout",
+      "sha256": "53b69877d848f6ef7976979e16ed85be1963afeb542e564dbe69cd610396e17b"
+    },
+    {
+      "id": "f05",
+      "file": "files/f05-Harbor Coffee Roasters FY2025.pdf",
+      "language": "en",
+      "kind": "pdf",
+      "folder": "reports",
+      "alsoFolder": "finance",
+      "tags": [
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "9b4a2c7978643a201105885d24c927c362c4d5bebce9f258ac4bee6f42c908cc"
+    },
+    {
+      "id": "f06",
+      "file": "files/f06-Lease Renewal 2026 (signed copy).docx",
+      "language": "en",
+      "kind": "docx",
+      "folder": "contracts",
+      "tags": [
+        "contract"
+      ],
+      "split": "heldout",
+      "sha256": "076098c4a321298a71db55636a8702242276186f2f9011d8431a865ab1f3559c"
+    },
+    {
+      "id": "f07",
+      "file": "files/f07-Hollis Reyes engagement.docx",
+      "language": "en",
+      "kind": "docx",
+      "folder": "contracts",
+      "tags": [
+        "letter",
+        "contract"
+      ],
+      "split": "heldout",
+      "sha256": "ecee497c5659583fe3864bab38f16d13ad06549644064951d4c9ca05f86418e0"
+    },
+    {
+      "id": "f08",
+      "file": "files/f08-Willow St - status wk6.docx",
+      "language": "en",
+      "kind": "docx",
+      "folder": "reports",
+      "tags": [
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "226edc8331f41e5497fb82a6f44b1bcfd2ef5b822b4e070d0134cb86382b3644"
+    },
+    {
+      "id": "f09",
+      "file": "files/f09-Minutes_Board_Sept.docx",
+      "language": "en",
+      "kind": "docx",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "3a423c223c04e15b8a4879a0a76fdaa7554b82aa3c079879d92b4f5456cb4bb4"
+    },
+    {
+      "id": "f10",
+      "file": "files/f10-Q3 update FINAL v4.pptx",
+      "language": "en",
+      "kind": "pptx",
+      "folder": "reports",
+      "alsoFolder": "meetings",
+      "tags": [
+        "slides",
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "9eb5e3605bf4a5231f637118e7159f2970d454c577d789a918ceaf880451ced5"
+    },
+    {
+      "id": "f11",
+      "file": "files/f11-soil-lecture-week5.pptx",
+      "language": "en",
+      "kind": "pptx",
+      "folder": "research",
+      "tags": [
+        "slides"
+      ],
+      "split": "heldout",
+      "sha256": "484cf1d2fc91f6ee1792bdde22182335873cc16a25081cdff08895c7a214c1ab"
+    },
+    {
+      "id": "f12",
+      "file": "files/f12-budget 2026.xlsx",
+      "language": "en",
+      "kind": "xlsx",
+      "folder": "finance",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "f204b12914b77d3a7bf71e17dab1f929ea3422c3dc28ff3e48638e1ba39756ed"
+    },
+    {
+      "id": "f13",
+      "file": "files/f13-INV-0087.xlsx",
+      "language": "en",
+      "kind": "xlsx",
+      "folder": "finance",
+      "tags": [
+        "invoice"
+      ],
+      "split": "heldout",
+      "sha256": "d23baa35ee19f71c078b64518a32c268249fe80aefbfc388ecd11921c0e68d6c"
+    },
+    {
+      "id": "f14",
+      "file": "files/f14-export (3).csv",
+      "language": "en",
+      "kind": "csv",
+      "folder": "finance",
+      "tags": [
+        "statement"
+      ],
+      "split": "heldout",
+      "sha256": "3d351e931fb949cb02a50e7f4d8e20e2612ab55a407dd69266a0a90ab7a07f11"
+    },
+    {
+      "id": "f15",
+      "file": "files/f15-responses_clean.csv",
+      "language": "en",
+      "kind": "csv",
+      "folder": "research",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "81c521649079cbd0e9fa8cd80a350779ba96bd2cbed49331fe24d34e766b4ce3"
+    },
+    {
+      "id": "f16",
+      "file": "files/f16-2026-09-18 product sync.md",
+      "language": "en",
+      "kind": "markdown",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "d661eaa099e3cc48c9f809616a5592f4909dcfc08b13801ce135f9cb69df225f"
+    },
+    {
+      "id": "f17",
+      "file": "files/f17-cold brew notes.md",
+      "language": "en",
+      "kind": "markdown",
+      "folder": "research",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "f4d33296f1bd0323d2051f715ca434b510242b13c29bed359c211d359205d021"
+    },
+    {
+      "id": "f18",
+      "file": "files/f18-ch3 draft.md",
+      "language": "en",
+      "kind": "markdown",
+      "folder": null,
+      "tags": [
+        "book"
+      ],
+      "split": "heldout",
+      "sha256": "77d5650b5582a461998da4b42dcb7e9dffd12931da24d4ae74fcba15ee7e5655"
+    },
+    {
+      "id": "f19",
+      "file": "files/f19-call w dana.txt",
+      "language": "en",
+      "kind": "text",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "41cca01f2e921c8bace13de810430e7d6eb3704865edbb7d9f98e46bf155327d"
+    },
+    {
+      "id": "f20",
+      "file": "files/f20-cake.txt",
+      "language": "en",
+      "kind": "text",
+      "folder": null,
+      "tags": [],
+      "split": "heldout",
+      "sha256": "7b10eb9974e033aa91a236f7f6ed8c1e4b5262081293456bf428132c4e9dc313"
+    },
+    {
+      "id": "f21",
+      "file": "files/f21-电费通知单扫描.pdf",
+      "language": "zh",
+      "kind": "pdf",
+      "scanned": true,
+      "folder": "finance",
+      "tags": [
+        "invoice",
+        "statement"
+      ],
+      "split": "heldout",
+      "sha256": "4c277cfa072e1f163042b2f7dc37933aee0347249a45dc6c1a9667926be5f63d"
+    },
+    {
+      "id": "f22",
+      "file": "files/f22-scan_0007.pdf",
+      "language": "zh",
+      "kind": "pdf",
+      "scanned": true,
+      "folder": "contracts",
+      "tags": [
+        "contract"
+      ],
+      "split": "heldout",
+      "sha256": "ebc6373e8037ce288b0e22c2a81a593a0c430da57a7c30a6afabb3d463cbe92e"
+    },
+    {
+      "id": "f23",
+      "file": "files/f23-社区团购与生鲜消费_论文终稿.pdf",
+      "language": "zh",
+      "kind": "pdf",
+      "folder": "research",
+      "tags": [
+        "paper"
+      ],
+      "split": "heldout",
+      "sha256": "45e45ff3d4d69995c0ab0a474aa2b6fe4015547d4e3fff7d02354bb9251302a4"
+    },
+    {
+      "id": "f24",
+      "file": "files/f24-发票_20260905.pdf",
+      "language": "zh",
+      "kind": "pdf",
+      "folder": "finance",
+      "tags": [
+        "invoice"
+      ],
+      "split": "heldout",
+      "sha256": "430f9b51d1fbaa689b1eee228ca918db02aa352df48d6e7add089c914053d740"
+    },
+    {
+      "id": "f25",
+      "file": "files/f25-租赁合同(2026续签).docx",
+      "language": "zh",
+      "kind": "docx",
+      "folder": "contracts",
+      "tags": [
+        "contract"
+      ],
+      "split": "heldout",
+      "sha256": "7b10a9dddee0fbb50b6ed6bb1f8c06a7c8751b5f71b099cb7faabc7ee093f68d"
+    },
+    {
+      "id": "f26",
+      "file": "files/f26-新建 Microsoft Word 文档.docx",
+      "language": "zh",
+      "kind": "docx",
+      "folder": null,
+      "tags": [
+        "letter"
+      ],
+      "split": "heldout",
+      "sha256": "bc921c2c82a8d459ac22fc938309b0e901087a521c8c3b910733e8822c2dc6f0"
+    },
+    {
+      "id": "f27",
+      "file": "files/f27-项目周报_第38周.docx",
+      "language": "zh",
+      "kind": "docx",
+      "folder": "reports",
+      "tags": [
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "60b00684420a114da61bb99b88670e7b680ee39581aae4cf1ce51ac6d25ab9cf"
+    },
+    {
+      "id": "f28",
+      "file": "files/f28-0912会议纪要.docx",
+      "language": "zh",
+      "kind": "docx",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "af603e9ec6803f41b348b7b32315552076c299480d0005a166e795f8179664ed"
+    },
+    {
+      "id": "f29",
+      "file": "files/f29-Q3经营分析-终版2.pptx",
+      "language": "zh",
+      "kind": "pptx",
+      "folder": "reports",
+      "alsoFolder": "meetings",
+      "tags": [
+        "slides",
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "7fa4d86bc4825c26f9d269f3e1738f4fa7ef19435ea3567add6e80208298c6e8"
+    },
+    {
+      "id": "f30",
+      "file": "files/f30-组会汇报.pptx",
+      "language": "zh",
+      "kind": "pptx",
+      "folder": "research",
+      "alsoFolder": "meetings",
+      "tags": [
+        "slides"
+      ],
+      "split": "heldout",
+      "sha256": "31d56b93c301932841b657109b9bb142fc5673aba3c0c2232c02b40cb27a1c3b"
+    },
+    {
+      "id": "f31",
+      "file": "files/f31-家庭收支2026.xlsx",
+      "language": "zh",
+      "kind": "xlsx",
+      "folder": "finance",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "ccba129c9260239e021e1699132ceb54607f58be9e4ef10f7bd96bd92c010c54"
+    },
+    {
+      "id": "f32",
+      "file": "files/f32-销售汇总.xlsx",
+      "language": "zh",
+      "kind": "xlsx",
+      "folder": "reports",
+      "alsoFolder": "finance",
+      "tags": [
+        "report"
+      ],
+      "split": "heldout",
+      "sha256": "78c9c5533cee97b188fe97268bbda8a5fad712728f23bf8c3f5d4f0a84385765"
+    },
+    {
+      "id": "f33",
+      "file": "files/f33-alipay_record_20260930.csv",
+      "language": "zh",
+      "kind": "csv",
+      "folder": "finance",
+      "tags": [
+        "statement"
+      ],
+      "split": "heldout",
+      "sha256": "a112b4c50464197d39794dfb25583120913e650650266bc53bdb7bddac32a919"
+    },
+    {
+      "id": "f34",
+      "file": "files/f34-合同台账.csv",
+      "language": "zh",
+      "kind": "csv",
+      "folder": "contracts",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "1622d369ccc136aa80f715b9b22ef57ca9912f316d269202f18ed04907243085"
+    },
+    {
+      "id": "f35",
+      "file": "files/f35-周会记录.md",
+      "language": "zh",
+      "kind": "markdown",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "3dce2b01b60e346cdf3a12837775efa8a52d0ecab7fc5070d610f56c09916f92"
+    },
+    {
+      "id": "f36",
+      "file": "files/f36-薄荷试验记录.md",
+      "language": "zh",
+      "kind": "markdown",
+      "folder": "research",
+      "tags": [],
+      "split": "heldout",
+      "sha256": "8276d360deb13ca119198d62caaaf04f7dd2b2951c63a5277a8e6e9def3134e8"
+    },
+    {
+      "id": "f37",
+      "file": "files/f37-第七章 草稿.md",
+      "language": "zh",
+      "kind": "markdown",
+      "folder": null,
+      "tags": [
+        "book"
+      ],
+      "split": "heldout",
+      "sha256": "b70fa051f19ba9bb66e89a9f6105b6b4711291faee3c3a8c946342e2d714749d"
+    },
+    {
+      "id": "f38",
+      "file": "files/f38-电话沟通要点.txt",
+      "language": "zh",
+      "kind": "text",
+      "folder": "meetings",
+      "tags": [
+        "meeting-notes"
+      ],
+      "split": "heldout",
+      "sha256": "af901bb956f5e70139c201f559df97e3f9e636284354edc39a830a737f9d319b"
+    },
+    {
+      "id": "f39",
+      "file": "files/f39-红烧肉.txt",
+      "language": "zh",
+      "kind": "text",
+      "folder": null,
+      "tags": [],
+      "split": "heldout",
+      "sha256": "2e5509e23e3f7ddde16dfc6d037d454f667e4cabf8e030fd39d4fd99431b605c"
+    },
+    {
+      "id": "f40",
+      "file": "files/f40-催款.txt",
+      "language": "zh",
+      "kind": "text",
+      "folder": "finance",
+      "alsoFolder": "contracts",
+      "tags": [
+        "letter"
+      ],
+      "split": "heldout",
+      "sha256": "067bf3027aa5be030cb5e535aa7969a396a9a49aae3b89448a3cb6a98f7bc01f"
+    }
+  ]
+}

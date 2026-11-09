@@ -16,7 +16,7 @@ import { formatCount } from "../../linkedFolders";
 import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
 import { organizeStateOf } from "../../organizeOutcome";
-import { useOrganizeReview } from "../../organizeReview";
+import { useFoldersWaiting, useOrganizeReview } from "../../organizeReview";
 import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
 import type { ReviewReason } from "../../reviewProblems";
@@ -597,8 +597,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   const library = useAppStore((state) => state.library);
   // The Library's top says how a run of the User's own is going (#1569).
   const running = useOrganizeReview((state) => state.run !== null);
-  const counted = useOrganizeReview((state) => state.count);
-  const waiting = counted ?? library?.reviewCount ?? 0;
+  const waiting = useFoldersWaiting(library?.reviewCount ?? 0);
   const states = useMemo(() => {
     const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
@@ -614,7 +613,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   const run = (ids: readonly string[]) => {
     organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
-  // While Documents wait to be confirmed, the Library's top offers their Review instead.
+  // While Documents wait for a Folder, the Library's top offers their Review instead.
   if (running || waiting > 0) return null;
   if (pending > 0) {
     return (

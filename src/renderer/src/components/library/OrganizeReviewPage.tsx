@@ -64,8 +64,8 @@ export function OrganizeReviewPage() {
     [groups, sidebarSort, language],
   );
   const layout = useMemo(
-    () => (review ? reviewLayout(review, folders, assignments ?? []) : null),
-    [review, folders, assignments],
+    () => (review ? reviewLayout(review, folders, assignments ?? [], t("library.unsorted")) : null),
+    [review, folders, assignments, t],
   );
   const byId = useMemo(
     () => new Map<string, Document>(documents.map((doc) => [doc.id, doc])),
@@ -79,6 +79,7 @@ export function OrganizeReviewPage() {
             tags,
             newColours: newTagColours(tags, review.items),
             cards: [...layout.yours, ...layout.proposed],
+            onlyTags: layout.onlyTags,
             folders,
             moveRows: (itemIds, to) =>
               slideRows(itemIds, () => {
@@ -131,20 +132,41 @@ export function OrganizeReviewPage() {
   return (
     <div data-testid="organize-review" className="flex flex-col">
       <ReviewBar layout={layout} />
-      <Section
-        testId="organize-review-yours"
-        label={t(sub ? "organizeReview.section.intoIts" : "organizeReview.section.intoYours")}
-        cards={layout.yours}
-        context={context}
-      />
-      <Section
-        testId="organize-review-proposed"
-        label={t(
-          sub ? "organizeReview.section.newSubfolders" : "organizeReview.section.newFolders",
-        )}
-        cards={layout.proposed}
-        context={context}
-      />
+      {layout.onlyTags ? (
+        // Only Tags were asked for: the cards of where the Documents are, with no section heads.
+        <section
+          data-testid="organize-review-tags-only"
+          aria-label={t("organizeReview.title.tags")}
+          className="mt-5 flex flex-col gap-3"
+        >
+          {layout.tagsOnly.map((card) => (
+            <OrganizeReviewCard key={card.id} card={card} context={context} />
+          ))}
+        </section>
+      ) : (
+        <>
+          <Section
+            testId="organize-review-yours"
+            label={t(sub ? "organizeReview.section.intoIts" : "organizeReview.section.intoYours")}
+            cards={layout.yours}
+            context={context}
+          />
+          <Section
+            testId="organize-review-proposed"
+            label={t(
+              sub ? "organizeReview.section.newSubfolders" : "organizeReview.section.newFolders",
+            )}
+            cards={layout.proposed}
+            context={context}
+          />
+          <Section
+            testId="organize-review-tags-only"
+            label={t("organizeReview.section.tagsOnly")}
+            cards={layout.tagsOnly}
+            context={context}
+          />
+        </>
+      )}
       {layout.leftOut.length > 0 && (
         <>
           <SectionHead label={t("organizeReview.section.leftOut")} count={layout.leftOut.length} />
@@ -204,7 +226,7 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
   }, []);
   const willMove = willMoveText(layout, t);
   const nothing = layout.yours
-    .concat(layout.proposed)
+    .concat(layout.proposed, layout.tagsOnly)
     .every((card) => card.items.every((item) => !item.ticked));
   return (
     <>
@@ -221,20 +243,22 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
             data-testid="organize-review-title"
             className="m-0 text-[20px] leading-7 font-semibold text-ink"
           >
-            {layout.scope
-              ? t("organizeReview.title.sub", { folder: layout.scope.name })
-              : t("organizeReview.title")}
+            {layout.onlyTags
+              ? t("organizeReview.title.tags")
+              : layout.scope
+                ? t("organizeReview.title.sub", { folder: layout.scope.name })
+                : t("organizeReview.title")}
           </h1>
           <p
             id="organize-review-will-move"
             data-testid="organize-review-will-move"
-            className="m-0 mt-0.5 text-[13px] leading-5 text-ink-meta"
+            className="m-0 mt-0.5 text-[13px] leading-5 text-balance text-ink-meta"
           >
             {willMove}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <ReviewMenu scoped={layout.scope !== null} />
+          <ReviewMenu scoped={layout.scope !== null} onlyTags={layout.onlyTags} />
           <button
             type="button"
             data-testid="organize-review-not-now"
@@ -262,7 +286,8 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
   );
 }
 
-function ReviewMenu({ scoped }: { scoped: boolean }) {
+/** The Review's ⋯: Fewer and More Folders where Folders were asked for, Try Again, then Discard. */
+function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }) {
   const t = useT();
   const menu = usePopoverMenu({ align: "end", focus: "first" });
   const review = useOrganizeReview((state) => state.review);
@@ -308,6 +333,7 @@ function ReviewMenu({ scoped }: { scoped: boolean }) {
         {menu.open && (
           <>
             {!scoped &&
+              !onlyTags &&
               item(
                 "fewer",
                 t("organizeReview.fewer"),
@@ -315,6 +341,7 @@ function ReviewMenu({ scoped }: { scoped: boolean }) {
                 "organize-review-fewer",
               )}
             {!scoped &&
+              !onlyTags &&
               item(
                 "more",
                 t("organizeReview.more"),

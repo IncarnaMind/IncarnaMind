@@ -15,26 +15,33 @@ import type {
   DocumentTag,
   Tag,
   TagAsShown,
-  TagLinkChange,
   TagLinkState,
   TagSource,
   TagSourceRevert,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
-import type { Language } from "../language";
+import { LANGUAGES, type Language } from "../language";
 import type { Database } from "../storage";
 import type { TagDecision } from "./classify";
-import { PRESET_TAGS } from "./presets";
-import { NEW_TAG_LIMIT, type NewTag, tagKey } from "./suggest";
+import {
+  isTagKind,
+  KIND_COLOURS,
+  kindDescription,
+  kindName,
+  TAG_KINDS,
+  type TagKind,
+} from "./kinds";
 
 const MAX_NAME_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 500;
 
 interface TagRow {
   id: string;
+  /** Empty for a kind's Tag the User hasn't renamed: it shows the kind's name. */
   name: string;
   description: string;
   preset: string | null;
+  kind: string | null;
   /** 1 when the User made it or changed its name, colour or description; automatic tagging's are 0. */
   made_by_user: number;
   colour: TagColour;
@@ -50,18 +57,39 @@ interface LinkRow {
   needs_review: number;
 }
 
-const COLUMNS = "id, name, description, preset, made_by_user, colour, created_at, updated_at";
+const COLUMNS = "id, name, description, preset, kind, made_by_user, colour, created_at, updated_at";
 
-const toTag = (row: TagRow): Tag => ({
+const kindOf = (row: Pick<TagRow, "kind">): TagKind | null =>
+  isTagKind(row.kind) ? row.kind : null;
+
+/** A Tag's name as shown: a kind's in the interface's language, unless the User renamed it (#2339). */
+export const shownName = (row: Pick<TagRow, "kind" | "name">, language: Language): string => {
+  const kind = kindOf(row);
+  return kind && row.name === "" ? kindName(kind, language) : row.name;
+};
+
+export const shownDescription = (row: Pick<TagRow, "kind" | "description">, language: Language) => {
+  const kind = kindOf(row);
+  return kind && row.description === "" ? kindDescription(kind, language) : row.description;
+};
+
+const toTag = (row: TagRow, language: Language): Tag => ({
   id: row.id,
-  name: row.name,
-  description: row.description,
+  name: shownName(row, language),
+  description: shownDescription(row, language),
   preset: row.preset !== null,
+  kind: kindOf(row),
   madeByUser: row.made_by_user !== 0,
   colour: row.colour,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+const byName = (a: Tag, b: Tag) => {
+  const x = a.name.toLowerCase();
+  const y = b.name.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+};
 
 function parseShown(value: unknown): TagAsShown {
   if (
@@ -148,8 +176,8 @@ export function parseTagLinkStates(input: unknown): TagLinkState[] {
 }
 
 /**
- * The live Tags on a Document, in Tag name order. Links to a Tag that is
- * deleted don't count, whatever their own state.
+ * The live Tags on a Document, in Tag name order, a kind's Tag the User hasn't renamed by its
+ * kind. Links to a Tag that is deleted don't count, whatever their own state.
  */
 export function tagsOfDocument(db: Database, documentId: string): DocumentTag[] {
   return db
@@ -157,7 +185,8 @@ export function tagsOfDocument(db: Database, documentId: string): DocumentTag[] 
       `SELECT l.tag_id, l.source, l.confidence, l.needs_review
        FROM document_tags l JOIN tags t ON t.id = l.tag_id
        WHERE l.document_id = ? AND l.deleted_at IS NULL AND t.deleted_at IS NULL
-       ORDER BY t.name COLLATE NOCASE, t.created_at, t.rowid`,
+       ORDER BY CASE WHEN t.kind IS NOT NULL AND t.name = '' THEN t.kind ELSE t.name END
+         COLLATE NOCASE, t.created_at, t.rowid`,
       [documentId],
     )
     .map((row) => ({
@@ -170,22 +199,28 @@ export function tagsOfDocument(db: Database, documentId: string): DocumentTag[] 
 
 export type TagsStore = ReturnType<typeof createTags>;
 
-export function createTags(db: Database, now: () => string) {
-  const get = (tagId: unknown): Tag => {
+/**
+ * `language`: the interface's, which a kind's Tag shows its name in; a change of language renames
+ * them all, as the next read finds.
+ */
+export function createTags(db: Database, now: () => string, language: () => Language = () => "en") {
+  const shown = (row: TagRow) => toTag(row, language());
+  const rowOf = (tagId: unknown): TagRow => {
     const row = db.get<TagRow>(`SELECT ${COLUMNS} FROM tags WHERE id = ? AND deleted_at IS NULL`, [
       parseTagId(tagId),
     ]);
     if (!row) throw new NotFoundError({ key: "error.tag.notFound" });
-    return toTag(row);
+    return row;
   };
+  const get = (tagId: unknown): Tag => shown(rowOf(tagId));
 
   const list = (): Tag[] =>
     db
       .all<TagRow>(
-        `SELECT ${COLUMNS} FROM tags WHERE deleted_at IS NULL
-         ORDER BY name COLLATE NOCASE, created_at, rowid`,
+        `SELECT ${COLUMNS} FROM tags WHERE deleted_at IS NULL ORDER BY created_at, rowid`,
       )
-      .map(toTag);
+      .map(shown)
+      .sort(byName);
 
   /** The Tags the User decided on for a Document, added or removed: automatic tagging leaves them alone. */
   const owned = (documentId: string): string[] =>
@@ -196,9 +231,22 @@ export function createTags(db: Database, now: () => string) {
       )
       .map((row) => row.tag_id);
 
-  /** Refuses a name another live Tag has, ignoring case. */
+  /**
+   * The live Tag that has `name`, ignoring case; a kind's Tag the User hasn't renamed has its name
+   * in every language.
+   */
+  const holderOf = (name: string, exceptId?: string) => {
+    const kindNamed = (tag: Tag) =>
+      tag.kind !== null &&
+      tag.name === kindName(tag.kind, language()) &&
+      LANGUAGES.some((each) => tag.kind !== null && sameName(kindName(tag.kind, each), name));
+    return list().find(
+      (tag) => tag.id !== exceptId && (sameName(tag.name, name) || kindNamed(tag)),
+    );
+  };
+
   const checkUnique = (name: string, exceptId?: string) => {
-    const taken = list().find((tag) => tag.id !== exceptId && sameName(tag.name, name));
+    const taken = holderOf(name, exceptId);
     if (taken)
       throw new InvalidInputError({ key: "error.tag.nameTaken", values: { name: taken.name } });
   };
@@ -216,10 +264,7 @@ export function createTags(db: Database, now: () => string) {
     source: TagSource,
     at: string,
     deletedAt: string | null = null,
-    decision: Pick<TagDecision, "confidence" | "needsReview"> = {
-      confidence: null,
-      needsReview: false,
-    },
+    decision: Pick<TagDecision, "confidence"> & { needsReview?: boolean } = { confidence: null },
   ) =>
     db.run(
       `INSERT INTO document_tags
@@ -231,7 +276,7 @@ export function createTags(db: Database, now: () => string) {
         tagId,
         source,
         decision.confidence,
-        decision.needsReview ? 1 : 0,
+        decision.needsReview === true ? 1 : 0,
         at,
         at,
         deletedAt,
@@ -244,53 +289,15 @@ export function createTags(db: Database, now: () => string) {
     colour: TagColour,
     at: string,
     madeByUser: boolean,
+    kind: TagKind | null = null,
   ) => {
     const id = randomUUID();
     db.run(
-      `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?, ?)`,
-      [id, name, description, madeByUser ? 1 : 0, colour, at, at],
+      `INSERT INTO tags (id, name, description, preset, kind, made_by_user, colour, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+      [id, name, description, kind, madeByUser ? 1 : 0, colour, at, at],
     );
     return id;
-  };
-
-  /**
-   * The ids of the Tags these new ones are: a live Tag of the same name (see `tagKey`), or one
-   * made for it. None is made under the name of a Tag the User deleted, nor past `NEW_TAG_LIMIT`.
-   */
-  const tagsNamed = (newTags: readonly NewTag[], at: string) => {
-    const live = list();
-    const deleted = new Set(
-      db
-        .all<{ name: string }>("SELECT name FROM tags WHERE deleted_at IS NOT NULL")
-        .map((row) => tagKey(row.name)),
-    );
-    const ids: string[] = [];
-    let made = 0;
-    for (const tag of newTags) {
-      const key = tagKey(tag.name);
-      const same = live.find((each) => tagKey(each.name) === key);
-      if (same) {
-        ids.push(same.id);
-        continue;
-      }
-      if (deleted.has(key) || live.length >= NEW_TAG_LIMIT) continue;
-      const colour = nextTagColour(live.map((each) => each.colour));
-      const id = insertTag(tag.name, tag.description, colour, at, false);
-      live.push({
-        id,
-        name: tag.name,
-        description: tag.description,
-        preset: false,
-        colour,
-        madeByUser: false,
-        createdAt: at,
-        updatedAt: at,
-      });
-      ids.push(id);
-      made++;
-    }
-    return { ids, made };
   };
 
   return {
@@ -299,24 +306,69 @@ export function createTags(db: Database, now: () => string) {
     owned,
 
     /**
-     * Creates the preset Tags if no Tag has ever existed here (deleted ones
-     * count, so deleting every preset doesn't bring them back). Returns
-     * whether it did.
+     * Creates a Tag for each kind if no Tag has ever existed here (deleted ones
+     * count, so deleting every kind doesn't bring them back), shown in the
+     * interface's language. Returns whether it did.
      */
-    seedPresets(language: Language): boolean {
+    seedPresets(): boolean {
       return db.transaction(() => {
         if (db.get("SELECT 1 FROM tags LIMIT 1")) return false;
         const at = now();
-        for (const preset of PRESET_TAGS) {
-          const { name, description } = preset.text[language];
+        for (const kind of TAG_KINDS) {
           db.run(
-            `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [randomUUID(), name, description, preset.key, preset.colour, at, at],
+            `INSERT INTO tags (id, name, description, preset, kind, colour, created_at, updated_at)
+             VALUES (?, '', '', ?, ?, ?, ?, ?)`,
+            [randomUUID(), kind, kind, KIND_COLOURS[kind], at, at],
           );
         }
         return true;
       });
+    },
+
+    /**
+     * A kind's Tag: the live one, or one made for it, as Confirm adds a kind (#2339). `made`: it
+     * was made now; `tookOver`: a Tag of the User's own, named as the kind, became it now.
+     */
+    kindTag(kind: TagKind): { tag: Tag; made: boolean; tookOver: boolean } {
+      return db.transaction(() => {
+        const live = db.get<TagRow>(
+          `SELECT ${COLUMNS} FROM tags WHERE kind = ? AND deleted_at IS NULL
+           ORDER BY created_at, rowid LIMIT 1`,
+          [kind],
+        );
+        if (live) return { tag: shown(live), made: false, tookOver: false };
+        // In a Library from before the kinds, the User's own "Letter" is the kind's Tag: Confirm
+        // makes no second one of that name.
+        const named = LANGUAGES.map((each) => holderOf(kindName(kind, each))).find(
+          (tag) => tag !== undefined && tag.kind === null,
+        );
+        if (named) {
+          db.run("UPDATE tags SET kind = ?, updated_at = ? WHERE id = ?", [kind, now(), named.id]);
+          return { tag: get(named.id), made: false, tookOver: true };
+        }
+        const id = insertTag("", "", KIND_COLOURS[kind], now(), false, kind);
+        return { tag: get(id), made: true, tookOver: false };
+      });
+    },
+
+    /** Undoing the Confirm that made it the kind's Tag: the User's own Tag is no kind again. */
+    giveBackKind(id: string): void {
+      db.run("UPDATE tags SET kind = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL", [
+        now(),
+        id,
+      ]);
+    },
+
+    /**
+     * Undoing the Confirm that made this kind's Tag, which holds nothing: it goes with no trace in
+     * Recently deleted, and the kind is still proposed, as the User didn't delete it.
+     */
+    dropMadeKindTag(id: string, at: string): void {
+      db.run(
+        `UPDATE tags SET kind = NULL, deleted_at = ?, purged_at = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+        [at, at, at, id],
+      );
     },
 
     /** Makes a Tag; one the User did not make (Research's) leaves madeByUser false. */
@@ -336,6 +388,7 @@ export function createTags(db: Database, now: () => string) {
           name,
           description,
           preset: false,
+          kind: null,
           madeByUser,
           colour,
           createdAt: at,
@@ -357,7 +410,8 @@ export function createTags(db: Database, now: () => string) {
       }
       const revert = parseSourceRevert(source);
       return db.transaction(() => {
-        const tag = get(tagId);
+        const row = rowOf(tagId);
+        const tag = shown(row);
         const name = patch.name === undefined ? tag.name : parseName(patch.name);
         const description =
           patch.description === undefined ? tag.description : parseDescription(patch.description);
@@ -372,10 +426,18 @@ export function createTags(db: Database, now: () => string) {
         checkUnique(name, tag.id);
         const at = now();
         const madeByUser = putsBack ? revert.madeByUser : true;
+        // A kind's Tag keeps showing the kind's own words until the User changes them.
         db.run(
           `UPDATE tags SET name = ?, description = ?, colour = ?, made_by_user = ?,
              updated_at = ? WHERE id = ?`,
-          [name, description, colour, madeByUser ? 1 : 0, at, tag.id],
+          [
+            name === tag.name ? row.name : name,
+            description === tag.description ? row.description : description,
+            colour,
+            madeByUser ? 1 : 0,
+            at,
+            tag.id,
+          ],
         );
         return { ...tag, name, description, madeByUser, colour, updatedAt: at };
       });
@@ -398,11 +460,13 @@ export function createTags(db: Database, now: () => string) {
           `SELECT ${COLUMNS} FROM tags WHERE id = ? AND deleted_at IS NULL`,
           [id],
         );
+        const showing = row && toTag(row, language());
         if (
           !row ||
-          row.name !== shown.name ||
-          row.description !== shown.description ||
-          row.colour !== shown.colour
+          !showing ||
+          showing.name !== shown.name ||
+          showing.description !== shown.description ||
+          showing.colour !== shown.colour
         )
           return false;
         if ((row.made_by_user !== 0) === madeByUser) return false;
@@ -576,6 +640,24 @@ export function createTags(db: Database, now: () => string) {
       });
     },
 
+    /** A Tag's name as the interface shows it, deleted or not: a kind's in its language. */
+    nameShown: (row: Pick<TagRow, "kind" | "name">) => shownName(row, language()),
+
+    /**
+     * The live Tag a deleted one would share its name with, restored: a kind's Tag that shows its
+     * kind's name has that name in every language.
+     */
+    holderOnRestore(row: Pick<TagRow, "kind" | "name">): Tag | undefined {
+      const kind = kindOf(row);
+      const names =
+        kind && row.name === "" ? LANGUAGES.map((each) => kindName(kind, each)) : [row.name];
+      for (const name of names) {
+        const taken = holderOf(name);
+        if (taken) return taken;
+      }
+      return undefined;
+    },
+
     /**
      * Brings back a deleted Tag (the caller checks it may) and the links deleted with it, but on a
      * meeting's Transcript, which has no Tags of its own (#2528). Returns the Documents that carry
@@ -659,104 +741,22 @@ export function createTags(db: Database, now: () => string) {
     },
 
     /**
-     * Sets a Document's automatic Tags to those in `decisions` and `newTags`: automatic
-     * links not decided on are taken off, decided Tags not on it are added, and those kept
-     * take the new confidence and review mark. A new Tag is the live Tag of its name, or is
-     * made (see `tagsNamed`). Tags the User added or removed on the Document, and deleted
-     * Tags, are left alone. Returns whether the Document's Tags changed and how many Tags
-     * were made. Run it in the caller's transaction.
+     * Puts these Tags on a Document as Research's own, where neither the User nor anything else
+     * has: a Tag the User added or took off there, and a deleted Tag, are left alone. Returns
+     * whether its Tags changed. Run it in the caller's transaction.
      */
-    applyAutomatic(
-      documentId: string,
-      decisions: readonly TagDecision[],
-      newTags: readonly NewTag[] = [],
-    ): { changed: boolean; made: number; links: TagLinkChange[] } {
+    addAutomatic(documentId: string, tagIds: readonly string[]): boolean {
       return db.transaction(() => {
         const at = now();
-        const changes: TagLinkChange[] = [];
-        const linkState = (link: LinkRow) => ({
-          source: "automatic" as const,
-          confidence: link.confidence,
-          needsReview: link.needs_review !== 0,
-        });
-        const named = tagsNamed(newTags, at);
-        const owned = new Set(
-          db
-            .all<{ tag_id: string }>(
-              "SELECT tag_id FROM document_tags WHERE document_id = ? AND source = 'user'",
-              [documentId],
-            )
-            .map((row) => row.tag_id),
-        );
+        const decided = new Set(owned(documentId));
         const live = new Set(list().map((tag) => tag.id));
-        const wanted = new Map(
-          [
-            ...decisions,
-            ...named.ids.map((tagId) => ({ tagId, confidence: null, needsReview: false })),
-          ]
-            .filter((decision) => live.has(decision.tagId) && !owned.has(decision.tagId))
-            .map((decision) => [decision.tagId, decision]),
-        );
-        const links = db.all<LinkRow>(
-          `SELECT id, tag_id, source, confidence, needs_review FROM document_tags
-           WHERE document_id = ? AND deleted_at IS NULL AND source = 'automatic'`,
-          [documentId],
-        );
         let changed = false;
-        for (const link of links) {
-          const decision = wanted.get(link.tag_id);
-          wanted.delete(link.tag_id);
-          if (!decision) {
-            changes.push({
-              documentId,
-              tagId: link.tag_id,
-              before: linkState(link),
-              after: null,
-            });
-            db.run("UPDATE document_tags SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-              at,
-              at,
-              link.id,
-            ]);
-            changed = true;
-          } else if (
-            link.confidence !== decision.confidence ||
-            (link.needs_review !== 0) !== decision.needsReview
-          ) {
-            // Still applies, decided afresh: e.g. Jev's probability moved on a re-tag.
-            changes.push({
-              documentId,
-              tagId: link.tag_id,
-              before: linkState(link),
-              after: {
-                source: "automatic",
-                confidence: decision.confidence,
-                needsReview: decision.needsReview,
-              },
-            });
-            db.run(
-              `UPDATE document_tags SET confidence = ?, needs_review = ?, updated_at = ?
-               WHERE id = ?`,
-              [decision.confidence, decision.needsReview ? 1 : 0, at, link.id],
-            );
-            changed = true;
-          }
-        }
-        for (const [tagId, decision] of wanted) {
-          changes.push({
-            documentId,
-            tagId,
-            before: null,
-            after: {
-              source: "automatic",
-              confidence: decision.confidence,
-              needsReview: decision.needsReview,
-            },
-          });
-          insertLink(documentId, tagId, "automatic", at, null, decision);
+        for (const tagId of new Set(tagIds)) {
+          if (!live.has(tagId) || decided.has(tagId) || liveLink(documentId, tagId)) continue;
+          insertLink(documentId, tagId, "automatic", at);
           changed = true;
         }
-        return { changed, made: named.made, links: changes };
+        return changed;
       });
     },
   };

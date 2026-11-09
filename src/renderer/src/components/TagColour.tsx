@@ -35,8 +35,7 @@ export const tagChipColour = (colour: string | undefined) => CHIP[known(colour)]
 /**
  * A Tag as a solid round dot in its colour, as Finder shows one where there
  * is no room for its name: 10px on a row, in a menu or the picker; 11px in
- * the sidebar's Tags view. "Needs review" is a hollow ring (`ReviewRing`), so
- * it never reads as a Tag.
+ * the sidebar's Tags view.
  */
 export function TagDot({
   colour,
@@ -60,10 +59,9 @@ export function TagDot({
 }
 
 /**
- * A Tag awaiting the User's review, where Tags are dots (the sidebar, filter
- * menus, picker options): a hollow ring in `review`, a darker amber than the
- * orange dot, 9px with a 1.5px stroke, in a dot's 10px place. Inside a named
- * chip it is the 6px `attention` dot (`ReviewDot`).
+ * Something awaiting the User's check, such as a reference record's field: a
+ * hollow ring in `review`, a darker amber than the orange dot, 9px with a
+ * 1.5px stroke, in a dot's 10px place.
  */
 export function ReviewRing() {
   return (

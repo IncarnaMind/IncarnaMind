@@ -1,6 +1,6 @@
-import { EXCERPT_END, EXCERPT_START } from "../../core/tags/classify";
+import { kindName, TAG_KINDS } from "../../core/tags/kinds";
 import { checksChangeClaims, fakeChangeClaims } from "./claims";
-import { type GenerateOptions, type Prompt, SLOWLY } from "./prompt";
+import { type GenerateOptions, SLOWLY } from "./prompt";
 import { fakeSuggestion } from "./suggestion";
 
 /** How long tagging a Document whose text says "slowly" takes: long enough for a test to Stop it. */
@@ -8,23 +8,23 @@ export const SLOW_TAGGING_MS = 1500;
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-function excerptOf(prompt: Prompt): string {
-  const text = prompt
-    .map((message) =>
-      typeof message.content === "string"
-        ? message.content
-        : message.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
-    )
-    .join("\n");
-  // The instructions name the markers too: the excerpt is between the last ones.
-  return text.slice(text.lastIndexOf(EXCERPT_START), text.lastIndexOf(EXCERPT_END));
-}
-
-const taggingExcerpt = (options: GenerateOptions): string | null => {
+/** A tagging request (../../core/tags/classify): the kind, Tags and topic of each Document. */
+const tags = (options: GenerateOptions): boolean => {
   const format = options.responseFormat;
-  const schema = format?.type === "json" ? format.schema : undefined;
-  return schema?.properties?.tags && !schema.properties.groupId ? excerptOf(options.prompt) : null;
+  return format?.type === "json" && !!format.schema?.properties?.tagged;
 };
+
+/**
+ * What a tagging request reads of its Documents, their names and text: the same Documents read
+ * the same however the interface's language or the Tags offered change between requests.
+ */
+function taggingExcerpt(options: GenerateOptions): string | null {
+  if (!tags(options)) return null;
+  const input = JSON.parse(organizeInput(options) || "{}") as {
+    documents?: { name: string; text: string }[];
+  };
+  return (input.documents ?? []).map((document) => `${document.name}\n${document.text}`).join("\n");
+}
 
 const organizeInput = (options: GenerateOptions): string => {
   const message = options.prompt.find((part) => part.role === "user");
@@ -84,6 +84,15 @@ export function tagsRateLimited(options: GenerateOptions): boolean {
   return true;
 }
 
+/**
+ * A tagging request for a Document whose text says "refuses tagging" meets a key its service
+ * refuses, every time; Organize's plan of the same Documents still goes.
+ */
+export function tagsRefused(options: GenerateOptions): boolean {
+  const excerpt = taggingExcerpt(options);
+  return !!excerpt && /\brefuses tagging\b/i.test(excerpt);
+}
+
 const creditOnce = new Set<string>();
 
 /**
@@ -97,25 +106,36 @@ export function tagsOutOfCredit(options: GenerateOptions): boolean {
   return true;
 }
 
-/**
- * The scripted tagger: of the Tag names offered, those that appear as a word
- * (ignoring case) in the Document's excerpt, i.e. its name or text.
- */
-function fakeTags(prompt: Prompt, offered: readonly string[]): string[] {
-  const excerpt = excerptOf(prompt);
-  return offered.filter((name) =>
-    new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "iu").test(excerpt),
-  );
-}
+/** Whether a name appears as a word (ignoring case) in the text. */
+const says = (text: string, name: string) =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "iu").test(text);
 
-/** The Tag names a tagging request's structured output may choose from. */
-function offeredTags(options: GenerateOptions): string[] {
-  const format = options.responseFormat;
-  const schema = (format?.type === "json" ? format.schema : undefined) as
-    | { properties?: { tags?: { items?: { enum?: unknown[] } } } }
-    | undefined;
-  const names: unknown[] = schema?.properties?.tags?.items?.enum ?? [];
-  return names.filter((name): name is string => typeof name === "string");
+/**
+ * The scripted tagger: for each Document, the first kind whose English or Chinese name its name
+ * or text says, the offered Tags whose names it says, and its "Subject: …" line as its topic.
+ */
+function fakeTagged(options: GenerateOptions): string {
+  const input = JSON.parse(organizeInput(options) || "{}") as {
+    tags?: { id: string; name: string }[];
+    documents?: { ref: string; name: string; text: string; tags?: string[] }[];
+  };
+  return JSON.stringify({
+    tagged: (input.documents ?? []).map((document) => {
+      const said = `${document.name}\n${document.text}`;
+      const kind = TAG_KINDS.find((each) =>
+        [kindName(each, "en"), kindName(each, "zh-CN")].some((name) => says(said, name)),
+      );
+      const [topic] = fakeNewTags(document.text);
+      return {
+        ref: document.ref,
+        kind: kind ?? "none",
+        tags: (input.tags ?? [])
+          .filter((tag) => document.tags?.includes(tag.id) && says(said, tag.name))
+          .map((tag) => tag.id),
+        topic: topic ?? { name: "", description: "" },
+      };
+    }),
+  });
 }
 
 /** The new Tag a Document's text names on a line "Subject: …" ("主题：…"), as the scripted model's own. */
@@ -248,16 +268,16 @@ export function fakeStructuredOutput(options: GenerateOptions): string {
     };
     const document = `${input.document.name} ${input.document.text}`.toLowerCase();
     const selected = input.groups.find((group) => document.includes(group.name.toLowerCase()));
+    const kind = (input.tags ?? []).find(
+      (tag) => tag.id.startsWith("kind:") && says(document, tag.name),
+    );
     return JSON.stringify({
       groupId: selected?.id ?? "__unsorted__",
       tags: (input.tags ?? [])
-        .filter((tag) => document.includes(tag.name.toLowerCase()))
+        .filter((tag) => (tag.id.startsWith("kind:") ? tag === kind : says(document, tag.name)))
         .map((tag) => tag.id),
-      newTags: fakeNewTags(input.document.text),
     });
   }
-  return JSON.stringify({
-    tags: fakeTags(options.prompt, offeredTags(options)),
-    newTags: fakeNewTags(excerptOf(options.prompt)),
-  });
+  if (tags(options)) return fakeTagged(options);
+  return JSON.stringify({});
 }

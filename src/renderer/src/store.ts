@@ -71,7 +71,6 @@ import {
   WINDOW_ID,
 } from "./layoutSlice";
 import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
-import { NEEDS_REVIEW } from "./libraryFilters";
 import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
 import { isListedDocument } from "./meetingTranscript";
@@ -201,10 +200,7 @@ export interface AppState extends LayoutSlice {
   linkQueue: LinkingFolder[];
   /** Every Tag, in name order. */
   tags: Tag[];
-  /**
-   * The Tags whose Documents the sidebar and the Library show: those with any
-   * of them (`NEEDS_REVIEW` stands for a Tag awaiting review). Empty: all.
-   */
+  /** The Tags whose Documents the sidebar and the Library show: those with any of them. Empty: all. */
   tagFilter: readonly string[];
   tagsDialogOpen: boolean;
   library: LibrarySnapshot | null;
@@ -2452,9 +2448,7 @@ core.on("documents.speakersChanged", (changed) => documentUpdates.upsert(changed
 core.on("tags.changed", (tags) => {
   pushed("tags");
   const { tagFilter } = useAppStore.getState();
-  const kept = tagFilter.filter(
-    (value) => value === NEEDS_REVIEW || tags.some((tag) => tag.id === value),
-  );
+  const kept = tagFilter.filter((value) => tags.some((tag) => tag.id === value));
   useAppStore.setState({ tags, ...(kept.length !== tagFilter.length && { tagFilter: kept }) });
 });
 
