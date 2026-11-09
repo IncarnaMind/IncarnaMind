@@ -83,6 +83,8 @@ interface Fact {
   forbid?: RegExp;
   /** A name the transcript misheard: wrong even beside the right first name (#2306). */
   misheard?: RegExp;
+  /** Said by someone unnamed: the name of another person on their side must not be put on it (#2306). */
+  notBy?: RegExp;
 }
 
 interface Call {
@@ -1479,6 +1481,7 @@ interface ReservedFactInput {
   owner?: string;
   forbid?: string;
   misheard?: string;
+  notBy?: string;
 }
 
 interface ReservedCallInput {
@@ -1526,6 +1529,7 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
       "owner",
       "forbid",
       "misheard",
+      "notBy",
     ]) &&
     typeof value.name === "string" &&
     (value.kind === "decision" || value.kind === "action" || value.kind === "figure") &&
@@ -1542,7 +1546,9 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
     (value.forbid === undefined ||
       (typeof value.forbid === "string" && value.owner !== undefined)) &&
     (value.misheard === undefined ||
-      (typeof value.misheard === "string" && value.owner !== undefined))
+      (typeof value.misheard === "string" && value.owner !== undefined)) &&
+    (value.notBy === undefined ||
+      (typeof value.notBy === "string" && value.notBy !== "" && value.owner === undefined))
   );
 }
 
@@ -1695,13 +1701,14 @@ async function loadReservedCalls(
     .filter((call) => selected.includes(call.id))
     .map(({ topics, named, ...call }) => ({
       ...call,
-      facts: call.facts.map(({ pattern, subject, owner, forbid, misheard, ...fact }) => ({
+      facts: call.facts.map(({ pattern, subject, owner, forbid, misheard, notBy, ...fact }) => ({
         ...fact,
         pattern: reservedRegex(pattern),
         ...(subject !== undefined && { subject: reservedRegex(subject) }),
         ...(owner !== undefined && { owner: new RegExp(owner, "iu") }),
         ...(forbid !== undefined && { forbid: new RegExp(forbid, "iu") }),
         ...(misheard !== undefined && { misheard: new RegExp(misheard, "iu") }),
+        ...(notBy !== undefined && { notBy: new RegExp(notBy, "iu") }),
       })),
       ...(topics && {
         topics: topics.map((topic) => ({
@@ -3822,6 +3829,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             (unit) => unit.ai && call.facts.some((fact) => fact.misheard?.test(unit.text) === true),
           ).length,
           owned: owned.length,
+          misattributed: call.facts.filter((fact) =>
+            units.some(
+              (unit) => unit.ai && related(fact, unit.text) && fact.notBy?.test(unit.text) === true,
+            ),
+          ).length,
+          unowned: call.facts.filter((fact) => fact.notBy).length,
           restated: scored
             .filter((each) => each.fact.kind === "decision")
             .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
@@ -3952,6 +3965,10 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           check("structure", () => {
             expect(slips.statedAsDecisions, "A stated figure is never a decision").toBe(0);
             expect(slips.misheard, "A name the User typed is never written as misheard").toBe(0);
+            expect(
+              slips.misattributed,
+              "What someone unnamed said never carries another person's name",
+            ).toBe(0);
             expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
             expect(structure.summaryParts, "Summary is one overview").toBe(1);
             expect(structure.summaryCited, "The overview is a cited paragraph").toBe(true);
