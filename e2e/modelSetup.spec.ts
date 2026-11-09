@@ -342,9 +342,12 @@ for (const language of ["en", "zh-CN"] as const) {
             );
           } else {
             expect(told.answer?.kind).toBe("here");
+            // The same model as Answers reads as "Use your AI model"; another, by its name.
             await expect(
               settings.getByTestId("models-sorting").locator("option:checked"),
-            ).toContainText(shown);
+            ).toContainText(
+              chatDefault === "the same" ? translate(language, "models.sorting.chat") : shown,
+            );
             expect(words).toBe(translate(language, "tagging.automatic.local"));
           }
 
@@ -514,12 +517,12 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
     await expect
       .poll(() =>
         route.evaluate((select) =>
-          [...select.children].flatMap((each) =>
-            each instanceof HTMLOptionElement ? [each.textContent] : [],
-          ),
+          [...(select as HTMLSelectElement).options]
+            .filter((each) => !each.value.startsWith("set-up:"))
+            .map((each) => each.textContent),
         ),
       )
-      .toEqual(["On this computer", "Soniox"]);
+      .toEqual(["Soniox", "On this computer"]);
     // Choosing a cloud route is the consent, so its line is on screen first, and nothing is chosen.
     const consent = settings.getByTestId("meetings-route-consent");
     await expect(consent).toHaveText("A cloud service gets the meeting’s audio while you record.");
@@ -1122,6 +1125,7 @@ test("Local mode offers only choices on this computer, in the setup card and in 
     ]);
     await expect(settings.getByTestId("models-sorting").locator("option")).toHaveText([
       "Use your AI model",
+      "Other model…",
     ]);
   } finally {
     await app.close();
