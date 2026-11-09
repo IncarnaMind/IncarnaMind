@@ -227,3 +227,19 @@ test("ask bar: the shortcuts run their prompts while the list is open, and a tem
     expect(each, each.text ?? "").toMatchObject({ cut: false, outside: false });
   await app.close();
 });
+
+test("ask bar: a prompt pressed twice quickly leaves one answer, finished, with no outline left behind", async () => {
+  test.setTimeout(60_000);
+  const { app, panel } = await openPanel();
+  const prompt = panel
+    .getByTestId("ask-bar")
+    .getByTestId("help-prompt")
+    .filter({ hasText: "What should I say?" });
+  await pointAndClick(panel, prompt);
+  await prompt.click({ clickCount: 2, delay: 40 });
+  const suggestion = panel.getByTestId("help-suggestion");
+  await expect(suggestion).toHaveCount(1);
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await expect(panel.getByTestId("help-outline")).toHaveCount(0);
+  await app.close();
+});
