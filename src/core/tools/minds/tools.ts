@@ -2956,7 +2956,7 @@ export function mindTools(options: MindToolsOptions): {
     ].join(" ");
   };
 
-  // Answers are written in English or Chinese, but a request in another language names its Note in it.
+  // `language` is only English or Chinese: a request in another language names its Note in its own.
   const titleLanguage =
     options.language === "zh-CN"
       ? LANGUAGE_NAMES["zh-CN"]

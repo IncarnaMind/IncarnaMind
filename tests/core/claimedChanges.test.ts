@@ -445,6 +445,86 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     ).toContain(DONE_BY_NOTE_CHANGE);
   });
 
+  // protects=a later write is read as the retry of a failed one only when it has the same Tool, Note and target (a new Note's title, the part or place named, else the first line written or the instruction), and each retries one failure (#2769's review); fails_when=another section written at the Note's end, another whole-Note edit or another new Note backs "done" after the first failed; no_claim=the judge's verdicts.
+  describe("only a write with the same target retries a failed one", () => {
+    const sentTo = async (calls: AnswerToolCall[]) => {
+      const model = judge({ claims: [] });
+      await unbackedClaims("Everything you asked for is done.", calls, MINDS, null, {
+        model,
+        names,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      });
+      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    };
+    const write = (
+      id: string,
+      tool: string,
+      input: Record<string, unknown>,
+      change: Partial<MindChange> | null,
+    ): AnswerToolCall => ({
+      ...mindCall(tool, change),
+      id,
+      input,
+      ...(change === null && { mindProblem: { kind: "uncited", mindId: "q3" } }),
+    });
+    const risks = (id: string, change: Partial<MindChange> | null, line = "- Supplier delay") =>
+      write(id, "add_to_mind", { content: `## Risks\n${line}` }, change);
+    const graphst = (id: string, change: Partial<MindChange> | null) =>
+      write(id, "create_mind", { title: "GraphST notes" }, change);
+
+    test.each([
+      [
+        "another section written at the Note's end",
+        [risks("r", null), write("t", "add_to_mind", { content: "## Timeline\n- March" }, {})],
+      ],
+      [
+        "another whole-Note edit",
+        [
+          write("ty", "edit_mind", { instruction: "fix the typos" }, null),
+          write("fo", "edit_mind", { instruction: "make it more formal" }, {}),
+        ],
+      ],
+      [
+        "another new Note",
+        [
+          graphst("g", null),
+          write(
+            "s",
+            "create_mind",
+            { title: "STAGATE notes" },
+            { created: true, mindId: "stagate" },
+          ),
+        ],
+      ],
+      [
+        "one retry after two failures",
+        [risks("r1", null), risks("r2", null, "- Late audit"), risks("r3", {}, "- Both, cited")],
+      ],
+    ])("main's sentence after %s", async (_case, calls) => {
+      const prompt = await sentTo(calls);
+      expect(prompt).not.toContain(DONE_BY_NOTE_CHANGE);
+      expect(prompt).toContain("is backed when the record shows a command done");
+    });
+
+    test.each([
+      ["the same section written again", [risks("r", null), risks("r-again", {}, "- Cited")]],
+      [
+        "the same new Note made again",
+        [graphst("g", null), graphst("g-again", { created: true, mindId: "graphst" })],
+      ],
+      [
+        "the same whole-Note edit again",
+        [
+          write("fo", "edit_mind", { instruction: "Make it more formal" }, null),
+          write("fo-again", "edit_mind", { instruction: "make it more formal" }, {}),
+        ],
+      ],
+    ])("a Note change backs done after %s", async (_case, calls) => {
+      expect(await sentTo(calls)).toContain(DONE_BY_NOTE_CHANGE);
+    });
+  });
+
   // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
   test("a rewrite read as sentences taken out and written new is told in words", async () => {
     const prompt = await recordRead([

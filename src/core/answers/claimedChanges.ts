@@ -157,23 +157,41 @@ export const DONE_BY_NOTE_CHANGE =
 
 const NOTE_WRITES: ReadonlySet<string> = new Set(["add_to_mind", "edit_mind", "create_mind"]);
 
-/** The Tool, Note and place a write aimed at: a later call with the same aim retries it. */
-function aimOf(call: AnswerToolCall): string {
+function firstLineOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return (
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line !== "") ?? null
+  );
+}
+
+/**
+ * The Tool, Note and target a write aimed at: a new Note's title, the part or place it named, or
+ * else its first line or instruction. Null when it names none, so nothing is taken for its retry.
+ */
+function aimOf(call: AnswerToolCall): string | null {
+  const field = (name: string) => firstLineOf(call.input[name]);
+  const target =
+    call.tool === "create_mind"
+      ? field("title")
+      : call.tool === "add_to_mind"
+        ? (field("after") ?? field("content"))
+        : (field("part") ?? field("instruction"));
+  if (target === null) return null;
   const problem = call.mindProblem;
   const mindId = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : "");
-  const place = [call.input.part, call.input.after].find(
-    (value): value is string => typeof value === "string",
-  );
-  // A new Note made after a failed try is the retry, whatever Note it is.
+  // A failed create_mind leaves no Note, so its retry has another id: it is matched by title.
   const note = call.tool === "create_mind" ? "" : mindId;
-  return `${call.tool}\n${note}\n${sameWords((place ?? "").trim()).toLocaleLowerCase()}`;
+  return `${call.tool}\n${note}\n${sameWords(target).toLocaleLowerCase()}`;
 }
 
 /**
  * Whether a request said to be done may be backed by a change to a Note: one applied, and every
  * call that changes something did what it set out to. A failed, stopped or denied call, or a
  * change still waiting for the User, keeps it from counting unless a later call of the same Tool
- * applied a change to the same Note and place (#2769).
+ * applied a change with the same Note and target, each such call retrying one failure (#2769).
  */
 function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeStates): boolean {
   const applied = (call: AnswerToolCall) => {
@@ -185,14 +203,19 @@ function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeState
       states?.(change)?.applied === true
     );
   };
-  return (
-    calls.some(applied) &&
-    calls.every((call, at) => {
-      if (call.source === "commands") return ["done", "started"].includes(outcomeOf(call));
-      if (call.source !== "minds" || !NOTE_WRITES.has(call.tool) || applied(call)) return true;
-      return calls.slice(at + 1).some((later) => applied(later) && aimOf(later) === aimOf(call));
-    })
-  );
+  if (!calls.some(applied)) return false;
+  const undone: (string | null)[] = [];
+  for (const call of calls) {
+    if (call.source === "commands") {
+      if (!["done", "started"].includes(outcomeOf(call))) return false;
+      continue;
+    }
+    if (call.source !== "minds" || !NOTE_WRITES.has(call.tool)) continue;
+    const aim = aimOf(call);
+    if (!applied(call)) undone.push(aim);
+    else if (aim !== null && undone.includes(aim)) undone.splice(undone.indexOf(aim), 1);
+  }
+  return undone.length === 0;
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));

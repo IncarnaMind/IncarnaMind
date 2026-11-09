@@ -203,3 +203,7 @@ The `partial-*` records hold an un-retried failure, so the branch sends them mai
 Guard 3: neither `follow-longer`'s failure (the judge read "three citations were removed with the text they supported" as unbacked) nor `copy-note-en`'s (it wrote a section, not the last Answer) is the app's check, and both passed 3 of 3 on each arm in the runs after. Every request carries this change's Tool descriptions, so the cause of either single failure is unproven, as is `owner-1`'s on DeepSeek. The guard stays failed, as a dated exception for the reviewer.
 
 The branch's first Haiku probe run lost 40 checks to the provider (above); its second run is the one in the table, and main's had none under 0.4 s. Spend for this section: about $2.25 of the $3 (the everyday runs $1.60 with their judge, the probes $0.61, replays about $0.04).
+
+### A retry matched by its target (2026-11-09)
+
+A review of the head found a different write taken for the retry of a failed one: another section written at the Note's end, another whole-Note edit, another new Note. A later write now retries a failed one only with the same Tool, Note and target (a new Note's title, the part or place named, else its first line or instruction), each retrying one failure. This only sends main's sentence to more records; no probe's record above is one of them, so nothing runs again.
