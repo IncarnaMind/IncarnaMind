@@ -41,6 +41,8 @@ export function meetsExpected(row: Pick<RepeatRow, "outcome" | "expected">): boo
   if (row.expected === "absent") return row.outcome === "absent";
   if (row.expected === "unsupported") return verdict === "unsupported";
   if (row.expected === "contradicted") return verdict === "contradicted";
+  if (row.expected === "not-contradicted")
+    return verdict === "supported" || verdict === "unsupported";
   return verdict === "unsupported" || verdict === "contradicted";
 }
 
@@ -161,7 +163,10 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
       repeats: repeats.length,
       sentences,
       falseSupported: counted.filter(
-        (row) => !STATED.has(row.expected) && row.outcome === "supported",
+        (row) =>
+          !STATED.has(row.expected) &&
+          row.expected !== "not-contradicted" &&
+          row.outcome === "supported",
       ).length,
       partlyOnAbsent: group.filter((row) => row.kind === "absent" && row.outcome === "partly")
         .length,

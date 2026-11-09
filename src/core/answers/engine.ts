@@ -521,6 +521,11 @@ export interface AnswerRequest {
    */
   turnChecks?: readonly TurnCheck[];
   /**
+   * Told each time a turn check asks the model once more: the note it asks with, and the reply and
+   * the turns set aside after the search that it read. No turn is set aside across an ask.
+   */
+  onAsk?(note: string, reply: string, setAside: readonly string[]): void;
+  /**
    * For a reply with a form of its own (a check's "Verdict: …"): whether a text is that reply.
    * A step that says it records a marker ("to record the quote for marker [^1]") beside `cite`
    * then doesn't end the Run as an Answer would; the model goes on to write the reply.
@@ -2453,6 +2458,7 @@ async function* toolLoop(
           afterSearch,
         );
         if ("nudge" in settled) {
+          request.onAsk?.(settled.nudge, taken.text, afterSearch);
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
           standingFlags = settled.flags;

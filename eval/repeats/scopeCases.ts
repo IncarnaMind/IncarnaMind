@@ -72,13 +72,13 @@ export const isAgreement = (document: OtherDocument) =>
 const CLAUSES: Readonly<Record<ScopeLanguage, Readonly<Record<string, string | null>>>> = {
   en: {
     notice: "either side must give three months' written notice",
-    "own-words": "may work from home two days a week",
+    "own-words-kept": "may work from home two days a week, agreed in advance with the manager",
     car: null,
     holiday: "entitled to 27 working days of paid holiday",
   },
   "zh-CN": {
     notice: "须提前三个月书面通知对方",
-    "own-words": "乙方每周可在家工作两天",
+    "own-words-kept": "乙方每周可在家工作两天，须事先与主管商定",
     car: null,
     holiday: "乙方每年享有带薪年休假10天",
   },

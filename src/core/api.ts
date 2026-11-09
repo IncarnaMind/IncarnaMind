@@ -149,6 +149,11 @@ export interface CreateMindInput {
   kind?: MindKind;
   /** The Folder to make it in; none, or null: Not in a Folder. */
   folderId?: string | null;
+  /**
+   * The model it is made from a conversation with (#2836): it becomes the Note's own pick, unless
+   * it is the Answers default or its provider isn't saved.
+   */
+  model?: ChatModelChoice | null;
 }
 
 /**
@@ -3525,12 +3530,6 @@ export interface DeviceSettings {
   motion: MotionPreference;
   /** Light or dark here (Settings → General → Appearance): see `Appearance`. */
   appearance: Appearance;
-  /**
-   * The model the User last chose here, in a composer or as the Answers default: a Mind with no
-   * pick of its own and the assistant with no Mind in focus use it (`modelInUse`). Null until
-   * they choose, and again once its provider is removed: they follow `UserSettings.chatModel` then.
-   */
-  lastChatModel: ChatModelChoice | null;
 }
 
 /**

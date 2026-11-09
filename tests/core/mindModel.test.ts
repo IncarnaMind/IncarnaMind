@@ -182,20 +182,17 @@ describe("Minds written before the composer", () => {
 
 describe("the model in use", () => {
   const own = { providerId: "own", modelId: "own-model" };
-  const last = { providerId: "last", modelId: "last-model" };
   const fallback = { providerId: "default", modelId: "default-model" };
   const all = () => true;
 
-  test("is the Mind's own pick, else the last pick, else the Answers default", () => {
-    expect(modelInUse({ own, last, fallback }, all)).toEqual(own);
-    expect(modelInUse({ own: null, last, fallback }, all)).toEqual(last);
-    expect(modelInUse({ own: null, last: null, fallback }, all)).toEqual(fallback);
-    expect(modelInUse({ own: null, last: null, fallback: null }, all)).toBeNull();
+  test("is the Mind's own pick, else the Answers default", () => {
+    expect(modelInUse({ own, fallback }, all)).toEqual(own);
+    expect(modelInUse({ own: null, fallback }, all)).toEqual(fallback);
+    expect(modelInUse({ own: null, fallback: null }, all)).toBeNull();
   });
 
-  test("skips a pick on a provider that is no longer saved, down the chain", () => {
-    expect(modelInUse({ own, last, fallback }, (id) => id !== "own")).toEqual(last);
-    expect(modelInUse({ own, last, fallback }, (id) => id === "default")).toEqual(fallback);
-    expect(modelInUse({ own: null, last, fallback }, (id) => id !== "last")).toEqual(fallback);
+  test("skips a pick on a provider that is no longer saved", () => {
+    expect(modelInUse({ own, fallback }, (id) => id !== "own")).toEqual(fallback);
+    expect(modelInUse({ own, fallback: null }, (id) => id !== "own")).toBeNull();
   });
 });

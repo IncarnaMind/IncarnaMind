@@ -22,11 +22,7 @@ const read = () =>
 
 /** What the offer follows: the model a new Note answers on, and a quick model the User set. */
 const followed = (settings: Settings) =>
-  JSON.stringify([
-    settings.device.lastChatModel,
-    settings.user.chatModel,
-    settings.user.quickTasksModel,
-  ]);
+  JSON.stringify([settings.user.chatModel, settings.user.quickTasksModel]);
 
 let following = false;
 /** Reads the offer now, and from the first call on, again whenever what it follows changes. */
