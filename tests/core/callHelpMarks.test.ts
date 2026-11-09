@@ -540,6 +540,23 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(batches).toHaveLength(0);
   });
 
+  // protects=the paired gate reads the reply's end on both arms from the same event, and the check's request comes after it, so the check can't move the reply's measured end (#2847); fails_when=a check request starts before the reply's end is announced; no_claim=how long the check takes.
+  test("the reply's end is announced before any request of its check starts", async () => {
+    const order: string[] = [];
+    const { core, meeting } = await setUp({
+      reply: ENGLISH,
+      judge: (_call, judged) => {
+        order.push("check");
+        return judged;
+      },
+    });
+    core.on("answer.finished", () => order.push("end"));
+
+    await (await pressed(core, meeting, "answer")).judged();
+
+    expect(order).toEqual(["end", "check"]);
+  });
+
   test("the reply's requests and its text are the same, byte for byte, whether or not its sentences are checked", async () => {
     let quoteOnly = true;
     const { core, meeting, calls } = await setUp({ reply: ENGLISH }, () => quoteOnly);

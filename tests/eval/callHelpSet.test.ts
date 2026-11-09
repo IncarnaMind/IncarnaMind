@@ -24,20 +24,28 @@ const TEAM = "Team plan: $25 per seat a month.";
 const block = (text: string, tag: string) =>
   new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? "";
 
-/** A model that cites `quote` from the first Passage found ahead, then answers in the options' shape. */
+/**
+ * A model that cites `quote` from the first Passage found ahead, then answers in the options'
+ * shape, and judges its sentences supported by what they cite, as call help's are judged (#2847).
+ */
 function helping(quote: string, calls: ModelCall[]) {
-  return scriptedModel((call) => {
-    calls.push(call);
-    const [found] = shownPassages(block(call.prompt, "found-in-documents"));
-    if (found && !call.results.some((result) => result.tool === "cite")) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents"));
+      if (found && !call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } },
+          ],
+        };
+      }
       return {
-        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } }],
+        text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
       };
-    }
-    return {
-      text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
-    };
-  });
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 /**
@@ -83,11 +91,15 @@ function judging(
   });
 }
 
-/** Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says. */
+/**
+ * Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says,
+ * on `arm`: the branch's path, or main's, whose ✓ needs only a found quote.
+ */
 async function pressed(
   id: string,
   quote: string,
   judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
+  arm: "today" | "help-marks-quote-only" = "today",
 ) {
   const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
   const item = group?.items[0];
@@ -108,6 +120,7 @@ async function pressed(
     embeddings: false,
     recordTimings: true,
     chatModels: () => () => model,
+    ...(arm === "help-marks-quote-only" && { helpMarksQuoteOnly: () => true }),
   });
   try {
     const { library } = opened;
@@ -125,7 +138,7 @@ async function pressed(
       recorder,
       choice: { providerId, modelId: "local-model" },
       model: "ollama/local-model",
-      arm: "today",
+      arm,
       grade: async () => "unread",
       claimsJudge: judging(judge.grade, judge.unstated, judged, judge.first, roles),
     });
@@ -202,14 +215,22 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
   });
 
-  test("a found Citation of another line than the case rests on isn't cited, and a sentence the judge says its quote doesn't state is a false Supported", async () => {
-    const { run } = await pressed("en-answer-sso", TEAM, { grade: "wrong", unstated: [1] });
+  test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on main's ✓, and the branch's check withholds it", async () => {
+    const judge = { grade: "wrong", unstated: [1] };
+    const main = (await pressed("en-answer-sso", TEAM, judge, "help-marks-quote-only")).run;
+    const branch = (await pressed("en-answer-sso", TEAM, judge)).run;
 
-    expect(run.status).toBe("done");
-    expect(run.found).toBe(1);
-    expect(run.cited).toBe(false);
-    expect(run.grade).toBe("wrong");
-    expect(run.falseSupported).toBe(1);
+    for (const run of [main, branch]) {
+      expect(run.status).toBe("done");
+      expect(run.found).toBe(1);
+      expect(run.cited).toBe(false);
+      expect(run.grade).toBe("wrong");
+    }
+    expect(main.falseSupported).toBe(1);
+    expect(main.marks).toMatchObject({ listed: 1, listedChecked: 1 });
+    // "$45 a seat" against a quote of "$25": the check leaves it unjudged, so it shows no ✓.
+    expect(branch.falseSupported).toBe(0);
+    expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
   });
 
   test("a judge that answers in words first is asked once more, and the JSON it gives then counts", async () => {

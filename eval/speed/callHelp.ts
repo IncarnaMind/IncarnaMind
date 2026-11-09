@@ -25,7 +25,6 @@ import {
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
-import { answerEnded } from "../../tests/helpers/citations";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
   inProcessTranscriber,
@@ -58,6 +57,45 @@ const PAUSE_MS = 1200;
 /** The longest a turn is heard: under the 30 s the live text may fall behind the audio. */
 const LONGEST_TURN_MS = 20_000;
 const ANSWER_TIMEOUT_MS = 3 * 60_000;
+/** The longest a press waits after its reply's end for every mark to settle (#2847). */
+const MARKS_MS = 60_000;
+
+/**
+ * The reply's end, then every mark settled, read on the stored reply; rejects when they haven't
+ * settled `MARKS_MS` after the end, so the press fails to run.
+ */
+function replyEnded(
+  core: Core,
+  conversationId: string,
+  answerId: string,
+): Promise<"finished" | "failed"> {
+  const settled = async () => {
+    const deadline = performance.now() + MARKS_MS;
+    for (;;) {
+      const { messages } = await core.getConversation(conversationId);
+      const answer = messages.find((message) => message.id === answerId);
+      if (answer?.kind === "answer" && !answer.citations.some((each) => each.check === "checking"))
+        return;
+      if (performance.now() > deadline)
+        throw new Error(`Its marks hadn't settled ${MARKS_MS / 1000} s after the reply ended.`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  return new Promise((resolve, reject) => {
+    const stops = [
+      core.on("answer.finished", (payload) => {
+        if (payload.answerId !== answerId) return;
+        for (const stop of stops) stop();
+        settled().then(() => resolve("finished"), reject);
+      }),
+      core.on("answer.failed", (payload) => {
+        if (payload.answerId !== answerId) return;
+        for (const stop of stops) stop();
+        resolve("failed");
+      }),
+    ];
+  });
+}
 
 /** How long a turn takes to say: about 2.5 English words or 4.5 Chinese characters a second. */
 function spokenMs(text: string): number {
@@ -389,9 +427,10 @@ async function press(
     const late = new Promise<"late">((resolve) => {
       timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
     });
-    const end = await Promise.race([answerEnded(core, asked.answerId), late]).finally(() =>
-      clearTimeout(timer),
-    );
+    const end = await Promise.race([
+      replyEnded(core, asked.conversation.id, asked.answerId),
+      late,
+    ]).finally(() => clearTimeout(timer));
     if (end === "late") {
       await core.stopConversationAnswer({
         conversationId: asked.conversation.id,
@@ -405,7 +444,7 @@ async function press(
     const times = seen.get(answer.id) ?? { firstWordsMs: null, firstOptionMs: null };
     if (beforeCheck !== null && answer.text !== beforeCheck)
       rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
-    // `answerEnded` waits for the marks: none waited when they had settled as the reply ended.
+    // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
     const settledMs =
       finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
     return { answer, ...times, settledMs };
@@ -423,6 +462,7 @@ async function press(
  */
 function marksOf(
   held: readonly ConversationAnswer["citations"][number][],
+  listed: readonly ConversationAnswer["citations"][number][],
   showsCheck: (citation: ConversationAnswer["citations"][number]) => boolean,
   settledMs: number | null,
 ): NonNullable<Measured["marks"]> {
@@ -440,7 +480,15 @@ function marksOf(
         : citation.check;
     missed[why] = (missed[why] ?? 0) + 1;
   }
-  return { held: held.length, checked, judged, missed, settledMs };
+  return {
+    held: held.length,
+    checked,
+    judged,
+    missed,
+    listed: listed.length,
+    listedChecked: listed.filter(showsCheck).length,
+    settledMs,
+  };
 }
 
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
@@ -519,14 +567,19 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       });
       // A judge reply that couldn't be read says nothing of which quotes hold.
       const read = judged !== null && judged.grade !== "unread";
-      const held = read
-        ? [...numbers.values()].flatMap((number) => {
-            const citation = shownAs(number);
-            return citation && quoteFound(citation) && !judged?.unstated.includes(number)
-              ? [citation]
-              : [];
-          })
-        : [];
+      const foundShown = (listed: boolean) =>
+        read
+          ? [...numbers.values()].flatMap((number) => {
+              const citation = shownAs(number);
+              return citation &&
+                quoteFound(citation) &&
+                judged?.unstated.includes(number) === listed
+                ? [citation]
+                : [];
+            })
+          : [];
+      const held = foundShown(false);
+      const listed = foundShown(true);
       return {
         status: done ? "done" : "failed",
         error: done ? null : `${answer.errorKind ?? answer.status}: ${answer.errorMessage ?? ""}`,
@@ -549,7 +602,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstWordsMs,
         firstOptionMs,
         requests,
-        ...(read && { marks: marksOf(held, showsCheck, settledMs) }),
+        ...(read && { marks: marksOf(held, listed, showsCheck, settledMs) }),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,
