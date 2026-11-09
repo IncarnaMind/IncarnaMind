@@ -103,6 +103,7 @@
   "tests/core/checkRecordFailure.test.ts": 0.2,
   "tests/core/checkRequests.test.ts": 10.2,
   "tests/core/checkResultTypes.test.ts": 0.0,
+  "tests/core/checkRunner.test.ts": 60.0,
   "tests/core/checkScope.test.ts": 6.0,
   "tests/core/checkStoreBound.test.ts": 1.7,
   "tests/core/checkStoreSize.test.ts": 4.7,

@@ -70,6 +70,12 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "claim.reason.refused" },
   { page: "check", key: "claim.reason.malformed" },
   { page: "check", key: "claim.reason.no-evidence" },
+  {
+    page: "check",
+    key: "claim.reason.timed-out",
+    params: { en: { detail: "180" }, "zh-CN": { detail: "180" } },
+  },
+  { page: "check", key: "claim.reason.rate-limit" },
   { page: "check", key: "claim.state.recordCite" },
   { page: "check", key: "opinions.one" },
   { page: "check", key: "claim.reason.consent-revoked" },

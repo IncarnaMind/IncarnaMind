@@ -10,11 +10,11 @@ import { settleFigureCheck } from "../../../shared/figureChecks";
 import { pendingPart, resultFromParts } from "../../../shared/claimParts";
 import type {
   ClaimCheckAttributes,
+  ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimPartPlan,
   ClaimPartSpan,
-  RecordAiUseInput,
   RunStop,
   ThirdPartyReason,
 } from "../../api";
@@ -22,8 +22,15 @@ import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
-import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
-import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import { type Slots, slots } from "../../runs/stop";
+import type { ClaimCheckRequest } from "./claimCheck";
+import {
+  type CheckRecord,
+  type CheckRuns,
+  checkRunOf,
+  recordCheck,
+  runClaimChecks,
+} from "./runCheck";
 import { updateCheck } from "./sentences";
 
 export function pendingParts(
@@ -74,22 +81,52 @@ export interface QueuedClaim {
   priorParts?: readonly ClaimCheckPart[];
 }
 
-export interface RunChecksOptions {
+export interface RunChecksOptions extends CheckRuns {
   content: Pick<MindContent, "edit">;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
-  withResult(
-    check: ClaimCheckAttributes,
-    result: ClaimCheckResult,
-    at: string,
-    blocks: Y.XmlFragment,
-    mindId: string,
-    sourceText?: string,
-    priorParts?: readonly ClaimCheckPart[],
-  ): ClaimCheckAttributes;
+  withResult: WithResult;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
-  recordAiUse(inputs: RecordAiUseInput[]): void;
-  now(): Date;
+}
+
+type WithResult = (
+  check: ClaimCheckAttributes,
+  result: ClaimCheckResult,
+  at: string,
+  blocks: Y.XmlFragment,
+  mindId: string,
+  sourceText?: string,
+  priorParts?: readonly ClaimCheckPart[],
+) => ClaimCheckAttributes;
+
+/** A sentence's mark Not checked for `reason`: its figures and each part still checking say so too. */
+export function notCheckedMark(
+  check: ClaimCheckAttributes,
+  blocks: Y.XmlFragment,
+  landing: { withResult: WithResult; mindId: string; at: string },
+  reason: ClaimCheckFailure,
+  detail: string | null,
+): ClaimCheckAttributes {
+  const { at } = landing;
+  const settled = settleFigureCheck(check, (basis) => ({
+    ...basis,
+    state: "not-checked",
+    reason,
+    detail,
+    checkedAt: at,
+  }));
+  if (!check.parts) return settled;
+  const parts = (settled.parts ?? check.parts).map(
+    (part): ClaimCheckPart =>
+      part.verdict === "checking" ? { ...part, verdict: "not-checked", reason, detail } : part,
+  );
+  return landing.withResult(
+    { ...settled, parts },
+    resultFromParts(parts),
+    at,
+    blocks,
+    landing.mindId,
+  );
 }
 
 /** What a run of checks shares: where its claims are checked, by which model, and when it stops. */
@@ -160,6 +197,7 @@ export function earlyChecks(
   claimCheck: RunChecksOptions["claimCheck"],
   run: ChecksRun,
   limit: Slots,
+  record: CheckRecord | null = null,
 ) {
   interface Early {
     result: Promise<ClaimCheckResult>;
@@ -169,6 +207,14 @@ export function earlyChecks(
     readNow(): string;
   }
   const started = new Map<string, Early[]>();
+  // One the run doesn't take may have been judged already: still a use of AI.
+  const drop = (early: Early) => {
+    early.stop.abort();
+    early.result.then(
+      (result) => recordCheck(record, run.prepared, result),
+      () => undefined,
+    );
+  };
   return {
     /**
      * `readNow` says what the check reads besides its request (the Library, the Note's record
@@ -203,22 +249,25 @@ export function earlyChecks(
       for (const [key, all] of started) {
         const each = all.filter((early) => {
           const same = early.readNow() === early.read;
-          if (!same) early.stop.abort();
+          if (!same) drop(early);
           return same;
         });
         const kept = wanted.get(key) ?? 0;
-        for (const { stop } of each.slice(kept)) stop.abort();
+        for (const early of each.slice(kept)) drop(early);
         started.set(key, each.slice(0, kept));
       }
     },
     /** The run's claim check: an early one that sends the same, or a new one. */
     claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
-      if (started.size === 0) return claimCheck(request);
-      return started.get(requestKey(request))?.shift()?.result ?? claimCheck(request);
+      const early = started.size === 0 ? undefined : started.get(requestKey(request))?.shift();
+      if (!early) return claimCheck(request);
+      // The run's time limit stops it as it would the check the run sends.
+      request.signal.addEventListener("abort", () => early.stop.abort(), { once: true });
+      return early.result;
     },
     /** Stops every early check the run didn't take. */
     drop(): void {
-      for (const each of started.values()) for (const { stop } of each) stop.abort();
+      for (const each of started.values()) for (const early of each) drop(early);
       started.clear();
     },
   };
@@ -244,70 +293,34 @@ export async function runChecks(
     if (kept) options.retainEvidence(mindId);
     return kept;
   };
-  const notChecked =
-    (reason: ClaimCheckAttributes["reason"], detail: string | null = null) =>
-    (check: ClaimCheckAttributes, blocks: Y.XmlFragment): ClaimCheckAttributes => {
-      const at = options.now().toISOString();
-      const settled = settleFigureCheck(check, (basis) => ({
-        ...basis,
-        state: "not-checked",
-        reason,
-        detail,
-        checkedAt: at,
-      }));
-      if (!check.parts) return settled;
-      const parts = (settled.parts ?? check.parts).map(
-        (part): ClaimCheckPart =>
-          part.verdict === "checking" ? { ...part, verdict: "not-checked", reason, detail } : part,
-      );
-      return options.withResult({ ...settled, parts }, resultFromParts(parts), at, blocks, mindId);
-    };
 
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
-  const { stop, outcomeError } = await runItems(
+  const { stop, outcomeError } = await runClaimChecks(
     run.queued,
-    async (claim) => {
-      const result = await checkClaim(
-        options.claimCheck,
+    (claim, check) =>
+      check(
+        (request) => checkClaim(options.claimCheck, request),
         checkRequestOf(claim, run, limit, signal),
-      );
-      const failure = runFailureOf(result);
-      if (failure) throw new RunItemError(failure);
-      return result;
-    },
+      ),
     {
+      ...checkRunOf(options, prepared, signal, mindId),
       concurrency: atOnce,
-      signal,
       onOutcome(claim, outcome) {
-        if (outcome.status === "done") {
-          const at = options.now().toISOString();
-          recordJudged(options.recordAiUse, mindId, prepared, outcome.value, at);
-          const landed = write(claim.id, (each, blocks) =>
-            options.withResult(
-              each,
-              outcome.value,
-              at,
-              blocks,
-              mindId,
-              claim.claim,
-              claim.priorParts,
-            ),
+        const at = options.now().toISOString();
+        if (!("result" in outcome)) {
+          const landing = { withResult: options.withResult, mindId, at };
+          write(claim.id, (each, blocks) =>
+            notCheckedMark(each, blocks, landing, outcome.reason, outcome.detail),
           );
-          if (landed && outcome.value.verdict !== "not-checked") checked++;
-        } else if (outcome.status === "not-checked") {
-          write(claim.id, notChecked(outcome.stop.reason));
-        } else if (outcome.status === "failed") {
-          const rateLimited = outcome.error.kind === "rate-limit";
-          write(
-            claim.id,
-            notChecked(
-              rateLimited ? "rate-limit" : "failed",
-              rateLimited ? null : outcome.error.message,
-            ),
-          );
+          return;
         }
+        const { result } = outcome;
+        const landed = write(claim.id, (each, blocks) =>
+          options.withResult(each, result, at, blocks, mindId, claim.claim, claim.priorParts),
+        );
+        if (landed && result.verdict !== "not-checked") checked++;
       },
     },
   );

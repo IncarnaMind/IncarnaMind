@@ -7147,6 +7147,8 @@ export type ClaimCheckFailure =
   | "plan-limit"
   | "out-of-credit"
   | "failed"
+  /** No reply within the check's time limit; its detail is the limit, in seconds. */
+  | "timed-out"
   | "stopped"
   | "answer-failed"
   | "too-many"
@@ -7650,7 +7652,10 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
-  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  /**
+   * The Mind being checked, whose own snapshot is never its evidence (#335), and whose record of
+   * AI use holds the check.
+   */
   mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;

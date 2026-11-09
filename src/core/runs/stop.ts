@@ -60,6 +60,8 @@ export interface RunItemsOptions<I, T> {
   signal?: AbortSignal;
   /** Waits `ms` (or until `signal` aborts): the pause after a provider limited requests. */
   wait?(ms: number, signal?: AbortSignal): Promise<void>;
+  /** The time `wait` keeps, in ms since the epoch. */
+  now?(): number;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -95,7 +97,7 @@ const failureOf = (thrown: unknown): ProviderError =>
 export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
-  { concurrency = 1, onOutcome, signal, wait = sleep }: RunItemsOptions<I, T> = {},
+  { concurrency = 1, onOutcome, signal, wait = sleep, now = Date.now }: RunItemsOptions<I, T> = {},
 ): Promise<{
   outcomes: ItemOutcome<T>[];
   stop: RunStop | null;
@@ -142,7 +144,7 @@ export async function runItems<I, T>(
 
   /** Whether the worker goes on to the next item. */
   const take = async (index: number): Promise<boolean> => {
-    const pause = pausedUntil - Date.now();
+    const pause = pausedUntil - now();
     if (pause > 0) {
       await wait(pause, signal);
       if (stop || signal?.aborted) {
@@ -183,7 +185,7 @@ export async function runItems<I, T>(
         calm = 0;
         if (tried <= RATE_LIMIT_PAUSES_MS.length) {
           const delay = RATE_LIMIT_PAUSES_MS[tried - 1] ?? 0;
-          pausedUntil = Math.max(pausedUntil, Date.now() + delay);
+          pausedUntil = Math.max(pausedUntil, now() + delay);
           allowed = Math.max(1, allowed - 1);
           queue.unshift(index);
           return true;
