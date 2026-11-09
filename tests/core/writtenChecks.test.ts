@@ -654,27 +654,34 @@ describe("What the assistant writes is checked once it lands, the reply not wait
 
   // protects=the spending cap reached during the check stops it: the sentences left land not checked for that reason, and the change says what stopped it, for the line that offers Change the cap; fails_when=they land unmarked, or the stop isn't kept; no_claim=the line's words.
   test("the spending cap reached during the check stops it, and its sentences say why", async () => {
+    // Heard from before the Answer is asked: its check may start only after it ends.
+    let finished: Promise<void> = Promise.resolve();
     let capped: Promise<void> | null = null;
-    const { core, change, client } = await write({
-      content: `## Tides\n\n${UNBACKED} [^1]. ${OVERSTATED} [^1].`,
-      cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
-      check: (call, started) => {
-        // Reached once the reply is in: the check goes on after it.
-        capped ??= new Promise<void>((resolve) => {
+    const { core, change, client } = await write(
+      {
+        content: `## Tides\n\n${UNBACKED} [^1]. ${OVERSTATED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call, started) => {
+          // Reached once the reply is in: the check goes on after it.
+          capped ??= finished
+            .then(() =>
+              started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } }),
+            )
+            .then(() => undefined);
+          return call.results.length === 0
+            ? { ...checkReply(call, PLANS), pause: { after: 0, until: capped } }
+            : null;
+        },
+      },
+      ({ core: started }) => {
+        finished = new Promise<void>((resolve) => {
           const stop = started.on("answer.finished", () => {
             stop();
             resolve();
           });
-        })
-          .then(() =>
-            started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } }),
-          )
-          .then(() => undefined);
-        return call.results.length === 0
-          ? { ...checkReply(call, PLANS), pause: { after: 0, until: capped } }
-          : null;
+        });
       },
-    });
+    );
 
     const marks = await marksIn(core, client);
     expect(marks.map(({ check }) => [check.state, check.reason])).toEqual([
