@@ -54,6 +54,8 @@ for (const [language, width] of [
       language === "en"
         ? "Gross margin fell to 36.8% in Q3, mostly in online."
         : "第三季度毛利率降至 36.8%，主要拖累来自线上业务。";
+    const fixedStart =
+      language === "en" ? "Gross margin fell to 38.6% in Q3" : "第三季度毛利率降至 38.6%";
     const pane = window.getByTestId("mind-pane");
     const editor = pane.getByTestId("mind-editor");
     const line = editor.locator("p", {
@@ -87,22 +89,32 @@ for (const [language, width] of [
     if (!box || !actions) throw new Error("The card isn't drawn.");
     expect(actions.x + actions.width).toBeLessThanOrEqual(box.x + box.width + 1);
 
+    // The results' figure in place of the draft's, cited at the sentence's end.
+    const fixed = async () => {
+      await expect(line).toContainText(fixedStart);
+      await expect(line).not.toContainText("36.8%");
+      await expect(line.locator("[data-generated]")).toHaveText("38.6%");
+      await expect(line.getByTestId("citation")).toHaveCount(1);
+    };
+    const before = async () => {
+      await expect(line).toContainText(sentence);
+      await expect(line.getByTestId("citation")).toHaveCount(0);
+    };
     await pointAndClick(window, correct);
-    await expect(line).toContainText(sentence.replace("36.8%", "38.6%"));
-    await expect(line.locator("[data-generated]")).toHaveText("38.6%");
+    await fixed();
     await expect(window.getByTestId("undo-line")).toContainText(
       translate(language, "claim.usedDocumentWording"),
     );
     await screenshot(window, `example-correction-applied-${language}-${width}`);
 
     await pointAndClick(window, window.getByTestId("undo-action"));
-    await expect(line).toContainText(sentence);
+    await before();
     await expect(mark).toHaveAttribute("data-check", "contradicted");
 
     await leaveText(window);
     await expect.poll(async () => (await editItem(app, "edit.redo"))?.enabled).toBe(true);
     await window.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(line).toContainText(sentence.replace("36.8%", "38.6%"));
+    await fixed();
     await app.close();
   });
 }
