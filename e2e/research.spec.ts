@@ -398,7 +398,7 @@ for (const [language, said, choose] of [
       await expect(failed).toContainText(said);
       await expect(failed.getByRole("button")).toHaveText(choose);
       await pointAndClick(window, failed.getByRole("button"));
-      await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+      await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
       await app.close();
     } finally {
       ollama.server.close();

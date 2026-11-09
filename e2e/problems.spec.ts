@@ -129,7 +129,7 @@ test("a failed Answer says so under itself with one action: the key's page in Se
 
     // Its action opens the Models page, where the key is.
     await error.getByTestId("answer-error-action").click();
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("settings")).toBeHidden();
 
@@ -192,7 +192,7 @@ test("asking without a chat model says what to set up at the top of the Mind, an
   await top.getByRole("button").focus();
   await expect(top.getByRole("button")).toHaveCSS("outline-style", "solid");
   await window.keyboard.press("Enter");
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await window.keyboard.press("Escape");
 
   // In Chinese.

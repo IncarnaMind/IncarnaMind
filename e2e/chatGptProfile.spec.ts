@@ -11,7 +11,7 @@ import {
   createDataFolder,
   interceptOpenExternal,
   launchApp,
-  openSettings,
+  openPlanPage,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -168,7 +168,7 @@ test("in Settings, a record that can't be read is one line and the first Continu
   const before = await readFile(secretsFile);
   const { openai, app, window } = await launchWithProfile("en", 1600, 900);
   try {
-    const plan = (await openSettings(window, "models")).getByTestId("chatgpt-settings");
+    const plan = await openPlanPage(window, "chatgpt");
 
     await expect(plan.getByTestId("chatgpt-account")).toContainText(
       translate("en", "chatgpt.account.unreadable"),

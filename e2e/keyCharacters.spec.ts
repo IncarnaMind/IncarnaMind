@@ -82,7 +82,7 @@ test("a key with a Chinese word in it is said in place in plain words, in Englis
   try {
     await setWindowSize(app, window, 900, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "openai-compatible");
     await form.locator('input[type="url"]').fill(fake.url);
     await form.getByTestId("provider-model-text").fill("any");
@@ -152,7 +152,7 @@ test("a key with spaces and invisible characters around it is cleaned and tested
   try {
     await setWindowSize(app, window, 900, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "openai-compatible");
     await form.locator('input[type="url"]').fill(fake.url);
     await form.getByTestId("provider-model-text").fill("any");
@@ -175,7 +175,7 @@ test("a key that names another service and holds an invisible character gets the
   try {
     await setWindowSize(app, window, 900, 900);
     await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "models");
+    const settings = await openSettings(window, "ai");
     const form = await addProviderForm(settings, "kimi");
     const key = form.locator('input[type="password"]');
     const said = form.getByTestId("key-character-line");

@@ -199,7 +199,7 @@ test("A refused key stops Tagging after one request: one line says so, Check the
   // As on a refused Answer, Check the key opens that company's key field, with the refusal by it.
   await refused.getByTestId("tagging-key-refused-check").click();
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const page = settings.getByTestId("provider-page");
   await expect(page.getByTestId("provider-page-title")).toHaveText("OpenAI");
   const key = page.getByTestId("provider-page-key");

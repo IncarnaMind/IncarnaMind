@@ -40,6 +40,9 @@ const core = (window: Page) =>
     };
   });
 
+/** The services a route picker offers, without its "Set up…" rows. */
+const OFFERED = "option:not([hidden]):not([value^='set-up:'])";
+
 let dataDir: string;
 let sources: string;
 test.beforeEach(async () => {
@@ -67,14 +70,12 @@ test("with a Soniox key, the first recording's sheet offers it under Other ways�
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
   });
-  const settings = await openSettings(window, "meetings");
+  const settings = await openSettings(window, "ai");
   const route = settings.getByTestId("meetings-route");
-  await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
-    "On this computer",
-    "Soniox",
-  ]);
+  await expect(route.locator(OFFERED)).toHaveText(["Soniox", "On this computer"]);
   await expect(route).toHaveValue("local");
-  await expect(settings.getByTestId("meetings-route-line")).toHaveText("Private and free");
+  const meetings = await showSettingsPage(window, "meetings");
+  await expect(meetings.getByTestId("meetings-route-line")).toHaveText("Private and free");
   await shot(window, "settings-meetings-key-en");
   await closeSettings(window);
 
@@ -233,21 +234,21 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   const bar = window.getByTestId("meeting-bar");
   const refused = bar.getByTestId("meeting-line-cloud");
   await expect(refused).toContainText(
-    "Qwen refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
+    "Qwen refused the key (wrong, expired or for another region). Check the key and its region in Settings › AI. Transcribing on this computer.",
     { timeout: 20_000 },
   );
   await expect(bar).toHaveAttribute("data-status", "recording");
   await shot(window, "meeting-bar-qwen-refused-en");
   await setLanguage(window, "zh-CN");
   await expect(refused).toContainText(
-    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › 模型”中检查密钥和区域。正在这台电脑上转写。",
+    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › AI”中检查密钥和区域。正在这台电脑上转写。",
   );
   await shot(window, "meeting-bar-qwen-refused-zh");
   await bar.getByTestId("meeting-line-change-key").click();
   await expect(window.getByTestId("settings")).toBeVisible();
 });
 
-test("Settings › Meetings' line describes the route chosen: this computer's line with cloud keys saved and in Local mode, a cloud service's line once chosen (#2661)", async () => {
+test("Settings › Meetings' line describes the route chosen in Settings › AI: this computer's line with cloud keys saved and in Local mode, a cloud service's line once chosen (#2661)", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
@@ -256,9 +257,7 @@ test("Settings › Meetings' line describes the route chosen: this computer's li
 
     // No key saved: this computer, and its own line, in both languages.
     let settings = await openSettings(window, "meetings");
-    let route = settings.getByTestId("meetings-route");
     let line = settings.getByTestId("meetings-route-line");
-    await expect(route).toHaveValue("local");
     await expect(line).toHaveText("Private and free");
     await setLanguage(window, "zh-CN");
     await expect(line).toHaveText("私密、免费");
@@ -270,14 +269,11 @@ test("Settings › Meetings' line describes the route chosen: this computer's li
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
     });
-    settings = await openSettings(window, "meetings");
-    route = settings.getByTestId("meetings-route");
-    line = settings.getByTestId("meetings-route-line");
-    await expect(route.locator(":scope > option:not([hidden])")).toHaveText([
-      "On this computer",
-      "Soniox",
-    ]);
+    settings = await openSettings(window, "ai");
+    const route = settings.getByTestId("meetings-route");
+    await expect(route.locator(OFFERED)).toHaveText(["Soniox", "On this computer"]);
     await expect(route).toHaveValue("local");
+    line = (await showSettingsPage(window, "meetings")).getByTestId("meetings-route-line");
     await expect(line).toHaveText("Private and free");
     await shot(window, "route-line-key-saved-en-1600");
     await setWindowSize(app, window, 900, 720);
@@ -285,18 +281,24 @@ test("Settings › Meetings' line describes the route chosen: this computer's li
     await setWindowSize(app, window, 1600, 900);
 
     // Choosing the cloud service shows where the audio goes, and back is this computer's line.
-    await route.selectOption("soniox");
+    const choose = async (value: string) => {
+      await (await showSettingsPage(window, "ai"))
+        .getByTestId("meetings-route")
+        .selectOption(value);
+      return (await showSettingsPage(window, "meetings")).getByTestId("meetings-route-line");
+    };
+    line = await choose("soniox");
     await expect(line).toContainText(
       "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
     );
     await shot(window, "route-line-cloud-en-1600");
     await setLanguage(window, "zh-CN");
-    await route.selectOption("local");
+    line = await choose("local");
     await expect(line).toHaveText("私密、免费");
     await shot(window, "route-line-key-saved-zh-1600");
     await setWindowSize(app, window, 900, 720);
     await shot(window, "route-line-key-saved-zh-900");
-    await route.selectOption("soniox");
+    line = await choose("soniox");
     await expect(line).toContainText(
       "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
     );
@@ -305,8 +307,8 @@ test("Settings › Meetings' line describes the route chosen: this computer's li
 
     // Local mode, with the key saved: this computer's line again, in both languages.
     await setLanguage(window, "en");
-    await route.selectOption("local");
-    await (await showSettingsPage(window, "privacy")).getByTestId("local-only").check();
+    await choose("local");
+    await (await showSettingsPage(window, "ai")).getByTestId("local-only").check();
     settings = await showSettingsPage(window, "meetings");
     await expect(settings.getByTestId("meetings-route-line")).toHaveText("Private and free");
     await shot(window, "route-line-local-mode-en-1600");

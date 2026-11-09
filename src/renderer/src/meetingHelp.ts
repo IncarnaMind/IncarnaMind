@@ -189,7 +189,7 @@ export function useMeetingHelpInWindow(): void {
   useEffect(() => {
     const stops = [
       files.onMeetingHelp((kind) => void askHelpInAssistant(kind)),
-      files.onSetUpModel(() => useAppStore.getState().openSettings("models")),
+      files.onSetUpModel(() => useAppStore.getState().openSettings("ai")),
       files.onMeetingPanel((panel) => useMeetingHelp.setState({ panel })),
     ];
     files.windowKeys([...windowKeysOf(isMac)]);

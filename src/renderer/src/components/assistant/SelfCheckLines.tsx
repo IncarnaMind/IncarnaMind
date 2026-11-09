@@ -118,7 +118,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
               ? {
                   label: line.action.label,
                   testId: `self-check-${line.kind}-action`,
-                  onClick: () => useAppStore.getState().openSettings("general"),
+                  onClick: () => useAppStore.getState().openSettings("ai", "spending-cap"),
                 }
               : undefined;
         return (

@@ -127,7 +127,7 @@ export function TranscriptionRouteChoice() {
           {t("meetings.route.slowNoKey")}{" "}
           <button
             type="button"
-            onClick={() => openSettings("models", "transcription")}
+            onClick={() => openSettings("ai", "transcription")}
             className="text-accent underline-offset-2 hover:underline"
           >
             {t("meetings.route.settingsLink")}

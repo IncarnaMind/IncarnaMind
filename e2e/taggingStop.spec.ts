@@ -82,7 +82,7 @@ const documentItem = (window: Page, name: string) =>
   window.getByTestId("document-list-item").filter({ hasText: name });
 
 async function pasteKey(window: Page): Promise<void> {
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
   const form = await addProviderForm(settings, "anthropic");
   await acceptPlainTextKeys(window, form);
   await form.getByLabel(/^API key/).fill("sk-ant-not-a-real-key");
@@ -156,8 +156,7 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
     "data-tagging",
     "stopped",
   );
-  const settings = await openSettings(again.window, "models");
-  await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
+  const settings = await openSettings(again.window, "ai");
   await expect(settings.getByTestId("tagging-stopped")).toContainText(
     `Tagging with AI is stopped for Documents in “${FOLDER}”.`,
   );

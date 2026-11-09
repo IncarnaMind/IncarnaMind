@@ -55,11 +55,6 @@ test("a model chosen by hand, the moves into Folders turned off, Organize's mode
   await core.saveLibrarySettings({ classifier: null, automatic: true, turnOn: true });
   expect(await changed(core)).toBe(false);
 
-  await core.saveLibrarySettings({ classifier: null, automatic: true, organizeWith: chosen });
-  expect(await changed(core)).toBe(true);
-  await core.saveLibrarySettings({ classifier: null, automatic: true, organizeWith: null });
-  expect(await changed(core)).toBe(false);
-
   await core.setTaggingWithAi(null, false);
   expect(await changed(core)).toBe(true);
   await core.setTaggingWithAi(null, true);

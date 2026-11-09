@@ -629,30 +629,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     expect(hosts.tagging().map((each) => each.path)).toContain("/api/v1/systemone");
   });
 
-  test("Organize's kept model naming the host goes too, and the choice under Automatic stays", async () => {
-    const hosts = await startFakeHosts();
-    const core = startCore(await createTempDataFolder(), {
-      createChatModel: scriptedModels(taggingModel(["Letter"]).model).createChatModel,
-      keychain: createMemoryKeychain(),
-      decisionOrigins: { liquid: hosts.url },
-    });
-    await core.saveChatProvider(ANTHROPIC);
-    await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
-    const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({
-      ...settings,
-      classifier: { kind: "automatic" },
-      organizeWith: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
-    });
-
-    await core.removeDecisionKey("liquid");
-    expect((await core.getLibrary()).settings).toMatchObject({
-      classifier: { kind: "automatic" },
-      organizeWith: null,
-    });
-  });
-
-  test("deleting the provider clears Organize's kept model, and a key still goes", async () => {
+  test("deleting a chat provider leaves a host's choice, and removing the host's key goes back to Automatic", async () => {
     const hosts = await startFakeHosts();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(taggingModel(["Letter"]).model).createChatModel,
@@ -661,16 +638,10 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     });
     const anthropic = await core.saveChatProvider(ANTHROPIC);
     await core.setDecisionKey({ host: "liquid", apiKey: KEYS.liquid });
-    await core.saveLibrarySettings({
-      ...(await core.getLibrary()).settings,
-      classifier: { kind: "decision", host: "liquid", modelId: "d1-ultra" },
-      organizeWith: {
-        kind: "chat",
-        choice: { providerId: anthropic.id, modelId: ANTHROPIC.modelId },
-      },
-    });
+    const chosen = { kind: "decision", host: "liquid", modelId: "d1-ultra" } as const;
+    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, classifier: chosen });
     await core.deleteChatProvider(anthropic.id);
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual(chosen);
 
     await core.removeDecisionKey("liquid");
     expect((await status(core, "liquid"))?.hasKey).toBe(false);

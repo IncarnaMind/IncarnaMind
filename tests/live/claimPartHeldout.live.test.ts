@@ -10,11 +10,9 @@
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { type Core, createAiSdkChatModel } from "../../src/core";
-import {
-  comparesOtherWords,
-  isPartOf,
-  quoteStatesDetail,
-} from "../../src/core/answers/checks/claimCheck";
+import { comparesOtherWords } from "../../src/core/answers/checks/checkRun";
+import { isPartOf } from "../../src/core/answers/checks/looks";
+import { quoteStatesDetail } from "../../src/core/answers/checks/plainVerdict";
 import {
   CONFIRM_INSTRUCTIONS,
   readJudgement,

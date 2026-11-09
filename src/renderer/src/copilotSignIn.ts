@@ -1,5 +1,5 @@
 /**
- * Signing in with GitHub for the Copilot plan, from first run's Other ways or Settings › Models:
+ * Signing in with GitHub for the Copilot plan, from first run's Other ways or Settings › AI:
  * one sign-in at a time, so its state (the status, how the last one failed, whether its notice is
  * open) is one for the whole window, and both places say the same.
  */
@@ -159,7 +159,7 @@ export const cancelCopilotSignIn = () =>
   core.cancelCopilotSignIn().catch((error: unknown) => useAppStore.getState().reportError(error));
 
 /**
- * "Sign in again" from a problem line: Settings › Models opens at the Copilot plan with its
+ * "Sign in again" from a problem line: Settings › AI opens at the Copilot plan with its
  * notice, where a new sign-in shows its code, even while signed in, since GitHub refused that
  * sign-in. The kept one is replaced only once the new one succeeds. True then; false on Cancel
  * or once Settings closes.
@@ -167,7 +167,7 @@ export const cancelCopilotSignIn = () =>
 export function signInToCopilotAgain(): Promise<boolean> {
   settleAgain(false);
   openCopilotNotice();
-  useAppStore.getState().openSettings("models", "copilot");
+  useAppStore.getState().openSettings("ai", "copilot");
   return new Promise((resolve) => {
     const stopSettings = useAppStore.subscribe((state) => {
       if (!state.settingsOpen) settleAgain(false);

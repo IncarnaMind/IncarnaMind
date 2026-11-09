@@ -464,7 +464,7 @@ export function ClaimMark({
                 done();
               }}
               onTurnOnWebSearch={() => {
-                useAppStore.getState().openSettings("search");
+                useAppStore.getState().openSettings("ai", "web-search");
                 done();
               }}
               onRemove={() => {

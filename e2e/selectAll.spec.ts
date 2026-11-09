@@ -107,7 +107,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(tags).toBeHidden();
 
         await window.keyboard.press("ControlOrMeta+,");
-        const settings = await showSettingsPage(window, "general");
+        const settings = await showSettingsPage(window, "ai");
         const toggle = settings.getByTestId("spending-cap-switch");
         await pointAndClick(window, toggle);
         const amount = settings.getByTestId("spending-cap-amount");
