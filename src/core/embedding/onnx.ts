@@ -13,6 +13,7 @@
 import { readFile } from "node:fs/promises";
 import type { Embedder, EmbeddingModelFiles } from "../adapters";
 import { ONNX_RUNTIME, TOKENIZERS } from "../engineModules";
+import { type SessionInUse, sessionInUse } from "../sessionInUse";
 
 type OnnxRuntime = typeof import("onnxruntime-node");
 type InferenceSession = import("onnxruntime-node").InferenceSession;
@@ -20,6 +21,7 @@ type InferenceSession = import("onnxruntime-node").InferenceSession;
 interface Loaded {
   key: string;
   session: InferenceSession;
+  inUse: SessionInUse;
   tokenizer: import("@huggingface/tokenizers").Tokenizer;
   maxTokens: number;
   ort: OnnxRuntime;
@@ -41,7 +43,14 @@ export function createOnnxEmbedder(): Embedder {
       executionProviders: ["cpu"],
       graphOptimizationLevel: "all",
     });
-    return { key: JSON.stringify(files), session, tokenizer, maxTokens: files.maxTokens, ort };
+    return {
+      key: JSON.stringify(files),
+      session,
+      inUse: sessionInUse(() => session.release()),
+      tokenizer,
+      maxTokens: files.maxTokens,
+      ort,
+    };
   }
 
   return {
@@ -52,50 +61,54 @@ export function createOnnxEmbedder(): Embedder {
         loading = undefined;
       });
       const next = await loading;
-      if (loaded && loaded !== next) void loaded.session.release();
+      if (loaded && loaded !== next) loaded.inUse.release();
       loaded = next;
     },
 
-    async embed(text) {
-      if (!loaded) throw new Error("The embedding model isn't loaded.");
-      const { session, tokenizer, maxTokens, ort } = loaded;
-      let { ids } = tokenizer.encode(text);
-      // Cut long texts like the model's tokenizer config does: keep the end-of-text token.
-      if (ids.length > maxTokens) ids = [...ids.slice(0, maxTokens - 1), ids.at(-1) as number];
-      const length = ids.length;
-      const tensor = (values: BigInt64Array) => new ort.Tensor("int64", values, [1, length]);
-      const feeds: Record<string, import("onnxruntime-node").Tensor> = {
-        input_ids: tensor(BigInt64Array.from(ids, (id) => BigInt(id))),
-        attention_mask: tensor(new BigInt64Array(length).fill(1n)),
-      };
-      if (session.inputNames.includes("token_type_ids")) {
-        feeds.token_type_ids = tensor(new BigInt64Array(length));
-      }
-      const output = await session.run(feeds);
-      const hidden = output.last_hidden_state;
-      if (!hidden) throw new Error("The model returned no last_hidden_state.");
-      const dimensions = hidden.dims[2] ?? 0;
-      const states = hidden.data as Float32Array;
-      // Mean pooling over the tokens (all of them: there is no padding), then L2 normalisation.
-      const vector = new Float32Array(dimensions);
-      let norm = 0;
-      for (let d = 0; d < dimensions; d++) {
-        let sum = 0;
-        for (let token = 0; token < length; token++)
-          sum += states[token * dimensions + d] as number;
-        const mean = sum / length;
-        vector[d] = mean;
-        norm += mean * mean;
-      }
-      norm = Math.sqrt(norm) || 1;
-      for (let d = 0; d < dimensions; d++) vector[d] = (vector[d] as number) / norm;
-      for (const tensorOut of Object.values(output)) tensorOut.dispose();
-      return vector;
+    embed(text) {
+      if (!loaded) return Promise.reject(new Error("The embedding model isn't loaded."));
+      const model = loaded;
+      return model.inUse.use(() => embedWith(model, text));
     },
 
     close() {
-      void loaded?.session.release();
+      loaded?.inUse.release();
       loaded = undefined;
     },
   };
+}
+
+async function embedWith(model: Loaded, text: string): Promise<Float32Array> {
+  const { session, tokenizer, maxTokens, ort } = model;
+  let { ids } = tokenizer.encode(text);
+  // Cut long texts like the model's tokenizer config does: keep the end-of-text token.
+  if (ids.length > maxTokens) ids = [...ids.slice(0, maxTokens - 1), ids.at(-1) as number];
+  const length = ids.length;
+  const tensor = (values: BigInt64Array) => new ort.Tensor("int64", values, [1, length]);
+  const feeds: Record<string, import("onnxruntime-node").Tensor> = {
+    input_ids: tensor(BigInt64Array.from(ids, (id) => BigInt(id))),
+    attention_mask: tensor(new BigInt64Array(length).fill(1n)),
+  };
+  if (session.inputNames.includes("token_type_ids")) {
+    feeds.token_type_ids = tensor(new BigInt64Array(length));
+  }
+  const output = await session.run(feeds);
+  const hidden = output.last_hidden_state;
+  if (!hidden) throw new Error("The model returned no last_hidden_state.");
+  const dimensions = hidden.dims[2] ?? 0;
+  const states = hidden.data as Float32Array;
+  // Mean pooling over the tokens (all of them: there is no padding), then L2 normalisation.
+  const vector = new Float32Array(dimensions);
+  let norm = 0;
+  for (let d = 0; d < dimensions; d++) {
+    let sum = 0;
+    for (let token = 0; token < length; token++) sum += states[token * dimensions + d] as number;
+    const mean = sum / length;
+    vector[d] = mean;
+    norm += mean * mean;
+  }
+  norm = Math.sqrt(norm) || 1;
+  for (let d = 0; d < dimensions; d++) vector[d] = (vector[d] as number) / norm;
+  for (const tensorOut of Object.values(output)) tensorOut.dispose();
+  return vector;
 }
