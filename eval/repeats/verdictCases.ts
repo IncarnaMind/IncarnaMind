@@ -21,9 +21,11 @@
  * `en-limits` and `zh-limits` are #1908's own Document and sentences, checked as a Note is.
  *
  * The allotment sets (#2184) were written before any change to a contradiction's confirmation:
- * the parties the other way round, may for must and must for may (可 for 须 or 应, 须 for 可),
+ * two parties a clause names both of turned round (who pays, who may inspect after notice to whom,
+ * who tells whom of a damaged fence), may for must and must for may (可 for 须 or 应, 须 for 可),
  * each expected Contradicted; and near misses that must never be Contradicted: a plain statement
- * of fact where the tenancy gives a permission, and the same duty of another party or group.
+ * of fact where the tenancy gives a permission, and a duty or an act its clause gives one party,
+ * said of the other party or of another group.
  */
 import type { LibraryDocument, RepeatSentence, RepeatSet } from "./cases";
 
@@ -110,7 +112,9 @@ export const VERDICT_DOCUMENTS: readonly LibraryDocument[] = [
           "The Tenant must keep the plot free of weeds.",
           "The Tenant may build one shed of up to 6 square metres.",
           "5. Inspection",
-          "The Council may inspect the plot after giving 7 days' notice.",
+          "The Council may inspect the plot after giving the Tenant 7 days' notice.",
+          "6. The site fence",
+          "The Tenant reports any damage to the site fence to the Council within 3 days.",
         ],
       },
     ],
@@ -130,6 +134,7 @@ export const VERDICT_DOCUMENTS: readonly LibraryDocument[] = [
           "第四条　使用：乙方可在地块上饲养不超过六只鸡。乙方须保持地块无杂草。",
           "乙方应每月清理地块内的垃圾。乙方可搭建一间不超过6平方米的工具棚。",
           "第五条　检查：甲方可提前7日通知乙方后检查地块。",
+          "第六条　围栏：乙方发现围栏损坏，应在3日内告知甲方。",
         ],
       },
     ],
@@ -303,8 +308,8 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
     mind: "Allotment points",
     sentences: conflicts([
       ["payer", "The Council pays the Tenant a rent of 85 per year."],
-      ["supplier", "The Tenant supplies water to the plot from April to September."],
-      ["inspector", "The Tenant may inspect the plot after giving 7 days' notice."],
+      ["inspector", "The Tenant may inspect the plot after giving the Council 7 days' notice."],
+      ["fence", "The Council reports any damage to the site fence to the Tenant within 3 days."],
       ["may-for-must", "The Tenant may keep the plot free of weeds."],
       ["must-for-may", "The Tenant must keep up to six hens on the plot."],
       ["must-for-may-shed", "The Tenant must build one shed of up to 6 square metres."],
@@ -319,6 +324,7 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["fact-for-permission-shed", "The Tenant has built a shed on the plot."],
       ["same-duty-other-party", "The Council must keep the plot free of weeds."],
       ["same-duty-other-group", "Other tenants at Fernhill must keep their plots free of weeds."],
+      ["act-other-party", "The Tenant supplies water to the plot from April to September."],
     ]),
   },
   {
@@ -327,8 +333,8 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
     mind: "地块要点",
     sentences: conflicts([
       ["payer", "甲方每年向乙方支付租金人民币八百五十元。"],
-      ["supplier", "每年四月至九月由乙方向地块供水。"],
       ["inspector", "乙方可提前7日通知甲方后检查地块。"],
+      ["fence", "甲方发现围栏损坏，应在3日内告知乙方。"],
       ["ke-for-xu", "乙方可保持地块无杂草。"],
       ["ke-for-ying", "乙方可每月清理地块内的垃圾。"],
       ["xu-for-ke", "乙方须搭建一间不超过6平方米的工具棚。"],
@@ -343,6 +349,7 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
       ["fact-for-permission-shed", "乙方已在地块上搭建了一间工具棚。"],
       ["same-duty-other-party", "甲方须保持地块无杂草。"],
       ["same-duty-other-group", "枫林菜园的其他租户须保持各自地块无杂草。"],
+      ["act-other-party", "每年四月至九月由乙方向地块供水。"],
     ]),
   },
   {
