@@ -3452,8 +3452,8 @@ test("meeting scores reject honest partial fills even when their state is filled
 
 /**
  * Where the call's Note goes: a Folder holding its Documents, or none. With
- * INCARNAMIND_LIVE_LIBRARY, a folder of other files, the Note goes in no Folder, so its claims are
- * checked against every Document, those files and the call's own among them.
+ * INCARNAMIND_LIVE_LIBRARY, a folder of other files, the Note goes in no Folder, with no scope
+ * chosen, beside a Library holding those files and the call's own: its claims aren't checked.
  */
 async function withDocuments(core: Core, call: Call): Promise<string | null> {
   const library = process.env.INCARNAMIND_LIVE_LIBRARY;
@@ -3902,11 +3902,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             expect(structure.sectionNotBullets, "A section's items are bullets").toBe(0);
             expect(structure.sectionUncited).toBe(0);
             expect(structure.emptyHeadings, "No heading is added without content").toEqual([]);
-            if (!call.documents)
-              expect(structure.claimsList, "No Documents, no claims list").toBe(0);
+            // A Note in no Folder, with no scope chosen, is never checked (#2306).
+            const scoped = call.documents !== undefined && !process.env.INCARNAMIND_LIVE_LIBRARY;
+            if (!scoped) expect(structure.claimsList, "Nothing in scope, no claims list").toBe(0);
             expect(structure.claimsKeptListed, "What the Documents hold isn't listed").toEqual([]);
             expect(structure.claimsListed, "What they don't hold is listed").toEqual(
-              call.claims?.listed ?? [],
+              scoped ? (call.claims?.listed ?? []) : [],
             );
           });
         }
