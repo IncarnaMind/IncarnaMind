@@ -72,7 +72,7 @@ test.each([
   },
 );
 
-// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named person is never the other side, even where they give their name, and is named on every line of theirs when they alone speak as Them, in the User's spelling where the User typed it, and never with an invented name; a line no one can be told from carries no speaker (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where it or the line before shows who speaks, so what an unnamed colleague said is not put in the named person's mouth (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
@@ -82,7 +82,7 @@ test.each([
     "for what the people in the call agreed to do, a choice they made together, never a figure, price or term one side stated, even when nobody objects",
   );
   expect(prompt).toContain(
-    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one person speaks as Them and their name is known, every Them line is theirs, written with their name. When several do, name who speaks only where the line, or the line before it, makes clear who it is; otherwise write what was said without a speaker.",
+    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where that line, or the line before it, makes clear who speaks; otherwise write what was said without a speaker.",
   );
   expect(prompt).toContain(
     "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",
