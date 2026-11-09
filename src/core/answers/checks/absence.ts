@@ -21,12 +21,13 @@ import type {
   ClaimCheckRequest,
 } from "./claimCheck";
 import { absenceFigureResults } from "./figureChecks";
+import type { AbsenceAnswer } from "./prompt";
 
 interface AbsenceContext {
-  request: ClaimCheckRequest;
+  request: Pick<ClaimCheckRequest, "claim" | "figures" | "model" | "scope" | "signal" | "window">;
   documents: ClaimCheckDependencies["documents"];
   session: ReturnType<typeof createCitationSession>;
-  versions: Map<string, string>;
+  readVersion(documentId: string, contentHash: string): void;
   facts(): { versions: CheckedVersion[]; excluded: LeftOutDocument[] };
   citedCase(evidence: Citation | null): {
     citedCaseUnchecked: boolean;
@@ -127,7 +128,7 @@ export function fitsWholeRead(
 
 /** The scope read for the whole read: every Passage and Unit; null when a Unit couldn't be read. */
 function wholeScope(
-  request: ClaimCheckRequest,
+  request: Pick<ClaimCheckRequest, "scope">,
   documents: ClaimCheckDependencies["documents"],
 ): WholeReading[] | null {
   const reading: WholeReading[] = [];
@@ -182,11 +183,38 @@ function windowScope(
   return reading.length === 0 || unreadUnit ? null : reading;
 }
 
-export async function checkAbsence({
+/**
+ * Whether a whole read decides a sentence its search judged `searched` and whose reply says it
+ * states an absence (`absence`): null when it doesn't, and search's verdict stands. `fits` is asked
+ * only once a whole read is due.
+ */
+export function absenceAfterSearch(context: Omit<AbsenceContext, "fits"> & { fits(): boolean }) {
+  const { request, notChecked } = context;
+  return async (
+    absence: AbsenceAnswer,
+    searched: ClaimCheckResult["verdict"],
+  ): Promise<AtomicClaimCheckResult | null> => {
+    // A search that found and cited the thing contradicts its absence as any sentence is
+    // contradicted: the whole read decides only whether search may say Supported.
+    if (searched === "contradicted") return null;
+    // A check that ended Not checked (refused, unread, no verdict) stays so: no whole read.
+    if (searched === "not-checked") return null;
+    if (absence === "no") return null;
+    // An answer that can't be read may hide an absence, which search alone never backs; and
+    // the whole read is only for a sentence known to assert one.
+    if (absence === null) return searched === "supported" ? notChecked("malformed") : null;
+    if (request.signal.aborted) return notChecked("stopped");
+    return checkAbsence({ ...context, fits: context.fits() });
+  };
+}
+
+export type AbsenceFor = ReturnType<typeof absenceAfterSearch>;
+
+async function checkAbsence({
   request,
   documents,
   session,
-  versions,
+  readVersion,
   facts,
   citedCase,
   fits,
@@ -209,7 +237,7 @@ export async function checkAbsence({
   for (const { documentId, passages, units } of reading) {
     const contentHash = passages[0]?.contentHash;
     if (!contentHash) continue;
-    versions.set(documentId, contentHash);
+    readVersion(documentId, contentHash);
     readDocuments.push({
       documentId,
       documentName: passages[0]?.documentName ?? "",

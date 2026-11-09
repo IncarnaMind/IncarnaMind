@@ -26,7 +26,8 @@ import { type ResolvableRecordCiteResult, resolveRecordCites } from "../../recor
 import { answerTemperature } from "../engine";
 import { type Judged, type JudgeFailure, judge, lines } from "../judge";
 import { inCheck } from "./checkedText";
-import { type ClaimCheckRequest, failureOf } from "./claimCheck";
+import { failureOf } from "./checkResults";
+import type { ClaimCheckRequest } from "./claimCheck";
 import {
   CHECK_TAGS,
   confirmParts,

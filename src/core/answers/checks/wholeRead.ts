@@ -29,15 +29,11 @@ import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
 import { absencePrompt, WHOLE_READ } from "./absence";
-import {
-  type AtomicClaimCheckResult,
-  afterRun,
-  type CheckStart,
-  type ClaimCheckRequest,
-  checkSession,
-  NO_DATE,
-  runFailureOf,
-} from "./claimCheck";
+import { runFailureOf } from "./checkResults";
+import type { CheckStart } from "./checkRun";
+import { checkSession, NO_DATE } from "./checkSetup";
+import type { AtomicClaimCheckResult, ClaimCheckRequest } from "./claimCheck";
+import { afterRun } from "./looks";
 import {
   confirmPrompt,
   PRESENCE_INSTRUCTIONS,
