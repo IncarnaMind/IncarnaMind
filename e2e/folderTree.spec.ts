@@ -364,7 +364,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^New note here$/,
       /^Add Documents here…$/,
       /^New Folder inside$/,
-      /^Organize this Folder$/,
+      /^Organize This Folder$/,
       /^Edit description…$/,
       /^Sort by…$/,
       /^Move to…(⇧⌘M|Ctrl\+Shift\+M)$/,
