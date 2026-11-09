@@ -11,6 +11,7 @@ import {
   helpToKeep,
   quoted,
   readHelpReply,
+  sentencePassed,
   shownItems,
 } from "../../src/renderer/src/helpReply";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
@@ -301,5 +302,17 @@ describe("A help reply", () => {
       [9001, 1],
       [2, 2],
     ]);
+  });
+
+  // protects=a ✓ shows only where the sentence check passed its sentence, which alone writes judgedAt (#2847); fails_when=a found quote alone, or a verdict that isn't a pass, shows ✓; no_claim=what the check decides.
+  test("a Citation shows ✓ only once the sentence check passed its sentence, never for its found quote alone", () => {
+    const at = "2026-11-09T20:00:00.000Z";
+    expect(sentencePassed({ check: "found", judgedAt: at })).toBe(true);
+    expect(sentencePassed({ check: "found" })).toBe(false);
+    for (const check of ["checking", "not-checked", "unsupported", "contradicted"] as const) {
+      expect(sentencePassed({ check })).toBe(false);
+      expect(sentencePassed({ check, judgedAt: at })).toBe(false);
+    }
+    expect(sentencePassed({ check: "not-found" })).toBe(false);
   });
 });

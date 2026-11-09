@@ -72,7 +72,11 @@ function CitationChip({ citation, number }: { citation?: MarkedCitation; number:
       className="help-citation"
     >
       {number}
-      <CheckLineIcon aria-hidden="true" className="help-citation-found" />
+      <CheckLineIcon
+        aria-hidden="true"
+        data-testid="help-citation-check"
+        className="help-citation-found"
+      />
     </span>
   );
 }
