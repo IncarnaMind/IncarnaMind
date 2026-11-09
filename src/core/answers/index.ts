@@ -172,6 +172,7 @@ import type {
   Turn,
 } from "../conversations";
 import type { WindowedPassage } from "../documents/search";
+import { detectLanguage } from "../documents/textLanguage";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
 import type { ExecAccess } from "../execution";
@@ -230,7 +231,12 @@ import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
 import { commandTools } from "../tools/commands/tools";
-import { type MindsForTools, type MindToolsOptions, mindTools } from "../tools/minds/tools";
+import {
+  type MindsForTools,
+  type MindToolsOptions,
+  mindTools,
+  partSpan,
+} from "../tools/minds/tools";
 import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
 import { formulaCells } from "../workbooks/formulaCells";
@@ -2854,6 +2860,7 @@ export function createAnswers(options: AnswersOptions) {
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
+              requestLanguage: detectLanguage(context.question),
               filing,
               notFiled: () => {
                 wallRefusals.add("folder.wall.notFiled");
@@ -3363,6 +3370,8 @@ export function createAnswers(options: AnswersOptions) {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
+                        parts: (mindId, part) =>
+                          minds?.read(mindId, (blocks) => partSpan(blocks, part)) ?? null,
                         signal: controller.signal,
                       }),
                     );

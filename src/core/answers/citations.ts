@@ -3004,13 +3004,20 @@ export function withoutFootnoteDefinitions(markdown: string): string {
   return markdown.replace(/^ {0,3}\[\^\d{1,4}\]:.*(?:\n|$)/gm, "");
 }
 
+/** Whether the marker at `at` starts a footnote definition line ("[^2]: …"), as `withoutFootnoteDefinitions` reads one. */
+const definesFootnote = (markdown: string, at: number, end: number) =>
+  markdown.charAt(end) === ":" && /(?:^|\n) {0,3}$/.test(markdown.slice(0, at));
+
 export function withoutDeadMarkers(markdown: string, backed: (marker: number) => boolean): string {
-  const found = [...markdown.matchAll(/([ \t]*)\[\^(\d{1,4})\](?!:)/g)].map((each) => ({
-    from: each.index,
-    space: (each[1] ?? "").length,
-    end: each.index + each[0].length,
-    marker: Number(each[2]),
-  }));
+  // A marker before a colon mid-line ("width d[^2]:") is a marker, not a definition (#2769).
+  const found = [...markdown.matchAll(/([ \t]*)\[\^(\d{1,4})\]/g)]
+    .map((each) => ({
+      from: each.index,
+      space: (each[1] ?? "").length,
+      end: each.index + each[0].length,
+      marker: Number(each[2]),
+    }))
+    .filter((each) => !definesFootnote(markdown, each.from + each.space, each.end));
   const shown = shownRanges(
     markdown,
     found.map((each) => ({ start: each.from + each.space, end: each.end })),

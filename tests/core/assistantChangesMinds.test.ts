@@ -30,6 +30,7 @@ import {
   writeMind,
 } from "../helpers/minds";
 import {
+  CLAIM_CHECK_OPENING,
   type ModelCall,
   promptOf,
   type ScriptedReply,
@@ -290,6 +291,91 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
         paragraphs: 1,
       },
     ]);
+  });
+
+  // protects=the claim check is told which part of a Note no change reached, read from the Note itself: a section whose edit was refused while a section beside it changed is named, and one with a changed section nested under it isn't, in English and Chinese (#2769); fails_when=the check reads only that the Note changed, or reads a nested section as another place; no_claim=the judge's verdict (the probes and runs).
+  test.each([
+    ["Risks", "Outlook", "Outlook", true],
+    ["Summary", "Detail", "Detail", false],
+    ["风险", "下周计划", "下周计划", true],
+  ] as const)(
+    "a refused part is named unchanged only beside the part that changed: %s, %s",
+    async (refused, other, changedPart, named) => {
+      const records: string[] = [];
+      const model = scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          const edited = shortened(call);
+          if (edited) return edited;
+          if (call.results.length === 0) {
+            return {
+              calls: [
+                {
+                  tool: "edit_mind",
+                  input: { part: refused, content: `## ${refused}\n\nNew text.` },
+                },
+              ],
+            };
+          }
+          if (call.results.length === 1) {
+            return {
+              calls: [
+                { tool: "edit_mind", input: { part: changedPart, instruction: "Shorten it" } },
+              ],
+            };
+          }
+          return { text: `The ${refused} section is shorter now.` };
+        },
+        {
+          generate: (call) => {
+            if (call.system.includes(CLAIM_CHECK_OPENING)) records.push(call.prompt);
+            return { text: '{"claims":[]}' };
+          },
+        },
+      );
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const mind = await core.createMind({ title: "Q3 review" });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        heading(2, refused),
+        note("The risk is very high this quarter."),
+        heading(refused === "Summary" ? 3 : 2, other),
+        note("The outlook is really good for spring."),
+      ]);
+      await client.settled();
+
+      const answer = await ask(core, { text: "Shorten the sections", mindId: mind.id });
+
+      expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
+      const record = records.at(-1) ?? "";
+      expect(record).toContain(`"tool": "edit_mind"`);
+      expect(record.includes(`"nothingChangedIn": "${refused}"`)).toBe(named);
+    },
+  );
+
+  // protects=create_mind asks for the new Note's name in the request's language, named outright: English for an English request, Simplified Chinese for a Chinese one, and Japanese, French or German as the request is written (#2770); fails_when=it asks for "their language" alone, which gave an English request a Chinese name, or tells any other language English; no_claim=the name a real model gives (the pull request's runs).
+  test.each([
+    ["Write notes on these documents.", "English"],
+    ["为这些文档写笔记。", "Simplified Chinese"],
+    ["これらの資料についてメモを書いてください。", "Japanese"],
+    ["Écris des notes sur les documents pour la réunion de mardi.", "French"],
+    [
+      "Schreib bitte eine Notiz zu den Dokumenten, die für die Sitzung am Dienstag wichtig sind.",
+      "German",
+    ],
+  ])("a new Note's name is asked for in the request's language: %s", async (text, language) => {
+    const model = toolModel(null, "Done.");
+    const { core, mind } = await setUp(model);
+
+    await ask(core, { text, mindId: mind.id });
+
+    const create = model.doStreamCalls[0]?.tools?.find((each) => each.name === "create_mind");
+    if (create?.type !== "function") throw new Error("create_mind is not a function tool.");
+    expect(JSON.stringify(create.inputSchema)).toContain(
+      `in ${language}, the language of their request, whatever language the Documents are in.`,
+    );
   });
 
   // protects=a request for a new note makes a Mind in the Search scope's Folder, its draft as Proposals with checked Citations; fails_when=the Mind is made elsewhere, its text is accepted outright, or a Citation isn't checked; no_claim=how a real model drafts.
