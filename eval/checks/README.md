@@ -54,7 +54,9 @@ When a person changes a label or a quote, the test says which quote isn't found 
 1. A temporary data folder, as for the other evaluations. The Folder's files and the received documents are added and the web pages saved, then the Folder's Documents are moved into a Folder. Searches run as the app's do by default: keyword search's top 60, reranked by the built-in model, with embeddings off. The chat model is saved as the app's, and setting the variables is the consent for the "checks" flow.
 2. **Find support:** each sentence is checked against the Folder by the app's claim check (`checkClaim`, #96), the check Run Find support runs.
 3. **Verify:** each received document's stored text goes to claim extraction. Each claim extracted is checked the same way, with the received document left out (`checked`).
-4. The results are scored and written to `eval/results/<start time>-checks/` (`report.md`, `report.json`), and a summary is printed.
+4. The results are scored and written to `eval/results/<start time>-checks/` (`report.md`, `report.json`), and a summary is printed. `report.json` keeps each Find support sentence's model requests beside its outcome: every reply and every Tool call (`cite` and `calculate` among them), so a miss can be read (#2910).
+
+`INCARNAMIND_EVAL_CHECKS_SETS=find-support` runs Find support alone, as a control of true claims does.
 
 The check is the app's (`corePipeline` in `lib/pipeline.ts`). Claim extraction is still a baseline of one model call (`baselinePipeline`), until verify's extraction (#97) can be called on its own; the run's bars gate then (`GATING` in `checks.eval.ts`). A model that fails, refuses or replies with no verdict leaves the sentence "not checked", which never counts as supported.
 

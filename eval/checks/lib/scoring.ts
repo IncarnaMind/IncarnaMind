@@ -14,6 +14,7 @@
  */
 import { SIMPLIFIED } from "../../../src/shared/hanVariants";
 import { normaliseText } from "../../../src/shared/text";
+import type { WatchedRequest } from "../../repeats/requests";
 import {
   CHECK_LANGUAGES,
   type CheckLabel,
@@ -46,6 +47,8 @@ export interface SentenceResult {
   /** The labelled sentence's id. */
   id: string;
   outcome: CheckOutcome;
+  /** Its check's model requests: each reply and Tool call, so a miss can be read (#2910). */
+  requests?: readonly WatchedRequest[];
 }
 
 export interface ExtractedClaim {

@@ -23,6 +23,8 @@ export interface WatchedRequest {
   reply: string;
   /** The searches this request asked for. */
   asked: string[];
+  /** Every Tool call this request made, `cite` and `calculate` among them, with its input as sent. */
+  tools: { name: string; input: string }[];
   /** The check was asked to search again before it says the sentence isn't found (#1608). */
   searchAgain: boolean;
   inputTokens: number;
@@ -120,6 +122,7 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       handed,
       reply: "",
       asked: [],
+      tools: [],
       searchAgain: asked.includes(SEARCH_AGAIN),
       inputTokens: 0,
       cacheReadTokens: 0,
@@ -144,8 +147,9 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
             if (part.type === "text-delta") request.reply += part.delta;
-            else if (part.type === "tool-call" && part.toolName === "search_documents") {
-              request.asked.push(queryOf(part.input));
+            else if (part.type === "tool-call") {
+              request.tools.push({ name: part.toolName, input: part.input });
+              if (part.toolName === "search_documents") request.asked.push(queryOf(part.input));
             } else if (part.type === "finish") {
               request.inputTokens = part.usage.inputTokens.total ?? 0;
               request.cacheReadTokens = part.usage.inputTokens.cacheRead ?? 0;
@@ -162,7 +166,11 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
     wrapGenerate: async ({ doGenerate, params }) => {
       const { request, began } = start(params.prompt);
       const result = await doGenerate();
-      for (const part of result.content) if (part.type === "text") request.reply += part.text;
+      for (const part of result.content) {
+        if (part.type === "text") request.reply += part.text;
+        else if (part.type === "tool-call")
+          request.tools.push({ name: part.toolName, input: part.input });
+      }
       request.inputTokens = result.usage.inputTokens.total ?? 0;
       request.cacheReadTokens = result.usage.inputTokens.cacheRead ?? 0;
       request.cacheWriteTokens = result.usage.inputTokens.cacheWrite ?? 0;

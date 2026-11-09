@@ -23,6 +23,7 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { chatGenerate } from "../lib/rewrites";
+import { watchRequests } from "../repeats/requests";
 import { corePipeline } from "./lib/pipeline";
 import { type ChecksReport, summaryLines, writeChecksReport } from "./lib/report";
 import {
@@ -59,7 +60,12 @@ test("checks evaluation: Find support and verify", async () => {
   const findSupport = set.items.filter(
     (item): item is FindSupportItem => item.set === "find-support",
   );
-  const verify = set.items.filter((item): item is VerifyItem => item.set === "verify");
+  // A control of true claims runs Find support alone (INCARNAMIND_EVAL_CHECKS_SETS=find-support).
+  const sets = process.env.INCARNAMIND_EVAL_CHECKS_SETS?.split(",") ?? ["find-support", "verify"];
+  const verify = sets.includes("verify")
+    ? set.items.filter((item): item is VerifyItem => item.set === "verify")
+    : [];
+  const watch = watchRequests(findSupport.map((item) => item.sentence));
   const files = [...set.folder.filter((document) => !document.address), ...set.received];
   const pages = set.folder.flatMap(({ name, path, address }) =>
     address ? [{ key: name, path, address }] : [],
@@ -86,6 +92,7 @@ test("checks evaluation: Find support and verify", async () => {
     webPages,
     embeddings: false,
     keep: config.keepData,
+    chatModels: watch.chatModels,
     log,
   });
   try {
@@ -127,14 +134,16 @@ test("checks evaluation: Find support and verify", async () => {
 
     const sentences: SentenceResult[] = [];
     for (const item of findSupport) {
-      sentences.push({ id: item.id, outcome: await pipeline.check(item.sentence) });
+      watch.take();
+      const outcome = await pipeline.check(item.sentence);
+      sentences.push({ id: item.id, outcome, requests: watch.take().get(item.sentence) ?? [] });
       if (sentences.length % 25 === 0) {
         log(`Find support: ${sentences.length} of ${findSupport.length} checked`);
       }
     }
 
     const verified: VerifiedDocument[] = [];
-    for (const received of set.received) {
+    for (const received of verify.length > 0 ? set.received : []) {
       const id = idOf(received.name);
       const text = library
         .pageTexts(id)
