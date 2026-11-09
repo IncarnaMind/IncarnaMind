@@ -32,17 +32,41 @@ const MIN_SHARE = 0.7;
 const MIN_WORDS = 2;
 
 const CJK_CLASS = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
-const CJK_RUN = new RegExp(`[${CJK_CLASS}]+`, "gu");
-const LATIN_WORD = new RegExp(`(?:(?![${CJK_CLASS}])[\\p{L}'’])+`, "gu");
+/** A text's pieces in order: one Chinese, Japanese or Korean character, or one other word. */
+const PIECE = new RegExp(`[${CJK_CLASS}]|(?:(?![${CJK_CLASS}])[\\p{L}'’])+`, "gu");
+const CJK = new RegExp(`[${CJK_CLASS}]`, "u");
 const CLAUSE_MARK = /[,，;；.。!！?？:：、]/u;
 const CJK_NEGATION = /[不没未无非]/u;
 /** Words that start with a negating character and negate nothing. */
 const NOT_NEGATING = new Set(["非常", "无论", "不仅", "不但", "不过", "不断", "未来"]);
 /** How many words, or two-character pairs, after a negation it reaches: "no longer available", 没有包含. */
 const NEGATION_REACH = 2;
-const LATIN_NEGATION = /^(?:not|no|never|without|cannot|none|nor)$|n['’]t$/iu;
-/** Chinese characters that say little alone, as the common English words do: a pair with one says nothing. */
-const CJK_FUNCTION = new Set([..."我你您他她它们的了是在和与跟也都就这那吗呢吧啊之其"]);
+const LATIN_NEGATION =
+  /^(?:not|no|never|without|cannot|none|nor|neither|nothing|nobody|nowhere)$|n['’]t$/iu;
+/** Chinese characters that say little alone, as "our" or "the" do: a pair with one says nothing. */
+const CJK_FUNCTION = new Set([..."我你您他她它们的了吗呢吧啊这那个"]);
+/**
+ * Words whose opposite one word turns: a clause and a quote that each say only one side of a
+ * pair say opposite things, however many other words they share.
+ */
+const OPPOSITES: readonly (readonly [RegExp, RegExp])[] = [
+  [/\bbefore\b/iu, /\bafter\b/iu],
+  [/\bearlier\b/iu, /\blater\b/iu],
+  [/\bmore\b/iu, /\b(?:less|fewer)\b/iu],
+  [/\bmin(?:imum)?\b/iu, /\bmax(?:imum)?\b/iu],
+  [/\bleast\b/iu, /\bmost\b/iu],
+  [/\b(?:above|over)\b/iu, /\b(?:below|under)\b/iu],
+  [/\bfirst\b/iu, /\blast\b/iu],
+  [/\binclud/iu, /\bexclud/iu],
+  [/\bfree\b/iu, /\b(?:paid|charged)\b/iu],
+  [/\b(?:raise|increase)/iu, /\b(?:lower|cut|decrease|reduce)/iu],
+  [/前/u, /后/u],
+  [/以上/u, /以下/u],
+  [/最高|最多|至多/u, /最低|最少|至少/u],
+  [/免费/u, /收费/u],
+  [/上调|增加|提高|上涨/u, /下调|减少|降低|下降/u],
+  [/早/u, /晚/u],
+];
 /** A moment's time at a line's start ("5:05 “…”"), which no quote of the call holds. */
 const LEADING_TIME = /^\s*\d{1,2}:\d{2}(?::\d{2})?\s*/u;
 
@@ -65,7 +89,10 @@ const CHINESE_UNITS: Readonly<Record<string, number>> = { 十: 10, 百: 100, 千
  * Words a Chinese numeral starts that count nothing, or no more than "a" does in English: every
  * other numeral before a Chinese character is a figure.
  */
-const NOT_COUNTING = /^(?:一[样起律直定般致切些下旦同边面点共向再并个次位家]|万一|十分)/u;
+const NOT_COUNTING =
+  /^(?:一[样起律直定般致切些下旦同边面共向再并]|万一|十分(?!钟)|万(?![零〇一二两三四五六七八九十百千\d]))/u;
+/** Words that count but name no unit, so the character after them is the unit too: 5 个工作日, 三个月. */
+const CLASSIFIER_CHARACTERS = "个位名家次台张件辆条套份项";
 const ENGLISH_NUMBERS: Readonly<Record<string, number>> = {
   zero: 0,
   one: 1,
@@ -100,7 +127,7 @@ const ENGLISH_NUMBERS: Readonly<Record<string, number>> = {
 };
 const ENGLISH_NUMBER = Object.keys(ENGLISH_NUMBERS).join("|");
 const FIGURE = new RegExp(
-  `([$€£¥])?\\s?(\\d+(?:[.,]\\d+)*(?::\\d{2})?|[零〇一二两三四五六七八九十百千万]+(?=\\p{Script=Han})|\\b(?:${ENGLISH_NUMBER})(?:[- ](?:${ENGLISH_NUMBER}))*\\b)\\s?(%|\\p{Script=Han}|[a-z]+)?`,
+  `([$€£¥])?\\s?(\\d+(?:[.,]\\d+)*(?::\\d{2})?|[零〇一二两三四五六七八九十百千万]+(?:点[零〇一二三四五六七八九]+)?(?=\\p{Script=Han})|\\b(?:${ENGLISH_NUMBER})(?:[- ](?:${ENGLISH_NUMBER}))*\\b)\\s?(%|[${CLASSIFIER_CHARACTERS}]\\p{Script=Han}|\\p{Script=Han}|[a-z]+)?`,
   "giu",
 );
 /** A percentage written out in Chinese, 百分之二十, read as "二十%". */
@@ -113,8 +140,14 @@ interface Figure {
   unit: string;
 }
 
-/** A Chinese numeral's value: 三十 is 30, 两万 20000, and digits alone are read in a row, 九五 as 95. */
+/** A Chinese numeral's value: 三十 is 30, 两万 20000, 一点五 1.5, and digits alone are read in a row, 九五 as 95. */
 function chineseValue(run: string): number {
+  const [whole = "", fraction] = run.split("点");
+  if (fraction !== undefined) {
+    return Number(
+      `${chineseValue(whole)}.${[...fraction].map((each) => CHINESE_DIGITS[each] ?? 0).join("")}`,
+    );
+  }
   if (![...run].some((character) => character in CHINESE_UNITS || character === "万")) {
     return Number([...run].map((character) => CHINESE_DIGITS[character] ?? 0).join(""));
   }
@@ -169,20 +202,33 @@ const withPercents = (text: string) =>
 
 /** The figures of a text, each with its currency and unit: "$50,000", "30 分钟", "5 minutes". */
 export function figuresOf(text: string): Figure[] {
-  return [...withPercents(text).matchAll(FIGURE)].flatMap((found) => {
-    const [whole, currency = "", number = "", unit = ""] = found;
-    if (NOT_COUNTING.test(whole.trim()) || CJK_FUNCTION.has(unit)) return [];
+  return figuresIn(withPercents(text)).map(({ figure }) => figure);
+}
+
+/** Each figure of a text and where it is; a numeral that counts nothing (一样, 十分) is left as words. */
+function figuresIn(text: string): { figure: Figure; from: number; to: number }[] {
+  return [...text.matchAll(FIGURE)].flatMap((found) => {
+    const [whole, currency = "", number = "", given = ""] = found;
+    if (NOT_COUNTING.test(text.slice(found.index).trimStart())) return [];
+    const unit = given;
+    if (CJK_FUNCTION.has(unit)) return [];
     const value = /\d/u.test(number)
       ? digitValue(number)
       : /[a-z]/iu.test(number)
         ? String(englishValue(number))
         : String(chineseValue(number));
     const latin = /^[a-z]+$/iu.test(unit);
+    const from = found.index;
+    const to = from + whole.length;
     return [
       {
-        currency,
-        value,
-        unit: latin ? (STOP_WORDS.has(unit.toLowerCase()) ? "" : folded(unit)) : unit,
+        figure: {
+          currency,
+          value,
+          unit: latin ? (STOP_WORDS.has(unit.toLowerCase()) ? "" : folded(unit)) : unit,
+        },
+        from,
+        to,
       },
     ];
   });
@@ -194,53 +240,79 @@ const sameFigure = (claim: Figure, quote: Figure) =>
   claim.value === quote.value &&
   (claim.unit === "" || claim.unit === quote.unit);
 
-/** A text's words, and those it negates, as `holds` compares them. */
-function read(text: string): { words: Set<string>; negated: Set<string> } {
+/** A figure's key, so a negated figure can be told from a stated one. */
+const keyOf = ({ currency, value, unit }: Figure) => `#${currency}${value}${unit}`;
+
+/**
+ * A text's words, and those within a negation's reach, as `holds` compares them; its figures are
+ * among them by key, so "not $200" negates the figure, but they count toward no share.
+ */
+function read(given: string): { words: Set<string>; negated: Set<string> } {
+  const text = withPercents(given);
   const words = new Set<string>();
   const negated = new Set<string>();
+  const figures = figuresIn(text);
+  // The pieces in order: words, two-character pairs, negations and figures.
+  const pieces: { at: number; kind: "word" | "negation" | "figure"; key: string }[] = [];
+  for (const { figure, from } of figures)
+    pieces.push({ at: from, kind: "figure", key: keyOf(figure) });
+  const outside = (at: number) => !figures.some(({ from, to }) => at >= from && at < to);
+  const found = [...text.matchAll(PIECE)].filter((each) => outside(each.index));
+  found.forEach((each, index) => {
+    const [piece] = each;
+    if (!CJK.test(piece)) {
+      if (LATIN_NEGATION.test(piece)) pieces.push({ at: each.index, kind: "negation", key: "" });
+      else if (!STOP_WORDS.has(piece.toLowerCase()))
+        pieces.push({ at: each.index, kind: "word", key: folded(piece) });
+      return;
+    }
+    const next = found[index + 1];
+    const adjacent =
+      next !== undefined && next.index === each.index + piece.length && CJK.test(next[0]);
+    const second = adjacent ? (next?.[0] ?? "") : "";
+    if (CJK_NEGATION.test(piece) && !NOT_NEGATING.has(`${piece}${second}`)) {
+      pieces.push({ at: each.index, kind: "negation", key: "" });
+      return;
+    }
+    if (!adjacent || CJK_NEGATION.test(second)) return;
+    if (CJK_FUNCTION.has(piece) || CJK_FUNCTION.has(second)) return;
+    pieces.push({ at: each.index, kind: "word", key: `${piece}${second}` });
+  });
   let reach = 0;
-  for (const [word] of text.matchAll(LATIN_WORD)) {
-    if (LATIN_NEGATION.test(word)) {
+  for (const piece of pieces.sort((a, b) => a.at - b.at)) {
+    if (piece.kind === "negation") {
       reach = NEGATION_REACH;
       continue;
     }
-    const lower = word.toLowerCase();
-    if (STOP_WORDS.has(lower)) continue;
-    const each = folded(lower);
-    if (reach > 0) negated.add(each);
-    else words.add(each);
+    (reach > 0 ? negated : words).add(piece.key);
     reach = Math.max(0, reach - 1);
-  }
-  for (const [run] of text.matchAll(CJK_RUN)) {
-    const characters = [...run];
-    const negations = characters.flatMap((character, at) =>
-      CJK_NEGATION.test(character) && !NOT_NEGATING.has(`${character}${characters[at + 1] ?? ""}`)
-        ? [at]
-        : [],
-    );
-    for (let at = 0; at + 1 < characters.length; at++) {
-      const first = characters[at] ?? "";
-      const second = characters[at + 1] ?? "";
-      const pair = `${first}${second}`;
-      if (negations.includes(at) || negations.includes(at + 1)) continue;
-      if (CJK_FUNCTION.has(first) || CJK_FUNCTION.has(second)) continue;
-      const negatedBy = negations.some((each) => at > each && at - each <= NEGATION_REACH);
-      if (negatedBy) negated.add(pair);
-      else words.add(pair);
-    }
   }
   return { words, negated };
 }
 
-/** The share of a text's own words that a quote's words hold; 1 for a text with none. */
-function shareHeld(theirs: ReturnType<typeof read>, text: string): number {
-  const ours = read(text.replace(FIGURE, " "));
-  const own = [...ours.words, ...ours.negated];
+/**
+ * The share of a text's own words, figures aside, that a quote holds; 1 for a text with none. A
+ * Chinese, Japanese or Korean pair counts as held when both its characters are in the quote, as an
+ * English word does wherever it stands: 每个月 for 每月 loses nothing.
+ */
+function shareHeld(theirs: ReturnType<typeof read>, quote: string, text: string): number {
+  const ours = read(text);
+  const own = [...ours.words, ...ours.negated].filter((word) => !word.startsWith("#"));
   if (own.length === 0) return 1;
-  return (
-    own.filter((word) => theirs.words.has(word) || theirs.negated.has(word)).length / own.length
-  );
+  const held = (word: string) =>
+    theirs.words.has(word) ||
+    theirs.negated.has(word) ||
+    (CJK.test(word) && [...word].every((character) => quote.includes(character)));
+  return own.filter(held).length / own.length;
 }
+
+/** Whether two texts each say only one side of a pair of opposites. */
+const oppose = (a: string, b: string) =>
+  OPPOSITES.some(
+    ([one, other]) =>
+      (one.test(a) && !other.test(a) && other.test(b) && !one.test(b)) ||
+      (other.test(a) && !one.test(a) && one.test(b) && !other.test(b)),
+  );
 
 /**
  * Whether `quote` holds the clauses `clauses`, read as one run: every figure by kind and unit,
@@ -255,13 +327,13 @@ export function holds(given: string, ...clauses: readonly string[]): boolean {
   const figures = figuresOf(quote);
   if (!figuresOf(whole).every((claim) => figures.some((each) => sameFigure(claim, each))))
     return false;
-  // Figures are weighed above; their characters, 三十 or 天, would count again as pairs.
-  const theirs = read(quote.replace(FIGURE, " "));
-  const ours = read(whole.replace(FIGURE, " "));
+  if (oppose(quote, whole)) return false;
+  const theirs = read(quote);
+  const ours = read(whole);
   for (const word of theirs.negated) if (ours.words.has(word)) return false;
   for (const word of ours.negated) if (theirs.words.has(word)) return false;
-  if (ours.words.size + ours.negated.size === 0) return false;
-  return said.every((clause) => shareHeld(theirs, clause) >= MIN_SHARE);
+  if (![...ours.words, ...ours.negated].some((word) => !word.startsWith("#"))) return false;
+  return said.every((clause) => shareHeld(theirs, quote, clause) >= MIN_SHARE);
 }
 
 /** The clauses of a span: each one's text and where its words end, before its closing mark. */

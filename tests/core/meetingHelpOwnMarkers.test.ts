@@ -224,7 +224,7 @@ const NOWHERE = [
       lines: ["我们下周排期。", ...QUIET, "嗯。"],
       theirLines: ["我们必须在六月审计之前上线。", "预算是定死的。", ...QUIET],
     },
-    reply: "★ 对方必须在六月审计之前上线\n0:03 “预算是定死的”\n→ 先确认能在六月审计之前上线",
+    reply: "★ 对方必须在六月审计之前上线\n0:03 “预算是定死的”\n→ 赶在六月审计之前上线",
     quote: "我们必须在六月审计之前上线",
   },
   {
@@ -455,8 +455,41 @@ describe("Whether a quote holds the words a record would go after", () => {
       held: true,
     },
     { quote: "清洁剂：每瓶 45 元。", words: ["★ 我们的清洁剂每瓶 45 元"], held: true },
-    { quote: "专业版：每月 3,800 元，含 4 次上门。", words: ["专业版一个月 3,800 元"], held: true },
+    { quote: "专业版：每月 3,800 元，含 4 次上门。", words: ["专业版每个月 3,800 元"], held: true },
     { quote: "清洁剂：每瓶 45 元。", words: ["好的"], held: false },
+    { quote: "告警在五分钟后发出。", words: ["告警在十分钟后发出"], held: false },
+    { quote: "专业版可以试用三个月。", words: ["专业版可以试用一个月"], held: false },
+    { quote: "工单在 3 个工作日内关闭。", words: ["工单在 3 个月内关闭"], held: false },
+    { quote: "工单在 3 个工作日内关闭。", words: ["工单 3 个工作日内关闭"], held: true },
+    { quote: "The deposit is not $200.", words: ["the deposit is $200"], held: false },
+    { quote: "押金不是 200 元。", words: ["押金是 200 元"], held: false },
+    { quote: "两个套餐价格不一样。", words: ["两个套餐价格一样"], held: false },
+    { quote: "基础版不一定包含上门保洁。", words: ["基础版一定包含上门保洁"], held: false },
+    {
+      quote: "合同到期之前 30 天书面通知可以终止。",
+      words: ["合同到期之后 30 天书面通知可以终止"],
+      held: false,
+    },
+    {
+      quote: "合同到期之前 30 天书面通知可以终止。",
+      words: ["合同到期之前 30 天书面通知即可终止"],
+      held: true,
+    },
+    {
+      quote: "Neither plan includes on-site visits.",
+      words: ["the Pro plan includes on-site visits"],
+      held: false,
+    },
+    {
+      quote: "Give written notice 30 days before the contract ends.",
+      words: ["give written notice 30 days after the contract ends"],
+      held: false,
+    },
+    {
+      quote: "Give written notice 30 days before the contract ends.",
+      words: ["give written notice 30 days before the contract ends"],
+      held: true,
+    },
   ])("$words against “$quote”: $held", ({ quote, words, held }) => {
     expect(holds(quote, ...words)).toBe(held);
   });
