@@ -145,7 +145,7 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - Every other word's error rate moves little, told or not: by at most 2.7 points on Soniox (down, on `zh-coldstore` told its own names on `stt-rt-v5`) and 2.0 on OpenAI, whose own two runs told nothing differ by up to 4.4 points (`zh-office`, 23.4% and 19.0%).
 - A Chinese name told to this computer mends nothing (above), so its Chinese stays at 5 of 10.
 - Decoys are the risk: told a name that sounds like one said, a cloud route writes the told one. On `stt-rt-v6`, told Marin Okafor and Danielle Brooks, "Hi Daniel, I'm Maren Okafor" became "Hi Danielle, I'm Marin Okafor"; OpenAI wrote two or three decoys on every call. This computer's one is what it writes told nothing too (林小文 for 林晓雯).
-- **Sums.** Said: 4 in dollars (`en-renewal`), 2 in pounds (`en-orchard`), 2 in 英镑 (`zh-coldstore`). `stt-rt-v5` wrote both pounds as dollars ("$42,500") in every arm, told or not, and "eighty-five dollars" as "£85" in two of three. This computer, `stt-rt-v6` and OpenAI wrote each sum in the currency said; OpenAI once left a whole 英镑 line out.
+- **Sums.** Said: 4 in dollars (`en-renewal`), 2 in pounds (`en-orchard`), 2 in 英镑 (`zh-coldstore`). `stt-rt-v5` wrote both pounds as dollars ("$42,500") in every arm, told or not, and "eighty-five dollars" as "£85" in two of three. This computer, `stt-rt-v6` and OpenAI wrote each sum in the currency said. OpenAI misheard one 英镑 line throughout in 3 of its 4 told runs (两万税先invoice for 两万四千英镑): a word lost, not another currency.
 
 **Soniox `stt-rt-v5` and `stt-rt-v6` on the cases,** the first 10 minutes of each, told nothing, `INCARNAMIND_EVAL_ROUTE=soniox INCARNAMIND_EVAL_UNTIL_MINUTES=10`, the same day:
 
