@@ -1196,14 +1196,16 @@ export function createAnswers(options: AnswersOptions) {
     let citations = answer.citations;
     /** By marker, where in the text each of its sentences the check passed cites it (#2847). */
     const passedAt = new Map<number, number[]>();
-    const foundBefore = new Set(
-      answer.citations.filter((each) => each.check === "found").map((each) => each.marker),
+    const judgedBefore = new Set(
+      answer.citations
+        .filter((each) => ["found", "unsupported", "contradicted"].includes(each.check))
+        .map((each) => each.marker),
     );
     const passed = (sentence: CitedSentence, result: SupportResult | null) => {
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
         const at = sentence.at[index];
-        if (at !== undefined && (waiting.has(marker) || foundBefore.has(marker)))
+        if (at !== undefined && (waiting.has(marker) || judgedBefore.has(marker)))
           passedAt.set(marker, [...(passedAt.get(marker) ?? []), at]);
       }
     };
@@ -1214,9 +1216,11 @@ export function createAnswers(options: AnswersOptions) {
     ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
-          // A found Citation another judged sentence cites keeps its check, and takes the
+          // A judged Citation another judged sentence cites keeps its check, and takes the
           // places this judgement passed there, which Check again took off it first.
-          const more = citation.check === "found" ? passedAt.get(citation.marker) : undefined;
+          const more = judgedBefore.has(citation.marker)
+            ? passedAt.get(citation.marker)
+            : undefined;
           if (!more) return citation;
           const places = [...new Set([...(citation.passedAt ?? []), ...more])];
           return { ...citation, passedAt: places.sort((a, b) => a - b) };

@@ -471,6 +471,40 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     },
   );
 
+  test("Check again passing a sentence again gives its ✓ back to a Citation another sentence left unsupported", async () => {
+    let round = 0;
+    const reply =
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^1]\n→ buys time";
+    const { core, meeting, batches } = await setUp({
+      reply,
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "sheet" },
+      ],
+      judge: (call) => {
+        const verdicts: [string, Verdict][] = [
+          ["answers at once", { verdict: "supported", kind: "opinion" }],
+        ];
+        if (++round === 1) verdicts.push(["in writing", { verdict: "unsupported" }]);
+        return batchOf(call, verdicts);
+      },
+    });
+    const first = await (await pressed(core, meeting, "answer")).judged();
+
+    await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
+    const after = await answerJudged(core, first.conversationId, first.id);
+
+    expect(first.citations).toMatchObject([
+      { marker: 1, check: "unsupported" },
+      { marker: 2, check: "not-checked" },
+    ]);
+    expect(chips(first).map((chip) => chip.passed)).toEqual([true, true, false, false]);
+    expect(batches).toHaveLength(2);
+    expect(batches[1]?.prompt).not.toContain("in writing");
+    expect(after.citations[0]).toMatchObject({ marker: 1, check: "unsupported" });
+    expect(chips(after).map((chip) => chip.passed)).toEqual([true, true, false, false]);
+  });
+
   test("Check again judges anew: a ✓ its first check gave a sentence goes once the second doesn't pass it", async () => {
     let round = 0;
     const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
