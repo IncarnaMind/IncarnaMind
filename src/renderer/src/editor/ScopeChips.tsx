@@ -124,7 +124,7 @@ export function ScopeChips({
                     : ownCount === 1
                       ? "scope.chip.own.one"
                       : "scope.chip.own",
-                  chip.path.length > 1 ? { path, count: ownCount } : { count: ownCount },
+                  chip.path.length > 1 ? { path, count: ownCount } : { name, count: ownCount },
                 )
               : t(CHIP_TITLES[chip.kind], { name: path });
         const label = deleted ? (

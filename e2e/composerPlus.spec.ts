@@ -296,8 +296,13 @@ test("Add files… from the + and from ⌘K makes the picked files Documents and
   await setWindowSize(app, window, 1600, 900);
   const { composer, plus, menu } = parts(window);
   expect(await documentsOf(window)).toEqual([]);
+  // One of the two is a Document already, though in no Search scope.
+  await (await coreOf(window)).evaluate(async (core: CoreBridge, path: string) => {
+    await core.addDocuments([path]);
+  }, leases);
+  await expect.poll(() => documentsOf(window)).toEqual(["Lease"]);
 
-  // Two files at once, by mouse.
+  // Two files at once, by mouse: a chip for each, and one Document for each.
   await interceptOpenDialog(app, [tides, leases]);
   await pointAndClick(window, plus);
   await pointAndClick(window, menu.getByTestId("composer-plus-files"));
@@ -431,7 +436,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
     const chip = composer.getByTestId("scope-chip");
     await expect(chip).toHaveCount(1);
-    await expect(chip).toHaveAttribute("title", /.+/);
+    // Cut on screen, whole in its tooltip.
+    expect(await chip.getAttribute("title")).toContain(folderName);
 
     for (const width of [280, 300, 320, 340, 400]) {
       await sizeAssistant(window, width);
@@ -482,3 +488,28 @@ test("in the bottom assistant the + is at the left end of the one-line row, and 
   expect(Math.abs(longPlus.y - askBox.y)).toBeLessThan(3);
   await app.close();
 });
+
+for (const dock of ["right", "left", "bottom", "float"] as const) {
+  test(`the + is on the row of the assistant docked ${dock}`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setWindowSize(app, window, 1600, 900);
+    await placeAssistant(window, { dock });
+    const { composer, plus, menu } = parts(window);
+    await expect(plus).toBeVisible();
+    const [composerBox, plusBox, askBox] = await Promise.all([
+      boxOf(composer),
+      boxOf(plus),
+      boxOf(composer.getByTestId("composer-ask")),
+    ]);
+    expect(plusBox.x).toBeGreaterThanOrEqual(composerBox.x);
+    expect(plusBox.x + plusBox.width).toBeLessThan(askBox.x);
+    expect(Math.abs(plusBox.y - askBox.y)).toBeLessThan(3);
+    await pointAndClick(window, plus);
+    await expect(menu).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(plus).toBeFocused();
+    await app.close();
+  });
+}

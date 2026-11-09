@@ -4080,8 +4080,10 @@ export const en = {
   "scope.picker.empty.hint": "(empty)",
   "scope.chip.empty": "· empty",
   "scope.chip.deleted": "It has been deleted, so the search ignores it.",
-  "scope.chip.own": "Searches this Folder’s {count} Documents. Remove it to search every Document.",
-  "scope.chip.own.one": "Searches this Folder’s 1 Document. Remove it to search every Document.",
+  "scope.chip.own":
+    "“{name}”: searches this Folder’s {count} Documents. Remove it to search every Document.",
+  "scope.chip.own.one":
+    "“{name}”: searches this Folder’s 1 Document. Remove it to search every Document.",
   "scope.chip.own.named":
     "“{path}”: searches its {count} Documents, its sub-Folders too. Remove it to search every Document.",
   "scope.chip.own.named.one":

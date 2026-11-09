@@ -3881,7 +3881,7 @@ export const zhCN = {
   "scope.picker.empty": "没有匹配的文件夹、标签或文档",
   "scope.picker.none": "还没有文档。添加后即可选择搜索范围。",
   "scope.chip.folder": "文件夹“{name}”，包括其中的子文件夹",
-  "scope.chip.wall": "只在本文件夹内工作",
+  "scope.chip.wall": "“{name}”只在本文件夹内工作",
   "scope.chip.tag": "带有标签“{name}”的文档",
   "scope.chip.document": "文档“{name}”",
   "scope.chip.deleted.folder": "已删除的文件夹",
@@ -3890,8 +3890,8 @@ export const zhCN = {
   "scope.picker.empty.hint": "（空）",
   "scope.chip.empty": "· 空",
   "scope.chip.deleted": "已删除，搜索时会跳过。",
-  "scope.chip.own": "搜索此文件夹的 {count} 个文档。移除后搜索全部文档。",
-  "scope.chip.own.one": "搜索此文件夹的 1 个文档。移除后搜索全部文档。",
+  "scope.chip.own": "“{name}”：搜索此文件夹的 {count} 个文档。移除后搜索全部文档。",
+  "scope.chip.own.one": "“{name}”：搜索此文件夹的 1 个文档。移除后搜索全部文档。",
   "scope.chip.own.named":
     "“{path}”：搜索此文件夹及其子文件夹中的 {count} 个文档。移除后搜索全部文档。",
   "scope.chip.own.named.one":

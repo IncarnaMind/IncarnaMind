@@ -2586,10 +2586,10 @@
   .composer-scope:has(> li:only-child) {
     min-width: 5.25rem;
   }
-  /* About six characters, which are 12px wide each in Chinese. */
+  /* Chinese characters are 12px wide each: three show, which leaves the model's name its letters. */
   :root:lang(zh) .composer-scope:has(> li:only-child),
   :root:lang(zh) .composer-scope li.scope-chip:only-child {
-    min-width: 6.5rem;
+    min-width: 5.75rem;
   }
   .composer-scope:has(> li:nth-child(2)) {
     min-width: 7.5rem;
