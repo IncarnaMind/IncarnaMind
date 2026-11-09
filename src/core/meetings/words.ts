@@ -1,10 +1,11 @@
 /**
  * The words a Meeting's speech may hold (#1031), gathered when it is first transcribed, from what
- * IncarnaMind already holds, with nothing read again from a file and nothing sent anywhere: the
- * people on its calendar event and their companies (#190), the names in its Note's title and text,
- * the User's Words to know (Settings › Meetings), its Folder's name, and the names its Folder's
- * Documents use most. The meeting's own come first: the engine is told only as many as fit
- * (../transcription/context).
+ * IncarnaMind already holds, with nothing read again from a file: the User's name (Settings ›
+ * General), the people on its calendar event and their companies (#190), the names in its Note's
+ * title and text, the User's Words to know (Settings › Meetings), its Folder's name, and the names
+ * its Folder's Documents use most. The User's and the meeting's own come first: the engine on this
+ * computer is told only as many as fit (../transcription/context), and a cloud service only as
+ * many as its own field takes (../transcription/cloud/words).
  */
 import { wordKey } from "../../shared/meetingWords";
 import type { CalendarAttendee } from "../api";
@@ -28,6 +29,8 @@ const DOCUMENT_MENTIONS = 2;
 export interface MeetingWordSources {
   db: Database;
   meetingId: string;
+  /** The User's name as they set it in Settings › General; null when they haven't. */
+  userName?: string | null;
   /** Words to know, newest first. */
   userWords: readonly string[];
   /** The Note's in-app Folder's name, or null when it is in none. */
@@ -52,6 +55,7 @@ export function meetingWords(sources: MeetingWordSources): string[] {
     if (name.length <= MAX_NAME_LENGTH) add(name);
   };
 
+  add(sources.userName?.trim() ?? "");
   const note = db.get<{ mind_id: string; title: string; folder_id: string | null }>(
     `SELECT m.id AS mind_id, m.title, m.folder_id FROM meetings AS meeting
      JOIN minds AS m ON m.id = meeting.mind_id WHERE meeting.id = ?`,

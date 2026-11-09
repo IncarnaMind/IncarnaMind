@@ -287,8 +287,9 @@ export function createConsent(
     for (const definition of definitions.values()) {
       const services = (await servicesOf(definition)).map((service): DataFlowStatus => {
         const flow = flowFor(definition.id, service);
-        const { consent, decidedAt, chosen } = statusOf(flow);
-        return { flow, consent, decidedAt, chosen };
+        const { consent, decidedAt, chosen, missing } = statusOf(flow);
+        const grown = consent === "not-asked" && decidedAt !== null && missing.length > 0;
+        return { flow, consent, decidedAt, chosen, ...(grown && { added: [...missing] }) };
       });
       result.push({ id: definition.id, sends: [...definition.sends], services });
     }

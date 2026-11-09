@@ -16,6 +16,8 @@
  * INCARNAMIND_EVAL_WORDS=1: each case's transcriber is told its words in words.json (#1031), as a
  *   Meeting tells it its Words to know; the run scores those words either way.
  * INCARNAMIND_EVAL_LIVE=off: without the streaming model for the live words (#2662), as before it.
+ * INCARNAMIND_EVAL_ROUTE: "soniox" or "openai" sends each track instead to that cloud route, through
+ *   the app's adapter, at the pace it was spoken (./cloud); INCARNAMIND_EVAL_PARALLEL cases at once.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadavg } from "node:os";
@@ -28,6 +30,7 @@ import { createSpeechHost } from "../../src/core/transcription/speech";
 import { monoSamples } from "../lib/wav";
 import { evalModelFiles, FRAME, modelData } from "../transcription/clips";
 import { loadCase, readCases } from "./cache";
+import { type CloudRoute, cloudModelOf, isCloudRoute, transcribeOnCloud } from "./cloud";
 import { type CaseScore, formatReport, scoreCase } from "./report";
 import { formatTerms, readWords, scoreTerms, type TermScore } from "./terms";
 import type { Hypothesis, Language, Track } from "./types";
@@ -38,6 +41,8 @@ const UNTIL = process.env.INCARNAMIND_EVAL_UNTIL_MINUTES
   : undefined;
 const TOLD = process.env.INCARNAMIND_EVAL_WORDS === "1";
 const LABELS: Partial<Record<Track, string>> = { mic: "Me", system: "Them" };
+const ROUTE = process.env.INCARNAMIND_EVAL_ROUTE ?? "local";
+const PARALLEL = Number(process.env.INCARNAMIND_EVAL_PARALLEL ?? "1");
 const YIELD_EVERY = 50;
 
 describe("Transcription on this computer, on the meeting set", () => {
@@ -50,6 +55,11 @@ describe("Transcription on this computer, on the meeting set", () => {
       join(process.cwd(), "eval", "results", `meetings-local-${date}`);
     await mkdir(out, { recursive: true });
 
+    if (ROUTE !== "local") {
+      if (!isCloudRoute(ROUTE)) throw new Error(`No route "${ROUTE}".`);
+      await runOnCloud(ROUTE, definitions, out);
+      return;
+    }
     const dataDir = await modelData();
     const files = evalModelFiles(dataDir);
     const engine = await createSherpaEngine(files);
@@ -127,3 +137,65 @@ describe("Transcription on this computer, on the meeting set", () => {
     );
   });
 });
+
+/** The cases on a cloud route, `PARALLEL` at a time, scored as this computer's are. */
+async function runOnCloud(
+  route: CloudRoute,
+  definitions: Awaited<ReturnType<typeof readCases>>,
+  out: string,
+): Promise<void> {
+  const words = await readWords();
+  const scores: CaseScore[] = [];
+  const termScores: { id: string; language: Language; score: TermScore }[] = [];
+  const queue = [...definitions];
+  const transcriber = `${route} ${cloudModelOf(route)}${TOLD ? ", told its words" : ""}`;
+  async function next(): Promise<void> {
+    const definition = queue.shift();
+    if (!definition) return;
+    const told = words[definition.id] ?? { said: [], notSaid: [], told: [] };
+    const loaded = await loadCase(definition);
+    const tracks: Record<string, Float32Array> = {};
+    for (const [track, path] of Object.entries(loaded.tracks)) {
+      const samples = monoSamples(await readFile(path as string), path as string);
+      tracks[track] = samples.subarray(
+        0,
+        UNTIL ? Math.min(samples.length, UNTIL * MEETING_SAMPLE_RATE) : samples.length,
+      );
+    }
+    const started = Date.now();
+    const segments = await transcribeOnCloud(route, tracks, TOLD ? told.told : []);
+    const hypothesis: Hypothesis = {
+      case: definition.id,
+      transcriber,
+      processingSeconds: (Date.now() - started) / 1000,
+      segments: segments
+        .map((segment) => {
+          const speaker = LABELS[segment.stream as Track];
+          return {
+            start: segment.startMs / 1000,
+            end: segment.endMs / 1000,
+            text: segment.text,
+            ...(speaker && { speaker }),
+          };
+        })
+        .sort((a, b) => a.start - b.start),
+    };
+    await writeFile(join(out, `${definition.id}.json`), JSON.stringify(hypothesis));
+    scores.push(scoreCase(definition, loaded.reference, hypothesis, { until: UNTIL }));
+    termScores.push({
+      id: definition.id,
+      language: definition.language,
+      score: scoreTerms(definition.language, loaded.reference, hypothesis, told, UNTIL),
+    });
+    console.log(`${definition.id}: ${formatReport(scores.slice(-1)).split("\n").at(-1)}`);
+    await next();
+  }
+  await Promise.all(Array.from({ length: Math.max(1, PARALLEL) }, next));
+  const order = new Map(definitions.map((each, at) => [each.id, at]));
+  const byCase = <T extends { id: string }>(list: T[]) =>
+    list.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  const report = `**${transcriber}**\n\n${formatReport(byCase(scores))}\n\n${formatTerms(byCase(termScores))}`;
+  await writeFile(join(out, "score.md"), `${report}\n`);
+  await writeFile(join(out, "terms.json"), JSON.stringify(termScores, null, 2));
+  console.log(report);
+}

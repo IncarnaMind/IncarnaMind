@@ -456,6 +456,7 @@ describe("The transcription process, for a cloud stream", () => {
       model: "gpt-live-transcribe",
       apiKey: "sk-test",
       vad: "vad.onnx",
+      words: [],
     };
     deliver({ type: "open", stream: "m:microphone", cloud });
     deliver({ type: "finish", id: 1, stream: "m:microphone" });

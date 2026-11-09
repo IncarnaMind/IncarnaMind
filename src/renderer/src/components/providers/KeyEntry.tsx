@@ -189,6 +189,10 @@ export function KeyEntry({
         }}
         className={inputClass}
       />
+      {/* What pasting a key is the consent for, said before it is pasted (#2883). */}
+      <p data-testid={`${testId}-sends`} className={hintClass}>
+        {t("setup.key.sends")}
+      </p>
       {problem?.kind === "ask" && asked !== undefined ? (
         <div id={`${id}-line`}>
           <ProblemLine

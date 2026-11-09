@@ -12,6 +12,7 @@ import { cleanSpeech } from "../speechText";
 import {
   closedLoss,
   createLiveStream,
+  heldWords,
   joinWords,
   type LiveLink,
   type LiveSession,
@@ -37,8 +38,15 @@ interface Utterance {
 
 const seconds = (value: unknown) => (typeof value === "number" ? Math.round(value * 1000) : null);
 
-/** The session's settings: 16 kHz PCM, a guess while each utterance is said, as Gladia advises a meeting. */
-export function gladiaSession(model: string, languages: readonly string[]) {
+/**
+ * The session's settings: 16 kHz PCM, a guess while each utterance is said, as Gladia advises a
+ * meeting, and the meeting's words to know as its custom vocabulary (#1031).
+ */
+export function gladiaSession(
+  model: string,
+  languages: readonly string[],
+  words: readonly string[] = [],
+) {
   return {
     encoding: "wav/pcm",
     bit_depth: 16,
@@ -50,6 +58,14 @@ export function gladiaSession(model: string, languages: readonly string[]) {
     endpointing: 0.4,
     maximum_duration_without_endpointing: 15,
     messages_config: { receive_partial_transcripts: true, receive_final_transcripts: true },
+    ...(words.length > 0 && {
+      realtime_processing: {
+        custom_vocabulary: true,
+        // It replaces words that sound like an entry after transcribing: the low end of the
+        // 0.4 to 0.6 its docs suggest, so fewer other words are taken for one.
+        custom_vocabulary_config: { vocabulary: [...words], default_intensity: 0.4 },
+      },
+    }),
   };
 }
 
@@ -89,6 +105,7 @@ function utteranceOf(data: Record<string, unknown>): Utterance | null {
 
 export function createGladiaStream(options: GladiaStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   /** Utterances being said, by Gladia's id, with the line each is. */
   const open = new Map<string, Utterance & { id: number }>();
   let nextId = 1;
@@ -101,7 +118,7 @@ export function createGladiaStream(options: GladiaStreamOptions): CloudStreamHan
       response = await options.fetch(GLADIA_LIVE_URL, {
         method: "POST",
         headers: { "x-gladia-key": options.apiKey, "content-type": "application/json" },
-        body: JSON.stringify(gladiaSession(options.model, options.languages)),
+        body: JSON.stringify(gladiaSession(options.model, options.languages, words.now)),
         redirect: "error",
         signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
       });
@@ -112,6 +129,11 @@ export function createGladiaStream(options: GladiaStreamOptions): CloudStreamHan
     }
     if (response.status === 401 || response.status === 403) return { loss: "refused" };
     if (response.status === 402) return { loss: "credit" };
+    // A setting it won't take is a 400 or a 422: the session is asked for again without the words.
+    if ((response.status === 400 || response.status === 422) && words.drop()) {
+      console.error("Gladia turned the words to know away: the stream goes on without them.");
+      return session();
+    }
     const url = response.ok ? sessionUrl(await response.json().catch(() => null)) : null;
     if (url) return { url };
     console.error("Gladia didn't start a live session:", response.status);

@@ -52,7 +52,9 @@ What this does not capture, so the numbers are not the whole story:
 npm run eval:meetings:fetch              # all cases; or: ... -- en-online-EN2002a zh-room-R8003_M8001
 npm run eval:meetings -- run             # this computer's engine on the cases, then the scores
 INCARNAMIND_EVAL_WORDS=1 npm run eval:meetings -- run   # the same, each case told its words (#1031)
-npm run eval:meetings -- names           # two calls full of names, told and not told (#1031)
+npm run eval:meetings -- names           # four calls full of names, told and not told (#1031)
+INCARNAMIND_EVAL_ROUTES=soniox,openai npm run eval:meetings -- names   # the same on cloud routes
+INCARNAMIND_EVAL_ROUTE=soniox INCARNAMIND_EVAL_UNTIL_MINUTES=10 npm run eval:meetings -- run   # a cloud route on the cases
 npm run eval:meetings:score -- <folder>  # any transcriber's results in <folder>
 ```
 
@@ -72,7 +74,8 @@ npm run eval:meetings:score -- <folder>  # any transcriber's results in <folder>
 
   `processingSeconds` (optional) is how long the transcriber took for the whole case. `speaker` (optional) is any label; without it on any segment the case gets no DER. The score is written next to the results as `score.md` and `score.json`. A case with no file is left out. `--collar <seconds>` and `--until-minutes <n>` change how it scores.
 - **Words to know (#1031).** `words.json` holds the words each case's transcriber is told with `INCARNAMIND_EVAL_WORDS=1`, as a Meeting tells it its Words to know and the names in its Note and Folder. They were picked from each reference by a rule fixed before any run (`npm run eval:meetings:words`, `pickWords.ts`): the terms a general speech model may not know, said at least three times. In English, words of four letters or more that aren't in the macOS word list (`/usr/share/dict/web2`), as they are or as the word they were made from; in Chinese, what the word splitter has no word for and cuts into single characters, two to four of them, none an everyday word's character and none ending in 儿. Each list also holds four terms of a case in the other language and four of the next case in its own language, none of which anybody says in it. Every run scores those words: how many of their occurrences are not written exactly (a name's error rate, as B-WER is in the contextual biasing literature), the error rate of everything else from the same alignment (U-WER), and how often a word told but never said is written (`terms.ts`, in `score.md` and `terms.json`).
-- **Two calls full of names (#1031).** `npm run eval:meetings -- names` (macOS) has an English and a Chinese call (`names.json`), each side in a macOS voice as `say` speaks it at 165 words a minute, made into the cache the first time. Each call goes through the app's code seven times: told nothing, told its own names, told those and the other call's, told only the other call's, told twenty names in its own language that sound like its own and are never said (`decoys`), told names that sound the same as its own but are other people's (`sameSounding`: Danielle West, Markus…), and told names that are also everyday words (`commonWords`: Will, Hope, Grace…, some said as the word). Besides the names' and other words' error rates, it counts the told names never said that were written, the lines that differ, case and all, from the run told nothing, and the stretches the engine reads twice: those whose plain reading holds a told name misheard.
+- **Calls full of names (#1031).** `npm run eval:meetings -- names` (macOS) has two English and two Chinese calls (`names.json`), each side in a macOS voice as `say` speaks it at 165 words a minute, made into the cache the first time. `en-orchard` and `zh-coldstore` are the end-to-end walk's calls of 2026-11-07, with sums said in pounds; their "own" names start with the User's, as a Meeting's words do. Each call goes through the app's code seven times: told nothing, told its own names, told those and the other call's, told only the other call's, told twenty names in its own language that sound like its own and are never said (`decoys`), told names that sound the same as its own but are other people's (`sameSounding`: Danielle West, Markus…), and told names that are also everyday words (`commonWords`: Will, Hope, Grace…, some said as the word). Besides the names' and other words' error rates, it counts the told names never said that were written, the lines that differ, case and all, from the run told nothing, the stretches the engine reads twice (on this computer): those whose plain reading holds a told name misheard, and the sums said and written in pounds, dollars and euros. `INCARNAMIND_EVAL_ROUTES` runs it on cloud routes too (`soniox`, `openai`, with `SONIOX_API_KEY` and `OPENAI_API_KEY`), through the app's adapters, each side a stream at the pace it was spoken and the words in the route's own field as the app fits them (`cloud.ts`); `INCARNAMIND_EVAL_ARMS` and `INCARNAMIND_EVAL_CALLS` pick some, and `INCARNAMIND_EVAL_SONIOX_MODEL` another Soniox model.
+- **A cloud route on the cases (#1031).** `INCARNAMIND_EVAL_ROUTE=soniox` (or `openai`) sends each case's tracks to that route instead of this computer's engine, at the pace they were spoken, `INCARNAMIND_EVAL_PARALLEL` cases at once; it is billed by the audio sent, so `INCARNAMIND_EVAL_UNTIL_MINUTES` keeps it short.
 - **Tests.** `npm test` checks the scorer and the builders on small files made in the tests, and the pins; it needs neither the network nor the cache. Two tests that read the cached Parquet files run only when `INCARNAMIND_EVAL_CACHE` points at a cache that has them.
 
 ## What the scorer reports
@@ -142,3 +145,32 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - Told, 2 of the set's 3,440 stretches with text were read twice (0.06%): 1.0006 readings a stretch, and the real-time factor stayed at 0.08–0.17×. One line changed: "Speak Characterization" became "Speak Characterisation", a word said there. No word changed only its case.
 - The words told and never said (eight a case: four of another language, four of the next case in the same one) were written once told nothing and once told, the same word the engine writes unprompted.
 - The words this rule picks are mostly terms rather than names (Characterisation, Disfluencies, 抖音, 主播), which the engine writes in lower case or as everyday words; a told name mends only a word written as a name that sounds like it, so they gain little. The names are what it is for: on the two calls full of names (`npm run eval:meetings -- names`), told their own names, English names not written exactly went from 4 of 14 to 0 with every other word's error rate the same, reading 3 of the call's 17 stretches twice. Told twenty unsaid names that sound like the call's, or names that are everyday words (Will, Hope, Grace), no unsaid name was written and no word changed its case. Told a name that sounds the same as one said but is someone else's, the engine's "Marcus" became "Markus": sound can't tell them apart.
+
+**Cloud routes told the words (#1031),** 2026-11-09, Apple M2 Max: the four calls full of names on this computer, Soniox (`stt-rt-v5` and `stt-rt-v6`) and OpenAI (`gpt-live-transcribe`, two runs), told nothing, the call's own names (the User's first, as a Meeting's words are) and twenty unsaid names that sound like them (`decoys`). Names not written exactly, of 31 said (21 in English, 10 in Chinese), and told names never said that were written:
+
+| Route | Told nothing | Own names | Decoys | Decoys written |
+|---|---|---|---|---|
+| This computer | 13 (English 8, Chinese 5) | 6 (English 1, Chinese 5) | 12 | 1 |
+| Soniox `stt-rt-v5` | 7 | 3 | 9 | 2 |
+| Soniox `stt-rt-v6` | 5 | 0 | 11 | 1 |
+| OpenAI, run 1 | 14 | 1 | 15 | 12 |
+| OpenAI, run 2 | 14 | 1 | 12 | 10 |
+
+- Every other word's error rate moves little, told or not: by at most 2.7 points on Soniox (down, on `zh-coldstore` told its own names on `stt-rt-v5`) and 2.0 on OpenAI, whose own two runs told nothing differ by up to 4.4 points (`zh-office`, 23.4% and 19.0%).
+- A Chinese name told to this computer mends nothing (above), so its Chinese stays at 5 of 10.
+- Decoys are the risk: told a name that sounds like one said, a cloud route writes the told one. On `stt-rt-v6`, told Marin Okafor and Danielle Brooks, "Hi Daniel, I'm Maren Okafor" became "Hi Danielle, I'm Marin Okafor"; OpenAI wrote two or three decoys on every call. This computer's one is what it writes told nothing too (林小文 for 林晓雯).
+- **Sums.** Said: 4 in dollars (`en-renewal`), 2 in pounds (`en-orchard`), 2 in 英镑 (`zh-coldstore`). `stt-rt-v5` wrote both pounds as dollars ("$42,500") in every arm, told or not, and "eighty-five dollars" as "£85" in two of three. This computer, `stt-rt-v6` and OpenAI wrote each sum in the currency said. OpenAI misheard one 英镑 line throughout in 3 of its 4 told runs (两万税先invoice for 两万四千英镑): a word lost, not another currency.
+
+**Soniox `stt-rt-v5` and `stt-rt-v6` on the cases,** the first 10 minutes of each, told nothing, `INCARNAMIND_EVAL_ROUTE=soniox INCARNAMIND_EVAL_UNTIL_MINUTES=10`, the same day:
+
+| Language | Setting | `stt-rt-v5` | `stt-rt-v6` |
+|---|---|---|---|
+| English | online | WER 19.2% (713 of 3,719) | WER 17.7% (659) |
+| English | room | WER 17.0% (398 of 2,343) | WER 17.1% (400) |
+| Chinese | online | CER 15.1% (867 of 5,742) | CER 13.4% (769) |
+| Chinese | room | CER 33.4% (2,412 of 7,231) | CER 34.3% (2,481) |
+| Mixed | conversation | MER 31.0% (1,223 of 3,947) | MER 31.8% (1,255) |
+| English, all | | WER 18.3% (1,111 of 6,062) | WER 17.5% (1,059) |
+| Chinese, all | | CER 25.3% (3,279 of 12,973) | CER 25.1% (3,250) |
+
+- A second run of the Chinese room and mixed cases gave the same gap: CER 33.3% and 34.2%, MER 31.4% and 31.9%.

@@ -53,6 +53,7 @@ export const en = {
   "organizeReview.willMove": "{documents} will move into {into}. Nothing has moved yet.",
   "organizeReview.willMove.none": "No Documents are ticked. Nothing has moved yet.",
   "organizeReview.nothingMoved": "Nothing has moved yet",
+  "organizeReview.nothingChanged": "Nothing has changed yet",
   "organizeReview.documents": "{count} Documents",
   "organizeReview.documents.one": "1 Document",
   "organizeReview.into.yours": "{count} of your Folders",
@@ -100,8 +101,30 @@ export const en = {
   "organizeReview.leftOut.noText": "No text to read",
   "organizeReview.leftOut.unreachable": "Couldn’t reach {service}",
   "organizeReview.leftOut.walled": "“{folder}” keeps its work inside it",
+  "organizeReview.leftOut.noTag": "No Tag fits",
+  "organizeReview.leftOut.tooFew": "Too few like it for a Folder yet",
+  "organizeReview.apart":
+    "These {count} Documents are too different to group yet. A Folder needs at least 3 that belong together.",
+  "organizeReview.apart.one":
+    "1 Document is too few to group yet. A Folder needs at least 3 that belong together.",
+  "organizeReview.noTagFits": "No Tag fits these {count} Documents. Nothing has changed.",
+  "organizeReview.noTagFits.one": "No Tag fits this Document. Nothing has changed.",
+  "organizeReview.title.tags": "Suggested Tags",
+  "organizeReview.willTag": "{documents} will get Tags. Nothing has changed yet.",
+  "organizeReview.willTag.none": "No Documents are ticked. Nothing has changed yet.",
+  "organizeReview.willMoveAndTag":
+    "{documents} will move into {into}, and {others} will get Tags. Nothing has changed yet.",
+  "organizeReview.others": "{count} others",
+  "organizeReview.others.one": "1 other",
+  "organizeReview.section.tagsOnly": "Tags only",
+  "organizeReview.tagging": "Tagging {done} of {total}…",
+  "organizeReview.stoppedTagging": "Stopped after tagging {count}. Nothing has changed.",
+  "organizeReview.tagged": "Tagged {count} Documents",
+  "organizeReview.tagged.one": "Tagged 1 Document",
   "organizeReview.running": "Organizing {done} of {total}…",
   "organizeReview.failed.model": "Couldn’t reach the AI model",
+  "organizeReview.taggingFailed":
+    "Organize couldn’t suggest Tags this time. The next run tries them again",
   "organizeReview.stop": "Stop",
   "organizeReview.stopped": "Stopped after reading {count}. Nothing has moved.",
   "organizeReview.estimate": "Organizing {count} Documents: {cost}",
@@ -2578,25 +2601,25 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
   "status.sends":
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language for a chat model.",
   "status.sends.onThisComputer":
-    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
   "status.sends.organize":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.onThisComputer":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer.",
   "status.sends.organize.scans":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
   "status.sends.organize.onThisComputer.scans":
-    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+    "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
   "status.sends.organize.text":
-    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+    "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.text.onThisComputer":
-    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+    "For text Documents, the names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, stay on this computer.",
   "status.sends.scans":
-    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+    "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags go to {service}.",
   "status.sends.scans.onThisComputer":
-    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+    "For scans, page images, the Document’s name and type, the kinds of Document, and the names and descriptions of your Folders and your own Tags stay on this computer.",
   "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
@@ -2852,13 +2875,8 @@ export const en = {
   "tags.colour.blue": "Blue",
   "tags.colour.purple": "Purple",
   "tags.colour.gray": "Gray",
-  "tags.filter.review": "Needs review",
   "tags.chip.more": "{count} more: {names}",
   "tags.marks": "Tags: {names}",
-  "tags.chip.reviewTitle":
-    "{tag}: added automatically, not sure. Confirm to keep it, or remove it.",
-  "tags.review.confirm": "Confirm {tag}",
-  "tags.review.reject": "Remove {tag}",
   "tags.edit": "Edit Tags of {name}",
   "tags.picker.labelMany": "Tags of {count} Documents",
   "tags.picker.placeholder": "Add a Tag…",
@@ -2878,7 +2896,6 @@ export const en = {
   "tags.picker.automatic": "automatic",
   "tags.dialog.count": "{count} Documents",
   "tags.dialog.count.one": "1 Document",
-  "tags.dialog.toReview": "{count} to review",
   "tags.dialog.descriptionNote":
     "Clear descriptions make tagging more accurate. Re-tag to apply a change.",
   "tags.dialog.search": "Find a Tag",
@@ -2900,6 +2917,28 @@ export const en = {
   "documents.startMind.many": "Start a note from these {count} Documents",
   "documents.retryAction.many": "Retry {count} Documents",
   "command.selection.clear": "Clear Selection",
+  "tags.kind.contract": "Contract",
+  "tags.kind.contract.description":
+    "An agreement between parties, such as a contract, lease, NDA or statement of work.",
+  "tags.kind.invoice": "Invoice",
+  "tags.kind.invoice.description":
+    "A bill, receipt or expense claim for goods or services supplied.",
+  "tags.kind.statement": "Statement",
+  "tags.kind.statement.description": "An account statement from a bank, card issuer or supplier.",
+  "tags.kind.report": "Report",
+  "tags.kind.report.description": "A report of findings, figures, analysis or progress.",
+  "tags.kind.paper": "Paper",
+  "tags.kind.paper.description":
+    "A research or academic paper, such as a journal article, preprint or thesis.",
+  "tags.kind.book": "Book",
+  "tags.kind.book.description": "A book, a chapter of one, or a manual.",
+  "tags.kind.slides": "Slides",
+  "tags.kind.slides.description": "A presentation deck.",
+  "tags.kind.meetingNotes": "Meeting notes",
+  "tags.kind.meetingNotes.description":
+    "Notes or minutes of a meeting, a call, an interview or a debrief.",
+  "tags.kind.letter": "Letter",
+  "tags.kind.letter.description": "A letter or a formal notice addressed to someone.",
   "tags.chip.automatic": "{tag}: added automatically",
   "tags.chip.user": "{tag}: added by you",
   "tags.menu.open": "Tags of {name}",
@@ -2909,6 +2948,7 @@ export const en = {
   "tags.state.tagging": "Tagging…",
   "tags.state.noFit": "No Tag fits",
   "tags.state.noTags": "No Tags yet",
+  "tags.state.waiting": "Suggested Tags to confirm",
   "tags.state.addTag": "Add a Tag",
   "tags.state.failed": "Tagging failed. Re-tag to try again.",
   "tags.dialog.body": "Tagging goes by these names and descriptions. Tags you set never change.",
@@ -2924,19 +2964,17 @@ export const en = {
   "tags.dialog.new": "New Tag",
   "tags.dialog.create": "Add Tag",
   "tags.dialog.retag": "Re-tag all Documents",
-  "tags.dialog.retag.hint": "Redoes automatic Tags for every Document. Tags you set stay.",
+  "tags.dialog.retag.hint":
+    "Suggests Tags for every Document again. They wait in Suggested Tags until you confirm them, and Tags you set stay.",
   "tags.dialog.retag.started": "Re-tagging has started.",
+  "tags.dialog.retag.none": "Nothing to re-tag: Tagging is off, or stopped where every Document is",
   "tags.dialog.done": "Done",
 
   "jev.waiting.notice": "Tags come once you choose an AI model.",
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
-  "jev.chip.needsReview": "needs review",
   "jev.chip.likely": "{tag}: added automatically, {percent}% likely",
-  "jev.chip.review":
-    "{tag}: added automatically, but only {percent}% likely. Confirm it to keep it, or remove it.",
-  "jev.chip.confirm": "Confirm {tag} on {name}",
   "jev.settings.title": "TypeSafe Jev",
-  "jev.settings.body": "Tags with TypeSafe Jev; uncertain ones go to review.",
+  "jev.settings.body": "Suggests Tags with TypeSafe Jev, for you to confirm.",
   "jev.settings.inUse": "Your Jev key is saved.",
   "jev.settings.server": "Server: {server}",
   "jev.settings.hosted": "TypeSafe",
@@ -2958,13 +2996,12 @@ export const en = {
   "jev.settings.change": "Change",
   "jev.settings.remove": "Stop using Jev",
   "jev.form.apiKey": "Jev API key",
-  "jev.form.advanced": "Server, model and review",
+  "jev.form.advanced": "Server, model and threshold",
   "jev.form.endpoint": "Server URL (optional)",
   "jev.form.endpointHint": "Leave empty for TypeSafe’s Jev, or enter a compatible server.",
   "jev.form.model": "Model (optional)",
-  "jev.form.reviewFrom": "Needs review from (%)",
-  "jev.form.reviewTo": "to (%)",
-  "jev.form.reviewHint": "Below first: not added. From second: no review mark.",
+  "jev.form.suggestFrom": "Suggest from (%)",
+  "jev.form.suggestHint": "A Tag Jev gives less than this isn’t suggested.",
   "jev.form.save": "Use Jev for tagging",
   "tagging.title": "Tagging",
   "tagging.intro": "Tags new Documents and suggests Folders.",
@@ -3099,6 +3136,8 @@ export const en = {
   "setup.key.placeholder": "Paste an API key",
   "setup.key.checking": "Checking your key\u2026",
   "setup.key.recognised": "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
+  "setup.key.sends":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   "setup.key.unrecognised": "We don’t recognize this key’s service",
   "setup.key.chooseService": "Choose the service",
   "setup.key.ask": "{provider}?",
@@ -3133,9 +3172,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.sendsWhenOn":
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, to {service}. Documents already in the Library go only when you run Organize.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, for a chat model, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
   "models.sorting.off": "Tagging new Documents is off",
   "models.sorting.turnOn": "Turn on…",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
@@ -3215,7 +3254,8 @@ export const en = {
   "providers.form.test": "Test connection",
   "providers.form.testing": "Testing…",
   "providers.form.save": "Use this service",
-  "providers.sendsLine": "Sends your questions and document text to {provider}.",
+  "providers.sendsLine":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to {provider}.",
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
   "providers.sends.checks":
@@ -3225,7 +3265,7 @@ export const en = {
   "providers.sends.edits":
     "the text you ask the assistant to change, the paragraphs it is in and, when the change rewrites or removes cited text, that Citation’s quote",
   "providers.sends.onRequest":
-    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, the kinds of Document, your own Tags’ names and descriptions and your interface language, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
   "providers.form.moreShort": "More…",
   "providers.form.whereKey": "Where do I find it?",
@@ -3393,7 +3433,8 @@ export const en = {
   "copilot.notice.title": "Use your Copilot plan",
   "copilot.notice.usage": "Answers count toward your Copilot plan’s usage limits.",
   "copilot.notice.experimental": "Experimental: GitHub may block this sign-in.",
-  "copilot.notice.sends": "Sends your questions and document text to GitHub.",
+  "copilot.notice.sends":
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to GitHub.",
   "copilot.notice.sends.details":
     "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   "copilot.cancel": "Cancel",
@@ -3520,7 +3561,7 @@ export const en = {
     "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
-  "consent.data.tags": "The names and descriptions of your Tags",
+  "consent.data.tags": "The kinds of Document and the names and descriptions of your own Tags",
   "consent.data.document-excerpts":
     "Each Document’s name and type and an excerpt of its start (about 1,500 tokens), with a deck’s slide titles or a workbook’s sheet names",
   "consent.flow.scan-images": "Page images of scans",
@@ -3557,6 +3598,8 @@ export const en = {
   "consent.flow.transcription": "Meeting transcription",
   "consent.flow.transcription.purpose": "turn what’s said in your meetings into text",
   "consent.data.meeting-audio": "Meeting audio while you record, other people’s voices included",
+  "consent.data.meeting-words":
+    "Your name, your Words to know, each meeting’s folder name, and the names in its note, calendar event and folder’s documents",
   "consent.flow.calendars": "Calendars",
   "consent.flow.calendars.purpose": "show the meetings coming up from your calendar",
   "consent.data.calendar-request":
@@ -3688,6 +3731,8 @@ export const en = {
   "consent.settings.status.declined": "Not allowed",
   "consent.settings.status.not-asked": "Not asked yet",
   "consent.settings.status.sendsMore": "Asks again: it sends more now",
+  "consent.settings.status.sendsMoreWhat": "Not sent until you allow it: {what}",
+  "consent.settings.status.sendsMoreWhat.separator": "; ",
   "consent.settings.revoke": "Stop allowing",
   "consent.settings.askAgain": "Ask again",
 
@@ -3911,16 +3956,19 @@ export const en = {
   "meetings.route.wayRow": "{provider} · your key",
   "meetings.route.use": "Use {provider}",
   "meetings.route.waysNote":
-    "Choosing one sends the meeting’s audio to that service while you record. Change it in Settings › Meetings.",
+    "Choosing one sends the meeting’s audio to that service while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents. Change it in Settings › Meetings.",
   "meetings.route.cloudOn": "Transcribe with {provider}",
-  "meetings.route.cloudLine": "Audio goes to {provider} while you record.",
+  "meetings.route.cloudLine":
+    "Audio goes to {provider} while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.route.cloudLineAudio": "Audio goes to {provider} while you record.",
   "meetings.route.agreement": "Agreement",
   "meetings.route.useHere": "Use this computer",
   "meetings.route.slow":
     "This computer may not keep up live; a cloud service keeps live text smooth.",
   "meetings.route.slowNoKey": "Live text may fall behind on this computer.",
   "meetings.route.settingsLink": "Settings › Models",
-  "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
+  "meetings.route.consent":
+    "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
   "meetings.route.chooseAgain":
     "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
@@ -4080,6 +4128,9 @@ export const en = {
   "answer.commands.proposed.separator": ", ",
   "answer.commands.proposed.wait": "Nothing has moved yet: review them to file them.",
   "answer.commands.proposed.wait.one": "Nothing has moved yet: review it to file it.",
+  "answer.commands.proposedTags": "Proposed Tags for {documents}: {parts}.",
+  "answer.commands.proposedTags.wait": "No Tag has been added yet: review them to add them.",
+  "answer.commands.proposedTags.wait.one": "No Tag has been added yet: review them to add them.",
   "answer.commands.notDone": "Not done yet: “{asked}”. Ask again to do it.",
   "answer.commands.unsorted": "{count} Documents couldn’t be sorted.",
   "answer.commands.untouched": "{count} Documents were left as they were.",
@@ -5698,11 +5749,14 @@ export const en = {
   "commands.finding.tag": "Finding the Tags…",
   "commands.finding.window": "Looking at what this window can do…",
   "commands.running.organize": "Organizing…",
+  "commands.running.tagWithAi": "Tagging…",
   "commands.running.window": "Running “{command}”…",
   "commands.done.window": "Done: {command}",
   "commands.done.openedBeside": "Opened “{name}” beside this one",
   "commands.done.organize": "{count} Documents wait in Suggested Folders",
   "commands.done.organize.one": "1 Document waits in Suggested Folders",
+  "commands.done.tagWithAi": "{count} Documents wait in Suggested Tags",
+  "commands.done.tagWithAi.one": "1 Document waits in Suggested Tags",
   "commands.done.rename.folder": "Renamed {count} Folders",
   "commands.done.rename.folder.one": "Renamed 1 Folder",
   "commands.done.rename.tag": "Renamed {count} Tags",
@@ -6533,7 +6587,6 @@ export const en = {
   "approvals.tools.off": "Off",
   "approvals.settings.title": "Approvals",
   "approvals.settings.body": "Tools and Skills you changed from the default.",
-  "approvals.settings.empty": "Nothing changed from the default.",
   "approvals.settings.revoke": "Reset",
   "approvals.settings.revokeLabel": "Reset {name} to its default",
   "approvals.settings.skillScripts": "Scripts of {skill}",
@@ -6996,7 +7049,12 @@ export const en = {
   "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
   "meetings.words.title": "Words to know",
   "meetings.words.body":
-    "Names and terms that transcription on this computer writes as you do: people, companies, products. Each meeting adds the names in its note and its folder.",
+    "Names and terms that transcription writes as you do: people, companies, products. Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents. A cloud service you transcribe with gets them with the audio.",
+  "meetings.words.bodyHere":
+    "Names and terms that transcription writes as you do: people, companies, products. Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.words.waiting":
+    "{provider} gets the audio but not these words: you chose it before they were sent. Send them, and with each meeting it also gets your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+  "meetings.words.send": "Send to {provider}",
   "meetings.words.field": "Add a word to know",
   "meetings.words.placeholder": "A name or a term",
   "meetings.words.add": "Add",

@@ -2,6 +2,8 @@
  * Suggestions (CONTEXT.md): what Organize and tagging propose, held until the User confirms it
  * (#1569, #2339). Nothing here is kept in the Library before Confirm.
  */
+import type { TagColour } from "../../shared/tagColours";
+import type { TagKind } from "../tags/kinds";
 
 /** What started the run that proposed a row. Only "background" and "migrated" weren't the User's. */
 export type OrganizeReviewOrigin =
@@ -18,13 +20,17 @@ export type OrganizeReviewOrigin =
  */
 export type OrganizeReviewLeftOut =
   | { reason: "doesntFit" }
+  /** No Folder exists or was proposed: too few Documents like it for one yet (a Folder needs 3). */
+  | { reason: "tooFew" }
   /** Organize This Folder found no subfolder for it: it stays at the Folder's top level. */
   | { reason: "staysInFolder" }
   | { reason: "noText" }
   /** `service` is its name as the User sees it (`ExternalService.name`). */
   | { reason: "unreachable"; service: string }
   /** A Folder that keeps its work inside it holds the Document. */
-  | { reason: "walled"; folderId: string };
+  | { reason: "walled"; folderId: string }
+  /** Tagging found no kind and no Tag for it (#2339). */
+  | { reason: "noTag" };
 
 export type OrganizeReviewPlacement =
   | { kind: "folder"; folderId: string }
@@ -38,8 +44,12 @@ export interface OrganizeReviewTag {
   id: string;
   /** The Library's Tag; null for a new one, which Confirm makes. */
   tagId: string | null;
+  /** The kind it is the Tag for (#2339); its name is the kind's in the interface's language. */
+  kind: TagKind | null;
   name: string;
   description: string;
+  /** Its colour, or the one a new kind's Tag will get; null for a new Tag of a name. */
+  colour: TagColour | null;
   addedByUser: boolean;
 }
 

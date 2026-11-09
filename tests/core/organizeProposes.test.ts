@@ -166,22 +166,6 @@ describe("Every Organize run proposes, and files nothing", () => {
     expect(library.groups.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
   });
 
-  test("with no Folders, the Folders it proposes wait with the Documents, and none is made", async () => {
-    const { core, add } = await start({ folders: false });
-    const [quote, plan] = await add("Kitchen quote", "Race plan");
-    if (!quote || !plan) throw new Error("Not added.");
-
-    const proposed = await core.proposeFolders([quote.id, plan.id]);
-    await core.classifyDocuments([quote.id, plan.id]);
-
-    expect(proposed.map((each) => each.name)).toEqual(["Kitchen", "Race"]);
-    await vi.waitFor(async () => {
-      expect(await proposedFor(core, quote.id)).toBe("new:Kitchen");
-      expect(await proposedFor(core, plan.id)).toBe("new:Race");
-    });
-    expect((await core.getLibrary()).groups).toEqual([]);
-  });
-
   test("a Folder's Organize may propose moving what the User filed in it; the Library's leaves it", async () => {
     const { core, sorting, kitchen, race, add } = await start();
     const [plan] = await add("Race plan");
@@ -271,12 +255,11 @@ describe("Every Organize run proposes, and files nothing", () => {
     expect((await core.getLibrary()).reviewCount).toBe(0);
   });
 
-  test("Organize's request carries what it always has: the Folders, proposed ones as Folders, and the Document", async () => {
-    const { core, sorting, add } = await start({ folders: false });
+  test("Organize's request carries what it always has: the Folders, the kinds and the Document", async () => {
+    const { core, sorting, add } = await start();
     const [quote, plan] = await add("Kitchen quote", "Race plan");
     if (!quote || !plan) throw new Error("Not added.");
 
-    await core.proposeFolders([quote.id, plan.id]);
     await core.classifyDocuments([quote.id, plan.id]);
     await readAgain(core, sorting, [quote.id, plan.id], 0);
 

@@ -2,25 +2,17 @@
  * `INCARNAMIND_ORGANIZE_MODE=new-user npm run eval:organize`: Organize as a new User meets it
  * (README.md). A core on a temporary data folder, with the User's chat model and no Folders, is
  * given the set's Documents, and Organize runs as the Library's Organize runs it: planned from
- * the whole set into the Review (`organizeLibrary`), or on the "classic" route as the Library's
- * "Sort these into Folders" ran it before the Review. What it proposed is scored before the User
- * confirms anything.
+ * the whole set into the Review (`organizeLibrary`), its Tags proposed beside its Folders. What
+ * it proposed is scored before the User confirms anything.
  */
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { join, resolve } from "node:path";
 import { generateText } from "ai";
 import { test } from "vitest";
-import {
-  type Core,
-  createAiSdkChatModel,
-  type Document,
-  type OrganizeReviewItem,
-} from "../../src/core";
+import { createAiSdkChatModel, type Document, type OrganizeReviewItem } from "../../src/core";
 import { organizeExcerpt } from "../../src/core/library/excerpt";
-import type { DocumentGroupAssignment } from "../../src/core/library/types";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { type DocumentExcerpt, documentType } from "../../src/core/tags/classify";
 import { createTempDataFolder, queryDatabase, startCore } from "../../tests/helpers/core";
@@ -29,6 +21,7 @@ import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "
 import type { Subfolder } from "./lib/newUser";
 import {
   bars,
+  type KindScore,
   kindOf,
   type NewUserRun,
   newUserReport,
@@ -45,34 +38,6 @@ const root = process.cwd();
 const results = join(root, "eval", "results", "organize");
 const save = (file: string, data: unknown) => writeFile(file, `${JSON.stringify(data, null, 2)}\n`);
 const log = (line: string) => console.log(`[organize new-user] ${line}`);
-/** The run stops waiting for Organize after this long, and scores what it has. */
-const SETTLE_LIMIT_MS = 20 * 60_000;
-const WORKING = new Set(["pending", "classifying"]);
-
-/**
- * Waits until no Document is pending or being sorted, nor waiting out a rate limit. Stops at once
- * when the provider says the account is out of credit: no other key is tried.
- */
-async function settled(core: Core, ids: ReadonlySet<string>): Promise<DocumentGroupAssignment[]> {
-  const deadline = performance.now() + SETTLE_LIMIT_MS;
-  for (;;) {
-    const mine = (await core.getLibrary()).assignments.filter((each) => ids.has(each.documentId));
-    if (mine.some((each) => each.error?.kind === "out-of-credit"))
-      throw new Error("The provider says the account is out of credit. Stopped; add credit.");
-    const going = mine.filter(
-      (each) =>
-        WORKING.has(each.status) ||
-        (each.status === "waiting" && each.error?.kind === "rate-limit"),
-    );
-    if (going.length === 0) return mine;
-    if (performance.now() > deadline) {
-      log(`${going.length} Documents still going after ${SETTLE_LIMIT_MS / 60_000} minutes.`);
-      return mine;
-    }
-    await sleep(250);
-  }
-}
-
 /** Asks the judge whether a Document, as Organize reads it, is about a Tag's subject. */
 function topicJudge(settings: ChatSettings) {
   const model = createAiSdkChatModel({ ...chatModelSpecOf(settings), thinking: "off" });
@@ -151,16 +116,24 @@ async function scaleSet(count: number): Promise<string> {
 }
 
 test("Organize as a new User meets it", async () => {
-  const route = choice(
-    "INCARNAMIND_ORGANIZE_ROUTE",
-    process.env.INCARNAMIND_ORGANIZE_ROUTE,
-    ["plan", "classic"],
-    "plan",
+  const kindScore: KindScore = choice(
+    "INCARNAMIND_ORGANIZE_KIND_SCORE",
+    process.env.INCARNAMIND_ORGANIZE_KIND_SCORE,
+    ["one-kind", "as-written"],
+    "one-kind",
   );
   const scale = Number(process.env.INCARNAMIND_ORGANIZE_SCALE ?? 0);
   if (!Number.isInteger(scale) || scale < 0)
     throw new Error("INCARNAMIND_ORGANIZE_SCALE must be a number of Documents.");
-  const directory = scale > 0 ? await scaleSet(scale) : join(root, SET_DIRECTORY);
+  const named = process.env.INCARNAMIND_ORGANIZE_SET?.trim();
+  if (named && scale > 0)
+    throw new Error("INCARNAMIND_ORGANIZE_SET and INCARNAMIND_ORGANIZE_SCALE can't both be set.");
+  // The core keeps each file by its resolved path, which the set's own paths are matched against.
+  const directory = named
+    ? await realpath(resolve(root, named))
+    : scale > 0
+      ? await scaleSet(scale)
+      : join(root, SET_DIRECTORY);
   const set = await readSet(root, directory);
   const config = readConfig(root);
   const options = runOptions(process.env, "heldout");
@@ -174,7 +147,7 @@ test("Organize as a new User meets it", async () => {
   const startedAt = new Date().toISOString();
   const output = join(
     results,
-    `new-user-${route}${scale ? `-${scale}` : ""}-${startedAt.replace(/[:.]/g, "-")}`,
+    `new-user${scale ? `-${scale}` : ""}-${startedAt.replace(/[:.]/g, "-")}`,
   );
   await mkdir(output, { recursive: true });
 
@@ -217,57 +190,39 @@ test("Organize as a new User meets it", async () => {
     throw new Error(
       `Automatic offers ${automatic.name}, which can't name Folders: the starter Folders open instead.`,
     );
-  await core.saveLibrarySettings({ ...library.settings, organizeWith: automatic.classifier });
+  // The User allowed tagging too, with the Tagging switch, so Organize's run proposes its Tags
+  // (#2339): with Organize allowed alone it proposes Folders only, as on `main`.
+  await core.saveLibrarySettings({
+    ...library.settings,
+    organizeWith: automatic.classifier,
+    turnOn: true,
+  });
   log(`Organizing with ${automatic.name}…`);
 
   const pressed = performance.now();
-  let proposedMs = 0;
-  let firstPlacementMs: number | null = null;
-  let totalMs = 0;
-  let plan: NewUserRun["plan"];
-  let tagsOf: (id: string, item: OrganizeReviewItem | undefined) => string[] = (_, item) =>
-    (item?.tags ?? []).map((tag) => tag.name);
-
-  if (route === "plan") {
-    let result = await core.organizeLibrary();
-    if (result.status === "estimate") {
-      log(`Estimated ${JSON.stringify(result.estimate)}: going on, as the User would.`);
-      result = await core.organizeLibrary({ costAccepted: true });
-    }
-    totalMs = performance.now() - pressed;
-    proposedMs = totalMs;
-    if (result.status !== "done") throw new Error(`Organize ended: ${result.status}.`);
-    plan = {
-      requests: result.requests,
-      placedByModel: result.placedByModel,
-      inputPerRequest: queryDatabase<{ input: number | null }>(
-        dataDir,
-        "SELECT input_tokens AS input FROM model_requests WHERE deleted_at IS NULL AND flow = 'classification' ORDER BY created_at",
-      ).map((row) => row.input ?? 0),
-      subfolders: [],
-    };
-  } else {
-    const watching = new Set(ids);
-    const stop = core.on("organizeReview.changed", () => {
-      firstPlacementMs ??= performance.now() - pressed;
-    });
-    const made = await core.proposeFolders(ids);
-    proposedMs = performance.now() - pressed;
-    log(`${made.length} Folders proposed: ${made.map((folder) => folder.name).join(", ")}`);
-    if (made.length > 0) await core.classifyDocuments(ids);
-    await settled(core, watching);
-    totalMs = performance.now() - pressed;
-    stop();
-    // The classic route still adds its Tags as it sorts.
-    const tagNames = new Map((await core.listTags()).map((tag) => [tag.id, tag.name]));
-    const tagged = new Map(
-      (await core.listDocuments()).map((each) => [
-        each.id,
-        each.tags.map((tag) => tagNames.get(tag.tagId) ?? tag.tagId),
-      ]),
-    );
-    tagsOf = (id) => tagged.get(id) ?? [];
+  let result = await core.organizeLibrary();
+  if (result.status === "estimate") {
+    log(`Estimated ${JSON.stringify(result.estimate)}: going on, as the User would.`);
+    result = await core.organizeLibrary({ costAccepted: true });
   }
+  const totalMs = performance.now() - pressed;
+  const proposedMs = totalMs;
+  const firstPlacementMs: number | null = null;
+  if (result.status !== "done") throw new Error(`Organize ended: ${result.status}.`);
+  const inputsOf = (flow: string) =>
+    queryDatabase<{ input: number | null }>(
+      dataDir,
+      "SELECT input_tokens AS input FROM model_requests WHERE deleted_at IS NULL AND flow = ? ORDER BY created_at",
+      [flow],
+    ).map((row) => row.input ?? 0);
+  const plan: NewUserRun["plan"] = {
+    requests: result.requests,
+    placedByModel: result.placedByModel,
+    inputPerRequest: inputsOf("classification"),
+    subfolders: [],
+  };
+  const tagsOf = (item: OrganizeReviewItem | undefined) =>
+    (item?.tags ?? []).map((tag) => tag.name);
 
   // What Organize proposed, as the Review has it: a subfolder counts as its top-level Folder.
   const review = await core.getOrganizeReview();
@@ -295,7 +250,7 @@ test("Organize as a new User meets it", async () => {
           : placement?.kind === "folder"
             ? placement.folderId
             : null,
-      tags: tagsOf(id, item),
+      tags: tagsOf(item),
       status:
         placement?.kind === "leftOut"
           ? `left out: ${placement.leftOut?.reason ?? "moved"}`
@@ -321,9 +276,13 @@ test("Organize as a new User meets it", async () => {
       },
     ];
   });
-  if (plan) plan.subfolders = subfolders;
+  plan.subfolders = subfolders;
+  const tagging = {
+    inputPerRequest: inputsOf("tagging"),
+    documents: outcomes.filter((each) => each.readable).length,
+  };
   log(
-    `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders${plan ? `; ${plan.placedByModel} asked past the sample in ${plan.requests} requests` : ""}.`,
+    `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders; ${plan.placedByModel} asked past the sample in ${plan.requests} requests; ${tagging.inputPerRequest.length} tagging requests.`,
   );
   const spend = metered(dataDir);
   await save(join(output, "results.json"), { folders, outcomes, spend });
@@ -358,7 +317,7 @@ test("Organize as a new User meets it", async () => {
     // Not a checkout: the report says so.
   }
   const run: NewUserRun = {
-    route,
+    route: "plan",
     ...(plan && { plan }),
     startedAt,
     commit,
@@ -367,6 +326,8 @@ test("Organize as a new User meets it", async () => {
     organizeModel: automatic.name,
     judge: `${judgeSettings.kind}/${judgeSettings.modelId}`,
     listMistakes: options.showHeldOut || !options.splits.includes("heldout"),
+    kindScore,
+    tagging,
     proposedMs,
     firstPlacementMs,
     totalMs,
@@ -374,7 +335,9 @@ test("Organize as a new User meets it", async () => {
   };
   await save(join(output, "results.json"), { run, folders, outcomes, verdicts });
   await writeFile(join(output, "report.md"), newUserReport(run, outcomes, folders, verdicts));
-  for (const bar of bars(scoreNewUser(outcomes, folders, verdicts)))
-    log(`${bar.pass ? "PASS" : "FAIL"} ${bar.name}: ${bar.value} (bar ${bar.bar})`);
+  for (const bar of bars(scoreNewUser(outcomes, folders, verdicts), kindScore))
+    log(
+      `${bar.reported ? "REPORTED" : bar.pass ? "PASS" : "FAIL"} ${bar.name}: ${bar.value} (bar ${bar.bar})`,
+    );
   log(`Report: ${join(output, "report.md")}`);
 });

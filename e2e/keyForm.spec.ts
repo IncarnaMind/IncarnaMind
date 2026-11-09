@@ -1075,16 +1075,19 @@ for (const height of [560, 700]) {
   });
 }
 
-for (const { value, line, chips, titles } of [
+for (const { value, line, sends, chips, titles } of [
   {
     value: "en",
     line: "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
+    sends:
+      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
     chips: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi", "Qwen"],
     titles: ["Anthropic", "OpenAI", "Google", "DeepSeek", "Kimi"],
   },
   {
     value: "zh-CN",
     line: "可以识别 DeepSeek、通义千问、智谱 GLM、硅基流动等服务的密钥。",
+    sends: "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
     chips: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM", "Anthropic", "OpenAI", "Google"],
     titles: ["DeepSeek", "通义千问", "Kimi", "智谱 GLM"],
   },
@@ -1092,11 +1095,13 @@ for (const { value, line, chips, titles } of [
   test(`first run names the key forms it recognises and hands the rest to the service list, whose chips and key forms all open in one step (${value})`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
-      await setWindowSize(app, window, 1100, 900);
+      await setWindowSize(app, window, 900, 900);
       await acceptPlainTextKeys(window);
       await language(window, value);
       const card = await openKeyForm(window);
       await expect(card.getByTestId("setup-key-line")).toHaveText(line);
+      // What pasting a key is the consent for, said before it is pasted (#2883).
+      await expect(card.getByTestId("setup-key-sends")).toHaveText(sends);
       const field = card.getByTestId("setup-key");
       await field.fill("a-key-from-no-known-service");
       await field.press("Enter");

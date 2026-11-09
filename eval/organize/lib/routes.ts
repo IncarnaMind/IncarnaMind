@@ -286,9 +286,7 @@ function decisionsClassifier(apiKey: string, model: string) {
         groupId: folder.choice === UNSORTED ? null : folder.choice,
         tags: tags.flatMap((tag) => {
           const p = probability(answers.find((each) => each.name === `tag_${tag.id}`));
-          return p !== undefined && p >= 0.5
-            ? [{ tagId: tag.id, confidence: p, needsReview: p < 0.8 }]
-            : [];
+          return p !== undefined && p >= 0.5 ? [{ tagId: tag.id, confidence: p }] : [];
         }),
       };
     },

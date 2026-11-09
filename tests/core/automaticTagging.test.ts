@@ -20,7 +20,7 @@ import {
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { classifierModel } from "../helpers/library";
 import { scriptedModels } from "../helpers/models";
-import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, taggingModel, waitForTagging } from "../helpers/tags";
 
 const ANTHROPIC: SaveChatProviderInput = {
   kind: "anthropic",
@@ -87,7 +87,7 @@ describe("The switch for tagging and sorting new Documents", () => {
 
     expect(await switchOf(core)).toBe(true);
     expect(tagging.requests).toHaveLength(1);
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
   });
 
   test("turning it on shows in Privacy with its date, tags the Documents added since, and leaves the earlier ones", async () => {

@@ -1,4 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, onTestFinished, test } from "vitest";
 import {
   bars,
   kindOf,
@@ -8,6 +12,7 @@ import {
   splitByArea,
   type TopicVerdict,
 } from "../../eval/organize/lib/newUser";
+import { readSet } from "../../eval/organize/lib/set";
 
 const outcome = (
   id: string,
@@ -77,18 +82,130 @@ describe("the Organize benchmark's new-User scores", () => {
     expect(scores.folderSizes.map((each) => each.size)).toEqual([3, 1, 2]);
   });
 
-  test("says PASS or FAIL against each bar", () => {
+  test("says PASS or FAIL against each bar, and reports the kinds both ways", () => {
     const result = bars(scoreNewUser(outcomes, folders, verdicts));
-    expect(result.map((each) => [each.value, each.pass])).toEqual([
-      ["5/6 (83%)", true],
-      ["1 (sizes 3, 1, 2)", false],
-      ["1/4 (25%)", false],
-      ["1/4 (25%)", false],
-      ["2/6 (33%)", false],
-      ["0.77 (P 0.83, R 0.71)", false],
-      ["1/2 (50%)", false],
-      ["7", true],
+    expect(result.map((each) => [each.value, each.pass, each.reported ?? false])).toEqual([
+      ["5/6 (83%)", true, false],
+      ["1 (sizes 3, 1, 2)", false, false],
+      ["1/4 (25%)", false, false],
+      ["1/4 (25%)", false, false],
+      ["2/6 (33%)", false, false],
+      ["0.83 (P 0.83, R 0.83)", true, false],
+      ["0.77 (P 0.83, R 0.71)", false, true],
+      ["0", true, true],
+      ["1/2 (50%)", false, false],
+      ["7", true, false],
     ]);
+    // With the labels as written gating instead, the one-kind score is the one reported.
+    const written = bars(scoreNewUser(outcomes, folders, verdicts), "as-written");
+    expect(written.slice(5, 7).map((each) => each.reported ?? false)).toEqual([true, false]);
+  });
+
+  describe("kind Tag F1 with one kind a Document, the rule settled on 2026-11-08", () => {
+    const kinds = (...each: Outcome[]) => scoreNewUser(each, folders, []);
+
+    test("a Document labelled two kinds is one pair: a hit with either, one miss with neither", () => {
+      expect(
+        kinds(
+          outcome("a", "reports", ["slides", "report"], "f1", ["Report"]),
+          outcome("b", "reports", ["slides", "report"], "f1", ["Slides"]),
+        ).oneKind,
+      ).toEqual({ tp: 2, fp: 0, fn: 0 });
+      expect(
+        kinds(outcome("c", "reports", ["slides", "report"], "f1", ["Invoice"])).oneKind,
+      ).toEqual({ tp: 0, fp: 1, fn: 1 });
+    });
+
+    test("a Document labelled only kinds outside the list has no pair: no kind Tag adds nothing, one is a false positive", () => {
+      const garden = (tags: string[]) => outcome("g", null, ["notes"], null, tags);
+      expect(kinds(garden([])).oneKind).toEqual({ tp: 0, fp: 0, fn: 0 });
+      expect(kinds(garden(["Report"])).oneKind).toEqual({ tp: 0, fp: 1, fn: 0 });
+      expect(kinds(garden([]))).toMatchObject({ noKind: 1, noKindExpected: 1 });
+    });
+
+    test("every other Document with no kind Tag is a miss", () => {
+      expect(kinds(outcome("p", "research", ["paper"], "f1", ["Sleep"])).oneKind).toEqual({
+        tp: 0,
+        fp: 0,
+        fn: 1,
+      });
+      expect(kinds(outcome("p", "research", ["paper"], "f1", []))).toMatchObject({
+        noKind: 1,
+        noKindExpected: 0,
+      });
+    });
+
+    test("Meeting notes stands for the labels' notes on a meeting's Document", () => {
+      expect(
+        kinds(
+          outcome("m", "meetings", ["notes"], "f1", ["Meeting notes"]),
+          outcome("n", "meetings", ["slides", "notes"], "f1", ["会议记录"]),
+        ).oneKind,
+      ).toEqual({ tp: 2, fp: 0, fn: 0 });
+    });
+  });
+
+  // protects=a bar compares counts, so a score exactly on it passes, as 24/30 is 0.8; fails_when=floating point puts 24/30 just under 0.8 and the bar fails; no_claim=which bars exist.
+  test("a bar compares counts: 24/30 meets 0.8, 23/30 doesn't", () => {
+    const base = scoreNewUser([], folders, []);
+    const pass = (name: string, scores: typeof base) =>
+      bars(scores).find((bar) => bar.name.startsWith(name))?.pass;
+
+    expect(pass("Filed", { ...base, readable: 30, filed: 24 })).toBe(true);
+    expect(pass("Filed", { ...base, readable: 30, filed: 23 })).toBe(false);
+    // 2 × 12 / (2 × 12 + 4 + 2) = 24/30, and with one more miss 24/31.
+    expect(pass("Kind Tag F1, one kind", { ...base, oneKind: { tp: 12, fp: 4, fn: 2 } })).toBe(
+      true,
+    );
+    expect(pass("Kind Tag F1, one kind", { ...base, oneKind: { tp: 12, fp: 4, fn: 3 } })).toBe(
+      false,
+    );
+  });
+
+  describe("a fresh set labelled with the app's kind codes (version 2)", () => {
+    /** Writes a version-2 set of one text file labelled `tags` into a folder of its own. */
+    async function fresh(tags: string[]) {
+      const directory = await mkdtemp(join(tmpdir(), "organize-fresh-"));
+      onTestFinished(() => rm(directory, { recursive: true, force: true }));
+      const text = "Some words.";
+      await mkdir(join(directory, "files"));
+      await writeFile(join(directory, "files", "a.txt"), text);
+      const set = {
+        version: 2,
+        folders: ["finance"],
+        tags: ["statement", "meeting-notes"],
+        documents: [
+          {
+            id: "a",
+            file: "files/a.txt",
+            language: "en",
+            kind: "text",
+            folder: "finance",
+            tags,
+            split: "heldout",
+            sha256: createHash("sha256").update(text).digest("hex"),
+          },
+        ],
+      };
+      await writeFile(join(directory, "set.json"), JSON.stringify(set));
+      return readSet(process.cwd(), directory);
+    }
+
+    test("reads kind codes as they are, Meeting notes as the scorer's notes, wherever it is filed", async () => {
+      const [doc] = (await fresh(["meeting-notes", "statement"])).documents;
+      if (!doc) throw new Error("The set has no Document.");
+      expect(doc.tags).toEqual(["notes", "statement"]);
+      const scored = (tags: string[]) =>
+        scoreNewUser([{ ...outcome("a", "finance", [], "f1", tags), doc }], folders, []).oneKind;
+      expect(scored(["Meeting notes"])).toEqual({ tp: 1, fp: 0, fn: 0 });
+      expect(scored(["Statement"])).toEqual({ tp: 1, fp: 0, fn: 0 });
+      expect(scored(["Report"])).toEqual({ tp: 0, fp: 1, fn: 1 });
+    });
+
+    test("refuses a preset key that is no kind, and more than two kinds", async () => {
+      await expect(fresh(["notes"])).rejects.toThrow("unknown Tag");
+      await expect(fresh(["report", "paper", "book"])).rejects.toThrow("at most two kinds");
+    });
   });
 
   test("passes a proposal that keeps the labels together in Folders of three", () => {

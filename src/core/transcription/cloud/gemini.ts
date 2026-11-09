@@ -16,7 +16,7 @@
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import { base64Pcm, closedLoss, createLiveStream, type LiveLink } from "./live";
+import { base64Pcm, closedLoss, createLiveStream, heldWords, type LiveLink } from "./live";
 import type { CloudAuth } from "./socket";
 import { type CloudStreamHandle, type CloudStreamOptions, msOf, samplesOf } from "./stream";
 
@@ -69,15 +69,20 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
   let leaving = false;
   let lastText: ReturnType<typeof setTimeout> | null = null;
 
-  const setup = JSON.stringify({
-    setup: {
-      model: `models/${options.model}`,
-      generationConfig: { responseModalities: ["TEXT"] },
-      realtimeInputConfig: { interimTranscriptTimestampEnabled: true },
-      // No languages named: it hears which is spoken, so a meeting in two still works.
-      inputAudioTranscription: { languageCodes: [] },
-    },
-  });
+  const words = heldWords(options.words ?? []);
+  const setup = () =>
+    JSON.stringify({
+      setup: {
+        model: `models/${options.model}`,
+        generationConfig: { responseModalities: ["TEXT"] },
+        realtimeInputConfig: { interimTranscriptTimestampEnabled: true },
+        // No languages named: it hears which is spoken, so a meeting in two still works.
+        inputAudioTranscription: {
+          languageCodes: [],
+          ...(words.now.length > 0 && { customVocabulary: words.now }),
+        },
+      },
+    });
 
   const streamEnd = JSON.stringify({ realtimeInput: { audioStreamEnd: true } });
   const audioMessage = (samples: Int16Array) =>
@@ -173,9 +178,10 @@ export function createGeminiStream(options: CloudStreamOptions): CloudStreamHand
 
   return createLiveStream(options, {
     url: GEMINI_LIVE_URL,
+    words,
     auth: GEMINI_AUTH,
     opened(link) {
-      link.setup(setup);
+      link.setup(setup());
     },
     heard(message, link) {
       if (isRecord(message.setupComplete)) {

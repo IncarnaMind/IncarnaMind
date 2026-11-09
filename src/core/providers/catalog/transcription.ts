@@ -23,7 +23,8 @@ import type { Localized } from "./types";
 
 /** Pinned in one place: OpenAI renamed its live transcription models in July 2026. */
 export const OPENAI_LIVE_TRANSCRIPTION_MODEL = "gpt-live-transcribe";
-export const SONIOX_REALTIME_MODEL = "stt-rt-v5";
+// v5 wrote a sum said in pounds as dollars (#1031), and Soniox retires it on 2026-12-15.
+export const SONIOX_REALTIME_MODEL = "stt-rt-v6";
 
 /**
  * Model Studio's real-time speech models. Only the first is used: it switches between
@@ -42,6 +43,21 @@ export interface TranscriptionDataUse {
   url: Localized;
 }
 
+/**
+ * The price of the words to know, in `perHour`'s currency: for each hour of audio sent with them,
+ * or for each million tokens of them, sent with every stream's setup.
+ */
+export interface WordsCost {
+  perHour?: number;
+  perMillionTokens?: number;
+}
+
+/** An hour's price with the words to know, where they are priced by the hour; else null. */
+export const perHourWithWords = (
+  perHour: Money,
+  cost: WordsCost | null | undefined,
+): Money | null => (cost?.perHour ? { ...perHour, amount: perHour.amount + cost.perHour } : null);
+
 export interface TranscriptionService {
   route: CloudTranscriptionRoute;
   name: string;
@@ -52,6 +68,8 @@ export interface TranscriptionService {
   service: ExternalService;
   recipient: Localized;
   dataUse?: TranscriptionDataUse;
+  /** What a stream that sends the meeting's words to know (#1031) costs besides, where it does. */
+  wordsCost?: WordsCost;
   /**
    * "provider": the key of a chat provider in Settings › Models, the catalog's `provider` (the
    * route's own id when absent); "own": a key of its own, kept in the keychain.
@@ -575,6 +593,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     name: "Soniox",
     model: SONIOX_REALTIME_MODEL,
     perHour: { currency: "USD", amount: 0.12 },
+    wordsCost: { perMillionTokens: 4 },
     service: { id: "https://stt-rt.soniox.com", name: "Soniox" },
     recipient: { en: "Soniox", zh: "Soniox" },
     key: "own",
@@ -582,7 +601,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     keyUrl: "https://console.soniox.com",
     billingUrl: "https://console.soniox.com",
     languages: SONIOX_LANGUAGES,
-    checked: "2026-11-05",
+    checked: "2026-11-09",
   },
   qwen: {
     route: "qwen",
@@ -616,6 +635,8 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     model: DEEPGRAM_MODEL,
     // Nova-3 Multilingual, $0.0092 a minute, and its speakers, $0.0020.
     perHour: { currency: "USD", amount: 0.672 },
+    // Keyterm prompting, $0.0013 a minute.
+    wordsCost: { perHour: 0.078 },
     service: { id: "https://api.deepgram.com", name: "Deepgram" },
     recipient: { en: "Deepgram", zh: "Deepgram" },
     dataUse: {
@@ -633,7 +654,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     keyUrl: "https://console.deepgram.com",
     billingUrl: "https://console.deepgram.com",
     languages: DEEPGRAM_LANGUAGES,
-    checked: "2026-11-05",
+    checked: "2026-11-09",
   },
   assemblyai: {
     route: "assemblyai",
@@ -689,6 +710,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     name: "ElevenLabs",
     model: ELEVENLABS_MODEL,
     perHour: { currency: "USD", amount: 0.39 },
+    wordsCost: { perHour: 0.08 },
     service: { id: "https://api.elevenlabs.io", name: "ElevenLabs" },
     recipient: { en: "ElevenLabs", zh: "ElevenLabs" },
     dataUse: {
@@ -706,7 +728,7 @@ export const TRANSCRIPTION_SERVICES: Readonly<
     keyUrl: "https://elevenlabs.io/app/settings/api-keys",
     billingUrl: "https://elevenlabs.io/app/subscription",
     languages: ELEVENLABS_LANGUAGES,
-    checked: "2026-11-07",
+    checked: "2026-11-09",
   },
   speechmatics: {
     route: "speechmatics",
@@ -791,6 +813,8 @@ export interface DeepgramServer {
   service: ExternalService | null;
   recipient: Localized;
   perHour: Money;
+  /** Only Deepgram's own server is known to charge for the words to know. */
+  wordsCost: WordsCost | null;
   dataUse: TranscriptionDataUse | null;
   /** Deepgram's own and Cloudflare's take a key; the User's own server may not. */
   needsKey: boolean;
@@ -808,6 +832,7 @@ export function deepgramServer(url: string | null): DeepgramServer {
       service: { id: `https://${host}`, name: deepgram.service.name },
       recipient: deepgram.recipient,
       perHour: deepgram.perHour,
+      wordsCost: deepgram.wordsCost ?? null,
       dataUse: deepgram.dataUse ?? null,
       needsKey: true,
     };
@@ -819,6 +844,7 @@ export function deepgramServer(url: string | null): DeepgramServer {
       recipient: { en: "Cloudflare", zh: "Cloudflare" },
       // Workers AI's Deepgram Nova-3 over a WebSocket.
       perHour: { currency: "USD", amount: 0.552 },
+      wordsCost: null,
       dataUse: {
         summary: {
           en: "Cloudflare doesn’t train AI models on what Workers AI transcribes, and keeps it only as long as the request takes.",
@@ -839,6 +865,7 @@ export function deepgramServer(url: string | null): DeepgramServer {
     recipient: { en: host, zh: host },
     // A server of the User's own costs nothing per hour that IncarnaMind could count.
     perHour: { currency: "USD", amount: 0 },
+    wordsCost: null,
     dataUse: null,
     needsKey: false,
   };

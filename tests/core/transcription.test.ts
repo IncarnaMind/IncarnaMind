@@ -1050,6 +1050,7 @@ describe("The speech models leave memory when no Meeting needs them (#2673)", ()
         service: "soniox",
         model: "stt-rt-v4",
         apiKey: "test-key",
+        words: [],
       });
       await turn();
       // The local stream finishes and the engine is idle, but a cloud stream is still open.

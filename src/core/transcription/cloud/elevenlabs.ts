@@ -14,7 +14,7 @@
  */
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
-import { base64Pcm, closedLoss, createLiveStream, type LiveLink } from "./live";
+import { base64Pcm, closedLoss, createLiveStream, heldWords, type LiveLink } from "./live";
 import type { CloudAuth } from "./socket";
 import { type CloudStreamHandle, type CloudStreamOptions, msOf, samplesOf } from "./stream";
 
@@ -35,13 +35,15 @@ const KEPT_MS = 60_000;
 /** With nothing being said, only this much of the latest audio is kept: speech in it may not be heard yet. */
 const QUIET_KEPT_MS = 3000;
 
-export function elevenLabsUrl(model: string): string {
+/** `words`: the meeting's words to know, each a key term it is prompted with (#1031). */
+export function elevenLabsUrl(model: string, words: readonly string[] = []): string {
   const url = new URL(ELEVENLABS_URL);
   url.searchParams.set("model_id", model);
   url.searchParams.set("audio_format", "pcm_16000");
   // Its own voice detection commits each stretch, as the docs' default differs between pages.
   url.searchParams.set("commit_strategy", "vad");
   url.searchParams.set("include_timestamps", "true");
+  for (const word of words) url.searchParams.append("keyterms", word);
   return url.toString();
 }
 
@@ -76,6 +78,7 @@ const seconds = (value: unknown) => (typeof value === "number" ? Math.round(valu
 
 export function createElevenLabsStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
+  const words = heldWords(options.words ?? []);
   let received = 0;
   /** Where the current session's audio starts, in the stream's samples. */
   let base = 0;
@@ -188,9 +191,14 @@ export function createElevenLabsStream(options: CloudStreamOptions): CloudStream
   }
 
   return createLiveStream(options, {
-    url: elevenLabsUrl(options.model),
+    get url() {
+      return elevenLabsUrl(options.model, words.now);
+    },
     auth: ELEVENLABS_AUTH,
-    opened() {},
+    words,
+    opened() {
+      said = null;
+    },
     heard(message, link) {
       const type = typeof message.message_type === "string" ? message.message_type : "";
       switch (type) {

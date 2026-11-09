@@ -429,7 +429,7 @@ describe("The User's own choices stand", () => {
         tags: [
           { tagId: invoiceTag.id },
           { tagId: report.id },
-          { name: "Receipts", description: "Proof of payment" },
+          { name: "Utilities", description: "Gas, water and power" },
         ],
       },
     ]);
@@ -438,7 +438,7 @@ describe("The User's own choices stand", () => {
         documentId: invoice.id,
         placement: { kind: "unchanged" },
         ticked: true,
-        tags: ["Receipts"],
+        tags: ["Utilities"],
       },
     ]);
   });
@@ -710,6 +710,14 @@ describe("Confirm makes it the User's, in one step with one Undo", () => {
         tags: [{ tagId: invoiceTag.id }],
       },
     ]);
+    // Left out holds only what gets nothing: with a Tag, it waits for it where it is.
+    const proposed = await core.getOrganizeReview();
+    expect(rowOf(proposed, minutes.id).placement).toEqual({ kind: "unchanged" });
+    await core.editOrganizeReview({
+      kind: "move",
+      itemIds: [rowOf(proposed, minutes.id).id],
+      to: { kind: "leftOut" },
+    });
 
     await core.confirmOrganizeReview((await core.getOrganizeReview()).items.map((item) => item.id));
 
@@ -773,7 +781,7 @@ describe("Discard sets the Suggestions aside, with Undo", () => {
         documentId: invoice.id,
         contentHash: invoice.contentHash,
         placement: { kind: "unchanged" },
-        tags: [{ name: "Receipts", description: "Proof of payment" }],
+        tags: [{ name: "Utilities", description: "Gas, water and power" }],
       },
     ]);
     await core.restoreDiscardedOrganizeReview(discardId);
@@ -782,7 +790,7 @@ describe("Discard sets the Suggestions aside, with Undo", () => {
     expect(back.items.map((item) => item.documentId).sort()).toEqual(
       start.items.map((item) => item.documentId).sort(),
     );
-    expect(rowOf(back, invoice.id).tags.map((tag) => tag.name)).toEqual(["Receipts"]);
+    expect(rowOf(back, invoice.id).tags.map((tag) => tag.name)).toEqual(["Utilities"]);
   });
 });
 

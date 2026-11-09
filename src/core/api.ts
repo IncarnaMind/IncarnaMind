@@ -18,11 +18,11 @@ import type {
   OrganizeReviewChange,
   OrganizeReviewConfirmation,
   OrganizeReviewEdit,
-  OrganizeReviewFolder,
   OrganizeReviewRow,
 } from "./organizeReview/types";
 import type { DecisionHost } from "./providers/catalog/decisions";
 import type { Localized } from "./providers/catalog/types";
+import type { TagKind } from "./tags/kinds";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -62,6 +62,7 @@ export type {
   OrganizeReviewTarget,
 } from "./organizeReview/types";
 export type { DecisionHost } from "./providers/catalog/decisions";
+export type { TagKind } from "./tags/kinds";
 
 /**
  * The core's public interface: the only API the UI uses.
@@ -1401,6 +1402,8 @@ export interface CommandDone {
   setting?: { name: string; from: string; to: string };
   /** Organize: the Folders it proposed for the Documents, by name, with how many each (#2252, #1569). */
   folders?: readonly { name: string; count: number }[];
+  /** Tag with AI: the Tags it proposed for the Documents, by name, with how many each (#2339). */
+  tags?: readonly { name: string; count: number }[];
   /** Organize: how many of the Documents it read it couldn't sort (#2252). */
   unsorted?: number;
   /** Organize: how many it never reached, left as they were when the run stopped (#2252). */
@@ -3605,6 +3608,12 @@ export interface TranscriptionServiceStatus {
   recipient: Localized;
   model: string;
   perHour: Money;
+  /**
+   * What an hour costs while the meeting's words to know go with the audio, as the monthly cap
+   * counts it (#1031): Deepgram's and ElevenLabs' key terms are priced besides. Null where they
+   * cost nothing more.
+   */
+  perHourWithWords: Money | null;
   /** The region the key is for, named as in Settings › Models. */
   region: Localized | null;
   dataUse: { summary: Localized; url: Localized } | null;
@@ -3639,6 +3648,11 @@ export interface TranscriptionServiceStatus {
    * again sends it there.
    */
   chooseAgain: boolean;
+  /**
+   * It is the route chosen, and the User chose it before it was sent the meeting's words to know
+   * (#1031): its audio goes, and the words wait until the User allows them.
+   */
+  wordsWaiting: boolean;
 }
 
 /**
@@ -5231,6 +5245,11 @@ export interface Tag {
   /** Created on first run as one of the preset Tags, rather than by the User. Editing one keeps it a preset. */
   preset: boolean;
   /**
+   * The kind of Document it is the Tag for (#2339), whose name and description it shows in the
+   * interface's language until the User renames it; null for every other Tag.
+   */
+  kind: TagKind | null;
+  /**
    * The User made it, or changed its name, colour or description; a Tag
    * automatic tagging made, and a preset no one edited, is not. The sidebar
    * lists a Tag with no Documents only when it is the User's.
@@ -6663,12 +6682,22 @@ export type OrganizeLibraryResult =
       /** The Documents the model was asked about one by one, past the sample. */
       placedByModel: number;
       requests: number;
+      /**
+       * Organize's tagging failed, in the provider's words: its Folders are proposed without
+       * Tags, and its Documents stay untagged for the next run (#2339).
+       */
+      taggingFailed?: string;
     }
   | { status: "stopped"; runId: string };
 
-/** "Organizing 12 of 40…", or the Documents still being read before it can start. */
+/**
+ * "Organizing 12 of 40…", or "Tagging 4 of 12…" for a run that only tags, or the Documents still
+ * being read before it can start.
+ */
 export interface OrganizeProgress {
   runId: string;
+  /** The run only tags: Re-tag (#2339). */
+  tags?: true;
   /** Documents still being read: the plan waits for them. */
   waiting: number;
   done: number;
@@ -9423,6 +9452,7 @@ export const dataKinds = [
   "references",
   "connector-search",
   "meeting-audio",
+  "meeting-words",
   "document-names",
   "other-minds",
   "live-transcript",
@@ -9490,8 +9520,11 @@ export type DataKind = (typeof dataKinds)[number];
  *   (#148). Asked the first time they search; none in local mode.
  * - "transcription": a Meeting's audio while it records, other people's
  *   voices included, to the cloud transcription service the User chose in
- *   Settings › Meetings or on the first-meeting sheet (#141). Choosing it
- *   allows it; none in local mode.
+ *   Settings › Meetings or on the first-meeting sheet (#141), with the
+ *   meeting's words to know in that service's own field (#1031): the User's
+ *   name, the names in the meeting's Note, calendar event and Folder, and
+ *   Words to know. Choosing it allows both; a route chosen before the words
+ *   went sends them only once the User allows them. None in local mode.
  * - "scan-images": when Organize or the Library's automatic grouping meets a
  *   PDF with no text after reading and OCR (a scan), up to 3 of its page
  *   images, to the service of the model that reads them (the chosen model's,
@@ -9586,6 +9619,8 @@ export interface DataFlowStatus {
    * it (ADR-0022), rather than in a dialog or in Settings › Privacy.
    */
   chosen: boolean;
+  /** What the flow sends now that the User's acceptance didn't cover, when it has grown since. */
+  added?: DataKind[];
 }
 
 /** A registered external data flow, for the Privacy page: what it sends, and where. */
@@ -12120,20 +12155,6 @@ export interface CoreApi {
    */
   getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
   /**
-   * Organize where there are no Folders to sort into (#2308): asks Organize's model, once, for
-   * a few Folders that would hold these Documents, named from what they say in the interface
-   * language, and proposes them in Suggestions: none is made before the User confirms (#1569).
-   * `classifyDocuments` then proposes one for each. Returns the Folders proposed, none when no
-   * Document has text to read. Throws InvalidInputError with no model for Organize, or one that
-   * can't name Folders (a decision model), and what the provider throws; nothing is proposed
-   * then. With `forService`, a continuation of a press authorized for that service: Organize
-   * sending elsewhere proposes nothing.
-   */
-  proposeFolders(
-    documentIds: string[],
-    options?: { forService?: string },
-  ): Promise<OrganizeReviewFolder[]>;
-  /**
    * Queues selected documents, or all. Organize proposes a Folder for each in Suggestions, where
    * it waits for the User, and its Tags; nothing is filed (#1569). A Document the User filed is
    * proposed a move only in a run on its `folderId`. With `forService`, a continuation of a
@@ -12217,7 +12238,9 @@ export interface CoreApi {
   confirmOrganizeReview(itemIds: string[]): Promise<OrganizeReviewConfirmation | null>;
   /**
    * Takes a Confirm back: each filing and Tag still as it left them goes back, the Folders and
-   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again.
+   * Tags it made that hold nothing else go to Recently deleted, and its rows wait again. A kind's
+   * Tag it made goes without a trace, the kind still proposed, and a Tag of the User's it made a
+   * kind's is theirs again as it was (#2339).
    */
   undoOrganizeReviewConfirmation(confirmationId: string): Promise<void>;
   /** Confirms again what its Undo put back. Null when nothing of it waits. */
@@ -12244,8 +12267,18 @@ export interface CoreApi {
    * that can't name Folders.
    */
   organizeLibrary(input?: OrganizeLibraryInput): Promise<OrganizeLibraryResult>;
-  /** Stops the Organize under way; nothing it planned goes into the Review. */
+  /** Stops the Organize or Re-tag under way; nothing it planned goes into the Review. */
   stopOrganizeLibrary(): Promise<void>;
+  /**
+   * Re-tag (#2339): these Documents, or every one, tagged through the tagging flow as one run
+   * ("organize.progress" with `tags`), each given one kind from a fixed list, the User's own Tags
+   * it is about, and a new topic only where 3 or more of them share it. The Tags wait in the
+   * Review, replacing what waits there unedited for them, until the User confirms them; a
+   * Document that gets nothing waits in Left out with why. Returns once that is in the Review. A
+   * new run stops the one under way. Throws what keeps tagging from running: no tagging model,
+   * its consent not given for its service, Local mode.
+   */
+  tagDocuments(input?: { documentIds?: string[] }): Promise<OrganizeLibraryResult>;
   /**
    * Organize's first step on the User's press (#1569, ADR-0022): what it needs before it runs.
    * A model the Library offers that may run without asking (one on this computer, or one whose
@@ -14291,6 +14324,11 @@ export interface CoreApi {
   /** Forgets a transcription service's own key; meeting audio is then transcribed on this computer. */
   removeTranscriptionKey(route: CloudTranscriptionRoute): Promise<TranscriptionServices>;
   /**
+   * The User allows the chosen route, already sent meeting audio, the meeting's words to know too
+   * (#1031): the consent for the words alone, with the route and its settings as they were.
+   */
+  allowTranscriptionWords(): Promise<TranscriptionServices>;
+  /**
    * Whether this computer keeps up with live speech, as the last Meeting transcribed here
    * measured it; null before one has been. The speed probe (#462) will measure it sooner.
    */
@@ -14936,7 +14974,6 @@ const methods: Record<CoreApiMethod, true> = {
   saveLibrarySettings: true,
   getTaggingModels: true,
   getTaggingRoute: true,
-  proposeFolders: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,
@@ -14955,6 +14992,7 @@ const methods: Record<CoreApiMethod, true> = {
   restoreDiscardedOrganizeReview: true,
   organizeLibrary: true,
   stopOrganizeLibrary: true,
+  tagDocuments: true,
   startOrganize: true,
   allowOrganize: true,
   restore: true,
@@ -15086,6 +15124,7 @@ const methods: Record<CoreApiMethod, true> = {
   listTranscriptionServices: true,
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
+  allowTranscriptionWords: true,
   getTranscriptionSpeed: true,
   getTranscriptionModel: true,
   retryTranscript: true,
