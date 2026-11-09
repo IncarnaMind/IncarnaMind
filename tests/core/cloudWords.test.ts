@@ -7,6 +7,7 @@ import {
   DATABASE_FILE,
   type Logger,
 } from "../../src/core";
+import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import { openDatabase } from "../../src/core/storage";
 import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/openai";
@@ -17,7 +18,10 @@ import {
   HANDSHAKE_BAD_REQUEST,
 } from "../../src/core/transcription/cloud/socket";
 import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
+import { en } from "../../src/shared/i18n/en";
+import { zhCN } from "../../src/shared/i18n/zh-CN";
 import { createMemoryKeychain, createTempDataFolder, queryDatabase } from "../helpers/core";
+import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -681,10 +685,12 @@ describe("The monthly cap counts the words' own price only where they are sent (
   test("deepgram: audio with key terms costs the key terms' price besides; without, what it did", async () => {
     const told = await meetingOn("deepgram");
     told.record(20 * SECOND);
+    await until(told.core, told.meeting.id, (each) => each.lines >= 4);
     await told.core.stopMeeting(told.meeting.id);
     await until(told.core, told.meeting.id, (each) => each.state === "saved");
     const quiet = await meetingOn("deepgram", { name: null, words: [], note: null });
     quiet.record(20 * SECOND);
+    await until(quiet.core, quiet.meeting.id, (each) => each.lines >= 4);
     await quiet.core.stopMeeting(quiet.meeting.id);
     await until(quiet.core, quiet.meeting.id, (each) => each.state === "saved");
     const withWords = spent(told.dataDir);
@@ -706,5 +712,121 @@ describe("The monthly cap counts the words' own price only where they are sent (
     expect(spent(told.dataDir)).toBeGreaterThan(spent(quiet.dataDir));
     told.core.close();
     quiet.core.close();
+  });
+});
+
+/**
+ * Every source the words come from (src/core/meetings/words.ts), as each line that lists them
+ * names it: a source added there without a line naming it, or named without being sent, fails.
+ */
+const SOURCES = [
+  { source: "the User's name", word: "Maren Okafor", en: "your name", zh: "你的名字" },
+  { source: "Words to know", word: "Larkfield", en: "Words to know", zh: "要识别的词" },
+  { source: "the Folder's name", word: "Harbor Logistics", en: "folder name", zh: "文件夹的名称" },
+  { source: "the Note", word: "Priya Raman", en: "note", zh: "会议笔记" },
+  { source: "the calendar event", word: "Dana Whitfield", en: "calendar event", zh: "日历事件" },
+  {
+    source: "the Folder's Documents",
+    word: "Sofia Lindqvist",
+    en: "folder’s documents",
+    zh: "文件夹文档",
+  },
+] as const;
+
+const LINES = [
+  "consent.data.meeting-words",
+  "meetings.route.waysNote",
+  "meetings.route.cloudLine",
+  "meetings.route.consent",
+  "meetings.words.body",
+  "meetings.words.bodyHere",
+  "meetings.words.waiting",
+] as const;
+
+describe("The lines name every source the words come from, and each is sent (#1031)", {
+  timeout: 60_000,
+}, () => {
+  test("each line that lists the words names every source, in English and Chinese", () => {
+    for (const key of LINES) {
+      for (const { en: english, zh } of SOURCES) {
+        expect(en[key].toLowerCase(), key).toContain(english.toLowerCase());
+        expect(zhCN[key], key).toContain(zh);
+      }
+    }
+  });
+
+  test("a word from each source reaches the route's field", async () => {
+    const cloud = watched();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      cloud: cloud.connect,
+      cloudFetch: cloud.cloudFetch,
+      keychain: createMemoryKeychain(),
+      systemCalendar: createFakeSystemCalendar({
+        access: "allowed",
+        calendars: [{ id: "work", title: "Work", source: "Exchange", kind: "exchange" }],
+        events: [
+          {
+            calendarId: "work",
+            id: "renewal",
+            externalId: "renewal@example",
+            occurrence: null,
+            title: "Renewal call with Priya Raman",
+            start: "2026-10-06T09:30:00Z",
+            end: "2026-10-06T10:00:00Z",
+            allDay: false,
+            status: "confirmed",
+            attendees: [
+              { name: "Maren", email: "maren@example.com", self: true, status: "accepted" },
+              {
+                name: "Dana Whitfield",
+                email: "dana@northwind.co.uk",
+                self: false,
+                status: "accepted",
+              },
+            ],
+            organizer: null,
+            url: null,
+            location: null,
+            notes: null,
+          },
+        ],
+      }),
+    });
+    await core.updateSettings({
+      user: { authorName: "Maren Okafor", meetingWords: ["Larkfield"] },
+    });
+    await choose(core, "soniox");
+    const folder = await core.createLibraryGroup({ name: "Harbor Logistics", description: "" });
+    const file = await writeSourceFile(
+      await createSourceFolder(),
+      "Capacity plan.md",
+      "# Capacity plan\n\nThe plan is due from Sofia Lindqvist. Sofia Lindqvist leads operations.",
+    );
+    const { documents } = await core.addDocuments([file]);
+    await waitForProcessing(
+      core,
+      documents.map((each) => each.id),
+    );
+    await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+    await core.connectCalendar("mac");
+    const [event] = await core.listCalendarEvents({
+      from: "2026-10-06T00:00:00Z",
+      to: "2026-10-07T00:00:00Z",
+    });
+    const { mindId } = await core.takeEventNotes(event?.id ?? "");
+    await core.moveToFolder({ mindIds: [mindId], folderId: folder.id });
+    const meeting = await core.createMeeting({ mindId });
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (each) => each.cloud === "soniox");
+    record(3 * SECOND);
+    await vi.waitFor(() => expect(cloud.frames.length).toBeGreaterThan(0), {
+      timeout: 20_000,
+      interval: 20,
+    });
+    const sent = sentWords("soniox", cloud) ?? [];
+    for (const { source, word } of SOURCES) expect(sent, source).toContain(word);
+    expect(sent).toContain("Northwind");
+    await core.stopMeeting(meeting.id);
+    core.close();
   });
 });

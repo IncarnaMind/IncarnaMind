@@ -200,10 +200,10 @@ test("A route chosen before the words were sent says so under Words to know and 
     await expect(routeLine).not.toContainText("your name");
     const waiting = settings.getByTestId("meeting-words-waiting");
     await expect(waiting).toContainText(
-      "Soniox gets the audio but not these words: you chose it before they were sent. Send them, and it also gets your name, the names in each meeting’s note, calendar event and folder’s documents, and your Words to know.",
+      "Soniox gets the audio but not these words: you chose it before they were sent. Send them, and with each meeting it also gets your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
     );
     await expect(settings.getByTestId("meeting-words")).toContainText(
-      "Each meeting adds your name and the names in its note, calendar event and folder’s documents.",
+      "Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
     );
     await expect(settings.getByTestId("meeting-words")).not.toContainText(
       "A cloud service you transcribe with",
@@ -218,7 +218,7 @@ test("A route chosen before the words were sent says so under Words to know and 
     await expect(routeLine).toContainText("录音期间，音频会发送给 Soniox。");
     await expect(routeLine).not.toContainText("你的名字");
     await expect(waiting).toContainText(
-      "Soniox 目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，它还会收到你的名字，每场会议的笔记、日历事件和所在文件夹的文档里的名字，以及要识别的词。",
+      "Soniox 目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，每场会议它还会收到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
     );
     await expect(waiting.getByTestId("meeting-words-send")).toHaveText("发送给 Soniox");
     await waiting.scrollIntoViewIfNeeded();
@@ -233,13 +233,13 @@ test("A route chosen before the words were sent says so under Words to know and 
       '[data-testid="data-service"][data-service-id="https://stt-rt.soniox.com"]',
     );
     await expect(row.getByTestId("data-service-decision")).toContainText(
-      "允许之后才会发送：你的名字，每场会议的笔记、日历事件和所在文件夹的文档里的名字，以及要识别的词",
+      "允许之后才会发送：你的名字、要识别的词、每场会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字",
     );
     await row.scrollIntoViewIfNeeded();
     await shot(window, "privacy-sends-more-zh-CN-1440");
     await setLanguage(window, "en");
     await expect(row.getByTestId("data-service-decision")).toContainText(
-      "Not sent until you allow it: Your name and the names in each meeting’s note, calendar event and folder’s documents, with your Words to know",
+      "Not sent until you allow it: Your name, your Words to know, each meeting’s folder name, and the names in its note, calendar event and folder’s documents",
     );
     await row.scrollIntoViewIfNeeded();
     await shot(window, "privacy-sends-more-en-1440");
@@ -256,7 +256,7 @@ test("A route chosen before the words were sent says so under Words to know and 
     await expect(settings.getByTestId("meeting-words-waiting")).toHaveCount(0);
     await expect(settings.getByTestId("meeting-words-field")).toBeFocused();
     await expect(routeLine).toContainText(
-      "Audio goes to Soniox while you record, with your name, the names in the meeting’s note, calendar event and folder’s documents, and your Words to know.",
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
     );
     await expect(settings.getByTestId("meeting-words")).toContainText(
       "A cloud service you transcribe with gets them with the audio.",

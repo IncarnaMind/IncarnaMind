@@ -9,6 +9,13 @@
 import { isRecord } from "../../../shared/record";
 import type { CloudLoss } from "../../adapters";
 import { HANDSHAKE_NO_CREDIT, HANDSHAKE_REFUSED } from "./protocol";
+import type { CloudAuth, CloudSocket } from "./socket";
+import {
+  type CloudStreamHandle,
+  type CloudStreamOptions,
+  CONNECT_TIMEOUT_MS,
+  FINISH_TIMEOUT_MS,
+} from "./stream";
 
 /** About 30 s of 16 kHz PCM: a service that took the setup has answered long before. */
 const UNANSWERED_KEPT = 1_000_000;
@@ -20,14 +27,6 @@ const UNANSWERED_KEPT = 1_000_000;
  */
 const turnedAway = (code: number) =>
   code !== 1006 && code !== HANDSHAKE_REFUSED && code !== HANDSHAKE_NO_CREDIT;
-
-import type { CloudAuth, CloudSocket } from "./socket";
-import {
-  type CloudStreamHandle,
-  type CloudStreamOptions,
-  CONNECT_TIMEOUT_MS,
-  FINISH_TIMEOUT_MS,
-} from "./stream";
 
 export interface LiveLink {
   /** Sent now once the service is ready for audio, else held until it is. */
