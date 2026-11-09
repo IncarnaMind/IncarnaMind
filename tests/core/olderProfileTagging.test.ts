@@ -103,126 +103,140 @@ async function startWithJev(overrides: TestAdapters = {}) {
   return { jev, tagging, dataDir, options, start: () => startCore(dataDir, options) };
 }
 
-describe("A profile saved before #2308 never counts Jev's key as turning tagging on (#2623)", {
-  timeout: 30_000,
-}, () => {
-  test.each([
-    { folder: false, placeKept: true },
-    { folder: false, placeKept: false },
-    { folder: true, placeKept: true },
-    { folder: true, placeKept: false },
-  ])(
-    "Jev chosen (a Folder there: $folder; the upgrade kept a place for its consent: $placeKept): nothing goes to TypeSafe until Turn on…",
-    async ({ folder, placeKept }) => {
-      const { jev, dataDir, options, start } = await startWithJev();
+describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
+  "A profile saved before #2308 never counts Jev's key as turning tagging on, in $language (#2623)",
+  {
+    timeout: 30_000,
+  },
+  ({ language }) => {
+    test.each([
+      { folder: false, placeKept: true },
+      { folder: false, placeKept: false },
+      { folder: true, placeKept: true },
+      { folder: true, placeKept: false },
+    ])(
+      "Jev chosen (a Folder there: $folder; the upgrade kept a place for its consent: $placeKept): nothing goes to TypeSafe until Turn on…",
+      async ({ folder, placeKept }) => {
+        const { jev, dataDir, options, start } = await startWithJev({
+          systemLanguages: () => [language],
+        });
+        const before = start();
+        await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+        await chooseJev(before);
+        before.close();
+        storeAsBefore2308(
+          dataDir,
+          { classifier: { kind: "jev" }, automatic: true },
+          placeKept ? TYPESAFE : undefined,
+        );
+
+        const core = startCore(dataDir, options);
+        if (folder) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+        expect((await core.getLibrary()).settings).toMatchObject({
+          classifier: { kind: "jev" },
+          automatic: false,
+        });
+        const held = await add(core, "季度报告.txt", "季度报告：本季度收入增长百分之十。");
+        const [settled] = await settledTagging(core, [held.id]);
+
+        expect(settled?.tagging).toBe("off");
+        expect(jev.requests).toEqual([]);
+
+        // The same steps do send once the User presses Turn on…, and only for what arrives after.
+        await turnOn(core);
+        const sent = await add(core, "Report.txt", "A quarterly report on revenue.");
+        await jev.requested(1);
+        await settledTagging(core, [sent.id]);
+
+        expect((await core.getLibrary()).settings.automatic).toBe(true);
+        expect(jev.requests).toHaveLength(1);
+        expect(JSON.stringify(jev.requests[0]?.body)).toContain("A quarterly report on revenue.");
+        expect((await core.listDocuments()).find((each) => each.id === held.id)?.tagging).toBe(
+          "off",
+        );
+      },
+    );
+
+    test("choosing Jev for sorting in Settings turns nothing on that was on for a model on this computer", async () => {
+      const { jev, tagging, dataDir, options, start } = await startWithJev({
+        systemLanguages: () => [language],
+      });
       const before = start();
       await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-      await chooseJev(before);
+      await before.saveLibrarySettings({
+        ...(await before.getLibrary()).settings,
+        classifier: { kind: "automatic" },
+      });
       before.close();
-      storeAsBefore2308(
-        dataDir,
-        { classifier: { kind: "jev" }, automatic: true },
-        placeKept ? TYPESAFE : undefined,
-      );
+      storeAsBefore2308(dataDir, { classifier: { kind: "automatic" }, automatic: true });
 
       const core = startCore(dataDir, options);
-      if (folder) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+      const here = await add(core, "On this computer.txt", "A quarterly report.");
+      await waitForTagging(core, [here.id]);
+      expect(tagging.requests).toHaveLength(1);
+
+      await chooseJev(core);
+      const held = await add(core, "Held.txt", "Another quarterly report.");
+      const [settled] = await settledTagging(core, [held.id]);
+
       expect((await core.getLibrary()).settings).toMatchObject({
         classifier: { kind: "jev" },
         automatic: false,
       });
-      const held = await add(core, "季度报告.txt", "季度报告：本季度收入增长百分之十。");
-      const [settled] = await settledTagging(core, [held.id]);
-
       expect(settled?.tagging).toBe("off");
       expect(jev.requests).toEqual([]);
 
-      // The same steps do send once the User presses Turn on…, and only for what arrives after.
       await turnOn(core);
+      const sent = await add(core, "Sent.txt", "A third quarterly report.");
+      await waitForTagging(core, [sent.id]);
+      expect(jev.requests).toHaveLength(1);
+    });
+
+    test("a profile that turned tagging on for Jev keeps it on, across a restart and a new key save", async () => {
+      const { jev, dataDir, options, start } = await startWithJev({
+        systemLanguages: () => [language],
+      });
+      const before = start();
+      await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await before.saveJevSettings({ apiKey: JEV_KEY });
+      await turnOn(before, { kind: "jev" });
+      before.close();
+
+      const core = startCore(dataDir, options);
+      expect((await core.getLibrary()).settings.automatic).toBe(true);
+      await core.saveJevSettings({ apiKey: JEV_KEY });
       const sent = await add(core, "Report.txt", "A quarterly report on revenue.");
-      await jev.requested(1);
-      await settledTagging(core, [sent.id]);
+      await waitForTagging(core, [sent.id]);
 
       expect((await core.getLibrary()).settings.automatic).toBe(true);
       expect(jev.requests).toHaveLength(1);
-      expect(JSON.stringify(jev.requests[0]?.body)).toContain("A quarterly report on revenue.");
-      expect((await core.listDocuments()).find((each) => each.id === held.id)?.tagging).toBe("off");
-    },
-  );
-
-  test("choosing Jev for sorting in Settings turns nothing on that was on for a model on this computer", async () => {
-    const { jev, tagging, dataDir, options, start } = await startWithJev();
-    const before = start();
-    await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-    await before.saveLibrarySettings({
-      ...(await before.getLibrary()).settings,
-      classifier: { kind: "automatic" },
     });
-    before.close();
-    storeAsBefore2308(dataDir, { classifier: { kind: "automatic" }, automatic: true });
 
-    const core = startCore(dataDir, options);
-    const here = await add(core, "On this computer.txt", "A quarterly report.");
-    await waitForTagging(core, [here.id]);
-    expect(tagging.requests).toHaveLength(1);
+    test("a profile saved before #2308 that turned tagging on for a cloud model keeps it on", async () => {
+      const { jev, tagging, dataDir, options, start } = await startWithJev({
+        systemLanguages: () => [language],
+      });
+      const before = start();
+      const provider = await before.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+      const classifier: LibraryClassifier = {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+      };
+      await turnOn(before, classifier);
+      before.close();
+      storeAsBefore2308(dataDir, { classifier, automatic: true }, ANTHROPIC);
 
-    await chooseJev(core);
-    const held = await add(core, "Held.txt", "Another quarterly report.");
-    const [settled] = await settledTagging(core, [held.id]);
+      const core = startCore(dataDir, options);
+      expect((await core.getLibrary()).settings.automatic).toBe(true);
+      const sent = await add(core, "Report.txt", "A quarterly report on revenue.");
+      await waitForTagging(core, [sent.id]);
 
-    expect((await core.getLibrary()).settings).toMatchObject({
-      classifier: { kind: "jev" },
-      automatic: false,
+      expect(tagging.requests).toHaveLength(1);
+      expect(jev.requests).toEqual([]);
     });
-    expect(settled?.tagging).toBe("off");
-    expect(jev.requests).toEqual([]);
-
-    await turnOn(core);
-    const sent = await add(core, "Sent.txt", "A third quarterly report.");
-    await waitForTagging(core, [sent.id]);
-    expect(jev.requests).toHaveLength(1);
-  });
-
-  test("a profile that turned tagging on for Jev keeps it on, across a restart and a new key save", async () => {
-    const { jev, dataDir, options, start } = await startWithJev();
-    const before = start();
-    await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-    await before.saveJevSettings({ apiKey: JEV_KEY });
-    await turnOn(before, { kind: "jev" });
-    before.close();
-
-    const core = startCore(dataDir, options);
-    expect((await core.getLibrary()).settings.automatic).toBe(true);
-    await core.saveJevSettings({ apiKey: JEV_KEY });
-    const sent = await add(core, "Report.txt", "A quarterly report on revenue.");
-    await waitForTagging(core, [sent.id]);
-
-    expect((await core.getLibrary()).settings.automatic).toBe(true);
-    expect(jev.requests).toHaveLength(1);
-  });
-
-  test("a profile saved before #2308 that turned tagging on for a cloud model keeps it on", async () => {
-    const { jev, tagging, dataDir, options, start } = await startWithJev();
-    const before = start();
-    const provider = await before.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-ant-test",
-      modelId: "claude-haiku-5-5",
-    });
-    const classifier: LibraryClassifier = {
-      kind: "chat",
-      choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
-    };
-    await turnOn(before, classifier);
-    before.close();
-    storeAsBefore2308(dataDir, { classifier, automatic: true }, ANTHROPIC);
-
-    const core = startCore(dataDir, options);
-    expect((await core.getLibrary()).settings.automatic).toBe(true);
-    const sent = await add(core, "Report.txt", "A quarterly report on revenue.");
-    await waitForTagging(core, [sent.id]);
-
-    expect(tagging.requests).toHaveLength(1);
-    expect(jev.requests).toEqual([]);
-  });
-});
+  },
+);
