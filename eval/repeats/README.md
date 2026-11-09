@@ -106,6 +106,41 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 
 ## Results
 
+### 2026-11-09: the bars for a contradiction's confirmation, set before its after-run (#2184)
+
+Set before any run of either arm. Every arm is `main` at 20f70af43 or that commit with one change:
+
+- **`main`**: 20f70af43 with only this evaluation's commits (each request and Tool call kept, the allotment sets).
+- **X**: the judge, the confirmation of its contradiction and the strict judgement after it read one definition of a conflict, with where the parties the other way round end; the confirmation and the strict judgement are shown the whole sentence, the part named when it is one; the strict judgement's lines carry the duty word. The nearest line's question stays stricter, as #770 set it.
+- **Y**: X, and the confirmation and the strict judgement are also shown the check's own Explanation line.
+
+**Runs**, Claude Haiku 5.5 on the direct Anthropic API, one at a time, every request and Tool call kept:
+
+- the allotment sets (`en-allotment-conflicts`, `en-allotment-near-misses`, `zh-allotment-conflicts`, `zh-allotment-near-misses`), 10 checks of each Note: `main` twice (A, B), each arm twice;
+- the true-claim control, `eval/checks` Find support (208 sentences): `main` twice, each arm twice;
+- `en-conflicts` and `zh-conflicts`, 10 checks of each Note: each arm once, against the table of 2026-11-09 on `main` (issue #2184).
+
+**`main`'s runs** (counts are Contradicted):
+
+| | A | B | Two runs |
+|---|---|---|---|
+| `en-allotment-conflicts` | 59 of 60 | 58 of 60 | 117 of 120 |
+| `zh-allotment-conflicts` | 38 of 60 | 34 of 60 | 72 of 120 (40 checks with no mark, 3 Not checked) |
+| `en-allotment-near-misses` | 20 of 50 | 20 of 50 | 40 of 100 |
+| `zh-allotment-near-misses` | 20 of 50 | 20 of 50 | 40 of 100 |
+| Find support: correct Supported | 69 of 114 | 78 of 114 | 147 |
+| Find support: Contradicted, labelled supported or unsupported | 1 | 1 | 2 |
+
+**Bars**, each per language where it has one, judged by case as well as by total:
+
+1. **Kept conflicts:** over an arm's two runs, the allotment conflicts end Contradicted at least as often as the sentences with a figure did on `main` in the table of 2026-11-09: 69 of 80 in English (at least 104 of 120 checks), 49 of 50 in Chinese (at least 118 of 120). A check whose sentence got no mark (the claims request didn't name it, so no check ran) counts in neither number. On `main`, 乙方可保持地块无杂草 and 乙方可每月清理地块内的垃圾 got no mark in 20 of 20 checks; the count over all 120 checks is reported beside it, and under it no arm can reach the Chinese line while those two get no mark.
+2. **False Contradicted:** Contradicted on the near misses no higher, over an arm's two runs, than `main`'s two-run total plus the difference between `main`'s two runs: at most 40 of 100 in English and 40 of 100 in Chinese. On the control, Contradicted on the sentences labelled supported or unsupported at most 2 (2 plus a spread of 0), and correct Supported at least 138 (147 less a spread of 9). Paired: the true sentences Supported in both of `main`'s runs and in neither of the arm's are at most 6, a quarter of the 27 true sentences `main`'s two runs disagree on (a sentence whose verdict is a coin toss is lost that way one time in sixteen and disagrees one time in two, so chance alone gives about an eighth).
+3. **Sentences with a figure:** in the arm's run of `en-conflicts` and `zh-conflicts`, the 13 sentences with a figure end Contradicted at least 69 of 80 times in English and 49 of 50 in Chinese, as in the table of 2026-11-09.
+
+Every sentence whose Contradicted count moves the same way in every run of an arm against every run of `main` is listed, each way.
+
+**Pass rule:** ship X if it meets every bar. Ship Y only if X misses one and Y meets every bar. If neither does, the numbers are reported and nothing more is changed.
+
 ### 2026-11-02: whose detail a contradiction is about, the sentence's own roles, and a cover's working (#1766, #1708, #1765, #1908, #2184)
 
 Held-out sets first (`verdictCases.ts`, committed before any run of a change; eight conflicts a moment after the first change to the instructions): a studio licence in each language, #1908's own Cedar results checked as a Note is, and half-year results with interest payable in brackets. The changes:
