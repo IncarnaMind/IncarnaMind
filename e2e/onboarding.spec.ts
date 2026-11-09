@@ -6,7 +6,6 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   assistantAnswers,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   exampleRow,
@@ -319,7 +318,7 @@ test("the footer asks for a model to tag only once a Document of the User's own 
   await app.close();
 });
 
-test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and it says what to try next once all are done", async () => {
+test("an empty Mind of one's own shows no second start guide, the example's steps tick as Documents are added and a Question is asked, and the card ends there once all are done", async () => {
   await writeFile(
     join(sources, "Harbour notes.md"),
     "# Harbour notes\n\nThe harbour master publishes the tide tables every January.\n",
@@ -461,8 +460,7 @@ test("the steps card's first step offers Add files… and Link a folder… at on
   await setLanguage(window, "zh-CN");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("准备好了");
-  // The first run ended at the first checked Answer: no steps wait as a line above the composer (#2867).
-  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
+  await expect(setup).toHaveCount(0);
 });
 
 test('"Ask" is ticked by an Answer that arrives, not by one that fails (#766)', async () => {
@@ -825,7 +823,7 @@ test("a double-click on the ready Question asks it once, and Enter on it moves t
   await removeDataFolder(keyboard);
 });
 
-test("on a fresh install, a first checked Citation from the User's own file takes eight steps", async () => {
+test("on a fresh install, a first checked Citation from the User's own file takes seven steps", async () => {
   const notes = join(sources, "Harbour notes.md");
   await writeFile(
     notes,
@@ -862,7 +860,6 @@ test("on a fresh install, a first checked Citation from the User's own file take
     await expect(field).toBeFocused();
     await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
     await step("Enter", () => window.keyboard.press("Enter"));
-    await step("Use this", () => continueSetup(window));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
     await expect(citation).toHaveAttribute("data-check", "found", { timeout: 20_000 });
@@ -870,7 +867,7 @@ test("on a fresh install, a first checked Citation from the User's own file take
       "aria-label",
       /Harbour notes/,
     );
-    expect(taken).toHaveLength(8);
+    expect(taken).toHaveLength(7);
   } finally {
     await app.close();
   }
@@ -924,8 +921,6 @@ test("finishing the steps with no model asks for one in the card, never says You
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
   await useLocalChatModel(window);
   await expect(steps.locator("h2")).toHaveText("You’re set up");
-  // The first run ended at the first checked Answer: no steps wait as a line above the composer (#2867).
-  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
   await expect(window.getByTestId("composer-input")).toBeVisible();
   await app.close();
@@ -944,11 +939,9 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-key")).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // A saved model brings the cursor to the composer. The first run ended at the first checked
-  // Answer, so no steps wait as a line above it (#2867).
+  // A saved model brings the cursor to the composer, and nothing more is asked of the User.
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await expect(setup).toHaveCount(0);
-  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
   await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText("You’re set up");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await app.close();

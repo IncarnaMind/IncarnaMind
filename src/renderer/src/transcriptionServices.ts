@@ -57,23 +57,17 @@ export type ServicesView = Read<TranscriptionServiceStatus[]>;
  * The services as one view of them: loading, ready or failed. The view reads the list when it
  * mounts, as a key may have come or gone, and owns that read: its failure stays, with Try again,
  * until the User retries, whatever other views' reads do; only the data is shared, and live. A
- * view that isn't failed shows the data held while its own read goes on, unless `fresh`, which
- * waits for its own read. A view makes this one read for everything it shows and hands the result
- * to its children, which never read for themselves; its Try again reads again for all of them.
- * `reads` false waits for the model to work (the setup card).
+ * view that isn't failed shows the data held while its own read goes on. A view makes this one
+ * read for everything it shows and hands the result to its children, which never read for
+ * themselves; its Try again reads again for all of them.
  */
-export function useTranscriptionServicesRead(reads = true, fresh = false): ServicesView {
-  const own = useRead(
-    "The transcription services",
-    () => useTranscriptionServices.getState().load(),
-    [],
-    reads,
+export function useTranscriptionServicesRead(): ServicesView {
+  const own = useRead("The transcription services", () =>
+    useTranscriptionServices.getState().load(),
   );
   const held = useTranscriptionServices((state) => state.services);
   if (own.state === "failed") return own;
-  if (own.state === "ready" || (!fresh && held !== null)) {
-    return { state: "ready", data: held ?? [] };
-  }
+  if (own.state === "ready" || held !== null) return { state: "ready", data: held ?? [] };
   return { state: "loading" };
 }
 

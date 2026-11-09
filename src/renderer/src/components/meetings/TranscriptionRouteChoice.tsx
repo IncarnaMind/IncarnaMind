@@ -19,7 +19,7 @@ const linkClass =
  * Where the first recording is transcribed, on its sheet (#141): one line, this computer, with a
  * quiet "Other ways…" that unfolds to the cloud services the User has keys for. Each has its own
  * button, and that click is the consent (ADR-0022); nothing is chosen for the User. Once one is
- * chosen, the line names it, with the way back. A choice made before the sheet opened (first run,
+ * chosen, the line names it, with the way back. A choice made before the sheet opened (in
  * Settings) stands, so the sheet doesn't ask again. When this computer is known not to keep up,
  * the services show unfolded with the reason, or, with no key, a line says live text may lag.
  */

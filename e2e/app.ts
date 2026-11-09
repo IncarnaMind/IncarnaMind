@@ -943,28 +943,6 @@ export async function busyOllama() {
 }
 
 /**
- * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): they wait as one quiet
- * line above the composer (#2310), opened from there; each is one click above the composer, and
- * both the card and its line go when both are done.
- */
-export async function continueSetup(window: Page): Promise<void> {
-  const card = await openSetupSteps(window);
-  const step = card
-    .getByTestId("setup-step-transcription")
-    .or(card.getByTestId("setup-step-sorting"))
-    .first();
-  await expect(step).toBeVisible({ timeout: 15_000 });
-  const transcription = card.getByTestId("setup-transcription-use");
-  if (await transcription.isVisible()) await pointAndClick(window, transcription);
-  const sorting = card.getByTestId("setup-sorting-use");
-  await expect(sorting).toBeVisible();
-  await expect(sorting).toBeEnabled();
-  await pointAndClick(window, sorting);
-  await expect(card).toBeHidden();
-  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
-}
-
-/**
  * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
  * place (#1922). It waits for the card and gives it back.
  */
@@ -976,21 +954,6 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
-  return card;
-}
-
-/**
- * Opens steps 2 and 3, still to do after a model works, from their quiet line above the composer
- * (#2310). Does nothing when a step is already open above the composer; the composer stays below.
- */
-export async function openSetupSteps(window: Page): Promise<Locator> {
-  const card = window.getByTestId("model-setup");
-  const line = window.getByTestId("assistant-setup-line");
-  // The line waits once a model works; step 1's card alone means the key is still being checked.
-  // A step already open keeps its card above the line.
-  await expect(line).toBeVisible({ timeout: 15_000 });
-  if (!(await card.isVisible())) await pointAndClick(window, line);
-  await expect(card).toBeVisible({ timeout: 15_000 });
   return card;
 }
 

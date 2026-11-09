@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DECISION_HOST_ENTRIES,
   decisionModelOf,
@@ -63,24 +63,7 @@ export function useSorting() {
   const read = useSortingModels([rereads]);
   const models = read.state === "ready" ? read.data : null;
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
-  const readiness = useAppStore((state) => state.chatReadiness);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
-  // The model that works, which sorting will use unless the list says otherwise: its line holds
-  // the rows from the step's first paint, so the list landing changes only the words (#2130).
-  const known =
-    chatModel &&
-    readiness?.ready &&
-    readiness.provider.id === chatModel.providerId &&
-    readiness.modelId === chatModel.modelId
-      ? {
-          classifier: { kind: "chat" as const, choice: chatModel },
-          label: t("models.sorting.chat"),
-          provider:
-            readiness.provider.service?.name ?? t(`providers.kind.${readiness.provider.kind}`),
-          decisionModel: false,
-          modelName: nameOf(chatModel.modelId, chatModel.providerId).name,
-        }
-      : null;
   const options = models
     ? sortingOptions(models, {
         chatModel,
@@ -132,7 +115,6 @@ export function useSorting() {
     if (at >= 0) options[at] = told;
     else options.unshift(told);
   }
-  const best = options[0] ?? null;
   // Under Automatic, what it sorts with now, which Turn on… allows (#1907).
   const pick =
     (!saved || saved.kind === "automatic") && models
@@ -143,14 +125,8 @@ export function useSorting() {
     saved && saved.kind !== "automatic"
       ? (options.find((each) => sortingKey(each.classifier) === sortingKey(saved)) ?? null)
       : (pick?.row ?? null);
-  /**
-   * Saves the choice. `turnOn`: the choice was made with its sends line on screen, so it is the
-   * choice to tag and sort with it (#2308); otherwise the switch stays where it was.
-   */
-  const choose = async (
-    option: Pick<SortingOption, "classifier">,
-    { turnOn = false } = {},
-  ): Promise<boolean> => {
+  /** Saves the choice; the switch for tagging stays where it was (#2308). */
+  const choose = async (option: Pick<SortingOption, "classifier">): Promise<boolean> => {
     let settings = useAppStore.getState().library?.settings;
     if (!settings) {
       await useAppStore.getState().refreshLibrary();
@@ -161,7 +137,6 @@ export function useSorting() {
       await core.saveLibrarySettings({
         ...settings,
         classifier: option.classifier,
-        ...(turnOn && { automatic: true, turnOn: true }),
       });
       return true;
     } catch (error) {
@@ -187,13 +162,9 @@ export function useSorting() {
   return {
     options,
     current,
-    /** The best the keys reach, preselected where the User is choosing (the setup card). */
-    best,
     /** Settings' list: Automatic's own pick first where the list doesn't offer it. */
     settingsOptions: unlisted ? [unlisted, ...options] : options,
     choose,
-    known,
-    loading: read.state === "loading",
     read,
     library,
     setUpOffers,
@@ -225,7 +196,6 @@ export function SortingSelect({
   options,
   groups,
   current,
-  autoFocus = false,
   setUp = null,
   onChange,
 }: {
@@ -238,19 +208,11 @@ export function SortingSelect({
   /** The options under their group names (Settings › AI groups them by who pays); else `options` as they are. */
   groups?: readonly { label: string; options: readonly SortingOption[] }[];
   current: SortingOption | null;
-  /** It takes the focus as its step opens. */
-  autoFocus?: boolean;
   setUp?: SetUpRows | null;
   onChange(option: SortingOption): void;
 }) {
   const t = useT();
   const noPlaceholder = t("setup.sorting.noChoice");
-  const field = useRef<HTMLSelectElement>(null);
-  // It can't take the focus while it waits for the list, so it does once the list comes.
-  const settingUp = setUp?.open != null;
-  useEffect(() => {
-    if (autoFocus && options.length > 0 && !settingUp) field.current?.focus();
-  }, [autoFocus, options.length, settingUp]);
   const Field = popUp ? PopUpSelect : "select";
   const optionOf = (option: SortingOption) => (
     <option key={sortingKey(option.classifier)} value={sortingKey(option.classifier)}>
@@ -259,7 +221,6 @@ export function SortingSelect({
   );
   return (
     <Field
-      ref={field}
       id={id}
       aria-labelledby={labelledBy}
       data-testid="models-sorting"
@@ -302,18 +263,14 @@ export function SortingSelect({
 /**
  * What the choice sends, in a line (ADR-0022): to its service for a decision model, or the
  * User's model's own line; and what meeting hints need, which the User's AI model can't do.
- * `holds`: the option the line had before its list came. Its rows keep the block's height, so a
- * shorter choice swaps its words in place and the buttons under it stay where they were (#2130).
  */
 export function SortingLine({
   option,
-  holds = null,
   reading = false,
   choosing = true,
 }: {
   option: SortingOption | null;
-  holds?: SortingOption | null;
-  /** The core hasn't answered: nothing is said, and the rows held hold the room. */
+  /** The core hasn't answered: nothing is said. */
   reading?: boolean;
   /** Choosing here turns tagging on, so the line says so; elsewhere it says what goes once it is on. */
   choosing?: boolean;
@@ -355,21 +312,9 @@ export function SortingLine({
     );
   };
   const unresolved = reading || option?.unresolved === true;
-  const holding =
-    holds !== null &&
-    (option === null ||
-      unresolved ||
-      sortingKey(holds.classifier) !== sortingKey(option.classifier));
   return (
-    <div data-testid="models-sorting-line" className="grid">
-      {holding && (
-        <div aria-hidden="true" className="invisible col-start-1 row-start-1 flex flex-col gap-1">
-          {rows(holds)}
-        </div>
-      )}
-      <div className="col-start-1 row-start-1 flex flex-col gap-1">
-        {unresolved ? null : rows(option)}
-      </div>
+    <div data-testid="models-sorting-line" className="flex flex-col gap-1">
+      {unresolved ? null : rows(option)}
     </div>
   );
 }

@@ -15,7 +15,6 @@ import {
   addProviderForm,
   askInAssistant,
   closeSettings,
-  continueSetup,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -24,6 +23,7 @@ import {
   openPlanPage,
   openServiceList,
   openSettings,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -127,10 +127,16 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await form.getByTestId("provider-sends").scrollIntoViewIfNeeded();
   await screenshot(window, "choosing-line-setup-en");
   await form.getByTestId("provider-use-key").click();
-  await continueSetup(window);
+  await expect(window.getByTestId("composer-input")).toBeVisible();
 
-  // Setup's third step chose OpenAI for Tags and Folders, its line saying what goes: that turned
-  // tagging on (#2308), so a Document is tagged without asking, and Settings shows the switch on.
+  // Tags are turned on where they are set: Settings › AI's switch says what goes before it is
+  // turned on (#2308). Then a Document is tagged without asking.
+  const jobs = (await openSettings(window, "ai")).getByTestId("ai-jobs");
+  const turnOn = jobs.getByTestId("tagging-automatic-organize");
+  await expect(jobs.getByTestId("tagging-automatic-sends")).toContainText("to OpenAI");
+  await pointAndClick(window, turnOn);
+  await expect(turnOn).toBeChecked();
+  await closeSettings(window);
   await addDocuments(window, [await invoice("Invoice 40")]);
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
@@ -158,7 +164,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   expect(await consentAsked()).toEqual([]);
 
   // Settings › Privacy: OpenAI was allowed when it was chosen, for the uses that run by
-  // themselves — Tags and sorting. Page images are a flow of their own and still ask.
+  // themselves, and Tags when they were turned on. Organize asks when it first runs, and page
+  // images are a flow of their own that still asks.
   const settings = await openSettings(window, "privacy");
   const service = settings.getByTestId("data-service");
   await expect(service).toHaveCount(1);
@@ -167,19 +174,15 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of [
-    "chat",
-    "edits",
-    "checks",
-    "document-check",
-    "suggestions",
-    "tagging",
-    "classification",
-  ]) {
+  for (const flow of ["chat", "edits", "checks", "document-check", "suggestions", "tagging"]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );
   }
+  // Organize's consent is not among them: it asks when Organize first runs (#1569).
+  await expect(
+    service.locator('[data-testid="data-flow"][data-flow-id="classification"]'),
+  ).toHaveCount(0);
   await screenshot(window, "privacy-chosen-en");
 
   // Stopping OpenAI stops tagging too: the next Document waits, saying why, with Allow in place.

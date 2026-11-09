@@ -377,7 +377,6 @@ function EntryPage({
     content = host ? (
       <DecisionSortingSetUp
         host={host}
-        choosing={false}
         choose={async () => {
           const chosen = await sorting.choose({ classifier: firstModelOf(host) });
           sorting.reread();
@@ -391,7 +390,6 @@ function EntryPage({
     content = sorting.jevSettings ? (
       <JevSortingSetUp
         jev={sorting.jevSettings}
-        choosing={false}
         choose={async () => {
           const chosen = await sorting.choose({ classifier: { kind: "jev" } });
           sorting.reread();

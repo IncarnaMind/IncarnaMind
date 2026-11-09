@@ -22,8 +22,8 @@ export interface TranscriptionSetUpRows {
 }
 
 /**
- * Where meeting audio is transcribed, one setting wherever it is shown (Settings › AI,
- * the first-run list). Unchosen it reads as this computer, and choosing that
+ * Where meeting audio is transcribed, one setting, chosen in Settings › AI. Unchosen it reads
+ * as this computer, and choosing that
  * stores it: a choice made on purpose is not the same as none (the first meeting asks only for none).
  * A cloud service is offered once there is a key for it (#141); choosing it is the consent to send
  * it meeting audio. Where it is a setting, `setUp` ends the list with the services still to set up.
@@ -37,7 +37,6 @@ export function TranscriptionRouteSelect({
   focusOnShow,
   localOnly = false,
   testId = "meetings-route",
-  saveOnChange = true,
   read,
   setUp = null,
   onChosen,
@@ -56,10 +55,7 @@ export function TranscriptionRouteSelect({
   focusOnShow?: boolean;
   /** "Keep everything on this computer" is on: nothing in the cloud is offered (#1922). */
   localOnly?: boolean;
-  /** Where it is the setup card's step, its own name. */
   testId?: string;
-  /** The setup card's step saves when its Use this is pressed, so its choice is its consent there. */
-  saveOnChange?: boolean;
   /** The view's read of the services, which says a failure; the select reads none of its own. */
   read: ServicesView;
   setUp?: TranscriptionSetUpRows | null;
@@ -112,7 +108,7 @@ export function TranscriptionRouteSelect({
         const chosen = TRANSCRIPTION_ROUTES.find((each) => each === event.target.value);
         if (!chosen) return;
         setValue(chosen);
-        if (saveOnChange) void updateSettings({ device: { transcriptionRoute: chosen } });
+        void updateSettings({ device: { transcriptionRoute: chosen } });
         onChosen?.(chosen);
       }}
       className={className}

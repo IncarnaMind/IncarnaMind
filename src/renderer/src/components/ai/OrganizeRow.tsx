@@ -187,7 +187,6 @@ export function OrganizeRows({
           // Choosing here never turns tagging on: its own switch does, with its line (#2308).
           <JevSortingSetUp
             jev={jevSettings}
-            choosing={false}
             choose={async () => {
               const chosen = await choose({ classifier: { kind: "jev" } });
               reread();
@@ -209,7 +208,6 @@ export function OrganizeRows({
           <DecisionSortingSetUp
             key={host.host}
             host={host}
-            choosing={false}
             choose={async () => {
               const chosen = await choose({ classifier: firstModelOf(host) });
               reread();

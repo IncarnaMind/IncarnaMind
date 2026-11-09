@@ -4,6 +4,7 @@ import type { Citation } from "../../src/core/api";
 import { parseFactReply } from "../../src/core/meetings/factProtocol";
 import { notesContext } from "../../src/core/meetings/fillPrompt";
 import { fillReply } from "../../src/main/fakeChat/meetingFill";
+import { INTERVIEW } from "../../src/main/fakeChat/meetingInterview";
 import type { Prompt } from "../../src/main/fakeChat/prompt";
 import { asGenerated } from "../../src/shared/aiText";
 import { citationNode, withCitations } from "../../src/shared/blockJson";
@@ -192,3 +193,45 @@ test("a literal outside an addressed note does not route a fixture", () => {
   expect(later.text).not.toContain("P1_F2");
   expect(later.text).not.toContain("99");
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the smoke model's interview cites each answer and files it under its topic (${language})`, () => {
+    const call = INTERVIEW[language];
+    const lines = call.answers.map(
+      (answer, index) => `[0:${String(index * 4).padStart(2, "0")} Them] ${answer.said}`,
+    );
+    const context = notesContext([], "Fill the Note.");
+    const text = `${context.messages[0]?.content}\n<live-transcript>\n<passage id="P1" document="Call" location="0:00–0:40">\n${lines.join("\n")}\n</passage>\n</live-transcript>`;
+    const cite = fillReply(prompt(text), ["cite"]);
+    if (!cite || !("tool" in cite)) throw new Error("Expected the interview's cite call");
+    const records = (cite.input as { citations: { marker: number; quote: string }[] }).citations;
+    expect(records.map((record) => record.quote)).toEqual(
+      call.answers.map((answer) => answer.said),
+    );
+    const reply = fillReply(prompt(text, true), ["cite"]);
+    if (!reply || !("text" in reply)) throw new Error("Expected the interview's framed reply");
+    const receipts = records.map((record) => ({
+      ...citation,
+      marker: record.marker,
+      quote: record.quote,
+    }));
+    const parsed = parseFactReply({
+      markdown: reply.text,
+      blocks: asGenerated(
+        withCitations(markdownToBlocks(reply.text), (marker) => {
+          const found = receipts.find((each) => each.marker === marker);
+          if (!found) return null;
+          const { marker: _marker, ...attributes } = found;
+          return citationNode(attributes);
+        }),
+      ),
+      citations: receipts,
+    });
+    expect(parsed.omitted).toBe(0);
+    expect(parsed.facts.map((fact) => fact.heading)).toEqual(
+      call.answers.map((answer) => answer.heading),
+    );
+    expect(new Set(parsed.facts.map((fact) => fact.heading)).size).toBe(4);
+    expect(parsed.overview).not.toBeNull();
+  });
+}
