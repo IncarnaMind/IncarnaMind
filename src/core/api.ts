@@ -6374,11 +6374,6 @@ export interface ComparisonStructureAck {
   clientId: string;
 }
 
-/** A window that is gone, or no longer answers: the core stops waiting for it. */
-export interface ComparisonWindow {
-  clientId: string;
-}
-
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -13380,11 +13375,6 @@ export interface CoreApi {
   /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
   acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
   /**
-   * Its window is gone (closed or crashed): stop waiting for it on every Mind.
-   * The core also drops a window that misses one wait, after that wait.
-   */
-  forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
-  /**
    * Stops filling a comparison table: cells being written stay as they were. With a `pass`,
    * stops that refill alone: its cells are asked no more and write nothing.
    */
@@ -13595,11 +13585,6 @@ export interface CoreApi {
    * request keeps it.
    */
   holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
-  /**
-   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
-   * again for another window's Check.
-   */
-  forgetCheckWindow(input: { clientId: string }): Promise<void>;
   /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
@@ -14012,11 +13997,6 @@ export interface CoreApi {
    * didn't say it started in time), so it counts as not done.
    */
   answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
-  /**
-   * The window is gone, closed or reloaded (#1421): the commands it was asked to run and hasn't
-   * answered weren't done.
-   */
-  forgetCommandWindow(input: { clientId: string }): Promise<void>;
   /**
    * Answers an approval request. Answering one that's no longer waiting (decided
    * in another window, or its Answer stopped) does nothing. "always-allow" of a
@@ -14917,7 +14897,6 @@ const methods: Record<CoreApiMethod, true> = {
   watchComparisonMind: true,
   unwatchComparisonMind: true,
   acknowledgeComparisonStructure: true,
-  forgetComparisonWindow: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,
@@ -14955,7 +14934,6 @@ const methods: Record<CoreApiMethod, true> = {
   checkContradictions: true,
   planMindCheck: true,
   holdMindCheck: true,
-  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
@@ -15095,7 +15073,6 @@ const methods: Record<CoreApiMethod, true> = {
   listUserQuestions: true,
   answerUserQuestion: true,
   answerWindowCommand: true,
-  forgetCommandWindow: true,
   listSkills: true,
   previewSkillImport: true,
   importSkill: true,

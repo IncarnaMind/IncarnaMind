@@ -115,6 +115,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
+  type CoreApiMethod,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
@@ -406,6 +407,7 @@ import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
+import { createWindowPresence, type HostWindow } from "./windowPresence";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -492,6 +494,22 @@ export interface Core extends CoreApi, CoreEventSource {
   sessionEnding(): UnsavedAtEnd;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
+  /**
+   * One of the host's windows makes this call. The host says so before every call it serves,
+   * naming the window by a key of its own: that is how the core learns which window holds what.
+   */
+  windowCalled(window: HostWindow, method: CoreApiMethod, input: unknown): void;
+  /**
+   * That window closed or crashed: the commands it was asked to run and hasn't answered weren't
+   * done (#1421), a Note it kept for a Check that hasn't run is free (#2240), and a column
+   * change no longer waits for it. Never throws.
+   */
+  windowGone(window: HostWindow): void;
+  /**
+   * That window's page started again: as `windowGone`, except that it keeps its place among the
+   * windows a column change waits for. Never throws.
+   */
+  windowReloaded(window: HostWindow): void;
   /** Every event the core emits, for the host to forward to the UI. */
   onAnyEvent(listener: AnyEventListener): Unsubscribe;
   /** Every external data flow. Core modules register theirs here; consent covers each one. */
@@ -3233,6 +3251,24 @@ export function createCore(adapters: CoreAdapters): Core {
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
+
+  const windows = createWindowPresence(
+    [
+      {
+        calls: ["askInConversation", "regenerateConversationAnswer"],
+        gone: (clientId) => windowCommands.forget(clientId),
+        reloaded: (clientId) => windowCommands.forget(clientId),
+      },
+      {
+        calls: ["holdMindCheck"],
+        gone: (clientId) => checks.forgetCheckWindow(clientId),
+        reloaded: (clientId) => checks.forgetCheckWindow(clientId),
+      },
+      // A reloaded page keeps its id and its Notes open, so a column change still waits for it.
+      { calls: ["watchComparisonMind"], gone: (clientId) => comparisons.forgetWindow(clientId) },
+    ],
+    (error) => console.error("A window that went still holds something:", error),
+  );
 
   /**
    * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
@@ -6576,7 +6612,6 @@ export function createCore(adapters: CoreAdapters): Core {
     watchComparisonMind: (input) => comparisons.watchMind(input),
     unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
     acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
-    forgetComparisonWindow: (input) => comparisons.forgetWindow(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),
@@ -6625,7 +6660,6 @@ export function createCore(adapters: CoreAdapters): Core {
     planMindCheck: (mindId, mode, allDocuments, figureIds) =>
       checks.planMindCheck(mindId, mode, allDocuments, figureIds),
     holdMindCheck: async (input) => checks.holdMindCheck(input),
-    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
@@ -7188,8 +7222,6 @@ export function createCore(adapters: CoreAdapters): Core {
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
     answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
-    forgetCommandWindow: async (input) =>
-      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 
@@ -7761,6 +7793,9 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.awake();
       calendars.awake();
     },
+    windowCalled: (window, method, input) => windows.called(window, method, input),
+    windowGone: (window) => windows.gone(window),
+    windowReloaded: (window) => windows.reloaded(window),
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),
     dataFlows: consent.registry,
