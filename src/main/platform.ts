@@ -834,7 +834,8 @@ function calendarAdapters(log: Logger): Pick<CoreAdapters, "systemCalendar" | "c
  * so no device is ever opened (INCARNAMIND_TEST_AUDIO=fake), its computer's
  * sound allowed, denied or silent (INCARNAMIND_TEST_AUDIO_SYSTEM), or a
  * recording played once (INCARNAMIND_TEST_AUDIO_FILE, a 16 kHz mono 16-bit WAV),
- * for checking transcription by hand. They reach it as
+ * with the microphone's beside it (INCARNAMIND_TEST_AUDIO_MICROPHONE_FILE), for
+ * checking transcription by hand. They reach it as
  * `globalThis.incarnamindFakeAudio`, e.g. to change the microphone.
  * INCARNAMIND_TEST_AUDIO=none is a copy with no capture at all.
  */
@@ -845,10 +846,15 @@ function audioCapture(log: Logger): AudioCapture | undefined {
   if (import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_AUDIO === "fake") {
     const system = process.env.INCARNAMIND_TEST_AUDIO_SYSTEM;
     const recording = process.env.INCARNAMIND_TEST_AUDIO_FILE;
+    const microphoneRecording = process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE_FILE;
     const fake = createFakeCapture({
       realTime: 100,
       system: system === "denied" || system === "silent" ? system : "allowed",
       ...(recording && { recording: wavSamples(readFileSync(recording)) }),
+      ...(recording &&
+        microphoneRecording && {
+          microphoneRecording: wavSamples(readFileSync(microphoneRecording)),
+        }),
       microphone:
         process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "denied"
           ? "denied"

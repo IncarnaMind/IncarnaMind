@@ -879,7 +879,11 @@ export interface Transcriber {
 
 export interface TranscriberListener {
   segment(segment: SpeechSegment): void;
-  /** `heardMs`: how far a cloud service has answered for (`doneMs` when absent), see `CloudStreamReport`. */
+  /**
+   * `heardMs`: how far a cloud service has answered for (see `CloudStreamReport`), or this
+   * computer's engine has heard with only its queued readings owed (see `SpeechReport`); `doneMs`
+   * when absent.
+   */
   progress(stream: string, doneMs: number, heardMs?: number): void;
   /** A stretch of a stream couldn't be decoded: it has no text, and the stream goes on. */
   failed(stream: string, message: string): void;

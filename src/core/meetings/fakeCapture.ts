@@ -22,8 +22,11 @@ export interface FakeCaptureOptions {
   microphone?: "allowed" | "denied" | "silent" | "waiting";
   /** Makes audio by itself, as captured, every `realTime` ms. */
   realTime?: number;
-  /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile. */
+  /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile, unless
+   * it plays `microphoneRecording`. */
   recording?: Int16Array;
+  /** With `recording`, the microphone plays these samples once beside it: a call with both sides. */
+  microphoneRecording?: Int16Array;
   /** The clock its frames are stamped with, the one the core's `now` reads: `Date.now` by default. */
   now?: () => number;
 }
@@ -85,8 +88,8 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
     if (quiet || (source === "system" && system === "silent")) return samples;
     if (source === "microphone" && microphone === "silent") return samples;
     if (options.recording) {
-      if (source === "system")
-        samples.set(options.recording.subarray(made.system, made.system + count));
+      const played = source === "system" ? options.recording : options.microphoneRecording;
+      if (played) samples.set(played.subarray(made[source], made[source] + count));
       made[source] += count;
       return samples;
     }

@@ -67,7 +67,12 @@ export interface SpeechEngine {
 
 export interface SpeechReport {
   segment(segment: SpeechSegment): void;
-  progress(stream: string, doneMs: number): void;
+  /**
+   * `doneMs`: everything before it has its final text. `heardMs`: everything before it was heard
+   * and owes at most the final readings queued, for an engine that cuts long speech
+   * (`SpeechEngine.longestMs`); without one it is `doneMs` (#2902).
+   */
+  progress(stream: string, doneMs: number, heardMs: number): void;
   /** A stretch couldn't be decoded: it has no text, and the stream goes on. */
   failed(stream: string, message: string): void;
 }
@@ -217,8 +222,8 @@ interface Stream {
    */
   work: { atMs: number; ms: number }[];
   liveWork: { atMs: number; ms: number }[];
-  /** Final decodes queued or running, by where they start. */
-  unfinished: Set<number>;
+  /** Final decodes queued or running, by where they start: how far the stream had got when each was queued. */
+  unfinished: Map<number, number>;
   finishing: { resolve(): void } | null;
   dropped: boolean;
 }
@@ -283,14 +288,29 @@ export function createSpeechHost(
   /** Everything before this has its final text: the start of the oldest speech not yet decoded. */
   function doneOf(stream: Stream): number {
     let done = stream.received;
-    for (const start of stream.unfinished) done = Math.min(done, start);
+    for (const start of stream.unfinished.keys()) done = Math.min(done, start);
     if (stream.speech) done = Math.min(done, stream.speech.start);
     return msOf(done);
   }
 
+  /**
+   * How far the stream was heard with nothing owed before it but what the decoder hasn't read:
+   * where it had got when its oldest final reading still due was queued. Speech still being said
+   * isn't owed, as its live words show it and it is queued within `longest`: falling behind is
+   * the engine not keeping up, not a long turn (#2902). Counted from the queueing rather than the
+   * piece's end, so it never goes back: the core keeps the furthest. An engine that reads a
+   * stretch only once it ends owes all of it, so its `doneOf`.
+   */
+  function heardOf(stream: Stream): number {
+    if (!Number.isFinite(longest)) return doneOf(stream);
+    let heard = stream.received;
+    for (const queuedAt of stream.unfinished.values()) heard = Math.min(heard, queuedAt);
+    return msOf(heard);
+  }
+
   function settle(stream: Stream): void {
     if (stream.dropped) return;
-    report.progress(stream.name, doneOf(stream));
+    report.progress(stream.name, doneOf(stream), heardOf(stream));
     if (stream.finishing && stream.unfinished.size === 0 && !stream.speech) {
       const { resolve } = stream.finishing;
       stream.finishing = null;
@@ -444,7 +464,7 @@ export function createSpeechHost(
         samples.length - at > longest
           ? at + cutOf(samples.subarray(at, at + longest))
           : samples.length;
-      stream.unfinished.add(start + at);
+      stream.unfinished.set(start + at, stream.received);
       finals.push({
         stream: stream.name,
         id: partId,
@@ -572,7 +592,7 @@ export function createSpeechHost(
         words: [],
         work: [],
         liveWork: [],
-        unfinished: new Set(),
+        unfinished: new Map(),
         finishing: null,
         dropped: false,
       };
