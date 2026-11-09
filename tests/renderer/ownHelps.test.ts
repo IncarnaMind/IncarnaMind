@@ -62,6 +62,26 @@ describe("the panel's own help replies", () => {
     expect(told.at(-1)).toEqual(["a"]);
   });
 
+  test("a press that returns after its reply came and went has its check ended at once", () => {
+    const { own, ended, told } = panel();
+    own.showing(["a"]);
+    own.showing(["b"]);
+    own.asked(help("a"));
+
+    expect(ended).toEqual(["a"]);
+    expect(told.at(-1)).toEqual([]);
+  });
+
+  test("any ask the panel makes is its own once it returns, a typed question's in another conversation too", () => {
+    const { own, ended } = panel();
+    const typed: ShownHelp = { conversationId: "c2", answerId: "typed" };
+    own.asked(typed);
+    own.showing(["typed"]);
+    own.showing(["next"]);
+
+    expect(ended).toEqual(["typed"]);
+  });
+
   test("each check ends once, however often the panel says what it shows", () => {
     const { own, ended } = panel();
     own.asked(help("a"));

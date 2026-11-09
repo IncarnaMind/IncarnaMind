@@ -17,10 +17,16 @@ export function createOwnHelps({
 }) {
   const own = new Map<string, ShownHelp>();
   let shown = new Set<string>();
+  /** Every reply it has shown: a press can return after its reply came and went. */
+  const seen = new Set<string>();
   const report = () => tell([...own.values()].filter((help) => shown.has(help.answerId)));
   return {
     /** A press of the panel's own was asked. */
     asked(help: ShownHelp): void {
+      if (seen.has(help.answerId) && !shown.has(help.answerId)) {
+        end(help);
+        return;
+      }
       own.set(help.answerId, help);
       report();
     },
@@ -34,6 +40,7 @@ export function createOwnHelps({
         }
       }
       shown = now;
+      for (const answerId of now) seen.add(answerId);
       report();
     },
   };

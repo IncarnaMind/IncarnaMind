@@ -15,6 +15,7 @@ import {
 import { readHelpReply, sentencePassed } from "../../src/renderer/src/helpReply";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { isTranscriptLocation } from "../../src/shared/locations";
 import { answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextTurn, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -370,6 +371,44 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
       ]);
     },
   );
+
+  test("Check again judges anew: a ✓ its first check gave a sentence goes once the second doesn't pass it", async () => {
+    let round = 0;
+    const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
+    const { core, meeting } = await setUp({
+      reply,
+      judge: (call) =>
+        ++round === 1
+          ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
+          : batchOf(call, [["", { verdict: "unsupported" }]]),
+    });
+    const first = await (await pressed(core, meeting, "answer")).judged();
+
+    await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
+    const again = await answerJudged(core, first.conversationId, first.id);
+
+    expect(first.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+    expect(chips(first)).toEqual([
+      { marker: 1, passed: true },
+      { marker: 1, passed: false },
+    ]);
+    expect(again.citations).toMatchObject([{ marker: 1, check: "unsupported" }]);
+    expect(chips(again)).toEqual([
+      { marker: 1, passed: false },
+      { marker: 1, passed: false },
+    ]);
+  });
+
+  test("a Citation of the call's own line takes ✓ once the check passes the sentence it is cited in", async () => {
+    const reply =
+      "★ They want a firm launch date\n0:04 the launch date, said last [^1]\n→ give the date you can commit to";
+    const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
+
+    const after = await (await pressed(core, meeting, "want")).judged();
+
+    expect(isTranscriptLocation(after.citations[0]?.location ?? null)).toBe(true);
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
 
   test("the next press and Stop on the Meeting leave a reply and its check alone: the core ends neither", async () => {
     const hold = holdingFirst();

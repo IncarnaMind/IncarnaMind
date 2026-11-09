@@ -7,6 +7,7 @@ import {
   MEETING_PANEL_BRIDGE_KEY,
   type MeetingPanelBridge,
   SAYS_HIDDEN_FROM_SHARES,
+  type ShownHelp,
 } from "../../../shared/meetingPanel";
 import { keysHere } from "../commands/keymap";
 import {
@@ -53,9 +54,14 @@ const ownHelps = createOwnHelps({
   tell: (helps) => bridge.showing(helps),
 });
 
-/** Asks a button's help from the panel: its reply is the panel's own (`ownHelps`). */
-function askHere(meeting: Meeting, kind: MeetingHelpKind): void {
-  void askHelp(meeting, kind).then((asked) => {
+/**
+ * The one way the panel asks, whatever is asked: a button, its shortcut, Try again, or a question
+ * typed into the panel. Its reply becomes the panel's own, whose check ends once the panel no longer
+ * shows it (#2847). An ask that skips this leaves the check of a reply it replaced running, and
+ * main never ends it when the panel closes.
+ */
+function askFromPanel(asking: Promise<ShownHelp | null>): void {
+  void asking.then((asked) => {
     if (asked) ownHelps.asked(asked);
   });
 }
@@ -133,7 +139,7 @@ export function MeetingPanel() {
         const live = meetingRef.current;
         if (!live) return;
         setFolded(false);
-        askHere(live, kind);
+        askFromPanel(askHelp(live, kind));
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
@@ -347,7 +353,7 @@ function Panel({
         meeting={meeting}
         layout="grid"
         keys={keys}
-        onPress={(kind) => askHere(meeting, kind)}
+        onPress={(kind) => askFromPanel(askHelp(meeting, kind))}
       />
       {shownPinned.map((each) => (
         <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />
@@ -482,7 +488,11 @@ function Suggestion({
   };
   return (
     <div className="panel-suggestion" data-pinned={pinned}>
-      <HelpSuggestion help={help} answer={answer} onRetry={() => askHere(meeting, help.kind)} />
+      <HelpSuggestion
+        help={help}
+        answer={answer}
+        onRetry={() => askFromPanel(askHelp(meeting, help.kind))}
+      />
       {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">
           <button

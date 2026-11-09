@@ -47,7 +47,7 @@ Every bar must hold. A bar that fails keeps the change from shipping, and the nu
 
 ## The pilot, 2026-11-09: the check misreads call help's sentences, so the gate doesn't run
 
-Eight presses of the call-help set (`en-answer-total`, `en-check-wrong`, `en-want`, `en-sum`, `zh-answer-edition`, `zh-sum`, `zh-check-right` and `zh-want`), Claude Sonnet 5.5 on a direct Anthropic key, one run, both arms, the judge Claude Opus 5.5. Spent $0.53. The 15-minute load was 17.8 at the start; the one-minute load reached 29 from other work.
+Eight presses of the call-help set (`en-answer-total`, `en-check-wrong`, `en-want`, `en-sum`, `zh-answer-edition`, `zh-sum`, `zh-check-right` and `zh-want`), Claude Sonnet 5.5 on a direct Anthropic key, one run, both arms, the judge Claude Opus 5.5. Spent $0.53. The 15-minute load was 17.8 when it was started; the one-minute load during its presses was 12.7–19.2.
 
 | Sonnet 5.5 | Presses with a wrong ✓ (main → branch) | Kept ✓ on the branch | Marks settled, median (90th pct.) |
 |---|---|---|---|

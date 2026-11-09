@@ -1215,11 +1215,13 @@ export function createAnswers(options: AnswersOptions) {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
           return citation;
         }
+        // The places this judgement passed, never an earlier one's: Check again judges anew.
+        const { passedAt: _earlier, ...judging } = citation;
         const places = passedAt.get(citation.marker);
         const where = places && { passedAt: places };
-        if (!result) return { ...citation, check: "not-checked", checkReason: stop, ...where };
+        if (!result) return { ...judging, check: "not-checked", checkReason: stop, ...where };
         return {
-          ...citation,
+          ...judging,
           check: result.check,
           checkReason: null,
           judgedAt: new Date().toISOString(),
@@ -4876,10 +4878,11 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question);
-      const waiting = answer.citations.map(
-        (citation): MarkedCitation =>
-          citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
-      );
+      const waiting = answer.citations.map((citation): MarkedCitation => {
+        if (citation.check !== "not-checked") return citation;
+        const { passedAt: _earlier, ...again } = citation;
+        return { ...again, check: "checking" };
+      });
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
       await judgeAnswer(
         { ...answer, citations: waiting },
