@@ -9,6 +9,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
+import type { OfficeConverter } from "../../src/core/adapters";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkingModel, isCheckRun } from "../helpers/checks";
@@ -26,7 +27,7 @@ import {
   sameTemplate,
 } from "../helpers/sameTextAgreements";
 import { printedPdf, wordOf } from "../helpers/sameTextFiles";
-import { importWordBytes } from "../helpers/wordMinds";
+import { importWordBytes, importWordMind } from "../helpers/wordMinds";
 
 /** A sentence of clause 1.2 after its first, which the other deal's file from the template holds too. */
 const SENTENCE = {
@@ -54,17 +55,25 @@ const NAMES = {
 /** The checked file and its copies in the Library, then the file imported as a Note. */
 async function importedNote(
   language: Language,
-  { addOriginal = false, file = firstClauses(agreement(language), 1) } = {},
+  { addOriginal = false, file = firstClauses(agreement(language), 1), converted = false } = {},
 ) {
   const calls: ModelCall[] = [];
   const model = checkingModel({ [SENTENCE[language]]: { verdict: "unsupported" } }, calls);
   const dataDir = await createTempDataFolder();
-  const start = () =>
-    startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
-  const core = start();
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const names = NAMES[language];
   const word = wordOf(file, language);
+  // A LibreOffice that "converts" an older .doc into the agreement's .docx.
+  const officeConverter: OfficeConverter = {
+    available: async () => true,
+    convert: async () => ({ outcome: "converted", name: `${names.original}.docx`, bytes: word }),
+  };
+  const start = () =>
+    startCore(dataDir, {
+      createChatModel: scriptedModels(model).createChatModel,
+      ...(converted && { officeConverter }),
+    });
+  const core = start();
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const folder = await createSourceFolder();
   const write = async (name: string, bytes: Uint8Array) => {
     const path = join(folder, name);
@@ -80,12 +89,21 @@ async function importedNote(
     ),
   ]);
   const [resaved, pdf, template] = added as [Document, Document, Document];
-  const { mindId, client } = await importWordBytes(core, await createSourceFolder(), word, {
-    name: `${names.original}.docx`,
-    origin: "own",
-    folderId: null,
-    addOriginal,
-  });
+  const imported = async () => {
+    if (!converted) {
+      return importWordBytes(core, await createSourceFolder(), word, {
+        name: `${names.original}.docx`,
+        origin: "own",
+        folderId: null,
+        addOriginal,
+      });
+    }
+    const legacy = await write(`${names.original}.doc`, new TextEncoder().encode("an older .doc"));
+    const made = await core.convertWordFile(legacy);
+    if (made.outcome !== "converted") throw new Error(JSON.stringify(made));
+    return importWordMind(core, { path: made.path, origin: "own", folderId: null, addOriginal });
+  };
+  const { mindId, client } = await imported();
   return {
     core,
     start,
@@ -159,6 +177,23 @@ describe("A Note imported from a file whose original isn't in the Library", () =
     await set.core.deleteDocument(original.id);
 
     await checkAll(set.core, set.mindId, "all");
+    expect(handed(set.calls)).toEqual(new Set([NAMES.en.template]));
+    expect(await leftOut(set.client, SENTENCE.en)).toEqual(
+      expect.arrayContaining([
+        [NAMES.en.resaved, "same-text"],
+        [NAMES.en.pdf, "same-text"],
+      ]),
+    );
+    set.core.close();
+  }, 120_000);
+
+  test("a Note imported from an older .doc converted on import, its original never added: the copies are left out", async () => {
+    const set = await importedNote("en", { addOriginal: true, converted: true });
+    expect(
+      (await set.core.listDocuments()).filter((each) => each.name === NAMES.en.original),
+    ).toHaveLength(0);
+
+    await checkAll(set.core, set.mindId, "converted");
     expect(handed(set.calls)).toEqual(new Set([NAMES.en.template]));
     expect(await leftOut(set.client, SENTENCE.en)).toEqual(
       expect.arrayContaining([
