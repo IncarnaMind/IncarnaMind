@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindChange } from "../../src/core";
+import type { AnswerToolCall, MindChange, MindProblem } from "../../src/core";
 import {
   askAgainNote,
   CLAIM_CHECK_INSTRUCTIONS,
@@ -463,7 +463,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     ).toContain(DONE_BY_NOTE_CHANGE);
   });
 
-  // protects=a later write is read as the retry of a failed one only when it has the same Note and target (a new Note's title, the part or place named, else the first line written or the instruction, a heading's marks left out), whichever Tool wrote it, and each retries one failure (#2769's review, #2878); fails_when=another section written at the Note's end, another whole-Note edit, another new Note, or another part by another Tool backs "done" after the first failed, or a section added after its edit found no such heading doesn't; no_claim=the judge's verdicts.
+  // protects=a later write is read as the retry of a failed one only when it has the same Tool, Note and target (a new Note's title, the part or place named, else the first line written or the instruction), and each retries one failure (#2769's review); fails_when=another section written at the Note's end, another whole-Note edit or another new Note backs "done" after the first failed; no_claim=the judge's verdicts.
   describe("only a write with the same target retries a failed one", () => {
     const sentTo = async (calls: AnswerToolCall[]) => {
       const model = judge({ claims: [] });
@@ -519,10 +519,6 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         "one retry after two failures",
         [risks("r1", null), risks("r2", null, "- Late audit"), risks("r3", {}, "- Both, cited")],
       ],
-      [
-        "another part written by another Tool",
-        [risks("r", null), write("t", "edit_mind", { part: "Timeline" }, {})],
-      ],
     ])("main's sentence after %s", async (_case, calls) => {
       const prompt = await sentTo(calls);
       expect(prompt).not.toContain(DONE_BY_NOTE_CHANGE);
@@ -540,17 +536,6 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         [
           write("fo", "edit_mind", { instruction: "Make it more formal" }, null),
           write("fo-again", "edit_mind", { instruction: "make it more formal" }, {}),
-        ],
-      ],
-      [
-        "the same section written by another Tool",
-        [risks("r", null), write("e", "edit_mind", { part: "Risks" }, { revised: true })],
-      ],
-      [
-        "a section added once its edit found no such heading",
-        [
-          write("e", "edit_mind", { part: "风险" }, null),
-          write("a", "add_to_mind", { content: "## 风险\n- 供应商延期" }, {}),
         ],
       ],
     ])("a Note change backs done after %s", async (_case, calls) => {
@@ -653,7 +638,7 @@ describe("A reply that tells the User their request is done is held to the chang
     for (const reply of replies) {
       const done = judge({ claims: [] }, "done");
       const result = await checked(reply, [...calls], done, [...waiting]);
-      expect(result.claims).toEqual(["changed"]);
+      expect(result.claims).toEqual([]);
       expect(result.unfinished).toBe(true);
       expect(result.failed).toBeUndefined();
       const asked = JSON.stringify(callOf(done, "request-done")?.prompt);
@@ -743,6 +728,188 @@ describe("A reply that tells the User their request is done is held to the chang
     },
   );
 
+  describe("a write applied after one failed is its retry, unless the Note shows it went elsewhere", () => {
+    const toldDone = async (
+      calls: AnswerToolCall[],
+      spans: Readonly<Record<string, { from: number; to: number }>> = {},
+    ) => {
+      const model = judge({ claims: [] }, "done");
+      const result = await unbackedClaims("That's all done.", calls, MINDS, null, {
+        model,
+        names,
+        states: () => applied,
+        parts: (_mindId, part) => spans[part] ?? null,
+        signal: new AbortController().signal,
+      });
+      return { result, asked: callOf(model, "request-done") !== undefined };
+    };
+    const given = (
+      id: string,
+      tool: "add_to_mind" | "edit_mind" | "create_mind",
+      input: Record<string, string>,
+      outcome: Partial<MindChange> | MindProblem,
+      mindId = "q3",
+    ): AnswerToolCall => {
+      const problem = "kind" in outcome ? outcome : null;
+      return {
+        id,
+        tool,
+        source: "minds",
+        input,
+        status: problem ? "failed" : "done",
+        resultCount: null,
+        ...(problem
+          ? { mindProblem: problem }
+          : {
+              mindChange: { mindId, created: false, request: `${id}-r`, proposals: 2, ...outcome },
+            }),
+      };
+    };
+    const length = { kind: "length", mindId: "q3" } as const;
+
+    // protects=in the saved runs a write applied in a Note after one failed there was its retry, its call often worded otherwise: a whole-Note edit asked again in other words, an add whose place wasn't found then written at the Note's end, a part written by another Tool, a section added when its edit found no such heading, a part the Note can't place, a write that found no Note then a new Note, and a new Note made again under its title, in English and Chinese; none is asked about, so an honest "done" after it stands (#2878); fails_when=the retry is matched by the call's words, which took at most 38 of 113 saved retries, and the question flags honest replies; no_claim=the quick model's reading.
+    test.each([
+      [
+        "a whole-Note edit asked again in other words",
+        [
+          given("a", "edit_mind", { instruction: "Make it twice as long" }, length),
+          given(
+            "b",
+            "edit_mind",
+            { instruction: "Expand it to about double, keeping Citations" },
+            {},
+          ),
+        ],
+      ],
+      [
+        "an add whose place wasn't found, then written at the Note's end",
+        [
+          given(
+            "a",
+            "add_to_mind",
+            { after: "Untitled", content: "# 知识库总结" },
+            {
+              kind: "no-place",
+              mindId: "q3",
+              place: "Untitled",
+            },
+          ),
+          given("b", "add_to_mind", { content: "# 知识库总结（12 份文档）" }, {}),
+        ],
+      ],
+      [
+        "a part written by another Tool",
+        [
+          given(
+            "a",
+            "add_to_mind",
+            { content: "## Speakers\n- Okafor" },
+            {
+              kind: "new-version",
+              mindId: "q3",
+              text: "Speakers",
+            },
+          ),
+          given("b", "edit_mind", { part: "Speakers" }, { revised: true }),
+        ],
+      ],
+      [
+        "a section added when its edit found no such heading",
+        [
+          given(
+            "a",
+            "edit_mind",
+            { part: "经验教训" },
+            {
+              kind: "no-heading",
+              mindId: "q3",
+              heading: "经验教训",
+            },
+          ),
+          given("b", "add_to_mind", { content: "## 经验教训\n- 提前确认场地" }, {}),
+        ],
+      ],
+      [
+        "a later write to a part the Note can't place",
+        [
+          given("a", "edit_mind", { part: "Timeline" }, length),
+          given("b", "edit_mind", { part: "Budget" }, {}),
+        ],
+      ],
+      [
+        "a write that found no Note, then a new Note",
+        [
+          given("a", "add_to_mind", { content: "# Trip" }, { kind: "no-mind" }),
+          given("b", "create_mind", { title: "Trip" }, { created: true, mindId: "tides" }),
+        ],
+      ],
+      [
+        "a new Note made again under its title",
+        [
+          given("a", "create_mind", { title: "GraphST notes" }, { kind: "not-ready" }),
+          given(
+            "b",
+            "create_mind",
+            { title: "GraphST notes" },
+            { created: true, mindId: "papers" },
+          ),
+        ],
+      ],
+    ] satisfies [string, AnswerToolCall[]][])("%s", async (_case, calls) => {
+      const { result, asked } = await toldDone(calls);
+      expect(asked).toBe(false);
+      expect(result.unfinished).toBeUndefined();
+    });
+
+    // protects=a failure stays undone when a later write went to another part the Note places apart from it, when nothing was written after it, when the later write was in another Note, or when another new Note was made, so "done" after it is flagged; fails_when=any later write in the Note clears a failure, and "all done" after one part failed and another changed passes; no_claim=the quick model's reading.
+    test.each([
+      [
+        "a later write to another part the Note places apart",
+        [
+          given("a", "edit_mind", { part: "Timeline" }, length),
+          given("b", "edit_mind", { part: "Budget" }, {}),
+        ],
+        { Timeline: { from: 0, to: 2 }, Budget: { from: 2, to: 4 } },
+      ],
+      [
+        "a write before the failure, none after",
+        [
+          given("b", "edit_mind", { part: "Budget" }, {}),
+          given("a", "edit_mind", { part: "Timeline" }, length),
+        ],
+        {},
+      ],
+      [
+        "a later write in another Note",
+        [
+          given("a", "edit_mind", { part: "风险" }, length),
+          given("b", "edit_mind", { part: "风险" }, {}, "weekly"),
+        ],
+        {},
+      ],
+      [
+        "another new Note",
+        [
+          given("a", "create_mind", { title: "GraphST notes" }, { kind: "not-ready" }),
+          given(
+            "b",
+            "create_mind",
+            { title: "STAGATE notes" },
+            { created: true, mindId: "papers" },
+          ),
+        ],
+        {},
+      ],
+    ] satisfies [string, AnswerToolCall[], Record<string, { from: number; to: number }>][])(
+      "%s leaves it undone",
+      async (_case, calls, spans) => {
+        const { result, asked } = await toldDone(calls, spans);
+        expect(asked).toBe(true);
+        expect(result.unfinished).toBe(true);
+      },
+    );
+  });
+
   // protects=a question that fails or can't be read flags nothing and says the check failed, so no false line goes under an honest reply, while a reading of "done" stands when only the claims failed; fails_when=a failure reads as "done", or as a clean check; no_claim=none beyond protects.
   test("a question that fails flags nothing, and says the check failed", async () => {
     const failing = (failed: JudgeQuestion | null, request: string) =>
@@ -765,30 +932,35 @@ describe("A reply that tells the User their request is done is held to the chang
       expect(result.failed).toBe(true);
     }
     const claimsDown = await checked("That's all done.", calls, failing("claimed-changes", "done"));
-    expect(claimsDown.claims).toEqual(["changed"]);
+    expect(claimsDown.claims).toEqual([]);
     expect(claimsDown.unfinished).toBe(true);
     expect(claimsDown.failed).toBe(true);
   });
 
-  // protects=asked again after a reply that called its request done, the model is told so, and is told that changes are listed under its reply only when one was made; fails_when=told "IncarnaMind lists each change under your reply" with nothing changed, which a model answered with "Done: the changes are listed under this reply"; no_claim=what a real model then writes (the gate's everyday requests).
+  // protects=asked again after a reply that called its request done, the model is told so, and what else the claims check named, commands included, and is told that changes are listed under its reply only when one was made; fails_when=told "IncarnaMind lists each change under your reply" with nothing changed, which a model answered with "Done: the changes are listed under this reply"; no_claim=what a real model then writes (the gate's everyday requests).
   test("asked again, the model is told changes are listed only when one was made", () => {
     const failed = [write("e", "edit_mind", "q3", "length", "Risks")];
     const partial = [write("a", "add_to_mind", "q3", {}), ...failed];
     const states = () => applied;
-    const unfinished = askAgainNote(
-      { claims: ["changed"], unfinished: true },
-      failed,
-      names,
-      states,
-    );
+    const unfinished = askAgainNote({ claims: [], unfinished: true }, failed, names, states);
     expect(unfinished).toContain(
       "Your reply tells the User that what they asked for is done, but not all of it was: the record above shows what changed and what didn't. Write your reply again from its start. Say plainly what wasn't done and why.",
     );
     expect(unfinished).not.toContain("IncarnaMind lists each change under your reply");
-    expect(
-      askAgainNote({ claims: ["changed"], unfinished: true }, partial, names, states),
-    ).toContain(
+    expect(askAgainNote({ claims: [], unfinished: true }, partial, names, states)).toContain(
       "Write your reply again from its start, without saying what you changed: IncarnaMind lists each change under your reply.",
+    );
+    const both = askAgainNote(
+      { claims: ["removed"], commands: ["permanent"], unfinished: true },
+      failed,
+      names,
+      states,
+    );
+    expect(both).toContain(
+      "Your reply tells the User that what they asked for is done, but not all of it was: the record above shows what changed and what didn't. It also says you removed or replaced text in a Note, and deleted something for good, but no Tool did that. Write your reply again from its start.",
+    );
+    expect(both).toContain(
+      "Don't run again a command that was refused as the User's alone or that the User didn't allow",
     );
     const claimed = askAgainNote({ claims: ["added"] }, [], names, states);
     expect(claimed).toContain(

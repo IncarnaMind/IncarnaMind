@@ -7369,7 +7369,7 @@ export const zhCN = {
   "answer.notWritten": "未写入任何内容：{reason}",
   "answer.notWritten.noCall": "助手没有执行写入",
   "answer.notWritten.retry": "重试",
-  "answer.notAllDone": "助手没有完成这条回答中说的全部改动",
+  "answer.notAllDone": "这条回答说已完成的事，有些未能完成",
   "answer.notCalculated": "未运行计算：这条回答中算出的数字不是 IncarnaMind 计算得出的，尚未核对",
   "answer.notCalculated.unavailable":
     "未运行计算：这个模型无法调用 IncarnaMind 的计算工具，这条回答中算出的数字尚未核对",

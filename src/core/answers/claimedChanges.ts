@@ -196,9 +196,8 @@ function firstLineOf(value: unknown): string | null {
 }
 
 /**
- * The Note and target a write aimed at, whichever Tool wrote it: a new Note's title, the part or
- * place it named, or else its first line or instruction, a heading's marks left out. Null when it
- * names none, so nothing is taken for its retry.
+ * The Tool, Note and target a write aimed at: a new Note's title, the part or place it named, or
+ * else its first line or instruction. Null when it names none, so nothing is taken for its retry.
  */
 function aimOf(call: AnswerToolCall): string | null {
   const field = (name: string) => firstLineOf(call.input[name]);
@@ -213,10 +212,38 @@ function aimOf(call: AnswerToolCall): string | null {
   const mindId = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : "");
   // A failed create_mind leaves no Note, so its retry has another id: it is matched by title.
   const note = call.tool === "create_mind" ? "" : mindId;
-  const words = sameWords(target)
-    .replace(/^#{1,6}\s+/, "")
-    .toLocaleLowerCase();
-  return `${note}\n${words}`;
+  return `${call.tool}\n${note}\n${sameWords(target).toLocaleLowerCase()}`;
+}
+
+/**
+ * Whether a request said to be done may be backed by a change to a Note: one applied, and every
+ * call that changes something did what it set out to. A failed, stopped or denied call, or a
+ * change still waiting for the User, keeps it from counting unless a later call of the same Tool
+ * applied a change with the same Note and target, each such call retrying one failure (#2769).
+ */
+function doneByNoteChange(calls: readonly AnswerToolCall[], states?: ChangeStates): boolean {
+  const applied = (call: AnswerToolCall) => {
+    const change = call.mindChange;
+    return (
+      call.status === "done" &&
+      change !== undefined &&
+      (change.proposals > 0 || change.revised === true) &&
+      states?.(change)?.applied === true
+    );
+  };
+  if (!calls.some(applied)) return false;
+  const undone: (string | null)[] = [];
+  for (const call of calls) {
+    if (call.source === "commands") {
+      if (!["done", "started"].includes(outcomeOf(call))) return false;
+      continue;
+    }
+    if (call.source !== "minds" || !NOTE_WRITES.has(call.tool)) continue;
+    const aim = aimOf(call);
+    if (!applied(call)) undone.push(aim);
+    else if (aim !== null && undone.includes(aim)) undone.splice(undone.indexOf(aim), 1);
+  }
+  return undone.length === 0;
 }
 
 function appliedIn(call: AnswerToolCall, states?: ChangeStates): boolean {
@@ -226,36 +253,69 @@ function appliedIn(call: AnswerToolCall, states?: ChangeStates): boolean {
   return change.created;
 }
 
+const titleOf = (call: AnswerToolCall) => {
+  const title = firstLineOf(call.input.title);
+  return title === null ? null : sameWords(title).toLocaleLowerCase();
+};
+
+/** Whether `later` wrote where `failed` was to: its Note, any Note when it found none, or a new Note's title. */
+function wroteWhere(failed: AnswerToolCall, later: AnswerToolCall): boolean {
+  if (failed.tool === "create_mind") {
+    const title = titleOf(failed);
+    return later.tool === "create_mind" && title !== null && titleOf(later) === title;
+  }
+  const problem = failed.mindProblem;
+  const note =
+    failed.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
+  return note === null || later.mindChange?.mindId === note;
+}
+
 /**
- * Whether the calls did all they set out to change: a change to a Note applied or a command done,
- * and none left undone. A failed, stopped or denied call, a change still waiting for the User, or
- * a command that failed or was refused leaves it undone, unless a later call, of any Tool that
- * writes, applied a change with the same Note and target, each such call retrying one failure
- * (#2769, #2878). A write that found nothing needed changing did what it set out to.
+ * Whether the calls left undone some of what they set out to change, as a reply that says the
+ * request is done is held to (#2878): nothing changed at all; a command that failed, was refused,
+ * wasn't allowed or only proposed; a change still waiting for the User; or a write that failed or
+ * was stopped, unless a later write applied a change where it was to and the Note doesn't show its
+ * part apart from every change made there. In the saved everyday runs, a write applied in a Note
+ * after one failed there was, in every case that could be read, the failed one's retry, its call
+ * worded otherwise as often as not. A write that found nothing needed changing did what it set
+ * out to.
  */
-function carriedOut(calls: readonly AnswerToolCall[], states?: ChangeStates): boolean {
+function leftUndone(
+  calls: readonly AnswerToolCall[],
+  states?: ChangeStates,
+  spans?: PartSpans,
+): boolean {
+  const apart = unchangedParts(calls, spans);
   let changed = false;
-  const undone: (string | null)[] = [];
-  for (const call of calls) {
+  for (const [at, call] of calls.entries()) {
     if (call.source === "commands") {
       if (call.tool !== COMMAND_TOOLS.run) continue;
-      if (!["done", "started"].includes(outcomeOf(call))) return false;
+      if (!["done", "started"].includes(outcomeOf(call))) return true;
       changed = true;
       continue;
     }
     if (call.source !== "minds" || !NOTE_WRITES.has(call.tool)) continue;
-    const aim = aimOf(call);
     if (appliedIn(call, states)) {
       changed = true;
-      if (aim !== null && undone.includes(aim)) undone.splice(undone.indexOf(aim), 1);
-    } else if (call.status !== "done" || call.mindChange !== undefined) undone.push(aim);
+      continue;
+    }
+    if (call.status === "done") {
+      if (call.mindChange !== undefined) return true;
+      continue;
+    }
+    const retried = calls
+      .slice(at + 1)
+      .some(
+        (later) =>
+          later.source === "minds" &&
+          NOTE_WRITES.has(later.tool) &&
+          appliedIn(later, states) &&
+          wroteWhere(call, later),
+      );
+    if (!retried || apart.has(call.id)) return true;
   }
-  return changed && undone.length === 0;
+  return !changed;
 }
-
-/** Whether a request said to be done may be backed by a change to a Note: one applied, and none left undone. */
-const doneByNoteChange = (calls: readonly AnswerToolCall[], states?: ChangeStates): boolean =>
-  calls.some((call) => appliedIn(call, states)) && carriedOut(calls, states);
 
 function targetOf(call: AnswerToolCall, names: MindNames) {
   const problem: MindProblem | undefined = call.mindProblem;
@@ -573,7 +633,7 @@ export async function unbackedClaims(
       signal,
     }),
     // Every call did what it set out to: a reply that says so is backed, whatever it says.
-    carriedOut(calls, states)
+    !leftUndone(calls, states, parts)
       ? null
       : judge({
           model,
@@ -604,7 +664,7 @@ export async function unbackedClaims(
       );
     }
     return {
-      claims: unfinished ? ["changed"] : [],
+      claims: [],
       commands: [],
       usage,
       durationMs,
@@ -615,13 +675,8 @@ export async function unbackedClaims(
   const { unsure, ...unbacked } = judged.value;
   if (unsure)
     console.error("The reply's change-claim check gave a claim it couldn't hold to the reply.");
-  const claims =
-    unfinished && !unbacked.claims.includes("changed")
-      ? [...unbacked.claims, "changed" as const]
-      : unbacked.claims;
   return {
     ...unbacked,
-    claims,
     usage,
     durationMs,
     ...(unfinished && { unfinished: true as const }),
@@ -688,9 +743,19 @@ export function askAgainNote(
       appliedIn(call, states) ||
       (call.tool === COMMAND_TOOLS.run && ["done", "started"].includes(outcomeOf(call))),
   );
+  const told = [
+    ...(unfinished
+      ? [
+          "Your reply tells the User that what they asked for is done, but not all of it was: the record above shows what changed and what didn't.",
+        ]
+      : []),
+    ...(said
+      ? [`${unfinished ? "It also says" : "Your reply says"} you ${said}, but no Tool did that.`]
+      : []),
+  ];
   return [
     thisAnswersRecord(calls, names, states),
-    `${unfinished ? "Your reply tells the User that what they asked for is done, but not all of it was: the record above shows what changed and what didn't." : `Your reply says you ${said}, but no Tool did that.`} Write your reply again from its start${listed ? ", without saying what you changed: IncarnaMind lists each change under your reply" : ""}. Say plainly what wasn't done and why. If the User's request still needs a change you can make now, make it with the Tools first.`,
+    `${told.join(" ")} Write your reply again from its start${listed ? ", without saying what you changed: IncarnaMind lists each change under your reply" : ""}. Say plainly what wasn't done and why. If the User's request still needs a change you can make now, make it with the Tools first.`,
     ...(commands.length > 0
       ? [
           "Don't run again a command that was refused as the User's alone or that the User didn't allow: IncarnaMind already tells the User where they change what is theirs.",

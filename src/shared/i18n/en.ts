@@ -7774,7 +7774,7 @@ export const en = {
   "answer.notWritten": "Nothing was written: {reason}",
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
-  "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.notAllDone": "The assistant didn’t do everything this reply says",
   "answer.notCalculated":
     "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
   "answer.notCalculated.unavailable":

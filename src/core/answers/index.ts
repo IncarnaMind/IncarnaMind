@@ -3392,7 +3392,10 @@ export function createAnswers(options: AnswersOptions) {
                     // refused as the User's alone, whatever the judge took a claim to be about, so
                     // none of it reads as done (#2407). Only a verdict asks again.
                     const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
-                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+                    const claimed =
+                      checked.claims.length > 0 ||
+                      checked.commands.length > 0 ||
+                      checked.unfinished === true;
                     const commands =
                       claimed || checked.failed
                         ? CLAIMED_COMMANDS.filter(
@@ -3402,7 +3405,12 @@ export function createAnswers(options: AnswersOptions) {
                     if (!claimed)
                       return commands.length > 0 ? { claims: [], commands, note: "" } : null;
                     return {
-                      claims: checked.claims,
+                      // A request said done and left undone is a change claimed, for the line
+                      // under the reply (#2878).
+                      claims:
+                        checked.unfinished && checked.claims.length === 0
+                          ? (["changed"] satisfies ClaimedChange[])
+                          : checked.claims,
                       commands,
                       note: askAgainNote(
                         checked,

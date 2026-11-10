@@ -463,8 +463,8 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
         { tool: "add_to_mind", input: { content: "## Risks\n\nShipping is late." } },
         { tool: "edit_mind", input: { part: "Nowhere", instruction: "Make it longer" } },
       ],
-      en: "The assistant didn’t make every change this reply describes",
-      zh: "助手没有完成这条回答中说的全部改动",
+      en: "The assistant didn’t do everything this reply says",
+      zh: "这条回答说已完成的事，有些未能完成",
     },
   ])("a reply that says it is done after $calls.length writes gets its line", async (each) => {
     const notes: string[] = [];
