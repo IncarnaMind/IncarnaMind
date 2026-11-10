@@ -7,12 +7,18 @@
  * - `write`: the assistant writes 30 cited paragraphs into a new Note, scripted, and the first of
  *   them its check reads are checked before they land (src/core/answers/checks/written.ts).
  * - `answer`: an Answer of 30 cited sentences, scripted, judged once it ends (#2311).
+ * - `asked`: the gating set's Questions (eval/retrieval), the `run`th of each language, answered
+ *   by the model under test and judged once each ends, for how its check fares on its own Answers.
  *
  * The writing and the Answer are scripted, so only the checks' requests reach the model under test.
  * INCARNAMIND_EVAL_SPEED_THINKING ("summary" or "off") sets how every model thinks, which only an
  * Answer's batches feel; and
  * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
  * reranks as many Passages as it would in a real one.
+ * INCARNAMIND_EVAL_SPEED_ANSWER_SENTENCES (as `1,2,3`) has `answer` write Answers of so many
+ * sentences instead, each run the set's next ones, so each is judged in one batch of that size; and
+ * INCARNAMIND_EVAL_SPEED_BATCH_ROOM gives every batch that many output tokens instead of its own
+ * limit, to measure what a whole reply takes. Neither is for a gate's arm of today's path.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -43,7 +49,7 @@ import { buildPdf } from "../../tests/helpers/pdf";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
-import type { EvalDocument } from "../lib/evaluationSet";
+import { type EvalDocument, loadEvaluationSet } from "../lib/evaluationSet";
 import { type Library, openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
@@ -155,6 +161,16 @@ function scripted(
   // Every model's thinking as one arm asks for it: only an Answer's batches reach the model with
   // anything but "off" (src/core/answers/checks/index.ts).
   const thinking = env("THINKING") as ChatModelSpec["thinking"] | null;
+  const room = env("BATCH_ROOM");
+  if (room) {
+    middleware.transformParams = async ({ params }) => {
+      const prompt = params.prompt as { role: string; content: unknown }[];
+      const batch = prompt.some(
+        (message) => message.role === "system" && isSentenceBatch(message.content),
+      );
+      return batch ? { ...params, maxOutputTokens: Number(room) } : params;
+    };
+  }
   return (inner: ChatModelFactory): ChatModelFactory =>
     (spec) =>
       wrapLanguageModel({
@@ -394,10 +410,10 @@ function markersIn(text: string, sentences: readonly string[]): Map<number, numb
 async function answerFlow(
   core: Core,
   choice: ChatModelChoice,
-  language: Language,
   recorder: ReturnType<typeof checkRecorder>,
+  items: ReturnType<typeof CITED>,
 ) {
-  const sentences = CITED(language).map((each) => each.sentence);
+  const sentences = items.map((each) => each.sentence);
   recorder.begin(sentences);
   const asked = await core.askInConversation({ text: "What do the rules say?", model: choice });
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -424,6 +440,30 @@ async function answerFlow(
   return { checkStartMs: endedMs ?? doneMs, doneMs, landed };
 }
 
+/** An Answer the model under test writes, judged once it ends. */
+async function askedFlow(
+  core: Core,
+  choice: ChatModelChoice,
+  recorder: ReturnType<typeof checkRecorder>,
+  question: string,
+) {
+  recorder.begin([]);
+  const asked = await core.askInConversation({ text: question, model: choice });
+  if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+  let endedMs: number | null = null;
+  await answerEnds(core, asked.conversation.id, asked.answerId, (message) => {
+    if (message.kind === "answer" && message.status !== "streaming") endedMs ??= recorder.since();
+  });
+  const doneMs = recorder.since();
+  return { checkStartMs: endedMs ?? doneMs, doneMs, landed: [] };
+}
+
+/** The set's sentences from the `run`th Answer of `size` on, taking up after the last at the first. */
+const windowOf = (all: ReturnType<typeof CITED>, size: number, run: number) =>
+  Array.from({ length: size }, (_, at) => all[((run - 1) * size + at) % all.length]).filter(
+    (each) => each !== undefined,
+  );
+
 const wanted = list("CHECK_TIMES");
 const timedChecks = wanted ? test : test.skip;
 
@@ -435,6 +475,11 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const flows = wanted ?? [];
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
+  const answerSizes = list("ANSWER_SENTENCES")?.map(Number) ?? [null];
+  const passesOf = (flow: string) =>
+    (flow === "answer" ? answerSizes : [null]).flatMap((size) =>
+      Array.from({ length: runs }, (_, at) => ({ size, run: at + 1 })),
+    );
   const stopUsd = Number(env("STOP_USD") ?? "3");
   const recorder = checkRecorder();
   let current: { flow: string; items: ReturnType<typeof CITED> } | null = null;
@@ -449,6 +494,11 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     });
     // The mixed sample set beside them, for searches that rerank as many Passages as a real Library's.
     if (env("LIBRARY") === "mixed") documents.push(...(await reports()));
+    const gating = flows.includes("asked") ? loadEvaluationSet(ROOT) : null;
+    if (gating) documents.push(...gating.documents);
+    const questions = (gating?.questions ?? []).filter(
+      (each) => each.language === (language === "en" ? "en" : "zh"),
+    );
     for (const document of HELD_OUT_DOCUMENTS) {
       if (document.language !== language || !document.libraries.includes("terms")) continue;
       const path = join(folder, document.file);
@@ -493,7 +543,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
         for (const flow of flows) {
-          for (let run = 1; run <= runs; run++) {
+          for (const { size, run } of passesOf(flow)) {
             const spent = await spentUsd(core);
             if (spentBefore + spent >= stopUsd) {
               stopped = `Stopped at $${(spentBefore + spent).toFixed(2)}, before ${name} · ${flow} · ${language} · ${run}.`;
@@ -503,9 +553,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             const load = loadavg()[0] ?? 0;
             const load15 = loadavg()[2] ?? 0;
             log(
-              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
+              `${name} · ${flow}${size ? ` of ${size}` : ""} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
             );
-            current = { flow, items: CITED(language) };
+            const items = size ? windowOf(CITED(language), size, run) : CITED(language);
+            current = { flow, items };
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
@@ -516,7 +567,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 ? await noteFlow(core, choice, language, recorder, run)
                 : flow === "write"
                   ? await writeFlow(core, choice, language, recorder)
-                  : await answerFlow(core, choice, language, recorder);
+                  : flow === "asked"
+                    ? await askedFlow(core, choice, recorder, questions[run - 1]?.question ?? "")
+                    : await answerFlow(core, choice, recorder, items);
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
               dataDir,
@@ -533,6 +586,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               model: name,
               language,
               run,
+              ...(size && { answerSentences: size }),
               load,
               load15,
               checkStartMs: times.checkStartMs,
