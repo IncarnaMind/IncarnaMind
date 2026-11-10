@@ -52,6 +52,7 @@ import type { ClaimCheckRequest } from "./claimCheck";
 import {
   type CheckOutcome,
   type CheckRuns,
+  type ClaimCheck,
   checkRunOf,
   resultOf,
   runCheck,
@@ -176,6 +177,33 @@ const requestOf = (
 export function createContradictionWatch(options: WatchOptions) {
   const { content } = options;
 
+  // The background queue runs one check at a time, so background runs land in order. A Check for
+  // contradictions on demand isn't queued, so it can end after a later check of the same sentence.
+  // Each try at a check takes the next place as it begins, and its result is refused once a check
+  // that began after it has landed: the newer check's result is the one the Note keeps (#2909).
+  let began = 0;
+  /** The runs and background checks going on now; with none, no place matters any more. */
+  let underway = 0;
+  /** The place of the newest check that landed in each sentence. */
+  const landed = new Map<string, number>();
+  /** The place of each claim's latest try at its check. */
+  const placed = new WeakMap<Claim, number>();
+
+  const enter = () => {
+    underway++;
+  };
+  const leave = () => {
+    if (--underway === 0) landed.clear();
+  };
+
+  /** `options.claimCheck` for `claim`, which takes its place as each try begins. */
+  const checkOf =
+    (claim: Claim): ClaimCheck =>
+    (request) => {
+      placed.set(claim, began++);
+      return options.claimCheck(request);
+    };
+
   /** What a check of the Mind's cited sentences (or those `stretches` touch) would check. */
   function plan(mindId: string, stretches?: readonly TextStretch[]): Plan {
     const folderId = options.mindFolder(mindId);
@@ -220,7 +248,8 @@ export function createContradictionWatch(options: WatchOptions) {
   /**
    * Writes a claim's result: a contradiction's mark, in place of any check
    * there; otherwise any watch mark goes, or, if the model couldn't check it,
-   * says why. False when the sentence has changed or gone meanwhile.
+   * says why. False when the sentence has changed or gone meanwhile, or a check of it that began
+   * later has landed already.
    */
   function write(
     mindId: string,
@@ -230,6 +259,9 @@ export function createContradictionWatch(options: WatchOptions) {
     result: ClaimCheckResult,
     prepared: PreparedChatModel,
   ) {
+    const place = placed.get(claim) ?? began++;
+    const key = JSON.stringify([mindId, claim.blockId, claim.text]);
+    if ((landed.get(key) ?? -1) > place) return false;
     const at = options.now().toISOString();
     const kept = content.edit(mindId, (blocks) => {
       const sentence = everySentence(blocks).find(
@@ -287,7 +319,10 @@ export function createContradictionWatch(options: WatchOptions) {
       );
       return true;
     });
-    if (kept) options.retainEvidence(mindId);
+    if (kept) {
+      landed.set(key, place);
+      options.retainEvidence(mindId);
+    }
     return kept;
   }
 
@@ -302,12 +337,13 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
+    enter();
     const { stop, outcomeError } = await runClaimChecks(
       ready.claims,
       (claim, attempt) =>
         asCheckWork(() =>
           currentTask.run({ id: runId }, () =>
-            attempt(options.claimCheck, requestOf(claim, mindId, prepared, signal)),
+            attempt(checkOf(claim), requestOf(claim, mindId, prepared, signal)),
           ),
         ),
       {
@@ -322,7 +358,7 @@ export function createContradictionWatch(options: WatchOptions) {
           }
         },
       },
-    );
+    ).finally(leave);
     if (outcomeError !== null) {
       options.log.error("contradictions.markFailed", {
         mindId,
@@ -470,6 +506,7 @@ export function createContradictionWatch(options: WatchOptions) {
       options.background.add({
         kind: ACTION,
         async run(call) {
+          enter();
           try {
             if (closed) return;
             if (!rest && !prepared.provider.service) call.runsLocally();
@@ -477,7 +514,7 @@ export function createContradictionWatch(options: WatchOptions) {
               rest ??
               (await currentTask.run({ id: runId }, () =>
                 runCheck(
-                  options.claimCheck,
+                  checkOf(claim),
                   requestOf(claim, mindId, prepared, call.signal),
                   checkRunOf(options, prepared, call.signal, mindId),
                 ),
@@ -494,6 +531,7 @@ export function createContradictionWatch(options: WatchOptions) {
               if (result.verdict === "contradicted") contradicted++;
             }
           } finally {
+            leave();
             // A run that gives way or closes ends without finishing: its record says so, so a
             // scoped Check never stands on it (#1941).
             if (call.signal.aborted || closed) record(stop ?? { reason: "cancelled" });

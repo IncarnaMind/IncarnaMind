@@ -90,6 +90,8 @@ interface Script {
   planLimit?: true;
   /** The claim whose check never replies. */
   hangs?: number;
+  /** The claim whose check's model begins to reply and never ends it. */
+  hangsAfterReply?: number;
   /** The monthly cap is reached once the first claim's check has ended, as the next ones start. */
   cap?: true;
   /** The monthly cap is reached before the flow sends any check. */
@@ -347,6 +349,10 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let replyBegun: () => void = () => undefined;
+  const began = new Promise<void>((resolve) => {
+    replyBegun = resolve;
+  });
   let reachCap: () => Promise<void> = async () => undefined;
   let capReached: Promise<void> | null = null;
   /** Holds a reply until the cap is reached, for a script that reaches it before any check. */
@@ -385,6 +391,8 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
       if (!flow.inTurn) return { ...reply, pause: { after: 0, until: othersSent } };
     }
     if (index === script.hangs) return { text: "", pause: { after: 0, until: NEVER } };
+    if (index === script.hangsAfterReply)
+      return { ...reply, text: "Looking.", pause: { after: 1, until: NEVER, reached: replyBegun } };
     if (
       index === script.unreadable &&
       call.results.some((each) => each.tool === "search_documents")
@@ -493,6 +501,8 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
     runs,
     order,
     plans,
+    /** Resolves once a check's model has begun the reply that `hangsAfterReply` holds. */
+    began,
     async begin(next: Script) {
       judgedBefore = await everyRecorded(started);
       script = next;
@@ -671,6 +681,14 @@ const CASES: readonly Case[] = [
     recorded: () => ({ checked: 2, asked: 0 }),
   },
   {
+    name: "a check whose model began to reply and never ended is Not checked at the time limit, and recorded as asked",
+    script: { hangsAfterReply: 1 },
+    shows: () => ["ok", TIMED_OUT, "ok"],
+    runs: () => [1, 1, 1],
+    pauses: [],
+    recorded: () => ({ checked: 2, asked: 1 }),
+  },
+  {
     name: "a check its model replied to in words no check can read is Not checked, and recorded as asked",
     script: { unreadable: 1 },
     shows: () => ["ok", "not-checked: malformed", "ok"],
@@ -703,7 +721,12 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
 
       const running = flow.run(world);
       if (each.script.cap) await made.capAfterFirst();
-      if (each.script.hangs !== undefined) {
+      const hung = each.script.hangs ?? each.script.hangsAfterReply;
+      if (hung !== undefined) {
+        if (each.script.hangsAfterReply !== undefined) {
+          await made.began;
+          await nextTurn();
+        }
         // Only the hung check is still waiting on its time limit.
         await vi.waitFor(
           () => {
@@ -732,7 +755,7 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
         checked: after.checked - before.checked,
         asked: after.asked - before.asked,
       }).toEqual(each.recorded(flow));
-      if (each.script.hangs !== undefined) {
+      if (hung !== undefined) {
         const detail = await timedOutDetail(world, flow);
         expect(detail).toBe("60");
         expect(
@@ -746,6 +769,44 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
     });
   });
 });
+
+describe.each([EN, ZH])(
+  "Check this Note stopped while a check its model began to answer is out ($language)",
+  (example) => {
+    // protects=a check started while the claims were named, which a model replied to and the User then stops, is recorded in the Note's AI use as read by a model and left Not checked, as the checks the run sent itself are (#2909); fails_when=the claim's one record is lost because the early check had not ended when the run did; no_claim=how the card words a Check that was stopped.
+    test("is recorded as asked", async () => {
+      const flow = FLOWS.find((each) => each.name === "Check this Note");
+      if (!flow) throw new Error("Check this Note is a flow.");
+      const made = await worldOf(example, flow);
+      const { world } = made;
+      const before = await recorded(world);
+      await made.begin({ hangsAfterReply: 1 });
+
+      const requestId = crypto.randomUUID();
+      const running = world.core.checkMind({ requestId, mindId: world.note.mindId, mode: "all" });
+      await made.began;
+      // The other two have been checked: only the claim whose model began to reply is still out.
+      await vi.waitFor(
+        async () => {
+          expect((await recorded(world)).checked - before.checked).toBe(2);
+          expect(world.clock.waiting()).toBe(1);
+        },
+        { timeout: 20_000 },
+      );
+      await world.core.cancelCheck(requestId);
+      await running;
+
+      const after = await recorded(world);
+      expect({
+        checked: after.checked - before.checked,
+        asked: after.asked - before.asked,
+      }).toEqual({
+        checked: 2,
+        asked: 1,
+      });
+    });
+  },
+);
 
 const BACKGROUND: Flow = (() => {
   const flow = FLOWS.find((each) => each.name === "the background watch");
@@ -772,7 +833,7 @@ async function lastWatch(client: MindClient, found: { checked: number; contradic
 }
 
 describe.each([EN, ZH])("two background watches of one Note ($language)", (example) => {
-  // protects=the background queue runs one check at a time, in the order queued, so a newer watch's check of a claim starts only once the older one's has ended and its result is the one the Note shows; and a check given up at its time limit never lands, even when its reply comes after a newer watch's (#2897); fails_when=a newer watch's check starts while the older one's is out, or the older reply lands last; no_claim=a check on demand beside a background one, which no queue orders.
+  // protects=the background queue runs one check at a time, in the order queued, so a newer watch's check of a claim starts only once the older one's has ended and its result is the one the Note shows; and a check given up at its time limit never lands, even when its reply comes after a newer watch's (#2897); fails_when=a newer watch's check starts while the older one's is out, or the older reply lands last; no_claim=a check on demand beside a background one, which the next describe covers.
   test("a newer watch's check starts once the older one's has ended, and its result stands", async () => {
     let releaseFirst: () => void = () => undefined;
     const firstHeld = new Promise<void>((resolve) => {
@@ -844,5 +905,102 @@ describe.each([EN, ZH])("two background watches of one Note ($language)", (examp
     await nextTurn();
 
     expect(await shown(world, BACKGROUND)).toEqual(["none", "contradicted", "contradicted"]);
+  });
+});
+
+describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)", (example) => {
+  const first = example.claims[0];
+
+  /**
+   * Two checks of the first claim at once. The first Run's first request waits for `release`;
+   * every request made meanwhile finds the claim contradicted when `meanwhile` says so, as planned,
+   * and every one after it when `after` does, and otherwise nothing against it.
+   */
+  function overlapping(meanwhile: boolean, after: boolean) {
+    const gate = Promise.withResolvers<void>();
+    let released = false;
+    return {
+      release() {
+        released = true;
+        gate.resolve();
+      },
+      script: {
+        reply: (index: number, run: number, call: ModelCall, planned: ScriptedReply) => {
+          if (index !== 0) return null;
+          const reply = (released ? after : meanwhile)
+            ? planned
+            : checkReply(call, { [first]: { verdict: "unsupported" } });
+          return run === 1 && call.results.length === 0
+            ? { ...reply, pause: { after: 0, until: gate.promise } }
+            : reply;
+        },
+      },
+    };
+  }
+
+  /** Resolves once the Note's last watch is a background one: it names the Document that started it. */
+  const backgroundEnded = (client: MindClient) =>
+    vi.waitFor(() => expect(contradictionWatchOf(client.doc)?.documentName).toBeTruthy(), {
+      timeout: 20_000,
+    });
+
+  // protects=a Check for contradictions on demand that began after a background watch's check of the same sentence and ended before it keeps its result: the older check's, coming last, doesn't replace it (#2909); fails_when=the last result to end is the one the Note shows; no_claim=a result that is Supported, which neither can give.
+  test("the on-demand check that began last keeps its result when the older background check ends after it", async () => {
+    const made = await worldOf(example, BACKGROUND);
+    const { world } = made;
+    await BACKGROUND.setUp?.(world);
+    // The background watch finds the first claim contradicted but ends after the check on demand,
+    // which began later and finds nothing against it.
+    const held = overlapping(false, true);
+    await made.begin(held.script);
+
+    await newOffice(world, example.added);
+    await vi.waitFor(() => expect(made.runs).toEqual([1, 0, 0]), { timeout: 20_000 });
+    const onDemand = await world.core.checkContradictions({
+      requestId: crypto.randomUUID(),
+      mindId: world.note.mindId,
+    });
+    expect(onDemand).toMatchObject({ kind: "checked", claims: 3 });
+    expect(await shown(world, BACKGROUND)).toEqual(["none", "contradicted", "contradicted"]);
+
+    held.release();
+    await vi.waitFor(() => expect(made.runs).toEqual([2, 2, 2]), { timeout: 20_000 });
+    await backgroundEnded(world.note.client);
+
+    expect(await shown(world, BACKGROUND)).toEqual(["none", "contradicted", "contradicted"]);
+  });
+
+  // protects=a background watch's check that began after a Check for contradictions on demand's of the same sentence keeps its result when the on-demand check ends last (#2909); fails_when=the last result to end is the one the Note shows; no_claim=a result that is Supported, which neither can give.
+  test("the background check that began last keeps its result when the older on-demand check ends after it", async () => {
+    const made = await worldOf(example, BACKGROUND);
+    const { world } = made;
+    await BACKGROUND.setUp?.(world);
+    // The check on demand finds nothing against the first claim but ends after the background
+    // watch, which began later and finds it contradicted.
+    const held = overlapping(true, false);
+    await made.begin(held.script);
+
+    const onDemand = world.core.checkContradictions({
+      requestId: crypto.randomUUID(),
+      mindId: world.note.mindId,
+    });
+    await vi.waitFor(() => expect(made.runs).toEqual([1, 1, 1]), { timeout: 20_000 });
+    await newOffice(world, example.added);
+    await vi.waitFor(() => expect(made.runs).toEqual([2, 2, 2]), { timeout: 20_000 });
+    await backgroundEnded(world.note.client);
+    expect(await shown(world, BACKGROUND)).toEqual([
+      "contradicted",
+      "contradicted",
+      "contradicted",
+    ]);
+
+    held.release();
+    expect(await onDemand).toMatchObject({ kind: "checked", claims: 3 });
+
+    expect(await shown(world, BACKGROUND)).toEqual([
+      "contradicted",
+      "contradicted",
+      "contradicted",
+    ]);
   });
 });
