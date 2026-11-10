@@ -608,7 +608,7 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
   );
 });
 
-describe("a count of periods in a sentence the Answer check judges (#2943)", () => {
+describe("a count of periods in a sentence the Answer check judges (#2943, #2953)", () => {
   const citing = (quote: string): Citation => ({
     passageId: "passage-1",
     documentId: "document-1",
@@ -681,7 +681,6 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
   test.each([
     ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 5%."],
     ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 5%."],
-    ["It ran for 1e3 days.", "It ran for 7 days."],
   ])("a number that starts inside a word is no count: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
@@ -691,8 +690,157 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["It ran for 9007199254740993 days.", "It ran for 9007199254740993 days."],
     ["It ran for four five days.", "It ran for 45 days."],
     ["It slipped by -3 days.", "It slipped by 3 days."],
+    ["It ran for 1e3 days.", "It ran for 7 days."],
+    ["It ran for 1e3 days.", "It ran for 1e3 days."],
+    ["It ran for 1.5E+3 days.", "It ran for 1500 days."],
     ["它运行了9007199254740993天。", "它运行了12天。"],
   ])("a count that cannot be read is never a pass: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 3-5 days.", "It ran for 2-5 days."],
+    ["It ran for 3-5 days.", "It ran for 3-6 days."],
+    ["It ran for 3 to 5 days.", "It ran for 2 to 5 days."],
+    ["It ran for between 3 and 5 days.", "It ran for between 2 and 5 days."],
+    ["It ran for three to five days.", "It ran for two to five days."],
+    ["It ran for between three and five days.", "It ran for between two and five days."],
+    ["It ran for 4 days.", "It ran for 3-5 days."],
+    ["它运行了3-5天。", "它运行了2-5天。"],
+    ["它运行了3至5天。", "它运行了2至5天。"],
+    ["它运行了三到五天。", "它运行了二到五天。"],
+    ["它运行了4天。", "它运行了3-5天。"],
+    ["年龄22至59周岁的员工自动加入。", "年龄22至50周岁的员工自动加入。"],
+    ["公司成立5周年。", "公司成立10周年。"],
+  ])("a range is held to both ends: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 3-5 days.", "It ran for 3-5 days."],
+    ["It ran for 3-5 days.", "It ran for 3 to 5 days."],
+    ["It ran for 3 to 5 days.", "It ran for 3 to 5 days."],
+    ["It ran for between 3 and 5 days.", "It ran for between 3 and 5 days."],
+    ["It ran for three to five days.", "It ran for three to five days."],
+    ["It ran for between three and five days.", "It ran for between three and five days."],
+    ["它运行了3-5天。", "它运行了3-5天。"],
+    ["它运行了3至5天。", "它运行了3-5天。"],
+    ["它运行了三到五天。", "它运行了三到五天。"],
+    ["年龄22至59周岁的员工自动加入。", "年龄22至59周岁的员工自动加入。"],
+    ["公司成立5周年。", "公司成立5年。"],
+    ["项目历时3周。", "项目历时3周。"],
+  ])("the same range is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["You must reply within ten (10) days.", "You must reply within twenty (20) days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within 60 (sixty) days."],
+    ["You must reply within ten (20) days.", "You must reply within ten (20) days."],
+    ["You must reply within 10 (twenty) days.", "You must reply within 10 (twenty) days."],
+    ["你须在三十（20）天内答复。", "你须在三十（20）天内答复。"],
+    ["你须在30（三十）天内答复。", "你须在60（六十）天内答复。"],
+  ])("words and figures that differ are not judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["You must reply within ten (10) days.", "You must reply within ten (10) days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within 30 (thirty) days."],
+    ["You must reply within ten (10) days.", "You must reply within 10 days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within thirty days."],
+    ["你须在三十（30）天内答复。", "你须在三十（30）天内答复。"],
+    ["你须在30（三十）天内答复。", "你须在30（三十）天内答复。"],
+    ["你须在三十（30）天内答复。", "你须在30天内答复。"],
+  ])("words and figures that agree are still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 2 000 days.", "It ran for 2 000 000 days."],
+    ["Reply within 5 working days or 10 days.", "Reply within 5 working days or 20 days."],
+  ])("a plain-space group is held to the Passage: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 2 000 days.", "It ran for 2 000 days."],
+    ["It ran for 2 000 days.", "It ran for 2,000 days."],
+    ["It ran for 2 000 000 days.", "It ran for 2 000 000 days."],
+    ["Reply within 5 working days or 10 days.", "Reply within 5 working days or 10 days."],
+  ])("the same plain-space group is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It lasted 1½ years.", "It lasted 2½ years."],
+    ["It lasted 1½ years.", "It lasted 11 years."],
+    ["It lasted 1/2 year.", "It lasted 1/3 year."],
+    ["It lasted 1/2 year.", "It lasted 2 years."],
+    ["It lasted two and a half years.", "It lasted three and a half years."],
+    ["它持续了一年半。", "它持续了一年。"],
+    ["它持续了一年半。", "它持续了两年半。"],
+    ["它持续了三个半月。", "它持续了三个月。"],
+  ])("a fraction is read as its value: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It lasted 1½ years.", "It lasted 1½ years."],
+    ["It lasted 1½ years.", "It lasted 1.5 years."],
+    ["It lasted 1½ years.", "It lasted one and a half years."],
+    ["It lasted 1 1/2 years.", "It lasted 1½ years."],
+    ["It lasted 1/2 year.", "It lasted 1/2 year."],
+    ["It lasted two and a half years.", "It lasted two and a half years."],
+    ["It lasted two and a half years.", "It lasted 2.5 years."],
+    ["它持续了一年半。", "它持续了一年半。"],
+    ["它持续了一年半。", "它持续了1.5年。"],
+    ["它持续了三个半月。", "它持续了三个半月。"],
+  ])("the same fraction is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 2,024 years.", "It ran for 1,024 years."],
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 4%."],
+    ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 4%."],
+    ["It is a 2000 year old tree.", "It is a 3000 year old tree."],
+  ])(
+    "a count is held to the Passage beside a year that names a period: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year end.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year-end results.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 5%."],
+    ["Revenue grew 5% after a 2019 month-end close.", "In 2019 revenue grew 5%."],
+    ["It ran for 2,024 years.", "It ran for 2,024 years."],
+    ["It is a 2000 year old tree.", "It is a 2000 year old tree."],
+  ])("a year that names a period is no count: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for a hundred days.", "It ran for two hundred days."],
+    ["It ran for a thousand years.", "It ran for two thousand years."],
+    ["It ran for a dozen years.", "It ran for twenty years."],
+  ])("a round number in words is read: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for a hundred days.", "It ran for a hundred days."],
+    ["It ran for a hundred days.", "It ran for 100 days."],
+    ["It ran for a hundred days.", "It ran for one hundred days."],
+    ["It ran for a thousand years.", "It ran for 1,000 years."],
+    ["It ran for a dozen years.", "It ran for 12 years."],
+    ["It ran for several hundred years.", "It ran for several hundred years."],
+    ["It followed the Hundred Days.", "It followed the Hundred Days."],
+  ])("the same round number is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
   });
 });
