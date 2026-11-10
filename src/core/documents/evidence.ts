@@ -20,6 +20,8 @@
  * Left out is never hidden: a search also says which of the Documents left
  * out matched, and where, so a result can name them, with Count it.
  */
+
+import type { Logger } from "../adapters";
 import type {
   CheckedDocument,
   EvidenceExclusion,
@@ -83,6 +85,7 @@ export interface EvidenceDependencies {
    * file no Note was imported from.
    */
   readImported(sha256: string): Promise<readonly { text: string }[] | null> | null;
+  log: Logger;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
   /** The search Tool, reranked as Answers are (see ./searchTool). */
@@ -182,21 +185,31 @@ export function createEvidence(deps: EvidenceDependencies) {
 
   const importing = new Map<string, Promise<void>>();
 
+  // Its check leaves out byte-for-byte copies only, as the check page says.
+  const unread = (error?: unknown): null => {
+    deps.log.warn("checks.importedFileUnread", {
+      ...(error !== undefined && { error: error instanceof Error ? error.name : "unknown" }),
+    });
+    return null;
+  };
+
   /**
    * Reads, once a session, each file a checked fingerprint names that a Note was imported from
    * and whose text no Document stores: the original never added, or deleted since (#2216).
    */
-  const importedReads = (checked: CheckedDocument | undefined): Promise<void>[] =>
-    (checked?.contentHashes ?? []).flatMap((sha256) => {
+  const importedReads = (checked: CheckedDocument): Promise<void>[] =>
+    (checked.contentHashes ?? []).flatMap((sha256) => {
       if (deps.textCopies.importedRead(sha256) || textStored(sha256)) return [];
       const going = importing.get(sha256);
       if (going) return [going];
       const units = deps.readImported(sha256);
       if (!units) return [];
-      const read = units.then((each) => {
-        importing.delete(sha256);
-        deps.textCopies.rememberImported(sha256, each);
-      });
+      const read = units
+        .then((each) => each ?? unread(), unread)
+        .then((each) => {
+          importing.delete(sha256);
+          deps.textCopies.rememberImported(sha256, each);
+        });
       importing.set(sha256, read);
       return [read];
     });
@@ -208,23 +221,30 @@ export function createEvidence(deps: EvidenceDependencies) {
      * stored, one restored since) are fingerprinted one a turn, not all at once on this thread,
      * and the file a checked Note was imported from is read on a worker when no Document holds
      * its text (#2216). It also settles when `stop` aborts, so a stopped check ends at once;
-     * after the core closes, only that settles it.
+     * after the core closes, only that settles it. `checked` is asked only once the
+     * fingerprints' wait settles, which it never does after the core closes, so nothing here
+     * reads the closed database.
      */
-    ready(stop?: AbortSignal, checked?: CheckedDocument): Promise<void> {
-      const reads = importedReads(checked);
-      const filled =
-        reads.length === 0
-          ? deps.textFingerprinted()
-          : Promise.all([deps.textFingerprinted(), ...reads]).then(() => {});
+    ready(stop?: AbortSignal, checked?: () => CheckedDocument): Promise<void> {
+      const filled = deps
+        .textFingerprinted()
+        .then(() => Promise.all(checked ? importedReads(checked()) : []))
+        .then(() => {});
       if (!stop) return filled;
       if (stop.aborted) return Promise.resolve();
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const end = () => resolve();
         stop.addEventListener("abort", end, { once: true });
-        void filled.then(() => {
-          stop.removeEventListener("abort", end);
-          resolve();
-        });
+        void filled.then(
+          () => {
+            stop.removeEventListener("abort", end);
+            resolve();
+          },
+          (error: unknown) => {
+            stop.removeEventListener("abort", end);
+            reject(error);
+          },
+        );
       });
     },
 

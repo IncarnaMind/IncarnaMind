@@ -5,11 +5,15 @@
  * some of its text is still evidence. Nothing is stored for it, and a kept file that is gone
  * leaves out byte-for-byte copies only.
  */
-import { rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import type { Core, Document } from "../../src/core";
+import { type Core, DATABASE_FILE, type Document } from "../../src/core";
 import type { OfficeConverter } from "../../src/core/adapters";
+import { createEvidence } from "../../src/core/documents/evidence";
+import { createTextCopies } from "../../src/core/documents/textCopies";
+import { migrate, openDatabase } from "../../src/core/storage";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkingModel, isCheckRun } from "../helpers/checks";
@@ -144,6 +148,29 @@ async function leftOut(client: MindClient, sentence: string) {
   )?.check;
   return (check?.excluded ?? []).map((each) => [each.documentName, each.reason]);
 }
+
+const bothCopies = expect.arrayContaining([
+  [NAMES.en.resaved, "same-text"],
+  [NAMES.en.pdf, "same-text"],
+]);
+
+const turns = async (count: number) => {
+  for (let turn = 0; turn < count; turn++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+/**
+ * Makes the kept file a named pipe, so its read holds: `started` settles once the worker has
+ * opened it, and the read ends only when the pipe it gives is closed.
+ */
+async function heldRead(dataDir: string, word: Uint8Array) {
+  const kept = join(dataDir, WORD_PACKAGES_FOLDER, `${sha256(word)}.docx`);
+  await rm(kept);
+  execFileSync("mkfifo", [kept]);
+  return { started: () => open(kept, "w") };
+}
+
+// A named pipe holds the read open, and Windows has no mkfifo to make one.
+const withHeldRead = test.skipIf(process.platform === "win32");
 
 describe.each(["en", "zh"] as const)(
   "A Note imported from a file never added to the Library (%s)",
@@ -287,35 +314,110 @@ describe("A Note imported from a file whose original isn't in the Library", () =
     set.core.close();
   }, 180_000);
 
-  test("a Stop while the file is read ends the check at once, with nothing sent", async () => {
-    const set = await importedNote("en");
-    set.core.close();
-    const core = set.start();
-    const checking = checkAll(core, set.mindId, "stopped");
-    await core.cancelCheck("stopped");
+  withHeldRead(
+    "a Stop while the file is read ends the check at once, before the read ends, with nothing sent",
+    async () => {
+      const set = await importedNote("en");
+      set.core.close();
+      const held = await heldRead(set.dataDir, set.word);
+      const core = set.start();
+      const checking = checkAll(core, set.mindId, "stopped");
+      const pipe = await held.started();
+      try {
+        await core.cancelCheck("stopped");
+        expect(await checking).toEqual({ kind: "cancelled" });
+        expect(set.calls.filter(isCheckRun)).toEqual([]);
+      } finally {
+        await pipe.close();
+      }
+      core.close();
+    },
+    120_000,
+  );
 
-    expect(await checking).toEqual({ kind: "cancelled" });
-    expect(set.calls.filter(isCheckRun)).toEqual([]);
+  withHeldRead(
+    "the core closed while the file is read: the check ends stopped, a search waiting on the same read never goes on, and nothing is sent",
+    async () => {
+      const set = await importedNote("en");
+      set.core.close();
+      const held = await heldRead(set.dataDir, set.word);
+      const core = set.start();
+      const checking = checkAll(core, set.mindId, "closing");
+      const pipe = await held.started();
+      try {
+        let searched = false;
+        const settled = () => {
+          searched = true;
+        };
+        core
+          .searchEvidence("material breach", { checked: { contentHashes: [sha256(set.word)] } })
+          .then(settled, settled);
+        // A turn, so the search waits on the same read before the core closes.
+        await turns(1);
+        core.close();
+
+        expect(await checking).toEqual({ kind: "cancelled" });
+        await turns(5);
+        expect(searched).toBe(false);
+        expect(set.calls.filter(isCheckRun)).toEqual([]);
+      } finally {
+        await pipe.close();
+      }
+    },
+    120_000,
+  );
+});
+
+describe("A search that arrives after the core has closed", () => {
+  test("with the imported file it neither settles nor throws; on an open core it leaves the copies out as before", async () => {
+    const set = await importedNote("en");
+    const search = (core: Core) =>
+      core.searchEvidence("material breach of any term", {
+        checked: { contentHashes: [sha256(set.word)] },
+      });
+    set.core.close();
+    const ended: string[] = [];
+    search(set.core).then(
+      () => ended.push("settled"),
+      (error: unknown) => ended.push(`threw ${String(error)}`),
+    );
+    await turns(5);
+    expect(ended).toEqual([]);
+
+    const core = set.start();
+    const found = await search(core);
+    expect(found.excluded.map((each) => [each.documentName, each.reason])).toEqual(bothCopies);
     core.close();
   }, 120_000);
+});
 
-  test("the core closed while the file is read: the check ends stopped, a search never goes on, and nothing is sent", async () => {
-    const set = await importedNote("en");
-    set.core.close();
-    const core = set.start();
-    const checking = checkAll(core, set.mindId, "closing");
-    let searched = false;
-    const settled = () => {
-      searched = true;
-    };
-    core
-      .searchEvidence("material breach", { checked: { contentHashes: [sha256(set.word)] } })
-      .then(settled, settled);
-    core.close();
+describe("A read of the kept file that fails", () => {
+  // Through the core the worker's read never fails (a failure comes back as unread), so the
+  // guard is shown on the module.
+  test("counts as a file that couldn't be read: the wait ends, with a Stop and without, the warning is logged, and it isn't read again", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), DATABASE_FILE));
+    migrate(db);
+    const warned: string[] = [];
+    let reads = 0;
+    const evidence = createEvidence({
+      db,
+      textCopies: createTextCopies(db, () => new Date().toISOString()),
+      textFingerprinted: () => Promise.resolve(),
+      readImported: () => {
+        reads += 1;
+        return Promise.reject(new Error("The worker went away."));
+      },
+      log: { info() {}, warn: (event) => warned.push(event), error() {} },
+      leaveOutOwnFiles: () => true,
+      search: async () => [],
+    });
+    const file = (digit: string) => () => ({ contentHashes: [digit.repeat(64)] });
 
-    expect(await checking).toEqual({ kind: "cancelled" });
-    for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
-    expect(searched).toBe(false);
-    expect(set.calls.filter(isCheckRun)).toEqual([]);
-  }, 120_000);
+    await evidence.ready(undefined, file("a"));
+    await evidence.ready(new AbortController().signal, file("b"));
+    await evidence.ready(undefined, file("a"));
+    expect(reads).toBe(2);
+    expect(warned).toEqual(["checks.importedFileUnread", "checks.importedFileUnread"]);
+    db.close();
+  });
 });
