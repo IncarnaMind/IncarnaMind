@@ -649,6 +649,10 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-100-year level."],
     ["Debtors over-60-day rose to £6.2 million.", "Debtors over-90-day rose to £6.2 million."],
     ["A $5 day pass is on sale.", "A $9 day pass is on sale."],
+    ["It ran for 3 days.", "It ran for 7 days."],
+    ["它运行了30 days。", "它运行了90 days。"],
+    ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 4%."],
+    ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 4%."],
   ])("a wrong count does not get the green check: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
   });
@@ -667,9 +671,18 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-200-year level."],
     ["Debtors over-60-day rose to £6.2 million.", "Debtors over-60-day rose to £6.2 million."],
     ["A $5 day pass is on sale.", "A $5 day pass is on sale."],
+    ["它运行了30 days。", "它运行了30 days。"],
     ["它运行了2.5年。", "它运行了2.5年。"],
     ["它运行了2,000天。", "它运行了2,000天。"],
   ])("the same count is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 5%."],
+    ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 5%."],
+    ["It ran for 1e3 days.", "It ran for 7 days."],
+  ])("a number that starts inside a word is no count: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
 

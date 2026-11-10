@@ -131,6 +131,11 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
     const digits = /\p{Nd}+$/u.exec(before);
     if (!unit || !digits) continue;
     const found = figureEndingAt(text, match.index, match.index, context);
+    const numberAt = found
+      ? found.start + Math.max(0, text.slice(found.start, match.index).search(/\p{Nd}/u))
+      : match.index - digits[0].length;
+    // A number inside a word is no count, read or not: "FY24 year-end", "1e3 days" (as before).
+    if (/\w/.test(text.charAt(numberAt - 1))) continue;
     // The reader leaves out a number a hyphen glues to a word ("over-60-day", "1-in-200-year"): its
     // digits alone are the count. Any other number it won't read has no value.
     const glued = !found && /[\p{L}-]$/u.test(before.slice(0, digits.index));
