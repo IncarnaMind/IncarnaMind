@@ -264,7 +264,19 @@ async function answerOf(
   const { messages } = await core.getConversation(conversationId);
   const answer = messages.find((message) => message.id === answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
-  return answer;
+  // What it wrote is checked after the reply (#2830): the request is over once that check is, so the
+  // next one never runs beside it, and what is read of the Note is what the check left.
+  return vi.waitFor(
+    async () => {
+      const { messages: now } = await core.getConversation(conversationId);
+      const found = now.find((message) => message.id === answerId);
+      if (found?.kind !== "answer") throw new Error("No Answer was kept.");
+      if (found.toolCalls.some((call) => call.mindChange?.selfCheck?.running))
+        throw new Error("What it wrote is still being checked.");
+      return found;
+    },
+    { timeout: ANSWER_TIMEOUT_MS, interval: 200 },
+  );
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
