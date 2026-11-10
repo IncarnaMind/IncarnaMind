@@ -127,6 +127,8 @@ test("filters by year, format, status and Folder with counts, and asks about the
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // Room for a chip for each Document chosen; a narrower panel folds them into a count.
+    await sizeAssistant(window, 480);
     // A Mind written in already: the most recent one, where the Questions go.
     await newMind(window);
     await window.keyboard.type("Tide notes");

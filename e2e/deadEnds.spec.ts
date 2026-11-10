@@ -75,7 +75,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type("@");
     const choices = window.getByTestId("scope-choice");
-    const empty = choices.filter({ hasText: words.empty });
+    // The picker lists a Tag of that name in Chinese too: the Folder is the one asked for.
+    const empty = choices
+      .filter({ hasText: words.empty })
+      .and(window.locator('[data-kind="folder"]'));
     await expect(empty).toHaveAttribute("data-empty", "true");
     await expect(empty.getByTestId("scope-choice-count")).toHaveText(words.hint);
     await expect(choices.filter({ hasText: "Coast" }).getByTestId("scope-choice-count")).toHaveText(
