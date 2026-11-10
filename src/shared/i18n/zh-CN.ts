@@ -3628,6 +3628,9 @@ export const zhCN = {
   "composer.plus": "添加文件等",
   "composer.plus.files": "添加文件…",
   "composer.plus.note": "添加笔记或文档",
+  "composer.files.outsideWall.one":
+    "“{name}”不在“{folder}”里，这个问题不会搜索它，只搜索“{folder}”。",
+  "composer.files.outsideWall": "{names}不在“{folder}”里，这个问题不会搜索它们，只搜索“{folder}”。",
   "composer.expand": "展开输入框",
   "composer.collapse": "收起输入框（Esc）",
   "composer.paste.name": "粘贴的文本",

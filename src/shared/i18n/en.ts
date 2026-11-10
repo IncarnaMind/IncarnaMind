@@ -3811,6 +3811,10 @@ export const en = {
   "composer.plus": "Add files and more",
   "composer.plus.files": "Add files…",
   "composer.plus.note": "Add a note or Document",
+  "composer.files.outsideWall.one":
+    "“{name}” isn’t in “{folder}”, so this Question doesn’t search it. It searches only “{folder}”.",
+  "composer.files.outsideWall":
+    "{names} aren’t in “{folder}”, so this Question doesn’t search them. It searches only “{folder}”.",
   "composer.expand": "Expand the composer",
   "composer.collapse": "Shrink the composer (Esc)",
   "composer.paste.name": "Pasted text",

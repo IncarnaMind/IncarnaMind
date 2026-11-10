@@ -2356,7 +2356,6 @@
    */
   .composer-row[data-stacked] > .composer-input {
     flex: 1 1 100%;
-    min-width: 0;
   }
   /* The Expand button (↗) sits at the top right, clear of the text. */
   .composer-row:has(> .composer-expand) > .composer-input {
@@ -2601,7 +2600,7 @@
     min-width: 14.5rem;
   }
   .composer-scope .scope-chip-empty {
-    flex-shrink: 1;
+    flex-shrink: 100;
     min-width: 0;
     overflow: hidden;
   }

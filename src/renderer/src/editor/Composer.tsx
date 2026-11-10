@@ -12,6 +12,7 @@ import {
 } from "react";
 import type * as Y from "yjs";
 import type { AnswerPlace, SearchScope } from "../../../core/api";
+import { listOf } from "../../../shared/i18n/join";
 import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
@@ -58,7 +59,7 @@ import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { describeError, errorMessage } from "../errors";
 import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
 import { folderWallOf } from "../folders";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { currentTabOf } from "../layoutSlice";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
@@ -109,9 +110,6 @@ const CHIPS_SHOWN = 3;
 
 /** From this many lines, the composer offers Expand (DESIGN.md, Composer › Height). */
 const EXPAND_FROM_LINES = 4;
-
-/** The least room `.composer-input` keeps beside the controls, in rem, as styles.css has it. */
-const MIN_FIELD_REM = 8;
 
 let measuring: CanvasRenderingContext2D | null = null;
 
@@ -349,11 +347,11 @@ export function Composer({
       (controls.current?.offsetWidth ?? 0) -
       gap -
       Number.parseFloat(fieldStyle.paddingLeft);
-    // The controls wrap under a field with less room than this, so + goes with them.
-    const floor =
-      MIN_FIELD_REM * Number.parseFloat(getComputedStyle(document.documentElement).fontSize) + 2;
+    // The controls wrap under a field with less room than its own least width, so + goes with them.
     const runsPast =
-      draft.text.includes("\n") || widthOf(draft.text, element) > room - 2 || room < floor;
+      draft.text.includes("\n") ||
+      widthOf(draft.text, element) > room - 2 ||
+      room < Number.parseFloat(fieldStyle.minWidth) + 2;
     const lineHeight = Number.parseFloat(fieldStyle.lineHeight) || 20;
     const padding =
       Number.parseFloat(fieldStyle.paddingTop) + Number.parseFloat(fieldStyle.paddingBottom);
@@ -490,8 +488,9 @@ export function Composer({
     },
   });
 
-  const { addFiles, skipped } = useAddFilesToChat({
-    wallFolderId: typeof wallId === "string" ? wallId : null,
+  const language = useLanguage();
+  const { addFiles, skipped, notSearched, dismissNotSearched } = useAddFilesToChat({
+    insideFolderId: typeof wallId === "string" ? wallId : libraryWalled ? libraryFolderId : null,
     join(ids) {
       const have = scopeIds(scope, "document");
       addDocuments([...new Set(ids)].filter((id) => !have.includes(id)));
@@ -945,6 +944,27 @@ export function Composer({
           testId="composer-skipped-files"
           className="composer-problem"
         />
+      )}
+      {notSearched && (
+        <ProblemLine
+          testId="composer-outside-wall"
+          className="composer-problem"
+          action={{ label: t("composer.paste.close"), onClick: dismissNotSearched }}
+        >
+          {t(
+            notSearched.names.length === 1
+              ? "composer.files.outsideWall.one"
+              : "composer.files.outsideWall",
+            {
+              name: notSearched.names[0] ?? "",
+              names: listOf(
+                notSearched.names.map((name) => `“${name}”`),
+                language,
+              ),
+              folder: notSearched.folder,
+            },
+          )}
+        </ProblemLine>
       )}
       {saveProblem && (
         <ProblemLine

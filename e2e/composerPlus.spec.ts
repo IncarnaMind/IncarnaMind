@@ -11,6 +11,7 @@ import {
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  openFolderInLibrary,
   placeAssistant,
   pointAndClick,
   removeDataFolder,
@@ -57,6 +58,17 @@ const documentsOf = (window: Page) =>
   window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.listDocuments({})).map((each) => each.name).sort();
+  });
+
+/** Each Document and the Folder it is filed in (null: in none), as the core has them. */
+const filingOf = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const { assignments } = await core.getLibrary();
+    return (await core.listDocuments({})).map((each) => ({
+      name: each.name,
+      groupId: assignments.find((item) => item.documentId === each.id)?.groupId ?? null,
+    }));
   });
 
 const chipNames = (composer: Locator) =>
@@ -362,19 +374,101 @@ test("behind a Folder wall, Add files… files the new Documents in that Folder,
   await pointAndClick(window, plus);
   await pointAndClick(window, menu.getByTestId("composer-plus-files"));
   await expect
-    .poll(() =>
-      window.evaluate(async () => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const { assignments } = await core.getLibrary();
-        return (await core.listDocuments({})).map((each) => ({
-          name: each.name,
-          groupId: assignments.find((item) => item.documentId === each.id)?.groupId ?? null,
-        }));
-      }),
-    )
+    .poll(() => filingOf(window))
     .toEqual([{ name: expect.stringContaining("Lease"), groupId: folderId }]);
   await expect(composer.getByTestId("scope-chip")).toHaveCount(1);
   await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-kind", "folder");
+  await expect(composer.getByTestId("composer-outside-wall")).toHaveCount(0);
+  await app.close();
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`behind a Folder wall, a picked file that is a Document outside it is named in the box as not searched, and is not moved (${language})`, async () => {
+    const lease = await pdf("Lease", "The break clause is on 1 June.");
+    const charter = await pdf("Charter", "The laytime is 72 hours.");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1600, 900);
+    const { folderId, mindId } = await (await coreOf(window)).evaluate(
+      async (core: CoreBridge, paths: string[]) => {
+        const folder = await core.createLibraryGroup({ name: "Matter A", description: "" });
+        await core.updateLibraryGroup(folder.id, {
+          name: folder.name,
+          description: "",
+          keepInside: true,
+        });
+        const mind = await core.createMind({ title: "Matter note", folderId: folder.id });
+        // Both are Documents already, in no Folder.
+        await core.addDocuments(paths);
+        return { folderId: folder.id, mindId: mind.id };
+      },
+      [lease, charter],
+    );
+    await expect
+      .poll(() => filingOf(window))
+      .toEqual([
+        { name: expect.stringContaining("Charter"), groupId: null },
+        { name: expect.stringContaining("Lease"), groupId: null },
+      ]);
+    const folderRow = sidebarFolder(window, "Matter A").getByTestId("folder-row");
+    if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
+    await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
+    const { composer, plus, menu } = parts(window);
+    await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-walled", "true");
+
+    await interceptOpenDialog(app, [lease, charter]);
+    await pointAndClick(window, plus);
+    await pointAndClick(window, menu.getByTestId("composer-plus-files"));
+    const said = composer.getByTestId("composer-outside-wall");
+    await expect(said).toBeVisible();
+    await expect(said).toContainText("Lease");
+    await expect(said).toContainText("Charter");
+    await expect(said).toContainText("Matter A");
+    expect(await said.innerText()).toMatch(
+      language === "en" ? /isn’t in .*Matter A|aren’t in .*Matter A/ : /不在“Matter A”/,
+    );
+    // Not searched, not moved: the Folder's own chip alone, and both Documents where they were.
+    await expect(composer.getByTestId("scope-chip")).toHaveCount(1);
+    await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-kind", "folder");
+    expect((await filingOf(window)).map((each) => each.groupId)).toEqual([null, null]);
+    expect(folderId).toBeTruthy();
+    // It stays until the User closes it.
+    await pointAndClick(window, said.getByRole("button"));
+    await expect(said).toHaveCount(0);
+    await app.close();
+  });
+}
+
+test("with no Note open and the Library showing a walled Folder, Add files… files the new Documents in that Folder and adds no chip", async () => {
+  const lease = await pdf("Lease", "The break clause is on 1 June.");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1600, 900);
+  const folderId = await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
+    const folder = await core.createLibraryGroup({ name: "Matter B", description: "" });
+    await core.updateLibraryGroup(folder.id, {
+      name: folder.name,
+      description: "",
+      keepInside: true,
+    });
+    return folder.id;
+  });
+  await openFolderInLibrary(window, "Matter B");
+  const { composer, plus, menu } = parts(window);
+  await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-walled", "true");
+
+  await interceptOpenDialog(app, lease);
+  await pointAndClick(window, plus);
+  await pointAndClick(window, menu.getByTestId("composer-plus-files"));
+  await expect
+    .poll(() => filingOf(window))
+    .toEqual([{ name: expect.stringContaining("Lease"), groupId: folderId }]);
+  await expect(composer.getByTestId("scope-chip")).toHaveCount(1);
+  await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-kind", "folder");
+  await expect(composer.getByTestId("composer-outside-wall")).toHaveCount(0);
   await app.close();
 });
 
