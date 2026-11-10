@@ -175,3 +175,13 @@ Every run, in the order it was made:
 | Claude Sonnet 5.5, both languages | about $1.00 | $2.36 |
 
 A Sonnet write cost $0.14–0.29 a run; it was planned at $0.15. #2532 has now spent $16.96 by its comments and about $36.8 counted with the pull requests' own figures, against the $37.80 stop. Any further paid run on #2532 needs the owner's yes.
+
+### Added 2026-11-10, before its first run: DeepSeek V4.1 Flash
+
+Asked for by the owner after the result above, and written here before any of its runs.
+
+- **Cells:** DeepSeek V4.1 Flash (`deepseek-flash`) on the app's own DeepSeek provider, in English and in Chinese, on the same write of 30 cited paragraphs. That is 2 cells.
+- **Runs, bars and validity:** as above. Today (six) against the step (twelve), alternating, three valid runs an arm in each cell, by the same load rule at start and end, and with zero failed requests counted from each run's own record.
+- **The key:** DeepSeek's own key, with no other evaluation's run beside any of these. DeepSeek's API gives no rate-limit headers, so the headroom is recorded as not given.
+- **What decides:** DeepSeek takes twelve only if both its cells hold every bar. The catalog would then name it with its route, as it names the others.
+- **Spend:** inside what is left of this run's $5.80 stop ($4.91 spent). The estimate is $0.04–0.05 a run, about $0.55 for twelve valid runs and about $0.75 with runs again for load. If the runs cost more than that, they stop before the stop is reached, and the pull request says how many runs an arm there are.
