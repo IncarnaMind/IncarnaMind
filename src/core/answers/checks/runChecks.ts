@@ -20,6 +20,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import { isSignInRoute } from "../../providers/signInRoutes";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import { type Slots, slots } from "../../runs/stop";
@@ -58,8 +59,22 @@ export function pendingParts(
 const CLOUD_CLAIMS_AT_ONCE = 6;
 
 /** How many claims a check sends to `prepared` at once; a model on this computer takes one at a time. */
-export const claimsAtOnce = (prepared: PreparedChatModel): number =>
+export const claimsAtOnce = (prepared: Pick<PreparedChatModel, "provider">): number =>
   prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1;
+
+/**
+ * How many of a write's checked sentences go to `prepared` at once: as many as its model was
+ * measured to take on its provider's own service (#2532), else `claimsAtOnce`. A sign-in's limits
+ * are its plan's, which no run measured, though it reads its provider's facts.
+ */
+export function writtenChecksAtOnce(
+  prepared: Pick<PreparedChatModel, "provider" | "capabilities">,
+): number {
+  const atOnce = claimsAtOnce(prepared);
+  const { kind } = prepared.provider;
+  if (atOnce === 1 || kind === "chatgpt" || isSignInRoute(kind)) return atOnce;
+  return prepared.capabilities.facts.writtenChecksAtOnce ?? atOnce;
+}
 
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {

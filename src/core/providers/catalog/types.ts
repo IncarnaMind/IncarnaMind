@@ -318,6 +318,11 @@ export interface ModelFacts {
   codeTool: boolean;
   /** Offered `calculate` in a claim check, whose verdict rests on its own calculation (#707). */
   checkCalculates: boolean;
+  /**
+   * How many of a write's checked sentences go to it at once on its provider's own service, where
+   * that number was measured to keep every bar of its gate (#2532); unset, six, as every other check.
+   */
+  writtenChecksAtOnce: number;
 }
 
 /** A model in the catalog: its facts, any of which its sources may not give. */

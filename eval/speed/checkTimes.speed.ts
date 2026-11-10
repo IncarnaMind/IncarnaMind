@@ -14,7 +14,9 @@
  * Answer's batches feel; and
  * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
  * reranks as many Passages as it would in a real one; and INCARNAMIND_EVAL_SPEED_OPENAI_EFFORT
- * names OpenAI's reasoning effort for every request where the core names none.
+ * names OpenAI's reasoning effort for every request where the core names none;
+ * INCARNAMIND_EVAL_SPEED_WRITTEN_AT_ONCE sends that many of a write's checked sentences at once in
+ * place of the catalog's number, so one run can time today's six and another the step's twelve.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -475,6 +477,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
   const stopUsd = Number(env("STOP_USD") ?? "3");
+  // How many of a write's checked sentences go at once, in place of the catalog's: one arm's number.
+  const writtenAtOnce = env("WRITTEN_AT_ONCE") === null ? null : Number(env("WRITTEN_AT_ONCE"));
   const recorder = checkRecorder();
   let current: { flow: string; items: ReturnType<typeof CITED> } | null = null;
   const results: FlowTimes[] = [];
@@ -525,6 +529,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       log,
       chatModels: scripted(recorder.chatModels, () => current),
       examples: join(ROOT, "resources", "examples"),
+      ...(writtenAtOnce !== null && {
+        modelFacts: () => ({ writtenChecksAtOnce: writtenAtOnce }),
+      }),
     });
     try {
       const { core, dataDir } = library;
@@ -613,6 +620,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                   .slice(0, SENTENCES_CHECKED_AT_MOST)
                   .map((each) => each.expected === "stated"),
               }),
+              ...(writtenAtOnce !== null && { writtenAtOnce }),
               spentUsd: after - spent,
             });
             await save();

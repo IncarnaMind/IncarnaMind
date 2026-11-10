@@ -113,6 +113,40 @@ describe("Running a run's items", () => {
     expect(run.outcomes.map((each) => each.status)).toEqual(Array(24).fill("done"));
   });
 
+  // protects=a run sent more at once than its provider's proven number drops straight back to it at the first limit, loses one more per limit below it, and never grows past it again; every item is still done (#2532); fails_when=the first limit takes only one place away, or a calm round brings the run back above the proven number; no_claim=how long the pauses are.
+  test("a run past its proven number drops straight back to it at a limit, and stays at or under it", async () => {
+    const { wait } = noWait();
+    let running = 0;
+    const limitedAt = new Set<number>();
+    const startedAt: { running: number; limits: number }[] = [];
+    const run = await runItems(
+      Array.from({ length: 40 }, (_, index) => index + 1),
+      async (item) => {
+        running++;
+        startedAt.push({ running, limits: limitedAt.size });
+        try {
+          await new Promise((resolve) => setImmediate(resolve));
+          if ((item === 12 || item === 20) && !limitedAt.has(item)) {
+            limitedAt.add(item);
+            throw failure("rate-limit");
+          }
+          return item;
+        } finally {
+          running--;
+        }
+      },
+      { concurrency: 12, limitedAtOnce: 6, wait },
+    );
+    const before = startedAt.filter((each) => each.limits === 0);
+    const afterOne = startedAt.filter((each) => each.limits === 1);
+    const afterTwo = startedAt.filter((each) => each.limits === 2);
+    expect(Math.max(...before.map((each) => each.running))).toBe(12);
+    expect(Math.max(...afterOne.map((each) => each.running))).toBeLessThanOrEqual(6);
+    expect(Math.max(...afterTwo.slice(0, 4).map((each) => each.running))).toBeLessThanOrEqual(5);
+    expect(Math.max(...afterTwo.map((each) => each.running))).toBe(6);
+    expect(run.outcomes.map((each) => each.status)).toEqual(Array(40).fill("done"));
+  });
+
   test("an item limited while the others still run is tried again once they are done", async () => {
     const { wait } = noWait();
     let release = () => {};

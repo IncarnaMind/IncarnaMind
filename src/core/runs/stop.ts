@@ -54,6 +54,11 @@ export const RATE_LIMIT_PAUSES_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as cons
 export interface RunItemsOptions<I, T> {
   /** How many items run at once. Default 1, in order. */
   concurrency?: number;
+  /**
+   * At most how many run at once once a provider has limited requests: a run sent more than its
+   * provider's proven number drops straight back to it, then loses one more per limit (#2532).
+   */
+  limitedAtOnce?: number;
   /** Hears each item's outcome as soon as it has one. */
   onOutcome?(item: I, outcome: ItemOutcome<T>): void;
   /** Ends the run: items running or waiting are "stopped". */
@@ -97,7 +102,14 @@ const failureOf = (thrown: unknown): ProviderError =>
 export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
-  { concurrency = 1, onOutcome, signal, wait = sleep, now = Date.now }: RunItemsOptions<I, T> = {},
+  {
+    concurrency = 1,
+    limitedAtOnce,
+    onOutcome,
+    signal,
+    wait = sleep,
+    now = Date.now,
+  }: RunItemsOptions<I, T> = {},
 ): Promise<{
   outcomes: ItemOutcome<T>[];
   stop: RunStop | null;
@@ -111,6 +123,8 @@ export async function runItems<I, T>(
   let pausedUntil = 0;
   const workers = Math.max(1, Math.min(concurrency, items.length));
   let allowed = workers;
+  /** The most a calm round brings back: every worker, until a provider limits requests. */
+  let ceiling = workers;
   /** Items that ended without a rate limit since the last one: a round of them brings one more back. */
   let calm = 0;
   /** A limit that outlasted every pause: the rest aren't sent, so a limited key gives up after one round (#1618). */
@@ -135,7 +149,7 @@ export async function runItems<I, T>(
 
   const ended = () => {
     calm++;
-    if (allowed < workers && calm >= allowed) {
+    if (allowed < ceiling && calm >= allowed) {
       allowed++;
       calm = 0;
       grow();
@@ -186,7 +200,8 @@ export async function runItems<I, T>(
         if (tried <= RATE_LIMIT_PAUSES_MS.length) {
           const delay = RATE_LIMIT_PAUSES_MS[tried - 1] ?? 0;
           pausedUntil = Math.max(pausedUntil, now() + delay);
-          allowed = Math.max(1, allowed - 1);
+          if (limitedAtOnce !== undefined) ceiling = Math.min(ceiling, limitedAtOnce);
+          allowed = Math.max(1, allowed > ceiling ? ceiling : allowed - 1);
           queue.unshift(index);
           return true;
         }

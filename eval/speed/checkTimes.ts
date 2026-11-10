@@ -359,6 +359,8 @@ export interface FlowTimes {
   searchedDuring?: { atMs: number; ms: number };
   /** For a Note's check: whether the Documents state each sentence, by its index. */
   stated?: boolean[];
+  /** How many of a write's checked sentences went at once, where the run set it in place of the catalog's. */
+  writtenAtOnce?: number;
   spentUsd: number;
 }
 

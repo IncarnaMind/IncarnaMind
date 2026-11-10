@@ -86,8 +86,9 @@ import {
   recordCheck,
   runClaimChecks,
 } from "./runCheck";
-import { claimsAtOnce } from "./runChecks";
+import { claimsAtOnce, writtenChecksAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
+import { stagger } from "./stagger";
 import type { CheckScope } from "./verify";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
@@ -810,7 +811,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     if (!holding) input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
-    const limit = slots(claimsAtOnce(prepared));
+    const atOnce = writtenChecksAtOnce(prepared);
+    const limit = slots(atOnce);
+    const order = stagger(atOnce > claimsAtOnce(prepared) ? claimsAtOnce(prepared) : null, signal);
     const quick = holding
       ? null
       : await options.quickModel(prepared).catch((error: unknown) => {
@@ -979,8 +982,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const { stop, outcomeError } = await runClaimChecks(
       holding ? [] : sending,
-      (sentence, attempt) =>
-        asCheckWork(async () => {
+      async (sentence, attempt) => {
+        const index = sending.indexOf(sentence);
+        await order.turn(index);
+        return asCheckWork(async () => {
           const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
           const first =
             looked.get(sentence) ??
@@ -1010,7 +1015,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           if (first) looked.set(sentence, first);
           const result = await attempt(
             options.claimCheck,
-            requestOf(sentence, read, mindId, scope, prepared, limit, signal),
+            requestOf(sentence, read, mindId, scope, order.model(index, prepared), limit, signal),
           );
           // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
           const uncovered =
@@ -1022,14 +1027,17 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             : null;
           checks.set(sentence, { uncovered, nodes, by: prepared });
           return result;
-        }),
+        });
+      },
       {
         ...run,
-        concurrency: claimsAtOnce(prepared),
+        concurrency: atOnce,
+        limitedAtOnce: claimsAtOnce(prepared),
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure; the check fails after the marks that can land have, so none counts
         // as checked. Refusing stays here: once one edit is refused the rest aren't tried.
         onOutcome(sentence, outcome) {
+          order.ended(sending.indexOf(sentence));
           try {
             landed(sentence, outcome);
           } catch (error) {
