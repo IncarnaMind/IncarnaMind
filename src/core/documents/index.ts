@@ -1518,7 +1518,9 @@ export function createDocuments(options: DocumentsOptions) {
    * holds this thread for long: settles once none is left. Each call asks again, so a Document
    * restored, or one an ended fill didn't reach, is fingerprinted before the check that waits on
    * it goes on. Once the core closes it never settles, so nothing that waits on it reads the
-   * closed database; a check with a stop of its own ends on that (`Evidence.ready`).
+   * closed database; a check with a stop of its own ends on that (`Evidence.ready`). A host that
+   * closed a core and kept running would leave the checks that can't be stopped waiting for good:
+   * the app closes it only as it quits.
    */
   function fillTextFingerprints(): Promise<void> {
     if (closed) return new Promise<void>(() => {});

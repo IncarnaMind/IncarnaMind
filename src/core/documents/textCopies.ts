@@ -294,9 +294,9 @@ export function createTextCopies(db: Database, now: () => string) {
     anyMissing: (): boolean => nextMissing() !== null,
 
     /**
-     * Fingerprints the next Document whose text was stored before fingerprints were. A Document
-     * it can't fingerprint is passed over, with why, until the next start. Throws only when it
-     * can't tell which Document is next.
+     * Fingerprints the next live Document whose stored text has no fingerprint yet. A Document it
+     * can't fingerprint is passed over, with why, until the next start. Throws only when it can't
+     * tell which Document is next.
      */
     fillNext(): FillTurn {
       const next = nextMissing();
