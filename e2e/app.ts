@@ -37,6 +37,7 @@ import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
 import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { launchEnvironment } from "./launchEnvironment";
 import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
+import { assertTestBuild } from "./testBuild";
 
 const appDir = resolve(__dirname, "..");
 
@@ -371,6 +372,7 @@ export async function launchApp(
   });
 
   const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
+  if (!packaged) assertTestBuild();
   const app = await electron.launch({
     ...(packaged && { executablePath: mainExecutable() }),
     args: [
