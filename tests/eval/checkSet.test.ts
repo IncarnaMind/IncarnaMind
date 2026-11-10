@@ -14,6 +14,7 @@ import { type LabelledQuote, readChecksSet, type SetDocument } from "../../eval/
 import { kindOf } from "../../src/core/documents/files";
 import type { PageText } from "../../src/core/documents/passages";
 import { processFile } from "../../src/core/documents/processing";
+import { heldShare, shinglesOf } from "../../src/core/documents/textCopies";
 import { snapshotOf } from "../../src/core/documents/web/snapshot";
 import { englishLocation, locationOf, quoteInUnits } from "../../src/shared/locations";
 
@@ -110,6 +111,18 @@ describe("The checks evaluation's labels", () => {
     expect(claims.filter((item) => item.label === "unsupported").length).toBeGreaterThanOrEqual(60);
     for (const document of set.received) {
       expect(claims.some((item) => item.document === document.name)).toBe(true);
+    }
+  });
+
+  test("no Folder Document holds 90% of a received document's text, so verifying one leaves none of the 21 out as its copy (#2216)", () => {
+    expect(set.folder).toHaveLength(21);
+    for (const received of set.received) {
+      const checked = shinglesOf(stored.get(received.name) ?? []);
+      expect(checked.length, received.name).toBeGreaterThan(0);
+      for (const document of set.folder) {
+        const share = heldShare(checked, shinglesOf(stored.get(document.name) ?? []));
+        expect(share, `${received.name} in ${document.name}`).toBeLessThan(0.9);
+      }
     }
   });
 

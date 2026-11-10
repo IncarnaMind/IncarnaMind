@@ -2307,6 +2307,8 @@ export const zhCN = {
   "evidence.countIt": "计为依据",
   "evidence.excluded.ownFile": "也出现在 IncarnaMind 导出的“{name}”中，未计为依据",
   "evidence.excluded.checked": "也出现在“{name}”（正在核对的文档的副本）中，未计为依据",
+  "evidence.excluded.sameText":
+    "也出现在“{name}”（包含正在核对的文档的几乎全部文字）中，未计为依据",
   "evidence.excluded.ownNote": "也出现在“{name}”（这篇笔记自己的快照）中，未计为依据",
   "evidence.count": "计为依据",
   "evidence.countMany": "将 {count} 个文档计为依据",

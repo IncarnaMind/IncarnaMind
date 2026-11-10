@@ -2408,6 +2408,8 @@ export const en = {
   "evidence.countIt": "Count it",
   "evidence.excluded.ownFile": "Also in “{name}”, which IncarnaMind wrote: not counted",
   "evidence.excluded.checked": "Also in “{name}”, a copy of the checked document: not counted",
+  "evidence.excluded.sameText":
+    "Also in “{name}”, which holds nearly all of the checked document’s text: not counted",
   "evidence.excluded.ownNote": "Also in “{name}”, your own snapshot of this note: not counted",
   "evidence.count": "Count as evidence",
   "evidence.countMany": "Count {count} Documents as evidence",

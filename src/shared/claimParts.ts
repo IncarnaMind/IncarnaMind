@@ -86,6 +86,7 @@ const EXCLUSIONS: readonly EvidenceExclusion[] = [
   "own-workings",
   "own-note",
   "checked-document",
+  "same-text",
 ];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",
