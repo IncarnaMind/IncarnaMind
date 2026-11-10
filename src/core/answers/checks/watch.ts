@@ -181,14 +181,13 @@ export function createContradictionWatch(options: WatchOptions) {
 
   // The background queue runs one check at a time, so background runs land in order. A Check for
   // contradictions on demand isn't queued, so it can end after a later check of the same sentence.
-  // Each try at a check takes the next place as it begins, and its result is refused once a check
-  // that began after it has landed: the newer check's result is the one the Note keeps (#2909).
+  // Each try at a check takes the next place as it begins (`began`, `placed`), and its result is
+  // refused once a check of that sentence that began after it has landed (`landed`): the newer
+  // check's result is the one the Note keeps (#2909). With no run or background check under way
+  // no place matters, so `landed` is emptied then.
   let began = 0;
-  /** The runs and background checks going on now; with none, no place matters any more. */
   let underway = 0;
-  /** The place of the newest check that landed in each sentence. */
   const landed = new Map<string, number>();
-  /** The place of each claim's latest try at its check. */
   const placed = new WeakMap<Claim, number>();
 
   const enter = () => {
@@ -198,7 +197,6 @@ export function createContradictionWatch(options: WatchOptions) {
     if (--underway === 0) landed.clear();
   };
 
-  /** `options.claimCheck` for `claim`, which takes its place as each try begins. */
   const checkOf =
     (claim: Claim): ClaimCheck =>
     (request) => {
