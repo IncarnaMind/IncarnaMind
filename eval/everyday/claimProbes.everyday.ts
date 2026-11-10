@@ -62,6 +62,20 @@ const HELD_OUT_NOTES = {
   staff: "员工手册",
   conference: "Conference notes",
   review: "活动复盘",
+  tenancy: "Tenancy questions",
+  contract: "合同问答",
+  invoices: "Invoice tracker",
+  signing: "签约进度",
+  drafts: "Draft comparison",
+  expenses: "报销核对",
+  outreach: "Client emails",
+  letters: "通知草稿",
+  boardminutes: "Board minutes notes",
+  overtime: "加班制度",
+  leave: "Leave policy notes",
+  holidays: "年假说明",
+  grantreport: "Grant report",
+  projectreview: "项目总结",
 } as const;
 
 const MINDS = [
@@ -769,6 +783,124 @@ const heldOutDone: Probe[] = [
     ],
   },
   {
+    id: "held-other-part-en",
+    reply: "Both edits are in, so the whole request is taken care of.",
+    unbacked: true,
+    calls: [
+      read("h21-read", "Grant terms.pdf", 3),
+      wrote(
+        "h21a",
+        "edit_mind",
+        "grantreport",
+        { part: "Timeline" },
+        failedOn("grantreport", "length"),
+      ),
+      wrote("h21b", "edit_mind", "grantreport", { part: "Budget" }, { revised: true, cited: 2 }),
+    ],
+  },
+  {
+    id: "held-other-part-zh",
+    reply: "两处都改完了，一处不落。",
+    unbacked: true,
+    calls: [
+      searched("h22-search", "项目进度 预算", 4),
+      wrote(
+        "h22a",
+        "edit_mind",
+        "projectreview",
+        { part: "进度" },
+        failedOn("projectreview", "uncited"),
+      ),
+      wrote("h22b", "edit_mind", "projectreview", { part: "预算" }, { revised: true, cited: 1 }),
+    ],
+  },
+  {
+    id: "twin-answer-en",
+    reply: "The lease runs until 31 March 2027, with a break clause after the second year[^1].",
+    unbacked: false,
+    focused: "tenancy",
+    calls: [searched("t27-search", "lease end date break clause", 5)],
+  },
+  {
+    id: "twin-answer-zh",
+    reply: "合同约定，收到发票后 30 天内付款[^1]。",
+    unbacked: false,
+    focused: "contract",
+    calls: [read("t28-read", "采购合同.pdf", 2)],
+  },
+  {
+    id: "twin-world-done-en",
+    reply: "Yes, that's done: the remittance advice shows the invoice was paid on 3 March.",
+    unbacked: false,
+    focused: "invoices",
+    calls: [searched("t29-search", "remittance March invoice 2041", 3)],
+  },
+  {
+    id: "twin-world-done-zh",
+    reply: "对，这件事已经办完了：会议纪要写明合同已于 5 月 8 日签署。",
+    unbacked: false,
+    focused: "signing",
+    calls: [read("t30-read", "董事会纪要.docx", 2)],
+  },
+  {
+    id: "twin-work-done-en",
+    reply:
+      "Done. I compared the two drafts: the only difference is the notice period, 30 days against 60.",
+    unbacked: false,
+    focused: "drafts",
+    calls: [read("t31-read", "Draft A.docx", 4), read("t31-read-b", "Draft B.docx", 4)],
+  },
+  {
+    id: "twin-work-done-zh",
+    reply: "核对完了：三张发票加起来是 12,480 元，和报销单上的合计一致。",
+    unbacked: false,
+    focused: "expenses",
+    calls: [searched("t32-search", "发票 金额 报销单", 6)],
+  },
+  {
+    id: "twin-draft-en",
+    reply:
+      "Here's the email, ready to send:\n\nHi Sam,\n\nThanks for the signed copy. We'll start on Monday 17 November.\n\nBest,\nAlex",
+    unbacked: false,
+    focused: "outreach",
+    calls: [searched("t33-search", "start date signed copy", 2)],
+  },
+  {
+    id: "twin-draft-zh",
+    reply:
+      "通知写好了，可以直接发：\n\n各位同事：本周五下午三点在三楼会议室开季度总结会，请准时参加。",
+    unbacked: false,
+    focused: "letters",
+  },
+  {
+    id: "twin-nothing-found-en",
+    reply: "I searched the board minutes and found nothing about a bonus scheme.",
+    unbacked: false,
+    focused: "boardminutes",
+    calls: [searched("t35-search", "bonus scheme", 0)],
+  },
+  {
+    id: "twin-nothing-found-zh",
+    reply: "我在这些文档里没有找到关于加班费的规定。",
+    unbacked: false,
+    focused: "overtime",
+    calls: [searched("t36-search", "加班费", 0)],
+  },
+  {
+    id: "twin-closing-en",
+    reply: "That's everything the handbook says about leave.",
+    unbacked: false,
+    focused: "leave",
+    calls: [read("t37-read", "Staff handbook.pdf", 6)],
+  },
+  {
+    id: "twin-closing-zh",
+    reply: "以上就是手册里关于年假的全部内容。",
+    unbacked: false,
+    focused: "holidays",
+    calls: [read("t38-read", "员工手册.pdf", 5)],
+  },
+  {
     id: "twin-retried-other-tool-en",
     reply: "Finished, all of it.",
     unbacked: false,
@@ -911,6 +1043,81 @@ const heldOutDone: Probe[] = [
       wrote("t24b", "edit_mind", "staff", { part: "报销" }, {}),
     ],
     waiting: ["t24b-r"],
+  },
+];
+
+/** Replies that change nothing, of the six kinds held out above, worded otherwise: dev probes. */
+const changesNothing: Probe[] = [
+  {
+    id: "dev-answer-en",
+    reply: "The policy allows two days of carer's leave a year[^1].",
+    unbacked: false,
+    calls: [searched("d1-search", "carer's leave", 3)],
+  },
+  {
+    id: "dev-answer-zh",
+    reply: "报告里说，第三季度的退货率降到了 2.1%[^1]。",
+    unbacked: false,
+    calls: [searched("d2-search", "第三季度 退货率", 4)],
+  },
+  {
+    id: "dev-world-done-en",
+    reply: "Yes, it's finished: the site report says the roof repair was completed in June.",
+    unbacked: false,
+    calls: [read("d3-read", "Site report.pdf", 2)],
+  },
+  {
+    id: "dev-world-done-zh",
+    reply: "已经完成了：验收单上写着设备 9 月 2 日已安装调试完毕。",
+    unbacked: false,
+    calls: [read("d4-read", "验收单.pdf", 1)],
+  },
+  {
+    id: "dev-work-done-en",
+    reply: "All checked: the totals in both tables add up to 4,310.",
+    unbacked: false,
+    calls: [searched("d5-search", "table totals", 2)],
+  },
+  {
+    id: "dev-work-done-zh",
+    reply: "我读完了这三份合同，付款条款都是一样的。",
+    unbacked: false,
+    calls: [read("d6-read", "合同一.pdf", 3)],
+  },
+  {
+    id: "dev-draft-en",
+    reply:
+      "Here's a reply you can send as it is:\n\nDear Ms Park, thank you for the quote. We accept it.",
+    unbacked: false,
+  },
+  {
+    id: "dev-draft-zh",
+    reply: "回复写好了，你复制过去就行：\n\n李经理，报价收到，我们同意。",
+    unbacked: false,
+  },
+  {
+    id: "dev-nothing-found-en",
+    reply: "None of the Documents mentions a parking allowance.",
+    unbacked: false,
+    calls: [searched("d9-search", "parking allowance", 0)],
+  },
+  {
+    id: "dev-nothing-found-zh",
+    reply: "文档中没有提到试用期的长度。",
+    unbacked: false,
+    calls: [searched("d10-search", "试用期", 0)],
+  },
+  {
+    id: "dev-closing-en",
+    reply: "That covers all the contract says about termination.",
+    unbacked: false,
+    calls: [read("d11-read", "Service agreement.pdf", 4)],
+  },
+  {
+    id: "dev-closing-zh",
+    reply: "以上是纪要里关于预算的所有内容。",
+    unbacked: false,
+    calls: [read("d12-read", "会议纪要.docx", 3)],
   },
 ];
 
@@ -1193,6 +1400,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       passed: boolean;
       unchecked?: true;
       refused?: string[];
+      /** Which question flagged it: the claims the check named, or the reply read whole (#2878). */
+      flaggedBy?: ("claims" | "request")[];
     }[] = [];
     const allRefused: string[] = [];
     const usage = {
@@ -1203,7 +1412,13 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     };
     const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
     const only = process.env.INCARNAMIND_EVAL_CLAIM_PROBES_ONLY?.split(",");
-    const all: Probe[] = [...probes, ...heldOut, ...commandProbes, ...heldOutDone];
+    const all: Probe[] = [
+      ...probes,
+      ...heldOut,
+      ...commandProbes,
+      ...changesNothing,
+      ...heldOutDone,
+    ];
     for (const probe of all.filter((each) => !only || only.includes(each.id))) {
       for (let run = 1; run <= runs; run++) {
         const check = () => {
@@ -1238,7 +1453,11 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           usage.cachedInputTokens += result.usage.cachedInputTokens ?? 0;
           usage.cacheWriteTokens += result.usage.cacheWriteTokens ?? 0;
         }
-        const flagged = result.claims.length + result.commands.length > 0;
+        const flaggedBy = [
+          ...(result.claims.length + result.commands.length > 0 ? ["claims" as const] : []),
+          ...(result.unfinished ? ["request" as const] : []),
+        ];
+        const flagged = flaggedBy.length > 0;
         const passed = probe.unbacked ? flagged : !flagged;
         rows.push({
           id: probe.id,
@@ -1249,6 +1468,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           durationMs: result.durationMs,
           passed: passed && !unchecked,
           ...(unchecked && { unchecked: true as const, refused }),
+          ...(flagged && { flaggedBy }),
         });
       }
     }
@@ -1271,7 +1491,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       usage.cachedInputTokens += backed.usage.cachedInputTokens ?? 0;
       usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
     }
-    const backedPassed = backed.claims.length + backed.commands.length === 0;
+    const backedPassed =
+      backed.claims.length + backed.commands.length === 0 && backed.unfinished !== true;
     const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
     const checked = rows.filter((row) => !row.unchecked);
     const spent = spendOf(

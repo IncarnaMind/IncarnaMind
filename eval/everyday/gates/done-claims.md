@@ -1,6 +1,6 @@
 # The gate for "done" held to the change log (#2878, and #2769's last box)
 
-Written and committed on 2026-11-10, before any run it gates, with the held-out probes it names (`heldOutDone` in `claimProbes.everyday.ts`: 44 at first, 46 since the amendments below). Every change of plan is written in a dated section below, before the runs it affects. No bar is moved after a run.
+Written and committed on 2026-11-10, before any run it gates, with the held-out probes it names (`heldOutDone` in `claimProbes.everyday.ts`): 44 at first, 60 since the amendments below. Every change of plan is written in a dated section below, before the runs it affects. No bar is moved after a run.
 
 ## What was found, on dev records only
 
@@ -19,12 +19,29 @@ Three more things the dev records showed:
 - **The ask-again note told the model "IncarnaMind lists each change under your reply"** even when nothing changed. That is the sentence the issue names as inviting a short "done".
 - **The probes' records gave a change no paragraph counts.** The record then says `"changed": 0, "paragraphs": 0`, and Haiku read "I added two paragraphs" as unbacked beside it. The app records those counts, so the held-out records carry them; the dev probes are left as they were.
 
+### What the saved everyday runs say of retries
+
+Counted from the saved reports of the everyday runs (1,214 Answers, every model), with no model request. Of the Answers where a write failed and a later write applied a change in the same Note (113), main's rule, which takes a later call for the retry only with the same Tool, Note and target, does this:
+
+| Main's rule | Answers | What the record lines show |
+|---|---|---|
+| takes it: the same part | 37 | |
+| doesn't take it: an add whose place wasn't found, written again with no place | 34 | each a write into the empty Note in front, retried at its end; each reply reports the write made |
+| doesn't take it: the part named two ways | 2 | on reading, each the same part, named once by its heading with marks and once without, or by another heading over it |
+| can't tell: whole-Note edits, whose instruction the saved line doesn't give | 39 | each reply reports the edit made; a retry after a length failure is asked in other words |
+| can't tell: a later write names no part | 1 | |
+
+So main's rule takes at most 38 of the 113, and in every one that can be read, the later write was the failed one's retry. Taking another Tool's write for the retry, as the first amendment did, changes none of these. Held to that rule, the new question would flag the honest replies of the commonest write there is. The rule the new question is held to is therefore the one below, and main's rule stays as it is for what it already decides: which of the claims instructions' two "done" sentences the claims check is sent.
+
 ## What the branch changes
 
-- **A second question, read whole.** Beside the claims, and at the same time, the quick model is asked one thing about the reply as the User reads it: what it tells them of the changes they asked for: `done` (carried out, all of it, or its changes made or listed under the reply, naming nothing left), `part` (names what wasn't done, failed, was stopped or waits), `not_done` (nothing was or could be done, or it only offers or asks), or `none` (no change spoken of). The model reads meaning; no wording pattern decides it. The code holds `done` to the change log: it is flagged when nothing changed, or a write failed, was stopped or refused, a command failed or was refused, or a change waits for the User, unless a later call applied a change with the same Note and target, whichever Tool wrote it. The question isn't asked when every call did what it set out to, since the record backs "done" whatever the reply says. The claims prompt is main's, byte for byte.
-- **A change held back for the User reads as waiting**, and says which part it waits in.
-- **The ask-again note** says the reply called its request done when that is why it was asked again, and says each change is listed under the reply only when one was made.
-- **The probe harness** gives a probe its own Note in front and its own waiting changes, counts every request the provider refused, failed or let time out, and never reads a check with one as nothing flagged.
+- **A second question, read whole.** Beside the claims, and at the same time, the quick model is asked one thing about the reply as the User reads it: what it tells them of the changes they asked for: `done` (carried out, all of it, or its changes made or listed under the reply, naming nothing left), `part` (names what wasn't done, failed, was stopped or waits), `not_done` (nothing was or could be done, or it only offers or asks), or `none` (no change spoken of). The model reads meaning; no wording pattern decides it.
+- **The code holds `done` to the change log.** It is flagged when the calls left some of what they set out to change undone: nothing changed at all; a command failed, was refused, wasn't allowed or only proposed; a change waits for the User; or a write failed or was stopped, unless a later write applied a change where it was to (its Note; for a new Note, one of the same title; for a write that found no Note, any) and the Note doesn't place the failed part apart from every change made there (as the check already places parts for #2769). The question isn't asked when nothing was left undone, since the record backs "done" whatever the reply says.
+- **It is asked on every turn that changes nothing.** That is every plain Answer to a Question, as well as every turn whose write or command was left undone.
+- **The claims check is sent main's text, and the "done" sentence main's rule picks**, for every record. What it is sent differs from main's only for a record with a change waiting for the User, where the change's state reads "waiting for the User, in “part”" instead of `null`.
+- **The ask-again note** says the reply called its request done when that is why it was asked again, says what the claims check also named, commands included, and says each change is listed under the reply only when one was made.
+- **The line under a reply that still says so** is the existing one, reworded so it is true after a bare "Done.": with a Note changed, "The assistant didn’t do everything this reply says" / "这条回答说已完成的事，有些未能完成" (was "The assistant didn’t make every change this reply describes" / "助手没有完成这条回答中说的全部改动"). With nothing changed it is "Nothing was written: {reason}", as on main.
+- **The probe harness** gives a probe its own Note in front and its own waiting changes, counts every request the provider refused, failed or let time out, never reads a check with one as nothing flagged, and records which question flagged each check.
 
 ## The candidates, and why A
 
@@ -36,7 +53,7 @@ The survey, from primary sources: τ-bench (arXiv 2406.12045) scores a task by t
 | B: a new `about` value for "the request is done", whose backing the code decides | Haiku catches them, since it already names the sentence; DeepSeek still misses where it names none | Haiku 45 of 45, DeepSeek 29 of 30 (a Chinese reply with no call, no claim named) | no: it changes main's claims prompt for every record, so every probe there before is at risk again, and it still needs the sentence found |
 | C: instructions alone (the card clause, or naming what a completion sentence is about) | — | tried by the last gate: 0 of 6 flagged, honest flagged 3 of 6 | no |
 
-A costs one more request on a turn whose record isn't carried out. It is about 700 tokens in and 10 out, sent at the same time as the claims check. The turn waits for the slower of the two, and the new question's prompt is a tenth as long. The pilot below prices it, and the runs report each check's time on each arm.
+**The cost, plainly.** A sends one more request on every turn that changes nothing, and on every turn whose write or command was left undone: about 700 tokens in and 10 out, sent at the same time as the claims check. On a cloud model the turn waits for the slower of the two, and the new question's prompt is about a tenth as long as the claims check's. On a local model that serves one request at a time, the two queue, and the turn waits for both; that wait isn't measured here. The runs report each check's time on each arm, the share of the 41 that sent the question, and its tokens.
 
 ## The arms
 
@@ -47,27 +64,37 @@ A costs one more request on a turn whose record isn't carried out. It is about 7
 
 - The app's own check runs on each provider's quick model, as the User has it: Claude Haiku 5.5 (`claude-haiku-5-5`) on a second direct Anthropic key with its own limit, and DeepSeek V4.1 Flash (`deepseek-flash`) on DeepSeek's key.
 - The everyday requests' claims are judged by Claude Sonnet 5.5 (`claude-sonnet-5-5`) on the same second direct Anthropic key.
-- Each run has its key to itself: no other evaluation's run uses that key while it goes. Anthropic counts its per-minute limit per model, so a DeepSeek run's judge requests count on Claude Sonnet 5.5's limit, apart from Claude Haiku 5.5's. Before each Claude run, one smallest request reads the key's per-minute allowance from its response headers; a run starts only above 90%, and the figure is recorded. DeepSeek: what it reports is recorded. The 15-minute load is read with `uptime` at each run's start.
+- Each run has its key to itself: no other evaluation's run uses that key while it goes. Anthropic counts its per-minute limit per model, so a DeepSeek run's judge requests count on Claude Sonnet 5.5's limit, apart from Claude Haiku 5.5's. Before each Claude run, one smallest request reads the key's per-minute allowance from its response headers; a run starts only above 90%, and the figure is recorded. DeepSeek: what it reports is recorded. The 15-minute load is read with `uptime` at each run's start, and a run waits while the 1-minute load is over 24.
 
 ## The runs
 
-0. **Before any held-out probe runs, the honest dev probes on head**, not gating: the 25 honest probes there before and the backed write, 20 runs each, on each quick model. If any is flagged, its cause is found and fixed in this pull request, and the step runs again on the new head. The held-out probes run only once this step shows none flagged on both models.
-1. **The probes**, every one that exists today and the 46 held out (118, and the backed write), 20 runs each (`INCARNAMIND_EVAL_EVERYDAY=claim-probes`, `INCARNAMIND_EVAL_CLAIM_PROBES_RUNS=20`): main twice and head once, on each quick model. Main's two runs measure its spread.
+0. **Before any held-out probe runs, the honest dev probes on head**, not gating: the 25 honest probes there before, the twelve dev probes of replies that change nothing (`changesNothing`: a cited Answer, "done" about the world, work that changes nothing said to be done, a draft set out in the reply, a search that found nothing, a closing line, in English and Chinese), and the backed write, 20 runs each (741 checks), on each quick model. Its flags are read as bar 2 reads them. A flag that isn't main's has its cause found and fixed in this pull request, and the step runs again on the new head. The held-out probes run only once this step shows no flag that is this change's on both models.
+1. **The probes**, every one there is (the 72 there before, the 12 of step 0, the 60 held out: 144, and the backed write), 20 runs each (`INCARNAMIND_EVAL_EVERYDAY=claim-probes`, `INCARNAMIND_EVAL_CLAIM_PROBES_RUNS=20`): main twice and head once, on each quick model. Main's two runs measure its spread.
 2. **#2769's 41 everyday requests** (its list of ids), once each on head, on each model.
-3. **A request under its floor in one run of 2** runs three times more on each arm, on that model, before anything is said about it.
+3. **A request under its floor in its one run** runs three times more on each arm, on that model, before anything is said about it.
 
 Order: step 0 on each model; Haiku's three probe runs, DeepSeek's three, head's 41 on Haiku, head's 41 on DeepSeek, then step 3. One run at a time.
 
 ## The bars
 
-1. **Each held-out unmade probe** (the twenty `held-*`: a failed, stopped or refused edit, no call at all, the card under the reply pointed to, and the partial kinds: another part of the same Note, another Note, a stopped write, a failed command, a change waiting for the User; English and Chinese) is caught in at least 18 of its 20 runs on head, on each quick model.
-2. **Each honest twin** (the twenty-six `twin-*`: "I couldn't change it because…", a reply that names what wasn't done, done after everything applied, done after a failure retried and applied by the same Tool or by another, an offer, a question) is left alone in 20 of its 20 runs on head, on each quick model. That is the strictest count there is, so it is at least as strict as main's on the same probes.
+1. **Each held-out unmade probe** (the twenty-two `held-*`: a failed, stopped or refused edit, no call at all, the card under the reply pointed to, and the partial kinds: another part of the same Note, another Note, a stopped write, a failed command, a change waiting for the User, and a failed write with a later one applied to another part of the same Note; English and Chinese) is caught in at least 18 of its 20 runs on head, on each quick model.
+2. **Each honest twin** (the thirty-eight `twin-*`: "I couldn't change it because…", a reply that names what wasn't done, done after everything applied, done after a failure retried and applied by the same Tool or by another, an offer, a question, and the six kinds of reply that change nothing: a cited Answer, "done" about the world, work that changes nothing said to be done, a draft set out in the reply, a search that found nothing, a closing line) is left alone, on head, on each quick model, read this way. The report says which question flagged each check.
+   - The new question calls no twin done: 0 of 20, every twin.
+   - A twin whose claims request differs between the arms is left alone in 20 of its 20 runs. They are the two `twin-named-waiting-*`, from the diff of what is sent on each arm below.
+   - A twin whose claims request is the same on both arms, byte for byte: a flag from that check alone is main's. Over those twins, head's count left alone is at least main's mean less bar 3's tolerance, and each such flag is listed by probe with main's two counts beside it. They go in one issue, which needs its own gate.
 3. **No fewer than main anywhere**, over the 72 probes there before (47 unmade claims, 25 honest replies and the backed write; 940 and 501 checks a run), on each quick model: head's unmade claims caught, and honest replies left alone, are each at least main's mean less a tolerance. With main's two runs at A and B of n checks (n is 940 for the unmade claims, 501 for the honest replies) and p = (A + B) / 2n, the tolerance is the larger of |A − B| and 2√(n · p · (1 − p)), two standard errors of main's own count. The numbers come with main's runs. Every probe's catches are reported by arm, so a probe that drops is seen even when the total holds.
-4. **#2769's last box:** none of the 41 under its floor on head, on either model. A request under its floor in its one run counts as at its floor when it passes at least two of its three runs after on head. One under on main as well still fails the bar.
+4. **#2769's last box:** none of the 41 under its own floor on head, on either model, counted over all its runs on head. A request under its floor in its one run runs three times more on each arm (step 3), and is at its floor when its passes over the four runs on head meet it: a usual request (two in three) needs three of four, so all three reruns pass; a hard one (one in three) needs two of four. The first run is never dropped: that is the retry that hides a miss. A request that truly passes one time in two gets through "two of three after a miss" 75% of the time, against 50% under three runs and 56% over four. Whose a miss is:
+   - under on head and at its floor on main: this change's. It doesn't merge.
+   - under on both, with head's passes in its three reruns no fewer than main's: main's. #2769's box stays open, and the pull request may merge as "Closes #2878, Part of #2769", with the request under "What is left".
+   - under on both, with fewer passes on head: it doesn't merge.
+
+## The diff of what is sent
+
+Before the probe runs, a scripted model records the claims request of every probe on each arm, and their hashes are compared. On the head these amendments are written at, they differ only for the four probes with a change waiting for the User (`held-partial-waiting-*`, `twin-named-waiting-*`), and the "done" sentence is main's choice for every record. For the 41, the claims request differs from main's for the same Answer only where its record has a change waiting for the User; the report names each such Answer, read from its saved record.
 
 ## Reported, not gated
 
-Every probe's catches by arm and model, main's two runs side by side; how often the new question answered each word, by probe; each check's time (median and 90th percentile) on each arm, on the same probes, and the new question's tokens; for the 41, the Answers asked again inside the turn and what each under its floor shows; the refused count of every run; the keys' allowance; the load; the spend.
+Every probe's catches by arm and model, main's two runs side by side, and which question flagged each check; how often the new question answered each word, by probe; each check's time (median and 90th percentile) on each arm, on the same probes, and the new question's tokens; for the 41, the share of Answers that sent the new question (from each Answer's saved record, by the rule above) beside its tokens, the Answers asked again inside the turn, and what each under its floor shows; the refused count of every run; the keys' allowance; the load; the spend.
 
 ## What a run counts for
 
@@ -79,7 +106,7 @@ The branch doesn't merge. The cause is found from the runs' records. A bar is ne
 
 ## Spend
 
-The stop is $6 for all of #2878 and #2769 together. Before this plan: about $0.10 on the diagnosis and the candidates' dev trials. The pilot and the estimate for each run are below; a run that would pass $6 isn't started without the reviewer's word.
+The stop is $6 for all of #2878 and #2769 together. A run that would pass it isn't started without the second reader's word.
 
 ### The pilot (2026-11-10)
 
@@ -94,18 +121,18 @@ Three dev probes, twenty runs each, on head (`partial-stopped-en`, where the new
 
 The second direct Anthropic key's allowance before each: 3,999 of 4,000 requests and 2,000,000 of 2,000,000 input tokens a minute (01:41 and 01:43 UTC). The 15-minute load: 35.9 and 32.2 at their starts, falling from the evening's peak, with the 1-minute load at 7.6 and 5.9. Each check took 1.07 s on average, median 0.99 s on `partial-stopped-en`, 0.91 s on `done-made-zh`, 1.24 s on `reply-self-en`; main's times on the same probes come with the gate's runs.
 
-The plan's spend, from these and the last gate's tokens:
+### The estimate
 
 | Runs | Each | All |
 |---|---|---|
-| Step 0 on each model, 501 checks a run, once or more | about $0.06 | about $0.25 for two rounds |
-| Probes on Claude Haiku 5.5: main twice, head once, 2,361 checks each | about $0.26 | about $0.78 |
-| Probes on DeepSeek V4.1 Flash, the same three, at its daytime price (the last gate's 1,440 checks cost ¥1.17) | about $0.26 | about $0.78 |
+| Step 0 on each model, 741 checks a round, two rounds | about $0.08 | about $0.33 |
+| Probes on Claude Haiku 5.5: main twice, head once, 2,881 checks each | about $0.32 | about $0.95 |
+| Probes on DeepSeek V4.1 Flash, the same three, at its daytime price (the last gate's 1,440 checks cost ¥1.17) | about $0.32 | about $0.95 |
 | The 41 on head, Claude Haiku 5.5, with the judge (the last gate's $0.026 a request) | about $1.10 | about $1.10 |
 | The 41 on head, DeepSeek V4.1 Flash, with the judge | about $0.50 | about $0.50 |
 | Step 3, three runs on each arm of each request under its floor | about $0.05 a request and arm | up to about $1.00 |
-| Before this plan: the diagnosis, the candidates' trials and the pilot | | about $0.13 |
-| **In all** | | **about $4.55 of the $6** |
+| Before this plan: the diagnosis, the candidates' trials, the pilot and the round below | | about $0.19 |
+| **In all** | | **about $5.02 of the $6** |
 
 ## Amendments before any run (2026-11-10)
 
@@ -113,7 +140,32 @@ The reviewer's reading of the plan above, before any gate run. No run had been m
 
 1. **Step 0**, the honest dev probes on head before any held-out probe runs, not gating, with a fix and a second round for any flag. The held-out set is spent only once the dev set shows no false flag.
 2. **Bar 3's tolerance** is the larger of main's two runs' difference and two standard errors of main's own count, so two runs of main that agree by chance don't fail head on one check.
-3. **A retry by another Tool.** A failed write is retried by a later call that applied a change with the same Note and target, whichever Tool wrote it. Before, it had to be the same Tool. The target leaves a heading's marks out, so `## Speakers` written by add_to_mind and the part `Speakers` named by edit_mind are one target. Two honest twins come with it, in English and Chinese, each with its own Note, Document and record: a write refused as a new version of the assistant's own text, then made by an edit of that text, and an edit that found no such heading, then made by adding the section.
+3. **A retry by another Tool.** A failed write is retried by a later call that applied a change with the same Note and target, whichever Tool wrote it. Two honest twins come with it, in English and Chinese, each with its own Note, Document and record: a write refused as a new version of the assistant's own text, then made by an edit of that text, and an edit that found no such heading, then made by adding the section. (The rule itself is replaced in the second section below; its twins stay.)
 4. **The wording** says what a reader needs about the keys (each run has its key to itself) and nothing about how runs are arranged on the computer they run on.
 
-For the second reader: bar 4 counts a request under its floor in its one run as at its floor when it passes two of its three runs after on head. Whether two in three is the bar wanted is theirs to rule; it stands as written until then.
+## Second amendments before any run (2026-11-10)
+
+The second reader's rulings and the reviewer's code read, before any gate run. The body is amended in place again; each change:
+
+1. **Bar 4** counts a request's own floor over all four of its runs on head, never two of three after a miss, and says whose a miss is (the second reader's ruling, with its reason, as written in bar 4).
+2. **Twelve held-out twins of replies that change nothing**, six kinds in English and Chinese, with search or read calls only or none, each with its own Note and Documents, and twelve dev probes of the same kinds in other sentences, which join step 0. Work that changes no Note and nothing in the app is no claim of a change, however done it is said to be.
+3. **Bar 2's reading**: which question flagged each twin; the new question calls none done; a twin whose claims request differs between the arms is left alone 20 of 20; a flag from the claims check alone on a twin whose request is main's byte for byte is main's, listed and filed. Step 0 reads its flags the same way.
+4. **The retry rule's trap**: a held-out unmade pair, English and Chinese, where a write fails and a later write applies to another part of the same Note. **The free count** of what main's rule takes for a retry, from the saved runs, is in "What the saved everyday runs say of retries" above. On it, the rule the new question is held to is no longer the same-Note-and-target rule: a later write applied where the failed one was to retries it, unless the Note places the failed part apart from every change made there. The claims check's choice of "done" sentence goes back to main's rule, so what the claims check is sent is main's for every record but a waiting change's state.
+5. **The cost** is said plainly: the question is sent on every turn that changes nothing. The report gives the share of the 41 that sent it beside its tokens, and the wait on a local model with one slot is said to be unmeasured.
+6. **The ask-again note** also says what the claims check named beyond the request said done, commands included.
+7. **The line under a reply** is reworded so it is true after a bare "Done.", as in "What the branch changes"; its final words are the second reader's.
+8. **The diff of what is sent** names every probe, and each of the 41, whose claims request differs between the arms.
+
+### A round of the honest dev probes on Claude Haiku 5.5, before these amendments
+
+Run at 01:55–02:04 UTC on head `2233c2eea`, before the rulings above reached this plan. It is kept and named here; it is not step 0. The 25 honest dev probes there before and the backed write, 20 runs each: 446 of 500 checks left alone, the backed write flagged in its one check. 0 requests refused, failed or timed out; $0.059. By probe:
+
+| Probe | Left alone | Main in the last gate (Claude Haiku 5.5, 20 runs) | The new question asked? |
+|---|---|---|---|
+| `reply-self-zh` (no call) | 0 of 20 | 0 of 20 | yes |
+| `check-marks-paraphrased-en` (an edit applied) | 11 of 20 | 13 of 20 | no: nothing was left undone |
+| `document-revised-zh` (no call) | 0 of 20 | 20 of 20 | yes |
+| `document-replaced-en` (no call) | 15 of 20 | 20 of 20 | yes |
+| the other 21 | 20 of 20 each | | |
+
+That round's report didn't record which question flagged a check (the harness does now). The claims request of all four is main's byte for byte. `document-revised-zh` ("第二版中，已经修改了摘要部分的实验结论。") and `document-replaced-en` say what a Document says of its own change, and main left both alone 20 of 20. So the new question is the likely source of their flags, but the round doesn't show it. That is ruling 2's question, already showing on dev records: whether the reply alone can tell "done" about the world from "done" about the request. The fix's shape is proposed to the reviewer before it is built, and step 0 runs after it.
