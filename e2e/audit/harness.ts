@@ -18,7 +18,8 @@ import {
 // Vite's own source-map reader (the audit adds no dependency of its own).
 import { SourceMapConsumer } from "source-map-js";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../../tests/helpers/home";
-import { launchEnvironment } from "../launchEnvironment";
+import { launchEnvironment, standIns } from "../launchEnvironment";
+import { assertTestBuild } from "../testBuild";
 
 const appDir = resolve(__dirname, "..", "..");
 
@@ -74,7 +75,8 @@ export interface LaunchOptions {
 
 /**
  * Launches the built app (out/) on `dataDir` with a temporary HOME, test hooks
- * on and the fake embedding model (no download). Times the launch.
+ * on and the fake embedding model, microphone and transcriber (no download, no
+ * device). Times the launch.
  */
 export async function launch(
   dataDir: string,
@@ -93,11 +95,12 @@ export async function launch(
     INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
-    INCARNAMIND_TEST_EMBEDDER: "fake",
-    INCARNAMIND_TEST_OCR: "fake",
+    ...standIns(),
+    INCARNAMIND_TEST_AUDIO: "fake",
     ...homeEnv(home),
     ...extraEnv,
   });
+  if (appPath === appDir) assertTestBuild();
 
   const launchMs = Date.now();
   const app = await electron.launch({
