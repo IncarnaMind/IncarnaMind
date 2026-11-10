@@ -266,7 +266,8 @@ async function answerOf(
   if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
   // What it wrote is checked after the reply (#2830): the request is over once that check is, so the
   // next one never runs beside it, and what is read of the Note is what the check left.
-  return vi.waitFor(
+  const waiting = Date.now();
+  const checked = await vi.waitFor(
     async () => {
       const { messages: now } = await core.getConversation(conversationId);
       const found = now.find((message) => message.id === answerId);
@@ -277,6 +278,10 @@ async function answerOf(
     },
     { timeout: ANSWER_TIMEOUT_MS, interval: 200 },
   );
+  console.log(
+    `  waited ${((Date.now() - waiting) / 1000).toFixed(1)} s for what it wrote to be checked`,
+  );
+  return checked;
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
