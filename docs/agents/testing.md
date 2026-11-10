@@ -77,7 +77,7 @@ A trace of the app keeps the environment it was launched with (`trace.trace`, `c
 
 ## Tests that pass on any machine
 
-- **Launch through `launchApp` in `e2e/app.ts`.** It gives each test a temporary data folder and home folder, test hooks, the fake embedding model and, with `fakeChat`, the scripted chat model. No test uses the network, an API key or the User's own files.
+- **Launch through `launchApp` in `e2e/app.ts`.** It gives each test a temporary data folder and home folder (and refuses any other), test hooks, the stand-in search, text recognition and speech engines and, with `fakeChat`, the scripted chat model. No test uses the network, an API key or the User's own files.
 - **Set the window size the test needs,** with `setWindowSize` in `e2e/app.ts`. Never depend on the screen's size, the display's scale, the window being in front, or the computer's fonts and language. CI's screens, a virtual one on Linux and a small one on macOS, are not yours.
 - **Assert relations, not exact pixels.** For example, "the controls sit under the text", "it wraps by word", or "it fits inside the card". Exact sizes are for what `DESIGN.md` fixes, such as a 44px band.
 - **Wait for a state, not a time.** Use `expect(locator).toBeVisible()`, a test id or a value from the bridge, never `waitForTimeout` in new tests.
@@ -95,6 +95,17 @@ A trace of the app keeps the environment it was launched with (`trace.trace`, `c
 - **Tests and the evaluation never touch the real home folder.** `tests/setup/home.ts` gives each test file a temporary HOME (and `USERPROFILE` and the XDG folders), and fails a test that writes under the real one outside the cache and report folders the run was given; the core takes its home and Documents folders from its host, so `startCore` and the evaluation pass temporary ones.
 - **Write paths and text that work on every platform.** Use `path.join`, never assume `/` or a case-insensitive file system, and give the Chinese strings the same tests as the English ones.
 - **Write each spec for Linux and macOS.** Pull requests run the smoke test on Linux; macOS runs it each night. Press shortcuts with `ControlOrMeta+…`, never `Meta+…`, and expect a shortcut's label in either form (`⌘J` or `Ctrl+J`). A spec for something only macOS has, such as the traffic lights or full screen, skips elsewhere with `test.skip(process.platform !== "darwin", "<why>")`, and the nightly run covers it.
+
+## One real engine in a test build
+
+A test build runs three engines as stand-ins, so a spec needs no download: the search model (with the reranking model beside it), text recognition (OCR) and speech-to-text. The launcher sets one flag for each: `INCARNAMIND_TEST_EMBEDDER=fake`, `INCARNAMIND_TEST_OCR=fake` and `INCARNAMIND_TEST_TRANSCRIBER=fake`. An engine whose flag is left out runs as the User's copy does. Only a test build reads the flags; a release build holds no trace of them.
+
+To try one real engine by hand, or in a nightly run, name it and leave the rest: `launchApp(dataDir, { real: ["ocr"] })`, or `"embedder"` or `"transcriber"` (several may be named together). The engine's model then downloads into the test's data folder, from its own host, the first time something needs it: about 21 MB for OCR, 135 MB for the search model and 990 MB for speech. Without `real`, a test build reaches no host outside this computer; with it, only the model hosts (Hugging Face, its CDN and its mirror).
+
+- **Smoke specs never use `real`.** They keep every stand-in and download nothing; `e2e/standInEngines.spec.ts` shows that each engine's flag works on its own, without a download. The real engines are loaded the way the built app does by the packaged app's checks (above).
+- **Check the disk first** (`df -h /System/Volumes/Data`): the speech model alone is about 1 GB. A fresh data folder downloads the model again; copy the models in first, as `seedModels` in `e2e/demo/workspace.ts` does, to skip that.
+- **The launcher starts only on temporary folders.** `launchApp` refuses, naming the folder, a data folder or a `home` outside the system's temporary folder (`os.tmpdir()`), so a check by hand never touches the User's own data or home. Make the data folder with `createDataFolder()`; the home is a temporary folder of its own unless given one.
+- **How to run one by hand.** Put a throwaway spec in `e2e/` that launches with `real`, add a Document and read what the engine made; build with `npx electron-vite build --mode test`; run it with `npx playwright test e2e/<spec> --workers=1`; delete it afterwards. For OCR, `(await coreOf(window)).evaluate((core, id) => core.readScannedText(id), documentId)` gives each page's text and `label.scan.reader`, which is "PP-OCRv5 mobile/2" for the real model; the stand-in reads only what a script (`scans`) gives it. `getTextRecognitionModel()`, `getEmbeddingModel()` and `getTranscriptionModel()` say which models downloaded.
 
 ## The feel check
 

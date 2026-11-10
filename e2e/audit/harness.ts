@@ -94,6 +94,7 @@ export async function launch(
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
     INCARNAMIND_TEST_EMBEDDER: "fake",
+    INCARNAMIND_TEST_OCR: "fake",
     ...homeEnv(home),
     ...extraEnv,
   });

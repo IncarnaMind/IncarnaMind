@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { launchEnvironment } from "../../e2e/launchEnvironment";
+import { ENGINES, launchEnvironment, standIns } from "../../e2e/launchEnvironment";
 
 test("an app takes from the test's environment only what it needs to run", () => {
   const parent = {
@@ -61,4 +61,32 @@ test("the launch's own values win, and one left undefined is not set", () => {
       parent,
     ),
   ).toEqual({ HOME: "/tmp/home", OPENAI_API_KEY: "sk-proj-made-up" });
+});
+
+// Every smoke spec launches through launchApp with this environment unless it asks for a real engine (#534).
+test("a launch stands in for all three engines by default, and reaches no model host", () => {
+  expect(launchEnvironment(standIns(), {})).toEqual({
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    INCARNAMIND_TEST_OCR: "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+  });
+});
+
+test("a launch that keeps one engine real leaves out that engine's flag alone and opens the model hosts", () => {
+  expect(launchEnvironment(standIns(["ocr"]), {})).toEqual({
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+    INCARNAMIND_TEST_MODEL_HOSTS: "1",
+  });
+  expect(launchEnvironment(standIns(["embedder"]), {})).toEqual({
+    INCARNAMIND_TEST_OCR: "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+    INCARNAMIND_TEST_MODEL_HOSTS: "1",
+  });
+  expect(launchEnvironment(standIns(["transcriber"]), {})).toEqual({
+    INCARNAMIND_TEST_EMBEDDER: "fake",
+    INCARNAMIND_TEST_OCR: "fake",
+    INCARNAMIND_TEST_MODEL_HOSTS: "1",
+  });
+  expect(launchEnvironment(standIns(ENGINES), {})).toEqual({ INCARNAMIND_TEST_MODEL_HOSTS: "1" });
 });
