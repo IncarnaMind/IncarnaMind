@@ -475,6 +475,19 @@ describe("the module", () => {
     expect(replyJson('```json\n{"a":1,"a":2}\n```')).toBeUndefined();
   });
 
+  test("a reply's JSON is read after words that hold a bracket of their own, and never when it is cut off (#2184)", () => {
+    const record = { passage: "P1", location: "2. Pay", quote: "The salary is 61,500 per year" };
+    const json = JSON.stringify({ citations: [{ marker: 1, ...record }] });
+    expect(
+      replyJson(`The request asks for Citation marker [1], the Pay clause.\n\n${json}`),
+    ).toEqual({ citations: [{ marker: 1, ...record }] });
+    expect(replyJson(`请求要的是标记 [1] 的记录。\n\n${json}`)).toEqual({
+      citations: [{ marker: 1, ...record }],
+    });
+    expect(replyJson(`Marker [1] {"a":1,"a":2}`)).toBeUndefined();
+    expect(replyJson(`Marker [1]:\n${json.slice(0, -2)}`)).toBeUndefined();
+  });
+
   test("entries are read by their key once: a key two entries give is left out", () => {
     const entries = [
       { marker: 1, quote: "A" },
