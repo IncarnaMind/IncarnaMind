@@ -415,14 +415,22 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       const turn = admitted.then(async () => {
         const reservedAt = (room: BatchRoom) =>
           options.mostOf(input.model, mostRequest(batch, instructions, room));
-        // Room for the thinking where the limits let it through now; where they don't, room for
-        // its records alone (#2951).
-        const roomy = reservedAt("sentence-batch");
-        const room: BatchRoom = passes(roomy) ? "sentence-batch-records" : "sentence-batch";
-        const reserved = room === "sentence-batch" ? roomy : reservedAt(room);
-        while (passes(reserved) && open > 0) await settledAll();
-        const stop = passes(reserved);
+        const records = reservedAt("sentence-batch-records");
+        while (passes(records) && open > 0) await settledAll();
+        const stop = passes(records);
         if (stop) return stop;
+        // A provider refuses a limit past the model's own most, or past the room its window keeps
+        // for a reply (#2951).
+        const fits =
+          outputTokens("sentence-batch", batch.length) <=
+          Math.min(
+            prepared.capabilities.facts.maxOutput ?? Number.POSITIVE_INFINITY,
+            prepared.window?.outputTokens ?? Number.POSITIVE_INFINITY,
+          );
+        const roomy = reservedAt("sentence-batch");
+        const room: BatchRoom =
+          fits && !passes(roomy) ? "sentence-batch" : "sentence-batch-records";
+        const reserved = room === "sentence-batch" ? roomy : records;
         const most =
           reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
         outMost += most;

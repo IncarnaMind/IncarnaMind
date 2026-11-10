@@ -32,11 +32,13 @@ async function answered(
     failing = false,
     // Priced high enough for 200 sentences' batches to pass the Answer's $0.25.
     modelId = "claude-opus-5-5",
+    kind = "anthropic",
     usage = BATCH_USAGE,
     writes,
   }: {
     failing?: boolean;
     modelId?: string;
+    kind?: "anthropic" | "openai";
     usage?: ReportedUsage;
     /** The tokens a batch's reply takes, its thinking and records: at its room, it is cut off there. */
     writes?: (sentences: number) => number;
@@ -98,8 +100,8 @@ async function answered(
   const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   const saved = await core.saveChatProvider({
-    kind: "anthropic",
-    apiKey: "sk-ant-test",
+    kind,
+    apiKey: kind === "anthropic" ? "sk-ant-test" : "sk-test",
     modelId,
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
@@ -294,6 +296,23 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsOf(batches)).toEqual([2_400, 300]);
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
+  });
+
+  test("a model whose own most is under the room, as GPT-4 Turbo's 4,096 tokens, gets the room for its records alone", async () => {
+    const { answer, batches } = await answered(9, { kind: "openai", modelId: "gpt-4-turbo" });
+
+    expect(roomsOf(batches)).toEqual([2_400, 300]);
+    expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
+  });
+
+  test("a batch that waits for the others to settle takes the room for thinking once the limit has it", async () => {
+    // Claude Opus 5.5 at $4 in and $20 out: 7,400 tokens out sets aside $0.148, 2,400 sets aside
+    // $0.048. The second batch fits only with the records' room beside the first; the third waits
+    // for both, and then the larger room fits.
+    const { answer, batches } = await answered(24, { modelId: "claude-opus-5-5" });
+
+    expect(roomsOf(batches)).toEqual([7_400, 7_400, 2_400]);
+    expect(checksOf(answer.citations)).toEqual(Array(24).fill("found"));
   });
 
   test("near the monthly cap, a batch the room for thinking would take past it goes with the room for its records, as before", async () => {
