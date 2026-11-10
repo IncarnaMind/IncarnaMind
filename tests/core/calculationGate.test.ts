@@ -800,6 +800,7 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["它持续了一年半。", "它持续了一年。"],
     ["它持续了一年半。", "它持续了两年半。"],
     ["它持续了三个半月。", "它持续了三个月。"],
+    ["他有5年半导体行业经验。", "他有10年半导体行业经验。"],
   ])("a fraction is read as its value: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
   });
@@ -815,6 +816,8 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["它持续了一年半。", "它持续了一年半。"],
     ["它持续了一年半。", "它持续了1.5年。"],
     ["它持续了三个半月。", "它持续了三个半月。"],
+    ["他有5年半导体行业经验。", "他有5年半导体行业经验。"],
+    ["他有5年半导体行业经验。", "他有5年经验。"],
   ])("the same fraction is still judged: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });

@@ -201,6 +201,15 @@ describe("the other ways of writing a count of periods (#2953)", () => {
   });
 
   test.each([
+    ["他有5年半导体行业经验。", "5年", 5],
+    ["夜班有3天半夜里不能休息。", "3天", 3],
+  ])("a 半 that starts a longer word is no half: %s", (text, chars, value) => {
+    expect(read(text, "zh-CN")).toEqual([
+      { chars, value, word: chars.endsWith("年") ? "year" : "day" },
+    ]);
+  });
+
+  test.each([
     ["en", "Revenue grew in the 2024 year."],
     ["en", "Revenue grew in the 2024 year end."],
     ["en", "Revenue grew in the 2024 year-end results."],

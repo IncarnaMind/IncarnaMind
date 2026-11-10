@@ -380,7 +380,7 @@ function chineseCounts(text: string, context: FigureContext): Figure[] {
         decimals: ends.values.length === 1 ? read.figure.decimals : undefined,
       };
     }
-    const trailingHalf = !halfMonths && text.charAt(unitEnd) === "半";
+    const trailingHalf = !halfMonths && /^半(?!导体|夜|径|岛|场)/u.test(text.slice(unitEnd));
     const halved = halfMonths || trailingHalf;
     const end = trailingHalf ? unitEnd + 1 : unitEnd;
     for (const value of found.values) {
