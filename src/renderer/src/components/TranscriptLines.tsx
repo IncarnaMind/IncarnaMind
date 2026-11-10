@@ -83,7 +83,11 @@ export function TranscriptLines({
       };
     } else if (problem.kind === "engine") {
       line = {
-        text: t("meetings.transcript.engineStopped"),
+        text: t(
+          meeting.status === "stopped"
+            ? "meetings.transcript.stoppedBeforeEnd"
+            : "meetings.transcript.engineStopped",
+        ),
         action: retry("meetings.transcript.retry"),
         role: "alert",
       };

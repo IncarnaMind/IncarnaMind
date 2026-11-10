@@ -6846,6 +6846,8 @@ export const en = {
     "Couldn’t download the speech model from any source",
   "meetings.transcript.downloadFailed": "The speech model couldn’t be downloaded: {message}",
   "meetings.transcript.engineStopped": "Transcription stopped.",
+  "meetings.transcript.stoppedBeforeEnd":
+    "Transcription stopped before the end. Your recording is kept.",
   "meetings.transcript.saveFailed": "The transcript couldn’t be saved: {message}",
   "meetings.transcript.notSaved":
     "The transcript wasn’t saved: no folder was chosen for new files.",

@@ -10,8 +10,9 @@ import {
   FAKE_THEIR_LINES,
 } from "../../src/core/transcription/fake";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, nextTurn, startCore } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
+import { recordingLog } from "../helpers/log";
 import { connectToMind } from "../helpers/mindClient";
 import {
   NO_TRANSCRIPTION_FILES,
@@ -497,6 +498,43 @@ describe("A Meeting's live Transcript", { timeout: 60_000 }, () => {
     expect(readVtt(readFileSync(saved.savedPath as string, "utf8")).cues.length).toBeGreaterThan(
       10,
     );
+  });
+
+  // protects=quitting right after Stop, while the engine still finishes the last streams, costs no line: the stretch it was finishing is read from the recording at the next start, and the closed core loads no engine again and logs no failure (#2957); fails_when=the Transcript ends where live text had got to, or the quit starts the engine again; no_claim=a hard crash of the app, with no close.
+  test("quitting while the last streams are finished after Stop loses no line: the next start reads them from the recording", async () => {
+    const recorded = async (dataDir: string, log?: ReturnType<typeof recordingLog>["log"]) => {
+      const meetingCore = await transcribingCore(dataDir, log && { log });
+      const meeting = await meetingCore.core.createMeeting();
+      await meetingCore.core.startMeeting({ meetingId: meeting.id });
+      await until(meetingCore.core, meeting.id, (transcript) => transcript.state === "live");
+      meetingCore.record(9 * SECOND);
+      await until(meetingCore.core, meeting.id, (transcript) => transcript.lines >= 4);
+      await meetingCore.core.stopMeeting(meeting.id);
+      return { ...meetingCore, meeting };
+    };
+    const linesOf = (path: string | null) =>
+      readVtt(readFileSync(path as string, "utf8")).cues.map((cue) => [cue.speaker, cue.endMs]);
+
+    const control = await recorded(await createTempDataFolder());
+    const whole = await until(control.core, control.meeting.id, (each) => each.state === "saved");
+
+    const dataDir = await createTempDataFolder();
+    const { log, entries } = recordingLog();
+    const first = await recorded(dataDir, log);
+    expect((await transcriptOf(first.core, first.meeting.id)).state).toBe("finishing");
+    first.core.close();
+    await nextTurn();
+    expect(first.engineHost.started).toBe(1);
+    expect(entries.filter((entry) => entry.level !== "info")).toEqual([]);
+
+    const second = await transcribingCore(dataDir);
+    const saved = await until(
+      second.core,
+      first.meeting.id,
+      (transcript) => transcript.state === "saved",
+    );
+    expect(linesOf(whole.savedPath)).toHaveLength(10);
+    expect(linesOf(saved.savedPath)).toEqual(linesOf(whole.savedPath));
   });
 
   test("a Chinese interface names the Transcript 转写稿", async () => {

@@ -6481,6 +6481,7 @@ export const zhCN = {
   "meetings.transcript.downloadFailed.everySource": "未能从任何来源下载语音模型",
   "meetings.transcript.downloadFailed": "无法下载语音模型：{message}",
   "meetings.transcript.engineStopped": "转写已停止。",
+  "meetings.transcript.stoppedBeforeEnd": "转写中途停止，录音已保留。",
   "meetings.transcript.saveFailed": "无法保存转写稿：{message}",
   "meetings.transcript.notSaved": "未保存转写稿：尚未选择新文件的保存位置。",
   "meetings.transcript.speakersFailed": "转写稿已保存，但未能区分发言人。",
