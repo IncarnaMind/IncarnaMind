@@ -143,30 +143,16 @@ export function figuresOf(words: readonly string[]): Figure[] {
   return out;
 }
 
-const WHOLE = new RegExp(`^${INTEGER_WORDS}$`, "i");
-
-/** The numbers of a text that is number words and nothing else, each with where it starts. */
-function numbersIn(text: string): { value: number; at: number }[] | null {
-  if (!WHOLE.test(text)) return null;
-  const words = [...text.toLowerCase().matchAll(/[a-z]+/g)].filter(([each]) => each !== "and");
-  return figuresOf(words.map(([each]) => each)).map(({ value, from }) => ({
-    value,
-    at: words[from]?.index ?? 0,
-  }));
-}
-
 export function wholeNumberWords(text: string): number | null {
-  const numbers = numbersIn(text);
-  const value = numbers?.length === 1 ? numbers[0]?.value : undefined;
+  if (!new RegExp(`^${INTEGER_WORDS}$`, "i").test(text)) return null;
+  const figures = figuresOf(
+    text
+      .toLowerCase()
+      .split(/[ -]+/)
+      .filter((each) => each !== "and"),
+  );
+  const value = figures.length === 1 ? figures[0]?.value : undefined;
   return value !== undefined && Number.isFinite(value) && Number.isInteger(value) && value >= 0
     ? value
     : null;
-}
-
-/**
- * The number a unit after number words counts, which is the last one said, and where it starts:
- * 400, at "four", in "three hundred and four hundred".
- */
-export function lastNumberWords(text: string): { value: number; at: number } | null {
-  return numbersIn(text)?.at(-1) ?? null;
 }

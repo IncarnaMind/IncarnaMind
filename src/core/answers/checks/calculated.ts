@@ -19,7 +19,7 @@ import {
   sameNumber,
   showResult,
 } from "../../../shared/formula";
-import { INTEGER_WORDS, lastNumberWords, wholeNumberWords } from "../../../shared/numberWords";
+import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
@@ -56,9 +56,54 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
  */
 const PERIOD_DEMONSTRATIVE = /(?:[这那每同另哪]|(?<!\p{Script=Han})当)\s*$/u;
 
+const EN_PERIOD =
+  "(?:[ -]+(?:consecutive|successive))?[ -]+(years?|months?|weeks?|days?|quarters?)\\b";
+
+const COUNT_REACH = 40;
+
+/** The figure that ends at `at`, read as any number is from the characters before `through`, which may take in the period word after it. */
+function figureEndingAt(
+  text: string,
+  at: number,
+  through: number,
+  context: FigureContext,
+): { figure: Figure; start: number } | undefined {
+  const from = Math.max(0, at - COUNT_REACH);
+  const local = text.slice(from, through);
+  const figure = readFigures(local, {
+    ...context,
+    dates: true,
+    midLine: true,
+    header: null,
+  }).findLast(
+    (each) => each.end === at - from || (each.start < at - from && each.end === local.length),
+  );
+  return figure && { figure, start: from + figure.start };
+}
+
+const asCount = (value: number | null): number =>
+  value !== null && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : Number.NaN;
+
+/**
+ * A count's value as the figure reader read it: a comma or a point it can't place is taken as the
+ * first way it lists, a range as its far end. NaN when it can't be a count, which no Passage
+ * states, so a sentence with one is left not judged, never passed (#2943).
+ */
+function countValue(figure: Figure): number {
+  const kinds = figure.ambiguous.map(({ kind }) => kind);
+  if (kinds.some((kind) => kind !== "separator" && kind !== "range")) return Number.NaN;
+  return asCount(kinds.includes("range") ? figure.rangeTo : figure.value);
+}
+
 export function periodCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
-  const count = (start: number, end: number, value: number, unit: string): Figure => ({
+  const count = (
+    start: number,
+    end: number,
+    value: number,
+    unit: string,
+    decimals = 0,
+  ): Figure => ({
     start,
     end,
     chars: text.slice(start, end),
@@ -66,26 +111,39 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
     scale: 1,
     scaleWord: null,
     unit: { kind: "other", word: unit },
-    decimals: 0,
+    decimals,
     currency: null,
     approximate: false,
     rangeTo: null,
     footnote: null,
     ambiguous: [],
   });
-  const english = new RegExp(
-    `\\b(${INTEGER_WORDS}|\\d+)(?:[ -]+(?:consecutive|successive))?[ -]+(years?|months?|weeks?|days?|quarters?)\\b`,
-    "gi",
-  );
-  for (const match of text.matchAll(english)) {
-    const named = match[1] ?? "";
-    // Words that say more than one number count their unit with the last: "three hundred and four
-    // hundred days" is 400 days, as "300 to 400 days" is. A count left unread would leave the
-    // sentence no figure to check (#1031).
-    const said = /^\d+$/.test(named) ? { value: Number(named), at: 0 } : lastNumberWords(named);
+  const spelled = new RegExp(`\\b(${INTEGER_WORDS})${EN_PERIOD}`, "gi");
+  for (const match of text.matchAll(spelled)) {
     const unit = match[2]?.toLowerCase().replace(/s$/, "");
-    if (said === null || !Number.isSafeInteger(said.value) || !unit) continue;
-    counts.push(count(match.index + said.at, match.index + match[0].length, said.value, unit));
+    if (!unit) continue;
+    const value = asCount(wholeNumberWords(match[1] ?? ""));
+    counts.push(count(match.index, match.index + match[0].length, value, unit));
+  }
+  for (const match of text.matchAll(new RegExp(EN_PERIOD, "gi"))) {
+    const unit = match[1]?.toLowerCase().replace(/s$/, "");
+    const before = text.slice(Math.max(0, match.index - COUNT_REACH), match.index);
+    const digits = /\p{Nd}+$/u.exec(before);
+    if (!unit || !digits) continue;
+    const found = figureEndingAt(text, match.index, match.index, context);
+    const numberAt = found
+      ? found.start + Math.max(0, text.slice(found.start, match.index).search(/\p{Nd}/u))
+      : match.index - digits[0].length;
+    // A number inside a word is no count, read or not: "FY24 year-end", "1e3 days" (as before).
+    if (/\w/.test(text.charAt(numberAt - 1))) continue;
+    // The reader leaves out a number a hyphen glues to a word ("over-60-day", "1-in-200-year"): its
+    // digits alone are the count. Any other number it won't read has no value.
+    const glued = !found && /[\p{L}-]$/u.test(before.slice(0, digits.index));
+    let value = Number.NaN;
+    if (found) value = countValue(found.figure);
+    else if (glued) value = asCount(Number(digits[0]));
+    const start = found?.start ?? match.index - digits[0].length;
+    counts.push(count(start, match.index + match[0].length, value, unit, found?.figure.decimals));
   }
   const units: Readonly<Record<string, string>> = {
     年: "year",
@@ -98,26 +156,9 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
   };
   for (const match of text.matchAll(/年|个月|月|周|天|日|季度/gu)) {
     const unitAt = match.index;
-    const from = Math.max(0, unitAt - 40);
-    const local = text.slice(from, unitAt + match[0].length);
-    const figure = readFigures(local, {
-      ...context,
-      dates: true,
-      midLine: true,
-      header: null,
-    }).findLast(
-      (figure) =>
-        figure.end === unitAt - from ||
-        (figure.start < unitAt - from && figure.end === local.length),
-    );
-    if (
-      !figure ||
-      figure.ambiguous.length ||
-      !Number.isSafeInteger(figure.value) ||
-      figure.value < 0
-    )
-      continue;
-    const start = from + figure.start;
+    const found = figureEndingAt(text, unitAt, unitAt + match[0].length, context);
+    if (!found) continue;
+    const { figure, start } = found;
     const before = text.slice(0, start);
     // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
     // demonstrative is no count (#2215).
@@ -133,7 +174,10 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
       continue;
     if (/(?:公元|民国)\s*$/u.test(before)) continue;
     const unit = units[match[0]];
-    if (unit) counts.push(count(start, unitAt + match[0].length, figure.value, unit));
+    if (unit) {
+      const end = unitAt + match[0].length;
+      counts.push(count(start, end, countValue(figure), unit, figure.decimals));
+    }
   }
   return counts;
 }
@@ -168,7 +212,8 @@ function namedCount(sentence: string, stated: string, context: FigureContext): F
   const start = sentence.indexOf(stated);
   if (start < 0 || sentence.indexOf(stated, start + stated.length) >= 0) return null;
   const period = periodCounts(sentence, context).find(
-    (figure) => figure.start === start && figure.end >= start + stated.length,
+    (figure) =>
+      figure.start === start && figure.end >= start + stated.length && !Number.isNaN(figure.value),
   );
   if (period) return period;
   const value = wholeNumberWords(stated);

@@ -2122,9 +2122,7 @@ describe("structural part and declared-count readers", () => {
     const run = "one hundred ".repeat(10_000).trim();
     expect(figuresOf(run.split(" "))).toHaveLength(10_000);
     expect(wholeNumberWords(run)).toBeNull();
-    expect(periodCounts(`${run} days`, {})).toMatchObject([
-      { chars: "one hundred days", value: 100 },
-    ]);
+    expect(periodCounts(`${run} days`, {})).toMatchObject([{ value: Number.NaN }]);
     expect(wholeNumberWords("one hundred")).toBe(100);
   });
 
@@ -2205,14 +2203,16 @@ describe("structural part and declared-count readers", () => {
       expect(periodCounts(text, {})).toEqual([]);
     },
   );
-  // protects=a unit after words that say two numbers counts the last one, as "300 to 400 days" in digits does, so the sentence keeps a figure to check (#1031); fails_when=three hundred and four hundred days reads 30,400 days, or no count at all; no_claim=that the first of the two numbers is a count too.
-  test.each([
-    ["three hundred and four hundred days", "four hundred days", 400],
-    ["two thousand and three thousand days", "three thousand days", 3000],
-    ["four five days", "five days", 5],
-  ])("words that say two numbers count their unit with the last: %s", (text, chars, value) => {
-    expect(periodCounts(String(text), {})).toMatchObject([
-      { chars, value, unit: { kind: "other", word: "day" } },
+  // protects=a unit after words that say two numbers keeps a count with no value, which no Passage states, so its sentence is left not judged; a number said whole still counts (#1031, #2943); fails_when=three hundred and four hundred days reads 30,400 days, four five days reads 5 or 45, or the count is left out and the sentence has no figure to check; no_claim=which end of a range said in words a Passage must state.
+  test.each<[string, number]>([
+    ["three hundred and four hundred days", Number.NaN],
+    ["two thousand and three thousand days", Number.NaN],
+    ["four five days", Number.NaN],
+    ["four hundred days", 400],
+    ["three thousand days", 3000],
+  ])("a unit after number words is counted by one whole number or by none: %s", (text, value) => {
+    expect(periodCounts(text, {})).toMatchObject([
+      { chars: text, value, unit: { kind: "other", word: "day" } },
     ]);
   });
 

@@ -52,6 +52,11 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "citation.badge.checkPage" },
   { page: "check", key: "citation.quotedName" },
   { page: "check", key: "citation.meaning" },
+  {
+    page: "check",
+    key: "evidence.excluded.sameText",
+    params: { en: { name: "Services Agreement.pdf" }, "zh-CN": { name: "技术服务合同.pdf" } },
+  },
   { page: "check", key: "aiStatement.citations.notFound" },
   { page: "check", key: "editor.ai.checkAgainstDocuments" },
   { page: "check", key: "verify.command" },

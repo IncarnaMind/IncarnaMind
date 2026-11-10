@@ -1,5 +1,5 @@
 /**
- * The floating panel during a call: the help buttons and the latest
+ * The floating panel during a call: the ask bar with the help prompts and the latest
  * suggestion, in a small window above the meeting app (src/main/meetings/panel.ts).
  */
 import { StrictMode } from "react";

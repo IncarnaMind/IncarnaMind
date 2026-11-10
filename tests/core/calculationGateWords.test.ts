@@ -29,24 +29,24 @@ const notJudged = (claim: string, quote: string): Promise<boolean> => {
 };
 
 describe("a count said in words is read by the calculation gate", () => {
-  // protects=a count the check can't read as one number never becomes a pass: the number beside the unit is the count, and a quote that doesn't state it leaves the sentence not judged (#1031); fails_when=the two numbers of "between three hundred and four hundred days" leave the sentence no figure, so a quote of 500 days keeps its green check; no_claim=that the near end of the range is checked too.
+  // protects=a count said in words that the check can't read as one number never becomes a pass: two numbers before the unit leave the sentence not judged whatever the quote states, and a count said whole is still judged (#1031, #2943); fails_when=the two numbers of "between three hundred and four hundred days" leave the sentence no figure, or are read as 30,400 or as the last of them, so a quote of 500, of 30,400 or of five days keeps the green check; no_claim=that a range said in words ever passes, which needs both its ends held to the Passage (#2953).
   test.each([
     ["The build took between three hundred and four hundred days.", "The build took 500 days."],
+    ["The build took between three hundred and four hundred days.", "The build took 30,400 days."],
     ["It ran for between one thousand and two thousand days.", "It ran for 90 days."],
     ["The build took four hundred days.", "The build took 500 days."],
     ["It took four five days.", "It took 90 days."],
-  ])("%s is not judged on a quote of another count: %s", async (claim, quote) => {
+    ["It took four five days.", "It took five days."],
+    ["Sales rose at the twenty twenty-four year end.", "Sales rose in 2024."],
+  ])("%s is not judged on %s", async (claim, quote) => {
     expect(await notJudged(claim, quote)).toBe(true);
   });
 
   test.each([
-    [
-      "The build took between three hundred and four hundred days.",
-      "The build took 300 to 400 days.",
-    ],
     ["The build took four hundred days.", "The build took 400 days."],
-    ["It took four five days.", "It took 5 days."],
-  ])("%s keeps its check on a quote of that count: %s", async (claim, quote) => {
+    ["It took five days.", "It took five days."],
+    ["Sales rose in twenty twenty-four.", "Sales rose in 2024."],
+  ])("%s keeps its check on %s", async (claim, quote) => {
     expect(await notJudged(claim, quote)).toBe(false);
   });
 

@@ -5,20 +5,15 @@ import { helpKeysLabel, useMeetingHelp } from "../../meetingHelp";
 import { useAppStore } from "../../store";
 
 /**
- * The help buttons during a call: the general ones with their shortcuts, then the ones
- * the meeting's template adds. "grid" in the floating panel, two to a row with the keys on
- * them; "strip" at the top of the assistant, the keys in each tooltip. The one pressed last
- * is marked. `keys`: the shortcuts held now, which the panel shows; else the ones set.
+ * The help buttons at the top of the assistant during a call: the general ones, then the ones the
+ * meeting's template adds, the keys in each tooltip. The one pressed last is marked. The floating
+ * panel has its ask bar instead (meetingPanel/AskBar.tsx).
  */
 export function HelpButtons({
   meeting,
-  layout,
-  keys,
   onPress,
 }: {
   meeting: Meeting;
-  layout: "grid" | "strip";
-  keys?: Partial<Record<MeetingHelpKind, string>>;
   onPress(kind: MeetingHelpKind): void;
 }) {
   const t = useT();
@@ -29,11 +24,11 @@ export function HelpButtons({
     <fieldset
       aria-label={t("meetings.help.label")}
       data-testid="help-buttons"
-      className={`help-buttons help-buttons--${layout}`}
+      className="help-buttons"
     >
       {helpKindsFor(meeting.helpTemplate).map((kind) => {
         const name = t(helpLabel(kind));
-        const shortcut = keys ? (keys[kind] ?? null) : helpKeysLabel(kind, settings);
+        const shortcut = helpKeysLabel(kind, settings);
         return (
           <button
             key={kind}
@@ -47,11 +42,6 @@ export function HelpButtons({
             className="help-button"
           >
             <span className="help-button-name">{name}</span>
-            {layout === "grid" && shortcut && (
-              <kbd data-testid="help-button-keys" className="help-button-keys">
-                {shortcut}
-              </kbd>
-            )}
           </button>
         );
       })}
