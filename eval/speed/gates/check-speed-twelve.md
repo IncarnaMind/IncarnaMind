@@ -90,7 +90,7 @@ Written and committed before any run it gates. The bars above are unchanged and 
 
 ### Result, 2026-11-10: GPT-6.1 Sol and Claude Haiku 5.5 hold every bar; Claude Sonnet 5.5 fails one, so it keeps six
 
-The runs were made with the step's code at 8b5f4ffd2, on `main` at 36800b60c; the commits after it change only this text and the README. They were made one at a time, each under its key's lease, taken before the load and the headroom were read, so a wait for the key is never inside a time. Sol's cells ran on OpenAI's own API; Haiku's and Sonnet's on a second direct Anthropic key with its own limit, which no other evaluation used during a run.
+The runs were made with the step's code at 8b5f4ffd2, on `main` at 36800b60c; the commits after it change only this text, the README and the catalog facts this result sets. They were made one at a time, each with its key to itself from before the load and the headroom were read, so a wait for the key is never inside a time. Sol's cells ran on OpenAI's own API; Haiku's and Sonnet's on a second direct Anthropic key with its own limit, which no other evaluation used during a run.
 
 | Cell | First verdict, today → step | Today's spread | Done, today → step | Holds | Valid runs, today / step |
 |---|---|--:|---|---|--:|
