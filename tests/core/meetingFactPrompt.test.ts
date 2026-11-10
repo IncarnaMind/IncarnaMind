@@ -72,18 +72,19 @@ test.each([
   },
 );
 
-// protects=a decision is what the people in the call agreed to do and never a figure one side stated; a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where it or the line before shows who speaks, so what an unnamed colleague said is not put in the named person's mouth (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a decision is a final choice actually agreed, which takes in a term one side gave and the other accepted aloud and never one a side only stated; a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where the call shows who speaks it, and is the other side's where it doesn't, so what an unnamed colleague said is not put in the named person's mouth (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
 ] as const)("with %s, the prompt says what a decision is and who is named", (_, lines) => {
   const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
   expect(prompt).toContain(
-    "for what the people in the call agreed to do, a choice they made together, never a figure, price or term one side stated, even when nobody objects",
+    "for final choices actually agreed, including a figure, price or term one side gave and the other accepted aloud, never one a side only stated, even when nobody objected;",
   );
   expect(prompt).toContain(
-    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where that line, or the line before it, makes clear who speaks; otherwise write what was said without a speaker.",
+    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where the call makes clear who speaks that line, on the line itself or in what is said to them just before or after it; where it does not, the speaker is the other side (对方), never a named person.",
   );
+  expect(prompt).not.toContain("without a speaker");
   expect(prompt).toContain(
     "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",
   );
@@ -205,15 +206,29 @@ test("a later part is shown each kept fact's heading, so a topic keeps its words
   expect(prompt).not.toContain("supersedes is always []");
 });
 
-// protects=what the User said in the call is written like anyone's: only a line they typed is never repeated, so a point only the User made is not left out as "the User's own line"; and a first reply is told supersedes stays empty, so a decision no longer drops the proposal before it (#2306); fails_when=the rule reads as covering the User's spoken lines again, or a first reply may name a fact to replace; no_claim=a real model following it, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=what the User said in the call is written like anyone's: only a line they typed is never repeated, and the rule is sent only when they typed one, so a point only the User made is not left out as "the User's own line"; and a first reply is told supersedes stays empty, so a decision no longer drops the proposal before it (#2306); fails_when=the rule reads as covering the User's spoken lines again, is sent with no typed line, or a first reply may name a fact to replace; no_claim=a real model following it, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
-  ["no notes", []],
-  ["a typed line", [{ marker: "L1", text: "访谈对象", heading: false }]],
-] as const)("with %s, only a typed line is never repeated, and nothing is replaced", (_, lines) => {
-  const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
-  expect(prompt).toContain("Never repeat or reword a line the User typed.");
-  expect(prompt).not.toContain("the User's own line");
-  expect(prompt).toContain(
-    "supersedes is always [] in this reply: it is only for replacing a fact kept from an earlier reply, which this fact corrects.",
-  );
-});
+  [
+    "no notes",
+    [],
+    "not just background or an earlier proposal. A line asking about several things",
+    0,
+  ],
+  [
+    "a typed line",
+    [{ marker: "L1", text: "访谈对象", heading: false }],
+    "not just background or an earlier proposal. Never repeat or reword a line the User typed. A line asking about several things",
+    1,
+  ],
+] as const)(
+  "with %s, only a typed line is never repeated, and nothing is replaced",
+  (_, lines, sentences, typedRules) => {
+    const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
+    expect(prompt).toContain(sentences);
+    expect(prompt.split("Never repeat or reword").length - 1).toBe(typedRules);
+    expect(prompt).not.toContain("the User's own line");
+    expect(prompt).toContain(
+      "supersedes is always [] in this reply: it is only for replacing a fact kept from an earlier reply, which this fact corrects.",
+    );
+  },
+);
