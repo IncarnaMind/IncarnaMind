@@ -69,6 +69,8 @@ const limitsOf = (kind: ModelCallKind) =>
 function unlimited(model: MockLanguageModelV4): string[] {
   const kindsOf = (options: Options, streamed: boolean): readonly ModelCallKind[] => {
     const question = questionOf(options);
+    // A batch goes with its records' room where the room for thinking would pass a limit (#2951).
+    if (question === "sentence-batch") return [question, "sentence-batch-records"];
     if (question) return [question];
     const system = systemOf(options);
     const known = KINDS.find(([pattern]) => pattern.test(system))?.[1];

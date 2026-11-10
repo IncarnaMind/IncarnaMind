@@ -55,7 +55,13 @@ export const OUTPUT_LIMITS = {
   rewrite: { most: 300 },
   "record-cite": { most: 400 },
   "absence-read": { most: 400 },
-  "sentence-batch": { most: 2_400, each: 300 },
+  // A batch's records, up to about 120 tokens a sentence, after the thinking of a model that
+  // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
+  // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).
+  "sentence-batch": { most: 7_400, each: 300, base: 5_000 },
+  // A batch's records alone, as before #2951: a batch the room above would take past the Answer's
+  // limit or the monthly cap, as it is sent, goes with this one.
+  "sentence-batch-records": { most: 2_400, each: 300 },
   // Room for a model that thinks whatever it is asked, before its plan.
   "research-plan": { most: 4_096 },
   "research-tags": { most: 1_024 },

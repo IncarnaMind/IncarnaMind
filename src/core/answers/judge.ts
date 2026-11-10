@@ -157,6 +157,8 @@ export interface JudgeAsk<T> {
   reply: JudgeReply<T>;
   /** For a question whose output limit is so much an item: how many items it asks about. */
   items?: number;
+  /** The output limit's kind, where it isn't the question's own. */
+  room?: ModelCallKind;
   /** How many times the provider's request is sent again when it fails. */
   retries: number;
   signal: AbortSignal;
@@ -450,13 +452,13 @@ async function streamed<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
     reply.kind === "structured"
       ? streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
           output: Output.object({ schema: reply.schema, name: reply.name }),
           onError: () => undefined,
         }).fullStream
       : streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
           onError: () => undefined,
         }).fullStream;
   let text = "";
@@ -481,7 +483,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   if (reply.kind !== "structured") {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
     });
     return {
       text: result.text,
@@ -492,7 +494,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   try {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
       output: Output.object({ schema: reply.schema, name: reply.name }),
     });
     return {

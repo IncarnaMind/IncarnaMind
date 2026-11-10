@@ -33,7 +33,14 @@ async function answered(
     // Priced high enough for 200 sentences' batches to pass the Answer's $0.25.
     modelId = "claude-opus-5-5",
     usage = BATCH_USAGE,
-  }: { failing?: boolean; modelId?: string; usage?: ReportedUsage } = {},
+    writes,
+  }: {
+    failing?: boolean;
+    modelId?: string;
+    usage?: ReportedUsage;
+    /** The tokens a batch's reply takes, its thinking and records: at its room, it is cut off there. */
+    writes?: (sentences: number) => number;
+  } = {},
 ) {
   const lines = Array.from({ length: count }, (_, index) => lineOf(index + 1));
   const batches: GenerateCall[] = [];
@@ -74,7 +81,17 @@ async function answered(
           quoted: "states",
           says: "The schedule says so.",
         }));
-        return { text: JSON.stringify({ sentences }), usage };
+        if (!writes) return { text: JSON.stringify({ sentences }), usage };
+        const wrote = writes(count);
+        const room = call.options.maxOutputTokens ?? Number.POSITIVE_INFINITY;
+        return {
+          text: JSON.stringify({ sentences }),
+          cutOff: wrote >= room,
+          usage: {
+            ...usage,
+            outputTokens: { total: Math.min(wrote, room), text: 70 * count, reasoning: undefined },
+          },
+        };
       },
     },
   );
@@ -219,4 +236,118 @@ describe("judging an Answer's sentences stops at a limit, at the end", { timeout
     expect(checksOf(again.citations).every((check) => check === "found")).toBe(true);
     expect(batches.length).toBeGreaterThan(sent);
   });
+});
+
+describe("a batch's room holds a model's thinking before its records (#2951)", {
+  timeout: 120_000,
+}, () => {
+  /** Each batch's room, largest first: batches are sent a few at once. */
+  const roomsOf = (batches: readonly GenerateCall[]) =>
+    batches.map((batch) => batch.options.maxOutputTokens ?? 0).sort((a, b) => b - a);
+
+  test.each([
+    { count: 1, rooms: [5_300] },
+    { count: 2, rooms: [5_600] },
+    { count: 8, rooms: [7_400] },
+    { count: 9, rooms: [7_400, 5_300] },
+  ])(
+    "$count sentences: each batch has 5,000 tokens for thinking and 300 a sentence",
+    async ({ count, rooms }) => {
+      const { answer, batches } = await answered(count, { modelId: "claude-haiku-5-5" });
+
+      expect(roomsOf(batches)).toEqual(rooms);
+      expect(checksOf(answer.citations)).toEqual(Array(count).fill("found"));
+    },
+  );
+
+  test.each([
+    // The longest whole replies measured, their thinking and records together.
+    { model: "Claude Haiku 5.5", sentences: 1, wrote: 728 },
+    { model: "DeepSeek V4.1 Flash", sentences: 3, wrote: 4_608 },
+    { model: "DeepSeek V4.1 Flash", sentences: 6, wrote: 6_626 },
+  ])(
+    "a reply of $wrote tokens for $sentences sentences, as $model wrote one, is read: Supported",
+    async ({ sentences, wrote }) => {
+      const { answer } = await answered(sentences, {
+        modelId: "claude-haiku-5-5",
+        writes: () => wrote,
+      });
+
+      expect(checksOf(answer.citations)).toEqual(Array(sentences).fill("found"));
+    },
+  );
+
+  test("a reply that still reaches its room grants nothing: its sentences stay Not checked, and the next batch is still sent", async () => {
+    const { answer, batches } = await answered(9, {
+      modelId: "claude-haiku-5-5",
+      writes: (sentences) => (sentences === 8 ? 9_000 : 300),
+    });
+
+    expect(roomsOf(batches)).toEqual([7_400, 5_300]);
+    expect(checksOf(answer.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);
+    expect(answer.citations.every((citation) => citation.checkReason == null)).toBe(true);
+  });
+
+  test("on a model whose room for thinking would pass the Answer's $0.25, every batch still goes, with the room for its records alone", async () => {
+    // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone.
+    const { answer, batches } = await answered(9, { modelId: "claude-fable-5" });
+
+    expect(roomsOf(batches)).toEqual([2_400, 300]);
+    expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
+  });
+
+  test("near the monthly cap, a batch the room for thinking would take past it goes with the room for its records, as before", async () => {
+    const { core, answer, judging, batches } = await answered(1, {
+      failing: true,
+      modelId: "claude-sonnet-5-5",
+    });
+    const spent = (await core.getCostSummary()).spent
+      .filter((each) => each.currency === "USD")
+      .reduce((total, each) => total + each.amount, 0);
+    // $0.02 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003.
+    await core.updateSettings({
+      user: { monthlyCap: { amount: spent + 0.02, currency: "USD" } },
+    });
+    judging.failing = false;
+
+    await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+    const again = await answerJudged(core, answer.conversationId, answer.id);
+
+    expect(roomsOf(batches)).toEqual([300]);
+    expect(checksOf(again.citations)).toEqual(["found"]);
+  });
+});
+
+test("a batch of eight sends the same request with either room, its limit the one difference (#2951)", {
+  timeout: 120_000,
+}, async () => {
+  const { core, answer, judging, batches } = await answered(8, {
+    failing: true,
+    modelId: "claude-sonnet-5-5",
+  });
+  const asked = await core.askInConversation({ text: "When are the kilns installed?" });
+  if (!asked.asked) throw new Error("Not asked.");
+  await answerEnded(core, asked.answerId);
+  const second = await answerJudged(core, asked.conversation.id, asked.answerId);
+  judging.failing = false;
+
+  await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+  await answerJudged(core, answer.conversationId, answer.id);
+  const spent = (await core.getCostSummary()).spent
+    .filter((each) => each.currency === "USD")
+    .reduce((total, each) => total + each.amount, 0);
+  // $0.04 left: 7,400 tokens out on Sonnet is $0.074, 2,400 is $0.024.
+  await core.updateSettings({ user: { monthlyCap: { amount: spent + 0.04, currency: "USD" } } });
+  await core.checkAnswerAgain({ conversationId: second.conversationId, answerId: second.id });
+  await answerJudged(core, second.conversationId, second.id);
+
+  const [roomy, records] = batches;
+  const { maxOutputTokens: roomyLimit, abortSignal: _first, ...roomyRest } = roomy?.options ?? {};
+  const {
+    maxOutputTokens: recordsLimit,
+    abortSignal: _second,
+    ...recordsRest
+  } = records?.options ?? {};
+  expect([roomyLimit, recordsLimit]).toEqual([7_400, 2_400]);
+  expect(recordsRest).toEqual(roomyRest);
 });

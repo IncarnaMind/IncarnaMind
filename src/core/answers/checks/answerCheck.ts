@@ -26,7 +26,7 @@ import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
+import { type ModelCallKind, outputTokens } from "../../providers/outputLimits";
 import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
@@ -220,17 +220,24 @@ function stopOf(failure: ProviderError): JudgementStop | null {
   return failure.budget ? "answer-limit" : "monthly-limit";
 }
 
+/** A batch's room: for its records after the model's thinking, or for its records alone. */
+type BatchRoom = Extract<ModelCallKind, "sentence-batch" | "sentence-batch-records">;
+
 /**
  * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
  * one, and all the reply may write, so a limit of their sum lets every batch through (#1554).
  */
-function mostRequest(batch: readonly BatchSentence[], instructions: string): EstimatedRequest {
+function mostRequest(
+  batch: readonly BatchSentence[],
+  instructions: string,
+  room: BatchRoom = "sentence-batch",
+): EstimatedRequest {
   const asSent = {
     content: [{ type: "text", text: batchPrompt(batch), providerOptions: CACHED }],
   };
   return {
     inputTokens: promptTokensOf([{ content: instructions }, asSent]),
-    outputTokens: outputTokens("sentence-batch", batch.length),
+    outputTokens: outputTokens(room, batch.length),
   };
 }
 
@@ -334,7 +341,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     /** One request for a batch: its verdicts, or the limit that refused it, or null when it failed. */
     const send = async (
       batch: (typeof judged)[number][],
-      most: number,
+      { most, room }: { most: number; room: BatchRoom },
     ): Promise<Map<number, BatchVerdict> | JudgementStop | null> => {
       const id = ++sent;
       open++;
@@ -342,6 +349,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         const judged = await judge({
           model: prepared.model,
           question: { id: "sentence-batch", instructions },
+          room,
           parts: batchParts(batch),
           data: BATCH_TAGS,
           reply: json((value) => readBatch(value, batch.length)),
@@ -401,29 +409,37 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         ? "answer-limit"
         : null;
     };
-    const admit = (batch: (typeof judged)[number][]): Promise<number | JudgementStop> => {
+    const admit = (
+      batch: (typeof judged)[number][],
+    ): Promise<{ most: number; room: BatchRoom } | JudgementStop> => {
       const turn = admitted.then(async () => {
-        const reserved = options.mostOf(input.model, mostRequest(batch, instructions));
+        const reservedAt = (room: BatchRoom) =>
+          options.mostOf(input.model, mostRequest(batch, instructions, room));
+        // Room for the thinking where the limits let it through now; where they don't, the batch
+        // goes as it went before #2951, with room for its records alone.
+        const roomy = reservedAt("sentence-batch");
+        const room: BatchRoom = passes(roomy) ? "sentence-batch-records" : "sentence-batch";
+        const reserved = room === "sentence-batch" ? roomy : reservedAt(room);
         while (passes(reserved) && open > 0) await settledAll();
         const stop = passes(reserved);
         if (stop) return stop;
         const most =
           reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
         outMost += most;
-        return most;
+        return { most, room };
       });
       admitted = turn;
       return turn;
     };
 
     const judgeBatch = async (batch: (typeof judged)[number][]) => {
-      const most = stopped ? stopped : await admit(batch);
-      if (typeof most === "string" || stopped || input.signal.aborted) {
-        stopped ??= typeof most === "string" ? most : null;
+      const admission = stopped ? stopped : await admit(batch);
+      if (typeof admission === "string" || stopped || input.signal.aborted) {
+        stopped ??= typeof admission === "string" ? admission : null;
         for (const sentence of batch) settle(sentence, null, stopped);
         return;
       }
-      const reply = await send(batch, most);
+      const reply = await send(batch, admission);
       if (reply === null || typeof reply === "string") {
         if (reply) stopped ??= reply;
         for (const sentence of batch) settle(sentence, null, reply);
