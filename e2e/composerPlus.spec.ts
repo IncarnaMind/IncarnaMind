@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   ANTHROPIC_KEY,
+  acceptPlainTextKeys,
   askFirstQuestion,
   boxOf,
   coreOf,
@@ -672,11 +673,13 @@ async function expectRowHolds(window: Page, at = ""): Promise<void> {
 }
 
 /** The Anthropic model the first Question is asked with in the screenshots: "Haiku 5.5", a short name. */
-const setHaiku = (window: Page) =>
-  window.evaluate(async (apiKey) => {
+async function setHaiku(window: Page): Promise<void> {
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async (apiKey) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "anthropic", apiKey, modelId: "claude-haiku-5-5" });
   }, ANTHROPIC_KEY);
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   const folderName =
