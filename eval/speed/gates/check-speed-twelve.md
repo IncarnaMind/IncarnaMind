@@ -84,3 +84,6 @@ Written and committed before any run it gates. The bars above are unchanged and 
 - **By #2532's comments:** $12.05 so far. That is $1.20 on 2026-11-04, $2.11 and $3.06 + $0.25 on 2026-11-07, and $5.43 on 2026-11-09.
 - **Counted with the pull requests' own figures:** about $32. That is #2534 (about $12.76 at its merge), #2598 (at most $6.13, under its own $10 approval), #2695, #2708 and #2721 (about $7.6 together, under a $12 approval), and 2026-11-09's $5.43. The $15 line above was passed under those approvals.
 - **This run:** $5, a hard stop, its runs again for load included. #2532's spend stops at $37 with this run, and any paid run after it needs a new yes.
+- **Raised the same night, before the first Sonnet run:** a Claude Sonnet 5.5 write costs $0.15–0.29 a run, against the $0.15 planned, so the cell couldn't finish inside $5. The stop is now $5.80 for this run and $37.80 for #2532, both hard. Anything past $37.80, a run again for load included, needs the owner's yes.
+  - Before each Sonnet run, what is left must cover it at its highest price so far, $0.29; otherwise the cell stops where it is, and the pull request says how many runs an arm it has.
+  - A Sonnet run starts only at a quiet moment, well under the load line. Its validity is still the rule above.
