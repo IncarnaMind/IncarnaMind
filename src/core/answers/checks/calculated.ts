@@ -131,7 +131,6 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
     const digits = /\p{Nd}+$/u.exec(before);
     if (!unit || !digits) continue;
     const found = figureEndingAt(text, match.index, match.index, context);
-    if (found && found.figure.unit.kind !== "plain") continue;
     // The reader leaves out a number a hyphen glues to a word ("over-60-day", "1-in-200-year"): its
     // digits alone are the count. Any other number it won't read has no value.
     const glued = !found && /[\p{L}-]$/u.test(before.slice(0, digits.index));

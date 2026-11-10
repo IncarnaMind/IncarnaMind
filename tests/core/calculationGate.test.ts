@@ -648,6 +648,7 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["它运行了2,000天。", "它运行了5,000天。"],
     ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-100-year level."],
     ["Debtors over-60-day rose to £6.2 million.", "Debtors over-90-day rose to £6.2 million."],
+    ["A $5 day pass is on sale.", "A $9 day pass is on sale."],
   ])("a wrong count does not get the green check: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
   });
@@ -665,6 +666,7 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["It ran for 2,000 days.", "It ran for two thousand days."],
     ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-200-year level."],
     ["Debtors over-60-day rose to £6.2 million.", "Debtors over-60-day rose to £6.2 million."],
+    ["A $5 day pass is on sale.", "A $5 day pass is on sale."],
     ["它运行了2.5年。", "它运行了2.5年。"],
     ["它运行了2,000天。", "它运行了2,000天。"],
   ])("the same count is still judged: %s citing %s", async (claim, quote) => {
