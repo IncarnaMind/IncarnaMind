@@ -60,6 +60,8 @@ const HELD_OUT_NOTES = {
   minutes: "会议纪要模板",
   handbook: "Handbook draft",
   staff: "员工手册",
+  conference: "Conference notes",
+  review: "活动复盘",
 } as const;
 
 const MINDS = [
@@ -764,6 +766,38 @@ const heldOutDone: Probe[] = [
     calls: [
       wrote("t12a", "edit_mind", "labzh", { part: "步骤" }, failedOn("labzh", "length")),
       wrote("t12b", "edit_mind", "labzh", { part: "步骤" }, { revised: true }),
+    ],
+  },
+  {
+    id: "twin-retried-other-tool-en",
+    reply: "Finished, all of it.",
+    unbacked: false,
+    calls: [
+      searched("t25-search", "keynote speakers", 4),
+      wrote(
+        "t25a",
+        "add_to_mind",
+        "conference",
+        { content: "## Speakers\n- Dr. Okafor on soil carbon" },
+        { kind: "new-version", mindId: "conference", text: "Speakers" },
+      ),
+      wrote("t25b", "edit_mind", "conference", { part: "Speakers" }, { revised: true, cited: 2 }),
+    ],
+  },
+  {
+    id: "twin-retried-other-tool-zh",
+    reply: "都完成了。",
+    unbacked: false,
+    calls: [
+      read("t26-read", "复盘模板.docx", 3),
+      wrote(
+        "t26a",
+        "edit_mind",
+        "review",
+        { part: "经验教训" },
+        { kind: "no-heading", mindId: "review", heading: "经验教训" },
+      ),
+      wrote("t26b", "add_to_mind", "review", { content: "## 经验教训\n- 提前一周确认场地" }, {}),
     ],
   },
   {
