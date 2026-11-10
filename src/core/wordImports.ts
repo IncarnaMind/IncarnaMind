@@ -618,6 +618,16 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
+    /** The copy kept of a file a Note was imported from, by its SHA-256; null when no Note was (#2216). */
+    keptFile(sha256: string): string | null {
+      if (!/^[0-9a-f]{64}$/.test(sha256)) return null;
+      const imported = db.get(
+        "SELECT 1 FROM word_packages WHERE sha256 = ? AND deleted_at IS NULL LIMIT 1",
+        [sha256],
+      );
+      return imported ? packagePath(sha256) : null;
+    },
+
     /** The Document this Mind was imported as: the import, not a duplicate's source (#1935). */
     importedAsOf(mindId: string): string | null {
       return (

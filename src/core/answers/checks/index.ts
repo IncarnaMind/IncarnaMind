@@ -301,7 +301,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {
@@ -1576,9 +1576,13 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
+  const evidenceReady = (stop: AbortSignal, mindId: string) =>
+    options.evidence.ready(stop, () => leftOutOf(mindId));
+
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
+    evidenceReady,
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1605,6 +1609,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
+    evidenceReady,
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1618,6 +1623,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    evidenceReady,
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1671,6 +1677,7 @@ export function createChecks(options: ChecksOptions) {
     firstLook,
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
+    evidenceReady,
     citedNow,
     withResult: noteResult,
     read: (mindId, look) => content.read(mindId, look),
@@ -1794,6 +1801,8 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
+        await options.evidence.ready(tracked.signal, () => leftOutOf(parsed.mindId));
+        if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
@@ -1819,6 +1828,7 @@ export function createChecks(options: ChecksOptions) {
         const run = running.get(requestId);
         if (run?.mindId === mindId) run.controller.abort();
       }
+      await options.evidence.ready(undefined, () => leftOutOf(mindId));
       return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
@@ -1907,6 +1917,7 @@ export function createChecks(options: ChecksOptions) {
           key: result.kind === "local-mode" ? "error.check.localMode" : "error.check.declined",
         });
       }
+      await options.evidence.ready(undefined, () => parsed.checked);
       const scope = options.evidence.scope(
         parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
@@ -2020,11 +2031,13 @@ export function createChecks(options: ChecksOptions) {
       const wanted =
         stored.check.scope.chosen ??
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
+      await options.evidence.ready(undefined, () => leftOutOf(input.mindId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      const leftOut = leftOutOf(input.mindId);
       const scope = options.evidence.scope(
         input.mindId,
         options.scopeDocuments(wanted, input.mindId),
-        leftOutOf(input.mindId),
+        leftOut,
       );
       const document = recordCiteLibrary(options.documents, scope).documents.find(
         (each) => each.id === input.documentId,

@@ -120,6 +120,11 @@ export interface WrittenCheckOptions extends CheckRuns {
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   /** Where the Mind's sentences are checked, as Check this Mind checks them. */
   scopeOf(mindId: string): { searchable: number; check: CheckScope };
+  /**
+   * Settles once the scope can tell every copy of the file the Mind was imported from (#2216), or
+   * once `stop` aborts; after the core closes, only `stop` settles it.
+   */
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   withResult(
@@ -586,6 +591,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   let turn: Promise<void> = Promise.resolve();
   /** The checks begun and not ended, the one whose turn it is among them. */
   let begunChecks = 0;
+  /** IncarnaMind quit: a write's check that would begin now reads nothing of the closed database. */
+  let closed = false;
 
   function requestOf(
     sentence: Sentence,
@@ -642,7 +649,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     for (const older of [...live.values()]) {
       if (older.mindId === mindId) older.leave(input.ids);
     }
-    if (judgesUnreliably(input.prepared)) return null;
+    if (closed || judgesUnreliably(input.prepared)) return null;
     const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
     // Read as the write lands, before anything is awaited: a reject meanwhile leaves no Proposal to
@@ -655,7 +662,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         sentences.map((sentence) => [sentence, markOn(note, input.ids, sentence)]),
       ),
     }));
-    const allowed = await options.prepare(input.prepared);
+    // Readied as IncarnaMind quits, the model's readiness reads the closed database: that is
+    // the check ending, not failing.
+    const allowed = await options.prepare(input.prepared).catch((error: unknown) => {
+      if (closed) return null;
+      throw error;
+    });
+    if (closed) return null;
     const waiting = !allowed && options.widened(input.prepared);
     if (!allowed && !waiting) return null;
     // Waiting, nothing is sent: the Answer's model only names who the marks wait for.
@@ -664,6 +677,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const quick = holding
       ? null
       : await options.quickModel(prepared).catch((error: unknown) => {
+          if (closed) return null;
           console.warn(
             `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -672,15 +686,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // An Undo or a reject while the check was readied reached no check yet: it marks nothing, which
     // would land on the words brought back, and sends nothing. A window writing the Blocks again
     // only looks so for a moment (#2378).
+    if (closed) return null;
     if (writeGone(mindId, shape)) {
       await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
-      if (writeGone(mindId, shape)) return null;
+      if (closed || writeGone(mindId, shape)) return null;
     }
     // The write landed before the Stop: its sentences say they were stopped, as a Stop mid-check
     // leaves them (#2710), rather than no mark, which reads as checked.
     const stopped = !holding && input.signal.aborted;
-    const { searchable, check: scope } = options.scopeOf(mindId);
-    if (searchable === 0) return null;
+    const atWrite = options.scopeOf(mindId);
+    if (atWrite.searchable === 0) return null;
+    // Taken again once the evidence can tell the copies of the Mind's imported file (`checkThem`).
+    let scope = atWrite.check;
     const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
       return new Map(
@@ -831,19 +848,20 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
           : { kind: "unknown" };
       });
-    const restoreBefore = () =>
+    /** Gives each sentence still marked by this check the mark `next` names for it, or none. */
+    const remark = (next: (sentence: Sentence) => ClaimCheckAttributes | null | undefined) =>
       input.edit((note) => {
         for (const sentence of sentences) {
-          const before = markedBefore.get(sentence);
-          if (before === undefined || markOn(note, input.ids, sentence)?.request !== request)
-            continue;
+          const to = next(sentence);
+          if (to === undefined || markOn(note, input.ids, sentence)?.request !== request) continue;
           const element = paragraphIn(note, input.ids, sentence.path);
           const place = element ? placeOf(element, sentence) : null;
           if (!element || !place) continue;
-          if (before) markSentence(element, place.from, place.to, before);
+          if (to) markSentence(element, place.from, place.to, to);
           else unmarkSentence(element, place.from, place.to, "check-against-documents");
         }
       });
+    const restoreBefore = () => remark((sentence) => markedBefore.get(sentence));
     // Each sentence shows as being checked until its own mark lands.
     landAll(
       sentences.map((sentence) => ({
@@ -1162,6 +1180,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           waitingTurn = false;
           progress();
         }
+        // The reply didn't wait for it: a Note imported from Word leaves its original's copies
+        // out, and they must all be told first (#2216).
+        await options.evidenceReady(signal, mindId);
+        if (signal.aborted) return;
+        const ready = options.scopeOf(mindId);
+        if (ready.searchable === 0) {
+          // Its only Documents were copies of its own file: nothing is checked, as when the
+          // write finds no Document, and its sentences lose their marks.
+          for (const sentence of sentences) left.add(sentence);
+          remark(() => null);
+          return;
+        }
+        scope = ready.check;
         // The cited sentences go at once; those with none, once the sort has named the claims.
         const [cited, uncited] = await Promise.all([
           checkAll(sentences.filter((sentence) => sentence.cited.length > 0)),
@@ -1232,6 +1263,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     /** Ends every check at once, as IncarnaMind quits: what each hadn't checked lands not checked. */
     stopAll(): void {
+      closed = true;
       for (const check of [...live.values()]) check.end();
     },
   };

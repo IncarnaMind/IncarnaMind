@@ -10,6 +10,7 @@
  * or { id, error }, taking one request at a time, in order.
  */
 import type { CrossEncoder, RerankingDevice, RerankingModelFiles } from "../adapters";
+import { ChannelClosedError, channelRequests } from "../channelRequests";
 import { channelStops } from "../channelStop";
 
 export type CrossEncoderCommand =
@@ -36,36 +37,29 @@ export interface CrossEncoderChannel {
   stop(): void;
 }
 
-type Pending = { resolve(response: CrossEncoderResponse): void; reject(error: Error): void };
-
 /**
  * The core's `CrossEncoder`, backed by a channel that `start` opens on the
- * first `load`. If it stops, pending requests fail, and the next `load` opens
- * a new one.
+ * first `load`. If it stops, or is closed, what is still out on it fails, and
+ * the next `load` opens a new one.
  */
 export function createChannelCrossEncoder(start: () => CrossEncoderChannel): CrossEncoder {
   let channel: CrossEncoderChannel | undefined;
   let loaded: { key: string; device: RerankingDevice } | undefined;
   let loading: { key: string; done: Promise<RerankingDevice> } | undefined;
-  const pending = new Map<number, Pending>();
   const stops = channelStops<CrossEncoderChannel>();
-  let nextId = 1;
+  const requests = channelRequests<CrossEncoderChannel, CrossEncoderResponse>();
 
   function open(): CrossEncoderChannel {
     const started = start();
     started.onResponse((response) => {
-      const waiting = pending.get(response.id);
-      pending.delete(response.id);
-      waiting?.resolve(response);
+      requests.answer(response.id, response);
       stops.answered(started, response.id);
     });
     started.onExit((code) => {
+      requests.rejectAll(started, new Error(`The reranking process stopped (exit code ${code}).`));
       if (channel !== started) return;
       channel = undefined;
       loaded = undefined;
-      const error = new Error(`The reranking process stopped (exit code ${code}).`);
-      for (const waiting of pending.values()) waiting.reject(error);
-      pending.clear();
     });
     return started;
   }
@@ -73,14 +67,12 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
   function request(command: CrossEncoderCommand): Promise<CrossEncoderResponse> {
     channel ??= open();
     const target = channel;
-    const id = nextId++;
-    return new Promise<CrossEncoderResponse>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      target.send({ ...command, id });
-    }).then((response) => {
-      if (response.error !== undefined) throw new Error(response.error);
-      return response;
-    });
+    return requests
+      .add(target, (id) => target.send({ ...command, id }))
+      .then((response) => {
+        if (response.error !== undefined) throw new Error(response.error);
+        return response;
+      });
   }
 
   return {
@@ -117,12 +109,11 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
       const stopping = channel;
       channel = undefined;
       loaded = undefined;
-      // Its exit is no longer heard: what waits on it fails now, so the searches behind it go on.
-      const error = new Error("The reranking model was stopped.");
-      const inFlight = new Set(pending.keys());
-      for (const waiting of pending.values()) waiting.reject(error);
-      pending.clear();
-      if (stopping) stops.close(stopping, inFlight);
+      loading = undefined;
+      if (!stopping) return;
+      const inFlight = new Set(requests.out(stopping));
+      requests.rejectAll(stopping, new ChannelClosedError("The reranking model was stopped."));
+      stops.close(stopping, inFlight);
     },
   };
 }

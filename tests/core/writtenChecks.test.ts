@@ -2681,4 +2681,55 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       errors.mockRestore();
     }
   });
+
+  // protects=a write's check readied as the core closes goes no further: it reads nothing of the closed database, sends nothing and fails nothing (#2216, #2830); fails_when=it takes its scope from the closed database once readied, and fails; no_claim=what a check under way does as the core closes, which the Stop and quitting tests cover.
+  test("a write's check readied as the core closes reads nothing after, sends nothing and fails nothing", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const keys = holdingKeychain();
+      const calls: ModelCall[] = [];
+      let started: Core | null = null;
+      const model = writingModel(
+        {
+          content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+          into: true,
+          writes: () => keys.hold(),
+        },
+        calls,
+        () => started,
+      );
+      const { core, folderId, mindId } = await harbour(
+        model,
+        { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        undefined,
+        false,
+        undefined,
+        keys.keychain,
+      );
+      started = core;
+      await core.askInConversation({
+        text: ASK.into,
+        mindId,
+        scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+      });
+      await vi.waitFor(() => expect(keys.held()).toBeGreaterThan(0), {
+        timeout: 20_000,
+        interval: 5,
+      });
+
+      core.close();
+      keys.release();
+      for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
+
+      const named = [...errors.mock.calls, ...warnings.mock.calls]
+        .map((call) => call.map(String).join(" "))
+        .filter((line) => line.includes(mindId));
+      expect(named).toEqual([]);
+      expect(calls.filter(isCheckRun)).toEqual([]);
+    } finally {
+      errors.mockRestore();
+      warnings.mockRestore();
+    }
+  });
 });

@@ -548,6 +548,43 @@ function linkedChannel(served: CrossEncoder) {
   return { start, started, crash: (code: number) => onExit(code) };
 }
 
+/**
+ * Each start a process of its own serving `served`, as the app's are: a stopped one answers
+ * nothing more, and exits only when the test calls `exit` with its place in `started`.
+ */
+function ownProcesses(served: CrossEncoder) {
+  const started: { exit(code: number | null): void }[] = [];
+  const start = (): CrossEncoderChannel => {
+    let onRequest: (request: CrossEncoderRequest) => void = () => {};
+    let onResponse: (response: CrossEncoderResponse) => void = () => {};
+    let stopped = false;
+    const process = { exit: (_code: number | null) => {} };
+    started.push(process);
+    serveCrossEncoder(served, {
+      onRequest: (listener) => {
+        onRequest = listener;
+      },
+      respond: (response) =>
+        queueMicrotask(() => {
+          if (!stopped) onResponse(response);
+        }),
+    });
+    return {
+      send: (request) => queueMicrotask(() => onRequest(request)),
+      onResponse: (listener) => {
+        onResponse = listener;
+      },
+      onExit: (listener) => {
+        process.exit = listener;
+      },
+      stop: () => {
+        stopped = true;
+      },
+    };
+  };
+  return { start, started };
+}
+
 describe("The reranking channel", () => {
   test("loads once, then scores texts in order, over messages", async () => {
     const link = linkedChannel(createFakeCrossEncoder());
@@ -698,6 +735,74 @@ describe("The reranking channel", () => {
 
     await crossEncoder.load(FILES);
     expect(link.started).toHaveLength(2);
+  });
+
+  // protects=the reranking channel closes as the embedding one does: a closed process's late exit fails only what was out on it, never the next process's scoring (#2930); fails_when=the old exit rejects the new scoring; no_claim=the order a real process's messages arrive in.
+  test("a closed process's late exit leaves the next process's scoring to be answered", async () => {
+    const gate = Promise.withResolvers<void>();
+    const reached: string[] = [];
+    const held: CrossEncoder = {
+      load: async () => ({ device: "cpu" }),
+      score: async (query, texts) => {
+        reached.push(query);
+        await gate.promise;
+        return texts.map(() => 0.5);
+      },
+      close: () => {},
+    };
+    const processes = ownProcesses(held);
+    const crossEncoder = createChannelCrossEncoder(processes.start);
+    await crossEncoder.load(FILES);
+    const old = expect(crossEncoder.score("old", ["t"])).rejects.toThrow(
+      "The reranking model was stopped.",
+    );
+    crossEncoder.close();
+
+    await crossEncoder.load(FILES);
+    const next = crossEncoder.score("new", ["t"]);
+    await vi.waitFor(() => expect(reached).toEqual(["old", "new"]));
+    processes.started[0]?.exit(137);
+    gate.resolve();
+
+    expect(await next).toEqual([0.5]);
+    await old;
+    expect(processes.started).toHaveLength(2);
+  });
+
+  // protects=a load the model's own close ends isn't the model failing: it stays ready, and the next search loads and scores (#2930); fails_when=the model reads as failed to load and every search after it keeps search's order; no_claim=a load that really fails, which marks it failed.
+  test("closed while it loads, the model isn't failed: the next search loads it and scores", async () => {
+    const fake = createFakeCrossEncoder();
+    const firstLoad = Promise.withResolvers<void>();
+    let loads = 0;
+    const served: CrossEncoder = {
+      ...fake,
+      load: async (files) => {
+        loads++;
+        if (loads === 1) await firstLoad.promise;
+        return fake.load(files);
+      },
+    };
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir: await createTempDataFolder(),
+      crossEncoder: createChannelCrossEncoder(ownProcesses(served).start),
+      emitStatus: () => {},
+    });
+    const hits = [
+      { id: "bread", documentName: "Bread", text: "Bread rises in the oven." },
+      { id: "ships", documentName: "Lighthouse", text: "A lighthouse guides ships at night." },
+    ];
+
+    const first = model.rerank("lighthouse ships", hits);
+    await vi.waitFor(() => expect(loads).toBe(1));
+    model.unload();
+
+    expect(await first).toBeNull();
+    expect(model.status()).toMatchObject({ state: "ready", error: null });
+    expect((await model.rerank("lighthouse ships", hits))?.[0]?.id).toBe("ships");
+    expect(loads).toBe(2);
+    model.close();
   });
 });
 

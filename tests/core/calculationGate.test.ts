@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
+import { needsCalculation } from "../../src/core/answers/checks/calculationGate";
 import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
+import type { Citation } from "../../src/core/api";
 import { checkGenerate, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { checkClock } from "../helpers/heldClock";
@@ -591,5 +593,106 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
     expect(
       calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
     ).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 2,000 days.", "It ran for 5,000 days.", "not-checked"],
+    ["It ran for 2,000 days.", "It ran for 2,000 days.", "supported"],
+    ["It ran for 90 days.", "It ran for 90 days.", "supported"],
+  ])(
+    "a count of days with a thousands comma: %s citing %s (#2943)",
+    async (claim, source, verdict) => {
+      const { result } = await fixture({ claim, source });
+      expect(result.verdict).toBe(verdict);
+    },
+  );
+});
+
+describe("a count of periods in a sentence the Answer check judges (#2943)", () => {
+  const citing = (quote: string): Citation => ({
+    passageId: "passage-1",
+    documentId: "document-1",
+    documentName: "Invented ledger.md",
+    contentHash: "hash-1",
+    pageFrom: null,
+    pageTo: null,
+    location: null,
+    quote,
+    check: "found",
+    checkReason: null,
+  });
+
+  /** Whether the Answer check leaves `claim` not judged, citing `quote`, as `supportOf` asks the gate. */
+  const leftNotJudged = (claim: string, quote: string) =>
+    needsCalculation({
+      claim,
+      verdict: { verdict: "supported", topic: "found", calculations: [] },
+      attempted: false,
+      computed: [],
+      inputs: [],
+      citations: [{ citation: citing(quote), units: [{ text: quote }] }],
+      confirm: async () => true,
+    });
+
+  test.each([
+    ["It ran for 2,000 days.", "It ran for 5,000 days."],
+    ["It ran for 1,250 weeks.", "It ran for 2,250 weeks."],
+    ["It ran for 12,000,000 years.", "It ran for 5,000,000 years."],
+    ["A 2,000-day ramp.", "A 5,000-day ramp."],
+    ["It ran for 2\u00a0000 days.", "It ran for 5\u00a0000 days."],
+    ["It ran for 2 000 days.", "It ran for 5 000 days."],
+    ["It ran for 2，000 days.", "It ran for 5，000 days."],
+    ["It ran for ２，０００ days.", "It ran for ５，０００ days."],
+    ["It ran for 2.5 years.", "It ran for 7.5 years."],
+    ["它运行了2.5年。", "它运行了7.5年。"],
+    ["它运行了2,000天。", "它运行了5,000天。"],
+    ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-100-year level."],
+    ["Debtors over-60-day rose to £6.2 million.", "Debtors over-90-day rose to £6.2 million."],
+    ["A $5 day pass is on sale.", "A $9 day pass is on sale."],
+    ["It ran for 3 days.", "It ran for 7 days."],
+    ["它运行了30 days。", "它运行了90 days。"],
+    ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 4%."],
+    ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 4%."],
+  ])("a wrong count does not get the green check: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 2,000 days.", "It ran for 2,000 days."],
+    ["It ran for 90 days.", "It ran for 90 days."],
+    ["It ran for 1,250 weeks.", "It ran for 1,250 weeks."],
+    ["It ran for 12,000,000 years.", "It ran for 12,000,000 years."],
+    ["A 2,000-day ramp.", "A 2,000-day ramp."],
+    ["It ran for 2\u00a0000 days.", "It ran for 2\u00a0000 days."],
+    ["It ran for ２，０００ days.", "It ran for 2,000 days."],
+    ["It ran for 2.5 years.", "It ran for 2.5 years."],
+    ["It ran for two thousand days.", "It ran for 2,000 days."],
+    ["It ran for 2,000 days.", "It ran for two thousand days."],
+    ["The flood line is the 1-in-200-year level.", "The flood line is the 1-in-200-year level."],
+    ["Debtors over-60-day rose to £6.2 million.", "Debtors over-60-day rose to £6.2 million."],
+    ["A $5 day pass is on sale.", "A $5 day pass is on sale."],
+    ["它运行了30 days。", "它运行了30 days。"],
+    ["它运行了2.5年。", "它运行了2.5年。"],
+    ["它运行了2,000天。", "它运行了2,000天。"],
+  ])("the same count is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 5%."],
+    ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 5%."],
+    ["It ran for 1e3 days.", "It ran for 7 days."],
+  ])("a number that starts inside a word is no count: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 9007199254740993 days.", "It ran for 12 days."],
+    ["It ran for 9007199254740993 days.", "It ran for 9007199254740993 days."],
+    ["It ran for four five days.", "It ran for 45 days."],
+    ["It slipped by -3 days.", "It slipped by 3 days."],
+    ["它运行了9007199254740993天。", "它运行了12天。"],
+  ])("a count that cannot be read is never a pass: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
   });
 });

@@ -11,6 +11,7 @@
  * most the Passage in progress.
  */
 import type { Embedder, EmbeddingModelFiles } from "../adapters";
+import { ChannelClosedError, channelRequests } from "../channelRequests";
 import { channelStops } from "../channelStop";
 
 export type EmbedderCommand =
@@ -36,41 +37,30 @@ export interface EmbedderChannel {
   stop(): void;
 }
 
-type Pending = {
-  resolve(response: EmbedderResponse): void;
-  reject(error: Error): void;
-  on: EmbedderChannel;
-};
-
 /**
  * The core's `Embedder`, backed by a channel that `start` opens. The channel
- * opens on the first `load`. If it stops, pending requests fail, and the
- * core's next `load` opens a new one.
+ * opens on the first `load`. If it stops, or is closed, what is still out on
+ * it fails, and the core's next `load` opens a new one.
  */
 export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
   let channel: EmbedderChannel | undefined;
   /** The files the open channel has loaded. */
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
-  const pending = new Map<number, Pending>();
   const stops = channelStops<EmbedderChannel>();
-  let nextId = 1;
+  const requests = channelRequests<EmbedderChannel, EmbedderResponse>();
 
   function open(): EmbedderChannel {
     const started = start();
     started.onResponse((response) => {
-      const waiting = pending.get(response.id);
-      pending.delete(response.id);
-      waiting?.resolve(response);
+      requests.answer(response.id, response);
       stops.answered(started, response.id);
     });
     started.onExit((code) => {
+      requests.rejectAll(started, new Error(`The embedding process stopped (exit code ${code}).`));
       if (channel !== started) return;
       channel = undefined;
       loadedKey = undefined;
-      const error = new Error(`The embedding process stopped (exit code ${code}).`);
-      for (const waiting of pending.values()) waiting.reject(error);
-      pending.clear();
     });
     return started;
   }
@@ -78,14 +68,12 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
   function request(command: EmbedderCommand): Promise<EmbedderResponse> {
     channel ??= open();
     const target = channel;
-    const id = nextId++;
-    return new Promise<EmbedderResponse>((resolve, reject) => {
-      pending.set(id, { resolve, reject, on: target });
-      target.send({ ...command, id });
-    }).then((response) => {
-      if (response.error !== undefined) throw new Error(response.error);
-      return response;
-    });
+    return requests
+      .add(target, (id) => target.send({ ...command, id }))
+      .then((response) => {
+        if (response.error !== undefined) throw new Error(response.error);
+        return response;
+      });
   }
 
   async function loadFiles(files: EmbeddingModelFiles, key: string): Promise<void> {
@@ -117,9 +105,11 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
       const stopping = channel;
       channel = undefined;
       loadedKey = undefined;
+      loading = undefined;
       if (!stopping) return;
-      const own = [...pending].flatMap(([id, each]) => (each.on === stopping ? [id] : []));
-      stops.close(stopping, new Set(own));
+      const inFlight = new Set(requests.out(stopping));
+      requests.rejectAll(stopping, new ChannelClosedError("The embedding model was stopped."));
+      stops.close(stopping, inFlight);
     },
   };
 }
