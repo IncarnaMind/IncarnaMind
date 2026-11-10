@@ -334,6 +334,8 @@ export interface FlowTimes {
   run: number;
   /** For an Answer of fewer sentences than the set's 30, how many it had. */
   answerSentences?: number;
+  /** The room arm it was checked on, for #2951's gate: `main` or `today`. */
+  arm?: string;
   load: number;
   /** The machine's load over the last 15 minutes as the run began, which a timing run is held to. */
   load15: number;

@@ -3,7 +3,17 @@
  * Passages hold and the set's short answer: one word, so the two arms of a paired run are graded
  * the same way.
  */
-import { generateText, type LanguageModel } from "ai";
+import {
+  generateText,
+  type LanguageModel,
+  type LanguageModelMiddleware,
+  wrapLanguageModel,
+} from "ai";
+import type { SaveChatProviderInput } from "../../src/core";
+import { costOf } from "../../src/core/cost/price";
+import { catalogFacts } from "../../src/core/providers/catalog";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { env, modelNamed } from "./settings";
 
 export type Grade = "right" | "partly" | "wrong" | "unread";
 
@@ -59,4 +69,51 @@ export async function gradeAnswer(
   if (word === "right" || word === "partly" || word === "wrong") return word;
   console.error(`The judge's grade couldn't be read: ${text.slice(0, 200)}`);
   return "unread";
+}
+
+/** The judge, never a model under test, with what it has cost from the catalog's price. */
+export function judgeOf(models: readonly SaveChatProviderInput[]) {
+  const sonnet = models.some((each) => each.modelId === "claude-sonnet-5-5");
+  const named = modelNamed(
+    env("JUDGE") ?? `anthropic/${sonnet ? "claude-opus-5-5" : "claude-sonnet-5-5"}`,
+    "JUDGE",
+  );
+  if (models.some((each) => each.kind === named.kind && each.modelId === named.modelId)) {
+    throw new Error("INCARNAMIND_EVAL_SPEED_JUDGE: the judge can't be a model under test.");
+  }
+  const price = catalogFacts(named.kind, named.modelId)?.price;
+  let spent = 0;
+  const counting: LanguageModelMiddleware = {
+    specificationVersion: "v4",
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+      if (price) {
+        const { inputTokens, outputTokens } = result.usage;
+        spent += costOf(
+          {
+            inputTokens: inputTokens.total ?? 0,
+            cachedInputTokens: inputTokens.cacheRead ?? 0,
+            cacheWriteTokens: inputTokens.cacheWrite ?? 0,
+            outputTokens: outputTokens.total ?? 0,
+          },
+          price,
+          new Date(),
+          { cacheWrites: named.kind === "anthropic" },
+        );
+      }
+      return result;
+    },
+  };
+  const model = wrapLanguageModel({
+    model: createAiSdkChatModel({
+      kind: named.kind,
+      modelId: named.modelId,
+      apiKey: named.apiKey ?? null,
+      baseUrl: null,
+      endpoint: named.endpoint ?? null,
+      thinking: "off",
+    }),
+    middleware: counting,
+  });
+  return { name: `${named.kind}/${named.modelId}`, model, spent: () => spent };
 }
