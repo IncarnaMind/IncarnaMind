@@ -10,6 +10,12 @@ import type { WrittenItem } from "./writtenCases";
 /** A request the service turned away for its rate limit or load, not a failure of the check. */
 const REFUSED = /429|rate.?limit|overloaded|529/i;
 
+/** The limit a batch of `sentences` carries on an arm: main's 300 a sentence, or today's room (#2951). */
+export const limitOn = (arm: string, sentences: number): number =>
+  arm.startsWith("main")
+    ? Math.min(2_400, 300 * sentences)
+    : Math.min(7_400, 5_000 + 300 * sentences);
+
 interface Judged {
   /** Supported: the check's verdict on the sentence. */
   supported: boolean;
@@ -72,6 +78,14 @@ export function roomGateSection(
     const requests = runs.flatMap((each) => each.requests);
     const refused = requests.filter((each) => each.error && REFUSED.test(each.error)).length;
     const failed = requests.filter((each) => each.error && !REFUSED.test(each.error)).length;
+    const batches = runs.flatMap((run) =>
+      run.requests
+        .filter((request) => request.kind === "batch")
+        .map((request) => ({ arm: run.arm ?? "", request })),
+    );
+    const otherLimit = batches.filter(
+      ({ arm, request }) => request.maxOutputTokens !== limitOn(arm, request.asked),
+    ).length;
     lines.push(`### ${model}`, "");
     if (refused + failed > 0) {
       lines.push(
@@ -79,6 +93,20 @@ export function roomGateSection(
         "",
       );
     }
+    if (otherLimit > 0) {
+      lines.push(
+        `**Void:** ${otherLimit} batches carried a limit other than their arm's. The run is kept, struck, and run again; its numbers are not read.`,
+        "",
+      );
+    }
+    const seen = new Map<string, number>();
+    for (const { arm, request } of batches) {
+      const key = `${arm}: ${request.asked} sentences, ${request.maxOutputTokens ?? "no limit"}`;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    lines.push(
+      `- **The limits seen:** ${[...seen].map(([key, count]) => `${key} (${count})`).join("; ")}.`,
+    );
     const answers = new Map<string, Map<string, FlowTimes>>();
     for (const run of runs) {
       const key = `${run.language} ${run.answerSentences ?? "all"} ${run.run}`;
@@ -93,17 +121,19 @@ export function roomGateSection(
     const cutOn = (arm: string) =>
       batchesOn(arm).filter((each) => each.finishReason === "length").length;
     const today = batchesOn("today");
+    const mainCount = Math.ceil((cutOn("main") + cutOn("main#2")) / 2);
+    const cutHolds = today.length >= 88 && cutOn("today") <= 4 && cutOn("today") <= mainCount / 4;
     lines.push(
-      `- **1, cut-offs:** today ${cutOn("today")} of ${today.length} batches reached their room; the bar is at most 2 of 88: ${cutOn("today") <= 2 && today.length >= 88 ? "holds" : "**fails**"}. Main's arms: ${cutOn("main")} of ${batchesOn("main").length} and ${cutOn("main#2")} of ${batchesOn("main#2").length}.`,
+      `- **1, cut-offs:** today ${cutOn("today")} of ${today.length} batches reached their room; main's arms ${cutOn("main")} of ${batchesOn("main").length} and ${cutOn("main#2")} of ${batchesOn("main#2").length}, so main's count is ${mainCount}. The bar is at most 4 of 88 and at most a quarter of main's count: ${cutHolds ? "holds" : "**fails**"}.`,
     );
-    const pairs = (first: string, second: string) => {
+    const pairs = (first: string, second: string, language?: string) => {
       let more = 0;
       let fewer = 0;
       let both = 0;
       for (const arms of answers.values()) {
         const a = arms.get(first);
         const b = arms.get(second);
-        if (!a || !b) continue;
+        if (!a || !b || (language && a.language !== language)) continue;
         const items = itemsOf(a.language);
         const onA = judgedIn(a, items);
         const onB = judgedIn(b, items);
@@ -119,8 +149,14 @@ export function roomGateSection(
     };
     const spread = pairs("main", "main#2");
     const change = pairs("main", "today");
+    const byLanguage = [...new Set(runs.map((each) => each.language))]
+      .map((language) => {
+        const apart = pairs("main", "today", language);
+        return `${language} ${apart.more} and ${apart.fewer} of ${apart.both}`;
+      })
+      .join(", ");
     lines.push(
-      `- **2, verdicts where both were whole:** of ${change.both} sentences, today Supported where main wasn't ${change.more} times and the other way ${change.fewer}: one-sided sign test p = ${change.p.toPrecision(3)}: ${change.p >= 0.05 ? "holds" : "**fails**"}. Main against main, the model's own spread: ${spread.more} and ${spread.fewer} of ${spread.both}, p = ${spread.p.toPrecision(3)}.`,
+      `- **2, verdicts where both were whole:** of ${change.both} sentences, both languages, today Supported where main wasn't ${change.more} times and the other way ${change.fewer}: one-sided sign test p = ${change.p.toPrecision(3)}, the bar fails under 0.01: ${change.p >= 0.01 ? "holds" : "**fails**"}. By language: ${byLanguage}. Main against main#2, the model's own spread: ${spread.more} and ${spread.fewer} of ${spread.both}, p = ${spread.p.toPrecision(3)}.`,
     );
     if (unstated) {
       let newly = 0;

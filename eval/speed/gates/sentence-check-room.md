@@ -2,6 +2,8 @@
 
 Written and committed on 2026-11-10, before any run it gates. Its cases (`../checkRoomCases.ts`) were written with it, and no run or prompt has seen them.
 
+Bars set by the reader before any run, 2026-11-10: bar 1 is at most 4 of 88 and a quarter of main's count, bar 2 fails under 1%, the arm `main` is the one bars 2 and 3 compare, and the record shows the limit each batch carried (shared-key rule 4). They replace the first draft's bar 1 (at most 2 of 88) and bar 2 (under 5%). The runs go one after another, never two at once.
+
 ## The change
 
 An Answer's sentences are judged in batches of up to eight, one request each, on the chat flow. A model that thinks first thinks before it writes the batch's records. On main the batch's room is 300 tokens a sentence, up to 2,400, thinking included, so a short batch has the least room for the most variable part. When the thinking takes the room, the reply is cut off and its sentences stay Not checked.
@@ -17,6 +19,9 @@ Why 5,000: 260 whole replies were measured with the room lifted to 8,000, on Cla
 1. Each run holds a machine-wide lock on its key for its whole length, one lock a run, so no other run shares the key's per-minute limit.
 2. Before each run, one smallest request reads the key's allowance left from its rate-limit headers. The run starts only above 90%, and the figure is recorded with the run. DeepSeek gives no such headers, which is recorded instead.
 3. A run counts only if none of its requests was refused, failed or timed out, read from its own record: every request's `error` is empty and every Answer's check ended. Otherwise the run is void. It is kept, struck with the reason, and run again, and its numbers are not read. The gate's section of `report.md` prints "Void" at the top of a model's part when its record holds such a request. Refused requests are counted apart from failed ones and never as a cut-off.
+4. The record shows the limit each batch carried to the provider: 300 × its sentences on both main arms, and 5,000 + 300 × its sentences on `today`. The gate's section prints the limits seen, by arm and batch size, and a run where any batch carried another limit is void.
+
+The three runs go strictly one after another. Each holds the lock on the second Anthropic key for its whole length, the DeepSeek run too, with the DeepSeek key's lock inside it, so another evaluation's timed runs on that key queue between them. No run sends more than four requests at once. Each run's record keeps the one-minute load at its start and end.
 
 Both Claude runs go on a second direct Anthropic key with its own per-minute limit, the key the measurements were made on, so the runs compared with each other share one key. DeepSeek runs on the DeepSeek key.
 
@@ -42,14 +47,17 @@ On the room runs above, main's room would have cut 19 of 76 batches of 1 to 3 se
 
 ## Bars (per model; every one must hold)
 
-1. **Cut-offs:** on the `today` arm, at most 2 of the 88 batches reach their room (finish reason "length").
-   - Why 2: no measured reply needed more than the room given, but 200 replies are no proof of the tail. 2 of 88 is a fifth of what main is expected to cut on the model it cuts least (Sonnet, about 10).
+1. **Cut-offs:** on the `today` arm, at most 4 of the 88 batches reach their room (finish reason "length"), and at most a quarter of main's own count on the same batches. Main's count is the mean of its two arms, rounded up.
+   - Why: this is the bar a User needs, under 1 in 20 and a clear drop from main.
+   - The base was fitted to the largest of 260 replies with 173 tokens to spare, and DeepSeek owns that tail. A bar of 2 would fail on DeepSeek's tail alone about one run in eight, at 1.4% a batch.
    - Main's two arms are reported beside it.
-2. **Verdicts where both were whole:** over the sentences whose batch was read whole on both `main` and `today`, count where `today` gives Supported and `main` doesn't, and the other way round. The bar fails when a one-sided sign test gives today's count a chance under 5%, were the two rooms alike.
+2. **Verdicts where both were whole:** over the sentences whose batch was read whole on both `main` and `today`, count where `today` gives Supported and `main` doesn't, and the other way round. The two languages are pooled for the bar and reported apart. The bar fails when a one-sided sign test gives today's count a chance under 1%, were the two rooms alike.
+   - Why 1%: three models at 5% each would stop a change about one time in seven when the rooms are alike, and a limit the model never sees gives no reason to expect a shift. It is the level of #2847's speed bar.
    - `main` against `main#2` is reported beside it, as the model's own spread.
    - Why a sign test on pairs: each sentence is its own pair, so the bar needs no guess at the spread.
 3. **No more wrong Supported:** take the sentences the judge says their quotes don't state. Among those `main` cut and `today` read, today's share of Supported must be no higher than main's share among those it read whole. The test is Fisher's exact, one-sided, and the bar fails at p < 0.05.
    - It is read only where at least 5 of the judge's sentences fell in batches main cut. Below that it prints as not readable, and the bar stands on the unit test that a reply which still reaches its room grants nothing.
+   - In bars 2 and 3, "main" is the arm named `main`; `main#2` is only the spread.
 4. **Long Answers unchanged:** a batch of eight sends main's request, its limit the one difference. This is held by `tests/core/answerCheckingLimit.test.ts`: the same batch of eight sent with either room differs only in `maxOutputTokens`, 7,400 and 2,400.
 5. **Limits:** no batch is refused by the Answer's limit or the monthly cap where main lets it through. This is held by the same file, with literal numbers:
    - On Claude Fable 5, whose 7,400-token room alone would pass the Answer's $0.25, every batch still goes, with main's 2,400 and 300.

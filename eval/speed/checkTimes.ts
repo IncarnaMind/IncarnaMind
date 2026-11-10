@@ -40,6 +40,8 @@ export interface CheckRequest {
   sentences: number[];
   /** How many sentences its prompt asks about, whether or not they are the flow's own. */
   asked: number;
+  /** The output limit it carried to the provider. */
+  maxOutputTokens: number | null;
   /** Which turn of its Run: the assistant turns before it. */
   turn: number;
   /** The note a turn check sent it back with, if it was one. */
@@ -181,6 +183,7 @@ export function checkRecorder() {
       kind: kindOf(params),
       sentences: sentencesIn(rest.map((message) => textOf(message.content)).join("\n"), sentences),
       asked: inTags(rest.map((message) => textOf(message.content)).join("\n"), "sentence").length,
+      maxOutputTokens: params.maxOutputTokens ?? null,
       turn: rest.filter((message) => message.role === "assistant").length,
       nudge: NUDGES.find(([, start]) => lastText.startsWith(start))?.[0] ?? null,
       startMs: since(),

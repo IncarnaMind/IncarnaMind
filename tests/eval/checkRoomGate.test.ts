@@ -45,10 +45,16 @@ const ITEMS: WrittenItem[] = [
   },
 ];
 
-const batch = (finishReason: string, error: string | null = null): CheckRequest => ({
+/** A batch of one sentence on `arm`, carrying that arm's limit unless `limit` says otherwise. */
+const batch = (
+  arm: string,
+  finishReason: string,
+  { error = null, limit }: { error?: string | null; limit?: number } = {},
+): CheckRequest => ({
   kind: "batch",
   sentences: [0],
   asked: 1,
+  maxOutputTokens: limit ?? (arm === "today" ? 5_300 : 300),
   turn: 0,
   nudge: null,
   startMs: 0,
@@ -65,10 +71,25 @@ const batch = (finishReason: string, error: string | null = null): CheckRequest 
   error,
 });
 
-const checked = (run: number, arm: string, verdict: string, request: CheckRequest): FlowTimes => ({
+const checked = (
+  run: number,
+  arm: string,
+  verdict: string,
+  {
+    finishReason = "stop",
+    error,
+    limit,
+    language = "en",
+  }: {
+    finishReason?: string;
+    error?: string | null;
+    limit?: number;
+    language?: string;
+  } = {},
+): FlowTimes => ({
   flow: "answer",
   model: "anthropic/claude-haiku-5-5",
-  language: "en",
+  language,
   run,
   answerSentences: 1,
   arm,
@@ -79,46 +100,119 @@ const checked = (run: number, arm: string, verdict: string, request: CheckReques
   firstVerdictMs: 2_000,
   doneMs: 2_000,
   landed: [{ sentence: 0, ms: 2_000, verdict }],
-  requests: [request],
+  requests: [batch(arm, finishReason, { error, ...(limit !== undefined && { limit }) })],
   reranks: [],
   rerankRepeats: { scored: 0, repeated: 0 },
   spentUsd: 0.001,
 });
 
+/** 88 Answers of one sentence each on the three arms, with so many cut on each. */
+function eightyEight(cut: { main: number; second: number; today: number }) {
+  return Array.from({ length: 88 }, (_, at) => [
+    checked(at + 1, "main", "found", { finishReason: at < cut.main ? "length" : "stop" }),
+    checked(at + 1, "main#2", "found", { finishReason: at < cut.second ? "length" : "stop" }),
+    checked(at + 1, "today", "found", { finishReason: at < cut.today ? "length" : "stop" }),
+  ]).flat();
+}
+
 describe("the room gate's section", () => {
-  test("counts today's cut-offs and main's, and reads the judge's sentences where main cut them", () => {
+  test("prints the limits each arm's batches carried", () => {
     const results = [
-      checked(1, "main", "found", batch("stop")),
-      checked(1, "main#2", "found", batch("stop")),
-      checked(1, "today", "found", batch("stop")),
-      // The sentence its quote doesn't state: main cut it twice, today read it and didn't pass it.
-      checked(2, "main", "not-checked", batch("length")),
-      checked(2, "main#2", "not-checked", batch("length")),
-      checked(2, "today", "unsupported", batch("stop")),
+      checked(1, "main", "found"),
+      checked(1, "main#2", "found"),
+      checked(1, "today", "found"),
     ];
 
-    const section = roomGateSection(results, () => ITEMS, new Set(["b"]));
+    expect(roomGateSection(results, () => ITEMS, null)).toContain(
+      "- **The limits seen:** main: 1 sentences, 300 (1); main#2: 1 sentences, 300 (1); today: 1 sentences, 5300 (1).",
+    );
+  });
 
-    expect(section).toContain("today 0 of 2 batches reached their room");
-    expect(section).toContain("Main's arms: 1 of 2 and 1 of 2.");
-    expect(section).toContain(
-      "of 1 sentences, today Supported where main wasn't 0 times and the other way 0",
+  test("a run in which a batch carried another limit than its arm's is void", () => {
+    const results = [
+      checked(1, "main", "found"),
+      checked(1, "main#2", "found"),
+      // The room for records alone, where today's arm should carry 5,300.
+      checked(1, "today", "found", { limit: 300 }),
+    ];
+
+    expect(roomGateSection(results, () => ITEMS, null)).toContain(
+      "**Void:** 1 batches carried a limit other than their arm's.",
     );
-    expect(section).toContain(
-      "not readable: 1 of the sentences the judge lists fell in batches main cut and today read",
-    );
-    expect(section).not.toContain("Void");
   });
 
   test("a run with a refused request is void", () => {
     const results = [
-      checked(1, "main", "found", batch("stop")),
-      checked(1, "main#2", "found", batch("stop", "429 rate_limit_error")),
-      checked(1, "today", "found", batch("stop")),
+      checked(1, "main", "found"),
+      checked(1, "main#2", "found", { error: "429 rate_limit_error" }),
+      checked(1, "today", "found"),
     ];
 
     expect(roomGateSection(results, () => ITEMS, null)).toContain(
       "**Void:** 1 requests refused for the service's limit and 0 failed.",
     );
+  });
+
+  test.each([
+    // Main's count is the mean of its arms rounded up: 19, a quarter 4.75.
+    { cut: { main: 20, second: 18, today: 4 }, verdict: "holds" },
+    { cut: { main: 20, second: 18, today: 5 }, verdict: "**fails**" },
+    // Main's count 11, a quarter 2.75.
+    { cut: { main: 12, second: 10, today: 3 }, verdict: "**fails**" },
+    { cut: { main: 12, second: 10, today: 2 }, verdict: "holds" },
+  ])(
+    "cut-offs: today $cut.today of 88, main $cut.main and $cut.second: $verdict",
+    ({ cut, verdict }) => {
+      const section = roomGateSection(eightyEight(cut), () => ITEMS, null);
+
+      expect(section).toContain(
+        `The bar is at most 4 of 88 and at most a quarter of main's count: ${verdict}.`,
+      );
+    },
+  );
+
+  test.each([
+    // Seven of seven untied pairs one way: p = 0.0078, under 0.01.
+    { more: 7, verdict: "**fails**", p: "0.00781" },
+    // Six of six: p = 0.0156.
+    { more: 6, verdict: "holds", p: "0.0156" },
+  ])(
+    "verdicts: today Supported where main wasn't $more times and never the other way: $verdict",
+    ({ more, verdict, p }) => {
+      const results = Array.from({ length: more }, (_, at) => {
+        const language = at % 2 ? "zh-CN" : "en";
+        return [
+          checked(at + 1, "main", "unsupported", { language }),
+          checked(at + 1, "main#2", "unsupported", { language }),
+          checked(at + 1, "today", "found", { language }),
+        ];
+      }).flat();
+
+      const section = roomGateSection(results, () => ITEMS, null);
+
+      expect(section).toContain(
+        `today Supported where main wasn't ${more} times and the other way 0: one-sided sign test p = ${p}, the bar fails under 0.01: ${verdict}.`,
+      );
+      expect(section).toContain(`By language: en ${Math.ceil(more / 2)} and 0`);
+    },
+  );
+
+  test("reads the judge's sentences where main cut them", () => {
+    const results = [
+      checked(1, "main", "found"),
+      checked(1, "main#2", "found"),
+      checked(1, "today", "found"),
+      // The sentence its quote doesn't state: main cut it twice, today read it and didn't pass it.
+      checked(2, "main", "not-checked", { finishReason: "length" }),
+      checked(2, "main#2", "not-checked", { finishReason: "length" }),
+      checked(2, "today", "unsupported"),
+    ];
+
+    const section = roomGateSection(results, () => ITEMS, new Set(["b"]));
+
+    expect(section).toContain(
+      "not readable: 1 of the sentences the judge lists fell in batches main cut and today read",
+    );
+    expect(section).not.toContain("Void");
   });
 });

@@ -415,8 +415,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       const turn = admitted.then(async () => {
         const reservedAt = (room: BatchRoom) =>
           options.mostOf(input.model, mostRequest(batch, instructions, room));
-        // Room for the thinking where the limits let it through now; where they don't, the batch
-        // goes as it went before #2951, with room for its records alone.
+        // Room for the thinking where the limits let it through now; where they don't, room for
+        // its records alone (#2951).
         const roomy = reservedAt("sentence-batch");
         const room: BatchRoom = passes(roomy) ? "sentence-batch-records" : "sentence-batch";
         const reserved = room === "sentence-batch" ? roomy : reservedAt(room);
