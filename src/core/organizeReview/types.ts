@@ -27,6 +27,8 @@ export type OrganizeReviewLeftOut =
   | { reason: "noText" }
   /** `service` is its name as the User sees it (`ExternalService.name`). */
   | { reason: "unreachable"; service: string }
+  /** The model's reply ran past its length, even asked again with more room (#2737). */
+  | { reason: "cutShort" }
   /** A Folder that keeps its work inside it holds the Document. */
   | { reason: "walled"; folderId: string }
   /** Tagging found no kind and no Tag for it (#2339). */

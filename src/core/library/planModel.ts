@@ -3,6 +3,7 @@ import { generateText, jsonSchema, Output, type OutputInterface } from "ai";
 import { LANGUAGE_NAMES } from "../language";
 import type { ChatLanguageModel } from "../providers/models";
 import { type ModelCallKind, outputTokens } from "../providers/outputLimits";
+import { classifyProviderError } from "../providers/providerErrors";
 import type { FolderAim, PlanFolder, PlanModel, SortedFolder } from "./plan";
 
 const SORT_INSTRUCTIONS = [
@@ -42,23 +43,37 @@ const DESCRIPTION_MOST = 300;
 const tidy = (text: unknown, most: number) =>
   typeof text === "string" ? text.replace(/\s+/g, " ").trim().slice(0, most) : "";
 
-const ask = <O extends OutputInterface>(
+/** A reply cut short at its share of the room is asked once more with all its kind's room (#2737). */
+async function ask<O extends OutputInterface>(
   model: ChatLanguageModel,
   instructions: string,
   prompt: unknown,
   output: O,
   [kind, count]: [ModelCallKind, number],
   signal: AbortSignal,
-) =>
-  generateText({
-    model,
-    instructions,
-    prompt: JSON.stringify(prompt),
-    output,
-    maxOutputTokens: outputTokens(kind, count),
-    maxRetries: 2,
-    abortSignal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
-  });
+) {
+  const send = (again: boolean) =>
+    generateText({
+      model,
+      instructions,
+      prompt: JSON.stringify(prompt),
+      output,
+      maxOutputTokens: outputTokens(kind, again ? Number.POSITIVE_INFINITY : count),
+      maxRetries: 2,
+      abortSignal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
+    });
+  try {
+    return await send(false);
+  } catch (error) {
+    if (
+      signal.aborted ||
+      classifyProviderError(error).kind !== "cut-short" ||
+      outputTokens(kind, count) === outputTokens(kind, Number.POSITIVE_INFINITY)
+    )
+      throw error;
+    return send(true);
+  }
+}
 
 /** The plan's requests to a chat model. */
 export function chatPlanModel(model: ChatLanguageModel): PlanModel {
