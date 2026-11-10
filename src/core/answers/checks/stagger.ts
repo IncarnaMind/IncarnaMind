@@ -4,10 +4,15 @@
  * ended or failed without one, so the key is never sent twelve first requests together (on
  * 2026-11-05 that made the first mark later on Claude Sonnet 5.5's Chinese write). None starts
  * later than it would at six places: the n-th later one goes once n checks have ended.
+ *
+ * Once a provider limits requests, the run is six wide and its own places and pause order what is
+ * left: a later sentence still waiting is handed back to the run, untried, and none waits again.
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { ChatLanguageModel } from "../../providers/models";
+import { classifyProviderError } from "../../providers/providerErrors";
+import { RunItemError, RunItemGaveWay } from "../../runs/stop";
 
 type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
 type StreamPart =
@@ -18,29 +23,49 @@ type StreamPart =
 export interface Stagger {
   /** `prepared` for the sentence at `index`'s check; one of the first says when its first reply is back. */
   model(index: number, prepared: PreparedChatModel): PreparedChatModel;
-  /** Resolves when the sentence at `index` may start, or the run is stopped. */
+  /**
+   * Resolves when the sentence at `index` may start, or the run is stopped; rejects with
+   * `RunItemGaveWay` when a limit is met while it waits, so the run takes it again in its place.
+   */
   turn(index: number): Promise<void>;
   /** The sentence at `index`'s check came to its outcome, whatever it was. */
   ended(index: number): void;
+  /** A check failed with `error`: a provider's limit stops the stagger for the rest of the run. */
+  failed(error: unknown): void;
 }
 
 const NONE: Stagger = {
   model: (_, prepared) => prepared,
   turn: () => Promise.resolve(),
   ended: () => undefined,
+  failed: () => undefined,
 };
 
-/** Calls `back` as each request `model` is sent ends: its reply streamed to the end, returned or failed. */
+const isLimit = (error: unknown) =>
+  error instanceof RunItemError
+    ? error.error.kind === "rate-limit"
+    : classifyProviderError(error).kind === "rate-limit";
+
+/**
+ * Calls `back` as each request `model` is sent ends: its reply streamed to the end, returned, or
+ * failed for anything but a limit, which the run answers instead (`failed`).
+ */
 function hearingReplies(model: ChatLanguageModel, back: () => void): ChatLanguageModel {
+  const failed = (error: unknown) => {
+    if (!isLimit(error)) back();
+  };
   return wrapLanguageModel({
     model,
     middleware: {
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate }) => {
         try {
-          return await doGenerate();
-        } finally {
+          const result = await doGenerate();
           back();
+          return result;
+        } catch (error) {
+          failed(error);
+          throw error;
         }
       },
       wrapStream: async ({ doStream }) => {
@@ -48,7 +73,7 @@ function hearingReplies(model: ChatLanguageModel, back: () => void): ChatLanguag
         try {
           result = await doStream();
         } catch (error) {
-          back();
+          failed(error);
           throw error;
         }
         const stream = result.stream.pipeThrough(
@@ -69,7 +94,8 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
   if (first === null) return NONE;
   const back = new Set<number>();
   let ended = 0;
-  const waiting: { after: number; go(): void }[] = [];
+  let limited = false;
+  const waiting: { after: number; go(): void; giveWay(): void }[] = [];
   const release = () => {
     for (const each of [...waiting]) {
       if (back.size < first && ended <= each.after && !signal.aborted) continue;
@@ -99,17 +125,22 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
     turn(index) {
       // The sentence at `first + n` would take the place the (n + 1)th check to end freed.
       const after = index - first;
-      if (after < 0 || back.size >= first || ended > after || signal.aborted) {
+      if (limited || after < 0 || back.size >= first || ended > after || signal.aborted) {
         return Promise.resolve();
       }
-      return new Promise((go) => {
-        waiting.push({ after, go });
+      return new Promise((go, refuse) => {
+        waiting.push({ after, go, giveWay: () => refuse(new RunItemGaveWay()) });
       });
     },
     ended(index) {
       ended++;
       if (index < first) back.add(index);
       release();
+    },
+    failed(error) {
+      if (limited || !isLimit(error)) return;
+      limited = true;
+      for (const each of waiting.splice(0)) each.giveWay();
     },
   };
 }

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { ProviderError } from "../../src/core";
-import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems } from "../../src/core/runs/stop";
+import {
+  RATE_LIMIT_PAUSES_MS,
+  RunItemError,
+  RunItemGaveWay,
+  runItems,
+} from "../../src/core/runs/stop";
 
 const failure = (kind: ProviderError["kind"], extra: Partial<ProviderError> = {}) =>
   new RunItemError({ kind, message: kind, ...extra });
@@ -145,6 +150,31 @@ describe("Running a run's items", () => {
     expect(Math.max(...afterTwo.slice(0, 4).map((each) => each.running))).toBeLessThanOrEqual(5);
     expect(Math.max(...afterTwo.map((each) => each.running))).toBe(6);
     expect(run.outcomes.map((each) => each.status)).toEqual(Array(40).fill("done"));
+  });
+
+  // protects=items that give way together go back in their place and are tried again in their order, counting no try (#2532); fails_when=they are tried again last first, as when each was put at the queue's front; no_claim=what makes an item give way.
+  test("items that give way together are tried again in their order", async () => {
+    const { wait } = noWait();
+    const started: number[] = [];
+    const tried = new Set<number>();
+    const run = await runItems(
+      [1, 2, 3, 4, 5, 6],
+      async (item) => {
+        started.push(item);
+        const first = !tried.has(item);
+        tried.add(item);
+        if (item === 1 && first) throw failure("rate-limit");
+        // Once the limit has left one place, the other three give way together.
+        if (item <= 4 && first) {
+          await new Promise((resolve) => setImmediate(resolve));
+          throw new RunItemGaveWay();
+        }
+        return item;
+      },
+      { concurrency: 4, limitedAtOnce: 1, wait },
+    );
+    expect(started).toEqual([1, 2, 3, 4, 1, 2, 3, 4, 5, 6]);
+    expect(run.outcomes.map((each) => each.status)).toEqual(Array(6).fill("done"));
   });
 
   test("an item limited while the others still run is tried again once they are done", async () => {

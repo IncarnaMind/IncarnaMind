@@ -1027,6 +1027,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             : null;
           checks.set(sentence, { uncovered, nodes, by: prepared });
           return result;
+        }).catch((error: unknown) => {
+          order.failed(error);
+          throw error;
         });
       },
       {

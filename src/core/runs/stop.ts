@@ -183,7 +183,9 @@ export async function runItems<I, T>(
       }
       if (thrown instanceof RunItemGaveWay) {
         tries[index] = (tries[index] ?? 1) - 1;
-        queue.unshift(index);
+        // Back in its place, so items that give way together are tried again in their order.
+        const after = queue.findIndex((queued) => queued > index);
+        queue.splice(after < 0 ? queue.length : after, 0, index);
         return true;
       }
       const error = failureOf(thrown);

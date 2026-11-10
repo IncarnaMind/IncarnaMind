@@ -308,6 +308,50 @@ test("a rate limit at twelve drops the run to six, and all twelve marks land", a
   expect([...marks.values()]).toEqual(TWELVE_SUPPORTED);
 });
 
+// protects=a rate limit met on one of the first six's first requests, while the other six still wait their turn, keeps the run six wide: the waiting six go back to the run untried, none starts before the pause has run, never more than six run from the limit on, and all twelve marks land (#2532); fails_when=the waiting six start once the other first replies are back, eleven running after a limit; no_claim=a limit that outlasts every pause, which lands as at six.
+test("a rate limit on a first request while the other six wait keeps the run six wide, and all twelve marks land", async () => {
+  const clock = checkClock();
+  let limitedAt: number | null = null;
+  const others = gate();
+  const pausesAtStart = new Map<number, number>();
+  const { seen, ask, client } = await writeChecked(
+    12,
+    12,
+    (call, reply, seen) => {
+      const n = numberOf(call);
+      if (isFirstTurn(call) && !pausesAtStart.has(n)) pausesAtStart.set(n, clock.pauses().length);
+      if (n === 3 && isFirstTurn(call) && limitedAt === null) {
+        limitedAt = seen.events.length;
+        others.open();
+        return { error: { status: 429, message: "Rate limit reached." } };
+      }
+      // The other five first replies come only once the limit is met, so the later six still wait.
+      if (n <= 6 && isFirstTurn(call))
+        return { ...reply, pause: { after: 0, until: others.until } };
+      return reply;
+    },
+    { paceTimers: clock.timers },
+  );
+  await ask();
+
+  expect(limitedAt).not.toBeNull();
+  const fromLimit = seen.events.slice(limitedAt ?? 0);
+  const starts = fromLimit.flatMap((event) => (event.kind === "start" ? [event] : []));
+  expect(Math.max(...starts.map((event) => event.running))).toBeLessThanOrEqual(6);
+  // The limited sentence goes again first, then the six that waited, in their order.
+  expect(starts.flatMap((event) => (event.n >= 7 ? [event.n] : []))).toEqual([7, 8, 9, 10, 11, 12]);
+  expect(indexOf(seen, "start", 3, 2)).toBeLessThan(indexOf(seen, "start", 7));
+  for (const later of [7, 8, 9, 10, 11, 12]) {
+    expect(indexOf(seen, "start", later)).toBeGreaterThan(limitedAt ?? 0);
+    expect(pausesAtStart.get(later)).toBeGreaterThanOrEqual(1);
+  }
+  expect(indexOf(seen, "start", 3, 2)).toBeGreaterThan(limitedAt ?? 0);
+  expect(seen.most).toBe(6);
+  const marks = marksOf(client);
+  expect(marks.size).toBe(12);
+  expect([...marks.values()]).toEqual(TWELVE_SUPPORTED);
+});
+
 // protects=sending a write's sentences twelve at once changes nothing a sentence's check sends or concludes: each sends the same requests and lands the same mark at six and at twelve (#2532); fails_when=a check's requests or its verdict depend on how many run beside it; no_claim=the order in which replies come.
 test("each sentence's check sends the same requests and lands the same mark at six and at twelve", async () => {
   const atSix = await writeChecked(12, 6);

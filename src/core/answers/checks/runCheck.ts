@@ -21,7 +21,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { BEFORE_REPLY } from "../../providers/modelRefusal";
 import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
-import { type ItemOutcome, RunItemError, runItems } from "../../runs/stop";
+import { type ItemOutcome, RunItemError, RunItemGaveWay, runItems } from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
 import { failureOf, runFailureOf } from "./checkResults";
 import type { ClaimCheckRequest } from "./claimCheck";
@@ -332,7 +332,7 @@ export async function runClaimChecks<I>(
       try {
         return { result: await each(item, attempt(index)) };
       } catch (error) {
-        if (error instanceof RunItemError) throw error;
+        if (error instanceof RunItemError || error instanceof RunItemGaveWay) throw error;
         if (error instanceof TimedOut) return timedOut(run);
         if (run.signal.aborted) throw error;
         console.error(`A check in Note ${run.record?.mindId ?? "(none)"} failed:`, error);
