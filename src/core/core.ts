@@ -2073,7 +2073,12 @@ export function createCore(adapters: CoreAdapters): Core {
     textFingerprinted: () => documents.fillTextFingerprints(),
     readImported: (sha256) => {
       const kept = wordImports.keptFile(sha256);
-      return kept === null ? null : documents.readFileText(kept, "docx");
+      if (kept === null) return null;
+      return documents.readFileText(kept, "docx").then((units) => {
+        // Its check leaves out byte-for-byte copies only, as the check page says.
+        if (units === null) (adapters.log ?? silentLogger).warn("checks.importedFileUnread", {});
+        return units;
+      });
     },
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
