@@ -27,6 +27,7 @@ describe("Processing jobs on workers", { timeout: 30_000 }, () => {
       },
       onMetadata() {},
       onKeywords() {},
+      onText() {},
       onProgress() {},
       read: async () => [],
       readFile: async () => {

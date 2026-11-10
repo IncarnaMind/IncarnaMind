@@ -1577,7 +1577,7 @@ export function createChecks(options: ChecksOptions) {
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
-    evidenceReady: (stop) => options.evidence.ready(stop),
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, leftOutOf(mindId)),
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1604,7 +1604,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
-    evidenceReady: (stop) => options.evidence.ready(stop),
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, leftOutOf(mindId)),
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1618,7 +1618,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
-    evidenceReady: (stop) => options.evidence.ready(stop),
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, leftOutOf(mindId)),
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1753,7 +1753,7 @@ export function createChecks(options: ChecksOptions) {
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
     async checkWritten(input: Parameters<typeof checkWritten>[0]) {
       // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
-      await options.evidence.ready();
+      await options.evidence.ready(undefined, leftOutOf(input.mindId));
       return checkWritten(input);
     },
 
@@ -1790,7 +1790,7 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
-        await options.evidence.ready(tracked.signal);
+        await options.evidence.ready(tracked.signal, leftOutOf(parsed.mindId));
         if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
@@ -1817,7 +1817,7 @@ export function createChecks(options: ChecksOptions) {
         const run = running.get(requestId);
         if (run?.mindId === mindId) run.controller.abort();
       }
-      await options.evidence.ready();
+      await options.evidence.ready(undefined, leftOutOf(mindId));
       return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
@@ -1906,7 +1906,7 @@ export function createChecks(options: ChecksOptions) {
           key: result.kind === "local-mode" ? "error.check.localMode" : "error.check.declined",
         });
       }
-      await options.evidence.ready();
+      await options.evidence.ready(undefined, parsed.checked);
       const scope = options.evidence.scope(
         parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
@@ -2021,11 +2021,12 @@ export function createChecks(options: ChecksOptions) {
         stored.check.scope.chosen ??
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
-      await options.evidence.ready();
+      const leftOut = leftOutOf(input.mindId);
+      await options.evidence.ready(undefined, leftOut);
       const scope = options.evidence.scope(
         input.mindId,
         options.scopeDocuments(wanted, input.mindId),
-        leftOutOf(input.mindId),
+        leftOut,
       );
       const document = recordCiteLibrary(options.documents, scope).documents.find(
         (each) => each.id === input.documentId,

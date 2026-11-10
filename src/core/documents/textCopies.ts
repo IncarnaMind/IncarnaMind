@@ -223,6 +223,12 @@ export function createTextCopies(db: Database, now: () => string) {
     return { shingles: shingles.length, sample };
   }
 
+  /**
+   * The shingles of files Notes were imported from, read for this session by their SHA-256, or
+   * null for one that couldn't be read. Derived from the kept file, so never stored (#2216).
+   */
+  const imported = new Map<string, Uint32Array | null>();
+
   /** Documents `fillNext` failed on: not tried again before the next start, so one costs only itself. */
   const unfingerprinted = new Set<string>();
 
@@ -275,6 +281,15 @@ export function createTextCopies(db: Database, now: () => string) {
       db.run("DELETE FROM text_fingerprints WHERE document_id = ?", [documentId]);
     },
 
+    /** Whether the file a Note was imported from has been read this session (`holding`'s `importedFiles`). */
+    importedRead: (sha256: string): boolean => imported.has(sha256),
+
+    /** Keeps an imported file's shingles for the session, from its Units as processing reads them; null: unreadable. */
+    rememberImported(sha256: string, units: readonly { text: string }[] | null): void {
+      answers.clear();
+      imported.set(sha256, units === null ? null : shinglesOf(units));
+    },
+
     /** Whether a live Document's text still has no fingerprint (one passed over this session aside). */
     anyMissing: (): boolean => nextMissing() !== null,
 
@@ -298,26 +313,42 @@ export function createTextCopies(db: Database, now: () => string) {
     /**
      * The Documents among `candidates` (null: every live one), but not in
      * `skip`, whose current version holds nearly all of the text of one of the
-     * checked versions. A checked version shorter than `SAME_TEXT_SHORTEST`, or
-     * with no text stored, matches nothing. Only fingerprinted Documents are
-     * compared: a check waits for `fillNext` to reach every one first.
+     * checked versions, or of one of the imported files read for this session
+     * (`rememberImported`, by their SHA-256). A checked text shorter than
+     * `SAME_TEXT_SHORTEST`, or with no text, matches nothing. Only fingerprinted
+     * Documents are compared: a check waits for `fillNext` to reach every one first.
      */
     holding(
       checked: readonly TextVersion[],
       candidates: readonly string[] | null,
       skip: ReadonlySet<string>,
+      importedFiles: readonly string[] = [],
     ): string[] {
+      const read = importedFiles.flatMap((sha256) => {
+        const shingles = imported.get(sha256);
+        return shingles ? [{ sha256, shingles }] : [];
+      });
       const asked = JSON.stringify([
         libraryState(),
         checked.map(keyOf),
+        read.map((each) => each.sha256),
         candidates,
         [...skip].sort(),
       ]);
       const known = answers.get(asked);
       if (known) return [...known];
-      const sources = checked
-        .map((version) => ({ version, fingerprint: fingerprintOf(version) }))
-        .filter(({ fingerprint }) => fingerprint.shingles >= SAME_TEXT_SHORTEST);
+      const sources = [
+        ...checked.map((version) => ({
+          key: keyOf(version),
+          fingerprint: fingerprintOf(version),
+          whole: () => wholeText(version),
+        })),
+        ...read.map(({ sha256, shingles }) => ({
+          key: `imported\n${sha256}`,
+          fingerprint: { shingles: shingles.length, sample: sampleOf(shingles) },
+          whole: () => shingles,
+        })),
+      ].filter(({ fingerprint }) => fingerprint.shingles >= SAME_TEXT_SHORTEST);
       if (sources.length === 0) return [...remember(asked, [])];
       // A text with fewer shingles than the bar's share of the checked text's can't hold it.
       const enough = (fingerprint: Fingerprint) =>
@@ -344,11 +375,11 @@ export function createTextCopies(db: Database, now: () => string) {
         const other: TextVersion = { documentId: row.id, contentHash: row.content_hash };
         const sample = sampleFrom(row.sample);
         const holds = sources.some(
-          ({ version, fingerprint }) =>
-            keyOf(version) !== keyOf(other) &&
+          ({ key, fingerprint, whole }) =>
+            key !== keyOf(other) &&
             Number(row.shingles) >= enough(fingerprint) &&
             heldShare(fingerprint.sample, sample) >= SAMPLE_SHARE &&
-            holdsText(wholeText(version), wholeText(other)),
+            holdsText(whole(), wholeText(other)),
         );
         return holds ? [row.id] : [];
       });

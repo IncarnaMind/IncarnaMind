@@ -74,9 +74,15 @@ export interface EvidenceSearch {
 
 export interface EvidenceDependencies {
   db: Database;
-  textCopies: Pick<TextCopies, "holding">;
+  textCopies: Pick<TextCopies, "holding" | "importedRead" | "rememberImported">;
   /** Settles once every Document's text is fingerprinted (`fillTextFingerprints`). */
   textFingerprinted(): Promise<void>;
+  /**
+   * The Units of the file a Note was imported from, by its SHA-256, read from the copy kept with
+   * the Note as processing reads a Document; null when it can't be read. Null at once for a
+   * file no Note was imported from.
+   */
+  readImported(sha256: string): Promise<readonly { text: string }[] | null> | null;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
   /** The search Tool, reranked as Answers are (see ./searchTool). */
@@ -166,16 +172,50 @@ export function createEvidence(deps: EvidenceDependencies) {
       )
       .map((row) => ({ documentId: row.document_id, contentHash: row.content_hash }));
 
+  /** Whether a version with this fingerprint has its text stored, as a live Document's. */
+  const textStored = (sha256: string) =>
+    db.get(
+      `SELECT 1 FROM document_pages p JOIN documents d ON d.id = p.document_id
+       WHERE p.content_hash = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL LIMIT 1`,
+      [sha256],
+    ) !== undefined;
+
+  const importing = new Map<string, Promise<void>>();
+
+  /**
+   * Reads, once a session, each file a checked fingerprint names that a Note was imported from
+   * and whose text no Document stores: the original never added, or deleted since (#2216).
+   */
+  const importedReads = (checked: CheckedDocument | undefined): Promise<void>[] =>
+    (checked?.contentHashes ?? []).flatMap((sha256) => {
+      if (deps.textCopies.importedRead(sha256) || textStored(sha256)) return [];
+      const going = importing.get(sha256);
+      if (going) return [going];
+      const units = deps.readImported(sha256);
+      if (!units) return [];
+      const read = units.then((each) => {
+        importing.delete(sha256);
+        deps.textCopies.rememberImported(sha256, each);
+      });
+      importing.set(sha256, read);
+      return [read];
+    });
+
   return {
     /**
      * Settles once `scope` can tell every copy of a checked file by its text. A check waits for
      * it before taking its scope: Documents without a fingerprint (those an older version
-     * stored, one restored since) are fingerprinted one a turn, not all at once on this thread
-     * (#2216). It also settles when `stop` aborts, so a stopped check ends at once; after the
-     * core closes, only that settles it.
+     * stored, one restored since) are fingerprinted one a turn, not all at once on this thread,
+     * and the file a checked Note was imported from is read on a worker when no Document holds
+     * its text (#2216). It also settles when `stop` aborts, so a stopped check ends at once;
+     * after the core closes, only that settles it.
      */
-    ready(stop?: AbortSignal): Promise<void> {
-      const filled = deps.textFingerprinted();
+    ready(stop?: AbortSignal, checked?: CheckedDocument): Promise<void> {
+      const reads = importedReads(checked);
+      const filled =
+        reads.length === 0
+          ? deps.textFingerprinted()
+          : Promise.all([deps.textFingerprinted(), ...reads]).then(() => {});
       if (!stop) return filled;
       if (stop.aborted) return Promise.resolve();
       return new Promise((resolve) => {
@@ -259,6 +299,7 @@ export function createEvidence(deps: EvidenceDependencies) {
           checkedTexts(fingerprints, checkedIds),
           documentIds,
           new Set(copies.map((row) => row.id)),
+          checked.contentHashes,
         );
         for (const id of sameText) excluded.set(id, "same-text");
       }
