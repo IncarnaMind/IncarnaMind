@@ -17,6 +17,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  sizeAssistant,
 } from "./app";
 
 /*
@@ -336,6 +337,8 @@ test("with no Mind yet, asking about many Documents chosen makes one, and their 
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // Room for two chips beside "+8 more"; a narrower panel folds further (`composerPlus.spec.ts`).
+    await sizeAssistant(window, 480);
     await linkFolderFromSidebar(app, window, sources);
     await expectReadyDocuments(window, 15);
     await window.getByTestId("open-library").click();

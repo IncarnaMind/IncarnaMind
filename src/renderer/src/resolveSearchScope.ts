@@ -13,6 +13,8 @@ interface ScopeInputs {
   wall: string | null;
   /** The Folder the Library shows in front. */
   libraryFolderId: string | null;
+  /** No Note is open in the box: the core reads the Library's walled Folder only then (#2529). */
+  noNote: boolean;
   groups: readonly LibraryGroup[] | undefined;
 }
 
@@ -27,6 +29,7 @@ export function resolveSearchScope({
   folderHolds,
   wall,
   libraryFolderId,
+  noNote,
   groups,
 }: ScopeInputs): {
   /** Within the turn's wall, before the Library's Folder is put in front. */
@@ -37,6 +40,8 @@ export function resolveSearchScope({
   const scope = scopeWithin(wall, mindSearchScope(draft, folderId, folderHolds));
   if (libraryFolderId === null) return { scope, resolved: scope, libraryWalled: false };
   const libraryWalled = folderWallOf(groups ?? [], libraryFolderId) !== null;
+  // With a Note open the Question keeps to the Note's own wall, whatever Folder the Library shows.
+  if (libraryWalled && !noNote) return { scope, resolved: scope, libraryWalled: false };
   const resolved = libraryWalled
     ? folderScope(libraryFolderId)
     : {

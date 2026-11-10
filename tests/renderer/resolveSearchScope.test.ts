@@ -14,7 +14,7 @@ const group = (id: string, parentId: string | null, keepInside: boolean): Librar
   updatedAt: "2026-11-10T00:00:00.000Z",
 });
 
-const none = { draft: null, libraryFolderId: null, groups: [] } as const;
+const none = { draft: null, libraryFolderId: null, noNote: true, groups: [] } as const;
 
 describe("The one Search scope the chat box and the line above the conversation share (#2948)", () => {
   // protects=a Note in a kept Folder that holds no Document searches that Folder, not All Documents; fails_when=the empty-Folder fallback runs behind a wall; no_claim=the chip's looks.
@@ -48,6 +48,7 @@ describe("The one Search scope the chat box and the line above the conversation 
       folderHolds: false,
       wall: null,
       libraryFolderId: "matter",
+      noNote: true,
       groups: [group("matter", null, true)],
     });
     expect(libraryWalled).toBe(true);
@@ -62,11 +63,27 @@ describe("The one Search scope the chat box and the line above the conversation 
       folderHolds: false,
       wall: null,
       libraryFolderId: "plain",
+      noNote: true,
       groups: [group("plain", null, false), group("other", null, false)],
     });
     expect(libraryWalled).toBe(false);
     expect(scope.folderIds).toEqual(["other"]);
     expect(resolved).toEqual({ folderIds: ["plain", "other"], tagIds: [], documentIds: ["lease"] });
+  });
+
+  // protects=with a Note open the Question keeps to the Note's wall, as the core reads it, so the Library's walled Folder is not put in front of it; fails_when=the chip or the line names the Library's Folder for a walled Note; no_claim=a Library Folder with no wall.
+  test("with a Note open, the Library's walled Folder does not replace the Note's wall", () => {
+    const { resolved, libraryWalled } = resolveSearchScope({
+      draft: null,
+      folderId: "note-folder",
+      folderHolds: true,
+      wall: "note-wall",
+      libraryFolderId: "library-wall",
+      noNote: false,
+      groups: [group("note-wall", null, true), group("library-wall", null, true)],
+    });
+    expect(libraryWalled).toBe(false);
+    expect(resolved).toEqual(folderScope("note-wall"));
   });
 
   // protects=without a wall or a Library Folder the scope is as it was: the Note's own Folder while it holds a Document, else none; fails_when=an ordinary Folder starts to be fenced; no_claim=Tags.

@@ -109,10 +109,11 @@ export function ConversationThread({
         meeting.mindId === focusedMindId && isLive(meeting) && meeting.kind === "meeting",
     ),
   );
-  const reads =
-    listening && focusedMindName
-      ? t("assistant.reads.listening", { mind: focusedMindName })
-      : readsLine(t, focusedMind ? focusedMindName : null, nextScope);
+  const listeningLine = listening && focusedMindName;
+  const reads = listeningLine
+    ? t("assistant.reads.listening", { mind: focusedMindName })
+    : readsLine(t, focusedMind ? focusedMindName : null, nextScope ?? []);
+  const readsWaiting = nextScope === null && !listeningLine;
   // A Question on its way, or one the core has and whose Answer is still to come: the line names
   // what that Question reads, not the Note in focus (#2245).
   const askingReads = useConversations((state) => state.askingReads);
@@ -207,7 +208,11 @@ export function ConversationThread({
         !tasks.some(asked) && (
           <>
             <div data-testid="assistant-empty" className="assistant-empty">
-              <p data-testid="assistant-reads" title={reads} className="assistant-reads">
+              <p
+                data-testid="assistant-reads"
+                title={reads}
+                className={readsWaiting ? "assistant-reads invisible" : "assistant-reads"}
+              >
                 <SearchIcon aria-hidden="true" className="assistant-reads-icon" />
                 <span className="assistant-reads-text">{reads}</span>
               </p>
@@ -419,15 +424,20 @@ function useScopeChips(scope: SearchScope | null): ScopeChip[] {
     : scopeChips({ folders, groups, deletedGroups, tags, documents, minds, t }, scope);
 }
 
-/** What the next Question searches: the Search scope of the composer of the Mind in focus, or of the composer with none. */
-function useNextScope(mindId: string | null): ScopeChip[] {
+/**
+ * What the next Question searches: the Search scope of the composer of the Mind in focus, or of
+ * the composer with none. Null until the core has said which wall the turn has, as the composer
+ * shows no scope until then: the line would name a scope the Question won't have.
+ */
+function useNextScope(mindId: string | null): ScopeChip[] | null {
   const citedSource = useCitedSource();
   const scopeMindId = mindId ?? citedSource?.mindId ?? null;
   const known = useAppStore(
     (state) => scopeMindId === null || state.minds.some((each) => each.id === scopeMindId),
   );
-  const { resolved } = useResolvedScope(mindId);
-  return useScopeChips(known ? resolved : null);
+  const { resolved, wallId } = useResolvedScope(mindId);
+  const chips = useScopeChips(known ? resolved : null);
+  return wallId === undefined ? null : chips;
 }
 
 /**

@@ -41,6 +41,7 @@ export function useResolvedScope(mindId: string | null) {
       folderHolds,
       wall: wallId ?? null,
       libraryFolderId,
+      noNote: mindId === null,
       groups,
     }),
   };

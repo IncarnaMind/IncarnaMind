@@ -7,6 +7,7 @@ import {
   ANTHROPIC_KEY,
   acceptPlainTextKeys,
   askFirstQuestion,
+  askInAssistant,
   boxOf,
   coreOf,
   createDataFolder,
@@ -565,6 +566,45 @@ test("the line for a file outside the wall goes when the walled Folder the Libra
   await openFolderInLibrary(window, "Matter B");
   await expect(composer.getByTestId("scope-chip")).toContainText("Matter B");
   await expect(line).toHaveCount(0);
+  await app.close();
+});
+
+test("with no Note open, the walled Folder the Library shows is the Folder Add files… files into, not the wall of the conversation it joins", async () => {
+  const lease = await pdf("Lease", "The break clause is on 1 June.");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1600, 900);
+  const ids = await (await coreOf(window)).evaluate(async (core: CoreBridge) => {
+    const wall = async (name: string) => {
+      const folder = await core.createLibraryGroup({ name, description: "" });
+      await core.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
+      return folder.id;
+    };
+    const a = await wall("Matter A");
+    const b = await wall("Matter B");
+    const note = await core.createMind({ title: "Matter note", folderId: a });
+    return { b, note: note.id };
+  });
+  const folderRow = sidebarFolder(window, "Matter A").getByTestId("folder-row");
+  if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
+  await window.locator(`[data-testid="mind-row"][data-mind-id="${ids.note}"]`).first().click();
+  await askInAssistant(window, "What is the notice?");
+  // The Note closes; the conversation, filed in Matter A, stays open in the assistant.
+  await window.getByTestId("mind-editor").first().click();
+  await window.keyboard.press("ControlOrMeta+w");
+  await expect(window.getByTestId("mind-editor")).toHaveCount(0);
+  const { composer, plus, menu } = parts(window);
+  await expect(composer.getByTestId("scope-chip")).toContainText("Matter A");
+
+  await openFolderInLibrary(window, "Matter B");
+  await expect(composer.getByTestId("scope-chip")).toContainText("Matter B");
+  await interceptOpenDialog(app, lease);
+  await pointAndClick(window, plus);
+  await pointAndClick(window, menu.getByTestId("composer-plus-files"));
+  await expect
+    .poll(() => filingOf(window))
+    .toEqual([{ name: expect.stringContaining("Lease"), groupId: ids.b }]);
   await app.close();
 });
 

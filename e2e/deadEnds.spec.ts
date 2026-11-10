@@ -16,6 +16,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  sizeAssistant,
   slideSelect,
   useLocalChatModel,
 } from "./app";
@@ -59,6 +60,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
+    // Room for "· empty" whole beside the Folder's name: a narrower panel leaves it out first.
+    await sizeAssistant(window, 480);
     await addDocuments(window, [join(sources, "Tides.pdf")]);
     await window.evaluate(async (name) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

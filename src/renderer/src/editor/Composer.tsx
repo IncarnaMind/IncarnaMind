@@ -462,8 +462,13 @@ export function Composer({
     },
   });
 
-  const insideFolderId =
-    typeof wallId === "string" ? wallId : libraryWalled ? libraryFolderId : null;
+  // With no Note open, the Library's walled Folder is the one the Question is asked of, ahead of the
+  // wall of the conversation it joins (the core's order).
+  const insideFolderId = libraryWalled
+    ? libraryFolderId
+    : typeof wallId === "string"
+      ? wallId
+      : null;
   const { addFiles, skipped, notSearched, dismissNotSearched } = useAddFilesToChat({
     insideFolderId,
     place: `${key}|${conversationId ?? ""}|${insideFolderId ?? ""}`,
