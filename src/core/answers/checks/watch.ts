@@ -105,7 +105,7 @@ export interface WatchOptions extends CheckRuns {
   ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** Settles once `evidenceScope` can tell every copy of a cited Document by its text, or `stop` aborts (#2216). */
-  evidenceReady(stop: AbortSignal): Promise<void>;
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
@@ -524,7 +524,7 @@ export function createContradictionWatch(options: WatchOptions) {
       const { requestId, mindId } = input;
       const tracked = options.track(requestId, mindId);
       try {
-        await options.evidenceReady(tracked.signal);
+        await options.evidenceReady(tracked.signal, mindId);
         if (tracked.signal.aborted) return { kind: "cancelled" };
         const ready = plan(mindId);
         if (ready.kind !== "ready") return ready;

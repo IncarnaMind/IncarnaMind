@@ -96,7 +96,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   recordUnread: VerifyOptions["recordUnread"];
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
   /** Settles once `scopeOf` can tell every copy of the file a Note was imported from, or `stop` aborts (#2216). */
-  evidenceReady(stop: AbortSignal): Promise<void>;
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
   warmReranker?: VerifyOptions["warmReranker"];
@@ -625,7 +625,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const sent = sending(mindId, mode, input.figureIds);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
-    await options.evidenceReady(signal);
+    await options.evidenceReady(signal, mindId);
     if (signal.aborted) return { kind: "cancelled" };
     const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
     if (empty) return empty;
