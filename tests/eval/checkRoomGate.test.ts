@@ -141,6 +141,15 @@ describe("the room gate's section", () => {
     );
   });
 
+  test("a run in which an Answer's check left a sentence without a mark is void", () => {
+    const unmarked = { ...checked(1, "today", "found"), landed: [] };
+    const results = [checked(1, "main", "found"), checked(1, "main#2", "found"), unmarked];
+
+    expect(roomGateSection(results, () => ITEMS, null)).toContain(
+      "**Void:** 1 Answers' checks didn't end with a mark on every sentence.",
+    );
+  });
+
   test("a run with a refused request is void", () => {
     const results = [
       checked(1, "main", "found"),

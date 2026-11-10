@@ -93,6 +93,17 @@ export function roomGateSection(
         "",
       );
     }
+    const unfinished = runs.filter(
+      (run) =>
+        !run.requests.some((request) => request.kind === "batch") ||
+        run.landed.length < (run.answerSentences ?? 0),
+    ).length;
+    if (unfinished > 0) {
+      lines.push(
+        `**Void:** ${unfinished} Answers' checks didn't end with a mark on every sentence. The run is kept, struck, and run again; its numbers are not read.`,
+        "",
+      );
+    }
     if (otherLimit > 0) {
       lines.push(
         `**Void:** ${otherLimit} batches carried a limit other than their arm's. The run is kept, struck, and run again; its numbers are not read.`,

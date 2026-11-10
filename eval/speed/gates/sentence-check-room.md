@@ -6,6 +6,12 @@ Bars set by the reader before any run, 2026-11-10: bar 1 is at most 4 of 88 and 
 
 2026-11-10, 01:14 UTC: the first Haiku run stopped when it drew the Chinese Document, whose lines the case file gave the Latin font. The run is void and kept; it wrote no report, and the verdicts of its English half were not read. The case file's Chinese pages now use the font for Chinese, and no sentence or line changed. The Haiku run is taken again.
 
+2026-11-10, after the Haiku and Sonnet runs, from the independent pre-review:
+- **The model's own output limit.** The larger room now goes only to a model whose own output limit, and its window's room for a reply, hold it. A provider refuses a limit past the model's own, and GPT-4 Turbo's is 4,096.
+- **When the room is chosen.** A batch's room is now chosen after main's wait for open batches, so a batch that waited can take the larger room.
+- **No gated request changes.** Neither change alters a request of the gated runs: the three models' own limits are 128,000 and 393,216 tokens, and their short Answers always fit the $0.25. The Haiku and Sonnet runs stand, and DeepSeek runs on the new head.
+- **Rule 3 in the code.** The gate's section now also prints Void for an Answer whose check left a sentence without a mark, as rule 3 says. The note under bar 3 now says the 5 are counted where main cut and today read whole, as the section always counted them.
+
 ## The change
 
 An Answer's sentences are judged in batches of up to eight, one request each, on the chat flow. A model that thinks first thinks before it writes the batch's records. On main the batch's room is 300 tokens a sentence, up to 2,400, thinking included, so a short batch has the least room for the most variable part. When the thinking takes the room, the reply is cut off and its sentences stay Not checked.
@@ -58,7 +64,7 @@ On the room runs above, main's room would have cut 19 of 76 batches of 1 to 3 se
    - `main` against `main#2` is reported beside it, as the model's own spread.
    - Why a sign test on pairs: each sentence is its own pair, so the bar needs no guess at the spread.
 3. **No more wrong Supported:** take the sentences the judge says their quotes don't state. Among those `main` cut and `today` read, today's share of Supported must be no higher than main's share among those it read whole. The test is Fisher's exact, one-sided, and the bar fails at p < 0.05.
-   - It is read only where at least 5 of the judge's sentences fell in batches main cut. Below that it prints as not readable, and the bar stands on the unit test that a reply which still reaches its room grants nothing.
+   - It is read only where at least 5 of the judge's sentences fell in batches main cut and today read whole, as the gate's section counts them. Below that it prints as not readable, and the bar stands on the unit test that a reply which still reaches its room grants nothing.
    - In bars 2 and 3, "main" is the arm named `main`; `main#2` is only the spread.
 4. **Long Answers unchanged:** a batch of eight sends main's request, its limit the one difference. This is held by `tests/core/answerCheckingLimit.test.ts`: the same batch of eight sent with either room differs only in `maxOutputTokens`, 7,400 and 2,400.
 5. **Limits:** no batch is refused by the Answer's limit or the monthly cap where main lets it through. This is held by the same file, with literal numbers:
