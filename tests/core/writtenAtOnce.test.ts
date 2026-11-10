@@ -8,6 +8,15 @@
 import { expect, test, vi } from "vitest";
 import type { CoreAdapters } from "../../src/core";
 import { claimsAtOnce, writtenChecksAtOnce } from "../../src/core/answers/checks/runChecks";
+import { stagger } from "../../src/core/answers/checks/stagger";
+import type { ChatProviderKind } from "../../src/core/api";
+import { resolveCapabilities } from "../../src/core/providers/capabilities";
+import {
+  catalogFacts,
+  catalogModels,
+  modelsProviderOfKind,
+  providersWithModels,
+} from "../../src/core/providers/catalog";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { askAssistant } from "../helpers/assistant";
@@ -317,6 +326,46 @@ test("each sentence's check sends the same requests and lands the same mark at s
   }
   expect([...marksOf(atTwelve.client)]).toEqual([...marksOf(atSix.client)]);
   expect([...marksOf(atTwelve.client).values()]).toEqual(TWELVE_SUPPORTED);
+});
+
+// protects=a later sentence waiting its turn is let go at once when the run is stopped, so a Stop never hangs on the stagger, and the first six never wait (#2532); fails_when=a stopped write's later sentences wait for first replies that never come; no_claim=what a stopped check lands, which ./writtenChecks.test.ts holds.
+test("a stopped run lets a waiting later sentence go, and the first six never wait", async () => {
+  const stopped = new AbortController();
+  const order = stagger(6, stopped.signal);
+  let seventh = false;
+  void order.turn(6).then(() => {
+    seventh = true;
+  });
+  await order.turn(5);
+  await settle();
+  expect(seventh).toBe(false);
+  stopped.abort();
+  await waitUntil(() => expect(seventh).toBe(true));
+});
+
+// protects=the catalog gives twelve at once only to the models whose two cells held the gate, on their providers' own services: Claude Haiku 5.5 on Anthropic and GPT-6.1 Sol on OpenAI (#2532, eval/speed/gates/check-speed-twelve.md); fails_when=Claude Sonnet 5.5, whose English cell failed, or the same model through OpenRouter or a plan's sign-in, gets twelve; no_claim=a model the gate never ran.
+test("twelve at once only for the models the gate passed, on their own providers", () => {
+  const listed = providersWithModels().flatMap((provider) =>
+    catalogModels(provider)
+      .filter((model) => catalogFacts(provider, model.id)?.writtenChecksAtOnce !== undefined)
+      .map((model) => `${provider}/${model.id}`),
+  );
+  expect(listed).toEqual(["anthropic/claude-haiku-5-5", "openai/gpt-6.1-sol"]);
+  const atOnce = (kind: ChatProviderKind, modelId: string) =>
+    writtenChecksAtOnce({
+      provider: { kind, service: { id: kind } },
+      capabilities: resolveCapabilities({
+        catalog: catalogFacts(modelsProviderOfKind(kind), modelId),
+      }),
+    } as unknown as PreparedChatModel);
+
+  expect(atOnce("anthropic", "claude-haiku-5-5")).toBe(12);
+  expect(atOnce("openai", "gpt-6.1-sol")).toBe(12);
+  expect(atOnce("anthropic", "claude-sonnet-5-5")).toBe(6);
+  expect(atOnce("openai", "gpt-6-luna")).toBe(6);
+  expect(atOnce("openrouter", "openai/gpt-6.1-sol")).toBe(6);
+  expect(atOnce("chatgpt", "gpt-6.1-sol")).toBe(6);
+  expect(atOnce("claude-account", "claude-haiku-5-5")).toBe(6);
 });
 
 // protects=twelve at once is the written check's alone, and only on its provider's own service for a model measured to take it: a Claude or ChatGPT sign-in and a model on this computer keep their numbers, and every other check keeps six (#2532); fails_when=a sign-in or Check this Note gets twelve; no_claim=which models the catalog lists.

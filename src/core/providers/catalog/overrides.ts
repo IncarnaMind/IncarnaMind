@@ -87,8 +87,10 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       // run_code (#2351) only where it was measured: the numbers its code prints reach the
-      // Answer as figures calculated by code.
-      "claude-haiku-5-5": { codeTool: true },
+      // Answer as figures calculated by code. A write's checked sentences twelve at once, where
+      // both its cells held the gate (eval/speed/gates/check-speed-twelve.md, #2532); Sonnet's
+      // English cell didn't, so Sonnet keeps six.
+      "claude-haiku-5-5": { codeTool: true, writtenChecksAtOnce: 12 },
       "claude-sonnet-5-5": {
         forcedToolChoice: false,
         thinkingOff: CLAUDE_BETWEEN_TOOLS,
@@ -98,6 +100,8 @@ export const OVERRIDES: CatalogOverrides = {
     openai: {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
       "gpt-3.5-turbo": { tools: true },
+      // A write's checked sentences twelve at once: both its cells held the gate (#2532).
+      "gpt-6.1-sol": { writtenChecksAtOnce: 12 },
     },
     google: {
       "gemini-3.8-flash": {
