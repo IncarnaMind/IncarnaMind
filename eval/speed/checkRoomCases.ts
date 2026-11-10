@@ -71,7 +71,7 @@ export const ROOM_DOCUMENTS: readonly WrittenDocument[] = [
   {
     language: "zh-CN",
     file: "北岸货运服务条款.pdf",
-    pages: [{ lines: ZH_TERMS }, { lines: ZH_TERMS_PAGE_TWO }],
+    pages: [{ chineseLines: ZH_TERMS }, { chineseLines: ZH_TERMS_PAGE_TWO }],
     libraries: ["terms"],
   },
 ];

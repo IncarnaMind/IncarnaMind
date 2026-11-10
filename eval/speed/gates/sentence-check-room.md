@@ -4,6 +4,8 @@ Written and committed on 2026-11-10, before any run it gates. Its cases (`../che
 
 Bars set by the reader before any run, 2026-11-10: bar 1 is at most 4 of 88 and a quarter of main's count, bar 2 fails under 1%, the arm `main` is the one bars 2 and 3 compare, and the record shows the limit each batch carried (shared-key rule 4). They replace the first draft's bar 1 (at most 2 of 88) and bar 2 (under 5%). The runs go one after another, never two at once.
 
+2026-11-10, 01:14 UTC: the first Haiku run stopped when it drew the Chinese Document, whose lines the case file gave the Latin font. The run is void and kept; it wrote no report, and the verdicts of its English half were not read. The case file's Chinese pages now use the font for Chinese, and no sentence or line changed. The Haiku run is taken again.
+
 ## The change
 
 An Answer's sentences are judged in batches of up to eight, one request each, on the chat flow. A model that thinks first thinks before it writes the batch's records. On main the batch's room is 300 tokens a sentence, up to 2,400, thinking included, so a short batch has the least room for the most variable part. When the thinking takes the room, the reply is cut off and its sentences stay Not checked.
