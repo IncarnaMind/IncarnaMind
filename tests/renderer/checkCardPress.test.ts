@@ -44,6 +44,11 @@ vi.mock("../../src/renderer/src/checks", () => ({
   setCheckCardOpen: vi.fn(),
   stopCheck: vi.fn(),
 }));
+vi.mock("../../src/renderer/src/savedProviders", () => ({
+  useSavedProviders: (select: (state: { providers: never[] }) => unknown) =>
+    select({ providers: [] }),
+  loadSavedProviders: () => {},
+}));
 vi.mock("../../src/renderer/src/contradictions", () => ({ useContradictions: () => undefined }));
 vi.mock("../../src/renderer/src/editor/ContradictionLine", () => ({
   ContradictionAsk: () => null,

@@ -15,6 +15,7 @@ import {
   dismissChatSetup,
   focusSettled,
   footFadeOf,
+  interceptOpenExternal,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -24,6 +25,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
+  urlsOpened,
 } from "./app";
 
 /*
@@ -310,6 +312,23 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   expect(await inside(press, health)).toBe(true);
   await setWindowSize(app, window, 1440, 900);
   await screenshot(window, "mind-check-card-en");
+  // The price says whose it is and when that was checked, reached by Tab, and Pricing ↗ opens the
+  // provider's own page (#1257).
+  const price = health.getByTestId("check-estimate").getByTestId("estimate-price");
+  await expect(price).toHaveAttribute(
+    "title",
+    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+  );
+  await price.focus();
+  await expect(price).toBeFocused();
+  await expect(price).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
+  const pricing = health.getByTestId("check-estimate").getByTestId("estimate-pricing");
+  await expect(pricing).toHaveText("Pricing ↗");
+  await interceptOpenExternal(app);
+  await pointAndClick(window, pricing);
+  await expect
+    .poll(() => urlsOpened(app))
+    .toEqual(["https://platform.claude.com/docs/en/about-claude/pricing"]);
   await pointAndClick(window, press);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await mindCheckFinished(window, 15);
@@ -433,6 +452,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(health.getByTestId("check-estimate")).toContainText(
       language === "en" ? "About $" : "约 $",
     );
+    await screenshotOf(health, `mind-check-price-${language}-900`);
     expect(await inside(press, health)).toBe(true);
 
     // All the claims fit the height the card opened with: nothing is cut, so its edge is bare.
@@ -480,6 +500,18 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     expect(await inside(press, health)).toBe(true);
     await expect.poll(fading).toBe(true);
+    await screenshotOf(health, `mind-check-price-${language}-1440`);
+    await expect(
+      health.getByTestId("check-estimate").getByTestId("estimate-price"),
+    ).toHaveAttribute(
+      "title",
+      language === "en"
+        ? /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/
+        : /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
+    );
+    await expect(health.getByTestId("check-estimate").getByTestId("estimate-pricing")).toHaveText(
+      language === "en" ? "Pricing ↗" : "价格 ↗",
+    );
     await app.close();
   });
 }
@@ -905,6 +937,11 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   // The action is the line's own button, reached from the keyboard, and checks every sentence for real.
   const every = unchanged.getByTestId("mind-check-every");
   await expect(every).toHaveText("Check every sentence again");
+  // The price line's own stops, its tip and Pricing ↗, lie between the line and Check (#1257).
+  await window.keyboard.press("Shift+Tab");
+  await expect(card.getByTestId("estimate-pricing")).toBeFocused();
+  await window.keyboard.press("Shift+Tab");
+  await expect(card.getByTestId("estimate-price")).toBeFocused();
   await window.keyboard.press("Shift+Tab");
   await expect(every).toBeFocused();
   await window.keyboard.press("Enter");

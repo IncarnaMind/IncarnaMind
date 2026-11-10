@@ -761,6 +761,7 @@ describe("Organize the Library into the Review", () => {
           sizes.push(requests.length);
           return {
             billing: "per-token",
+            providerId: "provider-1",
             calls: requests.length,
             tokens: 1_500_000,
             cost: { currency: "USD", amount: 1.4 },
@@ -824,6 +825,7 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
         seen.estimated.push(requests.length);
         return {
           billing: "per-token",
+          providerId: "provider-1",
           calls: requests.length,
           tokens: requests.length * 1_000,
           cost: { currency: "USD", amount: requests.length * 0.3 },

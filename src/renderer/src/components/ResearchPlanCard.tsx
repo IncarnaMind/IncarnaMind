@@ -29,6 +29,7 @@ import {
   type WebReach,
 } from "../research";
 import { useAppStore } from "../store";
+import { EstimateTip, PricingLink, useEstimateSource } from "./EstimateSource";
 import {
   CheckLineIcon,
   ChevronDownLineIcon,
@@ -496,7 +497,10 @@ function PlanProblem({
   );
 }
 
-/** "About $0.60 · 8–12 min · Sonnet 5.5": the cost on a model billed per token, the time, and the chip's model. */
+/**
+ * "About $0.60 · 8–12 min · Sonnet 5.5": the cost on a model billed per token, the time, and the
+ * chip's model; with the cost, whose price it is worked out from and "Pricing ↗" (#1257).
+ */
 function Estimate({
   steps,
   web,
@@ -530,18 +534,25 @@ function Estimate({
   }, [steps, web, model]);
   const { from, to } = researchMinutes(steps);
   const name = model ? nameOf(model.modelId, model.providerId).name : "";
-  const cost =
-    estimate?.billing === "per-token" && estimate.cost
-      ? estimateText(estimate.cost, null, t, language)
-      : null;
+  const priced = estimate?.billing === "per-token" && estimate.cost ? estimate : null;
+  const cost = priced?.cost ? estimateText(priced.cost, null, t, language) : null;
+  const source = useEstimateSource(note === null && cost ? priced?.providerId : undefined);
   const text =
     note ??
     (cost
       ? t("research.plan.estimate", { cost, from, to, model: name })
       : t("research.plan.time", { from, to, model: name }));
   return (
-    <span data-testid="research-plan-estimate" title={text} className="research-plan-estimate">
-      {text}
+    <span className="research-plan-estimate">
+      <EstimateTip testId="research-plan-estimate" tip={source?.tip}>
+        {text}
+      </EstimateTip>
+      {source && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <PricingLink url={source.url} testId="research-plan-pricing" />
+        </>
+      )}
     </span>
   );
 }
