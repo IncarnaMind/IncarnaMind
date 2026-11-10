@@ -62,6 +62,7 @@ git push
 node scripts/run-specs.mjs --os macos --repeat 3 e2e/undoPill.spec.ts e2e/scans.spec.ts:144
 ```
 
+- **On a test build only.** A spec runs on a build made with `npx electron-vite build --mode test`, in your own worktree, right before the run; never on an `out/` you didn't just build. Any other build ignores the fakes, so a Meeting would record with the real microphone and download the real speech model. The launchers (`e2e/app.ts`, `e2e/lifecycle.ts`, `e2e/audit/harness.ts`) refuse to start one (#2941).
 - **When.** By default for UI specs, instead of running them yourself. Always, on that system, for a behaviour only macOS or only Windows has (a spec that skips elsewhere with `test.skip(process.platform ...)`). Run locally only to look at the UI by hand or to record a flow.
 - **Inputs.** `specs`: the paths of specs under `e2e/`, each `path` or `path:line`. `os`: `linux` (the default), `macos` or `windows`. `repeat`: 1 to 10, passed as `--repeat-each`; use it to tell a flaky spec from a broken one. `grep`: passed as `--grep`. The helper takes them as flags; by hand they are Actions › Run named specs › Run workflow. Anything else, such as a path outside `e2e/`, is refused with a message, by the helper before it dispatches and by the workflow before it installs anything, and no input reaches a shell as code.
 - **What you get.** The helper runs the pushed commit of your branch (it stops if the branch isn't pushed), asks GitHub once a minute at most, and prints pass, fail or skip for each spec. A spec that skips on that system (a macOS-only one on Linux) shows as skip, not pass. On a failure it downloads the results to `test-results/specs-<os>-<run>/`; a later Playwright run on your computer clears `test-results/`, so read them first. Every test's trace, video and window picture is kept, passed or not (`INCARNAMIND_KEEP_ARTIFACTS`, read in `e2e/app.ts`), in the `specs-<os>-<run id>` artifact for 7 days: `npx playwright show-trace <trace-….zip>`. The recording slows the app a little, so a feel check's time that fails only here is worth one run in CI before you chase it.
@@ -151,6 +152,8 @@ The Copilot plan's sign-in through IncarnaMind's own GitHub app (#876) is also t
 **Keep the bill small.** These keys are paid by the person, not a company. Use the cheapest model that answers the question, run each check once per model rather than many times, use short test Documents, and stop as soon as the result is clear. Large or "pro" models need a reason in the pull request.
 
 Use a temporary data folder and test Documents, never your own files. Say in the pull request which models you used and what you checked with each: that the Answer cites, the quotes are found, the feature reads well in Chinese, and it copes with a slow or failing model.
+
+**A walk that judges figures, names or what was decided uses recorded human speech,** from a public set whose licence allows it, named in the evaluation's README; never a real private call and never an employer's data. This computer's voices are for walking the flow only, and never its novelty voices.
 
 ### Outside agents before a release
 

@@ -11,7 +11,8 @@
  * - A Mind's own snapshot (`Document.yourNote`, #335): a note can't support
  *   itself. Always, in a check of that Mind.
  * - The document being checked, its earlier versions, and copies of either:
- *   any Document with one of its content fingerprints, at any path. Always.
+ *   any Document with one of its content fingerprints, at any path, and any
+ *   that holds nearly all of the text of one of them (./textCopies). Always.
  *
  * Transcripts and saved web pages are sources and count. Ordinary Answers
  * search as they always did: nothing here is in their way.
@@ -19,6 +20,8 @@
  * Left out is never hidden: a search also says which of the Documents left
  * out matched, and where, so a result can name them, with Count it.
  */
+
+import type { Logger } from "../adapters";
 import type {
   CheckedDocument,
   EvidenceExclusion,
@@ -29,6 +32,7 @@ import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { WindowedPassage } from "./search";
 import type { SearchToolOptions, SearchToolParameters } from "./searchTool";
+import type { TextCopies, TextVersion } from "./textCopies";
 
 /**
  * How much a search looks at the Documents left out, to say where they
@@ -72,6 +76,16 @@ export interface EvidenceSearch {
 
 export interface EvidenceDependencies {
   db: Database;
+  textCopies: Pick<TextCopies, "holding" | "importedRead" | "rememberImported">;
+  /** Settles once every Document's text is fingerprinted (`fillTextFingerprints`). */
+  textFingerprinted(): Promise<void>;
+  /**
+   * The Units of the file a Note was imported from, by its SHA-256, read from the copy kept with
+   * the Note as processing reads a Document; null when it can't be read. Null at once for a
+   * file no Note was imported from.
+   */
+  readImported(sha256: string): Promise<readonly { text: string }[] | null> | null;
+  log: Logger;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
   /** The search Tool, reranked as Answers are (see ./searchTool). */
@@ -144,7 +158,96 @@ export function createEvidence(deps: EvidenceDependencies) {
     ];
   };
 
+  /**
+   * The checked versions whose text is stored: of the checked Documents, and of any Document
+   * with one of their fingerprints, so a file that isn't a Document is compared by its copy's
+   * text. Once each, as the same bytes give the same text.
+   */
+  const checkedTexts = (fingerprints: readonly string[], ids: readonly string[]): TextVersion[] =>
+    db
+      .all<{ document_id: string; content_hash: string }>(
+        `SELECT MIN(p.document_id) AS document_id, p.content_hash FROM document_pages p
+         JOIN documents d ON d.id = p.document_id
+         WHERE p.deleted_at IS NULL AND d.deleted_at IS NULL AND p.content_hash IS NOT NULL
+           AND (${inList("p.document_id")} OR ${inList("p.content_hash")})
+         GROUP BY p.content_hash`,
+        [JSON.stringify(ids), JSON.stringify(fingerprints)],
+      )
+      .map((row) => ({ documentId: row.document_id, contentHash: row.content_hash }));
+
+  /** Whether a version with this fingerprint has its text stored, as a live Document's. */
+  const textStored = (sha256: string) =>
+    db.get(
+      `SELECT 1 FROM document_pages p JOIN documents d ON d.id = p.document_id
+       WHERE p.content_hash = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL LIMIT 1`,
+      [sha256],
+    ) !== undefined;
+
+  const importing = new Map<string, Promise<void>>();
+
+  // Its check leaves out byte-for-byte copies only, as the check page says.
+  const unread = (error?: unknown): null => {
+    deps.log.warn("checks.importedFileUnread", {
+      ...(error !== undefined && { error: error instanceof Error ? error.name : "unknown" }),
+    });
+    return null;
+  };
+
+  /**
+   * Reads, once a session, each file a checked fingerprint names that a Note was imported from
+   * and whose text no Document stores: the original never added, or deleted since (#2216).
+   */
+  const importedReads = (checked: CheckedDocument): Promise<void>[] =>
+    (checked.contentHashes ?? []).flatMap((sha256) => {
+      if (deps.textCopies.importedRead(sha256) || textStored(sha256)) return [];
+      const going = importing.get(sha256);
+      if (going) return [going];
+      const units = deps.readImported(sha256);
+      if (!units) return [];
+      const read = units
+        .then((each) => each ?? unread(), unread)
+        .then((each) => {
+          importing.delete(sha256);
+          deps.textCopies.rememberImported(sha256, each);
+        });
+      importing.set(sha256, read);
+      return [read];
+    });
+
   return {
+    /**
+     * Settles once `scope` can tell every copy of a checked file by its text. A check waits for
+     * it before taking its scope: Documents without a fingerprint (those an older version
+     * stored, one restored since) are fingerprinted one a turn, not all at once on this thread,
+     * and the file a checked Note was imported from is read on a worker when no Document holds
+     * its text (#2216). It also settles when `stop` aborts, so a stopped check ends at once;
+     * after the core closes, only that settles it. `checked` is asked only once the
+     * fingerprints' wait settles, which it never does after the core closes, so nothing here
+     * reads the closed database.
+     */
+    ready(stop?: AbortSignal, checked?: () => CheckedDocument): Promise<void> {
+      const filled = deps
+        .textFingerprinted()
+        .then(() => Promise.all(checked ? importedReads(checked()) : []))
+        .then(() => {});
+      if (!stop) return filled;
+      if (stop.aborted) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const end = () => resolve();
+        stop.addEventListener("abort", end, { once: true });
+        void filled.then(
+          () => {
+            stop.removeEventListener("abort", end);
+            resolve();
+          },
+          (error: unknown) => {
+            stop.removeEventListener("abort", end);
+            reject(error);
+          },
+        );
+      });
+    },
+
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,
      * or null for every Document) without the Documents left out of its
@@ -210,8 +313,15 @@ export function createEvidence(deps: EvidenceDependencies) {
              ${scoped}`,
           [JSON.stringify(fingerprints), JSON.stringify(checkedIds), ...scopeParams],
         );
-        // Never evidence for this check, counted or not: the reason that can't be undone wins.
+        // Never evidence for this check, counted or not: the reasons that can't be undone win.
         for (const row of copies) excluded.set(row.id, "checked-document");
+        const sameText = deps.textCopies.holding(
+          checkedTexts(fingerprints, checkedIds),
+          documentIds,
+          new Set(copies.map((row) => row.id)),
+          checked.contentHashes,
+        );
+        for (const id of sameText) excluded.set(id, "same-text");
       }
 
       if (excluded.size === 0) {

@@ -17,6 +17,8 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 One issue per theme, not one per finding. A theme is one screen, one flow or one part of the product the User sees.
 
+A bug found in the screen or flow you are building, or reviewing, is fixed in that pull request and not filed: [`AGENTS.md`](../../AGENTS.md) › Commits and pull requests says when an issue is still right.
+
 - **Before filing,** search the open issues for the theme (`gh issue list --state open --search "<words> in:title"`). If one fits and has the same priority tier and difficulty, add the finding to it as a checklist line with its criteria, and say so in a comment, instead of opening a new issue.
 - **A new issue** that covers several findings has a line on the theme, then a checklist with one line per part, each with its acceptance criteria, then the criteria that hold for all of them (Undo, keyboard and ⌘K, English and Chinese, real-model numbers for AI behaviour).
 - **Split** only when parts differ in who would build them (their difficulty), in priority tier, or in risk class (secrets, privacy and consent, legal, the User's stored data, which need their own reviewer), or when a part is a different screen or flow. Size and file count are never reasons: one feature is one issue and one pull request. Then a tracker issue lists the parts.

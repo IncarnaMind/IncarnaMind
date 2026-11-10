@@ -5,6 +5,7 @@ import { chromium, type ElectronApplication, expect, type Page } from "@playwrig
 import { isRecord } from "../src/core/errors";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
 import { launchEnvironment } from "./launchEnvironment";
+import { assertTestBuild } from "./testBuild";
 
 export type { LifecycleApps } from "./lifecycleApps";
 export { prepareLifecycleApps } from "./lifecycleApps";
@@ -95,6 +96,7 @@ export function startLifecycleCopy(
   });
   if (env.INCARNAMIND_PACKAGED_APP || env.INCARNAMIND_TEST_APP_DIR)
     env.INCARNAMIND_TEST_MAIN_PRELOADS = JSON.stringify(mainPreloads(args).preloads);
+  if (!env.INCARNAMIND_PACKAGED_APP) assertTestBuild();
   const executable = mainExecutable(env);
   ownedExecutables.add(executable);
   if (env.INCARNAMIND_PACKAGED_UPDATED_APP)

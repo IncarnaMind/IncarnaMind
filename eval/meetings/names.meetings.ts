@@ -205,13 +205,17 @@ describe("Words to know on calls full of names (#1031)", () => {
               progress: () => {},
               failed: (stream, message) => console.error(`${call.id} ${stream}: ${message}`),
             });
-            for (const track of ["mic", "system"] as const) host.words(track, told);
+            // The engine keeps a stream's language under its name: a name of its own for each run,
+            // as each recording has in the app, or a run starts told the language of the one before.
+            const mic = `${call.id}:${arm}:mic`;
+            const system = `${call.id}:${arm}:system`;
+            for (const stream of [mic, system]) host.words(stream, told);
             for (let at = 0, frames = 0; at < tracks.mic.length; at += FRAME, frames++) {
-              host.push("mic", tracks.mic.subarray(at, at + FRAME));
-              host.push("system", tracks.system.subarray(at, at + FRAME));
+              host.push(mic, tracks.mic.subarray(at, at + FRAME));
+              host.push(system, tracks.system.subarray(at, at + FRAME));
               if (frames % YIELD_EVERY === 0) await new Promise((resolve) => setImmediate(resolve));
             }
-            await Promise.all([host.finish("mic"), host.finish("system")]);
+            await Promise.all([host.finish(mic), host.finish(system)]);
           } else if (isCloudRoute(route)) {
             segments.push(...(await transcribeOnCloud(route, tracks, told)));
           }

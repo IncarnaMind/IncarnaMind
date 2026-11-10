@@ -180,13 +180,20 @@ function normalised(vector: readonly number[]): Float32Array {
   return Float32Array.from(vector, (value) => value / norm);
 }
 
-/** The built-in model, one Passage at a time (ADR-0009). */
-function builtInProvider(model: EmbeddingModel): ProviderModel {
-  /** The process running the model may have stopped: start it again and try once more. */
+/**
+ * The built-in model, one Passage at a time (ADR-0009). `wanted`: it is still the model in use,
+ * and the core isn't closing.
+ */
+function builtInProvider(model: EmbeddingModel, wanted: () => boolean): ProviderModel {
+  /**
+   * The process running the model may have stopped: start it again and try once more, unless it
+   * was stopped because it isn't wanted any more (#2930).
+   */
   const withRestart = async (embedOne: () => Promise<Float32Array>) => {
     try {
       return await embedOne();
     } catch {
+      if (!wanted()) throw new EmbeddingUnavailableError("Stopped.");
       if (!(await model.load())) {
         throw new EmbeddingUnavailableError("The built-in embedding model couldn't start again.");
       }
@@ -401,7 +408,10 @@ export function createActiveEmbedding(options: {
     return provider;
   }
 
-  const builtInModel = builtInProvider(builtIn);
+  const builtInModel = builtInProvider(
+    builtIn,
+    () => !signal.aborted && enabled() && current === builtInModel,
+  );
   const initial = stored();
   let current: ProviderModel = initial ? apiProvider(initial) : builtInModel;
   // The built-in model's download finishing makes it ready, if it is the one in use.

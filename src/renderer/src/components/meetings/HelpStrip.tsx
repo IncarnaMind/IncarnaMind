@@ -17,11 +17,7 @@ export function HelpStrip({ mindId }: { mindId: string | null }) {
   if (!meeting || panelShown) return null;
   return (
     <div data-testid="help-strip" className="help-strip">
-      <HelpButtons
-        meeting={meeting}
-        layout="strip"
-        onPress={(kind) => void askHelpInAssistant(kind)}
-      />
+      <HelpButtons meeting={meeting} onPress={(kind) => void askHelpInAssistant(kind)} />
     </div>
   );
 }
