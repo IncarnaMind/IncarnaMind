@@ -18,41 +18,47 @@ export interface NotSearched {
  *
  * A Question kept to one Folder (`insideFolderId`: a Folder wall, or the walled Folder the Library
  * shows) can't take a chip for a Document outside it, so new files are filed in that Folder
- * instead. One that is a Document already stays where the User filed it: `notSearched` names it.
+ * instead. One that is a Document already stays where the User filed it: `notSearched` names it,
+ * for as long as the box is where it was added (`place`: the note, the conversation and the
+ * Folder the Question is kept to).
  *
  * `skipped` is what this add couldn't take: said here as well as in the sidebar's footer, which
  * the User may have hidden.
  */
 export function useAddFilesToChat({
   insideFolderId,
+  place,
   join,
 }: {
   insideFolderId: string | null;
+  place: string;
   join(documentIds: readonly string[]): void;
 }) {
   const latest = useRef({ insideFolderId, join });
   latest.current = { insideFolderId, join };
   const skippedFiles = useAppStore((state) => state.skippedFiles);
   const [mine, setMine] = useState<ReadonlySet<string>>(new Set());
-  const [notSearched, setNotSearched] = useState<NotSearched | null>(null);
+  const [said, setSaid] = useState<{ place: string; value: NotSearched } | null>(null);
+  const placeNow = useRef(place);
+  placeNow.current = place;
 
   const addFiles = useCallback(async () => {
     const before = useAppStore.getState().skippedFiles;
     const inside = latest.current.insideFolderId;
+    const at = placeNow.current;
+    setSaid(null);
     const ids = await useAppStore.getState().pickDocumentsForChat(inside);
     const after = useAppStore.getState().skippedFiles;
     // The store's list is a new one after every add, and the same after a closed dialog.
-    if (after !== before) {
-      setMine(new Set(after.map(keyOf)));
-      setNotSearched(null);
-    }
+    if (after !== before) setMine(new Set(after.map(keyOf)));
     if (inside === null) {
       if (ids.length > 0) latest.current.join(ids);
       return;
     }
     if (ids.length > 0) {
       try {
-        setNotSearched(await outsideOf(ids, inside));
+        const value = await outsideOf(ids, inside);
+        if (value) setSaid({ place: at, value });
       } catch (error) {
         useAppStore.getState().reportError(error);
       }
@@ -62,8 +68,8 @@ export function useAddFilesToChat({
   return {
     addFiles,
     skipped: skippedFiles.filter((file) => mine.has(keyOf(file))),
-    notSearched,
-    dismissNotSearched: () => setNotSearched(null),
+    notSearched: said !== null && said.place === place ? said.value : null,
+    dismissNotSearched: () => setSaid(null),
   };
 }
 

@@ -12,7 +12,6 @@ import {
 } from "react";
 import type * as Y from "yjs";
 import type { AnswerPlace, SearchScope } from "../../../core/api";
-import { listOf } from "../../../shared/i18n/join";
 import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
@@ -51,20 +50,18 @@ import {
   useAnswerBeingWritten,
   useConversations,
   useHasMessage,
-  useOpenConversation,
 } from "../conversations";
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { describeError, errorMessage } from "../errors";
 import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
-import { folderWallOf } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
-import { currentTabOf } from "../layoutSlice";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
 import { useCitedSource } from "../openCited";
+import { outsideWallLine } from "../outsideWallLine";
 import {
   cancelResearch,
   changePlan,
@@ -74,14 +71,13 @@ import {
   useWebMissing,
   useWebReach,
 } from "../research";
-import { type ScopeChoice, scopeWithin } from "../scope";
-import { useFolderHoldsDocuments } from "../scopeDocuments";
+import type { ScopeChoice } from "../scope";
 import { skillDescription } from "../skills";
 import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
-import { useTurnWall } from "../turnWall";
+import { useResolvedScope } from "../useResolvedScope";
 import { scopeOutsideWalls, wallsOf } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
@@ -104,6 +100,7 @@ import { SuggestionOffer } from "./SuggestionOffer";
 import { TaskTargetChip } from "./TaskTargetChip";
 import { useAddFilesToChat } from "./useAddFilesToChat";
 import { useQueuedAsk } from "./useQueuedAsk";
+import { useRowGivesWay } from "./useRowGivesWay";
 
 /** In the composer, a long Search scope shows this many chips, then "+N more". */
 const CHIPS_SHOWN = 3;
@@ -164,24 +161,27 @@ export function Composer({
   mind: { editor: Editor; doc: Y.Doc; mindId: string } | null;
 }) {
   const t = useT();
+  const language = useLanguage();
   const mindId = mind?.mindId ?? null;
-  const libraryFolderId = useAppStore((state) =>
-    currentTabOf(state.layout)?.item.kind === "library" ? state.libraryFolderId : null,
-  );
   const key = mindId ?? NO_MIND;
   const citedSource = useCitedSource();
   const source = mind === null ? citedSource : null;
   const scopeKey = source?.mindId ?? key;
   const { doc: scopeDoc, setScope } = useCitedScopeDocument(source, mind?.doc ?? null);
   const draft = useComposer((state) => state.drafts[key]) ?? EMPTY;
-  const scopeDraft = useComposer((state) => state.drafts[scopeKey]) ?? EMPTY;
-  // The Mind's Folder: its own Search scope while it holds a Document, and where its new notes go.
-  const folderId = useAppStore(
-    (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
-  );
-  const folderHolds = useFolderHoldsDocuments(folderId);
-  const conversationId = useOpenConversation()?.id ?? null;
-  const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
+  // What the chips show: what the core will search (#1359), the line above the conversation too
+  // (#2948). Asking sends `composerScope`.
+  const {
+    draft: scopeDraft,
+    scope,
+    resolved: resolvedScope,
+    folderId,
+    folderHolds,
+    conversationId,
+    wallId,
+    libraryFolderId,
+    libraryWalled,
+  } = useResolvedScope(mindId);
   const walled = typeof wallId === "string";
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
@@ -196,26 +196,6 @@ export function Composer({
       : t(leftOutCount === 1 ? "composer.scope.leftOut.one" : "composer.scope.leftOut", {
           count: leftOutCount,
         });
-  // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = scopeWithin(
-    wallId ?? null,
-    mindSearchScope(scopeDraft.scope, folderId, folderHolds),
-  );
-  const libraryGroups = useAppStore((state) => state.library?.groups);
-  const libraryWall =
-    libraryFolderId === null ? null : folderWallOf(libraryGroups ?? [], libraryFolderId);
-  // With no Note, the Folder the Library shows is the Folder in front, and the chip and the
-  // Question take one resolved scope: that Folder as a picked one, alone inside its wall (#2529).
-  const libraryWalled = libraryFolderId !== null && libraryWall !== null;
-  const resolvedScope =
-    libraryFolderId === null
-      ? scope
-      : libraryWalled
-        ? folderScope(libraryFolderId)
-        : {
-            ...scope,
-            folderIds: [libraryFolderId, ...scope.folderIds.filter((id) => id !== libraryFolderId)],
-          };
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -256,14 +236,6 @@ export function Composer({
   const controls = useRef<HTMLDivElement>(null);
   /** The text runs past one line: it takes the full width and the controls go under it. */
   const [stacked, setStacked] = useState(false);
-  /** How many Search scope chips the controls hold: fewer, folded into "+N more", while they overflow. */
-  const chipsKey = [
-    ...resolvedScope.folderIds,
-    ...resolvedScope.tagIds,
-    ...resolvedScope.documentIds,
-  ].join("\n");
-  const [fold, setFold] = useState({ key: chipsKey, most: CHIPS_SHOWN });
-  const chipsMost = fold.key === chipsKey ? fold.most : CHIPS_SHOWN;
   /** How many lines the text takes, for Expand. */
   const [lines, setLines] = useState(1);
   const [expanded, setExpanded] = useState(false);
@@ -362,23 +334,25 @@ export function Composer({
   measure.current = measureLayout;
   // After every drawing: the text, a Skill or the controls may have changed its width.
   useLayoutEffect(measureLayout);
-  // The controls stay inside the row: another chip folds away until they do, so Ask is never pushed out.
-  useLayoutEffect(() => {
-    const element = controls.current;
-    const chips = element?.querySelector<HTMLElement>(".composer-scope");
-    const overflows = (box: HTMLElement | null | undefined) =>
-      box != null && box.scrollWidth > box.clientWidth + 1;
-    if ((overflows(element) || overflows(chips)) && chipsMost > 1) {
-      setFold({ key: chipsKey, most: chipsMost - 1 });
-    }
+  // What the controls give up, in order, so they stay inside the row and Ask is never pushed out.
+  const gives = useRowGivesWay({
+    controls,
+    row,
+    key: [
+      ...resolvedScope.folderIds,
+      ...resolvedScope.tagIds,
+      ...resolvedScope.documentIds,
+      language,
+      chosenModel?.providerId,
+      chosenModel?.modelId,
+    ].join("\n"),
+    most: CHIPS_SHOWN,
+    stacked: stacked || expanded,
   });
   useEffect(() => {
     const element = row.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => {
-      measure.current();
-      setFold((now) => ({ ...now, most: CHIPS_SHOWN }));
-    });
+    const observer = new ResizeObserver(() => measure.current());
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -488,9 +462,11 @@ export function Composer({
     },
   });
 
-  const language = useLanguage();
+  const insideFolderId =
+    typeof wallId === "string" ? wallId : libraryWalled ? libraryFolderId : null;
   const { addFiles, skipped, notSearched, dismissNotSearched } = useAddFilesToChat({
-    insideFolderId: typeof wallId === "string" ? wallId : libraryWalled ? libraryFolderId : null,
+    insideFolderId,
+    place: `${key}|${conversationId ?? ""}|${insideFolderId ?? ""}`,
     join(ids) {
       const have = scopeIds(scope, "document");
       addDocuments([...new Set(ids)].filter((id) => !have.includes(id)));
@@ -689,6 +665,7 @@ export function Composer({
       });
       return;
     }
+    dismissNotSearched();
     useAnswers.getState().dismiss(composerKey(mindId));
     // Words asked from ⌘K go alone: the draft, its chips too, stays for the User.
     const quotes = said === undefined ? (current.quotes ?? []) : [];
@@ -951,19 +928,7 @@ export function Composer({
           className="composer-problem"
           action={{ label: t("composer.paste.close"), onClick: dismissNotSearched }}
         >
-          {t(
-            notSearched.names.length === 1
-              ? "composer.files.outsideWall.one"
-              : "composer.files.outsideWall",
-            {
-              name: notSearched.names[0] ?? "",
-              names: listOf(
-                notSearched.names.map((name) => `“${name}”`),
-                language,
-              ),
-              folder: notSearched.folder,
-            },
-          )}
+          {outsideWallLine(t, language, notSearched)}
         </ProblemLine>
       )}
       {saveProblem && (
@@ -1174,7 +1139,11 @@ export function Composer({
           onManageSkills={manageSkills}
           onOpen={() => setPicking(null)}
         />
-        <div ref={controls} className="composer-controls">
+        <div
+          ref={controls}
+          data-model-shrinks={gives.model || undefined}
+          className="composer-controls"
+        >
           <ModelChip
             doc={mind?.doc ?? null}
             onChosen={() => field.current?.focus()}
@@ -1196,11 +1165,13 @@ export function Composer({
               scope={resolvedScope}
               ownFolderId={folderId}
               onRemove={removeFromScope}
-              {...(scopeDraft.scope !== null &&
-                hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
+              {...(scopeDraft !== null &&
+                hasSearchScope(scopeDraft) && { back: { label: backLabel, onBack: goBack } })}
               onChange={walled || libraryWalled ? undefined : openScopePicker}
-              shown={chipsMost}
-              hideBackChip={chipsMost < CHIPS_SHOWN}
+              shown={gives.most}
+              hideBackChip={gives.most < CHIPS_SHOWN}
+              hints={gives.hints}
+              inRow
               className="composer-scope"
               testId="composer-scope"
             />

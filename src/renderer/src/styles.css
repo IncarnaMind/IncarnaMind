@@ -2556,10 +2556,11 @@
     align-self: center;
   }
   /*
-   * When the controls don't fit, a Folder's name on the Search scope chip is cut at its end
-   * first, down to about six characters (its tooltip has the name whole); then the model's name
-   * gives way (see `.composer-model-anchor`), which tells the User nothing once it is cut short.
-   * Several chips each go down to an icon, a few letters and the ×. "All Documents" is never cut.
+   * When the controls don't fit they give way in this order (`useRowGivesWay`): the "· empty" on a
+   * Folder's chip goes whole, never cut to a letter; a chip's name shortens to about six characters
+   * (its tooltip has the name whole), which `useChipFloors` holds each chip and the list to; chips
+   * that can't keep that fold into the count; only then the model's name is cut, which tells the
+   * User nothing once it is short. + and Ask never change, and "All Documents" is never cut.
    */
   .composer-controls > .composer-scope {
     flex-shrink: 100;
@@ -2571,41 +2572,21 @@
   .composer-scope .scope-chip {
     overflow: hidden;
   }
-  .composer-scope li.scope-chip,
   .composer-scope > .scope-chips-back {
     min-width: 3.25rem;
   }
-  .composer-scope li.scope-chip:only-child {
-    min-width: 5.25rem;
-  }
-  /*
-   * What its items keep as they shrink, so the list never gives up room they can't: a chip, two
-   * chips or a chip and "+N more", then three items, then four.
-   */
-  .composer-scope:has(> li:only-child) {
-    min-width: 5.25rem;
-  }
-  /* Chinese characters are 12px wide each: three show, which leaves the model's name its letters. */
-  :root:lang(zh) .composer-scope:has(> li:only-child),
-  :root:lang(zh) .composer-scope li.scope-chip:only-child {
-    min-width: 5.75rem;
-  }
-  .composer-scope:has(> li:nth-child(2)) {
-    min-width: 7.5rem;
-  }
-  .composer-scope:has(> li:nth-child(3)) {
-    min-width: 11rem;
-  }
-  .composer-scope:has(> li:nth-child(4)) {
-    min-width: 14.5rem;
+  .composer-scope > .scope-chips-back > .scope-chip {
+    max-width: 100%;
   }
   .composer-scope .scope-chip-empty {
-    flex-shrink: 100;
-    min-width: 0;
-    overflow: hidden;
+    flex-shrink: 0;
   }
   .composer-scope > .scope-chips-more {
     flex: none;
+  }
+  .composer-controls[data-model-shrinks] > .composer-model-anchor,
+  .composer-controls:has([data-stand-in]) > .composer-model-anchor {
+    flex-shrink: 1;
   }
   /*
    * Starting a meeting, inline in its Mind under the title (the canvas board
@@ -2966,6 +2947,7 @@
   }
   .composer-model-anchor {
     display: flex;
+    flex-shrink: 0;
     min-width: 2rem;
   }
   .composer-model-chevron {

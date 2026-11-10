@@ -3627,10 +3627,13 @@ export const zhCN = {
   "composer.skills.manage": "管理技能…",
   "composer.plus": "添加文件等",
   "composer.plus.files": "添加文件…",
-  "composer.plus.note": "添加笔记或文档",
+  "composer.plus.note": "添加笔记或文档…",
   "composer.files.outsideWall.one":
-    "“{name}”不在“{folder}”里，这个问题不会搜索它，只搜索“{folder}”。",
-  "composer.files.outsideWall": "{names}不在“{folder}”里，这个问题不会搜索它们，只搜索“{folder}”。",
+    "“{name}”已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它。",
+  "composer.files.outsideWall":
+    "{names}已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它们。",
+  "composer.files.outsideWall.many":
+    "{names}等 {count} 个文件已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它们。",
   "composer.expand": "展开输入框",
   "composer.collapse": "收起输入框（Esc）",
   "composer.paste.name": "粘贴的文本",
@@ -3903,6 +3906,10 @@ export const zhCN = {
   "scope.chip.more": "还有 {count} 个",
   "scope.chip.moreLabel": "显示搜索范围中的另外 {count} 个文档",
   "scope.chip.fewer": "收起",
+  "scope.chip.count.files": "{count} 个文件",
+  "scope.chip.count.files.one": "1 个文件",
+  "scope.chip.count.items": "已选 {count} 项",
+  "scope.chip.count.items.one": "已选 1 项",
   "scope.empty.line": "{scope}中没有文档",
   "scope.answer.empty": "搜索范围内没有文档。移除范围即可搜索全部文档。",
 

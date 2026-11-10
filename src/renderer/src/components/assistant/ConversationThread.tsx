@@ -8,12 +8,11 @@ import type {
   Task,
 } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { mindSearchScope } from "../../../../shared/searchScope";
 import { type AddTarget, addAnswer, openTable } from "../../addToNote";
 import { notesToAdd } from "../../answerEditors";
 import { readsLine, stepsScope } from "../../assistantContext";
 import { readMindHandle } from "../../commands/handles";
-import { NO_MIND, useComposer } from "../../composer";
+import { NO_MIND } from "../../composer";
 import {
   conversationLabel,
   useAnswerOnItsWay,
@@ -29,12 +28,12 @@ import { chooseModelInPlace, useModelSetup } from "../../modelSetup";
 import { useCitedSource } from "../../openCited";
 import { togglePlanView, useResearch } from "../../research";
 import { type ScopeChip, scopeChips } from "../../scope";
-import { useFolderHoldsDocuments } from "../../scopeDocuments";
 import { skillTitle } from "../../skills";
 import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
+import { useResolvedScope } from "../../useResolvedScope";
 import { SearchIcon } from "../icons";
 import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
 import { AddToMindPicker } from "./AddToMindPicker";
@@ -424,15 +423,11 @@ function useScopeChips(scope: SearchScope | null): ScopeChip[] {
 function useNextScope(mindId: string | null): ScopeChip[] {
   const citedSource = useCitedSource();
   const scopeMindId = mindId ?? citedSource?.mindId ?? null;
-  const mind = useAppStore((state) => state.minds.find((each) => each.id === scopeMindId));
-  // Only the scope: a keystroke in the composer makes the draft new, and the whole Conversation must not draw again for it.
-  const draftScope = useComposer((state) => state.drafts[scopeMindId ?? NO_MIND]?.scope ?? null);
-  const folderHolds = useFolderHoldsDocuments(mind?.folderId ?? null);
-  const scope =
-    scopeMindId !== null && !mind
-      ? null
-      : mindSearchScope(draftScope, mind?.folderId ?? null, folderHolds);
-  return useScopeChips(scope);
+  const known = useAppStore(
+    (state) => scopeMindId === null || state.minds.some((each) => each.id === scopeMindId),
+  );
+  const { resolved } = useResolvedScope(mindId);
+  return useScopeChips(known ? resolved : null);
 }
 
 /**
