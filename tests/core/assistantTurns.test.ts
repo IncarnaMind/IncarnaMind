@@ -251,7 +251,8 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
     const answer = await askAssistant(core, { text: "add a summary", mindId: mind.id });
 
     expect(answer.steps?.unbackedClaims).toEqual(["added"]);
-    expect(model.doGenerateCalls).toHaveLength(2);
+    // Each check asks of the claims, and, with nothing changed, whether the reply says it is done.
+    expect(model.doGenerateCalls).toHaveLength(4);
   });
 
   // protects=the change-claim judge goes to the provider's quick-tasks model, not a second full Answer's model; fails_when=the quick model is never asked, or the claim isn't checked; no_claim=which provider the test uses.
@@ -281,7 +282,7 @@ describe("A claim needs its command (#1559)", { timeout: 30_000 }, () => {
 
     const answer = await askAssistant(core, { text: "add a summary", mindId: mind.id });
 
-    expect(quick.doGenerateCalls).toHaveLength(2);
+    expect(quick.doGenerateCalls).toHaveLength(4);
     expect(answer.text).toBe("No section was added.");
     expect(answer.steps?.unbackedClaims).toBeUndefined();
   });
@@ -448,6 +449,68 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
       "Nothing was written: the assistant didn’t run the write",
     );
     expect(unbackedClaimLine(zh, answer)).toBe("未写入任何内容：助手没有执行写入");
+  });
+
+  // protects=a reply that says its request is done after an edit that changed nothing, or after one write applied and another failed, is asked about once with the record, and still saying so gets the line the User reads: "Nothing was written" with the edit's reason, or that not every change was made, in English and Chinese; an honest reply about the failed edit is asked nothing and gets no line (#2878); fails_when="Done." passes as the reply's own text, the honest reply is flagged, or the line is the wrong one; no_claim=what a real quick model answers (the gate).
+  test.each([
+    {
+      calls: [{ tool: "edit_mind", input: { part: "Nowhere", instruction: "Make it longer" } }],
+      en: "Nothing was written: Couldn’t change “this note”: it has no heading “Nowhere”",
+      zh: "未写入任何内容：无法修改“这篇笔记”：其中没有标题“Nowhere”",
+    },
+    {
+      calls: [
+        { tool: "add_to_mind", input: { content: "## Risks\n\nShipping is late." } },
+        { tool: "edit_mind", input: { part: "Nowhere", instruction: "Make it longer" } },
+      ],
+      en: "The assistant didn’t make every change this reply describes",
+      zh: "助手没有完成这条回答中说的全部改动",
+    },
+  ])("a reply that says it is done after $calls.length writes gets its line", async (each) => {
+    const notes: string[] = [];
+    const reply = (done: boolean) =>
+      scriptedModel(
+        (call): ScriptedReply => {
+          notes.push(asked(call));
+          const writes = call.results.filter((result) => result.tool !== "read_mind").length;
+          const next = each.calls[writes];
+          if (next) return { calls: [next] };
+          return {
+            text: done
+              ? "That's all done."
+              : "I couldn't find a Nowhere section, so it is unchanged.",
+          };
+        },
+        {
+          generate: (call) =>
+            call.question === "request-done"
+              ? { text: JSON.stringify({ request: done ? "done" : "not_done" }) }
+              : claimCheckReply(call, []),
+        },
+      );
+    const stubborn = reply(true);
+    const { core, mind } = await setUp(stubborn);
+
+    const answer = await askAssistant(core, { text: "make the summary longer", mindId: mind.id });
+
+    expect(notes.at(-1)).toContain(
+      "Your reply tells the User that what they asked for is done, but not all of it was",
+    );
+    expect(answer.text).toBe("That's all done.");
+    expect(answer.steps?.unbackedClaims).toEqual(["changed"]);
+    expect(unbackedClaimLine(en, answer)).toBe(each.en);
+    expect(unbackedClaimLine(zh, answer)).toBe(each.zh);
+
+    const honest = reply(false);
+    const second = await setUp(honest);
+    const told = await askAssistant(second.core, {
+      text: "make the summary longer",
+      mindId: second.mind.id,
+    });
+    expect(told.text).toBe("I couldn't find a Nowhere section, so it is unchanged.");
+    expect(honest.doStreamCalls).toHaveLength(each.calls.length + 1);
+    expect(told.steps?.unbackedClaims).toBeUndefined();
+    expect(unbackedClaimLine(en, told)).toBeNull();
   });
 
   // protects=a judge that fails or returns nothing leaves no line under an honest Answer; fails_when=the failure is read as a claim; no_claim=none beyond protects.

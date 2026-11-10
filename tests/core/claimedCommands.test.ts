@@ -102,6 +102,7 @@ function assistant(
     },
     {
       generate: (call) => {
+        if (call.question === "request-done") return { text: '{"request":"none"}' };
         if (call.question !== "claimed-changes") return { text: '{"claims":[]}' };
         judged.push(call);
         order?.push("judge");

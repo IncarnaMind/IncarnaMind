@@ -1,11 +1,15 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
 import {
+  askAgainNote,
   CLAIM_CHECK_INSTRUCTIONS,
   DONE_BY_NOTE_CHANGE,
+  REQUEST_DONE_INSTRUCTIONS,
+  type REQUEST_TOLD,
   UNCHANGED_PART_RULE,
   unbackedClaims,
 } from "../../src/core/answers/claimedChanges";
+import { type JudgeQuestion, questionOf } from "../../src/core/answers/judge";
 import { toolRecordLines } from "../../src/core/answers/toolRecord";
 import { scriptedModel } from "../helpers/models";
 
@@ -29,11 +33,24 @@ const mindCall = (tool: string, change: Partial<MindChange> | null): AnswerToolC
   }),
 });
 
-function judge(verdict: unknown) {
+/** A quick model that gives `verdict` for the claims, and `request` for what the reply tells of the request. */
+function judge(verdict: unknown, request: (typeof REQUEST_TOLD)[number] = "none") {
   return scriptedModel(() => ({ text: "" }), {
-    generate: () => ({ text: typeof verdict === "string" ? verdict : JSON.stringify(verdict) }),
+    generate: (call) => ({
+      text:
+        call.question === "request-done"
+          ? JSON.stringify({ request })
+          : typeof verdict === "string"
+            ? verdict
+            : JSON.stringify(verdict),
+    }),
   });
 }
+
+const callOf = (model: ReturnType<typeof judge>, question: JudgeQuestion) =>
+  model.doGenerateCalls.find((call) => questionOf(call) === question);
+const claimsCall = (model: ReturnType<typeof judge>) => callOf(model, "claimed-changes");
+const claimsPrompt = (model: ReturnType<typeof judge>) => JSON.stringify(claimsCall(model)?.prompt);
 
 async function check(
   model: ReturnType<typeof judge>,
@@ -64,7 +81,8 @@ describe("The quick model's verdict", () => {
     );
 
     expect(result.claims).toEqual(["changed"]);
-    expect(result.usage?.inputTokens).toBe(5);
+    // The claims' request and, with nothing changed, the request asking whether it says it is done.
+    expect(result.usage?.inputTokens).toBe(10);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -112,7 +130,7 @@ describe("The quick model's verdict", () => {
     });
     const result = await check(model, reply, [call]);
     expect(result.claims).toEqual(["added"]);
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain('\\"chartNotDrawn\\": \\"noTable\\"');
   });
 
@@ -133,14 +151,14 @@ describe("The quick model's verdict", () => {
       claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
     });
     await check(model, reply, [mindCall("add_to_mind", { charts: 1 })]);
-    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('\\"charts\\": 1');
+    expect(claimsPrompt(model)).toContain('\\"charts\\": 1');
   });
 
   test("a claim about the focused Mind is checked with its name", async () => {
     const reply = "我已把摘要写进你的笔记里。";
     const model = judge({ claims: [] });
     await check(model, reply, [mindCall("add_to_mind", {})], "q3");
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain('\\"id\\": \\"q3\\"');
     expect(prompt).toContain('\\"name\\": \\"Q3 review\\"');
   });
@@ -179,7 +197,7 @@ describe("The quick model's verdict", () => {
 
     await check(model, "I renamed and deleted the pages.", calls);
 
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain("mind.rename");
     expect(prompt).toContain("mind.delete");
     expect(prompt).toContain("Q3 summary");
@@ -210,7 +228,7 @@ describe("The quick model's verdict", () => {
 
     await check(model, "The merged tags are in Recently deleted.", calls);
 
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain("mergedTags");
     expect(prompt).toContain("Recently deleted");
     expect(prompt).toContain('\\"tagCount\\"');
@@ -280,7 +298,7 @@ const recordRead = async (calls: AnswerToolCall[]) => {
     parts: (_mindId, part) => SPANS[part] ?? null,
     signal: new AbortController().signal,
   });
-  return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+  return claimsPrompt(model);
 };
 
 const UNCHANGED = 'nothingChangedIn\\": ';
@@ -350,7 +368,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
         signal: new AbortController().signal,
       });
-      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+      return claimsPrompt(model);
     };
     const plain = await sent([]);
     // With no call, the probe main caught every time ("I've translated it.") is sent main's rules.
@@ -395,7 +413,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
             : { waiting: 0, accepted: 0, rejected: 0, applied: true },
         signal: new AbortController().signal,
       });
-      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+      return claimsPrompt(model);
     };
     const applied = partCall("a", "Outlook", { cited: 2 });
     const added: AnswerToolCall = { ...mindCall("add_to_mind", {}), id: "add" };
@@ -445,7 +463,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     ).toContain(DONE_BY_NOTE_CHANGE);
   });
 
-  // protects=a later write is read as the retry of a failed one only when it has the same Tool, Note and target (a new Note's title, the part or place named, else the first line written or the instruction), and each retries one failure (#2769's review); fails_when=another section written at the Note's end, another whole-Note edit or another new Note backs "done" after the first failed; no_claim=the judge's verdicts.
+  // protects=a later write is read as the retry of a failed one only when it has the same Note and target (a new Note's title, the part or place named, else the first line written or the instruction, a heading's marks left out), whichever Tool wrote it, and each retries one failure (#2769's review, #2878); fails_when=another section written at the Note's end, another whole-Note edit, another new Note, or another part by another Tool backs "done" after the first failed, or a section added after its edit found no such heading doesn't; no_claim=the judge's verdicts.
   describe("only a write with the same target retries a failed one", () => {
     const sentTo = async (calls: AnswerToolCall[]) => {
       const model = judge({ claims: [] });
@@ -455,7 +473,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
         signal: new AbortController().signal,
       });
-      return JSON.stringify(model.doGenerateCalls[0]?.prompt);
+      return claimsPrompt(model);
     };
     const write = (
       id: string,
@@ -501,6 +519,10 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         "one retry after two failures",
         [risks("r1", null), risks("r2", null, "- Late audit"), risks("r3", {}, "- Both, cited")],
       ],
+      [
+        "another part written by another Tool",
+        [risks("r", null), write("t", "edit_mind", { part: "Timeline" }, {})],
+      ],
     ])("main's sentence after %s", async (_case, calls) => {
       const prompt = await sentTo(calls);
       expect(prompt).not.toContain(DONE_BY_NOTE_CHANGE);
@@ -518,6 +540,17 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
         [
           write("fo", "edit_mind", { instruction: "Make it more formal" }, null),
           write("fo-again", "edit_mind", { instruction: "make it more formal" }, {}),
+        ],
+      ],
+      [
+        "the same section written by another Tool",
+        [risks("r", null), write("e", "edit_mind", { part: "Risks" }, { revised: true })],
+      ],
+      [
+        "a section added once its edit found no such heading",
+        [
+          write("e", "edit_mind", { part: "风险" }, null),
+          write("a", "add_to_mind", { content: "## 风险\n- 供应商延期" }, {}),
         ],
       ],
     ])("a Note change backs done after %s", async (_case, calls) => {
@@ -545,6 +578,248 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       "What it does to the User's sentences there: 1 taken out whole (“下周要跟客户开会，聊聊合同的事。”); 2 sentences written new.",
     );
     expect(prompt).not.toContain('rewritten\\": 0');
+  });
+});
+
+describe("A reply that tells the User their request is done is held to the change log (#2878)", () => {
+  const applied = { waiting: 0, accepted: 0, rejected: 0, applied: true };
+  const write = (
+    id: string,
+    tool: "add_to_mind" | "edit_mind",
+    mindId: string,
+    outcome: Partial<MindChange> | "length" | "stopped" | "misnamed",
+    part?: string,
+  ): AnswerToolCall => ({
+    id,
+    tool,
+    source: "minds",
+    input: part ? { part } : {},
+    status: typeof outcome === "string" ? "failed" : "done",
+    resultCount: null,
+    ...(typeof outcome === "string"
+      ? { mindProblem: { kind: outcome, mindId } }
+      : { mindChange: { mindId, created: false, request: `${id}-r`, proposals: 2, ...outcome } }),
+  });
+  const renameFailed: AnswerToolCall = {
+    id: "rename",
+    tool: "run_command",
+    source: "commands",
+    input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+    status: "failed",
+    resultCount: null,
+  };
+  const checked = (
+    reply: string,
+    calls: AnswerToolCall[],
+    model: ReturnType<typeof judge>,
+    waiting: string[] = [],
+  ) =>
+    unbackedClaims(reply, calls, MINDS, null, {
+      model,
+      names,
+      states: (change) => (waiting.includes(change.request) ? null : applied),
+      signal: new AbortController().signal,
+    });
+  const replies = ["That's all done.", "都弄好了。"];
+
+  // protects=a reply the quick model reads, whole, as saying the request is done is flagged as a change the log doesn't back after a failed, stopped or refused edit, no call at all, and each partial kind (another part of the same Note, another Note, a stopped write, a failed command, a change waiting for the User), in English and Chinese, while one it reads as naming what wasn't done, as saying nothing was done, or as about no change is not; fails_when=the claims list alone decides, which read "Done." as about the reply itself, or an honest reply is flagged; no_claim=what a real quick model answers (the gate's probes).
+  test.each([
+    ["a failed edit", [write("e", "edit_mind", "q3", "length", "Risks")], []],
+    ["a stopped write", [write("s", "add_to_mind", "q3", "stopped")], []],
+    ["a refused edit", [write("r", "edit_mind", "q3", "misnamed", "Risks")], []],
+    ["no call at all", [], []],
+    [
+      "another part of the same Note failed",
+      [write("a", "add_to_mind", "q3", {}), write("e", "edit_mind", "q3", "length", "Risks")],
+      [],
+    ],
+    [
+      "a write in another Note failed",
+      [write("a", "edit_mind", "q3", {}), write("e", "edit_mind", "weekly", "length", "风险")],
+      [],
+    ],
+    [
+      "a later write was stopped",
+      [write("a", "edit_mind", "q3", {}), write("s", "add_to_mind", "q3", "stopped")],
+      [],
+    ],
+    ["a command failed", [write("a", "edit_mind", "q3", {}), renameFailed], []],
+    [
+      "a change waits for the User",
+      [write("a", "edit_mind", "q3", {}, "Outlook"), write("w", "edit_mind", "q3", {}, "Risks")],
+      ["w-r"],
+    ],
+  ] as const)("%s", async (_kind, calls, waiting) => {
+    for (const reply of replies) {
+      const done = judge({ claims: [] }, "done");
+      const result = await checked(reply, [...calls], done, [...waiting]);
+      expect(result.claims).toEqual(["changed"]);
+      expect(result.unfinished).toBe(true);
+      expect(result.failed).toBeUndefined();
+      const asked = JSON.stringify(callOf(done, "request-done")?.prompt);
+      expect(asked).toContain(reply);
+      expect(asked).toContain(JSON.stringify(REQUEST_DONE_INSTRUCTIONS).slice(1, 60));
+      expect(asked).not.toContain("tool-record");
+      for (const told of ["part", "not_done", "none"] as const) {
+        const honest = await checked(reply, [...calls], judge({ claims: [] }, told), [...waiting]);
+        expect(honest.claims).toEqual([]);
+        expect(honest.unfinished).toBeUndefined();
+      }
+    }
+  });
+
+  // protects=when every call did what it set out to (each write applied, a failure retried on the same part and applied, an empty Note made, an edit that found nothing to change beside an applied one, a command done), the question isn't asked and a reply that says it is done stands, in English and Chinese; fails_when=an honest "done" is flagged, or a request is spent on a record that backs it; no_claim=none beyond protects.
+  test.each([
+    [
+      "every write applied",
+      [write("a", "add_to_mind", "q3", {}), write("b", "edit_mind", "weekly", {})],
+    ],
+    [
+      "a failure retried and applied",
+      [
+        write("f", "edit_mind", "q3", "length", "Risks"),
+        write("g", "edit_mind", "q3", { revised: true }, "Risks"),
+      ],
+    ],
+    [
+      "an empty Note made",
+      [
+        {
+          ...write("m", "add_to_mind", "tides", { created: true, proposals: 0 }),
+          tool: "create_mind",
+        },
+      ],
+    ],
+    [
+      "nothing needed changing beside an applied edit",
+      [
+        write("a", "add_to_mind", "q3", {}),
+        {
+          id: "n",
+          tool: "edit_mind",
+          source: "minds",
+          input: {},
+          status: "done",
+          resultCount: null,
+        },
+      ],
+    ],
+    [
+      "a command done",
+      [
+        {
+          id: "c",
+          tool: "run_command",
+          source: "commands",
+          input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+          status: "done",
+          resultCount: null,
+          command: {
+            command: "mind.rename",
+            run: "r1",
+            items: [{ kind: "mind", id: "q3", name: "Q3 review", renamed: "Q3 summary" }],
+          },
+        },
+      ],
+    ],
+  ] satisfies [string, AnswerToolCall[]][])(
+    "%s: the question isn't asked",
+    async (_case, calls) => {
+      for (const reply of replies) {
+        const done = judge({ claims: [] }, "done");
+        const result = await checked(reply, [...calls], done);
+        expect(result.claims).toEqual([]);
+        expect(result.unfinished).toBeUndefined();
+        expect(callOf(done, "request-done")).toBeUndefined();
+        expect(done.doGenerateCalls).toHaveLength(1);
+      }
+      const partial = judge({ claims: [] }, "done");
+      await checked(
+        replies[0] ?? "",
+        [...calls, write("x", "edit_mind", "q3", "length", "Outlook")],
+        partial,
+      );
+      expect(callOf(partial, "request-done")).toBeDefined();
+    },
+  );
+
+  // protects=a question that fails or can't be read flags nothing and says the check failed, so no false line goes under an honest reply, while a reading of "done" stands when only the claims failed; fails_when=a failure reads as "done", or as a clean check; no_claim=none beyond protects.
+  test("a question that fails flags nothing, and says the check failed", async () => {
+    const failing = (failed: JudgeQuestion | null, request: string) =>
+      scriptedModel(() => ({ text: "" }), {
+        generate: (call) =>
+          call.question === failed
+            ? { error: { status: 503, message: "offline" } }
+            : {
+                text:
+                  call.question === "request-done"
+                    ? JSON.stringify({ request })
+                    : JSON.stringify({ claims: [] }),
+              },
+      });
+    const calls = [write("e", "edit_mind", "q3", "length", "Risks")];
+    for (const model of [failing("request-done", "done"), failing(null, "finished")]) {
+      const result = await checked("That's all done.", calls, model);
+      expect(result.claims).toEqual([]);
+      expect(result.unfinished).toBeUndefined();
+      expect(result.failed).toBe(true);
+    }
+    const claimsDown = await checked("That's all done.", calls, failing("claimed-changes", "done"));
+    expect(claimsDown.claims).toEqual(["changed"]);
+    expect(claimsDown.unfinished).toBe(true);
+    expect(claimsDown.failed).toBe(true);
+  });
+
+  // protects=asked again after a reply that called its request done, the model is told so, and is told that changes are listed under its reply only when one was made; fails_when=told "IncarnaMind lists each change under your reply" with nothing changed, which a model answered with "Done: the changes are listed under this reply"; no_claim=what a real model then writes (the gate's everyday requests).
+  test("asked again, the model is told changes are listed only when one was made", () => {
+    const failed = [write("e", "edit_mind", "q3", "length", "Risks")];
+    const partial = [write("a", "add_to_mind", "q3", {}), ...failed];
+    const states = () => applied;
+    const unfinished = askAgainNote(
+      { claims: ["changed"], unfinished: true },
+      failed,
+      names,
+      states,
+    );
+    expect(unfinished).toContain(
+      "Your reply tells the User that what they asked for is done, but not all of it was: the record above shows what changed and what didn't. Write your reply again from its start. Say plainly what wasn't done and why.",
+    );
+    expect(unfinished).not.toContain("IncarnaMind lists each change under your reply");
+    expect(
+      askAgainNote({ claims: ["changed"], unfinished: true }, partial, names, states),
+    ).toContain(
+      "Write your reply again from its start, without saying what you changed: IncarnaMind lists each change under your reply.",
+    );
+    const claimed = askAgainNote({ claims: ["added"] }, [], names, states);
+    expect(claimed).toContain(
+      "Your reply says you added text to a Note, but no Tool did that. Write your reply again from its start. Say plainly",
+    );
+    expect(askAgainNote({ claims: ["added"] }, partial, names, states)).toContain(
+      "Your reply says you added text to a Note, but no Tool did that. Write your reply again from its start, without saying what you changed",
+    );
+  });
+
+  // protects=a change held back for the User reaches the check as waiting, in words, naming the part it waits in when its call named one, and one applied as applied, in English and Chinese; fails_when=a waiting change reads as "state": null, or names no part beside an applied change in the same Note, and an honest "Outlook is longer; the Risks change waits for you" is flagged; no_claim=the judge's verdicts.
+  test.each([
+    ["Risks", "Outlook is longer; the Risks change waits for you."],
+    ["风险", "展望一节已经加长，风险一节的改动还在等你确认。"],
+  ])("a change held back for the User reads as waiting in the record: %s", async (part, reply) => {
+    const model = judge({ claims: [] });
+    await checked(
+      reply,
+      [
+        write("a", "edit_mind", "q3", {}, "Outlook"),
+        write("w", "edit_mind", "q3", {}, part),
+        write("x", "add_to_mind", "weekly", {}),
+      ],
+      model,
+      ["w-r", "x-r"],
+    );
+    const prompt = claimsPrompt(model);
+    expect(prompt).toContain(`\\"state\\": \\"waiting for the User, in “${part}”\\"`);
+    expect(prompt).toContain('\\"state\\": \\"waiting for the User\\"');
+    expect(prompt).toContain('\\"applied\\": true');
+    expect(prompt).not.toContain('\\"state\\": null');
   });
 });
 
@@ -772,7 +1047,7 @@ describe("A claim of something done in the app (#2407)", () => {
 
     await check(model, english, calls);
 
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain(`\\"outcome\\": \\"refused: the User's alone\\"`);
     expect(prompt).toContain(`\\"outcome\\": \\"not allowed by the User\\"`);
     expect(prompt).toContain(`\\"outcome\\": \\"started\\"`);
@@ -809,7 +1084,7 @@ describe("Organize's record: proposed, nothing filed (#1569)", () => {
     const model = judge({ claims: [] });
     await check(model, "Organize suggests a Leases folder.", [organized]);
 
-    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    const prompt = claimsPrompt(model);
     expect(prompt).toContain(
       `\\"outcome\\": \\"proposed, waiting for the User's Review: nothing filed or moved\\"`,
     );
@@ -880,7 +1155,7 @@ describe("What the claim check reads stays in its blocks (#2423)", () => {
     });
 
     const sent = JSON.stringify(
-      model.doGenerateCalls[0]?.prompt.filter((message) => message.role === "user"),
+      claimsCall(model)?.prompt.filter((message) => message.role === "user"),
     );
     for (const tag of ["tool-record", "focused-mind", "reply"]) {
       expect(sent.split(`</${tag}>`), tag).toHaveLength(2);

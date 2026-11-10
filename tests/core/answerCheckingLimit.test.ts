@@ -61,6 +61,7 @@ async function answered(
     {
       generate: (call) => {
         if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        if (call.question === "request-done") return { text: '{"request":"none"}' };
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (judging.failing) return { error: { status: 500, message: "The provider failed." } };
         batches.push(call);

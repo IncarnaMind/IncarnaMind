@@ -49,6 +49,7 @@ export const JUDGE_QUESTIONS = [
   "record-cite",
   "find-claims",
   "claimed-changes",
+  "request-done",
   "unmarked-quotes",
   "quote-retry",
   "figure-retry",

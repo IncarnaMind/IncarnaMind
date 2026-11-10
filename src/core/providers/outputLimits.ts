@@ -37,6 +37,8 @@ export const OUTPUT_LIMITS = {
   subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
   "claimed-changes": { most: 2_048 },
+  // One word, after the thinking of a model that thinks first, as "quick-check" has room for.
+  "request-done": { most: 2_048 },
   // A record for each sentence it cites: a Meeting's notes ask for dozens at once (#2306).
   "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },

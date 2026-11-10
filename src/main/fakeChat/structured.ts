@@ -1,5 +1,5 @@
 import { kindName, TAG_KINDS } from "../../core/tags/kinds";
-import { checksChangeClaims, fakeChangeClaims } from "./claims";
+import { checksChangeClaims, fakeChangeClaims, fakeRequestDone } from "./claims";
 import { type GenerateOptions, SLOWLY } from "./prompt";
 import { fakeSuggestion } from "./suggestion";
 
@@ -257,6 +257,8 @@ export function fakeStructuredOutput(options: GenerateOptions): string {
   if (proposesFolders(options)) return fakeFolders(options);
   if (checksChangeClaims(options))
     return fakeChangeClaims(options) ?? JSON.stringify({ claims: [] });
+  const told = fakeRequestDone(options);
+  if (told) return told;
   const format = options.responseFormat;
   const schema = format?.type === "json" ? format.schema : undefined;
   if (schema?.properties?.quote && schema.properties.passage) return fakeSuggestion(options);

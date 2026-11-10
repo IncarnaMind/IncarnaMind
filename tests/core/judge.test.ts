@@ -21,7 +21,7 @@ import {
 } from "../../src/core/answers/checks/prompt";
 import { readRewrite } from "../../src/core/answers/checks/rewrite";
 import { readBatch } from "../../src/core/answers/checks/sentenceBatch";
-import { claimsReply } from "../../src/core/answers/claimedChanges";
+import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
 import { FIGURES_REPLY } from "../../src/core/answers/figureRetry";
 import {
   byKey,
@@ -184,6 +184,12 @@ const QUESTIONS: Record<
     }),
     read: { claims: ["changed"], commands: [], unsure: false },
     unreadable: JSON.stringify({ verdict: "unbacked" }),
+  },
+  "request-done": {
+    reply: requestReply,
+    right: JSON.stringify({ request: "done" }),
+    read: "done",
+    unreadable: JSON.stringify({ request: "finished" }),
   },
   "unmarked-quotes": {
     reply: CITED_REPLY,
