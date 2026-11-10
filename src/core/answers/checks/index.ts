@@ -299,7 +299,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {
@@ -1577,6 +1577,7 @@ export function createChecks(options: ChecksOptions) {
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
+    evidenceReady: (stop) => options.evidence.ready(stop),
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1603,6 +1604,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
+    evidenceReady: (stop) => options.evidence.ready(stop),
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1616,6 +1618,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    evidenceReady: (stop) => options.evidence.ready(stop),
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1748,7 +1751,11 @@ export function createChecks(options: ChecksOptions) {
     ...verify,
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten,
+    async checkWritten(input: Parameters<typeof checkWritten>[0]) {
+      // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
+      await options.evidence.ready();
+      return checkWritten(input);
+    },
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -1783,6 +1790,8 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
+        await options.evidence.ready(tracked.signal);
+        if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
@@ -1808,6 +1817,7 @@ export function createChecks(options: ChecksOptions) {
         const run = running.get(requestId);
         if (run?.mindId === mindId) run.controller.abort();
       }
+      await options.evidence.ready();
       return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
@@ -1896,6 +1906,7 @@ export function createChecks(options: ChecksOptions) {
           key: result.kind === "local-mode" ? "error.check.localMode" : "error.check.declined",
         });
       }
+      await options.evidence.ready();
       const scope = options.evidence.scope(
         parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
@@ -2010,6 +2021,7 @@ export function createChecks(options: ChecksOptions) {
         stored.check.scope.chosen ??
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      await options.evidence.ready();
       const scope = options.evidence.scope(
         input.mindId,
         options.scopeDocuments(wanted, input.mindId),

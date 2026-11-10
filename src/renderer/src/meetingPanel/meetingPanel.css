@@ -26,6 +26,7 @@ body {
 }
 
 .panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 408px;
@@ -154,6 +155,81 @@ body {
     font-weight: 600;
     color: var(--color-ink);
   }
+}
+
+.ask-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8px 8px;
+  border: 0;
+}
+
+.ask-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  color: var(--color-ink);
+
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+.ask-more {
+  color: var(--color-ink-meta);
+
+  &:hover,
+  &[aria-expanded="true"] {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+}
+
+.ask-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ask-key {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-chip);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--color-ink-meta);
+}
+
+.ask-anchor {
+  position: relative;
+}
+
+.ask-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+  z-index: 2;
+  gap: 2px;
 }
 
 .panel-suggestion {
