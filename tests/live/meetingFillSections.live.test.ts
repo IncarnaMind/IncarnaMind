@@ -78,6 +78,8 @@ interface Fact {
   underLine?: string;
   /** A figure one side only stated: never a decision (#2306). */
   stated?: boolean;
+  /** A term one side gave and the other accepted aloud: a decision, as its Decisions line states it (#2306). */
+  accepted?: RegExp;
   /** Who it belongs to, as the notes must name them, and the ways they mustn't (#2306). */
   owner?: RegExp;
   forbid?: RegExp;
@@ -1478,6 +1480,7 @@ interface ReservedFactInput {
   underLine?: string;
   subject?: string | string[];
   stated?: true;
+  accepted?: string;
   owner?: string;
   forbid?: string;
   misheard?: string;
@@ -1526,6 +1529,7 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
       "underLine",
       "subject",
       "stated",
+      "accepted",
       "owner",
       "forbid",
       "misheard",
@@ -1542,6 +1546,11 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
     (value.underLine === undefined || typeof value.underLine === "string") &&
     (value.subject === undefined || isRegexSource(value.subject)) &&
     (value.stated === undefined || (value.stated === true && value.kind === "figure")) &&
+    (value.accepted === undefined ||
+      (typeof value.accepted === "string" &&
+        value.accepted !== "" &&
+        value.kind === "figure" &&
+        value.stated === undefined)) &&
     (value.owner === undefined || (typeof value.owner === "string" && value.owner !== "")) &&
     (value.forbid === undefined ||
       (typeof value.forbid === "string" && value.owner !== undefined)) &&
@@ -1701,15 +1710,18 @@ async function loadReservedCalls(
     .filter((call) => selected.includes(call.id))
     .map(({ topics, named, ...call }) => ({
       ...call,
-      facts: call.facts.map(({ pattern, subject, owner, forbid, misheard, notBy, ...fact }) => ({
-        ...fact,
-        pattern: reservedRegex(pattern),
-        ...(subject !== undefined && { subject: reservedRegex(subject) }),
-        ...(owner !== undefined && { owner: new RegExp(owner, "iu") }),
-        ...(forbid !== undefined && { forbid: new RegExp(forbid, "iu") }),
-        ...(misheard !== undefined && { misheard: new RegExp(misheard, "iu") }),
-        ...(notBy !== undefined && { notBy: new RegExp(notBy, "iu") }),
-      })),
+      facts: call.facts.map(
+        ({ pattern, subject, accepted, owner, forbid, misheard, notBy, ...fact }) => ({
+          ...fact,
+          pattern: reservedRegex(pattern),
+          ...(subject !== undefined && { subject: reservedRegex(subject) }),
+          ...(accepted !== undefined && { accepted: new RegExp(accepted, "iu") }),
+          ...(owner !== undefined && { owner: new RegExp(owner, "iu") }),
+          ...(forbid !== undefined && { forbid: new RegExp(forbid, "iu") }),
+          ...(misheard !== undefined && { misheard: new RegExp(misheard, "iu") }),
+          ...(notBy !== undefined && { notBy: new RegExp(notBy, "iu") }),
+        }),
+      ),
       ...(topics && {
         topics: topics.map((topic) => ({
           name: topic.name,
@@ -3821,6 +3833,10 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             (fact) => fact.stated && decisions.some((unit) => says(fact, unit.text)),
           ).length,
           stated: call.facts.filter((fact) => fact.stated).length,
+          acceptedInSection: call.facts.filter((fact) =>
+            decisions.some((unit) => fact.accepted?.test(unit.text) === true),
+          ).length,
+          accepted: call.facts.filter((fact) => fact.accepted).length,
           decisionsInSection: counts.decisionsInSection,
           decisions: call.facts.filter((fact) => fact.kind === "decision").length,
           unnamed: owned.filter((fact) =>
@@ -3939,9 +3955,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           const expected = call.facts.filter((fact) => fact.kind === "decision").length;
           check("decisions", () => {
             expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
-              expected > 0,
+              expected + slips.accepted > 0,
             );
             expect(counts.decisionsInSection).toBe(expected);
+            expect(slips.acceptedInSection, "A term accepted aloud is a decision").toBe(
+              slips.accepted,
+            );
             expect(counts.invented).toBe(0);
           });
           const expectedActions = call.facts.filter((fact) => fact.kind === "action").length;

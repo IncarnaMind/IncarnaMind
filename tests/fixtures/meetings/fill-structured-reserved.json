@@ -3791,25 +3791,29 @@
         "name": "Cup unit price",
         "kind": "figure",
         "pattern": ["8\\.4 ?p|8\\.4 pence|0\\.084"],
-        "said": [2]
+        "said": [2],
+        "stated": true
       },
       {
         "name": "Minimum order",
         "kind": "figure",
         "pattern": ["50,?000|50 000|50k|fifty thousand", "minimum|\\bmin\\b|at least|MOQ|or more"],
-        "said": [2, 3]
+        "said": [2, 3],
+        "accepted": "50,?000|50 000|50k|fifty thousand"
       },
       {
         "name": "Four-week lead time",
         "kind": "figure",
         "pattern": ["(?:four|4)[ -]weeks?"],
-        "said": [7, 8]
+        "said": [7, 8],
+        "stated": true
       },
       {
         "name": "Price rise from February",
         "kind": "figure",
         "pattern": ["(?<!\\d)4 ?%|(?<!\\d)4 ?per ?cent|four per ?cent", "feb"],
-        "said": [4]
+        "said": [4],
+        "stated": true
       },
       {
         "name": "Lids at 2.9p",
@@ -3894,25 +3898,29 @@
         "name": "展位面积54平方米",
         "kind": "figure",
         "pattern": ["54 ?(?:平|㎡|m²|m2)"],
-        "said": [1, 2]
+        "said": [1, 2],
+        "stated": true
       },
       {
         "name": "合同总价18.6万元",
         "kind": "figure",
         "pattern": ["18\\.6 ?万|186,?000|十八万六"],
-        "said": [2]
+        "said": [2],
+        "stated": true
       },
       {
         "name": "付款比例30%/60%/10%",
         "kind": "figure",
         "pattern": ["30 ?%|30/60/10", "60 ?%|30/60/10"],
-        "said": [8]
+        "said": [8],
+        "stated": true
       },
       {
         "name": "二层洽谈区另加4.2万元",
         "kind": "figure",
         "pattern": ["4\\.2 ?万|42,?000|四万二", "二层|两层|洽谈|夹层"],
-        "said": [4, 5]
+        "said": [4, 5],
+        "accepted": "4\\.2 ?万|42,?000|四万二"
       },
       {
         "name": "LED屏每天2,800元",
@@ -4632,6 +4640,7 @@
           "\\b(15)(th)? (of )?Dec|Dec(ember)? (15)(th)?\\b|15/12|12/15"
         ],
         "said": [9],
+        "stated": true,
         "owner": "Marta|Okafor",
         "forbid": "\\bthe other side\\b|\\bthey\\b"
       },
@@ -4645,13 +4654,15 @@
         "name": "Meeting room hours",
         "kind": "figure",
         "pattern": ["meeting room", "\\b(4|four) ?(hours?|hrs?|h)\\b"],
-        "said": [3]
+        "said": [3],
+        "stated": true
       },
       {
         "name": "Holiday closure",
         "kind": "figure",
         "pattern": ["clos", "\\b(24)(th)?\\b", "\\b(2)(nd)? (of )?Jan|Jan(uary)? (2)(nd)?\\b"],
-        "said": [9]
+        "said": [9],
+        "stated": true
       },
       {
         "name": "Corner desk",
@@ -4716,6 +4727,7 @@
         "kind": "figure",
         "pattern": ["物业费", "交|承担|负责|付|不变"],
         "said": [5],
+        "stated": true,
         "owner": "陈晓梅|晓梅|陈女士",
         "forbid": "对方"
       },
@@ -4732,13 +4744,15 @@
         "name": "新房租",
         "kind": "figure",
         "pattern": ["5,?800|五千八", "1 ?月|一月|明年"],
-        "said": [3]
+        "said": [3],
+        "accepted": "5,?800|五千八"
       },
       {
         "name": "押金",
         "kind": "figure",
         "pattern": ["押金", "不变|不用补|无需补|不补"],
-        "said": [3]
+        "said": [3],
+        "stated": true
       },
       {
         "name": "续租一年",
@@ -4807,6 +4821,7 @@
         "kind": "figure",
         "pattern": ["\\b(5|five)\\b", "candidates?|people|spoken|screened|talked"],
         "said": [3],
+        "stated": true,
         "owner": "Priya|\\bShah\\b",
         "forbid": "\\bShaw\\b|\\bthe other side\\b|\\bthey\\b",
         "misheard": "\\bShaw\\b"
@@ -4815,15 +4830,23 @@
         "name": "Fee",
         "kind": "figure",
         "pattern": ["\\b(18) ?(%|percent|per cent)|eighteen per ?cent", "salary"],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
       {
         "name": "Replacement guarantee",
         "kind": "figure",
         "pattern": ["\\b(12|twelve)[ -]weeks?", "replac|guarantee|free|no (extra )?cost"],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
-      { "name": "Notice periods", "kind": "figure", "pattern": ["notice", "month"], "said": [3] }
+      {
+        "name": "Notice periods",
+        "kind": "figure",
+        "pattern": ["notice", "month"],
+        "said": [3],
+        "stated": true
+      }
     ],
     "topics": [
       { "name": "Candidates", "pattern": "candidate|shortlist|pipeline|CV|talent" },
@@ -4875,6 +4898,7 @@
         "kind": "figure",
         "pattern": ["厨房", "\\b(20) ?(公分|厘米|cm)|二十公分|0\\.2 ?米"],
         "said": [3],
+        "stated": true,
         "owner": "王磊",
         "forbid": "王雷|对方",
         "misheard": "王雷"
@@ -4883,21 +4907,30 @@
         "name": "设计费",
         "kind": "figure",
         "pattern": ["设计费", "\\b(120)\\b|一百二"],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
       {
         "name": "首付比例",
         "kind": "figure",
         "pattern": ["\\b(30) ?[%％]|三成|百分之三十", "付|定金|预付|签合同"],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
       {
         "name": "工期",
         "kind": "figure",
         "pattern": ["工期|完工|施工", "\\b(75) ?天|七十五天"],
-        "said": [7]
+        "said": [7],
+        "stated": true
       },
-      { "name": "岛台缩小", "kind": "figure", "pattern": ["岛台", "小|缩"], "said": [4, 5] }
+      {
+        "name": "岛台缩小",
+        "kind": "figure",
+        "pattern": ["岛台", "小|缩"],
+        "said": [4, 5],
+        "stated": true
+      }
     ],
     "topics": [
       { "name": "厨房方案", "pattern": "厨房|橱柜|岛台|量房|方案" },
@@ -4958,12 +4991,19 @@
         "owner": "the other side|\\bthey\\b|对方",
         "forbid": "(?-i:\\b[A-Z][a-z]+ [A-Z][a-z]+\\b)"
       },
-      { "name": "Excess", "kind": "figure", "pattern": ["excess", "\\b(250)\\b"], "said": [3] },
+      {
+        "name": "Excess",
+        "kind": "figure",
+        "pattern": ["excess", "\\b(250)\\b"],
+        "said": [3],
+        "stated": true
+      },
       {
         "name": "Escape of water cover",
         "kind": "figure",
         "pattern": ["escape of water"],
-        "said": [3]
+        "said": [3],
+        "stated": true
       },
       {
         "name": "Keep damaged items",
@@ -4972,14 +5012,22 @@
           "keep|don't throw|do not throw|not (to )?throw|hold on to|retain",
           "floor|invoice"
         ],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
-      { "name": "Drying cover", "kind": "figure", "pattern": ["dry", "1,?500"], "said": [7] },
+      {
+        "name": "Drying cover",
+        "kind": "figure",
+        "pattern": ["dry", "1,?500"],
+        "said": [7],
+        "stated": true
+      },
       {
         "name": "Upload photos and invoice",
         "kind": "figure",
         "pattern": ["photo", "upload|app"],
-        "said": [5, 9]
+        "said": [5, 9],
+        "stated": true
       }
     ],
     "topics": [
@@ -5032,25 +5080,29 @@
         "name": "拍照留底",
         "kind": "figure",
         "pattern": ["拍照|照片|拍", "水渍|天花板|吊顶|留底|留证|证据"],
-        "said": [3]
+        "said": [3],
+        "stated": true
       },
       {
         "name": "楼上承担费用",
         "kind": "figure",
         "pattern": ["楼上", "承担|负责|出", "费"],
-        "said": [5]
+        "said": [5],
+        "stated": true
       },
       {
         "name": "检查免费",
         "kind": "figure",
         "pattern": ["检查|上门", "免费|不收费|不收钱"],
-        "said": [9]
+        "said": [9],
+        "stated": true
       },
       {
         "name": "配件按价目表收费",
         "kind": "figure",
         "pattern": ["配件", "价目表|收费|按价"],
-        "said": [9]
+        "said": [9],
+        "stated": true
       }
     ],
     "topics": [
@@ -5278,6 +5330,7 @@
         "kind": "figure",
         "pattern": ["3[,.]?950|3\\.95 ?k", "1[,.]?200|1\\.2 ?k"],
         "said": [1],
+        "stated": true,
         "owner": "Hannah",
         "forbid": "\\bthe other side\\b|\\bthey\\b"
       },
@@ -5294,6 +5347,7 @@
         "kind": "figure",
         "pattern": ["340", "grams?|\\d ?g\\b|weigh"],
         "said": [3],
+        "stated": true,
         "notBy": "Hannah"
       },
       {
@@ -5384,6 +5438,7 @@
         "kind": "figure",
         "pattern": ["560", "套餐|每人|每位|一人|人均|/人|单价|报价"],
         "said": [1],
+        "stated": true,
         "owner": "孙悦|孙经理|小孙",
         "forbid": "对方"
       },
@@ -5400,6 +5455,7 @@
         "kind": "figure",
         "pattern": ["150", "甲状腺|彩超"],
         "said": [3],
+        "accepted": "(?<!\\d)150(?!\\d)|一百五",
         "notBy": "孙悦|孙经理|小孙"
       },
       {
