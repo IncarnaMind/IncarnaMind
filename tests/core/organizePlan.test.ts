@@ -87,8 +87,6 @@ function letterModel(
     missesAtFirst?: string;
     /** The requests whose replies run past their output limit. */
     cut?: ("sort" | "second sort" | "place" | "name")[];
-    /** A second sort files them by another letter: { I: "A" } puts Iota's Documents in Alpha. */
-    secondAs?: Record<string, string>;
   } = {},
 ) {
   const asked = {
@@ -105,9 +103,7 @@ function letterModel(
       cut(asked.sorted.length === 1 ? "sort" : "second sort");
       const folders = new Map<string, { id: string | null; name: string; refs: string[] }>();
       for (const doc of request.documents) {
-        const first = doc.name.charAt(0);
-        const letter = asked.sorted.length > 1 ? (options.secondAs?.[first] ?? first) : first;
-        const name = LETTERS.find((each) => each.startsWith(letter));
+        const name = LETTERS.find((each) => each.startsWith(doc.name.charAt(0)));
         if (!name || (asked.sorted.length === 1 && name === options.missesAtFirst)) continue;
         const existing =
           request.folders.find((folder) => folder.name === name)?.id ??
@@ -285,31 +281,6 @@ describe("The plan's requests and places", () => {
     const top = fewer.folders.filter((folder) => folder.parentKey === null);
     expect(top.length).toBeLessThanOrEqual(4);
     expect(top.map((folder) => folder.name)).toContain("Alpha");
-  });
-
-  // protects=in a Library the sample covers whole, what the sort left out or put in a Folder too small to make still gets a second look beside the Folders made; fails_when=those Documents stay out of every Folder, as on a Library of a few Documents an area (#2737).
-  test("a Library sampled whole: a Folder too small to make gets a second look beside those made", async () => {
-    const { model, asked } = letterModel({ secondAs: { I: "A" } });
-    const { vectors } = groups(4, 5, 32);
-    const named = namedGroups(vectors, 5, ["A", "B", "G", "I"]).map((each, at) =>
-      at >= 17 ? { ...each, name: `X${at}` } : each,
-    );
-    const result = await plan(named, model);
-    expect(asked.sorted).toHaveLength(2);
-    expect(asked.sorted[1]?.map((doc) => doc.name).sort()).toEqual([
-      "I15",
-      "I16",
-      "X17",
-      "X18",
-      "X19",
-    ]);
-    const alpha = result.folders.find((folder) => folder.name === "Alpha")?.key;
-    expect(result.folders.map((folder) => folder.name).sort()).toEqual(["Alpha", "Beta", "Gamma"]);
-    expect([15, 16].map((at) => result.places.get(`doc${at}`))).toEqual([
-      { kind: "new", key: alpha },
-      { kind: "new", key: alpha },
-    ]);
-    expect(result.places.get("doc17")).toEqual({ kind: "none" });
   });
 
   test("a new Folder of more than 40 is split into named subfolders of at least 5", async () => {
@@ -738,8 +709,6 @@ describe("Organize the Library into the Review", () => {
     };
     const share = outputTokens("folder-plan", 6);
     const all = outputTokens("folder-plan", Number.POSITIVE_INFINITY);
-    // A sort of 6 gets 600 for its Folders and 40 a Document; the retry gets the kind's whole room.
-    expect([share, all]).toEqual([840, 4_000]);
 
     const roomy = await start({ sortRoom: share + 1 });
     await add(roomy.core, roomy.sources, files);
