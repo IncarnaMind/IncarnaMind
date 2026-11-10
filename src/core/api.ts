@@ -4455,8 +4455,16 @@ export interface OwnFile {
  * - "checked-document": it is the document being checked, an earlier version
  *   of it, or a copy of either (the same content fingerprint, at any path).
  *   Never evidence for that check.
+ * - "same-text": its text holds nearly all of the text of the document being
+ *   checked or an earlier version of it, whatever its format (#2216). Never
+ *   evidence for that check.
  */
-export type EvidenceExclusion = "own-file" | "own-workings" | "own-note" | "checked-document";
+export type EvidenceExclusion =
+  | "own-file"
+  | "own-workings"
+  | "own-note"
+  | "checked-document"
+  | "same-text";
 
 /** The document a check verifies (#97, #110): it, its earlier versions and their copies are never its evidence. */
 export interface CheckedDocument {

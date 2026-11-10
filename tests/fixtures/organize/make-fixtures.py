@@ -131,6 +131,7 @@ def doc(
     pair=None,
     scanned=False,
     opaque=False,
+    marked_later=(),
 ):
     assert language in ("en", "zh"), id
     assert kind in ("pdf", "docx", "pptx", "xlsx", "markdown", "text"), id
@@ -142,11 +143,15 @@ def doc(
         labels.append("pair")
     labels.extend(hard)
     if also:
-        assert "two-folders" in labels, id
+        assert "two-folders" in [*labels, *marked_later], id
     if scanned:
         assert "image-only" in labels and kind == "pdf", id
     if opaque:
         labels.append("opaque-name")
+    # Marks added after the split was drawn (2026-11-09, #2737) are recorded but never move a
+    # Document between the halves: assign_splits reads only the marks it was drawn from.
+    split_labels = list(labels)
+    labels.extend(marked_later)
     DOCS.append(
         {
             "id": id,
@@ -158,6 +163,7 @@ def doc(
             "also": also,
             "tags": list(tags),
             "hard": labels,
+            "split_hard": split_labels,
             "pair": pair,
             "note": note,
             "content": content,
@@ -1630,6 +1636,8 @@ doc(
         ),
         slide("下周计划", "完成 B 区传感器安装", "解决接口延迟问题并回归测试", "编写试运行方案"),
     ],
+    also="meetings",
+    marked_later=["two-folders"],
 )
 
 doc(
@@ -1677,6 +1685,8 @@ doc(
         slide("Next steps", "Confirm workshop dates", "Share current-state process maps", "Questions?"),
     ],
     opaque=True,
+    also="meetings",
+    marked_later=["two-folders"],
 )
 
 doc(
@@ -1941,6 +1951,8 @@ doc(
             ],
         ),
     ],
+    also="meetings",
+    marked_later=["two-folders"],
 )
 
 doc(
@@ -4536,7 +4548,7 @@ def assign_splits(docs):
     for item in docs:
         if item["id"] in split:
             continue
-        labels = [label for label in item["hard"] if label not in ("pair", "opaque-name")]
+        labels = [label for label in item["split_hard"] if label not in ("pair", "opaque-name")]
         if not labels:
             continue
         first = labels[0]
