@@ -285,7 +285,21 @@ test("Organize as a new User meets it", async () => {
     `In the Review after ${(totalMs / 1000).toFixed(1)} s: ${folders.length} Folders, ${subfolders.length} subfolders; ${plan.placedByModel} asked past the sample in ${plan.requests} requests; ${tagging.inputPerRequest.length} tagging requests.`,
   );
   const spend = metered(dataDir);
-  await save(join(output, "results.json"), { folders, outcomes, spend });
+  // The app's every request, refused ones too (the meter marks those deleted), read before the
+  // data folder goes: a run with a refused or unanswered request isn't the arm's doing (#2737).
+  const requestRecord = queryDatabase<{ flow: string; refused: number; output: number | null }>(
+    dataDir,
+    "SELECT flow, deleted_at IS NOT NULL AS refused, output_tokens AS output FROM model_requests ORDER BY created_at",
+  );
+  const requests = {
+    answered: requestRecord.filter((each) => !each.refused && (each.output ?? 0) > 0).length,
+    refused: requestRecord.filter((each) => each.refused).length,
+    withoutReply: requestRecord.filter((each) => !each.refused && (each.output ?? 0) === 0).length,
+  };
+  log(
+    `Requests: ${requests.answered} answered, ${requests.refused} refused, ${requests.withoutReply} ended without a reply.`,
+  );
+  await save(join(output, "results.json"), { folders, outcomes, spend, requests });
 
   log("Asking the judge about each topic Tag…");
   const judge = topicJudge(judgeSettings);
@@ -333,7 +347,7 @@ test("Organize as a new User meets it", async () => {
     totalMs,
     spend,
   };
-  await save(join(output, "results.json"), { run, folders, outcomes, verdicts });
+  await save(join(output, "results.json"), { run, folders, outcomes, verdicts, requests });
   await writeFile(join(output, "report.md"), newUserReport(run, outcomes, folders, verdicts));
   for (const bar of bars(scoreNewUser(outcomes, folders, verdicts), kindScore))
     log(
