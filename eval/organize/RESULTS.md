@@ -430,8 +430,9 @@ That is one label line each, and one of them is in the held-out half.
 **Setup.**
 - The stage that `plan-2737.md` sets out, run as written.
 - The tuning half one language at a time: English Documents with the interface in English (21 readable), Chinese Documents with it in Chinese (16 readable).
-- Five runs an arm and language, on Claude Haiku 5.5 with the key `ANTHROPIC_API_KEY_DF`, every arm alike. One run at a time, in the plan's turns.
+- Five runs an arm and language, on Claude Haiku 5.5 with a second direct Anthropic key, which has its own limit, every arm alike. One run at a time, in the plan's turns.
 - Arms: `main` d979e55c4, part 2 dde23e21e, part 2b e211b8045, part 3 13e0b5d4d, both 25f6bc640.
+- The arms' branches (`eval/2737-*`) are kept until #2737 closes, since the diagnosis and the next plan read those commits.
 - The pair bars score a two-Folder Document by its second Folder where its Folder holds that one most (#2937). Each run's labels-as-written figures are in its record.
 - A tolerance is `main`'s standard error over its five runs, with a floor of one point.
 
@@ -546,7 +547,7 @@ The tolerance: Filed 1.25%, different-label pairs 1.00% (the floor).
 All five are reported, struck and not used.
 
 **The keys.**
-- A smallest request on each key showed 2,000,000 input tokens a minute with all of them left on `ANTHROPIC_API_KEY_DF`, against 500,000 with 1,000 left on `ANTHROPIC_API_KEY`.
+- A smallest request on each key showed 2,000,000 input tokens a minute with all of them left on the second key, against 500,000 with 1,000 left on `ANTHROPIC_API_KEY`.
 - The 31 runs that read the second key's allowance at their start (runs 20 to 50) each found 2,000,000 of 2,000,000.
 - Runs 24 to 50 each took the key alone for their length. Twenty-six waited 0 s; one, both in Chinese, waited 732 s while another evaluation held the key.
 
