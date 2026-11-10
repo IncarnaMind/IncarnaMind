@@ -105,6 +105,8 @@ export interface WatchOptions extends CheckRuns {
     citedIds: readonly string[],
   ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
+  /** Settles once `evidenceScope` can tell every copy of a cited Document by its text, or `stop` aborts (#2216). */
+  evidenceReady(stop: AbortSignal): Promise<void>;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
@@ -558,12 +560,14 @@ export function createContradictionWatch(options: WatchOptions) {
       model: ChatModelChoice | null;
     }): Promise<CheckContradictionsResult> {
       const { requestId, mindId } = input;
-      const ready = plan(mindId);
-      if (ready.kind !== "ready") return ready;
-      const model = await options.prepare(input.model ?? modelOf(mindId));
-      if (!model.ok) return model.result;
       const tracked = options.track(requestId, mindId);
       try {
+        await options.evidenceReady(tracked.signal);
+        if (tracked.signal.aborted) return { kind: "cancelled" };
+        const ready = plan(mindId);
+        if (ready.kind !== "ready") return ready;
+        const model = await options.prepare(input.model ?? modelOf(mindId));
+        if (!model.ok) return model.result;
         const outcome = await check(mindId, requestId, ready, model.prepared, tracked.signal);
         // A full watch, so the next Check knows every cited sentence has been watched, and how
         // this one ended (#1941). No Document started it: the card shows no "changed" line. One

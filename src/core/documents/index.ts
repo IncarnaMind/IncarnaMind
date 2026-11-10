@@ -150,6 +150,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
+import { createTextCopies, type FillTurn } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
@@ -976,6 +977,8 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const textCopies = createTextCopies(db, now);
+
   const reading = createReadingMeter({
     ...options.readingSpeed,
     clock: () => performance.now(),
@@ -1357,12 +1360,15 @@ export function createDocuments(options: DocumentsOptions) {
          WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL`,
         [at, at, job.documentId, result.contentHash],
       );
+      const version = { documentId: job.documentId, contentHash: result.contentHash };
+      textCopies.forget(version);
       let status: DocumentStatus;
       if (result.outcome === "ready") {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
         insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
+        textCopies.record(version, result.pages);
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -1485,6 +1491,51 @@ export function createDocuments(options: DocumentsOptions) {
     };
     keywordUpgradeNext = next;
     next();
+  }
+
+  let fingerprintTurn: ReturnType<typeof setTimeout> | null = null;
+  let fingerprintsFilled: { done: Promise<void>; settle(): void } | null = null;
+
+  /**
+   * Fingerprints every live Document whose text has none yet (#2216), one a turn, so nothing
+   * holds this thread for long: settles once none is left. Each call asks again, so a Document
+   * restored, or one an ended fill didn't reach, is fingerprinted before the check that waits on
+   * it goes on. Once the core closes it never settles, so nothing that waits on it reads the
+   * closed database; a check with a stop of its own ends on that (`Evidence.ready`).
+   */
+  function fillTextFingerprints(): Promise<void> {
+    if (closed) return new Promise<void>(() => {});
+    if (fingerprintsFilled) return fingerprintsFilled.done;
+    try {
+      if (!textCopies.anyMissing()) return Promise.resolve();
+    } catch (error) {
+      reportError(error);
+      return Promise.resolve();
+    }
+    let settle = () => {};
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    fingerprintsFilled = { done, settle };
+    const next = () => {
+      fingerprintTurn = null;
+      let turn: FillTurn = "done";
+      try {
+        if (!closed) turn = textCopies.fillNext();
+      } catch (error) {
+        // Not one Document's failure: the fill ends here, and the next check tries again.
+        reportError(error);
+      }
+      if (typeof turn === "object") reportError(turn.passedOver);
+      if (turn !== "done") {
+        fingerprintTurn = setTimeout(next, 0);
+        return;
+      }
+      fingerprintsFilled = null;
+      settle();
+    };
+    fingerprintTurn = setTimeout(next, 0);
+    return done;
   }
 
   /** Writes one Document's upgraded keyword rows, or drops a result it is too late for. */
@@ -3262,6 +3313,8 @@ export function createDocuments(options: DocumentsOptions) {
     ids,
     hasDocumentOutside,
     upgradeKeywordIndex,
+    fillTextFingerprints,
+    textCopies,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
@@ -3809,6 +3862,7 @@ export function createDocuments(options: DocumentsOptions) {
             documentId,
             contentHash,
           ]);
+          if (contentHash !== null) textCopies.forget({ documentId, contentHash });
           db.run(
             `DELETE FROM passages
              WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL`,
@@ -3846,6 +3900,7 @@ export function createDocuments(options: DocumentsOptions) {
           db.run("DELETE FROM document_pages WHERE document_id = ? AND deleted_at IS NOT NULL", [
             id,
           ]);
+          textCopies.forgetDocument(id);
         }
       });
       options.emitKept?.(keptCitationTexts());
@@ -3900,6 +3955,8 @@ export function createDocuments(options: DocumentsOptions) {
 
     close(): void {
       closed = true;
+      if (fingerprintTurn) clearTimeout(fingerprintTurn);
+      fingerprintsFilled = null;
       library.close();
       embedding.close();
       processor.close();
