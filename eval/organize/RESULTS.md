@@ -422,47 +422,106 @@ That is one label line each, and one of them is in the held-out half.
 | Fresh set, Chinese | 17%, 13%, 0%: misses (mean 10.1%) | 15%, 7%, 0%: meets (mean 7.2%) | 35%, 35%, 34%: misses (mean 34.5%) | 34%, 34%, 33%: misses (mean 33.7%) |
 
 
+
 ## 2026-11-10: choosing between the parts of #2917, the isolation stage (#2737)
 
-The stage that `plan-2737.md` sets out, run as written. Nothing qualifies, so nothing goes forward: "both, 2b" and the final gate don't run.
+**No arm qualified:** in Chinese every arm shared Folders across labels, where `main` had 0 different-label pairs of 77 in every run while filing 42.5% of the Documents (6 or 7 of 16 a run). Nothing goes forward, and "both, 2b" and the final gate don't run.
 
 **Setup.**
+- The stage that `plan-2737.md` sets out, run as written.
 - The tuning half one language at a time: English Documents with the interface in English (21 readable), Chinese Documents with it in Chinese (16 readable).
 - Five runs an arm and language, on Claude Haiku 5.5 with the key `ANTHROPIC_API_KEY_DF`, every arm alike. One run at a time, in the plan's turns.
 - Arms: `main` d979e55c4, part 2 dde23e21e, part 2b e211b8045, part 3 13e0b5d4d, both 25f6bc640.
-- The pair bars score a two-Folder Document by its second Folder where its Folder holds that one most (#2937); the labels as written are reported beside them.
-- Each table lists every run, as a count over the readable Documents or the pairs, then the mean. The row under `main` gives its lowest and highest run.
+- The pair bars score a two-Folder Document by its second Folder where its Folder holds that one most (#2937). Each run's labels-as-written figures are in its record.
+- A tolerance is `main`'s standard error over its five runs, with a floor of one point.
 
-**The tolerance** is `main`'s standard error from its five runs, with a floor of one point:
+### English: every run
 
-| | Filed | Different-label pairs |
+| Arm | Run | Filed | Different-label pairs | Requests answered | Refused | Ended without a reply |
+|---|---|---|---|---|---|---|
+| `main` | 1 | 17/21 (81.0%) | 0/101 (0.0%) | 4 | 0 | 0 |
+| `main` | 2 | 12/21 (57.1%) | 2/97 (2.1%) | 4 | 0 | 0 |
+| `main` | 3 | 11/21 (52.4%) | 2/97 (2.1%) | 4 | 0 | 0 |
+| `main` | 4 | 14/21 (66.7%) | 8/99 (8.1%) | 4 | 0 | 0 |
+| `main` | 5 | 11/21 (52.4%) | 3/101 (3.0%) | 4 | 0 | 0 |
+| part 2 | 1 | 17/21 (81.0%) | 10/97 (10.3%) | 5 | 0 | 0 |
+| part 2 | 2 | 12/21 (57.1%) | 3/99 (3.0%) | 5 | 0 | 0 |
+| part 2 | 3 | 20/21 (95.2%) | 10/97 (10.3%) | 4 | 0 | 0 |
+| part 2 | 4 | 18/21 (85.7%) | 17/101 (16.8%) | 5 | 0 | 0 |
+| part 2 | 5 | 12/21 (57.1%) | 0/99 (0.0%) | 5 | 0 | 0 |
+| part 2b | 1 | 17/21 (81.0%) | 8/100 (8.0%) | 5 | 0 | 0 |
+| part 2b | 2 | 15/21 (71.4%) | 3/100 (3.0%) | 5 | 0 | 0 |
+| part 2b | 3 | 16/21 (76.2%) | 2/97 (2.1%) | 5 | 0 | 0 |
+| part 2b | 4 | 12/21 (57.1%) | 14/99 (14.1%) | 5 | 0 | 0 |
+| part 2b | 5 | 12/21 (57.1%) | 2/97 (2.1%) | 5 | 0 | 0 |
+| part 3 | 1 | 18/21 (85.7%) | 11/97 (11.3%) | 4 | 0 | 0 |
+| part 3 | 2 | 16/21 (76.2%) | 0/97 (0.0%) | 4 | 0 | 0 |
+| part 3 | 3 | 16/21 (76.2%) | 6/100 (6.0%) | 4 | 0 | 0 |
+| part 3 | 4 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+| part 3 | 5 | 20/21 (95.2%) | 9/97 (9.3%) | 4 | 0 | 0 |
+| both | 1 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+| both | 2 | 18/21 (85.7%) | 5/97 (5.2%) | 5 | 0 | 0 |
+| both | 3 | 20/21 (95.2%) | 6/100 (6.0%) | 4 | 0 | 0 |
+| both | 4 | 20/21 (95.2%) | 0/101 (0.0%) | 4 | 0 | 0 |
+| both | 5 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+
+### English: means
+
+The tolerance: Filed 5.43%, different-label pairs 1.35%.
+
+| Arm | Filed mean | Different-label mean |
 |---|---|---|
-| English | 5.4% | 1.4% |
-| Chinese | 1.2% | 1.0% (the floor) |
+| `main` | 61.9% | 3.0% |
+| `main`'s lowest–highest | 52.4%–81.0% | 0.0%–8.1% |
+| part 2 | 75.2% | 8.1% |
+| part 2b | 68.6% | 5.9% |
+| part 3 | 86.7% | 6.4% |
+| both | 95.2% | 4.3% |
 
-`main`'s five Chinese runs all had 0 different-label pairs of 77.
+### Chinese: every run
 
-### English (tolerance: Filed 5.4%, different-label 1.4%)
+| Arm | Run | Filed | Different-label pairs | Requests answered | Refused | Ended without a reply |
+|---|---|---|---|---|---|---|
+| `main` | 1 | 6/16 (37.5%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 2 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 3 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 4 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 5 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| part 2 | 1 | 12/16 (75.0%) | 21/77 (27.3%) | 4 | 0 | 0 |
+| part 2 | 2 | 12/16 (75.0%) | 9/77 (11.7%) | 4 | 0 | 0 |
+| part 2 | 3 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2 | 4 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2 | 5 | 11/16 (68.8%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2b | 1 | 15/16 (93.8%) | 12/77 (15.6%) | 4 | 0 | 0 |
+| part 2b | 2 | 10/16 (62.5%) | 7/77 (9.1%) | 4 | 0 | 0 |
+| part 2b | 3 | 10/16 (62.5%) | 10/77 (13.0%) | 4 | 0 | 0 |
+| part 2b | 4 | 10/16 (62.5%) | 11/77 (14.3%) | 4 | 0 | 0 |
+| part 2b | 5 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 3 | 1 | 8/16 (50.0%) | 4/77 (5.2%) | 3 | 0 | 0 |
+| part 3 | 2 | 12/16 (75.0%) | 6/77 (7.8%) | 3 | 0 | 0 |
+| part 3 | 3 | 12/16 (75.0%) | 8/77 (10.4%) | 3 | 0 | 0 |
+| part 3 | 4 | 11/16 (68.8%) | 6/77 (7.8%) | 3 | 0 | 0 |
+| part 3 | 5 | 16/16 (100.0%) | 9/77 (11.7%) | 3 | 0 | 0 |
+| both | 1 | 12/16 (75.0%) | 12/77 (15.6%) | 4 | 0 | 0 |
+| both | 2 | 13/16 (81.3%) | 22/77 (28.6%) | 4 | 0 | 0 |
+| both | 3 | 13/16 (81.3%) | 8/77 (10.4%) | 4 | 0 | 0 |
+| both | 4 | 14/16 (87.5%) | 16/77 (20.8%) | 4 | 0 | 0 |
+| both | 5 | 15/16 (93.8%) | 16/77 (20.8%) | 4 | 0 | 0 |
 
-| Arm | Runs | Filed, each run | Filed mean | Different-label, each run | Mean | As written, each run | Same-label, each run |
-|---|---|---|---|---|---|---|---|
-| main | 5 | 17/21; 12/21; 11/21; 14/21; 11/21 | 61.9% | 0/101; 2/97; 2/97; 8/99; 3/101 | 3.0% | 5/101; 8/101; 6/101; 15/101; 9/101 | 19/19; 17/23; 13/23; 20/21; 12/19 |
-| main's lowest–highest | | | 52.4%–81.0% | | 0.0%–8.1% | | |
-| p2 | 5 | 17/21; 12/21; 20/21; 18/21; 12/21 | 75.2% | 10/97; 3/99; 10/97; 17/101; 0/99 | 8.1% | 16/101; 8/101; 16/101; 19/101; 7/101 | 19/23; 14/21; 19/23; 6/19; 19/21 |
-| p2b | 5 | 17/21; 15/21; 16/21; 12/21; 12/21 | 68.6% | 8/100; 3/100; 2/97; 14/99; 2/97 | 5.9% | 11/101; 10/101; 8/101; 20/101; 8/101 | 20/20; 17/20; 18/23; 17/21; 17/23 |
-| p3 | 5 | 18/21; 16/21; 16/21; 21/21; 20/21 | 86.7% | 11/97; 0/97; 6/100; 5/97; 9/97 | 6.4% | 15/101; 6/101; 8/101; 9/101; 15/101 | 19/23; 20/23; 8/20; 23/23; 22/23 |
-| both | 5 | 21/21; 18/21; 20/21; 20/21; 21/21 | 95.2% | 5/97; 5/97; 6/100; 0/101; 5/97 | 4.3% | 9/101; 9/101; 8/101; 3/101; 9/101 | 23/23; 23/23; 19/20; 19/19; 23/23 |
+### Chinese: means
 
-### Chinese (tolerance: Filed 1.2%, different-label 1.0%)
+The tolerance: Filed 1.25%, different-label pairs 1.00% (the floor).
 
-| Arm | Runs | Filed, each run | Filed mean | Different-label, each run | Mean | As written, each run | Same-label, each run |
-|---|---|---|---|---|---|---|---|
-| main | 5 | 6/16; 7/16; 7/16; 7/16; 7/16 | 42.5% | 0/77; 0/77; 0/77; 0/77; 0/77 | 0.0% | 0/77; 3/77; 3/77; 3/77; 3/77 | 6/14; 9/14; 9/14; 9/14; 9/14 |
-| main's lowest–highest | | | 37.5%–43.8% | | 0.0%–0.0% | | |
-| p2 | 5 | 12/16; 12/16; 10/16; 10/16; 11/16 | 68.8% | 21/77; 9/77; 0/77; 0/77; 0/77 | 7.8% | 21/77; 9/77; 3/77; 3/77; 3/77 | 10/14; 6/14; 12/14; 12/14; 12/14 |
-| p2b | 5 | 15/16; 10/16; 10/16; 10/16; 10/16 | 68.8% | 12/77; 7/77; 10/77; 11/77; 0/77 | 10.4% | 15/77; 7/77; 12/77; 12/77; 3/77 | 14/14; 5/14; 10/14; 10/14; 12/14 |
-| p3 | 5 | 8/16; 12/16; 12/16; 11/16; 16/16 | 73.8% | 4/77; 6/77; 8/77; 6/77; 9/77 | 8.6% | 6/77; 8/77; 10/77; 8/77; 10/77 | 9/14; 10/14; 11/14; 10/14; 9/14 |
-| both | 5 | 12/16; 13/16; 13/16; 14/16; 15/16 | 83.8% | 12/77; 22/77; 8/77; 16/77; 16/77 | 19.2% | 12/77; 22/77; 10/77; 16/77; 16/77 | 7/14; 12/14; 11/14; 14/14; 14/14 |
+| Arm | Filed mean | Different-label mean |
+|---|---|---|
+| `main` | 42.5% | 0.0% |
+| `main`'s lowest–highest | 37.5%–43.8% | 0.0%–0.0% |
+| part 2 | 68.8% | 7.8% |
+| part 2b | 68.8% | 10.4% |
+| part 3 | 73.8% | 8.6% |
+| both | 83.8% | 19.2% |
+
+**Part 2b in English, unrounded.** Its different-label mean is (8/100 + 3/100 + 2/97 + 14/99 + 2/97) / 5 = 5.8530%. The line two tolerances above `main` is 3.0350% + 2 × 1.3522% = 5.7394%. So it is beyond two tolerances and fails point 3 with no extension. In Chinese it fails by more either way: 10.3896% against a line of 1.0000%.
 
 
 **Verdicts by the plan's points.**
