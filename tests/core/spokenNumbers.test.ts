@@ -32,6 +32,38 @@ describe("English numbers in a transcript", () => {
     ["November the first to the thirtieth", "November the 1st to the 30th"],
     ["three hundred four thousand five hundred", "304,500"],
     ["twenty seconds", "20 seconds"],
+    [
+      "between twenty ten and twenty twelve the numbers doubled",
+      "between 2010 and 2012 the numbers doubled",
+    ],
+    ["in twenty nineteen and twenty twenty-one", "in 2019 and 2021"],
+    ["sales in March and twenty twenty-one were flat", "sales in March and 2021 were flat"],
+    ["in nineteen oh five", "in 1905"],
+    ["eighty to two hundred people", "80 to 200 people"],
+    ["ninety to one hundred percent", "90 to 100%"],
+    ["ninety to a hundred percent", "90 to 100%"],
+    ["five hundred to six thousand", "500 to 6,000"],
+    ["two thousand to three thousand", "2,000 to 3,000"],
+    ["twenty or thirty million", "20 or 30 million"],
+    ["fifty, sixty people", "50, 60 people"],
+    ["in twenty twenty-five, thirty thousand people came", "in 2025, 30,000 people came"],
+    ["one hundred and one days", "101 days"],
+    ["one hundred first-time buyers", "100 first-time buyers"],
+    ["ninety second-hand cars", "90 second-hand cars"],
+    ["a fifty point drop", "a 50 point drop"],
+    ["one point five million", "1.5 million"],
+    [
+      "revenue grew twenty percent and one of the reasons is pricing",
+      "revenue grew 20% and one of the reasons is pricing",
+    ],
+    [
+      "margin was six point eight percent and two of the plants closed",
+      "margin was 6.8% and two of the plants closed",
+    ],
+    ["fifty to sixty percent and one of the reasons", "50 to 60% and one of the reasons"],
+    ["between twenty percent and thirty percent", "between 20% and 30%"],
+    ["at this point fifteen percent of users left", "at this point 15% of users left"],
+    ["at that point twenty people had joined", "at that point 20 people had joined"],
   ])("%s is %s", (said, written) => {
     expect(writtenNumbers(said)).toBe(written);
   });
@@ -65,6 +97,57 @@ describe("English numbers in a transcript", () => {
     "up to twenty twenty-five people",
   ])("%s is left as said", (said) => {
     expect(writtenNumbers(said)).toBe(said);
+  });
+
+  // protects=two numbers after "between" are years only before "and" and another year, and after "and" only when no number comes before it (#1031); fails_when=between twenty thirty people becomes between 2030 people, somewhere between twenty twenty five percent becomes 2025%, or for twenty twenty and twenty twenty-one becomes for twenty twenty and 2021; no_claim=which two numbers after another lead-in are a year.
+  test.each([
+    "between twenty thirty people",
+    "somewhere between twenty twenty five percent",
+    "between nineteen twenty people",
+    "in between twenty ten minute calls",
+    "between twenty twenty and thirty people",
+    "for twenty twenty and twenty twenty-one",
+    "we had twenty thirty and twenty thirty",
+  ])("%s is no year, and is left as said", (said) => {
+    expect(writtenNumbers(said)).toBe(said);
+  });
+
+  // protects=numbers said in a row stay as said when one may share the next one's "hundred" or "thousand" (#1031); fails_when=twenty to thirty thousand dollars becomes 20 to 30,000 dollars, ten to fifteen hundred units 10 to 1,500 units, or fifty, sixty thousand dollars 50, 60,000 dollars; no_claim=which of the two readings the speaker meant.
+  test.each([
+    "twenty to thirty thousand dollars",
+    "fifty or sixty thousand people",
+    "between fifteen and twenty thousand pounds",
+    "ten to fifteen hundred units",
+    "fifty, sixty thousand dollars",
+    "fifty, sixty, seventy thousand",
+    "one hundred to two hundred thousand dollars",
+    "ten, seventy thousand, seventy",
+    "twenty, sixty thousand and two million",
+    "twenty twenty, thirty thousand",
+  ])("%s may share a word, and is left as said", (said) => {
+    expect(writtenNumbers(said)).toBe(said);
+  });
+
+  // protects=a number stays as said when the word that ends it lies outside what is read: an ordinal, a decade, a plural, "oh five", or a "point" that isn't its decimal point (#1031); fails_when=one hundred and first becomes 100 and first, the nineteen nineties the 19 nineties, nineteen oh five 19 oh five, or twenty point fifteen 20 point fifteen; no_claim=that an ordinal above the thirty-first is ever written as digits.
+  test.each([
+    "one hundred and first",
+    "the one hundred and twenty-first time",
+    "the nineteen nineties",
+    "the eighteen hundreds",
+    "the twelve thousandth customer",
+    "nineteen oh five was the year",
+    "twenty point fifteen",
+    "at one point one hundred people left",
+    "zero to a hundred percent",
+  ])("%s is left as said", (said) => {
+    expect(writtenNumbers(said)).toBe(said);
+  });
+
+  // protects=a line of number words is written in one pass however long it is (#1031); fails_when=the reader of a run calls itself at every new number and 10,000 of them overflow the stack; no_claim=how long the writing takes.
+  test("a line of 10,000 numbers in a row is left as said", () => {
+    const said = "one hundred ".repeat(10_000).trim();
+    expect(writtenNumbers(said)).toBe(said);
+    expect(writtenNumbers("one hundred")).toBe("100");
   });
 
   test("an empty line, a line that is only a number, and a number at each end of a line", () => {
@@ -157,11 +240,17 @@ describe("Chinese numbers in a transcript", () => {
     ["最多到五十个", "最多到50个"],
     ["比去年多二十个", "比去年多20个"],
     ["一周三十个小时", "一周30个小时"],
+    ["一百块两百块都行", "100块200块都行"],
+    ["本周十五号", "本周15号"],
+    ["本周十五个订单", "本周15个订单"],
+    ["二十、三十个", "20、30个"],
+    ["三月、四月", "3月、4月"],
+    ["三十个到五十个", "30个到50个"],
   ])("%s is %s", (said, written) => {
     expect(writtenNumbers(said)).toBe(written);
   });
 
-  // protects=a number is written whole or left as said, and a range at both ends or at neither (#1031); fails_when=十几二十个 becomes 十几20个, 两块五 becomes 2块五, 百分之二十到三十 becomes 20%到三十, 一到十二月就下雪 becomes 1到12月就下雪, or 周六日 becomes 周6日; no_claim=that these could not be written whole one day.
+  // protects=a number is written whole or left as said, and a range at both ends or at neither (#1031); fails_when=十几二十个 becomes 十几20个, 十几个到二十个 becomes 十几个到20个, 两块五 becomes 2块五, 十块零五 becomes 10块零五, 百分之二十到三十 becomes 20%到三十, 一到十二月就下雪 becomes 1到12月就下雪, 周六日 becomes 周6日, or 下周二十个人来 becomes 下周20个人来; no_claim=that these could not be written whole one day.
   test.each([
     "至少有十几二十个吧",
     "百分之二十到三十",
@@ -185,6 +274,13 @@ describe("Chinese numbers in a transcript", () => {
     "两块五十个",
     "增长百分之二十到三十五万",
     "百分之二十到三分之一",
+    "十几个到二十个",
+    "三十多个到五十个",
+    "十几、二十个",
+    "二、三十个",
+    "十块零五",
+    "下周二十个人来",
+    "周二十到三十个",
   ])("%s is left as said", (said) => {
     expect(writtenNumbers(said)).toBe(said);
   });

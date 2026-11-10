@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { periodCounts, statedFigure } from "../../src/core/answers/checks/calculated";
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
-import { wholeNumberWords } from "../../src/shared/numberWords";
+import { figuresOf, wholeNumberWords } from "../../src/shared/numberWords";
 import { listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import {
@@ -2103,6 +2103,31 @@ describe("structural part and declared-count readers", () => {
     expect(wholeNumberWords(String(word))).toBe(value);
   });
 
+  // protects=numbers said one after another are each read with their own words (#1031); fails_when=one hundred twenty one hundred reads 100 and 2,100, or three hundred four thousand five hundred two thousand three reads 304,000 and 502,003; no_claim=which numbers a speaker meant where the words allow two readings.
+  test.each<[string, number[]]>([
+    ["one hundred twenty one hundred", [120, 100]],
+    ["three hundred fifty four hundred", [350, 400]],
+    ["two thousand five hundred three thousand", [2500, 3000]],
+    ["three hundred four thousand five hundred two thousand three", [304500, 2003]],
+    ["two thousand three hundred thousand", [2000, 300000]],
+    ["twenty twenty five", [20, 25]],
+    ["four five", [4, 5]],
+    ["three hundred four thousand five hundred", [304500]],
+  ])("the numbers of %s", (words, values) => {
+    expect(figuresOf(words.split(" ")).map((figure) => figure.value)).toEqual(values);
+  });
+
+  // protects=a run of number words is read in one pass however long it is (#1031); fails_when=the reader calls itself on the rest of the words at every new number, and 10,000 numbers overflow the stack; no_claim=how long the reading takes.
+  test("10,000 numbers in a row are read, and are not one number", () => {
+    const run = "one hundred ".repeat(10_000).trim();
+    expect(figuresOf(run.split(" "))).toHaveLength(10_000);
+    expect(wholeNumberWords(run)).toBeNull();
+    expect(periodCounts(`${run} days`, {})).toMatchObject([
+      { chars: "one hundred days", value: 100 },
+    ]);
+    expect(wholeNumberWords("one hundred")).toBe(100);
+  });
+
   // protects=words that say two numbers are not read as one: the check has no figure for them, and still reads a number said whole (#1031); fails_when=three hundred and four hundred reads 30400, two thousand and three thousand reads 5000, or three hundred and four stops reading 304; no_claim=that each of the two numbers is read by itself.
   test.each([
     ["three hundred and four", "The site holds three hundred and four machines.", 304],
@@ -2180,12 +2205,16 @@ describe("structural part and declared-count readers", () => {
       expect(periodCounts(text, {})).toEqual([]);
     },
   );
-  test.each(["three hundred and four hundred days", "two thousand and three thousand days"])(
-    "words that say two numbers are no count of periods: %s",
-    (text) => {
-      expect(periodCounts(text, {})).toEqual([]);
-    },
-  );
+  // protects=a unit after words that say two numbers counts the last one, as "300 to 400 days" in digits does, so the sentence keeps a figure to check (#1031); fails_when=three hundred and four hundred days reads 30,400 days, or no count at all; no_claim=that the first of the two numbers is a count too.
+  test.each([
+    ["three hundred and four hundred days", "four hundred days", 400],
+    ["two thousand and three thousand days", "three thousand days", 3000],
+    ["four five days", "five days", 5],
+  ])("words that say two numbers count their unit with the last: %s", (text, chars, value) => {
+    expect(periodCounts(String(text), {})).toMatchObject([
+      { chars, value, unit: { kind: "other", word: "day" } },
+    ]);
+  });
 
   test("display markers do not turn Calculation none into an arithmetic declaration", () => {
     expect(readVerdict("Verdict: supported\nCalculation: none[^1][^2]")?.calculations).toEqual([]);

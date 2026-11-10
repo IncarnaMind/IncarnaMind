@@ -19,7 +19,7 @@ import {
   sameNumber,
   showResult,
 } from "../../../shared/formula";
-import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
+import { INTEGER_WORDS, lastNumberWords, wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 
@@ -79,10 +79,13 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
   );
   for (const match of text.matchAll(english)) {
     const named = match[1] ?? "";
-    const value = wholeNumberWords(named) ?? (/^\d+$/.test(named) ? Number(named) : null);
+    // Words that say more than one number count their unit with the last: "three hundred and four
+    // hundred days" is 400 days, as "300 to 400 days" is. A count left unread would leave the
+    // sentence no figure to check (#1031).
+    const said = /^\d+$/.test(named) ? { value: Number(named), at: 0 } : lastNumberWords(named);
     const unit = match[2]?.toLowerCase().replace(/s$/, "");
-    if (value === null || !Number.isSafeInteger(value) || !unit) continue;
-    counts.push(count(match.index, match.index + match[0].length, value, unit));
+    if (said === null || !Number.isSafeInteger(said.value) || !unit) continue;
+    counts.push(count(match.index + said.at, match.index + match[0].length, said.value, unit));
   }
   const units: Readonly<Record<string, string>> = {
     年: "year",

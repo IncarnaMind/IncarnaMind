@@ -66,82 +66,107 @@ interface Figure {
   scaled: boolean;
   /** The number words are exactly "one" to "nine", which running speech uses as words. */
   small: boolean;
+  /** Which of the words it starts at. */
+  from: number;
 }
 
-/** The numbers a run of number words says: "four hundred twelve" is one, "four five" is two. */
-export function figuresOf(words: readonly string[]): Figure[] {
-  const out: Figure[] = [];
+/** The one number that `words[from]` to `words[to - 1]` say. */
+function figureOf(words: readonly string[], from: number, to: number): Figure {
   let total = 0;
   let current = 0;
-  let last: Kind | null = null;
-  let scaled = false;
-  let count = 0;
   let scales = 0;
-  let lastScale = "";
-  let afterHundred = -1;
-  let afterScale = -1;
-  const close = () => {
-    if (count > 0) {
-      out.push({
-        value: total + current,
-        word:
-          scales === 1 && last === "scale" && (SCALES.get(lastScale) ?? 0) >= 1e6
-            ? lastScale
-            : null,
-        scaled,
-        small: count === 1 && last === "unit" && total + current < 10,
-      });
-    }
-    total = 0;
-    current = 0;
-    last = null;
-    scaled = false;
-    count = 0;
-    scales = 0;
-    afterHundred = -1;
-  };
-  for (const [at, each] of words.entries()) {
+  for (const each of words.slice(from, to)) {
     const kind = kindOf(each);
-    // A second "hundred", or a scale no smaller than the last, starts another number: "three
-    // hundred four hundred" is 300 and 400, and "two thousand three thousand" 2,000 and 3,000.
-    const another =
-      kind === "hundred"
-        ? afterHundred
-        : kind === "scale" && scales > 0 && (SCALES.get(each) ?? 0) >= (SCALES.get(lastScale) ?? 0)
-          ? afterScale
-          : -1;
-    if (another > 0)
-      return [...figuresOf(words.slice(0, another)), ...figuresOf(words.slice(another))];
-    if (!goesOn(last, kind)) close();
-    if (kind === "hundred") {
-      current = (current || 1) * 100;
-      afterHundred = at + 1;
-    } else if (kind === "scale") {
+    if (kind === "hundred") current = (current || 1) * 100;
+    else if (kind === "scale") {
       total += (current || 1) * (SCALES.get(each) ?? 1);
       current = 0;
-      scaled = true;
       scales++;
-      lastScale = each;
-      afterHundred = -1;
-      afterScale = at + 1;
     } else current += TENS.get(each) ?? UNITS.get(each) ?? 0;
-    last = kind;
-    count++;
   }
-  close();
+  const end = words[to - 1] ?? "";
+  return {
+    value: total + current,
+    word: scales === 1 && (SCALES.get(end) ?? 0) >= 1e6 ? end : null,
+    scaled: scales > 0,
+    small: to - from === 1 && kindOf(end) === "unit" && total + current < 10,
+    from,
+  };
+}
+
+/**
+ * The numbers a run of number words says, in turn: "four hundred twelve" is one, "four five" is
+ * two. A number takes every word that can go on with it and still leave the next number a start:
+ * "three hundred fifty four hundred" is 350 and 400.
+ */
+export function figuresOf(words: readonly string[]): Figure[] {
+  const out: Figure[] = [];
+  let from = 0;
+  let last: Kind | null = null;
+  // Of the number being read: whether it has a "hundred" since its last scale, and that scale.
+  let hundred = false;
+  let scale = 0;
+  for (let at = 0; at < words.length; at++) {
+    const each = words[at] ?? "";
+    const kind = kindOf(each);
+    // A second "hundred", or a scale no smaller than the last, is another number's, with the word
+    // or two it multiplies: "three hundred four hundred" is 300 and 400, and "two thousand three
+    // hundred thousand" 2,000 and 300,000.
+    const another =
+      (kind === "hundred" && hundred) ||
+      (kind === "scale" && scale > 0 && (SCALES.get(each) ?? 0) >= scale);
+    const twoBack = kindOf(words[at - 2] ?? "hundred");
+    const multiplied =
+      last === "scale"
+        ? 0
+        : last === "hundred" && twoBack !== "hundred" && twoBack !== "scale"
+          ? 2
+          : 1;
+    const start = !goesOn(last, kind) ? at : another ? at - multiplied : from;
+    if (start > from) {
+      out.push(figureOf(words, from, start));
+      from = start;
+      last = null;
+      hundred = false;
+      scale = 0;
+      at = start - 1;
+      continue;
+    }
+    if (kind === "hundred") hundred = true;
+    else if (kind === "scale") {
+      scale = SCALES.get(each) ?? 0;
+      hundred = false;
+    }
+    last = kind;
+  }
+  if (words.length > from) out.push(figureOf(words, from, words.length));
   return out;
 }
 
+const WHOLE = new RegExp(`^${INTEGER_WORDS}$`, "i");
+
+/** The numbers of a text that is number words and nothing else, each with where it starts. */
+function numbersIn(text: string): { value: number; at: number }[] | null {
+  if (!WHOLE.test(text)) return null;
+  const words = [...text.toLowerCase().matchAll(/[a-z]+/g)].filter(([each]) => each !== "and");
+  return figuresOf(words.map(([each]) => each)).map(({ value, from }) => ({
+    value,
+    at: words[from]?.index ?? 0,
+  }));
+}
+
 export function wholeNumberWords(text: string): number | null {
-  if (!new RegExp(`^${INTEGER_WORDS}$`, "i").test(text)) return null;
-  const figures = figuresOf(
-    text
-      .toLowerCase()
-      .split(/[ -]+/)
-      .filter((each) => each !== "and"),
-  );
-  const value = figures.length === 1 ? figures[0]?.value : undefined;
+  const numbers = numbersIn(text);
+  const value = numbers?.length === 1 ? numbers[0]?.value : undefined;
   return value !== undefined && Number.isFinite(value) && Number.isInteger(value) && value >= 0
     ? value
     : null;
+}
+
+/**
+ * The number a unit after number words counts, which is the last one said, and where it starts:
+ * 400, at "four", in "three hundred and four hundred".
+ */
+export function lastNumberWords(text: string): { value: number; at: number } | null {
+  return numbersIn(text)?.at(-1) ?? null;
 }
