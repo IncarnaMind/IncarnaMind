@@ -133,7 +133,7 @@ export interface VerifyOptions extends CheckRuns {
   warmReranker?(): void;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   /** Settles once `evidenceScope` can tell every copy of the file by its text, or `stop` aborts (#2216). */
-  evidenceReady(stop: AbortSignal): Promise<void>;
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -345,7 +345,7 @@ export function createVerify(options: VerifyOptions) {
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
       return { kind: "cancelled" };
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
-    await options.evidenceReady(signal);
+    await options.evidenceReady(signal, mindId);
     if (signal.aborted) return { kind: "cancelled" };
     const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
     if (empty) return empty;

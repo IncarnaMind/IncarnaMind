@@ -1822,6 +1822,62 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     }
   });
 
+  // protects=a write's check that starts after the core closed waits for good, as the app quits, and reads nothing of the closed database (#2216); fails_when=it reads the Note's import before its wait and fails on the closed database; no_claim=what the write checked first does once the core closes.
+  test("a write's check that starts after the core closed never goes on, and fails nothing", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      let open: Core | null = null;
+      const model = scriptedModel(
+        (call): ScriptedReply => {
+          if (isCheckRun(call)) {
+            // The first write's check: the core closes under it, so the next write's starts after.
+            open?.close();
+            open = null;
+            return checkReply(call, PLANS);
+          }
+          const { results } = call;
+          const search = results.find((result) => result.tool === "search_documents");
+          if (!search) {
+            return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+          }
+          if (!results.some((result) => result.tool === "create_mind")) {
+            const content = "## Tides\n\nSpring tides come at new and full moon [^1].";
+            return { calls: [{ tool: "create_mind", input: { title: "Tide notes", content } }] };
+          }
+          if (!results.some((result) => result.tool === "add_to_mind")) {
+            return { calls: [{ tool: "add_to_mind", input: { content: `${UNBACKED} [^1].` } }] };
+          }
+          if (!results.some((result) => result.tool === "cite")) {
+            const [passage] = shownPassages(search.text);
+            const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+            return { calls: [{ tool: "cite", input: { citations } }] };
+          }
+          return { text: "Wrote it from your Documents." };
+        },
+        { generate: judgesNothing },
+      );
+      const { core, folderId, mindId } = await harbour(model, undefined, undefined);
+      open = core;
+
+      await core.askInConversation({
+        text: "Make a new note on tides and add a short note on them to this Mind too",
+        mindId,
+        scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+      });
+      await vi.waitFor(() => expect(open).toBeNull(), { timeout: 20_000, interval: 5 });
+      for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
+
+      const failed = errors.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes("couldn't be checked before it landed"));
+      // Only the write checked as the core closed fails; the next one's check, started after, waits.
+      expect(failed).toHaveLength(1);
+      expect(failed[0]).not.toContain(mindId);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.
   test("a sentence with no Citation isn't checked as it lands", async () => {
     const { calls, client } = await write({
