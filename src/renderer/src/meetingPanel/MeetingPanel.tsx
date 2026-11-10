@@ -16,7 +16,6 @@ import {
   MicOffLineIcon,
   MinusLineIcon,
 } from "../components/lineIcons";
-import { HelpButtons } from "../components/meetings/HelpButtons";
 import {
   HelpHeading,
   HelpOutline,
@@ -35,6 +34,7 @@ import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
+import { AskBar } from "./AskBar";
 
 declare global {
   interface Window {
@@ -63,8 +63,8 @@ function keyLabels(held: HeldKeys) {
 
 /**
  * The floating panel during a call: above the meeting app, never taking its focus. Its
- * header says the recording and holds the template, collapse and close; then the help buttons,
- * and under them the latest suggestion, which a press replaces unless it is pinned. Collapsed,
+ * header says the recording and holds the template, collapse and close; then the ask bar with the
+ * help prompts, and under it the latest suggestion, which a press replaces unless it is pinned. Collapsed,
  * it is a pill with the level bars, which become Stop when pointed at.
  */
 export function MeetingPanel() {
@@ -240,11 +240,16 @@ function Panel({
   const t = useT();
   const hidden = useAppStore((state) => state.settings?.device.meetingPanelHidden ?? true);
   const [choosing, setChoosing] = useState(false);
+  const [reach, setReach] = useState(0);
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const help = meeting.help;
   const shownPinned = pinned.filter((each) => each.answerId !== help?.answerId);
   return (
-    <section aria-label={t("meetings.help.label")} className="panel">
+    <section
+      aria-label={t("meetings.help.label")}
+      style={reach > 0 ? { minHeight: reach } : undefined}
+      className="panel"
+    >
       <header className="panel-header panel-drag">
         <RecordingState meeting={meeting} />
         <MicrophoneButton
@@ -322,11 +327,11 @@ function Panel({
           <span>{t("meetings.panel.hidden")}</span>
         </p>
       )}
-      <HelpButtons
+      <AskBar
         meeting={meeting}
-        layout="grid"
         keys={keys}
-        onPress={(kind) => void askHelp(meeting, kind)}
+        onAsk={(kind) => void askHelp(meeting, kind)}
+        onReach={setReach}
       />
       {shownPinned.map((each) => (
         <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />
