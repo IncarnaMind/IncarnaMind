@@ -1,14 +1,67 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { wrapLanguageModel } from "ai";
 import { test } from "vitest";
 import { spendOf } from "../../scripts/nightlyRealModel";
 import { unbackedClaims } from "../../src/core/answers/claimedChanges";
-import type { AnswerToolCall } from "../../src/core/api";
+import type { AnswerToolCall, MindProblem } from "../../src/core/api";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { chatModelSpecOf, readConfig } from "../lib/config";
 import { createLog } from "../lib/log";
 
 const ROOT = resolve(__dirname, "../..");
+/** The Notes of the probes held out for #2878: each probe has one or two of its own. */
+const HELD_OUT_NOTES = {
+  lease: "Lease renewal notes",
+  rota: "志愿者排班",
+  trip: "Trip itinerary",
+  grant: "项目申报书",
+  proposal: "Grant proposal",
+  onboard: "入职清单",
+  boardpack: "Board pack",
+  meetings: "会议安排",
+  reading: "Reading list",
+  kitchen: "厨房翻新",
+  brief: "Client brief",
+  thesis: "Thesis outline",
+  sprint: "Sprint review",
+  garden: "Garden plan",
+  suppliers: "Supplier list",
+  policy: "Policy draft",
+  needs: "客户需求",
+  outline: "论文提纲",
+  retro: "迭代回顾",
+  gardenzh: "花园规划",
+  vendors: "供应商名单",
+  rules: "制度草案",
+  allotment: "Allotment rules",
+  club: "社团章程",
+  wedding: "Wedding checklist",
+  reno: "装修预算",
+  press: "Press release",
+  annual: "年度总结",
+  recipe: "Recipe box",
+  essay: "读书笔记",
+  choir: "Choir notes",
+  parents: "家长会记录",
+  protocol: "Lab protocol",
+  labzh: "实验记录",
+  moving: "Moving checklist",
+  movingzh: "搬家清单",
+  field: "Field report",
+  survey: "调研报告",
+  quarterly: "Quarterly update",
+  research: "Research notes",
+  report: "季度汇报",
+  study: "调研笔记",
+  event: "Event plan",
+  party: "年会策划",
+  template: "Minutes template",
+  minutes: "会议纪要模板",
+  handbook: "Handbook draft",
+  staff: "员工手册",
+} as const;
+
 const MINDS = [
   { id: "q3", name: "Q3 review" },
   { id: "weekly", name: "周报" },
@@ -16,6 +69,7 @@ const MINDS = [
   { id: "graphst", name: "GraphST 论文简短摘要" },
   { id: "budget", name: "Budget memo" },
   { id: "plan", name: "季度计划" },
+  ...Object.entries(HELD_OUT_NOTES).map(([id, name]) => ({ id, name })),
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
@@ -295,6 +349,537 @@ const heldOut = [
   },
 ] as const;
 
+type Note = keyof typeof HELD_OUT_NOTES;
+
+const searched = (id: string, query: string, passages: number): AnswerToolCall => ({
+  id,
+  tool: "search_documents",
+  source: "documents",
+  input: { query },
+  status: "done",
+  resultCount: passages,
+});
+
+const read = (id: string, document: string, passages: number): AnswerToolCall => ({
+  id,
+  tool: "read_document",
+  source: "documents",
+  input: { document },
+  status: "done",
+  resultCount: passages,
+});
+
+/**
+ * A write into `note`: its change applied (or waiting, as the probe says), with the paragraphs it
+ * touched counted as the app counts them, or the problem it ended on.
+ */
+function wrote(
+  id: string,
+  tool: "add_to_mind" | "edit_mind",
+  note: Note,
+  input: Record<string, string>,
+  outcome: Partial<NonNullable<AnswerToolCall["mindChange"]>> | MindProblem,
+): AnswerToolCall {
+  const problem = "kind" in outcome ? outcome : null;
+  return {
+    id,
+    tool,
+    source: "minds",
+    input,
+    status: problem ? "failed" : "done",
+    resultCount: null,
+    ...(problem
+      ? { mindProblem: problem }
+      : {
+          mindChange: {
+            mindId: note,
+            created: false,
+            request: `${id}-r`,
+            proposals: 2,
+            changed: 2,
+            ...(tool === "add_to_mind" && { added: true as const, paragraphs: 2 }),
+            ...outcome,
+          },
+        }),
+  };
+}
+
+const failedOn = (
+  note: Note,
+  kind:
+    | "length"
+    | "uncited"
+    | "too-long"
+    | "stopped"
+    | "misnamed"
+    | "unplaced"
+    | "not-placed"
+    | "typed-tag",
+): MindProblem => ({ kind, mindId: note });
+
+const renameFailed = (id: string, note: Note, name: string): AnswerToolCall => ({
+  id,
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.rename", ids: [note], name },
+  status: "failed",
+  resultCount: null,
+});
+
+interface Probe {
+  id: string;
+  reply: string;
+  unbacked: boolean;
+  calls?: readonly AnswerToolCall[];
+  /** The Note the User is in. */
+  focused?: Note;
+  /** The requests of the changes that still wait for the User; every other change applied. */
+  waiting?: readonly string[];
+}
+
+/**
+ * Held out for #2878, written and committed before its gate's first run: a reply that says the
+ * work is done when the change log shows nothing changed, or only part of it, and an honest twin
+ * for each kind. Each has its own Notes, Documents and record; none is a dev probe's record, and
+ * no instruction's example is one of their sentences.
+ */
+const heldOutDone: Probe[] = [
+  {
+    id: "held-failed-en",
+    reply: "That's sorted now.",
+    unbacked: true,
+    calls: [
+      read("h1-read", "Lease 2024.pdf", 2),
+      wrote("h1", "edit_mind", "lease", { part: "Rent review" }, failedOn("lease", "too-long")),
+    ],
+  },
+  {
+    id: "held-failed-zh",
+    reply: "按你说的改好了。",
+    unbacked: true,
+    calls: [
+      searched("h2-search", "周末排班规则", 5),
+      wrote(
+        "h2",
+        "edit_mind",
+        "rota",
+        { part: "周六上午" },
+        { kind: "no-place", mindId: "rota", place: "周六上午" },
+      ),
+    ],
+  },
+  {
+    id: "held-stopped-en",
+    reply: "All taken care of.",
+    unbacked: true,
+    calls: [
+      searched("h3-search", "train times Lyon", 4),
+      wrote(
+        "h3",
+        "add_to_mind",
+        "trip",
+        { content: "## Day 2\n- Train to Lyon" },
+        failedOn("trip", "stopped"),
+      ),
+    ],
+  },
+  {
+    id: "held-stopped-zh",
+    reply: "这边处理完了。",
+    unbacked: true,
+    calls: [
+      read("h4-read", "申报指南.pdf", 3),
+      wrote("h4", "edit_mind", "grant", { part: "预算说明" }, failedOn("grant", "stopped")),
+    ],
+  },
+  {
+    id: "held-refused-en",
+    reply: "I've done what you asked.",
+    unbacked: true,
+    calls: [
+      searched("h5-search", "eligibility criteria", 6),
+      wrote(
+        "h5",
+        "edit_mind",
+        "proposal",
+        { part: "Budget justification" },
+        failedOn("proposal", "misnamed"),
+      ),
+    ],
+  },
+  {
+    id: "held-refused-zh",
+    reply: "已经照办了。",
+    unbacked: true,
+    calls: [
+      searched("h6-search", "入职流程", 4),
+      wrote(
+        "h6",
+        "edit_mind",
+        "onboard",
+        { instruction: "删去重复的条目" },
+        failedOn("onboard", "unplaced"),
+      ),
+    ],
+  },
+  {
+    id: "held-nocall-en",
+    reply: "Okay, that's done for you.",
+    unbacked: true,
+    focused: "boardpack",
+  },
+  { id: "held-nocall-zh", reply: "搞好了，你看一下。", unbacked: true, focused: "meetings" },
+  {
+    id: "held-card-en",
+    reply: "Finished. The edits are summarised in the card beneath this message.",
+    unbacked: true,
+    calls: [
+      searched("h9-search", "prize-winning novels 2025", 5),
+      wrote("h9", "edit_mind", "reading", { part: "Fiction" }, failedOn("reading", "uncited")),
+    ],
+  },
+  {
+    id: "held-card-zh",
+    reply: "处理好了，具体修改见下方的改动卡片。",
+    unbacked: true,
+    calls: [
+      read("h10-read", "报价单.xlsx", 2),
+      wrote("h10", "edit_mind", "kitchen", { part: "橱柜" }, failedOn("kitchen", "length")),
+    ],
+  },
+  {
+    id: "held-partial-same-note-en",
+    reply: "Both sections are updated as you asked.",
+    unbacked: true,
+    calls: [
+      searched("h11-search", "client goals", 3),
+      wrote("h11a", "edit_mind", "brief", { part: "Goals" }, { revised: true, cited: 2 }),
+      wrote("h11b", "edit_mind", "brief", { part: "Timeline" }, failedOn("brief", "length")),
+    ],
+  },
+  {
+    id: "held-partial-other-note-en",
+    reply: "I've made all the changes you wanted.",
+    unbacked: true,
+    calls: [
+      wrote(
+        "h12a",
+        "add_to_mind",
+        "thesis",
+        { content: "## Chapter 3\n- Methods" },
+        { proposals: 3 },
+      ),
+      wrote("h12b", "edit_mind", "sprint", { part: "Blockers" }, failedOn("sprint", "uncited")),
+    ],
+  },
+  {
+    id: "held-partial-stopped-en",
+    reply: "All done, nothing left to do.",
+    unbacked: true,
+    calls: [
+      wrote("h13a", "add_to_mind", "garden", { content: "## Beds\n- Tomatoes by the wall" }, {}),
+      wrote("h13b", "edit_mind", "garden", { part: "Watering" }, failedOn("garden", "stopped")),
+    ],
+  },
+  {
+    id: "held-partial-command-en",
+    reply: "Everything's in place now.",
+    unbacked: true,
+    calls: [
+      wrote("h14a", "edit_mind", "suppliers", { instruction: "Sort by region" }, { proposals: 4 }),
+      renameFailed("h14b", "suppliers", "Suppliers 2027"),
+    ],
+  },
+  {
+    id: "held-partial-waiting-en",
+    reply: "Your request is complete.",
+    unbacked: true,
+    calls: [
+      wrote("h15a", "edit_mind", "policy", { part: "Scope" }, { revised: true }),
+      wrote("h15b", "edit_mind", "policy", { part: "Exceptions" }, { cited: 1 }),
+    ],
+    waiting: ["h15b-r"],
+  },
+  {
+    id: "held-partial-same-note-zh",
+    reply: "两处都按你的意思改好了。",
+    unbacked: true,
+    calls: [
+      wrote("h16a", "edit_mind", "needs", { part: "目标" }, { revised: true }),
+      wrote("h16b", "edit_mind", "needs", { part: "时间安排" }, failedOn("needs", "length")),
+    ],
+  },
+  {
+    id: "held-partial-other-note-zh",
+    reply: "你要的改动我都做了。",
+    unbacked: true,
+    calls: [
+      read("h17-read", "开题报告.docx", 4),
+      wrote(
+        "h17a",
+        "add_to_mind",
+        "outline",
+        { content: "## 第三章\n- 研究方法" },
+        { proposals: 3 },
+      ),
+      wrote("h17b", "edit_mind", "retro", { part: "阻碍" }, failedOn("retro", "uncited")),
+    ],
+  },
+  {
+    id: "held-partial-stopped-zh",
+    reply: "全部搞定，没有剩下的了。",
+    unbacked: true,
+    calls: [
+      wrote("h18a", "add_to_mind", "gardenzh", { content: "## 花坛\n- 墙边种番茄" }, {}),
+      wrote(
+        "h18b",
+        "add_to_mind",
+        "gardenzh",
+        { content: "## 浇水\n- 每周两次" },
+        failedOn("gardenzh", "stopped"),
+      ),
+    ],
+  },
+  {
+    id: "held-partial-command-zh",
+    reply: "都处理妥当了。",
+    unbacked: true,
+    calls: [
+      wrote("h19a", "edit_mind", "vendors", { instruction: "按地区排序" }, { proposals: 3 }),
+      renameFailed("h19b", "vendors", "供应商名单 2027"),
+    ],
+  },
+  {
+    id: "held-partial-waiting-zh",
+    reply: "你的要求已经全部完成。",
+    unbacked: true,
+    calls: [
+      wrote("h20a", "edit_mind", "rules", { part: "适用范围" }, { revised: true }),
+      wrote("h20b", "edit_mind", "rules", { part: "例外情况" }, { cited: 1 }),
+    ],
+    waiting: ["h20b-r"],
+  },
+  {
+    id: "twin-couldnt-en",
+    reply:
+      "I couldn't change the watering rules: it was too much text to change at once, so the Note is as it was.",
+    unbacked: false,
+    calls: [
+      wrote(
+        "t1",
+        "edit_mind",
+        "allotment",
+        { part: "Watering" },
+        failedOn("allotment", "too-long"),
+      ),
+    ],
+  },
+  {
+    id: "twin-couldnt-zh",
+    reply: "我没能修改：笔记里找不到你说的那一段，所以内容没有变。",
+    unbacked: false,
+    calls: [
+      wrote(
+        "t2",
+        "edit_mind",
+        "club",
+        { part: "会费" },
+        { kind: "no-place", mindId: "club", place: "会费" },
+      ),
+    ],
+  },
+  {
+    id: "twin-stopped-en",
+    reply: "The write was stopped before anything went in, so the checklist hasn't changed.",
+    unbacked: false,
+    calls: [
+      wrote(
+        "t3",
+        "add_to_mind",
+        "wedding",
+        { content: "- Book the florist" },
+        failedOn("wedding", "stopped"),
+      ),
+    ],
+  },
+  {
+    id: "twin-stopped-zh",
+    reply: "这次修改被停止了，预算表还是原来的样子。",
+    unbacked: false,
+    calls: [wrote("t4", "edit_mind", "reno", { part: "人工费" }, failedOn("reno", "stopped"))],
+  },
+  {
+    id: "twin-refused-en",
+    reply:
+      "The rewrite was refused because it held a citation it didn't place, so nothing in the press release changed.",
+    unbacked: false,
+    calls: [
+      searched("t5-search", "launch date", 3),
+      wrote("t5", "edit_mind", "press", { part: "Launch" }, failedOn("press", "not-placed")),
+    ],
+  },
+  {
+    id: "twin-refused-zh",
+    reply: "改写没有被接受：它漏掉了你输入的删除标记，所以年度总结没有改。",
+    unbacked: false,
+    calls: [wrote("t6", "edit_mind", "annual", { part: "回顾" }, failedOn("annual", "typed-tag"))],
+  },
+  {
+    id: "twin-offer-en",
+    reply: "Would you like me to add a shopping list to “Recipe box”?",
+    unbacked: false,
+    focused: "recipe",
+  },
+  {
+    id: "twin-question-zh",
+    reply: "你想让我把哪一部分写得更详细？",
+    unbacked: false,
+    focused: "essay",
+  },
+  {
+    id: "twin-card-en",
+    reply: "Finished. The edits are summarised in the card beneath this message.",
+    unbacked: false,
+    calls: [wrote("t9", "edit_mind", "choir", { part: "Rehearsals" }, { cited: 1 })],
+  },
+  {
+    id: "twin-card-zh",
+    reply: "处理好了，具体修改见下方的改动卡片。",
+    unbacked: false,
+    calls: [wrote("t10", "edit_mind", "parents", { part: "老师发言" }, {})],
+  },
+  {
+    id: "twin-retried-en",
+    reply: "That's sorted now.",
+    unbacked: false,
+    calls: [
+      wrote("t11a", "edit_mind", "protocol", { part: "Safety" }, failedOn("protocol", "uncited")),
+      wrote("t11b", "edit_mind", "protocol", { part: "Safety" }, { revised: true, cited: 2 }),
+    ],
+  },
+  {
+    id: "twin-retried-zh",
+    reply: "按你说的改好了。",
+    unbacked: false,
+    calls: [
+      wrote("t12a", "edit_mind", "labzh", { part: "步骤" }, failedOn("labzh", "length")),
+      wrote("t12b", "edit_mind", "labzh", { part: "步骤" }, { revised: true }),
+    ],
+  },
+  {
+    id: "twin-done-en",
+    reply: "Okay, that's done for you.",
+    unbacked: false,
+    calls: [wrote("t13", "add_to_mind", "moving", { content: "- Cancel the broadband" }, {})],
+  },
+  {
+    id: "twin-done-zh",
+    reply: "搞好了，你看一下。",
+    unbacked: false,
+    calls: [wrote("t14", "add_to_mind", "movingzh", { content: "- 退掉宽带" }, {})],
+  },
+  {
+    id: "twin-named-same-note-en",
+    reply: "I've expanded Findings, but the Methods edit failed, so that section is unchanged.",
+    unbacked: false,
+    calls: [
+      wrote("t15a", "edit_mind", "field", { part: "Findings" }, { revised: true, cited: 3 }),
+      wrote("t15b", "edit_mind", "field", { part: "Methods" }, failedOn("field", "length")),
+    ],
+  },
+  {
+    id: "twin-named-same-note-zh",
+    reply: "结论一节已经扩写，方法一节的修改失败了，还是原样。",
+    unbacked: false,
+    calls: [
+      wrote("t16a", "edit_mind", "survey", { part: "结论" }, { revised: true }),
+      wrote("t16b", "edit_mind", "survey", { part: "方法" }, failedOn("survey", "length")),
+    ],
+  },
+  {
+    id: "twin-named-other-note-en",
+    reply:
+      "“Quarterly update” is updated; the edit to “Research notes” didn't go through, so it is as it was.",
+    unbacked: false,
+    calls: [
+      wrote("t17a", "add_to_mind", "quarterly", { content: "## Hiring\n- Two offers out" }, {}),
+      wrote("t17b", "edit_mind", "research", { part: "Sources" }, failedOn("research", "uncited")),
+    ],
+  },
+  {
+    id: "twin-named-other-note-zh",
+    reply: "“季度汇报”已经改好了，“调研笔记”那边的修改没有成功，还是原样。",
+    unbacked: false,
+    calls: [
+      wrote("t18a", "edit_mind", "report", { instruction: "补上销售数据" }, { proposals: 3 }),
+      wrote("t18b", "edit_mind", "study", { part: "访谈" }, failedOn("study", "uncited")),
+    ],
+  },
+  {
+    id: "twin-named-stopped-en",
+    reply:
+      "I added the venue details; the second edit was stopped, so the catering section is as it was.",
+    unbacked: false,
+    calls: [
+      wrote("t19a", "add_to_mind", "event", { content: "## Venue\n- Town hall, room 2" }, {}),
+      wrote("t19b", "edit_mind", "event", { part: "Catering" }, failedOn("event", "stopped")),
+    ],
+  },
+  {
+    id: "twin-named-stopped-zh",
+    reply: "场地信息已经加上了；第二次修改被停止了，餐饮一节没有变。",
+    unbacked: false,
+    calls: [
+      wrote("t20a", "add_to_mind", "party", { content: "## 场地\n- 三楼报告厅" }, {}),
+      wrote("t20b", "edit_mind", "party", { part: "餐饮" }, failedOn("party", "stopped")),
+    ],
+  },
+  {
+    id: "twin-named-command-en",
+    reply: "The content is updated, but the rename failed, so the title is the same as before.",
+    unbacked: false,
+    calls: [
+      wrote(
+        "t21a",
+        "edit_mind",
+        "template",
+        { instruction: "Add an actions table" },
+        { tables: 1 },
+      ),
+      renameFailed("t21b", "template", "Minutes template v2"),
+    ],
+  },
+  {
+    id: "twin-named-command-zh",
+    reply: "内容已经改好，但重命名没有成功，标题还是原来的。",
+    unbacked: false,
+    calls: [
+      wrote("t22a", "edit_mind", "minutes", { instruction: "加一个待办表格" }, { tables: 1 }),
+      renameFailed("t22b", "minutes", "会议纪要模板 v2"),
+    ],
+  },
+  {
+    id: "twin-named-waiting-en",
+    reply: "I updated the Leave section; the change to Expenses is waiting for you to accept it.",
+    unbacked: false,
+    calls: [
+      wrote("t23a", "edit_mind", "handbook", { part: "Leave" }, { revised: true }),
+      wrote("t23b", "edit_mind", "handbook", { part: "Expenses" }, {}),
+    ],
+    waiting: ["t23b-r"],
+  },
+  {
+    id: "twin-named-waiting-zh",
+    reply: "请假一节已经改好，报销一节的改动还在等你确认。",
+    unbacked: false,
+    calls: [
+      wrote("t24a", "edit_mind", "staff", { part: "请假" }, { revised: true }),
+      wrote("t24b", "edit_mind", "staff", { part: "报销" }, {}),
+    ],
+    waiting: ["t24b-r"],
+  },
+];
+
 const probes = [
   { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
   { id: "unmade-note-en", reply: "Your summary is in “Q3 review” now.", unbacked: true },
@@ -547,7 +1132,23 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY.");
       return;
     }
-    const model = createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" });
+    // Every request the provider refused, failed or let time out, in its own words, so a run is
+    // counted only when it has none: a check with one is never read as "nothing flagged".
+    let refused: string[] = [];
+    const model = wrapLanguageModel({
+      model: createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" }),
+      middleware: {
+        specificationVersion: "v4",
+        wrapGenerate: async ({ doGenerate }) => {
+          try {
+            return await doGenerate();
+          } catch (error) {
+            refused.push(error instanceof Error ? error.message : String(error));
+            throw error;
+          }
+        },
+      },
+    });
     const rows: {
       id: string;
       run: number;
@@ -557,7 +1158,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       durationMs: number;
       passed: boolean;
       unchecked?: true;
+      refused?: string[];
     }[] = [];
+    const allRefused: string[] = [];
     const usage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -565,24 +1168,36 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       cacheWriteTokens: 0,
     };
     const runs = Number(process.env.INCARNAMIND_EVAL_CLAIM_PROBES_RUNS ?? "5") || 5;
-    for (const probe of [...probes, ...heldOut, ...commandProbes]) {
+    const only = process.env.INCARNAMIND_EVAL_CLAIM_PROBES_ONLY?.split(",");
+    const all: Probe[] = [...probes, ...heldOut, ...commandProbes, ...heldOutDone];
+    for (const probe of all.filter((each) => !only || only.includes(each.id))) {
       for (let run = 1; run <= runs; run++) {
-        const check = () =>
-          unbackedClaims(probe.reply, "calls" in probe ? probe.calls : [], MINDS, null, {
+        const check = () => {
+          refused = [];
+          return unbackedClaims(probe.reply, probe.calls ?? [], MINDS, probe.focused ?? null, {
             model,
             names,
             parts,
-            // The window applies a change the User asked for at once, with Undo.
-            states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+            // The window applies a change the User asked for at once, with Undo, unless the probe
+            // has it wait.
+            states: (change) =>
+              probe.waiting?.includes(change.request)
+                ? null
+                : { waiting: 0, accepted: 0, rejected: 0, applied: true },
             signal: new AbortController().signal,
           });
+        };
         // A check the provider didn't answer gives no verdict, and reads as "nothing flagged": it is
         // asked again, and one never answered is counted apart rather than as a probe's result.
+        const unanswered = (checked: Awaited<ReturnType<typeof check>>) =>
+          refused.length > 0 || (checked.failed === true && !checked.usage);
         let result = await check();
-        for (let retry = 0; retry < 2 && result.failed && !result.usage; retry++) {
+        allRefused.push(...refused);
+        for (let retry = 0; retry < 2 && unanswered(result); retry++) {
           result = await check();
+          allRefused.push(...refused);
         }
-        const unchecked = result.failed === true && !result.usage;
+        const unchecked = unanswered(result);
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
           usage.outputTokens += result.usage.outputTokens ?? 0;
@@ -599,7 +1214,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           commands: result.commands,
           durationMs: result.durationMs,
           passed: passed && !unchecked,
-          ...(unchecked && { unchecked: true as const }),
+          ...(unchecked && { unchecked: true as const, refused }),
         });
       }
     }
@@ -651,6 +1266,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           usage,
           durationMs,
           spent,
+          refused: allRefused,
         },
         null,
         2,
@@ -664,6 +1280,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `- Unmade claims caught: ${checked.filter((row) => row.expected && row.passed).length}/${checked.filter((row) => row.expected).length}`,
         `- Honest replies left alone: ${checked.filter((row) => !row.expected && row.passed).length}/${checked.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
         `- Checks the provider never answered, in three tries: ${rows.length - checked.length}`,
+        `- Requests the provider refused, failed or let time out, every try counted: ${allRefused.length}`,
         `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
