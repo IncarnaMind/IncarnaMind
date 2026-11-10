@@ -120,6 +120,7 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
+  type TextJob,
   type WorkerResult,
 } from "./processing";
 import { createProcessor } from "./processor";
@@ -1493,6 +1494,22 @@ export function createDocuments(options: DocumentsOptions) {
     next();
   }
 
+  /** Text jobs under way, each with what takes its Units, or null for a file that can't be read. */
+  const textReads = new Map<TextJob, (pages: TextUnit[] | null) => void>();
+
+  /**
+   * A file's text as processing reads a Document's, read on a worker and kept nowhere (#2216).
+   * Never settles once the core closes, as `fillTextFingerprints` doesn't.
+   */
+  function readFileText(file: string, kind: DocumentKind): Promise<TextUnit[] | null> {
+    if (closed) return new Promise(() => {});
+    return new Promise((resolve) => {
+      const job: TextJob = { task: "text", file, kind };
+      textReads.set(job, resolve);
+      processor.enqueue(job);
+    });
+  }
+
   let fingerprintTurn: ReturnType<typeof setTimeout> | null = null;
   let fingerprintsFilled: { done: Promise<void>; settle(): void } | null = null;
 
@@ -1501,7 +1518,9 @@ export function createDocuments(options: DocumentsOptions) {
    * holds this thread for long: settles once none is left. Each call asks again, so a Document
    * restored, or one an ended fill didn't reach, is fingerprinted before the check that waits on
    * it goes on. Once the core closes it never settles, so nothing that waits on it reads the
-   * closed database; a check with a stop of its own ends on that (`Evidence.ready`).
+   * closed database; a check with a stop of its own ends on that (`Evidence.ready`). A host that
+   * closed a core and kept running would leave the checks that can't be stopped waiting for good:
+   * the app closes it only as it quits.
    */
   function fillTextFingerprints(): Promise<void> {
     if (closed) return new Promise<void>(() => {});
@@ -1636,6 +1655,11 @@ export function createDocuments(options: DocumentsOptions) {
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
+    onText(job, result) {
+      const read = textReads.get(job);
+      textReads.delete(job);
+      read?.(result.outcome === "text" ? result.pages : null);
+    },
     onKeywords(job, result) {
       try {
         writeKeywordUpgrade(job, result);
@@ -3326,6 +3350,7 @@ export function createDocuments(options: DocumentsOptions) {
     hasDocumentOutside,
     upgradeKeywordIndex,
     fillTextFingerprints,
+    readFileText,
     textCopies,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */

@@ -2071,6 +2071,11 @@ export function createCore(adapters: CoreAdapters): Core {
     db,
     textCopies: documents.textCopies,
     textFingerprinted: () => documents.fillTextFingerprints(),
+    readImported: (sha256) => {
+      const kept = wordImports.keptFile(sha256);
+      return kept === null ? null : documents.readFileText(kept, "docx");
+    },
+    log: adapters.log ?? silentLogger,
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
       documents.searchTool(query, {
@@ -6416,10 +6421,11 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const scope = parseSearchScope(options?.scope);
       const mindId = typeof options?.mindId === "string" ? options.mindId : null;
-      await evidence.ready();
+      const checked = parseCheckedDocument(options?.checked);
+      await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), parseCheckedDocument(options?.checked)),
+        evidence.scope(mindId, scopeDocuments(scope), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },
