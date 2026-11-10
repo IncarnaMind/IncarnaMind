@@ -21,7 +21,7 @@ import { downloadModel } from "../../src/core/embedding/download";
 import { createOnnxEmbedder } from "../../src/core/embedding/onnx";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { waitForModel } from "../helpers/embedding";
+import { turnOnEmbeddings, waitForModel } from "../helpers/embedding";
 
 const PASSAGES: Record<string, string> = {
   "Attention.md":
@@ -51,6 +51,7 @@ describe.runIf(process.env.INCARNAMIND_REAL_MODEL === "1")(
         embedder: createOnnxEmbedder(),
         embeddingModelSource: BUILT_IN_EMBEDDING_MODEL.source,
       });
+      await turnOnEmbeddings(core);
       await core.downloadEmbeddingModel();
       await waitForModel(core, (status) => status.state !== "downloading", 14 * 60_000);
       expect(await core.getEmbeddingModel()).toMatchObject({ state: "ready", error: null });
