@@ -287,7 +287,7 @@ describe("A search waiting on the embedding process", { timeout: 30_000 }, () =>
     errors.mockRestore();
   });
 
-  // protects=quitting with a search out: the closed process's answer starts nothing again, reads no closed database and leaves no rejection unhandled (#2930); fails_when=the model loads again after the close, or the search reads the closed database and rejects; no_claim=the order the app's other parts stop in.
+  // protects=quitting with a search out: the search's failed request starts no model again, the search reads no closed database, and no rejection is left unhandled (#2930); fails_when=the model loads again after the close, or the search reads the closed database and rejects; no_claim=the order the app's other parts stop in.
   test("closing the core with a search out starts nothing again and reads nothing more", async () => {
     const { core, processes, held, tides, search, found, hold } = await setUp();
     expect(await found("spring tides")).toEqual([tides.id]);
