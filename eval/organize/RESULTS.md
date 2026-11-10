@@ -421,3 +421,74 @@ That is one label line each, and one of them is in the held-out half.
 | Fresh set, English | 11%, 8%, 12%: misses (mean 10.5%) | 8%, 6%, 10%: meets (mean 8.0%) | 16%, 16%, 17%: misses (mean 16.1%) | 14%, 16%, 16%: misses (mean 15.1%) |
 | Fresh set, Chinese | 17%, 13%, 0%: misses (mean 10.1%) | 15%, 7%, 0%: meets (mean 7.2%) | 35%, 35%, 34%: misses (mean 34.5%) | 34%, 34%, 33%: misses (mean 33.7%) |
 
+
+## 2026-11-10: choosing between the parts of #2917, the isolation stage (#2737)
+
+The stage that `plan-2737.md` sets out, run as written. Nothing qualifies, so nothing goes forward: "both, 2b" and the final gate don't run.
+
+**Setup.**
+- The tuning half one language at a time: English Documents with the interface in English (21 readable), Chinese Documents with it in Chinese (16 readable).
+- Five runs an arm and language, on Claude Haiku 5.5 with the key `ANTHROPIC_API_KEY_DF`, every arm alike. One run at a time, in the plan's turns.
+- Arms: `main` d979e55c4, part 2 dde23e21e, part 2b e211b8045, part 3 13e0b5d4d, both 25f6bc640.
+- The pair bars score a two-Folder Document by its second Folder where its Folder holds that one most (#2937); the labels as written are reported beside them.
+- Each table lists every run, as a count over the readable Documents or the pairs, then the mean. The row under `main` gives its lowest and highest run.
+
+**The tolerance** is `main`'s standard error from its five runs, with a floor of one point:
+
+| | Filed | Different-label pairs |
+|---|---|---|
+| English | 5.4% | 1.4% |
+| Chinese | 1.2% | 1.0% (the floor) |
+
+`main`'s five Chinese runs all had 0 different-label pairs of 77.
+
+### English (tolerance: Filed 5.4%, different-label 1.4%)
+
+| Arm | Runs | Filed, each run | Filed mean | Different-label, each run | Mean | As written, each run | Same-label, each run |
+|---|---|---|---|---|---|---|---|
+| main | 5 | 17/21; 12/21; 11/21; 14/21; 11/21 | 61.9% | 0/101; 2/97; 2/97; 8/99; 3/101 | 3.0% | 5/101; 8/101; 6/101; 15/101; 9/101 | 19/19; 17/23; 13/23; 20/21; 12/19 |
+| main's lowest–highest | | | 52.4%–81.0% | | 0.0%–8.1% | | |
+| p2 | 5 | 17/21; 12/21; 20/21; 18/21; 12/21 | 75.2% | 10/97; 3/99; 10/97; 17/101; 0/99 | 8.1% | 16/101; 8/101; 16/101; 19/101; 7/101 | 19/23; 14/21; 19/23; 6/19; 19/21 |
+| p2b | 5 | 17/21; 15/21; 16/21; 12/21; 12/21 | 68.6% | 8/100; 3/100; 2/97; 14/99; 2/97 | 5.9% | 11/101; 10/101; 8/101; 20/101; 8/101 | 20/20; 17/20; 18/23; 17/21; 17/23 |
+| p3 | 5 | 18/21; 16/21; 16/21; 21/21; 20/21 | 86.7% | 11/97; 0/97; 6/100; 5/97; 9/97 | 6.4% | 15/101; 6/101; 8/101; 9/101; 15/101 | 19/23; 20/23; 8/20; 23/23; 22/23 |
+| both | 5 | 21/21; 18/21; 20/21; 20/21; 21/21 | 95.2% | 5/97; 5/97; 6/100; 0/101; 5/97 | 4.3% | 9/101; 9/101; 8/101; 3/101; 9/101 | 23/23; 23/23; 19/20; 19/19; 23/23 |
+
+### Chinese (tolerance: Filed 1.2%, different-label 1.0%)
+
+| Arm | Runs | Filed, each run | Filed mean | Different-label, each run | Mean | As written, each run | Same-label, each run |
+|---|---|---|---|---|---|---|---|
+| main | 5 | 6/16; 7/16; 7/16; 7/16; 7/16 | 42.5% | 0/77; 0/77; 0/77; 0/77; 0/77 | 0.0% | 0/77; 3/77; 3/77; 3/77; 3/77 | 6/14; 9/14; 9/14; 9/14; 9/14 |
+| main's lowest–highest | | | 37.5%–43.8% | | 0.0%–0.0% | | |
+| p2 | 5 | 12/16; 12/16; 10/16; 10/16; 11/16 | 68.8% | 21/77; 9/77; 0/77; 0/77; 0/77 | 7.8% | 21/77; 9/77; 3/77; 3/77; 3/77 | 10/14; 6/14; 12/14; 12/14; 12/14 |
+| p2b | 5 | 15/16; 10/16; 10/16; 10/16; 10/16 | 68.8% | 12/77; 7/77; 10/77; 11/77; 0/77 | 10.4% | 15/77; 7/77; 12/77; 12/77; 3/77 | 14/14; 5/14; 10/14; 10/14; 12/14 |
+| p3 | 5 | 8/16; 12/16; 12/16; 11/16; 16/16 | 73.8% | 4/77; 6/77; 8/77; 6/77; 9/77 | 8.6% | 6/77; 8/77; 10/77; 8/77; 10/77 | 9/14; 10/14; 11/14; 10/14; 9/14 |
+| both | 5 | 12/16; 13/16; 13/16; 14/16; 15/16 | 83.8% | 12/77; 22/77; 8/77; 16/77; 16/77 | 19.2% | 12/77; 22/77; 10/77; 16/77; 16/77 | 7/14; 12/14; 11/14; 14/14; 14/14 |
+
+
+**Verdicts by the plan's points.**
+
+| Arm | Point 3 (no worse), English | Point 3, Chinese | Point 6 (files more) | Point 7 or 8 | Qualifies |
+|---|---|---|---|---|---|
+| part 2 | misses: different-label 8.1% against at most 4.4% | misses: 7.8% against at most 1.0% | holds in both languages | (second-look arm) | no |
+| part 2b | misses: 5.9%, more than two tolerances (5.7%) | misses: 10.4% | holds in both languages | (second-look arm) | no |
+| part 3 | misses: 6.4% | misses: 8.6% | (not a second-look arm) | point 7: not level | no |
+| both | holds: 4.3% against at most 4.4%, Filed 95.2% | misses: 19.2% | holds in both languages | point 8: as a second-look arm | no |
+
+- **Extensions (point 5):** no arm landed in the extension zone, between one and two tolerances short.
+- **Part 2b:** it didn't qualify alone, so "both, 2b" doesn't run.
+- **The choice:** no arm qualifies, so none is chosen and the final gate doesn't run.
+
+**Validity.** All 50 runs counted: their request records show 0 refused requests and 0 that ended without a reply.
+
+**The first key's attempts are struck.** Five attempts were made on `ANTHROPIC_API_KEY` before the stage moved to a key with its own limit:
+- three ended on its rate limit: `main` English run 1, and part 2b English run 1 twice;
+- two finished: `main` (its rerun) and part 2, English run 1. Neither settled a tagging request, so their tagging was refused.
+
+All five are reported, struck and not used.
+
+**The keys.**
+- A smallest request on each key showed 2,000,000 input tokens a minute with all of them left on `ANTHROPIC_API_KEY_DF`, against 500,000 with 1,000 left on `ANTHROPIC_API_KEY`.
+- The 31 runs that read the second key's allowance at their start (runs 20 to 50) each found 2,000,000 of 2,000,000.
+- Runs 24 to 50 each took the key alone for their length. Twenty-six waited 0 s; one, both in Chinese, waited 732 s while another evaluation held the key.
+
+**Spend.** The stage cost $0.168 on the second key, against the plan's estimate of about $0.16 for 50 runs and its stop at $6. The struck attempts on the first key cost $0.003.
