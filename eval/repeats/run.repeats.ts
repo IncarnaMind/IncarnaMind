@@ -17,7 +17,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
 import { repeatChecks } from "./repeat";
-import { watchRequests } from "./requests";
+import { type ClaimsRequest, watchRequests } from "./requests";
 import { type RepeatRow, report, summarise } from "./score";
 import { VERBATIM_SETS } from "./verbatimCases";
 import { VERDICT_SETS } from "./verdictCases";
@@ -35,6 +35,13 @@ interface Usage {
   cost: number;
 }
 const FINISHED = new Set(["ready", "failed", "no-text"]);
+
+/** A check's requests that named the claims among its Mind's sentences, kept so a sentence the check never named can be read (#2184). */
+interface CheckClaims {
+  set: string;
+  repeat: number;
+  requests: ClaimsRequest[];
+}
 
 const spentOf = async (core: Core) =>
   (await core.getCostSummary()).spent
@@ -72,6 +79,7 @@ test("repeated checks of an unchanged Mind", async () => {
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: RepeatRow[] = [];
   const usage: (Usage & { sets: string[] })[] = [];
+  const claims: CheckClaims[] = [];
   let spentBefore = 0;
   let stopped = false;
   const libraries = new Map<string, RepeatSet[]>();
@@ -126,6 +134,7 @@ test("repeated checks of an unchanged Mind", async () => {
         if (stopped) break;
         log(`${model} · ${set.id}: ${set.sentences.length} sentences, ${repeats} checks`);
         watch.take();
+        watch.takeClaims();
         const requests = new Map<string, ReturnType<typeof watch.take>>();
         const results = await repeatChecks(core, {
           mind: set.mind,
@@ -135,6 +144,11 @@ test("repeated checks of an unchanged Mind", async () => {
           model: choice,
           async onRepeat(done) {
             requests.set(String(done[0]?.repeat), watch.take());
+            claims.push({
+              set: set.id,
+              repeat: done[0]?.repeat ?? 0,
+              requests: watch.takeClaims(),
+            });
             const spent = spentBefore + (await spentOf(core));
             log(
               `  check ${done[0]?.repeat}: ${done.map((each) => each.outcome).join(" ")} · $${spent.toFixed(3)}`,
@@ -184,6 +198,9 @@ test("repeated checks of an unchanged Mind", async () => {
     join(out, "report.md"),
     report(summaries, { commit: commitOf(ROOT), spent: spentBefore, repeats }),
   );
-  await writeFile(join(out, "report.json"), JSON.stringify({ model, usage, rows }, null, 2));
+  await writeFile(
+    join(out, "report.json"),
+    JSON.stringify({ model, usage, rows, claims }, null, 2),
+  );
   log(`$${spentBefore.toFixed(2)} spent; report in ${out}`);
 });

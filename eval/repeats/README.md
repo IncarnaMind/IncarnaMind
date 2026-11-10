@@ -55,7 +55,7 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_KEYS`: only these sentences, by key or by set and key (`period,zh-conflicts:payer`); each set's Mind then holds only those.
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
-- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
+- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, each check's requests that named the claims among its Mind's sentences (`claims`: what each was asked, its reply and tokens, so a sentence never named can be read, #2184), and each Library's settled requests by model (input, cache reads and writes, output, cost).
 
 ## Check against a Document, read whole
 
