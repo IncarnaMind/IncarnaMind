@@ -17,6 +17,7 @@ import { createFakeEmbedder, fakeVector } from "../../src/core/embedding/fake";
 import { createTempDataFolder, nextTurn, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { turnOnEmbeddings } from "../helpers/embedding";
+import { mockEmbeddingModels } from "../helpers/embeddingProviders";
 
 const FILES = {
   model: "/m.onnx",
@@ -214,6 +215,7 @@ describe("A search waiting on the embedding process", { timeout: 30_000 }, () =>
     const processes = fakeProcesses(held.model);
     const core = startCore(await createTempDataFolder(), {
       embedder: createChannelEmbedder(processes.start),
+      createEmbeddingModel: mockEmbeddingModels().createEmbeddingModel,
     });
     await turnOnEmbeddings(core);
     const [tides] = await addAndProcess(core, [
@@ -235,15 +237,21 @@ describe("A search waiting on the embedding process", { timeout: 30_000 }, () =>
     };
   }
 
-  // protects=a search the User waits on when embeddings are turned off finishes on its words, starting no process again (#2930); fails_when=it waits for ever on the closed process; no_claim=what a switch to another provider finds.
-  test("turned off while a search waits, the search finishes on its words", async () => {
+  // protects=a search the User waits on when the embedding model is changed or turned off finishes on its words, as search does until the new model has read the Documents, starting no process again (#2930); fails_when=it waits for ever on the closed process; no_claim=a provider's own requests.
+  test.each([
+    ["turned off", { kind: "off" }],
+    [
+      "switched to another model",
+      { kind: "openai-compatible", baseUrl: "http://127.0.0.1:9/v1", modelId: "mock-embed" },
+    ],
+  ] as const)("%s while a search waits, the search finishes on its words", async (_, change) => {
     const { core, processes, held, tides, search, found, hold } = await setUp();
     expect(await found("spring tides")).toEqual([tides.id]);
     hold();
 
     const searching = search("full moon");
     await vi.waitFor(() => expect(held.reached).toHaveLength(1));
-    await core.saveEmbeddingProvider({ kind: "off" });
+    await core.saveEmbeddingProvider(change);
 
     expect((await searching).map((each) => each.documentId)).toEqual([tides.id]);
     expect(processes.started).toHaveLength(1);

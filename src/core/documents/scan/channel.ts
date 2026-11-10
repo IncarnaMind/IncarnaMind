@@ -14,6 +14,7 @@ import type {
   TextRecognitionFiles,
   TextRecognizer,
 } from "../../adapters";
+import { ChannelClosedError, channelRequests } from "../../channelRequests";
 
 export type TextRecognizerCommand =
   | { type: "load"; files: TextRecognitionFiles }
@@ -41,39 +42,32 @@ export interface TextRecognizerChannel {
   stop(): void;
 }
 
-type Pending = { resolve(response: TextRecognizerResponse): void; reject(error: Error): void };
-
 /** Far longer than a picture takes to read: one that hangs the process mustn't hold up the rest. */
 const READ_FILE_MS = 60_000;
 
 /**
  * The core's `TextRecognizer`, backed by a channel that `start` opens on the
- * first `load`. If it stops, pending requests fail, and the next `load` opens
- * a new one. A picture file not read in `READ_FILE_MS` stops it.
+ * first `load`. If it stops, or is closed, what is still out on it fails, and
+ * the next `load` opens a new one. A picture file not read in `READ_FILE_MS`
+ * stops it.
  */
 export function createChannelTextRecognizer(start: () => TextRecognizerChannel): TextRecognizer {
   let channel: TextRecognizerChannel | undefined;
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
-  const pending = new Map<number, Pending>();
-  let nextId = 1;
+  const requests = channelRequests<TextRecognizerChannel, TextRecognizerResponse>();
 
   /** The process is done with: what it was asked fails, and the next `load` starts another. */
   function drop(target: TextRecognizerChannel, error: Error): void {
+    requests.rejectAll(target, error);
     if (channel !== target) return;
     channel = undefined;
     loadedKey = undefined;
-    for (const waiting of pending.values()) waiting.reject(error);
-    pending.clear();
   }
 
   function open(): TextRecognizerChannel {
     const started = start();
-    started.onResponse((response) => {
-      const waiting = pending.get(response.id);
-      pending.delete(response.id);
-      waiting?.resolve(response);
-    });
+    started.onResponse((response) => requests.answer(response.id, response));
     started.onExit((code) =>
       drop(started, new Error(`The text recognition process stopped (exit code ${code}).`)),
     );
@@ -83,14 +77,12 @@ export function createChannelTextRecognizer(start: () => TextRecognizerChannel):
   function request(command: TextRecognizerCommand): Promise<TextRecognizerResponse> {
     channel ??= open();
     const target = channel;
-    const id = nextId++;
-    return new Promise<TextRecognizerResponse>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      target.send({ ...command, id });
-    }).then((response) => {
-      if (response.error !== undefined) throw new Error(response.error);
-      return response;
-    });
+    return requests
+      .add(target, (id) => target.send({ ...command, id }))
+      .then((response) => {
+        if (response.error !== undefined) throw new Error(response.error);
+        return response;
+      });
   }
 
   return {
@@ -141,7 +133,13 @@ export function createChannelTextRecognizer(start: () => TextRecognizerChannel):
       const stopping = channel;
       channel = undefined;
       loadedKey = undefined;
-      stopping?.stop();
+      loading = undefined;
+      if (!stopping) return;
+      requests.rejectAll(
+        stopping,
+        new ChannelClosedError("The text recognition model was stopped."),
+      );
+      stopping.stop();
     },
   };
 }

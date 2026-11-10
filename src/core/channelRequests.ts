@@ -1,7 +1,7 @@
 /**
- * The requests out on a model's channels (the embedding and reranking processes), each kept with
- * the channel it was sent on (#2930). A channel that is stopped or exits fails what it still owes,
- * and only that: no request waits for ever, and an older channel's exit never fails a newer one's.
+ * The requests out on a model's channels, each kept with the channel it was sent on (#2930). A
+ * channel that is stopped or exits fails what it still owes, and only that: no request waits for
+ * ever, and an older channel's exit never fails a newer one's.
  */
 
 /** A request failed because its channel was closed on purpose, not because the model failed. */
