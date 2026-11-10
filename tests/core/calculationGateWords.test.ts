@@ -37,7 +37,6 @@ describe("a count said in words is read by the calculation gate", () => {
     ["The build took four hundred days.", "The build took 500 days."],
     ["It took four five days.", "It took 90 days."],
     ["It took four five days.", "It took five days."],
-    ["Sales rose at the twenty twenty-four year end.", "Sales rose in 2024."],
   ])("%s is not judged on %s", async (claim, quote) => {
     expect(await notJudged(claim, quote)).toBe(true);
   });
@@ -46,6 +45,7 @@ describe("a count said in words is read by the calculation gate", () => {
     ["The build took four hundred days.", "The build took 400 days."],
     ["It took five days.", "It took five days."],
     ["Sales rose in twenty twenty-four.", "Sales rose in 2024."],
+    ["Sales rose at the twenty twenty-four year end.", "Sales rose in 2024."],
   ])("%s keeps its check on %s", async (claim, quote) => {
     expect(await notJudged(claim, quote)).toBe(false);
   });

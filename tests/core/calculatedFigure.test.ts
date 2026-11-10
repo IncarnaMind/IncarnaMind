@@ -128,6 +128,12 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["en", "It ran for between 3 and 5 days.", [5, 3], "3 and 5 days"],
     ["en", "It ran for three to five days.", [5, 3], "three to five days"],
     ["en", "It ran for between three and five days.", [5, 3], "three and five days"],
+    [
+      "en",
+      "It ran for between three hundred and four hundred days.",
+      [400, 300],
+      "three hundred and four hundred days",
+    ],
     ["zh-CN", "它运行了3-5天。", [5, 3], "3-5天"],
     ["zh-CN", "它运行了三到五天。", [5, 3], "三到五天"],
   ])("a range is both its ends: %s: %s", (language, text, values, chars) => {
@@ -140,6 +146,18 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["zh-CN", "项目历时3周。", [3], "3周", "week"],
   ])("周岁 and 周年 count years, not weeks: %s: %s", (language, text, values, chars, word) => {
     expect(read(text, language)).toEqual(values.map((value) => ({ chars, value, word })));
+  });
+
+  test.each([
+    ["en", "It ran for between one and two years.", "one and two years"],
+    ["en", "It ran for between 1 and 2 years.", "1 and 2 years"],
+    ["zh-CN", "它运行了一到两年。", "一到两年"],
+    ["zh-CN", "它运行了1到2年。", "1到2年"],
+  ])("a range of years is both its ends: %s: %s", (language, text, chars) => {
+    expect(read(text, language)).toEqual([
+      { chars, value: 2, word: "year" },
+      { chars, value: 1, word: "year" },
+    ]);
   });
 
   test.each([
@@ -188,6 +206,9 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["en", "Revenue grew in the 2024 year-end results."],
     ["en", "Revenue grew in the Q3 2024 quarter."],
     ["en", "Revenue grew after a 2019 month-end close."],
+    ["en", "Revenue grew at the twenty twenty-four year end."],
+    ["en", "Revenue grew at the nineteen ninety-nine year-end."],
+    ["en", "Revenue grew at the two thousand and twenty-four year end."],
   ])("a year that names a period is no count: %s: %s", (language, text) => {
     expect(read(text, language)).toEqual([]);
   });

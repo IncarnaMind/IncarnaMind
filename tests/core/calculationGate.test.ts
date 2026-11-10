@@ -712,6 +712,13 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["它运行了4天。", "它运行了3-5天。"],
     ["年龄22至59周岁的员工自动加入。", "年龄22至50周岁的员工自动加入。"],
     ["公司成立5周年。", "公司成立10周年。"],
+    ["It ran for between three hundred and four hundred days.", "It ran for 200 to 400 days."],
+    ["It ran for between one thousand and two thousand days.", "It ran for 1,000 to 3,000 days."],
+    ["It ran for between one and two years.", "It ran for between one and three years."],
+    ["It ran for between 1 and 2 years.", "It ran for between 1 and 3 years."],
+    ["它持续了一到两年。", "它持续了一到三年。"],
+    ["它持续了1到2年。", "它持续了1到3年。"],
+    ["它持续了一至两年。", "它持续了二至两年。"],
   ])("a range is held to both ends: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
   });
@@ -729,6 +736,18 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["年龄22至59周岁的员工自动加入。", "年龄22至59周岁的员工自动加入。"],
     ["公司成立5周年。", "公司成立5年。"],
     ["项目历时3周。", "项目历时3周。"],
+    ["It ran for between three hundred and four hundred days.", "It ran for 300 to 400 days."],
+    [
+      "It ran for between three hundred and four hundred days.",
+      "It ran for between three hundred and four hundred days.",
+    ],
+    ["It ran for between one thousand and two thousand days.", "It ran for 1,000 to 2,000 days."],
+    ["It ran for between one and two years.", "It ran for between one and two years."],
+    ["It ran for between 1 and 2 years.", "It ran for between 1 and 2 years."],
+    ["It ran for between one and two years.", "It ran for between 1 and 2 years."],
+    ["它持续了一到两年。", "它持续了一到两年。"],
+    ["它持续了1到2年。", "它持续了1到2年。"],
+    ["它持续了一至两年。", "它持续了一至两年。"],
   ])("the same range is still judged: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
@@ -804,6 +823,7 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["It ran for 2,024 years.", "It ran for 1,024 years."],
     ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 4%."],
     ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 4%."],
+    ["Revenue grew 5% at the twenty twenty-four year end.", "In 2024 revenue grew 4%."],
     ["It is a 2000 year old tree.", "It is a 3000 year old tree."],
   ])(
     "a count is held to the Passage beside a year that names a period: %s citing %s",
@@ -818,6 +838,8 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["Revenue grew 5% in the 2024 year-end results.", "In 2024 revenue grew 5%."],
     ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 5%."],
     ["Revenue grew 5% after a 2019 month-end close.", "In 2019 revenue grew 5%."],
+    ["Revenue grew 5% at the twenty twenty-four year end.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% at the two thousand and twenty-four year end.", "In 2024 revenue grew 5%."],
     ["It ran for 2,024 years.", "It ran for 2,024 years."],
     ["It is a 2000 year old tree.", "It is a 2000 year old tree."],
   ])("a year that names a period is no count: %s citing %s", async (claim, quote) => {

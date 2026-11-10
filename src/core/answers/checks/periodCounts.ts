@@ -6,7 +6,13 @@
  * value NaN, which no Passage states, so its sentence is left not judged, never passed.
  */
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
-import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
+import {
+  figuresOf,
+  INTEGER_WORDS,
+  NUMBER_WORD,
+  SCALES,
+  wholeNumberWords,
+} from "../../../shared/numberWords";
 
 /**
  * Whether a text before a single period makes it say which one, not how many: "这一年", "那一年",
@@ -23,6 +29,7 @@ const COUNT_REACH = 40;
 const WORD_REACH = 90;
 
 const HALF = "[ -]and[ -]a[ -]half";
+const HALF_AT_END = new RegExp(`${HALF}$`, "i");
 const ROUND_NUMBER = `an?[ -](?:hundred|${[...SCALES.keys()].join("|")})(?:[ -](?:${NUMBER_WORD})|(?<=hundred|thousand|million|billion|trillion) and (?:${NUMBER_WORD}))*|an?[ -]dozen`;
 const SPELLED = `(?:${ROUND_NUMBER}|${INTEGER_WORDS})(?:${HALF})?`;
 const SPELLED_AT_END = new RegExp(`\\b(${SPELLED})$`, "i");
@@ -105,10 +112,32 @@ function withRangeStart(text: string, found: FigureAt): { values: number[]; star
   return { values: [...values, ...countValues(previous.figure)], start: previous.start };
 }
 
-/** A number in words: "ten", "a hundred and twenty", "a dozen", "two and a half". */
+const YEAR_NAME_UNIT = /^ +(?:year|quarter|month)$/i;
+const YEAR_LIKE = /^(?:19|20)\d{2}(?![\d,.'])/;
+
+/** Whether the period word after a number is one a year goes before as its name: "2024 year end", "Q3 2024 quarter", "2019 month-end". */
+const namesYear = (text: string, at: number, matched: string): boolean =>
+  YEAR_NAME_UNIT.test(matched) && !/^[ -]old\b/i.test(text.slice(at + matched.length));
+
+const spokenNumbers = (words: string) =>
+  figuresOf(
+    words
+      .toLowerCase()
+      .split(/[ -]+/)
+      .filter((each) => each !== "and"),
+  );
+
+function spelledYear(words: string): boolean {
+  if (HALF_AT_END.test(words)) return false;
+  const [first, second, ...more] = spokenNumbers(words);
+  if (!first || more.length > 0) return false;
+  if (!second) return first.value >= 1900 && first.value <= 2099;
+  return (first.value === 19 || first.value === 20) && second.value <= 99;
+}
+
 function spelledValue(words: string): number {
   const lower = words.toLowerCase();
-  const whole = lower.replace(new RegExp(`${HALF}$`), "");
+  const whole = lower.replace(HALF_AT_END, "");
   const half = whole === lower ? 0 : 0.5;
   if (/^an?[ -]dozen$/.test(whole)) return asCount(12 + half);
   const value = wholeNumberWords(whole.replace(/^an?[ -]/, "one "));
@@ -117,13 +146,11 @@ function spelledValue(words: string): number {
 
 const SCIENTIFIC_AT_END = /(?<![\w.])\p{Nd}+(?:\.\p{Nd}+)?[eE][+-]?\p{Nd}+$/u;
 
-/** A count in scientific notation ("1e3 days"), which no reader here reads. */
 function scientific(window: string, at: number): Quantity | undefined {
   const found = SCIENTIFIC_AT_END.exec(window);
   return found ? { start: at - found[0].length, values: [Number.NaN] } : undefined;
 }
 
-/** What a bracket holds as a number: words, or figures the reader reads whole; undefined when it holds neither. */
 function bracketValue(inner: string, context: FigureContext): number | undefined {
   if (SPELLED_ALL.test(inner)) return spelledValue(inner);
   const figures = readFigures(inner, { ...context, dates: true, midLine: true, header: null });
@@ -160,19 +187,20 @@ function bracketed(text: string, at: number, context: FigureContext): Quantity |
   return { start: outer.start, values: [outer.value === innerValue ? innerValue : Number.NaN] };
 }
 
-/** A number in words, or a range of them: "a hundred", "three to five", "between three and five". */
-function spelled(window: string, at: number): Quantity | undefined {
+function spelled(window: string, at: number, yearUnit: boolean): Quantity | undefined {
   const found = SPELLED_AT_END.exec(window);
   const words = found?.[1];
   if (!found || words === undefined) return undefined;
   // "a Hundred Days" names something; only a lower-case round number counts.
   if (/^[Aa]n?[ -][A-Z]/.test(words)) return undefined;
+  if (yearUnit && spelledYear(words)) return undefined;
   const start = at - found[0].length;
   const rest = window.slice(0, found.index);
-  if (/\bbetween\s+$/i.test(rest)) {
-    const [near, far, ...more] = words.split(/ and /i);
-    if (more.length === 0 && near !== undefined && far !== undefined) {
-      return { start, values: [spelledValue(far), spelledValue(near)] };
+  if (/\bbetween\s+$/i.test(rest) && !HALF_AT_END.test(words)) {
+    // "three hundred and four hundred" is two numbers to the reader.
+    const [near, far, ...more] = spokenNumbers(words);
+    if (near && far && more.length === 0) {
+      return { start, values: [asCount(far.value), asCount(near.value)] };
     }
   }
   const near = NEAR_OF_RANGE.exec(rest) ?? NEAR_AFTER_BETWEEN.exec(rest);
@@ -199,10 +227,8 @@ function fractional(window: string, at: number): Quantity | undefined {
   if (half) return quantityAt(half, Number(half[1]) + 0.5);
   const vulgar = VULGAR_AT_END.exec(window);
   if (vulgar) {
-    const [numerator = 0, denominator = 1] = (vulgar[2] ?? "")
-      .normalize("NFKC")
-      .split("⁄")
-      .map(Number);
+    const [numerator = 0, denominator = 1] =
+      (vulgar[2] ?? "").normalize("NFKC").match(/\d+/g)?.map(Number) ?? [];
     return quantityAt(vulgar, Number(vulgar[1] ?? 0) + numerator / denominator);
   }
   const slash = SLASH_AT_END.exec(window);
@@ -214,10 +240,6 @@ function fractional(window: string, at: number): Quantity | undefined {
   return quantityAt(slash, Number(slash[1] ?? 0) + numerator / denominator);
 }
 
-const YEAR_NAME_UNIT = /^ +(?:year|quarter|month)$/i;
-const YEAR_LIKE = /^(?:19|20)\d{2}(?![\d,.'])/;
-
-/** A number in digits, as the reader reads it. */
 function digits(
   text: string,
   at: number,
@@ -246,13 +268,7 @@ function digits(
   // A number inside a word is no count, read or not: "FY24 year-end".
   if (startsInsideWord(text, numberAt)) return undefined;
   // A year that names a period is a date: "the 2024 year", "Q3 2024 quarter", "a 2019 month-end close".
-  if (
-    YEAR_NAME_UNIT.test(matched) &&
-    YEAR_LIKE.test(text.slice(numberAt, at)) &&
-    !/^[ -]old\b/i.test(text.slice(at + matched.length))
-  ) {
-    return undefined;
-  }
+  if (namesYear(text, at, matched) && YEAR_LIKE.test(text.slice(numberAt, at))) return undefined;
   if (found && read) {
     return {
       start,
@@ -301,7 +317,7 @@ function englishCounts(text: string, context: FigureContext): Figure[] {
     const found =
       scientific(window, at) ??
       bracketed(text, at, context) ??
-      spelled(window, at) ??
+      spelled(window, at, namesYear(text, at, match[0])) ??
       fractional(window, at) ??
       digits(text, at, match[0], context);
     if (!found) continue;
