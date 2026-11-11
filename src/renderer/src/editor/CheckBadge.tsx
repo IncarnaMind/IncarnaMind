@@ -15,6 +15,7 @@ import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
+import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
@@ -260,7 +261,7 @@ export function CheckActions({
       )}
       {price && (
         <div className="check-card-estimate">
-          <MetaLine data-testid="check-estimate" parts={price.parts} title={price.title} />
+          <EstimateMeta testId="check-estimate" line={price} />
         </div>
       )}
       <div className="check-card-actions">

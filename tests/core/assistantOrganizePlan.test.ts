@@ -77,6 +77,7 @@ describe("The assistant's Organize with no Folder named (#1569)", () => {
       status: "estimate",
       estimate: {
         billing: "per-token",
+        providerId: "provider-1",
         calls: 3,
         tokens: 420_000,
         cost: { amount: 1.26, currency: "USD" },
