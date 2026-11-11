@@ -11,7 +11,7 @@ import type { ClaimsRequest } from "./requests";
  * What one call of the claims request made of a sentence: named it a claim, left it out, or
  * decided nothing about it even when asked again ("undecided", which the app says it didn't
  * examine); "unread" when no reply of the call could be read, and "not-shown" when the call
- * wasn't shown it, since a figure makes a sentence a claim without asking.
+ * wasn't shown it.
  */
 export type ClaimDecision = "claim" | "left-out" | "undecided" | "unread" | "not-shown";
 
@@ -50,7 +50,7 @@ export interface ClaimsSummary {
   calls: number;
   /** Calls whose replies couldn't be read, so they say nothing of any sentence. */
   unread: number;
-  /** The sentences no call was shown, since a figure makes each a claim. */
+  /** The sentences no call was shown. */
   notShown: string[];
   kinds: KindSummary[];
   /** Each sentence a call got wrong at least once, and how often, of `calls - unread`. */
@@ -247,7 +247,7 @@ export function claimsReport(
       ),
       "",
       ...(group.notShown.length > 0
-        ? [`- Not shown to the request, a claim for its figure: ${group.notShown.join(", ")}`]
+        ? [`- Not shown to the request: ${group.notShown.join(", ")}`]
         : []),
       `- A call, on average: ${group.cost.requests.toFixed(2)} requests, ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s`,
       ...(group.sentences.length > 0
