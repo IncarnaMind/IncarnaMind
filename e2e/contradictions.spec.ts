@@ -254,7 +254,9 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   ).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
-  await expect(watched).toContainText("After “Office” changed: 1 of 1 cited sentences contradicted");
+  await expect(watched).toContainText(
+    "After “Office” changed: 1 of 1 cited sentences contradicted",
+  );
   await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-watched-en");
 
