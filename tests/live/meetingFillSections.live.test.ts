@@ -76,10 +76,15 @@ interface Fact {
   /** The turns that say it, counted from 0: a Citation of any of them is right. */
   said: number[];
   underLine?: string;
-  /** A figure one side only stated: never a decision (#2306). */
+  /** A figure only one side said, which the other never answered: never a decision (#2306). */
   stated?: boolean;
   /** A term one side gave and the other accepted aloud: a decision, as its Decisions line states it (#2306). */
   accepted?: RegExp;
+  /**
+   * A term one side raised and the other answered with a yes or by saying it back: a decision too,
+   * new or unchanged, so it may stand under Decisions (#2306).
+   */
+  confirmed?: boolean;
   /** Who it belongs to, as the notes must name them, and the ways they mustn't (#2306). */
   owner?: RegExp;
   forbid?: RegExp;
@@ -1481,6 +1486,7 @@ interface ReservedFactInput {
   subject?: string | string[];
   stated?: true;
   accepted?: string;
+  confirmed?: true;
   owner?: string;
   forbid?: string;
   misheard?: string;
@@ -1530,6 +1536,7 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
       "subject",
       "stated",
       "accepted",
+      "confirmed",
       "owner",
       "forbid",
       "misheard",
@@ -1551,6 +1558,11 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
         value.accepted !== "" &&
         value.kind === "figure" &&
         value.stated === undefined)) &&
+    (value.confirmed === undefined ||
+      (value.confirmed === true &&
+        value.kind === "figure" &&
+        value.stated === undefined &&
+        value.accepted === undefined)) &&
     (value.owner === undefined || (typeof value.owner === "string" && value.owner !== "")) &&
     (value.forbid === undefined ||
       (typeof value.forbid === "string" && value.owner !== undefined)) &&
@@ -1945,6 +1957,27 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
 
 const says = (fact: Fact, text: string) =>
   (Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).every((each) => each.test(text));
+
+/** Which of a call's marked terms its Decisions section holds, by class (#2306). */
+const termsUnderDecisions = (facts: readonly Fact[], decisions: readonly { text: string }[]) => {
+  const held = (fact: Fact) => decisions.some((unit) => says(fact, unit.text));
+  return {
+    statedAsDecisions: facts.filter((fact) => fact.stated && held(fact)).length,
+    stated: facts.filter((fact) => fact.stated).length,
+    acceptedInSection: facts.filter((fact) =>
+      decisions.some((unit) => fact.accepted?.test(unit.text) === true),
+    ).length,
+    accepted: facts.filter((fact) => fact.accepted).length,
+    confirmedInSection: facts.filter((fact) => fact.confirmed && held(fact)).length,
+    confirmed: facts.filter((fact) => fact.confirmed).length,
+  };
+};
+
+/** A Decisions section belongs when the call decided something, or when it holds a confirmed term. */
+const decisionsSectionExpected = (
+  decisions: number,
+  terms: Pick<ReturnType<typeof termsUnderDecisions>, "accepted" | "confirmedInSection">,
+) => decisions + terms.accepted > 0 || terms.confirmedInSection > 0;
 
 const namesSubject = (fact: Fact, text: string) => {
   const subject = fact.subject ?? fact.pattern;
@@ -3284,6 +3317,28 @@ test.each<{ name: string; invalid: (sample: ReservedCallInput) => unknown }>([
     name: "unknown section",
     invalid: (sample) => [{ ...sample, sectionHeadings: { other: "x" } }],
   },
+  ...[
+    { name: "stated on a decision", fact: { kind: "decision", stated: true } },
+    { name: "accepted on a decision", fact: { kind: "decision", accepted: "90" } },
+    { name: "confirmed on a decision", fact: { kind: "decision", confirmed: true } },
+    { name: "non-true stated", fact: { stated: false } },
+    { name: "empty accepted", fact: { accepted: "" } },
+    { name: "non-true confirmed", fact: { confirmed: false } },
+    { name: "stated and accepted on one term", fact: { stated: true, accepted: "90" } },
+    { name: "stated and confirmed on one term", fact: { stated: true, confirmed: true } },
+    { name: "accepted and confirmed on one term", fact: { accepted: "90", confirmed: true } },
+  ].map(({ name, fact }) => ({
+    name,
+    invalid: (sample: ReservedCallInput) => [
+      {
+        ...sample,
+        facts: [
+          ...sample.facts,
+          { name: "rush fee", kind: "figure", pattern: "90", said: [1], ...fact },
+        ],
+      },
+    ],
+  })),
 ])("meeting scores reject invalid synthetic reserved fixture: $name", async ({ invalid }) => {
   const sample = reservedSample("en");
   await expect(
@@ -3301,6 +3356,66 @@ test("meeting scores reject duplicate or absent selected reserved ids and malfor
   ).rejects.toThrow("duplicate or missing");
   await expect(loadReservedCalls([sample.id], async () => "[")).rejects.toThrow();
 });
+
+test("meeting scores count a term nobody answered apart from one accepted or confirmed", async () => {
+  const sample = reservedSample("en");
+  const marked: ReservedCallInput = {
+    ...sample,
+    facts: [
+      ...sample.facts,
+      { name: "storage fee", kind: "figure", pattern: ["storage", "40"], said: [1], stated: true },
+      { name: "rush fee", kind: "figure", pattern: ["rush", "90"], said: [1], accepted: "90" },
+      {
+        name: "delivery day",
+        kind: "figure",
+        pattern: ["deliver", "Friday"],
+        said: [1],
+        confirmed: true,
+      },
+    ],
+  };
+  const [call] = await loadReservedCalls([sample.id], async () => JSON.stringify([marked]));
+  if (!call) throw new Error("The marked sample did not load.");
+  const storage = { text: "Storage is 40 a pallet." };
+  const rush = { text: "We took the rush fee of 90." };
+  const delivery = { text: "Delivery stays on Friday." };
+  expect(termsUnderDecisions(call.facts, [])).toEqual({
+    statedAsDecisions: 0,
+    stated: 1,
+    acceptedInSection: 0,
+    accepted: 1,
+    confirmedInSection: 0,
+    confirmed: 1,
+  });
+  expect(termsUnderDecisions(call.facts, [rush, delivery])).toEqual({
+    statedAsDecisions: 0,
+    stated: 1,
+    acceptedInSection: 1,
+    accepted: 1,
+    confirmedInSection: 1,
+    confirmed: 1,
+  });
+  expect(termsUnderDecisions(call.facts, [storage, rush, delivery])).toEqual({
+    statedAsDecisions: 1,
+    stated: 1,
+    acceptedInSection: 1,
+    accepted: 1,
+    confirmedInSection: 1,
+    confirmed: 1,
+  });
+});
+
+test.each([
+  { decisions: 0, accepted: 0, confirmedInSection: 0, expected: false },
+  { decisions: 1, accepted: 0, confirmedInSection: 0, expected: true },
+  { decisions: 0, accepted: 1, confirmedInSection: 0, expected: true },
+  { decisions: 0, accepted: 0, confirmedInSection: 1, expected: true },
+])(
+  "meeting scores expect a Decisions section for $decisions decisions, $accepted accepted and $confirmedInSection confirmed terms there: $expected",
+  ({ decisions, expected, ...terms }) => {
+    expect(decisionsSectionExpected(decisions, terms)).toBe(expected);
+  },
+);
 
 test.skipIf(!LOADER_PREFLIGHT)("structured meeting loader source-freeze preflight", async () => {
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
@@ -3829,14 +3944,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           return unit ? [{ fact: fact.name, text: unit.text }] : [];
         });
         const slips = {
-          statedAsDecisions: call.facts.filter(
-            (fact) => fact.stated && decisions.some((unit) => says(fact, unit.text)),
-          ).length,
-          stated: call.facts.filter((fact) => fact.stated).length,
-          acceptedInSection: call.facts.filter((fact) =>
-            decisions.some((unit) => fact.accepted?.test(unit.text) === true),
-          ).length,
-          accepted: call.facts.filter((fact) => fact.accepted).length,
+          ...termsUnderDecisions(call.facts, decisions),
           decisionsInSection: counts.decisionsInSection,
           decisions: call.facts.filter((fact) => fact.kind === "decision").length,
           unnamed: owned.filter((fact) =>
@@ -3955,7 +4063,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           const expected = call.facts.filter((fact) => fact.kind === "decision").length;
           check("decisions", () => {
             expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
-              expected + slips.accepted > 0,
+              decisionsSectionExpected(expected, slips),
             );
             expect(counts.decisionsInSection).toBe(expected);
             expect(slips.acceptedInSection, "A term accepted aloud is a decision").toBe(

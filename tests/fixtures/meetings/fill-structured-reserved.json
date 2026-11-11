@@ -3806,7 +3806,7 @@
         "kind": "figure",
         "pattern": ["(?:four|4)[ -]weeks?"],
         "said": [7, 8],
-        "stated": true
+        "confirmed": true
       },
       {
         "name": "Price rise from February",
@@ -3899,7 +3899,7 @@
         "kind": "figure",
         "pattern": ["54 ?(?:平|㎡|m²|m2)"],
         "said": [1, 2],
-        "stated": true
+        "confirmed": true
       },
       {
         "name": "合同总价18.6万元",
@@ -3913,7 +3913,7 @@
         "kind": "figure",
         "pattern": ["30 ?%|30/60/10", "60 ?%|30/60/10"],
         "said": [8],
-        "stated": true
+        "confirmed": true
       },
       {
         "name": "二层洽谈区另加4.2万元",
@@ -4727,7 +4727,7 @@
         "kind": "figure",
         "pattern": ["物业费", "交|承担|负责|付|不变"],
         "said": [5],
-        "stated": true,
+        "confirmed": true,
         "owner": "陈晓梅|晓梅|陈女士",
         "forbid": "对方"
       },
@@ -5081,7 +5081,7 @@
         "kind": "figure",
         "pattern": ["拍照|照片|拍", "水渍|天花板|吊顶|留底|留证|证据"],
         "said": [3],
-        "stated": true
+        "confirmed": true
       },
       {
         "name": "楼上承担费用",
