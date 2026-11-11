@@ -16,6 +16,7 @@ const REASONS = {
   "local-mode": "meetings.fill.problem.localMode",
   "not-allowed": "meetings.fill.problem.notAllowed",
   "no-model": "meetings.fill.problem.noModel",
+  "model-removed": "meetings.fill.problem.modelRemoved",
   "no-transcript": "meetings.fill.problem.noTranscript",
   added: "memos.fill.problem.added",
 } as const satisfies Record<MeetingFillProblem["kind"], MessageKey>;
