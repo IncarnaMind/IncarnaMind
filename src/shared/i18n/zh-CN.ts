@@ -6596,6 +6596,7 @@ export const zhCN = {
   "transcript.lines.one": "{count} 句",
   "transcript.lines.other": "{count} 句",
   "transcript.waiting": "有人说话时，文字会出现在这里。",
+  "transcript.waiting.problem": "转写开始后，文字会出现在这里。",
   "transcript.none": "没有转写内容。",
   "transcript.gap": "{duration} 未转写：{reason}",
   "transcript.gap.restarted": "转写已重新启动",

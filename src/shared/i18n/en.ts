@@ -6965,6 +6965,7 @@ export const en = {
   "transcript.lines.one": "{count} line",
   "transcript.lines.other": "{count} lines",
   "transcript.waiting": "Lines appear here as people speak.",
+  "transcript.waiting.problem": "Lines appear here when transcription starts.",
   "transcript.none": "Nothing was transcribed.",
   "transcript.gap": "{duration} not transcribed: {reason}",
   "transcript.gap.restarted": "transcription restarted",

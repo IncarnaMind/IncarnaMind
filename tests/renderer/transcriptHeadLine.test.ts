@@ -1,8 +1,9 @@
 /**
  * The line at the head of a Meeting's Transcript (#1031): what the Transcript is, from its first
  * line on, and how to hear a word only while a click plays one. With no lines the view's own
- * sentence stands alone, without the head line or a count. The two views that show a Transcript
- * run against a small DOM, the Transcript's file served to them by the test.
+ * sentence stands alone, without the head line or a count, and under a problem in the recording
+ * bar that sentence promises no lines as people speak. The two views that show a Transcript run
+ * against a small DOM, the Transcript's file served to them by the test.
  */
 import { DOMParser } from "linkedom";
 import { act, createElement } from "react";
@@ -116,6 +117,43 @@ const TRANSCRIPT = {
 } as unknown as Document;
 
 type TranscriptState = NonNullable<Meeting["transcript"]>["state"];
+type TranscriptProblem = NonNullable<Meeting["transcript"]>["problem"];
+
+/**
+ * The problems a Transcript can have before Stop, as the core reports them: the engine can't start
+ * or stopped again and again, and the speech model can't be downloaded. Each with the state it
+ * comes in while recording and after Stop, and the recording bar's line for it.
+ */
+const PROBLEMS = {
+  "transcription stopped": {
+    problem: { kind: "engine", message: "" },
+    recording: "behind",
+    afterStop: "failed",
+    line: { en: "Transcription stopped. · Try again", "zh-CN": "转写已停止。· 重试" },
+  },
+  "the speech model can't be downloaded": {
+    problem: { kind: "download", message: "offline" },
+    recording: "preparing",
+    afterStop: "finishing",
+    line: {
+      en: "The speech model couldn’t be downloaded: offline · Try again",
+      "zh-CN": "无法下载语音模型：offline · 重试",
+    },
+  },
+} as const;
+
+const EMPTY_SAYS = {
+  en: {
+    whenItStarts: "Lines appear here when transcription starts.",
+    asPeopleSpeak: "Lines appear here as people speak.",
+    nothing: "Nothing was transcribed.",
+  },
+  "zh-CN": {
+    whenItStarts: "转写开始后，文字会出现在这里。",
+    asPeopleSpeak: "有人说话时，文字会出现在这里。",
+    nothing: "没有转写内容。",
+  },
+} as const;
 
 /** A Meeting whose Transcript has this many lines: before its first, it has no Document yet. */
 const meetingOf = (
@@ -123,6 +161,7 @@ const meetingOf = (
   state: TranscriptState,
   audioKept: boolean,
   lines = 2,
+  problem: TranscriptProblem = null,
 ) =>
   ({
     id: "meeting-1",
@@ -138,7 +177,7 @@ const meetingOf = (
       lines,
       partials: [],
       separating: false,
-      problem: null,
+      problem,
     },
   }) as unknown as Meeting;
 
@@ -154,7 +193,7 @@ async function setMeeting(meeting: Meeting | null, language: "en" | "zh-CN" = "e
   const { useAppStore } = await import("../../src/renderer/src/store");
   const { useMeetings } = await import("../../src/renderer/src/meetings");
   await act(() => {
-    useAppStore.setState({ settings: { language } as never });
+    useAppStore.setState({ settings: { language, device: {} } as never });
     useMeetings.setState({ meetings: meeting ? [meeting] : [] });
   });
   await settled();
@@ -185,6 +224,21 @@ async function show(where: "page" | "tab", meeting: Meeting | null) {
       : createElement(TranscriptView, { document: TRANSCRIPT, target });
   await act(() => root?.render(createElement(ViewerFrameContext.Provider, { value: frame }, view)));
   await settled();
+}
+
+/** What the recording bar says of the Meeting's Transcript, drawn in a root of its own. */
+async function barLine(meeting: Meeting): Promise<string | null> {
+  const linesPath = "../../src/renderer/src/components/TranscriptLines.tsx";
+  const { TranscriptLines } = await import(linesPath);
+  const bar = container.ownerDocument.createElement("div");
+  container.ownerDocument.body.append(bar);
+  const barRoot = createRoot(bar);
+  await act(() => barRoot.render(createElement(TranscriptLines, { meeting })));
+  await settled();
+  const text = bar.querySelector('[data-testid="meeting-transcript-line"]')?.textContent ?? null;
+  await act(() => barRoot.unmount());
+  bar.remove();
+  return text;
 }
 
 const part = (testId: string) => container.querySelector(`[data-testid="${testId}"]`);
@@ -242,7 +296,7 @@ describe("The line at the head of a Meeting's Transcript (#1031)", () => {
     expect(head()?.textContent).toBe(WHAT_ZH);
   });
 
-  // protects=while a Meeting's Transcript has no lines the view says so in its own sentence alone, with no head line and no "0 lines" beside it: recording before the first line it still says it is live and that lines appear as people speak, with an engine that can't start it keeps "Recording…", and stopped with nothing transcribed or a failure it says nothing was transcribed; from the first line the count and the head line show in the same state; fails_when=the head line or a count shows over no lines, the words that say transcription is running go with the count, or either stays hidden once a line is there; no_claim=the recording bar's own words over the view, which meetingBar's tests cover.
+  // protects=while a Meeting's Transcript has no lines the view says so in its own sentence alone, with no head line and no "0 lines" beside it: recording before the first line it still says it is live and that lines appear as people speak, with live text fallen behind it keeps "Recording…", and stopped with nothing transcribed or a failure it says nothing was transcribed; from the first line the count and the head line show in the same state; fails_when=the head line or a count shows over no lines, the words that say transcription is running go with the count, or either stays hidden once a line is there; no_claim=the sentence under a problem in the recording bar, which the test below covers.
   test.each<[string, Meeting["status"], TranscriptState, string | null, string, string]>([
     [
       "records before its first line",
@@ -253,7 +307,7 @@ describe("The line at the head of a Meeting's Transcript (#1031)", () => {
       WHAT,
     ],
     [
-      "records with an engine that can't start",
+      "records with live text fallen behind",
       "recording",
       "behind",
       "Recording…",
@@ -282,6 +336,51 @@ describe("The line at the head of a Meeting's Transcript (#1031)", () => {
       expect(part("transcript-count")?.textContent).toBe("1 line");
       expect(head()?.textContent).toBe(headWithALine);
       expect(beingMade()).toBe(running);
+    },
+  );
+
+  // protects=under a problem with Try again in the recording bar an empty Transcript promises no lines as people speak: while the Meeting records or is paused it says they appear when transcription starts, in English and Chinese, for each problem there is before Stop (transcription stopped, the speech model can't be downloaded); the same Meeting without the problem says what it said, after Stop it says nothing was transcribed, and beside a first line neither sentence shows; fails_when=the old sentence stays under either problem line, the new one shows without a problem, after Stop or beside a line, or the view reads another fact than the one the bar's line is drawn from; no_claim=which failures the core reports as each problem, which the transcript's own tests cover.
+  test.each([
+    ["transcription stopped", "en"],
+    ["transcription stopped", "zh-CN"],
+    ["the speech model can't be downloaded", "en"],
+    ["the speech model can't be downloaded", "zh-CN"],
+  ] as const)(
+    "while %s an empty Transcript says when lines appear, not that they come as people speak (%s)",
+    async (name, language) => {
+      const { problem, recording, afterStop, line } = PROBLEMS[name];
+      const says = EMPTY_SAYS[language];
+      const sentence = () => part("transcript-empty")?.textContent ?? null;
+
+      const withProblem = meetingOf("recording", recording, true, 0, problem);
+      await setMeeting(withProblem, language);
+      await show("page", withProblem);
+      expect(await barLine(withProblem)).toBe(line[language]);
+      expect(sentence()).toBe(says.whenItStarts);
+      expect(container.textContent).not.toContain(says.asPeopleSpeak);
+
+      await setMeeting(meetingOf("paused", recording, true, 0, problem), language);
+      expect(sentence()).toBe(says.whenItStarts);
+
+      const noProblem = meetingOf("recording", recording, true, 0);
+      await setMeeting(noProblem, language);
+      expect(await barLine(noProblem)).not.toBe(line[language]);
+      expect(sentence()).toBe(says.asPeopleSpeak);
+
+      const stopped = meetingOf("stopped", afterStop, true, 0, problem);
+      await setMeeting(stopped, language);
+      expect(await barLine(stopped)).toBe(line[language]);
+      expect(sentence()).toBe(says.nothing);
+
+      file = ONE_LINE;
+      const withALine = meetingOf("recording", recording, true, 1, problem);
+      await setMeeting(withALine, language);
+      await show("page", withALine);
+      expect(await barLine(withALine)).toBe(line[language]);
+      expect(lines()?.textContent).toContain("We agreed to raise the wall by forty centimetres.");
+      expect(sentence()).toBeNull();
+      expect(container.textContent).not.toContain(says.whenItStarts);
+      expect(container.textContent).not.toContain(says.asPeopleSpeak);
     },
   );
 

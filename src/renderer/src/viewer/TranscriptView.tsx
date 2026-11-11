@@ -354,6 +354,9 @@ function TranscriptContent({
     meeting?.status === "stopped" && state === "saved" && meeting.audio.kept && document !== null;
   // With no lines the view's own sentence says so: a count and a head line would say it twice (#1031).
   const hasLines = transcript.cues.length > 0;
+  // What puts a problem and Try again in the recording bar: until then no line comes as people
+  // speak (#1031).
+  const waitsForRetry = meeting?.status !== "stopped" && meeting?.transcript?.problem != null;
   const playerOpen = useTranscriptPlayer((player) => player.playback?.owner === owner);
   useEffect(() => {
     const player = useTranscriptPlayer.getState();
@@ -709,7 +712,13 @@ function TranscriptContent({
             <div ref={column} className="relative">
               {rows.length === 0 && partials.length === 0 && (
                 <p data-testid="transcript-empty" className="transcript-empty">
-                  {t(live ? "transcript.waiting" : "transcript.none")}
+                  {t(
+                    waitsForRetry
+                      ? "transcript.waiting.problem"
+                      : live
+                        ? "transcript.waiting"
+                        : "transcript.none",
+                  )}
                 </p>
               )}
               {meetingId && (
