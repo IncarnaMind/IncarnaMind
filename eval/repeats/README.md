@@ -1,12 +1,22 @@
 # Repeated checks of an unchanged Mind
 
-`npm run eval:repeats` presses Check this Mind again and again on Minds nobody edits, with a real chat model and the app's real search, and counts what each sentence gets each time (#1608). A User who checks the same text twice expects the same verdicts, and never to be told a sentence a Document states wasn't found. Neither `npm test` nor CI runs it.
+`npm run eval:repeats` checks the same sentences again and again, with a real chat model and the app's real search, and counts what each sentence gets each time (#1608). A User who checks the same text twice expects the same verdicts, and never to be told a sentence a Document states wasn't found. Neither `npm test` nor CI runs it.
+
+## What a sample is
+
+A User's check is one sort of the Note's sentences (the model names the claims, and what is asked about each) and the verdicts that follow. So one sort and its verdicts are one check as a User gets it, and one sample (#2964).
+
+- **A bar about a mark or a verdict** (whether a sentence gets a mark, which verdict or card it gets) counts checks that each sorted afresh: every check is a Note of its own, sorted and checked as a User's first check is. Ten checks are ten samples.
+- **A bar about time or cost** may count checks that reuse one sort: one Note checked again and again, as Check this Mind does on an unchanged Note, where only the first check sorts and every later one reuses that sort (a sentence left undecided is asked about again). Ten such checks are one sample of the sort, so they never back a mark or a verdict.
+- A run says which kind its bar is (`INCARNAMIND_EVAL_REPEATS_BAR`, a mark or a verdict unless it says `speed`), and a bar about a mark or a verdict asked to reuse one sort is refused with an error, before any request is sent.
+- Every count in a report reads "x of N checks, S sorts", per sentence and per set, and each row of `report.json` names the sort its check used (`sort`). A report read from a `report.json` made before this rule says its sorts were reused: those runs sorted once and checked again on that sort.
+- The held-out near copies (`tests/live/nearCopyHeldout.live.test.ts`) follow the same rule: each check of a case is a Note of its own, and the report counts a case's sorts beside its checks.
 
 ## What it does
 
 1. A temporary data folder, as for the other evaluations, with the Library of a first run: the example's Documents (`createExamples`) beside the set's own agreement (and, for the conflict Minds, a short flat-and-laptop agreement between the same parties, which only their Library holds), so the search weighs the agreement against other Documents as it does for a newcomer. Documents are added with embeddings off and searched with the built-in reranking model, as Users have them by default. The interface is in the set's language.
 2. For each set, a Mind with its sentences, one paragraph each.
-3. Check this Mind, as the button does on an unchanged Mind: the first time the model names the claims and checks the new sentences ("changed"), every later time it checks them all ("all"). `INCARNAMIND_EVAL_REPEATS` times (10 by default).
+3. Check this Mind, `INCARNAMIND_EVAL_REPEATS` times (10 by default). For a bar about a mark or a verdict (the default), each check is a new Mind of the same sentences: the model names the claims and the sentences are checked, as on a User's first check. For a bar about time or cost, one Mind is checked again and again, as the button does on an unchanged Mind: the first time the model names the claims and checks the new sentences ("changed"), every later time it checks them all ("all") on that first sort.
 4. After each check, every sentence's result is read from its mark, as the editor reads it, and named by how its card shows it:
    - **supported**, **contradicted**;
    - **partly**: unsupported, and the card says what the Documents support and what they don't, quoting the Passage the check read;
@@ -53,7 +63,44 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_KEYS`: only these sentences, by key or by set and key (`period,zh-conflicts:payer`); each set's Mind then holds only those.
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
-- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
+- `INCARNAMIND_EVAL_REPEATS_BAR`: what the run's bar is about, `verdict` (a mark or a verdict, the default) or `speed` (time or cost).
+- `INCARNAMIND_EVAL_REPEATS_SORTS`: `fresh` (each check sorts in a Mind of its own) or `reused` (one Mind, one sort); unset, `fresh` for a verdict bar and `reused` for a speed bar. `reused` with a verdict bar is refused before any request. `eval:scope` reads the same two variables.
+- `INCARNAMIND_EVAL_REPEATS_REPORT`: a `report.json` to read back, with no model: its report is written again with checks and sorts, and one made before #2964 says its sorts were reused.
+- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps the run's bar and sorts, how many sorts each set's checks rest on (`sortsBySet`), each row's sort, every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
+
+**What a run sends.** A sort is one claims request a check (three for the conflict sets' 30 and 32 sentences, asked 12 at a time); every other request of a check is as it was. Counted on the scripted model, a run of 10 checks of each standing set sends these claims requests:
+
+| Set | Sentences | Before #2964 (one sort reused) | Now (one sort a check) |
+|---|---|---|---|
+| `en-conflicts`, `zh-conflicts` | 32, 30 | 3 each | 30 each |
+| `en`, `zh`, `en-control`, `zh-control`, `en-paraphrases`, `zh-paraphrases`, `en-near-misses`, `zh-near-misses`, `en-periods`, `zh-periods` | 4 to 8 | 1 each | 10 each |
+| `en-walk`, `en-verbatim`, `zh-verbatim`, `en-verbatim-decoys`, `zh-verbatim-decoys` | 3 or 4 | 1 each | 10 each |
+| `en-licence-*`, `zh-licence-*` (conflicts, near misses, faithful) | 3 to 10 | 1 each | 10 each |
+| `en-limits`, `zh-limits`, `en-limits-held-out`, `zh-limits-held-out` | 5 or 6 | 1 each | 10 each |
+| `eval:scope`, each case | 4 | 1 | 10 |
+
+So a run of N checks sends N − 1 more claims requests for each set (3 × (N − 1) for the conflict sets). On Claude Haiku 5.5 a sort of six sentences took about 1,400 input and 300 output tokens, about $0.0003, against about $0.006 for checking the six sentences once, so such a run costs about 5% more. The held-out near copies answer their sort without a request, so their cost is unchanged.
+
+## The bars and their kind
+
+Each bar of the Results below is about a mark or a verdict, and needs a sort a check, unless it is a time or cost line:
+
+| Results | Bars about a mark or a verdict | About time or cost |
+|---|---|---|
+| 2026-11-02 (#1766, #1708, #1765, #1908, #2184) | every Contradicted, Supported, partly and Not checked count | Cost |
+| 2026-11-01 (#2184) | verbatim sentences Supported, decoys never Supported, the other sets' verdicts kept | Cost after |
+| 2026-10-30 (#2184) | figure sentences Contradicted, conflicts Supported, contradicted replies Not checked | Cost |
+| 2026-10-29 (#1682) | the 40-check set's and the conflict sets' verdicts | Cost and time, Spend |
+| 2026-10-25 (#1608) | stated sentences Supported, Not found, two checks of a Mind agreeing | Cost, Spend |
+| 2026-10-25 (#1765) | the periods sets' verdicts | none |
+| 2026-10-24 (#1765) | the 2026 sentences Contradicted, the side effects of the date | none |
+| 2026-10-24 (#1708) | the partly-supported card on a wider scope | Spend |
+| 2026-10-23 (#1623) | false Unsupported and false Supported by scope | Spend |
+| 2026-10-23 (#1668) | Supported counts for a duty or party swapped | Cost and time, Spend |
+| 2026-10-23 (#1647) | near misses Contradicted, paraphrases Supported, genuine conflicts Contradicted | Time, Spend |
+| 2026-10-23 (#1608) | the partly-supported card, Not found on a stated sentence, false Supported | Spend |
+
+These results were made before #2964: their checks reused their run's one sort, so each stands on as many samples of the sort as it had runs, not one a check. The first gate on fresh sorts gives `main`'s numbers on them.
 
 ## Check against a Document, read whole
 
@@ -82,7 +129,7 @@ Use the chat variables above, plus `INCARNAMIND_EVAL_REPEATS` (1), `INCARNAMIND_
 
 ## The request log, on the scripted model
 
-`npm run eval:repeats` also runs `requests.repeats.ts`, which needs no key, no network and no cost: it checks 14 sentences with a figure, one of them Chinese, 20 times on the scripted model, and prints each sentence's requests as the real run's cost line does (#2256). It fails when a judgement or the evidence the scripted model was asked for is not logged against its sentence, or when a sentence has no request at all; the request that names a whole Mind's sentences is no sentence's and isn't counted. The scripted replies leave 5 of the 14 Not checked — a part whose reply they never answer, no Passage for another's evidence, one verdict with no search — so those sentences' counts are the requests such a check still makes, not verdicts.
+`npm run eval:repeats` also runs `requests.repeats.ts`, which needs no key, no network and no cost: it checks 14 sentences with a figure, one of them Chinese, 20 times on the scripted model, each check sorting afresh, and prints each sentence's requests as the real run's cost line does (#2256). It fails when a judgement or the evidence the scripted model was asked for is not logged against its sentence, or when a sentence has no request at all; the request that names a whole Mind's sentences is no sentence's and isn't counted. The scripted replies leave 5 of the 14 Not checked — a part whose reply they never answer, no Passage for another's evidence, one verdict with no search — so those sentences' counts are the requests such a check still makes, not verdicts.
 
 ## The claims request, asked again and again
 
@@ -100,6 +147,7 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 - The Documents are the English agreement of `cases.ts` and the first 5 or all 20 of `scopeDocuments.ts`: two or three more employment agreements in the agreement's layout with other figures, policies an employer keeps, and Documents of other kinds. None states what a sentence says (`tests/eval/scopeScoring.test.ts`). There are no example Documents, so the number of others is exact.
 - The sentences are four of the `en` set, worded as there: the notice paraphrase and the agreement's own words, which it states, and the car allowance it doesn't mention and the holiday sentence with a wrong figure, which it doesn't state.
 - The report counts, per case and model, the faithful sentences that didn't come back Supported, the other sentences that did, and for every wrong check whether a Passage handed to the model held the clause that settles the sentence. The model's requests are watched for the Passages (`passagesHanded.ts`), and the Passages of each Library are kept in `passages-<case>.json`.
+- Each check of a case sorts afresh, in a Mind of its own, unless the run's bar is about time or cost (`INCARNAMIND_EVAL_REPEATS_BAR`, `INCARNAMIND_EVAL_REPEATS_SORTS`, as above); every count reads "x of N checks, S sorts".
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results

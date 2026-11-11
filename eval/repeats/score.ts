@@ -2,13 +2,16 @@
  * What the repeats come to, per set and model: each sentence's outcomes, how
  * steady its verdict is, the checks that disagree with the one before, and
  * every result that isn't the verdict its Documents give, in the check's own
- * words.
+ * words. Every count says how many checks it is of and how many sorts those
+ * checks rest on (#2964).
  */
 import type { Expected, RepeatSentence } from "./cases";
 import type { Outcome, RepeatResult } from "./repeat";
 import type { WatchedRequest } from "./requests";
 
-export interface RepeatRow extends RepeatResult {
+export interface RepeatRow extends Omit<RepeatResult, "sort"> {
+  /** Its check's sort; none in a result file made before #2964, whose checks reused their run's one sort. */
+  sort?: number;
   set: string;
   model: string;
   key: string;
@@ -49,11 +52,44 @@ export function meetsExpected(row: Pick<RepeatRow, "outcome" | "expected">): boo
 /** What a Document states, all of it or for its own term. */
 const STATED: ReadonlySet<Expected> = new Set(["supported", "partly"]);
 
+/** A count over checks, and the sorts those checks rest on. */
+export interface Count {
+  count: number;
+  checks: number;
+  sorts: number;
+}
+
+/** How a group's checks were sorted: each its own sort, one reused, or reused before #2964 said so. */
+export type Sorting = "fresh" | "reused" | "before";
+
+/** The sorts a set of rows rests on; a row from before #2964 reused its run's one sort. */
+const sortsIn = (rows: readonly RepeatRow[]) => new Set(rows.map((row) => row.sort ?? 1)).size;
+
+/** How many sorts each set's (or case's) checks rest on, for a result file. */
+export function sortsBy<Row extends { sort?: number }>(
+  rows: readonly Row[],
+  keyOf: (row: Row) => string,
+): Record<string, number> {
+  const sorts = new Map<string, Set<number>>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    sorts.set(key, (sorts.get(key) ?? new Set()).add(row.sort ?? 1));
+  }
+  return Object.fromEntries([...sorts].map(([key, each]) => [key, each.size]));
+}
+
+const countOf = (rows: readonly RepeatRow[], counts: (row: RepeatRow) => boolean): Count => ({
+  count: rows.filter(counts).length,
+  checks: rows.length,
+  sorts: sortsIn(rows),
+});
+
 export interface SentenceSummary {
   key: string;
   kind: RepeatSentence["kind"];
   expected: Expected;
   repeats: number;
+  sorts: number;
   outcomes: Record<Outcome, number>;
   /** How many repeats gave its most frequent verdict. */
   steady: number;
@@ -63,18 +99,19 @@ export interface GroupSummary {
   set: string;
   model: string;
   repeats: number;
+  sorts: number;
+  sorting: Sorting;
   sentences: SentenceSummary[];
-  /** Supported, for a sentence its Documents don't state. */
-  falseSupported: number;
-  /** Not found or Unsupported, for a sentence its Documents state. */
-  unsupportedOnStated: number;
-  /** The partly-supported card, for a sentence whose topic no Document is about. */
-  partlyOnAbsent: number;
+  /** Supported, of the checks of sentences its Documents don't state. */
+  falseSupported: Count;
+  /** Not found or Unsupported, of the checks of sentences its Documents state. */
+  unsupportedOnStated: Count;
+  /** The partly-supported card, of the checks of sentences whose topic no Document is about. */
+  partlyOnAbsent: Count;
   /** Repeats whose verdicts differ from the one before on any sentence, of those that follow one. */
-  disagreeing: number;
-  followed: number;
+  disagreeing: Count;
   /** The genuine conflicts Contradicted, of those checked, known misses left out; null without any. */
-  conflicts: { contradicted: number; checked: number } | null;
+  conflicts: Count | null;
   /** Every result that isn't the verdict its Documents give, known misses left out. */
   misses: RepeatRow[];
   /** The results of the sentences a known miss is filed for, apart. */
@@ -113,6 +150,17 @@ export function costOf(rows: readonly RepeatRow[]): CheckCost {
   };
 }
 
+/**
+ * The rows of a saved `report.json`, any made before #2964 among them: their rows carry no sort, and
+ * the report made from them says each check reused its run's one sort.
+ */
+export function savedRows(value: unknown): RepeatRow[] {
+  const rows =
+    typeof value === "object" && value !== null ? (value as { rows?: unknown }).rows : null;
+  if (!Array.isArray(rows)) throw new Error("Not a repeats report.json: it has no list of rows.");
+  return rows as RepeatRow[];
+}
+
 export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
   const groups = new Map<string, RepeatRow[]>();
   for (const row of rows) {
@@ -141,6 +189,7 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
         kind: sample.kind,
         expected: sample.expected,
         repeats: own.length,
+        sorts: sortsIn(own),
         outcomes,
         steady: Math.max(...verdicts.values()),
       };
@@ -157,33 +206,38 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
       .map((repeat, index): [number, number] => [repeats[index] as number, repeat]);
     const counted = group.filter((row) => row.knownMiss === undefined);
     const conflicts = counted.filter((row) => row.expected === "contradicted");
+    const sorts = sortsIn(group);
+    const disagreeing = pairs.filter(([before, after]) => verdictsIn(before) !== verdictsIn(after));
     return {
       set: first.set,
       model: first.model,
       repeats: repeats.length,
+      sorts,
+      sorting: group.some((row) => row.sort === undefined)
+        ? "before"
+        : sorts < repeats.length
+          ? "reused"
+          : "fresh",
       sentences,
-      falseSupported: counted.filter(
-        (row) =>
-          !STATED.has(row.expected) &&
-          row.expected !== "not-contradicted" &&
-          row.outcome === "supported",
-      ).length,
-      partlyOnAbsent: group.filter((row) => row.kind === "absent" && row.outcome === "partly")
-        .length,
-      unsupportedOnStated: group.filter(
-        (row) =>
-          STATED.has(row.expected) && (row.outcome === "absent" || row.outcome === "unsupported"),
-      ).length,
-      disagreeing: pairs.filter(([before, after]) => verdictsIn(before) !== verdictsIn(after))
-        .length,
-      followed: pairs.length,
+      falseSupported: countOf(
+        counted.filter((row) => !STATED.has(row.expected) && row.expected !== "not-contradicted"),
+        (row) => row.outcome === "supported",
+      ),
+      partlyOnAbsent: countOf(
+        group.filter((row) => row.kind === "absent"),
+        (row) => row.outcome === "partly",
+      ),
+      unsupportedOnStated: countOf(
+        group.filter((row) => STATED.has(row.expected)),
+        (row) => row.outcome === "absent" || row.outcome === "unsupported",
+      ),
+      disagreeing: {
+        count: disagreeing.length,
+        checks: pairs.length,
+        sorts: sortsIn(group.filter((row) => pairs.some(([, after]) => after === row.repeat))),
+      },
       conflicts:
-        conflicts.length === 0
-          ? null
-          : {
-              contradicted: conflicts.filter((row) => row.outcome === "contradicted").length,
-              checked: conflicts.length,
-            },
+        conflicts.length === 0 ? null : countOf(conflicts, (row) => row.outcome === "contradicted"),
       misses: counted.filter((row) => !meetsExpected(row)),
       known: group.filter((row) => row.knownMiss !== undefined),
       cost: costOf(group),
@@ -192,6 +246,18 @@ export function summarise(rows: readonly RepeatRow[]): GroupSummary[] {
 }
 
 const cell = (text: string | null) => (text ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+
+/** "x of N checks, S sorts": a count beside what it is of. */
+export const counted = ({ count, checks, sorts }: Count) =>
+  `${count} of ${checks} checks, ${sorts} ${sorts === 1 ? "sort" : "sorts"}`;
+
+const SORTING: Record<Sorting, string> = {
+  fresh: "Each check sorted the sentences afresh, in a Note of its own.",
+  reused:
+    "One sort reused by every check, as Check this Mind does on an unchanged Note: these counts are for a bar about time or cost, not a mark or a verdict (#2964).",
+  before:
+    "Made before #2964: every check reused its run's one sort, so each count stands on the sorts it gives, not on one a check.",
+};
 
 function knownLines(known: readonly RepeatRow[]): string[] {
   const issues = [...new Set(known.map((row) => row.knownMiss))];
@@ -206,7 +272,7 @@ function knownLines(known: readonly RepeatRow[]): string[] {
         const own = ofIssue.filter((row) => row.key === key);
         const count = (outcomes: readonly Outcome[]) =>
           own.filter((row) => outcomes.includes(row.outcome)).length;
-        return `- ${key}: ${count(["contradicted"])} of ${own.length} Contradicted, ${count(["supported"])} Supported, ${count(["partly", "absent", "differs", "unsupported"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
+        return `- ${key}: ${counted(countOf(own, (row) => row.outcome === "contradicted"))} Contradicted, ${count(["supported"])} Supported, ${count(["partly", "absent", "differs", "unsupported"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
       }),
     ];
   });
@@ -222,34 +288,32 @@ export function report(
     `Commit ${run.commit}, ${run.repeats} repeats a Mind, $${run.spent.toFixed(2)} at the app's own count.`,
     "",
     ...summaries.flatMap((group) => [
-      `## ${group.set} · ${group.model} · ${group.repeats} checks`,
+      `## ${group.set} · ${group.model} · ${group.repeats} checks, ${group.sorts} ${group.sorts === 1 ? "sort" : "sorts"}`,
+      "",
+      SORTING[group.sorting],
       "",
       "| Sentence | Kind | Expected | Supported | Partly | Absent | Differs | Unsupported | Contradicted | Not checked | Same verdict |",
       "|---|---|---|---|---|---|---|---|---|---|---|",
       ...group.sentences.map(
         (each) =>
-          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.unsupported} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${each.steady} of ${each.repeats} |`,
+          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.unsupported} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${counted({ count: each.steady, checks: each.repeats, sorts: each.sorts })} |`,
       ),
       "",
-      `- False Supported: ${group.falseSupported}`,
-      `- Not found or Unsupported, for a sentence they state: ${group.unsupportedOnStated}`,
-      `- The partly-supported card, for a sentence whose topic they don't hold: ${group.partlyOnAbsent}`,
-      `- Checks whose verdicts differ from the one before: ${group.disagreeing} of ${group.followed}`,
-      ...(group.conflicts
-        ? [
-            `- Genuine conflicts Contradicted: ${group.conflicts.contradicted} of ${group.conflicts.checked}`,
-          ]
-        : []),
-      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)}, asked to search again in ${group.cost.askedAgain}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
+      `- False Supported: ${counted(group.falseSupported)}`,
+      `- Not found or Unsupported, for a sentence they state: ${counted(group.unsupportedOnStated)}`,
+      `- The partly-supported card, for a sentence whose topic they don't hold: ${counted(group.partlyOnAbsent)}`,
+      `- Checks whose verdicts differ from the one before: ${counted(group.disagreeing)}`,
+      ...(group.conflicts ? [`- Genuine conflicts Contradicted: ${counted(group.conflicts)}`] : []),
+      `- A sentence's check, on average: ${group.cost.requests.toFixed(2)} requests, ${group.cost.searches.toFixed(2)} searches (more than one in ${group.cost.searchedAgain} of ${group.sentences.reduce((total, each) => total + each.repeats, 0)} checks, asked to search again in ${group.cost.askedAgain}), ${Math.round(group.cost.inputTokens)} tokens in, ${Math.round(group.cost.outputTokens)} out, ${group.cost.seconds.toFixed(1)} s of requests`,
       ...knownLines(group.known),
       "",
       ...(group.misses.length > 0
         ? [
-            "| Check | Sentence | Card | What the check said | Covered | Not covered | Quote |",
-            "|---|---|---|---|---|---|---|",
+            "| Check | Sort | Sentence | Card | What the check said | Covered | Not covered | Quote |",
+            "|---|---|---|---|---|---|---|---|",
             ...group.misses.map(
               (row) =>
-                `| ${row.repeat} | ${cell(row.sentence)} | ${row.outcome} | ${cell(row.failure ?? row.says)} | ${cell(row.covered)} | ${cell(row.uncovered)} | ${cell(row.quote)} |`,
+                `| ${row.repeat} | ${row.sort ?? 1} | ${cell(row.sentence)} | ${row.outcome} | ${cell(row.failure ?? row.says)} | ${cell(row.covered)} | ${cell(row.uncovered)} | ${cell(row.quote)} |`,
             ),
             "",
           ]
