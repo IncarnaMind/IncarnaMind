@@ -150,8 +150,9 @@ export function parseFolderReading(value: unknown): FolderReading {
     if (!cover) throw new Error(`The reply doesn't say whether the Folder covers ${area}.`);
     return cover;
   });
-  const arrangedBy = typeof reply.arrangedBy === "string" ? reply.arrangedBy.trim() : "";
-  return { areas, arrangedBy };
+  if (typeof reply.arrangedBy !== "string")
+    throw new Error('The reply doesn\'t say what the Folder is arranged by ("" for an area).');
+  return { areas, arrangedBy: reply.arrangedBy.trim() };
 }
 
 export function folderRequest(

@@ -165,6 +165,9 @@ describe("the second reader's blind Folder sheet", () => {
     const home = items.find((item) => item.name === "Personal & Home");
     expect(home && readings.get(home.number)).toEqual(reading(["personal"]));
     expect(() => readFolderSheet(folderSheet(items), items)).toThrow("isn't filled in");
+    expect(() =>
+      readFolderSheet(fill(folderSheet(items)).replace("- arranged by: a team\n", ""), items),
+    ).toThrow(`${teamNumber} arranged by: missing`);
   });
 });
 
@@ -328,6 +331,74 @@ describe("a join of the readings", () => {
       ]);
       expect(report.lines[4]).toContain("| COMMITAAAA | mean | 3.0 | 0.0 | 1.0 | 0.0 | 0.0 | |");
     });
+
+    const answered = new Map([
+      [
+        "v-ARMONE-tune-en-en-s1-RUNA",
+        new Map([
+          ["one-on-one FOLDERID-2", true],
+          ["lease FOLDERID-2", false],
+        ]),
+      ],
+    ]);
+
+    test("refuses the answers bar on an empty sample, saying so", () => {
+      const report = joinReport({
+        items,
+        model,
+        person,
+        byModel: read(model, answered),
+        byPerson: read(person, answered),
+        answers: { model: { "001": true, "002": false }, person: {} },
+      });
+      expect(report.refused).toBe(true);
+      expect(report.lines[3]).toBe(
+        "Per-Document answers the same: nothing to compare (the second reader's answers are empty).",
+      );
+      expect(report.lines.at(-1)).toBe(
+        "No bar is read on nothing: the second reader's answers are empty.",
+      );
+    });
+
+    test("refuses a Folder bar on a half with no Folders", () => {
+      const report = joinReport({
+        items: items.filter((item) => item.half === 2),
+        model,
+        person,
+        byModel: read(model),
+        byPerson: read(person),
+      });
+      expect(report).toEqual({
+        lines: [
+          "Folders, half 1, the same areas: nothing to compare (half 1 has no Folders).",
+          "Folders, half 2, the same areas: 2/2 (100.0%, bar 90%): meets.",
+          WAITING,
+          "No bar is read on nothing: half 1 has no Folders.",
+        ],
+        refused: true,
+      });
+    });
+
+    test("refuses the wrong Documents' bar when neither reading calls a Document wrong", () => {
+      const report = joinReport({
+        items,
+        model,
+        person: model,
+        byModel: read(model, answered),
+        byPerson: read(model, answered),
+        answers: { model: { "001": true }, person: { "001": true } },
+      });
+      expect(report.refused).toBe(true);
+      expect(report.lines.slice(0, 4)).toEqual([
+        "Folders, half 1, the same areas: 1/1 (100.0%, bar 90%): meets.",
+        "Folders, half 2, the same areas: 2/2 (100.0%, bar 90%): meets.",
+        "en: Documents the same, 8/8 (100.0%, bar 95%): meets; of those either calls wrong, nothing to compare (neither reading calls a Document wrong in en).",
+        "Per-Document answers the same: 1/1 (100.0%, bar 90%): meets.",
+      ]);
+      expect(report.lines.at(-1)).toBe(
+        "No bar is read on nothing: neither reading calls a Document wrong in en.",
+      );
+    });
   });
 
   test("compares the two readings by Folder, by Document and by those either calls wrong", () => {
@@ -386,6 +457,14 @@ describe("a join of the readings", () => {
     expect(() =>
       verdictsOf({ folders: { "001": { areas: { research: "yes" }, arrangedBy: "" } } }),
     ).toThrow("Folder 001: The reply doesn't say whether the Folder covers reports.");
+    const { arrangedBy: _, ...unsaid } = yes;
+    expect(() => verdictsOf({ folders: { "007": unsaid } })).toThrow(
+      "Folder 007: The reply doesn't say what the Folder is arranged by",
+    );
+    expect(() => verdictsOf({ folders: { "008": { reads: [yes, unsaid, yes] } } })).toThrow(
+      "Folder 008: The reply doesn't say what the Folder is arranged by",
+    );
+    expect(verdictsOf({ folders: { "009": yes } }).get("009")?.arrangedBy).toBe("");
     expect(() =>
       lookHereOf(
         { "001": "no" },

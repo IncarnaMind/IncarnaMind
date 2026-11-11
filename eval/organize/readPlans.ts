@@ -327,7 +327,8 @@ export interface Agreement {
   same: number;
 }
 
-export const share = ({ compared, same }: Agreement) => (compared ? same / compared : 1);
+/** The share the same; nothing compared is no share at all, so no bar can read it as met. */
+export const share = ({ compared, same }: Agreement) => (compared ? same / compared : Number.NaN);
 
 /**
  * A per-Document question's estimated cost in dollars: about 600 input and 250 output tokens,
@@ -500,12 +501,25 @@ export function joinReport(input: {
   byPerson: readonly ReadRun[];
   answers?: { model: Record<string, boolean>; person: Record<string, boolean> };
 }): { lines: string[]; refused: boolean } {
-  const verdict = (agreement: Agreement, bar: number) =>
-    `${agreement.same}/${agreement.compared} (${(100 * share(agreement)).toFixed(1)}%, bar ${Math.round(100 * bar)}%): ${share(agreement) >= bar ? "meets" : "misses"}`;
+  const empty: string[] = [];
+  const verdict = (agreement: Agreement, bar: number, nothing: string) => {
+    if (agreement.compared === 0) {
+      empty.push(nothing);
+      return `nothing to compare (${nothing})`;
+    }
+    return `${agreement.same}/${agreement.compared} (${(100 * share(agreement)).toFixed(1)}%, bar ${Math.round(100 * bar)}%): ${share(agreement) >= bar ? "meets" : "misses"}`;
+  };
+  const refusedIfEmpty = (lines: string[], refused: boolean) =>
+    empty.length
+      ? {
+          lines: [...lines, `No bar is read on nothing: ${empty.join("; ")}.`],
+          refused: true,
+        }
+      : { lines, refused };
   const lines: string[] = [];
   for (const half of [1, 2] as const)
     lines.push(
-      `Folders, half ${half}, the same areas: ${verdict(folderAgreement(input.items, input.model, input.person, half), BARS.folders)}.`,
+      `Folders, half ${half}, the same areas: ${verdict(folderAgreement(input.items, input.model, input.person, half), BARS.folders, `half ${half} has no Folders`)}.`,
     );
   const waiting = (read: readonly ReadRun[]) =>
     read.reduce((sum, each) => sum + each.reading.counts.waiting, 0);
@@ -515,18 +529,18 @@ export function joinReport(input: {
     lines.push(
       `${inModel} Documents wait in the model's reading and ${inPerson} in the second reader's: the Documents and answers bars are not printed.`,
     );
-    return { lines, refused: input.answers !== undefined };
+    return refusedIfEmpty(lines, input.answers !== undefined);
   }
   for (const [language, tally] of documentAgreement(input.byModel, input.byPerson))
     lines.push(
-      `${language}: Documents the same, ${verdict(tally.all, BARS.documents)}; of those either calls wrong, ${verdict(tally.wrong, BARS.wrong)}.`,
+      `${language}: Documents the same, ${verdict(tally.all, BARS.documents, `no Documents in ${language}`)}; of those either calls wrong, ${verdict(tally.wrong, BARS.wrong, `neither reading calls a Document wrong in ${language}`)}.`,
     );
   if (input.answers)
     lines.push(
-      `Per-Document answers the same: ${verdict(answerAgreement(input.answers.model, input.answers.person), BARS.answers)}.`,
+      `Per-Document answers the same: ${verdict(answerAgreement(input.answers.model, input.answers.person), BARS.answers, "the second reader's answers are empty")}.`,
     );
   lines.push(readingTable(input.byModel, (run) => run.commit));
-  return { lines, refused: false };
+  return refusedIfEmpty(lines, false);
 }
 
 function options(args: readonly string[]) {

@@ -89,7 +89,9 @@ export function readFolderSheet(text: string, items: readonly FolderItem[]) {
       if (!cover) problems.push(`${item.number} ${area}: "${fields.get(area) ?? ""}"`);
       return cover ?? "no";
     });
-    readings.set(item.number, { areas, arrangedBy: fields.get(ARRANGED) ?? "" });
+    const arrangedBy = fields.get(ARRANGED);
+    if (arrangedBy === undefined) problems.push(`${item.number} ${ARRANGED}: missing`);
+    readings.set(item.number, { areas, arrangedBy: arrangedBy ?? "" });
   }
   if (problems.length)
     throw new Error(`The sheet isn't filled in: ${problems.slice(0, 12).join("; ")}.`);

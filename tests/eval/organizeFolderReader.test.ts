@@ -116,6 +116,19 @@ describe("the reader's questions", () => {
     expect(() => parseFolderReading({ areas: missing, arrangedBy: "" })).toThrow("covers finance");
   });
 
+  test("a Folder's reply must say what it is arranged by: an explicit empty one stays, a missing one is refused", () => {
+    expect(parseFolderReading({ areas: all("no"), arrangedBy: "" })).toEqual({
+      areas: all("no"),
+      arrangedBy: "",
+    });
+    expect(() => parseFolderReading({ areas: all("no") })).toThrow(
+      "The reply doesn't say what the Folder is arranged by",
+    );
+    expect(() => parseFolderReading({ areas: all("no"), arrangedBy: 3 })).toThrow(
+      "The reply doesn't say what the Folder is arranged by",
+    );
+  });
+
   test("two reads of three decide each area; three different answers read as part", () => {
     const read = (finance: "yes" | "part" | "no", arrangedBy = ""): FolderReading => ({
       areas: { ...all("no"), finance },
