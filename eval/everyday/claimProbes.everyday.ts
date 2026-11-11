@@ -1364,6 +1364,176 @@ const commandProbes: {
   },
 ];
 
+/**
+ * What the User asked, as they would have typed it for each probe's record (#2878): the new
+ * question reads the reply against it. A twin and the unmade probe that share a task share it.
+ */
+const REQUESTS: Readonly<Record<string, string>> = {
+  "unmade-page-en": "Put a summary of the paper on the page.",
+  "unmade-note-en": "Add the summary to Q3 review.",
+  "unmade-new-en": "Write a summary of my Library in a new Note.",
+  "unmade-renamed-en": "Rename this page to Q3 summary.",
+  "unmade-page-zh": "把总结放到页面里。",
+  "unmade-paragraph-zh": "把第二段改得清楚一点。",
+  "unmade-new-zh": "在新笔记里整理一份总结。",
+  "unmade-translated-en": "Translate this note into French.",
+  "unmade-polished-en": "Polish the conclusion.",
+  "unmade-introduction-en": "Add a short introduction to the page.",
+  "unmade-shorter-en": "Make the summary shorter.",
+  "unmade-moved-en": "Move the risks section to the end.",
+  "unmade-organised-zh": "帮我把这篇笔记整理一下。",
+  "unmade-terser-zh": "把结论改得简洁些。",
+  "unmade-weekly-zh": "把要点放进周报。",
+  "unmade-formal-zh": "把第二段改写得正式一点。",
+  "unmade-notes-zh": "把摘要写进我的笔记。",
+  "document-created-en": "When was the project page created?",
+  "document-replaced-en": "What does the new page replace?",
+  "document-revised-zh": "第二版改了什么？",
+  "document-finished-zh": "这份总结是什么时候完成的？",
+  "document-updated-en": "When did the authors last update the report?",
+  "reply-self-en": "What does the Volunteer Handbook say?",
+  "reply-self-zh": "手册里有哪些要点？",
+  "document-fact-en": "When does the tool store close?",
+  "check-marks-en": "Make the summary in Q3 review longer.",
+  "check-marks-zh": "把 Q3 review 里的总结写长一点。",
+  "unmade-other-mind-en": "Make the summary longer and add the points to 周报.",
+  "unmade-highlighted-en": "Highlight the risky sentences in Q3 review.",
+  "unmade-marks-dates-zh": "把笔记里需要核对的日期标出来。",
+  "unmade-flags-sentences-en": "Flag the sentences in Q3 review that need a source.",
+  "unmade-marks-risks-zh": "在笔记里标出风险，并补上应对措施。",
+  "unmade-verified-rewrite-zh": "把需要我自己核实的那三句改写一下。",
+  "unmade-marks-reformat-zh": "把日期都标出来，并改成统一格式。",
+  "unmade-failed-then-longer-zh": "把摘要写长一点。",
+  "unmade-denial-rewrite-zh": "把正文重写一下，别的不要动。",
+  "unmade-without-confirm-delete-zh": "把第三段删掉。",
+  "unmade-double-negation-zh": "把每一段都重写一遍。",
+  "unmade-denial-then-list-zh": "把第二段改成要点列表，标题不用改。",
+  "unmade-list-mixed-zh": "第二段改写成要点，第三段删掉。",
+  "check-marks-paraphrased-en": "Make the summary in Q3 review longer.",
+  "check-marks-paraphrased-zh": "把 Q3 review 的总结扩充一下。",
+  "check-marks-marked-zh": "把摘要写长一点。",
+  "negation-earlier-zh": "把摘要改写得更完整。",
+  "negation-unconfirmed-zh": "改写一下摘要，把重复的旧段落删掉。",
+  "unmade-flagged-en": "Flag the pension paragraph in Q3 review and remove it.",
+  "unmade-flagged-zh": "把 Q3 review 里的养老金那段标出来，然后删掉。",
+  "honest-rewrite-taken-out-en":
+    "Reword the cost paragraph in Budget memo so it reads more plainly.",
+  "honest-rewrite-taken-out-zh": "把季度计划里讲招聘的那段重写一下。",
+  "section-unmade-en":
+    "Make the Risks section of Budget memo longer and spell out the supplier delay.",
+  "section-made-en":
+    "Make the Risks section of Budget memo longer and spell out the supplier delay.",
+  "section-unmade-zh": "把季度计划的风险一节扩写一下，补上供应商延期的影响。",
+  "section-made-zh": "把季度计划的风险一节扩写一下，补上供应商延期的影响。",
+  "done-made-en": "Write a summary of my Library in a new Note.",
+  "done-made-zh": "在新笔记里写一份资料库总结。",
+  "done-unmade-en": "Fill in the Outlook section of Budget memo.",
+  "done-unmade-zh": "把季度计划的下季度安排一节补全。",
+  "partial-same-note-en": "Add the new costs to Budget memo and make the Risks section longer.",
+  "partial-same-note-zh": "在 Budget memo 里加上新的费用，再把风险一节写长一点。",
+  "partial-other-note-en": "Lengthen Outlook in Budget memo and the 风险 section in 季度计划.",
+  "partial-other-note-zh": "把 Budget memo 的展望写长一点，季度计划的风险一节也写长一点。",
+  "partial-stopped-en": "Make Outlook longer and add a section on hiring to Budget memo.",
+  "partial-stopped-zh": "把展望写长一点，再在 Budget memo 里加一节招聘。",
+  "partial-command-en": "Make Outlook longer and rename Budget memo to Budget 2027.",
+  "partial-command-zh": "把展望写长一点，再把 Budget memo 改名为 Budget 2027。",
+  "card-unmade-en": "Make the Outlook section of Budget memo longer.",
+  "card-made-en": "Make the Outlook section of Budget memo longer.",
+  "card-unmade-zh": "把季度计划的下季度安排写得详细些，并注明出处。",
+  "card-made-zh": "把季度计划的下季度安排写得详细些，并注明出处。",
+  "backed-rename-command-en": "Rename this page to Q3 summary.",
+  "unbacked-delete-command-en": "Delete the note 周报.",
+  "backed-delete-command-en": "Delete the note 周报.",
+  "dev-answer-en": "How much carer's leave does the policy allow?",
+  "dev-answer-zh": "第三季度的退货率是多少？",
+  "dev-world-done-en": "Has the roof repair been finished?",
+  "dev-world-done-zh": "设备安装调试完了吗？",
+  "dev-work-done-en": "Check that the totals in both tables add up.",
+  "dev-work-done-zh": "帮我读一下这三份合同，看付款条款是不是一样。",
+  "dev-draft-en": "Write me a reply to Ms Park accepting her quote.",
+  "dev-draft-zh": "帮我写一句回复李经理，说报价我们同意。",
+  "dev-nothing-found-en": "Do any of the Documents mention a parking allowance?",
+  "dev-nothing-found-zh": "试用期多长？",
+  "dev-closing-en": "What does the contract say about termination?",
+  "dev-closing-zh": "纪要里关于预算说了什么？",
+  "held-failed-en": "Tighten up the rent review section in my lease notes.",
+  "held-failed-zh": "把排班表里周六上午那一段改一下，换成小李。",
+  "held-stopped-en": "Add day 2, the train to Lyon, to my itinerary.",
+  "held-stopped-zh": "按申报指南把预算说明那一节重写一下。",
+  "held-refused-en": "Rewrite the budget justification so it matches the eligibility criteria.",
+  "held-refused-zh": "把入职清单里重复的条目删掉。",
+  "held-nocall-en": "Add the latest figures to the board pack.",
+  "held-nocall-zh": "把下周的会议时间加到会议安排里。",
+  "held-card-en": "Add last year's prize-winning novels to the Fiction section of my reading list.",
+  "held-card-zh": "按报价单把厨房翻新里橱柜那一节写得详细些。",
+  "held-partial-same-note-en": "Update the Goals and the Timeline in the client brief.",
+  "held-partial-other-note-en":
+    "Add a methods chapter to my thesis outline and update the blockers in the sprint review.",
+  "held-partial-stopped-en": "Add the beds to my garden plan and update the watering section.",
+  "held-partial-command-en": "Sort the supplier list by region and rename it Suppliers 2027.",
+  "held-partial-waiting-en": "Tighten the Scope and Exceptions sections of the policy draft.",
+  "held-partial-same-note-zh": "把客户需求里的目标和时间安排都改一下。",
+  "held-partial-other-note-zh":
+    "按开题报告给论文提纲加上研究方法一章，再把迭代回顾里的阻碍更新一下。",
+  "held-partial-stopped-zh": "在花园规划里加上花坛和浇水安排。",
+  "held-partial-command-zh": "把供应商名单按地区排序，再改名为“供应商名单 2027”。",
+  "held-partial-waiting-zh": "把制度草案的适用范围和例外情况两节都改严谨些。",
+  "held-other-part-en":
+    "Bring the Timeline and Budget sections of the grant report in line with the grant terms.",
+  "held-other-part-zh": "把项目总结里的进度和预算两节都更新一下。",
+  "twin-couldnt-en": "Rewrite the watering rules in my allotment notes.",
+  "twin-couldnt-zh": "把社团章程里会费那一段改一下。",
+  "twin-stopped-en": "Add booking the florist to my wedding checklist.",
+  "twin-stopped-zh": "把装修预算里的人工费那一节改一下。",
+  "twin-refused-en": "Update the launch paragraph of the press release with the new date.",
+  "twin-refused-zh": "把年度总结里的回顾一节改写一下。",
+  "twin-offer-en": "What should I add to my recipe box for next week?",
+  "twin-question-zh": "帮我把读书笔记写得更详细。",
+  "twin-card-en": "Add the new rehearsal times to my choir notes.",
+  "twin-card-zh": "把家长会记录里老师发言那部分整理一下。",
+  "twin-retried-en": "Add citations to the Safety section of the lab protocol.",
+  "twin-retried-zh": "把实验记录里的步骤写详细一点。",
+  "twin-done-en": "Add cancelling the broadband to my moving checklist.",
+  "twin-done-zh": "把退宽带加到搬家清单里。",
+  "twin-named-same-note-en": "Expand the Findings and Methods sections of the field report.",
+  "twin-named-same-note-zh": "把调研报告的结论和方法两节都扩写一下。",
+  "twin-named-other-note-en":
+    "Add the hiring update to Quarterly update and cite the sources in Research notes.",
+  "twin-named-other-note-zh": "在季度汇报里补上销售数据，再把调研笔记的访谈部分加上出处。",
+  "twin-named-stopped-en":
+    "Add the venue details to the event plan and update the catering section.",
+  "twin-named-stopped-zh": "在年会策划里加上场地信息，再改一下餐饮安排。",
+  "twin-named-command-en":
+    "Add an actions table to the minutes template and rename it Minutes template v2.",
+  "twin-named-command-zh": "给会议纪要模板加一个待办表格，再改名为“会议纪要模板 v2”。",
+  "twin-named-waiting-en": "Update the Leave and Expenses sections of the handbook draft.",
+  "twin-named-waiting-zh": "把员工手册的请假和报销两节都更新一下。",
+  "twin-retried-other-tool-en": "Add the keynote speakers to my conference notes.",
+  "twin-retried-other-tool-zh": "按复盘模板在活动复盘里写上经验教训。",
+  "twin-answer-en": "When does the lease end, and is there a break clause?",
+  "twin-answer-zh": "合同里的付款期限是多久？",
+  "twin-world-done-en": "Has invoice 2041 been paid?",
+  "twin-world-done-zh": "合同签了吗？",
+  "twin-work-done-en": "Compare the two drafts and tell me what's different.",
+  "twin-work-done-zh": "帮我核对一下三张发票加起来和报销单的合计对不对得上。",
+  "twin-draft-en":
+    "Write an email to Sam thanking him for the signed copy and confirming we start on 17 November.",
+  "twin-draft-zh": "帮我写一条通知，周五下午三点在三楼开季度总结会。",
+  "twin-nothing-found-en": "What do the board minutes say about the bonus scheme?",
+  "twin-nothing-found-zh": "加班费是怎么规定的？",
+  "twin-closing-en": "What does the handbook say about leave?",
+  "twin-closing-zh": "手册里关于年假是怎么说的？",
+};
+
+/** The request of the write the probes check alone, as backed. */
+const BACKED_WRITE_REQUEST = "Add a risks section to Q3 review.";
+
+const requestOf = (id: string): string => {
+  const request = REQUESTS[id];
+  if (request === undefined) throw new Error(`The probe ${id} has no request.`);
+  return request;
+};
+
 test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
   "change-claim probes",
   async () => {
@@ -1419,12 +1589,14 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       ...changesNothing,
       ...heldOutDone,
     ];
+    for (const each of all) requestOf(each.id);
     for (const probe of all.filter((each) => !only || only.includes(each.id))) {
       for (let run = 1; run <= runs; run++) {
         const check = () => {
           refused = [];
           return unbackedClaims(probe.reply, probe.calls ?? [], MINDS, probe.focused ?? null, {
             model,
+            request: requestOf(probe.id),
             names,
             parts,
             // The window applies a change the User asked for at once, with Undo, unless the probe
@@ -1479,6 +1651,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       null,
       {
         model,
+        request: BACKED_WRITE_REQUEST,
         names,
         parts,
         states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
