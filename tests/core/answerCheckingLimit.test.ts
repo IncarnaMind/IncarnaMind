@@ -5,7 +5,7 @@
  * Citations it leaves are the Answer's last, Not checked with the limit named. Check the rest says
  * what the rest costs, sending nothing, and then judges it.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { MarkedCitation } from "../../src/core";
 import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -25,6 +25,8 @@ const BATCH_USAGE: ReportedUsage = {
 
 const lineOf = (n: number) => `Kiln ${n} is due in 2027`;
 
+const GEMMA = "google/gemma-4-12b";
+
 /** An Answer of `count` sentences, each citing its own line of the schedule. */
 async function answered(
   count: number,
@@ -38,7 +40,7 @@ async function answered(
   }: {
     failing?: boolean;
     modelId?: string;
-    kind?: "anthropic" | "openai";
+    kind?: "anthropic" | "openai" | "deepseek" | "lmstudio";
     usage?: ReportedUsage;
     /** The tokens a batch's reply takes, its thinking and records: at its room, it is cut off there. */
     writes?: (sentences: number) => number;
@@ -46,7 +48,8 @@ async function answered(
 ) {
   const lines = Array.from({ length: count }, (_, index) => lineOf(index + 1));
   const batches: GenerateCall[] = [];
-  const judging = { failing };
+  /** `held`: each batch's reply waits for it, or fails once its request is aborted. */
+  const judging: { failing: boolean; held?: Promise<void> } = { failing };
   const model = scriptedModel(
     (call) => {
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -70,6 +73,8 @@ async function answered(
     {
       generate: (call) => {
         if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        // A model on this computer tags the Documents added too.
+        if (call.system.startsWith("You tag a User's Documents")) return { text: '{"tagged":[]}' };
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (judging.failing) return { error: { status: 500, message: "The provider failed." } };
         batches.push(call);
@@ -83,7 +88,13 @@ async function answered(
           quoted: "states",
           says: "The schedule says so.",
         }));
-        if (!writes) return { text: JSON.stringify({ sentences }), usage };
+        if (!writes) {
+          return {
+            text: JSON.stringify({ sentences }),
+            usage,
+            ...(judging.held && { until: judging.held }),
+          };
+        }
         const wrote = writes(count);
         const room = call.options.maxOutputTokens ?? Number.POSITIVE_INFINITY;
         return {
@@ -99,11 +110,11 @@ async function answered(
   );
   const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  const saved = await core.saveChatProvider({
-    kind,
-    apiKey: kind === "anthropic" ? "sk-ant-test" : "sk-test",
-    modelId,
-  });
+  const saved = await core.saveChatProvider(
+    kind === "lmstudio"
+      ? { kind: "openai-compatible", catalogId: "lmstudio", modelId }
+      : { kind, apiKey: kind === "anthropic" ? "sk-ant-test" : "sk-test", modelId },
+  );
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createTempDataFolder();
   await addAndProcess(core, [
@@ -246,6 +257,14 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
   /** Each batch's room, largest first: batches are sent a few at once. */
   const roomsOf = (batches: readonly GenerateCall[]) =>
     batches.map((batch) => batch.options.maxOutputTokens ?? 0).sort((a, b) => b - a);
+  /** Each batch's room by the sentences it holds. */
+  const roomsBySize = (batches: readonly GenerateCall[]) =>
+    new Map(
+      batches.map((batch) => [
+        [...batch.prompt.matchAll(/<sentence number="\d+">/g)].length,
+        batch.options.maxOutputTokens,
+      ]),
+    );
 
   test.each([
     { count: 1, rooms: [5_300] },
@@ -298,21 +317,153 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
   });
 
-  test("a model whose own most is under the room, as GPT-4 Turbo's 4,096 tokens, gets the room for its records alone", async () => {
+  test("a model whose own most is under the room, as GPT-4 Turbo's 4,096 tokens, is held to it, never to less than its records' room", async () => {
+    // At $10 in and $30 out, both batches at 4,096 would pass $0.25: the batch of one has it.
     const { answer, batches } = await answered(9, { kind: "openai", modelId: "gpt-4-turbo" });
 
-    expect(roomsOf(batches)).toEqual([2_400, 300]);
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 2_400],
+        [1, 4_096],
+      ]),
+    );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
   });
 
-  test("a batch that waits for the others to settle takes the room for thinking once the limit has it", async () => {
-    // Claude Opus 5.5 at $4 in and $20 out: 7,400 tokens out sets aside $0.148, 2,400 sets aside
-    // $0.048. The second batch fits only with the records' room beside the first; the third waits
-    // for both, and then the larger room fits.
-    const { answer, batches } = await answered(24, { modelId: "claude-opus-5-5" });
+  test("a model LM Studio lists with no most of its own is held to the room its window keeps for a reply", async () => {
+    // LM Studio's list gives a window of 131,072 tokens and no most: 4,096 are kept for a reply.
+    const listing = {
+      data: [{ id: GEMMA }],
+      models: [
+        {
+          type: "llm",
+          key: GEMMA,
+          max_context_length: 131_072,
+          loaded_instances: [],
+          capabilities: { vision: false, trained_for_tool_use: true },
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(listing)));
+    try {
+      const { answer, batches } = await answered(1, { kind: "lmstudio", modelId: GEMMA });
 
-    expect(roomsOf(batches)).toEqual([7_400, 7_400, 2_400]);
-    expect(checksOf(answer.citations)).toEqual(Array(24).fill("found"));
+      expect(roomsOf(batches)).toEqual([4_096]);
+      expect(checksOf(answer.citations)).toEqual(["found"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("where not every batch can have the room, the fewest sentences have it first: nine on Opus 5.5", async () => {
+    // At $4 in and $20 out: 5,300 tokens for the one and 7,400 for the eight would pass $0.25.
+    const { answer, batches } = await answered(9, { modelId: "claude-opus-5-5" });
+
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 2_400],
+        [1, 5_300],
+      ]),
+    );
+    expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
+  });
+
+  test.each([
+    // At $10 out, one batch of eight at 7,400 fits beside five at 2,400; a second wouldn't.
+    {
+      model: "Claude Sonnet 5.5",
+      modelId: "claude-sonnet-5-5",
+      count: 48,
+      rooms: [7_400, 2_400, 2_400, 2_400, 2_400, 2_400],
+    },
+    // At $20 out, 7,400 beside two at 2,400 passes $0.25: every batch keeps main's room.
+    {
+      model: "Claude Opus 5.5",
+      modelId: "claude-opus-5-5",
+      count: 24,
+      rooms: [2_400, 2_400, 2_400],
+    },
+  ])(
+    "$count sentences on $model: every batch is out before the first settles, as on main",
+    async ({ modelId, count, rooms }) => {
+      const { core, answer, judging, batches } = await answered(count, { failing: true, modelId });
+      let release = () => {};
+      judging.held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      judging.failing = false;
+
+      const checking = core.checkAnswerAgain({
+        conversationId: answer.conversationId,
+        answerId: answer.id,
+      });
+      await vi.waitFor(() => expect(batches).toHaveLength(rooms.length), { timeout: 10_000 });
+      expect(roomsOf(batches)).toEqual(rooms);
+      release();
+      await checking;
+      const again = await answerJudged(core, answer.conversationId, answer.id);
+
+      expect(checksOf(again.citations)).toEqual(Array(count).fill("found"));
+    },
+  );
+
+  test("quit while a batch waits for the others to settle: it reads nothing more and sends nothing", async () => {
+    // Claude Fable 5 at $50 out: two batches of eight at 2,400 tokens pass $0.25, so the second
+    // waits for the first, whose reply is held until the quit aborts it.
+    const { core, answer, judging, batches } = await answered(16, {
+      failing: true,
+      modelId: "claude-fable-5",
+    });
+    judging.held = new Promise<void>(() => {});
+    judging.failing = false;
+    const checking = core.checkAnswerAgain({
+      conversationId: answer.conversationId,
+      answerId: answer.id,
+    });
+    await vi.waitFor(() => expect(batches).toHaveLength(1));
+    const reported = vi.spyOn(console, "error");
+
+    core.close();
+    await checking.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(batches).toHaveLength(1);
+    expect(reported).not.toHaveBeenCalled();
+    reported.mockRestore();
+  });
+
+  test.each([
+    { model: "Claude Haiku 5.5", kind: "anthropic" as const, modelId: "claude-haiku-5-5" },
+    { model: "Claude Sonnet 5.5", kind: "anthropic" as const, modelId: "claude-sonnet-5-5" },
+    { model: "DeepSeek V4.1 Flash", kind: "deepseek" as const, modelId: "deepseek-flash" },
+  ])(
+    "the gated runs' requests: $model's batch of 1, 2 and 3 sentences has 5,300, 5,600 and 5,900",
+    async ({ kind, modelId }) => {
+      const rooms = [];
+      for (const count of [1, 2, 3]) {
+        const { batches } = await answered(count, { kind, modelId });
+        rooms.push(...roomsOf(batches));
+      }
+
+      expect(rooms).toEqual([5_300, 5_600, 5_900]);
+    },
+  );
+
+  test("Check the rest's most, on a model whose own most is under the room, is what can be sent: GPT-4 Turbo's 4,096 tokens", async () => {
+    const { core, answer } = await answered(1, {
+      failing: true,
+      kind: "openai",
+      modelId: "gpt-4-turbo",
+    });
+
+    const estimate = await core.estimateAnswerCheck({
+      conversationId: answer.conversationId,
+      answerId: answer.id,
+    });
+
+    // 4,096 tokens out at $30 a million is $0.123, and the prompt the rest; 5,300 would be $0.159
+    // before the prompt.
+    expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.14);
   });
 
   test("near the monthly cap, a batch the room for thinking would take past it goes with the room for its records, as before", async () => {

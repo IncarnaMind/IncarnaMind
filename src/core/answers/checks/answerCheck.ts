@@ -26,7 +26,7 @@ import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
-import { type ModelCallKind, outputTokens } from "../../providers/outputLimits";
+import { type OwnRoom, outputTokens } from "../../providers/outputLimits";
 import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
@@ -220,8 +220,15 @@ function stopOf(failure: ProviderError): JudgementStop | null {
   return failure.budget ? "answer-limit" : "monthly-limit";
 }
 
-/** A batch's room: for its records after the model's thinking, or for its records alone. */
-type BatchRoom = Extract<ModelCallKind, "sentence-batch" | "sentence-batch-records">;
+/**
+ * A batch's room for its thinking and records, held to the model's own room, as an Answer's is,
+ * and never under the room for its records alone (#2951).
+ */
+const batchRoom = (sentences: number, own: OwnRoom): number =>
+  Math.max(
+    outputTokens("sentence-batch-records", sentences),
+    outputTokens("sentence-batch", sentences, own),
+  );
 
 /**
  * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
@@ -230,14 +237,14 @@ type BatchRoom = Extract<ModelCallKind, "sentence-batch" | "sentence-batch-recor
 function mostRequest(
   batch: readonly BatchSentence[],
   instructions: string,
-  room: BatchRoom = "sentence-batch",
+  room: number,
 ): EstimatedRequest {
   const asSent = {
     content: [{ type: "text", text: batchPrompt(batch), providerOptions: CACHED }],
   };
   return {
     inputTokens: promptTokensOf([{ content: instructions }, asSent]),
-    outputTokens: outputTokens(room, batch.length),
+    outputTokens: room,
   };
 }
 
@@ -260,8 +267,14 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     });
   }
 
-  /** The requests judging would send, a batch each: about what each writes, and the most it may. */
-  function requests(input: Omit<AnswerCheckInput, "model" | "signal">): EstimatedRead | null {
+  /**
+   * The requests judging would send, a batch each: about what each writes, and the most it may on
+   * a model of `own` room.
+   */
+  function requests(
+    input: Omit<AnswerCheckInput, "model" | "signal">,
+    own: OwnRoom,
+  ): EstimatedRead | null {
     const batches = batchesOf(asked(input).filter((sentence) => sentence.passages.length > 0));
     if (batches.length === 0) return null;
     const instructions = sentenceBatchInstructions(options.language());
@@ -272,7 +285,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
-      most: batches.map((batch) => mostRequest(batch, instructions)),
+      most: batches.map((batch) => mostRequest(batch, instructions, batchRoom(batch.length, own))),
     };
   }
 
@@ -341,7 +354,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     /** One request for a batch: its verdicts, or the limit that refused it, or null when it failed. */
     const send = async (
       batch: (typeof judged)[number][],
-      { most, room }: { most: number; room: BatchRoom },
+      { most, room }: { most: number; room: number },
     ): Promise<Map<number, BatchVerdict> | JudgementStop | null> => {
       const id = ++sent;
       open++;
@@ -349,7 +362,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         const judged = await judge({
           model: prepared.model,
           question: { id: "sentence-batch", instructions },
-          room,
+          within: { most: room },
           parts: batchParts(batch),
           data: BATCH_TAGS,
           reply: json((value) => readBatch(value, batch.length)),
@@ -409,32 +422,79 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         ? "answer-limit"
         : null;
     };
+    const own: OwnRoom = {
+      most: prepared.capabilities.facts.maxOutput,
+      window: prepared.window?.outputTokens,
+    };
+    const reservedAt = (batch: (typeof judged)[number][], room: number) =>
+      options.mostOf(input.model, mostRequest(batch, instructions, room));
+    const recordsRoom = (batch: (typeof judged)[number][]) =>
+      outputTokens("sentence-batch-records", batch.length);
+    /** The batches of this check not admitted yet, in the order they go. */
+    let unadmitted: (typeof judged)[number][][] = [];
+    /**
+     * Whether all of `wanted` can be set aside now, open together and none settled, beside the
+     * batches out. The monthly cap counts a batch out twice, as `passes` does once it is sent:
+     * what the meter set aside for it and what `outMost` holds.
+     */
+    const together = (wanted: readonly (Money | null)[]): boolean => {
+      const asked = wanted.filter((each): each is Money => each !== null);
+      const total = (currency: Currency) =>
+        asked.reduce((sum, each) => sum + inCurrency(each.amount, each.currency, currency), 0);
+      const cap = options.capLeft();
+      const out = (currency: Currency) =>
+        limit ? inCurrency(outMost, limit.currency, currency) : 0;
+      if (cap && 2 * (out(cap.currency) + total(cap.currency)) > cap.amount) return false;
+      if (!task || !limit) return true;
+      return (
+        options.spent(task.id, limit.currency) + outMost + total(limit.currency) <= limit.amount
+      );
+    };
+    /**
+     * The room for thinking goes to a batch only where every batch still to come keeps the room it
+     * would go with anyway, so it never makes one wait or be refused. The fewest sentences first:
+     * the thinking comes once a request, and a batch of one has the least room beyond its records.
+     */
+    const roomFor = (batch: (typeof judged)[number][], atRecords: Money | null) => {
+      const room = batchRoom(batch.length, own);
+      const records = { room: recordsRoom(batch), reserved: atRecords };
+      if (room <= records.room) return records;
+      const ranked = [batch, ...unadmitted.filter((each) => each !== batch)].sort(
+        (a, b) => a.length - b.length,
+      );
+      const roomy = ranked.slice(0, ranked.indexOf(batch) + 1);
+      const rest = ranked.slice(ranked.indexOf(batch) + 1);
+      const reserved = reservedAt(batch, room);
+      const wanted = [
+        ...roomy.map((each) =>
+          each === batch ? reserved : reservedAt(each, batchRoom(each.length, own)),
+        ),
+        ...rest.map((each) => reservedAt(each, recordsRoom(each))),
+      ];
+      return together(wanted) ? { room, reserved } : records;
+    };
     const admit = (
       batch: (typeof judged)[number][],
-    ): Promise<{ most: number; room: BatchRoom } | JudgementStop> => {
+    ): Promise<{ most: number; room: number } | JudgementStop | null> => {
       const turn = admitted.then(async () => {
-        const reservedAt = (room: BatchRoom) =>
-          options.mostOf(input.model, mostRequest(batch, instructions, room));
-        const records = reservedAt("sentence-batch-records");
-        while (passes(records) && open > 0) await settledAll();
-        const stop = passes(records);
-        if (stop) return stop;
-        // A provider refuses a limit past the model's own most, or past the room its window keeps
-        // for a reply (#2951).
-        const fits =
-          outputTokens("sentence-batch", batch.length) <=
-          Math.min(
-            prepared.capabilities.facts.maxOutput ?? Number.POSITIVE_INFINITY,
-            prepared.window?.outputTokens ?? Number.POSITIVE_INFINITY,
-          );
-        const roomy = reservedAt("sentence-batch");
-        const room: BatchRoom =
-          fits && !passes(roomy) ? "sentence-batch" : "sentence-batch-records";
-        const reserved = room === "sentence-batch" ? roomy : records;
-        const most =
-          reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
-        outMost += most;
-        return { most, room };
+        try {
+          if (input.signal.aborted) return null;
+          const atRecords = reservedAt(batch, recordsRoom(batch));
+          while (passes(atRecords) && open > 0) {
+            await settledAll();
+            // Stopped, or the core closed with the database, while it waited: nothing more is read.
+            if (input.signal.aborted) return null;
+          }
+          const stop = passes(atRecords);
+          if (stop) return stop;
+          const { room, reserved } = roomFor(batch, atRecords);
+          const most =
+            reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
+          outMost += most;
+          return { most, room };
+        } finally {
+          unadmitted = unadmitted.filter((each) => each !== batch);
+        }
       });
       admitted = turn;
       return turn;
@@ -442,7 +502,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
 
     const judgeBatch = async (batch: (typeof judged)[number][]) => {
       const admission = stopped ? stopped : await admit(batch);
-      if (typeof admission === "string" || stopped || input.signal.aborted) {
+      if (admission === null || typeof admission === "string" || stopped || input.signal.aborted) {
         stopped ??= typeof admission === "string" ? admission : null;
         for (const sentence of batch) settle(sentence, null, stopped);
         return;
@@ -463,6 +523,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     // to be judged against: it isn't sent.
     for (const sentence of judged) if (sentence.passages.length === 0) settle(sentence, null, null);
     const queue = batchesOf(judged.filter((sentence) => sentence.passages.length > 0));
+    unadmitted = [...queue];
     const workers = Array.from(
       { length: Math.min(claimsAtOnce(prepared), queue.length) },
       async () => {

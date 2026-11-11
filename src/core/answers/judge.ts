@@ -25,7 +25,12 @@ import { isRecord } from "../../shared/record";
 import type { ProviderError } from "../api";
 import { asAttribute, asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
-import { CutShortError, type ModelCallKind, outputTokens } from "../providers/outputLimits";
+import {
+  CutShortError,
+  type ModelCallKind,
+  type OwnRoom,
+  outputTokens,
+} from "../providers/outputLimits";
 import { tokenUsageOf } from "../providers/promptCache";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { TokenUsage } from "../runs/engine";
@@ -157,8 +162,8 @@ export interface JudgeAsk<T> {
   reply: JudgeReply<T>;
   /** For a question whose output limit is so much an item: how many items it asks about. */
   items?: number;
-  /** The output limit's kind, where it isn't the question's own. */
-  room?: ModelCallKind;
+  /** Where its caller holds the request's output limit under the question's own. */
+  within?: OwnRoom;
   /** How many times the provider's request is sent again when it fails. */
   retries: number;
   signal: AbortSignal;
@@ -452,13 +457,13 @@ async function streamed<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
     reply.kind === "structured"
       ? streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
           output: Output.object({ schema: reply.schema, name: reply.name }),
           onError: () => undefined,
         }).fullStream
       : streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
           onError: () => undefined,
         }).fullStream;
   let text = "";
@@ -483,7 +488,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   if (reply.kind !== "structured") {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
     });
     return {
       text: result.text,
@@ -494,7 +499,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   try {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.room ?? ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
       output: Output.object({ schema: reply.schema, name: reply.name }),
     });
     return {

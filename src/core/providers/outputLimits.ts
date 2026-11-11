@@ -59,8 +59,8 @@ export const OUTPUT_LIMITS = {
   // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
   // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).
   "sentence-batch": { most: 7_400, each: 300, base: 5_000 },
-  // A batch's records alone: the room of a batch the room above would take past the Answer's limit
-  // or the monthly cap as it is sent (#2951).
+  // A batch's records alone: the least room a batch gets, and its room where the room above can't
+  // be set aside beside the batches still to come under the Answer's limit or the monthly cap (#2951).
   "sentence-batch-records": { most: 2_400, each: 300 },
   // Room for a model that thinks whatever it is asked, before its plan.
   "research-plan": { most: 4_096 },
@@ -86,12 +86,27 @@ export const LONGEST_OUTPUT = Math.max(
   ...Object.values(OUTPUT_LIMITS).map((limit: { most: number }) => limit.most),
 );
 
-/** `count`: the items a call of a kind with `each` asks about, after its `base`. */
-export function outputTokens(kind: ModelCallKind, count = 1): number {
+/** What a model can write in one reply: its own most, and the room its window keeps for a reply. */
+export interface OwnRoom {
+  most?: number | undefined;
+  window?: number | undefined;
+}
+
+/**
+ * `count`: the items a call of a kind with `each` asks about, after its `base`. `within`: held to
+ * the model's own room, so its provider never refuses the request for asking more.
+ */
+export function outputTokens(kind: ModelCallKind, count = 1, within?: OwnRoom): number {
   const limit: { most: number; each?: number; base?: number } = OUTPUT_LIMITS[kind];
-  return limit.each === undefined
-    ? limit.most
-    : Math.min(limit.most, (limit.base ?? 0) + limit.each * Math.max(1, count));
+  const room =
+    limit.each === undefined
+      ? limit.most
+      : Math.min(limit.most, (limit.base ?? 0) + limit.each * Math.max(1, count));
+  return Math.min(
+    room,
+    within?.most ?? Number.POSITIVE_INFINITY,
+    within?.window ?? Number.POSITIVE_INFINITY,
+  );
 }
 
 /**
