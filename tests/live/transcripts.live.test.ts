@@ -10,13 +10,28 @@
  *   INCARNAMIND_ENV_FILE        a .env.local with INCARNAMIND_EVAL_CHAT_KEY (Anthropic) and
  *                               OPENAI_API_KEY, read in this process only, never printed
  *   INCARNAMIND_LIVE_MODELS     which to ask, e.g. "anthropic:claude-haiku-5-5,openai:gpt-6-luna,ollama:qwen3.5:4b"
+ *
+ * The engine's own test (#2957) needs INCARNAMIND_EVAL_MODELS alone, and asks no model: it
+ * downloads the speech model and Silero VAD there, checked, when they aren't there already.
  */
 import { readFileSync } from "node:fs";
 import { readFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { AudioCapture, AudioSink, ChatProviderKind, Core } from "../../src/core";
+import type {
+  AudioCapture,
+  AudioSink,
+  ChatProviderKind,
+  Core,
+  TranscriberListener,
+} from "../../src/core";
+import { downloadModel } from "../../src/core/embedding/download";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
+import {
+  QWEN3_ASR_0_6B,
+  SILERO_VAD,
+  transcriptionModelFiles,
+} from "../../src/core/transcription/model";
 import { createSherpaEngine } from "../../src/core/transcription/sherpa";
 import { askAndFinish, citationsIn } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -196,6 +211,81 @@ describe.runIf(process.env.INCARNAMIND_LIVE_TRANSCRIPTS === "1")(
             .toBe(true);
         }
       }
+    });
+  },
+);
+
+/** A 16-bit WAV's samples, as the fixtures keep them. */
+async function wavSamples(path: string): Promise<Int16Array> {
+  const bytes = await readFile(path);
+  let at = 12;
+  while (at + 8 <= bytes.length) {
+    const size = bytes.readUInt32LE(at + 4);
+    if (bytes.toString("ascii", at, at + 4) === "data") {
+      const body = bytes.subarray(at + 8, at + 8 + size);
+      return new Int16Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength));
+    }
+    at += 8 + size + (size % 2);
+  }
+  throw new Error(`${path} has no audio.`);
+}
+
+describe.runIf(process.env.INCARNAMIND_LIVE_TRANSCRIPTS === "1")(
+  "The real engine behind the app's channel",
+  { timeout: 15 * 60_000 },
+  () => {
+    // protects=the real engine, served as the app's process serves it, closed with a finish out: that finish fails as closed on purpose, and loading again starts the engine afresh and transcribes (#2957); fails_when=the finish waits for ever, or the engine can't load again after a close; no_claim=the utility process's own stop, which needs Electron.
+    test("closed with a finish out, the finish fails as closed, and the engine loads again and transcribes", async () => {
+      for (const { folder, source } of [QWEN3_ASR_0_6B, SILERO_VAD]) {
+        await downloadModel({
+          directory: join(MODELS, folder),
+          source,
+          signal: new AbortController().signal,
+          onProgress: () => {},
+        });
+      }
+      const dataDir = await createTempDataFolder();
+      await symlink(MODELS, join(dataDir, "models"));
+      const all = transcriptionModelFiles(dataDir, QWEN3_ASR_0_6B);
+      // No streaming model, and one thread: the run shares the computer.
+      const files = { engine: all.engine, files: all.files, vad: all.vad, threads: 1 };
+      const speechSamples = await wavSamples(
+        join(import.meta.dirname, "../fixtures/speech/gettysburg.wav"),
+      );
+      const heard = new Map<string, string[]>();
+      const listener: TranscriberListener = {
+        segment: (segment) => {
+          if (segment.final)
+            heard.set(segment.stream, [...(heard.get(segment.stream) ?? []), segment.text]);
+        },
+        progress: () => {},
+        failed: () => {},
+        stopped: () => {},
+        unloaded: () => {},
+        switched: () => {},
+        lost: () => {},
+        opened: () => {},
+      };
+      const host = inProcessTranscriber({}, createSherpaEngine);
+      const { transcriber } = host;
+      transcriber.listen(listener);
+      const said = async (stream: string) => {
+        transcriber.push(stream, speechSamples);
+        await transcriber.finish(stream);
+        return (heard.get(stream) ?? []).join(" ");
+      };
+
+      await transcriber.load(files);
+      expect(await said("before")).toMatch(/fathers/i);
+      transcriber.push("cut", speechSamples);
+      const cut = transcriber.finish("cut");
+      transcriber.close();
+      await expect(cut).rejects.toThrow("The transcription model was stopped.");
+
+      await transcriber.load(files);
+      expect(host.started).toBe(2);
+      expect(await said("after")).toMatch(/fathers/i);
+      transcriber.close();
     });
   },
 );
