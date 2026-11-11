@@ -160,13 +160,13 @@ Scans are counted apart: how many, and how many the plan filed.
 | The person's Folder sheet | `eval/organize/folderSheet.ts folders --items <dir>/folders.json --out <sheet.md>`, read back with `read-folders` |
 | The Documents' names and opening text | `INCARNAMIND_ORGANIZE_MODE=documents INCARNAMIND_ORGANIZE_OUT=<dir> npm run eval:organize`, listed with `folderSheet.ts documents` |
 | Per-Document questions | `eval/organize/readPlans.ts asks …`; the person's sheet with `folderSheet.ts answers` (all of them up to 60, else a seeded 60) and `read-answers` |
-| The model's areas against the person's | `eval/organize/readPlans.ts areas --model <file>` |
+| The model's areas against the person's, or written for a set with its scans' | `eval/organize/readPlans.ts areas --model <file> --documents <dir>/documents.json [--out <file>]` |
 | The join | `eval/organize/readPlans.ts join …` |
 
 **The bars against the person's reading:**
 - the same areas for at least 90% of the Folders;
 - in each language, the same outcome for at least 95% of the Documents, and for at least 90% of those either reading calls wrong;
 - at least 90% of the per-Document answers the same;
-- the model's areas differing from the person's on at most 2 of the tuning Documents.
+- the model's areas differing from the person's on at most 2 of the 37 tuning Documents with text. A scan has no text, so its area is its label's, in the check and in the areas `readPlans.ts areas --out` writes for a set.
 
 No request is sent by these tools; the reader's requests (`ask` in `lib/folderReader.ts`) are made by a run with its own approval.

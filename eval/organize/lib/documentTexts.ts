@@ -12,6 +12,8 @@ export interface DocumentText {
   name: string;
   text: string;
   scanned: boolean;
+  /** The starter Folder it is labelled with, which is a scan's area. */
+  label: string | null;
 }
 
 export async function documentTexts(root: string, split: Split): Promise<DocumentText[]> {
@@ -26,6 +28,7 @@ export async function documentTexts(root: string, split: Split): Promise<Documen
       name: excerpt.name,
       text: excerpt.outline ? `${excerpt.outline}\n\n${excerpt.text}` : excerpt.text,
       scanned: prepared.noText,
+      label: doc.folder,
     });
   }
   return out;

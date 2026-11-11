@@ -3,7 +3,7 @@
  *
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts items --runs <dir> --match v- --seed 2737 --out <dir> --key <file>
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts asks --runs <dir> --match v- --key <file> --folders <model readings> --documents <documents.json> --seed 2737 --out <dir> --asks-key <file>
- *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts areas --model <the model's areas>
+ *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts areas --model <the model's areas> --documents <documents.json> [--out <areas.json>]
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts join --runs <dir> --match v- --items <folders.json> --key <file> --folders <model readings> --person <person readings> [--answers <model answers> --asks-key <file> --person-answers <person answers>]
  *
  * `documents.json` comes from the `documents` mode of `npm run eval:organize` (documentTexts.check.ts).
@@ -18,7 +18,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Language } from "../../src/core/language";
-import { AREAS, AREAS_FILE, type DocumentAreas, parseAreas, readAreas } from "./lib/areas";
+import { AREAS, AREAS_FILE, type DocumentAreas, isArea, parseAreas, readAreas } from "./lib/areas";
 import { type FolderReading, type FolderVerdict, majority } from "./lib/folderReader";
 import {
   askKey,
@@ -335,16 +335,43 @@ export function answerAgreement(
 const sameAreas = (a: DocumentAreas, b: DocumentAreas) =>
   a.area === b.area && (a.second ?? null) === (b.second ?? null);
 
-/** The Documents whose areas the model writes otherwise than the person did. */
+/** What `areasDiffering` and `areasWithScans` need of a Document. */
+export interface AreaDocument {
+  id: string;
+  scanned: boolean;
+  label: string | null;
+}
+
+/** The Documents with text whose areas the model writes otherwise than the person did. */
 export function areasDiffering(
   model: ReadonlyMap<string, DocumentAreas>,
   person: ReadonlyMap<string, DocumentAreas>,
-): string[] {
-  return [...person].flatMap(([id, theirs]) => {
+  documents: readonly AreaDocument[],
+) {
+  const withText = documents.filter((each) => !each.scanned);
+  const differ = withText.flatMap(({ id }) => {
     const mine = model.get(id);
+    const theirs = person.get(id);
     if (!mine) throw new Error(`The model wrote no areas for ${id}.`);
+    if (!theirs) throw new Error(`No areas are written for ${id}.`);
     return sameAreas(mine, theirs) ? [] : [id];
   });
+  return { compared: withText.length, differ };
+}
+
+/** The model's areas for the Documents with text, and for a scan, which has none, its label's. */
+export function areasWithScans(
+  model: ReadonlyMap<string, DocumentAreas>,
+  documents: readonly AreaDocument[],
+): Map<string, DocumentAreas> {
+  return new Map(
+    documents.map(({ id, scanned, label }): [string, DocumentAreas] => {
+      if (scanned) return [id, { area: isArea(label) ? label : null }];
+      const mine = model.get(id);
+      if (!mine) throw new Error(`The model wrote no areas for ${id}.`);
+      return [id, mine];
+    }),
+  );
 }
 
 /** Each Document's outcome by both readings, by language: all, and those either calls wrong. */
@@ -475,10 +502,19 @@ async function main(command: string | undefined, args: readonly string[]) {
   }
   if (command === "areas") {
     const model = parseAreas(await readJson<unknown>(option.get("model")));
-    const person = await readAreas(root);
-    const differ = areasDiffering(model, person);
+    const documents = await readJson<AreaDocument[]>(option.get("documents"));
+    const out = option.maybe("out");
+    if (out) {
+      await writeJson(out, {
+        note: "The model's areas for the Documents with text; a scan has its label's.",
+        areas: Object.fromEntries(areasWithScans(model, documents)),
+      });
+      console.log(`${documents.length} Documents' areas written to ${resolve(out)}.`);
+      return;
+    }
+    const { compared, differ } = areasDiffering(model, await readAreas(root), documents);
     console.log(
-      `The model's areas differ from the second reader's on ${differ.length} of ${person.size} (at most ${BARS.areasDiffer}): ${differ.length > BARS.areasDiffer ? "below the bar" : "meets the bar"}.`,
+      `The model's areas differ from the second reader's on ${differ.length} of the ${compared} with text (at most ${BARS.areasDiffer}): ${differ.length > BARS.areasDiffer ? "below the bar" : "meets the bar"}.`,
     );
     return;
   }

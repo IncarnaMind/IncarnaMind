@@ -12,14 +12,17 @@ import {
   readAnswersSheet,
   readFolderSheet,
 } from "../../eval/organize/folderSheet";
-import { AREAS, byArea, type DocumentAreas } from "../../eval/organize/lib/areas";
+import { AREAS, byArea, type DocumentAreas, readAreas } from "../../eval/organize/lib/areas";
 import type { FolderReading } from "../../eval/organize/lib/folderReader";
 import { readPlan } from "../../eval/organize/lib/planReading";
+import { readSet } from "../../eval/organize/lib/set";
 import {
   type AnswerItem,
   answerAgreement,
   answerItems,
   areasDiffering,
+  areasWithScans,
+  BARS,
   checkKeyPath,
   committedAt,
   documentAgreement,
@@ -238,6 +241,11 @@ describe("a join of the readings", () => {
       },
     );
     expect(() => answerAgreement({}, { "1": true })).toThrow("no answer 1");
+    const documents = ["a", "b", "c", "scan"].map((id) => ({
+      id,
+      scanned: id === "scan",
+      label: id === "scan" ? "finance" : null,
+    }));
     expect(
       areasDiffering(
         new Map<string, DocumentAreas>([
@@ -249,9 +257,32 @@ describe("a join of the readings", () => {
           ["a", { area: "reports" }],
           ["b", { area: "finance" }],
           ["c", { area: "personal" }],
+          ["scan", { area: "finance" }],
         ]),
+        documents,
       ),
-    ).toEqual(["a", "c"]);
+    ).toEqual({ compared: 3, differ: ["a", "c"] });
+  });
+
+  test("compares the model's areas on the 37 tuning Documents with text; a scan has its label's", async () => {
+    const person = await readAreas(root);
+    const documents = (await readSet(root)).documents
+      .filter((each) => each.split === "tune")
+      .map((each) => ({ id: each.id, scanned: each.scanned === true, label: each.folder }));
+    const model = new Map(person);
+    model.set("en-journal", { area: "finance" });
+    model.set("zh-lease", { area: "reports" });
+    model.set("en-paper-scan", { area: "personal" });
+    const { compared, differ } = areasDiffering(model, person, documents);
+    expect(compared).toBe(37);
+    expect(differ).toEqual(["zh-lease", "en-journal"]);
+    expect(differ.length <= BARS.areasDiffer).toBe(true);
+    const written = areasWithScans(model, documents);
+    expect(written.size).toBe(40);
+    expect(written.get("en-paper-scan")).toEqual({ area: "research" });
+    expect(written.get("en-receipt-scan")).toEqual({ area: "finance" });
+    expect(written.get("zh-vat-invoice-scan")).toEqual({ area: "finance" });
+    expect(written.get("en-journal")).toEqual({ area: "finance" });
   });
 });
 
