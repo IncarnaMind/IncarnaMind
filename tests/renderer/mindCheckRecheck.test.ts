@@ -55,6 +55,7 @@ vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: () => null }
 
 const estimate: RunEstimate = {
   billing: "per-token",
+  providerId: "provider-1",
   calls: 2,
   tokens: 1000,
   cost: { amount: 0.01, currency: "USD" },

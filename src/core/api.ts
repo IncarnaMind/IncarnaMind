@@ -6616,6 +6616,8 @@ export interface RunEstimateInput {
 export type RunEstimate =
   | {
       billing: "per-token";
+      /** The saved provider whose price the cost is worked out from (`ChatProvider.id`). */
+      providerId: string;
       calls: number;
       tokens: number;
       /** Null for a model with no known price. */
