@@ -1,4 +1,4 @@
-# Repeated checks of an unchanged Mind
+# Repeated checks of the same sentences
 
 `npm run eval:repeats` checks the same sentences again and again, with a real chat model and the app's real search, and counts what each sentence gets each time (#1608). A User who checks the same text twice expects the same verdicts, and never to be told a sentence a Document states wasn't found. Neither `npm test` nor CI runs it.
 
@@ -136,7 +136,7 @@ Use the chat variables above, plus `INCARNAMIND_EVAL_REPEATS` (1), `INCARNAMIND_
 Check this Mind asks the model once which of a Mind's sentences make claims, and keeps the answer: a sentence it leaves out isn't checked again until it is edited (#1682). `npm run eval:claims` asks that request again and again, each time on a new Mind of the same sentences, so every request is independent (the app never sorts a sentence twice), with a real chat model, and counts what each request made of each sentence. Nothing is checked, so it is cheap.
 
 - **The claim kinds group** (`KIND_SETS` in `cases.ts`, `en-kinds` and `zh-kinds`): a User's notes on each agreement, three or four claims of each kind the agreement states (a negation, a number, a name, a modal, a party) between seven sentences that make no claim (an opinion said as one and one that isn't, a question, advice, thanks, a request and a proposal). The conflict sets are asked too, each sentence of the kind its key says (`claimKindOf`), and `en-long` and `zh-long`, every sentence of a language's sets in one Mind of about 80, as a long Note is asked.
-- **What it counts,** for each set, model and kind: how often a claim isn't named (left out, or undecided when no reply decided it even asked again, which the Mind says it didn't examine) and how often a sentence that makes no claim is named. A sentence with a figure is a claim without asking and isn't shown to the request; the report names those.
+- **What it counts,** for each set, model and kind: how often a claim isn't named (left out, or undecided when no reply decided it even asked again, which the Mind says it didn't examine) and how often a sentence that makes no claim is named. A sentence with a figure is shown to the request like any other, which names its parts; it is checked whatever the request makes of it, since each figure is made a fact (`withFigureFacts`) and a sentence left undecided is checked when it has a figure (`sort` in `src/core/answers/checks/mindCheck.ts`). The report names any sentence a call wasn't shown.
 - `INCARNAMIND_EVAL_REPEATS`: independent calls on each Mind (20). `INCARNAMIND_EVAL_REPEATS_SETS`: which sets (`en-conflicts,zh-conflicts,en-kinds,zh-kinds` by default). `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops past this many dollars (2).
 - **Cost and time:** 100 calls on each of the six Minds cost about $0.15 on Claude Haiku 5.5 and take about 4 minutes; 20 calls on each cost about $0.55 on Claude Sonnet 5.5.
 

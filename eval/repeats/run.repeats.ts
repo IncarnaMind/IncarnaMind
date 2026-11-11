@@ -1,7 +1,8 @@
 /**
- * `npm run eval:repeats` (README.md): Check this Mind on the sets in ./cases,
- * again and again on the same unchanged Minds, with a real chat model and the
- * app's real search, and a report of what came back.
+ * `npm run eval:repeats` (README.md): Check this Mind on the sets in ./cases, again and again on
+ * the same sentences (a Note of their own each time for a bar about a mark or a verdict, one
+ * unchanged Note for a bar about time or cost), with a real chat model and the app's real search,
+ * and a report of what came back.
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,7 +42,7 @@ const spentOf = async (core: Core) =>
     .filter((each) => each.currency === "USD")
     .reduce((total, each) => total + each.amount, 0);
 
-test("repeated checks of an unchanged Mind", async () => {
+test("repeated checks of the same sentences", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
   // Refused here, before any request, when its bar can't stand on the sorts asked for (#2964).

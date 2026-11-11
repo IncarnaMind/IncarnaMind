@@ -251,6 +251,13 @@ const cell = (text: string | null) => (text ?? "").replace(/\|/g, "\\|").replace
 export const counted = ({ count, checks, sorts }: Count) =>
   `${count} of ${checks} checks, ${sorts} ${sorts === 1 ? "sort" : "sorts"}`;
 
+const TITLES: Record<Sorting, string> = {
+  fresh:
+    "# Repeated checks of the same sentences, each in a Note of its own (a bar about a mark or a verdict)",
+  reused: "# Repeated checks of one unchanged Note (a bar about time or cost)",
+  before: "# Repeated checks of one unchanged Note, made before #2964 (one sort reused)",
+};
+
 const SORTING: Record<Sorting, string> = {
   fresh: "Each check sorted the sentences afresh, in a Note of its own.",
   reused:
@@ -283,7 +290,7 @@ export function report(
   run: { commit: string; spent: number; repeats: number },
 ): string {
   return [
-    "# Repeated checks of an unchanged Mind",
+    TITLES[summaries.find((group) => group.sorting !== "fresh")?.sorting ?? "fresh"],
     "",
     `Commit ${run.commit}, ${run.repeats} repeats a Mind, $${run.spent.toFixed(2)} at the app's own count.`,
     "",

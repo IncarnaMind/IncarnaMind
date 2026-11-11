@@ -274,6 +274,9 @@ describe("checks and sorts (#2964)", () => {
       ]),
       RUN,
     );
+    expect(shown).toContain(
+      "# Repeated checks of the same sentences, each in a Note of its own (a bar about a mark or a verdict)",
+    );
     expect(shown).toContain("## en · anthropic/claude-haiku-5-5 · 2 checks, 2 sorts");
     expect(shown).toContain("Each check sorted the sentences afresh, in a Note of its own.");
     expect(shown).toContain("| 2 of 2 checks, 2 sorts |");
@@ -289,6 +292,7 @@ describe("checks and sorts (#2964)", () => {
       summarise([row(1, "notice", "supported", "en", 1), row(2, "notice", "supported", "en", 1)]),
       RUN,
     );
+    expect(shown).toContain("# Repeated checks of one unchanged Note (a bar about time or cost)");
     expect(shown).toContain("· 2 checks, 1 sort");
     expect(shown).toContain("One sort reused by every check");
     expect(shown).toContain("| 2 of 2 checks, 1 sort |");
@@ -311,9 +315,11 @@ describe("checks and sorts (#2964)", () => {
       sorting: "before",
       unsupportedOnStated: { count: 1, checks: 3, sorts: 1 },
     });
-    expect(report(summarise(rows), RUN)).toContain(
-      "Made before #2964: every check reused its run's one sort",
+    const shown = report(summarise(rows), RUN);
+    expect(shown).toContain(
+      "# Repeated checks of one unchanged Note, made before #2964 (one sort reused)",
     );
+    expect(shown).toContain("Made before #2964: every check reused its run's one sort");
     expect(() => savedRows({ model: "x" })).toThrow("it has no list of rows");
     expect(sortsBy(rows, (each) => each.set)).toEqual({ en: 1 });
     expect(
