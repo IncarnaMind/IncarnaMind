@@ -370,7 +370,7 @@ describe("What the assistant's commands did, in words (#1421)", () => {
       "未保存任何文件：你没有允许新的文件列表。",
     );
     expect(commandCallText(en, ended({ key: "checks.problem.no-claims", values: {} }))).toBe(
-      "This note has no claims to check.",
+      "This note has no sentences to check.",
     );
     expect(commandCallText(zh, ended({ key: "checks.problem.local-mode", values: {} }))).toBe(
       "未核对：已开启“所有内容都留在这台电脑上”。",

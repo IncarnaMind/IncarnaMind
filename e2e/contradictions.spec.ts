@@ -134,7 +134,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   // A model billed per token: the badge's card opens by itself and asks first; one claim costs
   // less than a dollar, so no price line shows (#1941).
   const ask = window.getByTestId("check-card").getByTestId("contradictions-ask");
-  await expect(ask).toContainText("Check 1 cited claim against this Folder’s other Documents?");
+  await expect(ask).toContainText("Check 1 cited sentence against this Folder’s other Documents?");
   await expect(ask).not.toContainText("About");
   const checks = await checkCard(window);
   await screenshot(window, "contradictions-ask-en");
@@ -222,7 +222,7 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
   await expect(item).toBeVisible();
   await pointAndClick(window, item);
   await expect(window.getByTestId("check-card").getByTestId("checks-problem")).toContainText(
-    "“潮汐”中只有这些说法引用的文档。",
+    "“潮汐”中只有这些句子引用的文档。",
   );
   await screenshot(window, "contradictions-only-cited-zh-narrow");
 });
@@ -254,7 +254,7 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   ).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
-  await expect(watched).toContainText("After “Office” changed: 1 of 1 cited claims contradicted");
+  await expect(watched).toContainText("After “Office” changed: 1 of 1 cited sentences contradicted");
   await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-watched-en");
 
