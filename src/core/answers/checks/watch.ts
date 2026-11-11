@@ -185,8 +185,9 @@ export function createContradictionWatch(options: WatchOptions) {
   // contradictions on demand isn't queued, so it can end after a later check of the same sentence.
   // Each try at a check takes the next place as it begins (`began`, `placed`), and its result is
   // refused once a check of that sentence that began after it has landed (`landed`): the newer
-  // check's result is the one the Note keeps (#2909). With no run or background check under way
-  // no place matters, so `landed` is emptied then.
+  // check's result is the one the Note keeps (#2909). A claim left unsent because its run ended
+  // has no place: its Not checked asked no model, so it refuses no result and none refuses it.
+  // With no run or background check under way no place matters, so `landed` is emptied then.
   let began = 0;
   let underway = 0;
   const landed = new Map<string, number>();
@@ -251,7 +252,7 @@ export function createContradictionWatch(options: WatchOptions) {
    * Writes a claim's result: a contradiction's mark, in place of any check
    * there; otherwise any watch mark goes, or, if the model couldn't check it,
    * says why. False when the sentence has changed or gone meanwhile, or a check of it that began
-   * later has landed already.
+   * later has landed already; a claim left unsent has no place, and is never refused for it.
    */
   function write(
     mindId: string,
@@ -261,9 +262,9 @@ export function createContradictionWatch(options: WatchOptions) {
     result: ClaimCheckResult,
     prepared: PreparedChatModel,
   ) {
-    const place = placed.get(claim) ?? began++;
+    const place = placed.get(claim);
     const key = JSON.stringify([mindId, claim.blockId, claim.text]);
-    if ((landed.get(key) ?? -1) > place) return false;
+    if (place !== undefined && (landed.get(key) ?? -1) > place) return false;
     const at = options.now().toISOString();
     const kept = content.edit(mindId, (blocks) => {
       const sentence = everySentence(blocks).find(
@@ -322,7 +323,7 @@ export function createContradictionWatch(options: WatchOptions) {
       return true;
     });
     if (kept) {
-      landed.set(key, place);
+      if (place !== undefined) landed.set(key, place);
       options.retainEvidence(mindId);
     }
     return kept;

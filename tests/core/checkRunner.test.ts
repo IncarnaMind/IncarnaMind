@@ -1003,4 +1003,47 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
       "contradicted",
     ]);
   });
+
+  // protects=a result that asked no model, as the Not checked a background watch writes on the claims it never sent once a limit has ended its run, never refuses the verdict a model gives a Check for contradictions on demand that began before it (#2909); fails_when=the claims a run left unsent count as the newest check of their sentences, so the on-demand verdict of one is refused when it comes and the Note keeps the Not checked; no_claim=a result that is Supported, which neither can give.
+  test("a background watch's Not checked on a sentence it never sent doesn't replace the verdict of the on-demand check still out", async () => {
+    const made = await worldOf(example, BACKGROUND);
+    const { world } = made;
+    await BACKGROUND.setUp?.(world);
+    const before = await recorded(world);
+    const second = example.claims[1];
+    const gate = Promise.withResolvers<void>();
+    await made.begin({
+      reply: (claim, run, call) => {
+        // The background watch's first claim is refused for too many requests until its run gives
+        // up, so the claims after it are left Not checked without being sent.
+        if (claim === 0 && run > 1)
+          return { error: { status: 429, message: "Too many requests." } };
+        if (claim !== 1) return null;
+        // The check on demand finds nothing against the second claim, but its reply waits.
+        const reply = checkReply(call, { [second]: { verdict: "unsupported" } });
+        return call.results.length === 0
+          ? { ...reply, pause: { after: 0, until: gate.promise } }
+          : reply;
+      },
+    });
+
+    const onDemand = world.core.checkContradictions({
+      requestId: crypto.randomUUID(),
+      mindId: world.note.mindId,
+    });
+    await vi.waitFor(() => expect(made.runs).toEqual([1, 1, 1]), { timeout: 20_000 });
+    // The other two claims have their results: only the second is still out.
+    await vi.waitFor(async () => expect((await recorded(world)).checked - before.checked).toBe(2), {
+      timeout: 20_000,
+    });
+    await newOffice(world, example.added);
+    await lastWatch(world.note.client, { checked: 0, contradicted: 0 });
+    expect(made.runs.slice(1)).toEqual([1, 1]);
+    expect(await shown(world, BACKGROUND)).toEqual([RL, RL, RL]);
+
+    gate.resolve();
+    expect(await onDemand).toMatchObject({ kind: "checked", claims: 3 });
+
+    expect(await shown(world, BACKGROUND)).toEqual([RL, "none", RL]);
+  });
 });
