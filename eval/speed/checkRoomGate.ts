@@ -110,6 +110,13 @@ export function roomGateSection(
         "",
       );
     }
+    // A void run's numbers are not read: its bars print no verdict.
+    const verdict = (holds: boolean) =>
+      refused + failed + unfinished + otherLimit > 0
+        ? "not read, the run is void"
+        : holds
+          ? "holds"
+          : "**fails**";
     const seen = new Map<string, number>();
     for (const { arm, request } of batches) {
       const key = `${arm}: ${request.asked} sentences, ${request.maxOutputTokens ?? "no limit"}`;
@@ -135,7 +142,7 @@ export function roomGateSection(
     const mainCount = Math.ceil((cutOn("main") + cutOn("main#2")) / 2);
     const cutHolds = today.length >= 88 && cutOn("today") <= 4 && cutOn("today") <= mainCount / 4;
     lines.push(
-      `- **1, cut-offs:** today ${cutOn("today")} of ${today.length} batches reached their room; main's arms ${cutOn("main")} of ${batchesOn("main").length} and ${cutOn("main#2")} of ${batchesOn("main#2").length}, so main's count is ${mainCount}. The bar is at most 4 of 88 and at most a quarter of main's count: ${cutHolds ? "holds" : "**fails**"}.`,
+      `- **1, cut-offs:** today ${cutOn("today")} of ${today.length} batches reached their room; main's arms ${cutOn("main")} of ${batchesOn("main").length} and ${cutOn("main#2")} of ${batchesOn("main#2").length}, so main's count is ${mainCount}. The bar is at most 4 of 88 and at most a quarter of main's count: ${verdict(cutHolds)}.`,
     );
     const pairs = (first: string, second: string, language?: string) => {
       let more = 0;
@@ -167,7 +174,7 @@ export function roomGateSection(
       })
       .join(", ");
     lines.push(
-      `- **2, verdicts where both were whole:** of ${change.both} sentences, both languages, today Supported where main wasn't ${change.more} times and the other way ${change.fewer}: one-sided sign test p = ${change.p.toPrecision(3)}, the bar fails under 0.01: ${change.p >= 0.01 ? "holds" : "**fails**"}. By language: ${byLanguage}. Main against main#2, the model's own spread: ${spread.more} and ${spread.fewer} of ${spread.both}, p = ${spread.p.toPrecision(3)}.`,
+      `- **2, verdicts where both were whole:** of ${change.both} sentences, both languages, today Supported where main wasn't ${change.more} times and the other way ${change.fewer}: one-sided sign test p = ${change.p.toPrecision(3)}, the bar fails under 0.01: ${verdict(change.p >= 0.01)}. By language: ${byLanguage}. Main against main#2, the model's own spread: ${spread.more} and ${spread.fewer} of ${spread.both}, p = ${spread.p.toPrecision(3)}.`,
     );
     if (unstated) {
       let newly = 0;
@@ -200,7 +207,7 @@ export function roomGateSection(
       );
       lines.push(
         newly >= 5
-          ? `- **3, wrong Supported:** of the sentences the judge says their quotes don't state, today Supported ${newlySupported} of ${newly} that main cut, main ${wholeSupported} of ${whole} it read whole: Fisher one-sided p = ${p.toPrecision(3)}: ${p >= 0.05 ? "holds" : "**fails**"}.`
+          ? `- **3, wrong Supported:** of the sentences the judge says their quotes don't state, today Supported ${newlySupported} of ${newly} that main cut, main ${wholeSupported} of ${whole} it read whole: Fisher one-sided p = ${p.toPrecision(3)}: ${verdict(p >= 0.05)}.`
           : `- **3, wrong Supported:** not readable: ${newly} of the sentences the judge lists fell in batches main cut and today read, fewer than 5. Today Supported ${newlySupported} of them; main ${wholeSupported} of ${whole} it read whole.`,
       );
     } else {

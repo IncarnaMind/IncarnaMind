@@ -2,11 +2,11 @@
 
 Written and committed on 2026-11-10, before any run it gates. Its cases (`../checkRoomCases.ts`) were written with it, and no run or prompt has seen them.
 
-Bars set by the reader before any run, 2026-11-10: bar 1 is at most 4 of 88 and a quarter of main's count, bar 2 fails under 1%, the arm `main` is the one bars 2 and 3 compare, and the record shows the limit each batch carried (shared-key rule 4). They replace the first draft's bar 1 (at most 2 of 88) and bar 2 (under 5%). The runs go one after another, never two at once.
+Bars set before any run, 2026-11-10: bar 1 is at most 4 of 88 and a quarter of main's count, bar 2 fails under 1%, the arm `main` is the one bars 2 and 3 compare, and the record shows the limit each batch carried (shared-key rule 4). They replace the first draft's bar 1 (at most 2 of 88) and bar 2 (under 5%). The runs go one after another, never two at once.
 
 2026-11-10, 01:14 UTC: the first Haiku run stopped when it drew the Chinese Document, whose lines the case file gave the Latin font. The run is void and kept; it wrote no report, and the verdicts of its English half were not read. The case file's Chinese pages now use the font for Chinese, and no sentence or line changed. The Haiku run is taken again.
 
-2026-11-10, after the Haiku and Sonnet runs, from the independent pre-review:
+2026-11-10, after the Haiku and Sonnet runs, on review:
 - **The model's own output limit.** The larger room now goes only to a model whose own output limit, and its window's room for a reply, hold it. A provider refuses a limit past the model's own, and GPT-4 Turbo's is 4,096.
 - **When the room is chosen.** A batch's room is now chosen after main's wait for open batches, so a batch that waited can take the larger room.
 - **No gated request changes.** Neither change alters a request of the gated runs: the three models' own limits are 128,000 and 393,216 tokens, and their short Answers always fit the $0.25. The Haiku and Sonnet runs stand, and DeepSeek runs on the new head.
@@ -78,3 +78,35 @@ No bar moves after a run.
 - What a check costs on each arm: the median tokens in and out a batch, and the spend over the arm's Answers.
 - The time from the Answer's end to its last verdict on each arm, median and 90th percentile. The extra room only lets a reply finish; it never makes one longer.
 - For call help's short replies, how long the marks take to settle is measured in #2847's next gate, which runs on main once this merges.
+
+## Result (2026-11-10)
+
+Every bar held on all three models. Each run went alone, from one head, on its key, with no request refused, failed or timed out, and every batch carried its arm's limit:
+- `main` and `main#2`: 300, 600 and 900 tokens for 1, 2 and 3 sentences.
+- `today`: 5,300, 5,600 and 5,900.
+
+| | Claude Haiku 5.5 | Claude Sonnet 5.5 | DeepSeek V4.1 Flash |
+|---|---|---|---|
+| Ran (UTC) | 01:16–01:24 | 01:24–01:32 | 02:40–02:49 |
+| 1. Cut-offs: today / main's two arms | 0 / 7 and 8: holds | 0 / 0 and 0: holds | 0 / 2 and 5: holds |
+| 2. Today Supported where main wasn't / the other way, sentences both whole | 0 / 0 of 137 (English 71, Chinese 66), p = 1: holds | 0 / 0 of 144, p = 1: holds | 0 / 0 of 141, p = 1: holds |
+| 3. Judge's unstated sentences: Supported on today among those main cut / on main among those whole | 0 of 7 / 0 of 53, p = 1: holds | not readable (none cut) / 0 of 60 | not readable (2 cut, 0 Supported) / 0 of 58 |
+| Main against main#2 | 0 / 0 of 136 | 0 / 0 of 144 | 0 / 0 of 135 |
+| From an Answer's end to its last verdict, median: main / today | 1.1 s / 1.1 s | 1.6 s / 1.6 s | 1.8 s / 1.8 s |
+| A batch's tokens out, median: main / today | 154 / 156 | 107 / 111 | 155 / 165 |
+| Spend | $0.044, the judge $0.013 of it | $0.699 | $0.077 |
+
+The judge, Claude Opus 5.5, listed as unstated exactly the ten sentences of each language the case file marks "not stated".
+
+**Void, kept and run again:** the first Haiku run, 2026-11-10 01:11–01:14 UTC. It stopped when it drew the Chinese Document in the Latin font. It wrote no report, and the verdicts of its English half were not read.
+
+**Changed after the runs, and why the runs stand.** In every gated Answer, each batch is one batch of 1 to 3 sentences, sent alone, on a model whose own limit is 128,000 or 393,216 tokens, and its set-aside is far under $0.25. So each change below leaves every gated request as it was, and a unit test holds the gated models' rooms at 5,300, 5,600 and 5,900.
+- **At a78051c60 and edb162365, on review:** the room is held within the model's own limit, it is chosen after the old wait, and a run whose check left a sentence unmarked is void. DeepSeek ran on this head. The Haiku and Sonnet reports were rendered again with its code, and they print the same.
+- **On a second review, before merge:**
+  - A batch has the room for thinking only where every batch still to come keeps the room it would have anyway, so no batch waits or is refused because of it. The first of the two differences named under "The change", a later batch waiting for an open larger one, is gone.
+  - Where not every batch can have it, the fewest sentences have it first.
+  - The room is held to the model's own room, never under the records' room, rather than dropped to the records' room.
+  - "Check the rest" estimates with the same rule as the send.
+  - A batch that waited reads nothing once the Answer is stopped or the core has closed.
+  - A void run prints its bars as not read.
+

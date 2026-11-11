@@ -157,9 +157,11 @@ describe("the room gate's section", () => {
       checked(1, "today", "found"),
     ];
 
-    expect(roomGateSection(results, () => ITEMS, null)).toContain(
-      "**Void:** 1 requests refused for the service's limit and 0 failed.",
-    );
+    const section = roomGateSection(results, () => ITEMS, null);
+
+    expect(section).toContain("**Void:** 1 requests refused for the service's limit and 0 failed.");
+    expect(section).toContain("main's count: not read, the run is void.");
+    expect(section).not.toContain("holds");
   });
 
   test.each([
