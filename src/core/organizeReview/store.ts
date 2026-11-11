@@ -241,7 +241,8 @@ const leftOutOf = (
     reason === "tooFew" ||
     reason === "staysInFolder" ||
     reason === "noText" ||
-    reason === "noTag"
+    reason === "noTag" ||
+    reason === "cutShort"
   )
     return { reason };
   if (reason === "unreachable" && detail !== null) return { reason, service: detail };
@@ -268,7 +269,8 @@ function parseLeftOut(input: unknown): OrganizeReviewLeftOut {
     reason === "tooFew" ||
     reason === "staysInFolder" ||
     reason === "noText" ||
-    reason === "noTag"
+    reason === "noTag" ||
+    reason === "cutShort"
   )
     return { reason };
   if (reason === "unreachable" && typeof input.service === "string" && input.service !== "")

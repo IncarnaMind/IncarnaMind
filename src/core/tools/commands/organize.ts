@@ -61,6 +61,7 @@ function leftOutReason(items: readonly OrganizeReviewItem[]): string | null {
     if (placement.kind !== "leftOut") continue;
     if (placement.leftOut?.reason === "unreachable")
       return `${placement.leftOut.service} couldn't be reached`;
+    if (placement.leftOut?.reason === "cutShort") return "the AI model's reply was cut short";
     if (placement.leftOut?.reason === "noText") return "no text to read";
   }
   return null;

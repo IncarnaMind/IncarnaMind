@@ -21,7 +21,7 @@ import {
   type TaskKind,
 } from "../core";
 import type { SandboxProblem } from "../core/api";
-import { DataFromNewerVersionError, isRecord } from "../core/errors";
+import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
@@ -286,60 +286,13 @@ function callWatching(): { callWatcher?: CallWatcher } {
 
 let core: Core | undefined;
 
-/** The window that watches each comparison table's Mind, by the content it came from. */
-const comparisonClients = new Map<number, string>();
-/** The window that asked the assistant, by the content it came from: it runs the Answer's commands. */
-const commandClients = new Map<number, string>();
-const ASKS_IN_A_WINDOW = new Set<string>(["askInConversation", "regenerateConversationAnswer"]);
-/** The window planning a Check, by the content it came from: its Note is free once it is gone. */
-const checkClients = new Map<number, string>();
-
-/** The window's page is gone: the commands the assistant asked it to run won't be done there (#1421). */
-function forgetCommandWindow(contentsId: number): void {
-  const clientId = commandClients.get(contentsId);
-  if (!clientId) return;
-  commandClients.delete(contentsId);
-  core
-    ?.forgetCommandWindow({ clientId })
-    .catch((error: unknown) => logger.exception("app.commandWindowForgotten", error));
-}
-
-/** The window's page is gone: a Check it was planning for a Note that never ran holds nothing (#2240). */
-function forgetCheckWindow(contentsId: number): void {
-  const clientId = checkClients.get(contentsId);
-  if (!clientId) return;
-  checkClients.delete(contentsId);
-  core
-    ?.forgetCheckWindow({ clientId })
-    .catch((error: unknown) => logger.exception("app.checkWindowForgotten", error));
-}
-
-/** The window's page is gone: the core stops waiting for it to watch its comparison tables. */
-function forgetComparisonWindow(contentsId: number): void {
-  const clientId = comparisonClients.get(contentsId);
-  if (!clientId) return;
-  comparisonClients.delete(contentsId);
-  core
-    ?.forgetComparisonWindow({ clientId })
-    .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
-}
-
 app.on("browser-window-created", (_event, created) => {
   const contentsId = created.webContents.id;
-  created.on("closed", () => {
-    forgetCommandWindow(contentsId);
-    forgetCheckWindow(contentsId);
-    forgetComparisonWindow(contentsId);
-  });
-  created.webContents.on("render-process-gone", () => {
-    forgetCommandWindow(contentsId);
-    forgetCheckWindow(contentsId);
-    forgetComparisonWindow(contentsId);
-  });
+  created.on("closed", () => core?.windowGone(contentsId));
+  created.webContents.on("render-process-gone", () => core?.windowGone(contentsId));
   created.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
-    forgetCommandWindow(contentsId);
-    forgetCheckWindow(contentsId);
+    core?.windowReloaded(contentsId);
   });
 });
 let startupComplete = false;
@@ -402,9 +355,12 @@ function finishStartup(): void {
     return;
   instanceReady = true;
   if (instance.kind === "owner") instance.owner.ready(secondLaunch);
-  // The keyword index an older version built is rewritten in the background, off this
-  // thread, once the window has been shown (#2042).
-  setImmediate(() => core?.upgradeKeywordIndex());
+  // Once the window has been shown: the keyword index an older version built is rewritten
+  // off this thread (#2042), and the text fingerprints it didn't keep are filled in (#2216).
+  setImmediate(() => {
+    core?.upgradeKeywordIndex();
+    void core?.fillTextFingerprints();
+  });
   void onReadyToUse?.().catch((error: unknown) =>
     logger.exception("app.updateStartupFailed", error),
   );
@@ -423,20 +379,7 @@ function exposeCore(core: Core): void {
   for (const method of coreApiMethods) {
     handle(channelFor(method), (event, ...args) => {
       if (!isFromOurRenderer(event)) throw new Error("Refused a call from an unknown page.");
-      const input = args[0];
-      if (
-        method === "watchComparisonMind" &&
-        isRecord(input) &&
-        typeof input.clientId === "string"
-      ) {
-        comparisonClients.set(event.sender.id, input.clientId);
-      }
-      if (ASKS_IN_A_WINDOW.has(method) && isRecord(input) && typeof input.clientId === "string") {
-        commandClients.set(event.sender.id, input.clientId);
-      }
-      if (method === "holdMindCheck" && isRecord(input) && typeof input.clientId === "string") {
-        checkClients.set(event.sender.id, input.clientId);
-      }
+      core.windowCalled(event.sender.id, method, args[0]);
       return Reflect.apply(core[method], core, args) as Promise<unknown>;
     });
   }

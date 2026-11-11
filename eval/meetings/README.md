@@ -134,6 +134,20 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - Read at most 12 s at a time, the set had more lines but read worse in Chinese online (CER 17.7%), where shorter readings lost context.
 - The CPU time per minute of audio is the same, measured with both versions running at once on the same cases, since the machine's load changed it more than the change did.
 
+**Short replies said on their own (#1031),** the same engine on the whole set, 2026-11-09. Qwen3-ASR guesses a reading's language from its audio, and with under 3 s of it often guesses wrong. Now a stream's reading under 3 s is told the language that at least two of the stream's latest three readings of 4 s or more were in, when the third shows no other (`src/core/transcription/sherpa.ts`, `spokenLanguage.ts`). Short turns are those the reference has under a second long, with nothing else on their track within 0.6 s, scored against the lines the run wrote for them:
+
+| Calls | Short turns as said, before | Now | In another language, before | Now | Left out, before | Now |
+|---|---|---|---|---|---|---|
+| English, online (2) | 61 | 81 | 33 | 2 | 37 | 34 |
+| Chinese, online (2) | 134 | 135 | 3 | 1 | 19 | 19 |
+| Mixed (1 with short turns) | 9 | 9 | 0 | 0 | 4 | 4 |
+
+- Before, a short "yeah" in an English call came back as "对。", "okay" as "可以。" or "係。", and "who was doing that" as "谁在做呢？". The 2 left are "mm-hmm" as "嗯哼。" and "mm 'kay" as "嗯，拜拜。".
+- A stream is told nothing while its long readings mix scripts or disagree. The mixed calls here are mostly Chinese with English terms in it, so their short readings are told Chinese about seven times in ten, and their short turns read as before.
+- English is named by words no other language written in Latin letters uses, so about one long English reading in nine names no language; one such among the latest three doesn't stop a stream being told English, two do. Replayed over the English calls' lines, 88% of their short readings are told English.
+- Told English, the model writes "system" for some stretches it can't read, 13 times in the two English online calls and never where it was said. Such a reading is read again untold and kept only if that says "system" too.
+- Error rates, before and now: English online WER 26.6% and 26.1%, English room 23.6% and 23.0%, Chinese online CER 16.3% both, Chinese room 38.0% both, mixed MER 33.3% and 33.2%. The English online and mixed numbers are of the rule as it is; the English room and Chinese ones were measured with the latest two readings agreeing and a longer English word list, under which the Chinese calls' short readings are told the same.
+
 **Words to know (#1031),** the same engine on the whole set, 2026-11-01, Apple M2 Max (load average 5 to 16), told nothing and told each case's words in `words.json`. Told, a final stretch is read as before, and again told the words only where that reading holds a told name misheard; it keeps the first reading but for those names (`src/core/transcription/context.ts`). A Chinese told name mends nothing:
 
 | Language | Told words said | Not written exactly, told nothing | Told | Other units' errors, told nothing | Told | Error rate, told nothing | Told |

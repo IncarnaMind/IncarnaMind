@@ -35,8 +35,8 @@ import { JevForm } from "../providers/JevSettings";
 import { KeyRow } from "../providers/KeyRow";
 import { KeyNotCheckedLine } from "../providers/ProviderForm";
 import { logoIdOf, ProviderLogo } from "../providers/ProviderLogo";
-import { providerName } from "../providers/ProviderPage";
 import { RerankKeyForm } from "../providers/RerankSettings";
+import { providerName } from "../providers/shared";
 import { keptForSorting } from "../providers/sortingOptions";
 import {
   SettingsGroup,

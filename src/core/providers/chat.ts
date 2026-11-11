@@ -58,8 +58,8 @@ import {
   type Price,
   withRolesFirst,
 } from "./catalog";
-import { billingOf, OLLAMA_CLOUD_PRICES_CHECKED, ollamaCloudPrice } from "./catalog/billing";
-import { endpointOf, fieldAccepts, fieldUrl, pricingUrlOf } from "./catalog/providers";
+import { billingOf, ollamaCloudPrice } from "./catalog/billing";
+import { endpointOf, fieldAccepts, fieldUrl, pricesOfProvider } from "./catalog/providers";
 import type { ChatGptPlan } from "./chatgpt/plan";
 import type { ClaudeSignIn } from "./claudeAccount/account";
 import type { CopilotSignIn } from "./copilot/account";
@@ -728,17 +728,6 @@ export function createChat(options: {
     };
   };
 
-  const pricesOf = (row: ProviderRow, provider: ChatProvider): ChatModelGroup["prices"] => {
-    const catalog = catalogProviderOf(provider.kind, row.catalog_id);
-    if (provider.kind === "ollama") {
-      const url = catalog?.pricingUrl;
-      return url ? { url, checked: OLLAMA_CLOUD_PRICES_CHECKED } : null;
-    }
-    if (billingOf(provider.kind, provider.service) !== "per-token" || !catalog) return null;
-    const url = pricingUrlOf(catalog, row.endpoint);
-    return url ? { url, checked: catalog.checked } : null;
-  };
-
   const answersModelOf = async (row: ProviderRow): Promise<string | undefined> => {
     const kind = row.kind as ChatProviderKind;
     const catalog =
@@ -1204,7 +1193,7 @@ export function createChat(options: {
             offered,
             hidden,
             about,
-            prices: pricesOf(row, provider),
+            prices: pricesOfProvider(provider),
             unknown,
             cloud,
           };
