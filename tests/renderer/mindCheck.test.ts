@@ -93,6 +93,7 @@ const plan: MindCheckPlan = {
 };
 const estimate: RunEstimate = {
   billing: "per-token",
+  providerId: "provider-1",
   calls: 2,
   tokens: 1000,
   cost: { amount: 1.4, currency: "USD" },

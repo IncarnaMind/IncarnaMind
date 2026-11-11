@@ -1,16 +1,22 @@
 import { create } from "zustand";
+import type { ChatProvider } from "../../core/api";
 import { core } from "./core";
 
 interface SavedProvidersState {
   /** The ids of the saved chat providers; null until first listed. */
   ids: ReadonlySet<string> | null;
+  providers: readonly ChatProvider[];
 }
 
-export const useSavedProviders = create<SavedProvidersState>()(() => ({ ids: null }));
+export const useSavedProviders = create<SavedProvidersState>()(() => ({
+  ids: null,
+  providers: [],
+}));
 
 const read = () =>
   core.listChatProviders().then(
-    (providers) => useSavedProviders.setState({ ids: new Set(providers.map(({ id }) => id)) }),
+    (providers) =>
+      useSavedProviders.setState({ ids: new Set(providers.map(({ id }) => id)), providers }),
     (error: unknown) => console.error("The saved chat providers couldn't be listed.", error),
   );
 

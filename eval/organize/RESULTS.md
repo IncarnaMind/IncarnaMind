@@ -332,6 +332,60 @@ Every mistake: a Document not filed, in a Folder mostly of another label, with a
 
 </details>
 
+## 2026-11-09: the plan's Folders, small Libraries and replies cut short (#2737)
+
+The new-User mode on Claude Haiku 5.5, scored by counts. Tuning runs only here: the tuning half (`INCARNAMIND_ORGANIZE_SPLIT=tune`), the 40 of the old held-out half, which are tuning Documents since the fresh set exists, and 500-sets of seeds 2 and 3. Each set also ran one language at a time (`INCARNAMIND_ORGANIZE_DOCUMENTS=en` with the interface in English, `zh` with it in Chinese), the shape of the fresh set's runs: 15 to 23 readable Documents, a few an area. `main` is 7b1b62a0a (b83d46fb0 for its seed 3 and second seed 2 run); the branch is its head at each run.
+
+| Set (readable) | Arm | Runs | Filed | Same-label pairs, split allowed | Different-label pairs |
+|---|---|---|---|---|---|
+| Tuning half, English only (21) and Chinese only (16) | `main` | 2 | 67%, 63% | 63%, 64% | 16%, 4% |
+| | branch | 4 | 100%, 100%, 94%, 94% | 100%, 100%, 79%, 100% | 9%, 9%, 9%, 21% |
+| Old held-out 40, English only (23) and Chinese only (15) | `main` | 2 | 83%, 60% | 81%, 90% | 7%, 0% |
+| | branch | 4 | 87%, 83%, 60%, 87% | 68%, 68%, 60%, 90% | 10%, 3%, 5%, 27% |
+| Tuning half (37), English and Chinese interface | `main` | 2 | 78%, 97% | 67%, 93% | 6%, 12% |
+| | branch | 4 | 100%, 97%, 97%, 97% | 84%, 78%, 93%, 70% | 5%, 6%, 2%, 7% |
+| Old held-out 40 (38), English and Chinese interface | `main` | 2 | 100%, 87% | 83%, 93% | 13%, 1% |
+| | branch | 4 | 100%, 100%, 95%, 100% | 88%, 93%, 77%, 84% | 9%, 11%, 7%, 14% |
+| 500, seeds 2 and 3 (493, 497) | `main` | 3 | 90%, 90%, 99% | 96%, 95%, 88% | 1%, 1%, 5% |
+| | branch | 5 | 84%, 99%, 100%, 89%, 100% | 79%, 84%, 88%, 95%, 95% | 1%, 1%, 5%, 1%, 0% |
+
+No run in this table ended in an error or with a reply cut short, and every Folder in it held at least 3.
+
+**What the prompt can and can't move.** Before choosing the sort's instructions, each Library was sorted five times by each of eight versions of them, scored before the rest of the plan: the old one; without its sentence that joins Folders differing in kind; grouping by purpose; one area a name, never two joined by "and"; keep apart when unsure; without the kind sentence; and broad areas, with and without it. On the old held-out 40 each gave 74% to 84% same-label pairs on average and passed all four bars in 0 to 2 sorts of 10. A consensus of the five sorts, and a second request that checks the first, didn't do better. A ninth version, measured last, is the one kept: the old one with what was fitted to the tuning set taken out and a line that an area is broad. It gave 88% on average, with 3 sorts of 10 passing; its full runs are in the final round below. What stays across all nine is the model's reading of a few Documents that the labels place by the starter Folders' descriptions: a project's status reports and kickoff deck go with its meetings, and financial statements and budgets with the business reports.
+
+### The final round
+
+Run once, after CI was green, on the branch at f7d6fa0b7 beside `main` at b83d46fb0, the `main` the branch had merged. Nothing in Organize or its evaluation has changed on `main` since. Claude Haiku 5.5 with the key `ANTHROPIC_API_KEY`. The old held-out 40 and the 500 set (seed 1) ran twice a language, the fresh set three times a language (English Documents with the interface in English, Chinese with it in Chinese). Each arm ran one run at a time, and the two arms' fresh-set runs went side by side. Every run reached the Review: none failed and none was cut short. One branch run on the 500 set was stopped by a pause before it reached the Review and is not counted. Only the aggregate lines of the fresh set and the 500 set were read.
+
+| Set | Bar | `main` runs | `main` | Branch runs | Branch |
+|---|---|---|---|---|---|
+| Old held-out 40, English | Filed ≥ 80% | 32/38 (84%); 30/38 (79%) | misses | 38/38 (100%); 36/38 (95%) | meets |
+| Old held-out 40, English | Smallest Folder ≥ 3 | 5; 5 | meets | 5; 5 | meets |
+| Old held-out 40, English | Same-label pairs ≥ 90%, split allowed | 86/99 (87%); 72/99 (73%) | misses | 87/99 (88%); 86/99 (87%) | misses |
+| Old held-out 40, English | Different-label pairs ≤ 10% | 5/429 (1%); 34/429 (8%) | meets | 40/429 (9%); 0/429 (0%) | meets |
+| Old held-out 40, Chinese | Filed ≥ 80% | 30/38 (79%); 35/38 (92%) | misses | 38/38 (100%); 38/38 (100%) | meets |
+| Old held-out 40, Chinese | Smallest Folder ≥ 3 | 5; 5 | meets | 4; 5 | meets |
+| Old held-out 40, Chinese | Same-label pairs ≥ 90%, split allowed | 78/99 (79%); 81/99 (82%) | misses | 83/99 (84%); 87/99 (88%) | misses |
+| Old held-out 40, Chinese | Different-label pairs ≤ 10% | 28/429 (7%); 28/429 (7%) | meets | 52/429 (12%); 49/429 (11%) | misses |
+| 500, seed 1, English | Filed ≥ 80% | 425/494 (86%); 480/494 (97%) | meets | 494/494 (100%); 409/494 (83%) | meets |
+| 500, seed 1, English | Smallest Folder ≥ 3 | 27; 20 | meets | 27; 20 | meets |
+| 500, seed 1, English | Same-label pairs ≥ 90%, split allowed | 18302/18302 (100%); 15728/18302 (86%) | misses | 15697/18302 (86%); 14924/18302 (82%) | misses |
+| 500, seed 1, English | Different-label pairs ≤ 10% | 0/69269 (0%); 0/69269 (0%) | meets | 3866/69269 (6%); 1703/69269 (2%) | meets |
+| 500, seed 1, Chinese | Filed ≥ 80% | 444/494 (90%); 449/494 (91%) | meets | 441/494 (89%); 458/494 (93%) | meets |
+| 500, seed 1, Chinese | Smallest Folder ≥ 3 | 21; 20 | meets | 20; 20 | meets |
+| 500, seed 1, Chinese | Same-label pairs ≥ 90%, split allowed | 16344/18302 (89%); 15218/18302 (83%) | misses | 16710/18302 (91%); 16911/18302 (92%) | meets |
+| 500, seed 1, Chinese | Different-label pairs ≤ 10% | 938/69269 (1%); 1028/69269 (1%) | meets | 445/69269 (1%); 1892/69269 (3%) | meets |
+| Fresh set, English | Filed ≥ 80% | 11/17 (65%); 9/17 (53%); 13/17 (76%) | misses (mean 64.7%) | 9/17 (53%); 14/17 (82%); 12/17 (71%) | misses (mean 68.6%) |
+| Fresh set, English | Smallest Folder ≥ 3 | 3; 3; 3 | meets | 3; 3; 3 | meets |
+| Fresh set, English | Same-label pairs ≥ 90%, split allowed | 3/16 (19%); 2/16 (13%); 1/16 (6%) | misses (mean 12.5%, reported) | 4/16 (25%); 2/16 (13%); 3/16 (19%) | misses (mean 18.8%, reported) |
+| Fresh set, English | Different-label pairs ≤ 10% | 10/89 (11%); 7/89 (8%); 11/89 (12%) | misses (mean 10.5%, reported) | 14/89 (16%); 14/89 (16%); 15/89 (17%) | misses (mean 16.1%, reported) |
+| Fresh set, Chinese | Filed ≥ 80% | 14/18 (78%); 12/18 (67%); 7/18 (39%) | misses (mean 61.1%) | 14/18 (78%); 16/18 (89%); 18/18 (100%) | meets (mean 88.9%) |
+| Fresh set, Chinese | Smallest Folder ≥ 3 | 4; 4; 3 | meets | 4; 3; 4 | meets |
+| Fresh set, Chinese | Same-label pairs ≥ 90%, split allowed | 9/16 (56%); 6/16 (38%); 9/16 (56%) | misses (mean 50.0%, reported) | 8/16 (50%); 8/16 (50%); 13/16 (81%) | misses (mean 60.4%, reported) |
+| Fresh set, Chinese | Different-label pairs ≤ 10% | 15/89 (17%); 12/89 (13%); 0/89 (0%) | misses (mean 10.1%, reported) | 31/89 (35%); 31/89 (35%); 30/89 (34%) | misses (mean 34.5%, reported) |
+
+The fresh set gates Filed on the mean of its three runs. Its other bars are reported only, and the verdict beside them is on their mean.
+
 ## 2026-11-09: the pair bars honour `alsoFolder` (#2737)
 
 The labels gave 7 Documents of the 80 a second Folder (`alsoFolder`) before any model ran, and the classifier's lenient score honours it. The new-User pair bars read only the first label, so a two-Folder Document filed with its second label's Documents counted wrong twice: once as a same-label pair apart, and once as a different-label pair together. They now score it by whichever of its two labels its Folder holds most (README, "Pairs of a two-Folder Document"). Every run reports the labels as written beside it.
@@ -367,3 +421,134 @@ That is one label line each, and one of them is in the held-out half.
 | Fresh set, English | 11%, 8%, 12%: misses (mean 10.5%) | 8%, 6%, 10%: meets (mean 8.0%) | 16%, 16%, 17%: misses (mean 16.1%) | 14%, 16%, 16%: misses (mean 15.1%) |
 | Fresh set, Chinese | 17%, 13%, 0%: misses (mean 10.1%) | 15%, 7%, 0%: meets (mean 7.2%) | 35%, 35%, 34%: misses (mean 34.5%) | 34%, 34%, 33%: misses (mean 33.7%) |
 
+
+
+## 2026-11-10: choosing between the parts of #2917, the isolation stage (#2737)
+
+**No arm qualified:** in Chinese every arm shared Folders across labels, where `main` had 0 different-label pairs of 77 in every run while filing 42.5% of the Documents (6 or 7 of 16 a run). Nothing goes forward, and "both, 2b" and the final gate don't run.
+
+**Setup.**
+- The stage that `plan-2737.md` sets out, run as written.
+- The tuning half one language at a time: English Documents with the interface in English (21 readable), Chinese Documents with it in Chinese (16 readable).
+- Five runs an arm and language, on Claude Haiku 5.5 with a second direct Anthropic key, which has its own limit, every arm alike. One run at a time, in the plan's turns.
+- Arms: `main` d979e55c4, part 2 dde23e21e, part 2b e211b8045, part 3 13e0b5d4d, both 25f6bc640.
+- The arms' branches (`eval/2737-*`) are kept until #2737 closes, since the diagnosis and the next plan read those commits.
+- The pair bars score a two-Folder Document by its second Folder where its Folder holds that one most (#2937). Each run's labels-as-written figures are in its record.
+- A tolerance is `main`'s standard error over its five runs, with a floor of one point.
+
+### English: every run
+
+| Arm | Run | Filed | Different-label pairs | Requests answered | Refused | Ended without a reply |
+|---|---|---|---|---|---|---|
+| `main` | 1 | 17/21 (81.0%) | 0/101 (0.0%) | 4 | 0 | 0 |
+| `main` | 2 | 12/21 (57.1%) | 2/97 (2.1%) | 4 | 0 | 0 |
+| `main` | 3 | 11/21 (52.4%) | 2/97 (2.1%) | 4 | 0 | 0 |
+| `main` | 4 | 14/21 (66.7%) | 8/99 (8.1%) | 4 | 0 | 0 |
+| `main` | 5 | 11/21 (52.4%) | 3/101 (3.0%) | 4 | 0 | 0 |
+| part 2 | 1 | 17/21 (81.0%) | 10/97 (10.3%) | 5 | 0 | 0 |
+| part 2 | 2 | 12/21 (57.1%) | 3/99 (3.0%) | 5 | 0 | 0 |
+| part 2 | 3 | 20/21 (95.2%) | 10/97 (10.3%) | 4 | 0 | 0 |
+| part 2 | 4 | 18/21 (85.7%) | 17/101 (16.8%) | 5 | 0 | 0 |
+| part 2 | 5 | 12/21 (57.1%) | 0/99 (0.0%) | 5 | 0 | 0 |
+| part 2b | 1 | 17/21 (81.0%) | 8/100 (8.0%) | 5 | 0 | 0 |
+| part 2b | 2 | 15/21 (71.4%) | 3/100 (3.0%) | 5 | 0 | 0 |
+| part 2b | 3 | 16/21 (76.2%) | 2/97 (2.1%) | 5 | 0 | 0 |
+| part 2b | 4 | 12/21 (57.1%) | 14/99 (14.1%) | 5 | 0 | 0 |
+| part 2b | 5 | 12/21 (57.1%) | 2/97 (2.1%) | 5 | 0 | 0 |
+| part 3 | 1 | 18/21 (85.7%) | 11/97 (11.3%) | 4 | 0 | 0 |
+| part 3 | 2 | 16/21 (76.2%) | 0/97 (0.0%) | 4 | 0 | 0 |
+| part 3 | 3 | 16/21 (76.2%) | 6/100 (6.0%) | 4 | 0 | 0 |
+| part 3 | 4 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+| part 3 | 5 | 20/21 (95.2%) | 9/97 (9.3%) | 4 | 0 | 0 |
+| both | 1 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+| both | 2 | 18/21 (85.7%) | 5/97 (5.2%) | 5 | 0 | 0 |
+| both | 3 | 20/21 (95.2%) | 6/100 (6.0%) | 4 | 0 | 0 |
+| both | 4 | 20/21 (95.2%) | 0/101 (0.0%) | 4 | 0 | 0 |
+| both | 5 | 21/21 (100.0%) | 5/97 (5.2%) | 4 | 0 | 0 |
+
+### English: means
+
+The tolerance: Filed 5.43%, different-label pairs 1.35%.
+
+| Arm | Filed mean | Different-label mean |
+|---|---|---|
+| `main` | 61.9% | 3.0% |
+| `main`'s lowest–highest | 52.4%–81.0% | 0.0%–8.1% |
+| part 2 | 75.2% | 8.1% |
+| part 2b | 68.6% | 5.9% |
+| part 3 | 86.7% | 6.4% |
+| both | 95.2% | 4.3% |
+
+### Chinese: every run
+
+| Arm | Run | Filed | Different-label pairs | Requests answered | Refused | Ended without a reply |
+|---|---|---|---|---|---|---|
+| `main` | 1 | 6/16 (37.5%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 2 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 3 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 4 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| `main` | 5 | 7/16 (43.8%) | 0/77 (0.0%) | 3 | 0 | 0 |
+| part 2 | 1 | 12/16 (75.0%) | 21/77 (27.3%) | 4 | 0 | 0 |
+| part 2 | 2 | 12/16 (75.0%) | 9/77 (11.7%) | 4 | 0 | 0 |
+| part 2 | 3 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2 | 4 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2 | 5 | 11/16 (68.8%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 2b | 1 | 15/16 (93.8%) | 12/77 (15.6%) | 4 | 0 | 0 |
+| part 2b | 2 | 10/16 (62.5%) | 7/77 (9.1%) | 4 | 0 | 0 |
+| part 2b | 3 | 10/16 (62.5%) | 10/77 (13.0%) | 4 | 0 | 0 |
+| part 2b | 4 | 10/16 (62.5%) | 11/77 (14.3%) | 4 | 0 | 0 |
+| part 2b | 5 | 10/16 (62.5%) | 0/77 (0.0%) | 4 | 0 | 0 |
+| part 3 | 1 | 8/16 (50.0%) | 4/77 (5.2%) | 3 | 0 | 0 |
+| part 3 | 2 | 12/16 (75.0%) | 6/77 (7.8%) | 3 | 0 | 0 |
+| part 3 | 3 | 12/16 (75.0%) | 8/77 (10.4%) | 3 | 0 | 0 |
+| part 3 | 4 | 11/16 (68.8%) | 6/77 (7.8%) | 3 | 0 | 0 |
+| part 3 | 5 | 16/16 (100.0%) | 9/77 (11.7%) | 3 | 0 | 0 |
+| both | 1 | 12/16 (75.0%) | 12/77 (15.6%) | 4 | 0 | 0 |
+| both | 2 | 13/16 (81.3%) | 22/77 (28.6%) | 4 | 0 | 0 |
+| both | 3 | 13/16 (81.3%) | 8/77 (10.4%) | 4 | 0 | 0 |
+| both | 4 | 14/16 (87.5%) | 16/77 (20.8%) | 4 | 0 | 0 |
+| both | 5 | 15/16 (93.8%) | 16/77 (20.8%) | 4 | 0 | 0 |
+
+### Chinese: means
+
+The tolerance: Filed 1.25%, different-label pairs 1.00% (the floor).
+
+| Arm | Filed mean | Different-label mean |
+|---|---|---|
+| `main` | 42.5% | 0.0% |
+| `main`'s lowest–highest | 37.5%–43.8% | 0.0%–0.0% |
+| part 2 | 68.8% | 7.8% |
+| part 2b | 68.8% | 10.4% |
+| part 3 | 73.8% | 8.6% |
+| both | 83.8% | 19.2% |
+
+**Part 2b in English, unrounded.** Its different-label mean is (8/100 + 3/100 + 2/97 + 14/99 + 2/97) / 5 = 5.8530%. The line two tolerances above `main` is 3.0350% + 2 × 1.3522% = 5.7394%. So it is beyond two tolerances and fails point 3 with no extension. In Chinese it fails by more either way: 10.3896% against a line of 1.0000%.
+
+
+**Verdicts by the plan's points.**
+
+| Arm | Point 3 (no worse), English | Point 3, Chinese | Point 6 (files more) | Point 7 or 8 | Qualifies |
+|---|---|---|---|---|---|
+| part 2 | misses: different-label 8.1% against at most 4.4% | misses: 7.8% against at most 1.0% | holds in both languages | (second-look arm) | no |
+| part 2b | misses: 5.9%, more than two tolerances (5.7%) | misses: 10.4% | holds in both languages | (second-look arm) | no |
+| part 3 | misses: 6.4% | misses: 8.6% | (not a second-look arm) | point 7: not level | no |
+| both | holds: 4.3% against at most 4.4%, Filed 95.2% | misses: 19.2% | holds in both languages | point 8: as a second-look arm | no |
+
+- **Extensions (point 5):** no arm landed in the extension zone, between one and two tolerances short.
+- **Part 2b:** it didn't qualify alone, so "both, 2b" doesn't run.
+- **The choice:** no arm qualifies, so none is chosen and the final gate doesn't run.
+
+**Validity.** All 50 runs counted: their request records show 0 refused requests and 0 that ended without a reply.
+
+**The first key's attempts are struck.** Five attempts were made on `ANTHROPIC_API_KEY` before the stage moved to a key with its own limit:
+- three ended on its rate limit: `main` English run 1, and part 2b English run 1 twice;
+- two finished: `main` (its rerun) and part 2, English run 1. Neither settled a tagging request, so their tagging was refused.
+
+All five are reported, struck and not used.
+
+**The keys.**
+- A smallest request on each key showed 2,000,000 input tokens a minute with all of them left on the second key, against 500,000 with 1,000 left on `ANTHROPIC_API_KEY`.
+- The 31 runs that read the second key's allowance at their start (runs 20 to 50) each found 2,000,000 of 2,000,000.
+- Runs 24 to 50 each took the key alone for their length. Twenty-six waited 0 s; one, both in Chinese, waited 732 s while another evaluation held the key.
+
+**Spend.** The stage cost $0.168 on the second key, against the plan's estimate of about $0.16 for 50 runs and its stop at $6. The struck attempts on the first key cost $0.003.

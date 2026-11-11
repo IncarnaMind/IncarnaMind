@@ -86,6 +86,34 @@ describe("figures in a claim with case citations", () => {
   });
 });
 
+describe("a count of periods is read whole, with the separators the figure reader follows (#2943)", () => {
+  test.each([
+    ["en", "It ran for 2,000 days.", "2,000 days", 2000, "day"],
+    [undefined, "It ran for 2,000 days.", "2,000 days", 2000, "day"],
+    ["en", "It ran for 1,250 weeks.", "1,250 weeks", 1250, "week"],
+    ["en", "It ran for 12,000,000 years.", "12,000,000 years", 12_000_000, "year"],
+    ["en", "It ran for 90 days.", "90 days", 90, "day"],
+    ["en", "It ran for two thousand days.", "two thousand days", 2000, "day"],
+    ["en", "It ran for 10 consecutive days.", "10 consecutive days", 10, "day"],
+    ["en", "A 2,000-day ramp.", "2,000-day", 2000, "day"],
+    ["en", "In 2,000 days it ended.", "2,000 days", 2000, "day"],
+    ["en", "It ran for 2\u00a0000 days.", "2\u00a0000 days", 2000, "day"],
+    ["en", "It ran for ２，０００ days.", "２，０００ days", 2000, "day"],
+    ["en", "It ran for 2.5 years.", "2.5 years", 2.5, "year"],
+    ["zh-CN", "它运行了2,000天。", "2,000天", 2000, "day"],
+    ["zh-CN", "它运行了２，０００天。", "２，０００天", 2000, "day"],
+    ["zh-CN", "它运行了2.5年。", "2.5年", 2.5, "year"],
+  ])("%s: %s", (language, text, chars, value, word) => {
+    expect(figuresInClaim(text, language ? { language } : {})).toMatchObject([
+      { chars, value, unit: { kind: "other", word } },
+    ]);
+  });
+
+  test("a year that is not a count is no count", () => {
+    expect(figuresInClaim("In 2000 it ended.", { language: "en" })).toEqual([]);
+  });
+});
+
 describe.each([
   {
     language: "en",
