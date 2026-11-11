@@ -3851,6 +3851,8 @@ export const en = {
   "composer.model.useForNew": "Use this for new notes too",
   "composer.model.default": "New notes use {model}, from {settings}.",
   "composer.model.defaultUnset": "New notes have no model yet. Choose one in {settings}.",
+  "composer.model.removed": "{model} was removed, so this note now uses {default}",
+  "composer.model.removed.change": "Change",
   "models.other.title": "Other models",
   "models.other.group.unknown": "Not known to IncarnaMind",
   "models.other.group.older": "Older models",
@@ -6846,6 +6848,12 @@ export const en = {
     "Couldn’t download the speech model from any source",
   "meetings.transcript.downloadFailed": "The speech model couldn’t be downloaded: {message}",
   "meetings.transcript.engineStopped": "Transcription stopped.",
+  "meetings.transcript.stoppedBeforeEnd":
+    "Transcription stopped before the end. Your recording is kept.",
+  "meetings.transcript.stoppedBeforeEndToday":
+    "Transcription stopped before the end. Your recording is kept until {time} today.",
+  "meetings.transcript.stoppedBeforeEndTomorrow":
+    "Transcription stopped before the end. Your recording is kept until {time} tomorrow.",
   "meetings.transcript.saveFailed": "The transcript couldn’t be saved: {message}",
   "meetings.transcript.notSaved":
     "The transcript wasn’t saved: no folder was chosen for new files.",
@@ -6908,6 +6916,8 @@ export const en = {
   "meetings.fill.problem.notAllowed":
     "you haven’t allowed sending to {service} yet. Ask a Question in the assistant to allow it, then Try again.",
   "meetings.fill.problem.noModel": "choose an AI model first.",
+  "meetings.fill.problem.modelRemoved":
+    "this note’s model was removed. Choose another in the assistant, then Try again.",
   "meetings.fill.undoName": "Fill in the note",
   "meetings.fill.notify": "Note filled in: {meeting}",
   "meetings.fill.notify.partial": "Note partly filled in for {meeting}",
@@ -7830,6 +7840,7 @@ export const en = {
   "command.answer.stop": "Stop the Answer",
   "command.ready.stop": "Stop waiting for the Documents",
   "command.answer.stop.unavailable": "No Answer is being written",
+  "command.model.changeRemoved": "Choose another model for this note",
   "origin.open": "Open the source conversation",
   "origin.deleted": "From the conversation “{title}”, now in Recently deleted",
   "origin.gone": "From a conversation that has been deleted",

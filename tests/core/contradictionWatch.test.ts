@@ -18,6 +18,7 @@ import {
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { contradictionWatchOf } from "../../src/shared/contradictionWatch";
+import { setMindModel } from "../../src/shared/mindModel";
 import {
   checkGenerate,
   checkingModel,
@@ -27,7 +28,13 @@ import {
   sentenceOf,
 } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  type MemoryKeychain,
+  manualClock,
+  startCore,
+} from "../helpers/core";
 import {
   addAndProcess,
   waitForDocuments,
@@ -103,6 +110,7 @@ async function setUp({
   ollama,
   model: given,
   log,
+  keychain,
 }: {
   office?: string;
   calls?: ModelCall[];
@@ -110,11 +118,13 @@ async function setUp({
   ollama?: { baseUrl: string; modelId: string };
   model?: MockLanguageModelV4;
   log?: Logger;
+  keychain?: MemoryKeychain;
 } = {}) {
   const model = given ?? checkingModel(PLANS, calls);
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     contradictionWatch: { delayMs },
+    ...(keychain && { keychain }),
     ...(log && { log }),
     ...(ollama && { ollamaModels: createOllamaModels({ memoryBytes: () => 32 * GIB }) }),
   });
@@ -890,5 +900,179 @@ describe("A Folder's contents changed", { timeout: 30_000 }, () => {
       state: "needs-recheck",
       why: "document-removed",
     });
+  });
+});
+
+describe("A Note whose own model was removed", { timeout: 30_000 }, () => {
+  const MORE_TIDES = "\nIt also publishes a guide to the tide tables.\n";
+
+  /**
+   * A Note citing Tides in a Folder, which the test gives a pick of its own, and the Answers
+   * default: on this computer, else a cloud model when `cloud` is true. With `control`, a second
+   * Note that follows the default and is watched on the same run: its record says the first one's
+   * watch has had its turn.
+   */
+  async function setUpNote({ cloud, control = false }: { cloud: boolean; control?: boolean }) {
+    const calls: ModelCall[] = [];
+    const events: string[] = [];
+    const log: Logger = {
+      info: (event) => events.push(event),
+      warn: (event) => events.push(event),
+      error: (event) => events.push(event),
+    };
+    const keychain = createMemoryKeychain();
+    const { core, tides, office, folder } = await setUp({
+      office: QUIET_OFFICE,
+      calls,
+      log,
+      keychain,
+    });
+    const local = (await core.getSettings()).user.chatModel;
+    if (!local) throw new Error("The model on this computer isn't set up.");
+    const own = await mindCiting(core, tides, folder.id);
+    const followed = control ? await mindCiting(core, tides, folder.id) : null;
+    if (cloud) {
+      await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+    }
+    let version = OFFICE.contents;
+    const newVersion = async () => {
+      await writeFile(office.path, version);
+      version += MORE_TIDES;
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [office.id]);
+    };
+    const followedWatched = () =>
+      vi.waitFor(
+        () =>
+          expect(followed && contradictionWatchOf(followed.client.doc)).toMatchObject({
+            checked: 2,
+          }),
+        { timeout: 10_000 },
+      );
+    const ownWatched = () =>
+      vi.waitFor(
+        () => expect(contradictionWatchOf(own.client.doc)).toMatchObject({ claims: 2, checked: 2 }),
+        { timeout: 10_000 },
+      );
+    return { core, local, own, calls, events, keychain, newVersion, followedWatched, ownWatched };
+  }
+
+  // protects=a Note whose own model on this computer was removed has no background request go to a cloud default the User never chose for it: it waits, and sends nothing, until a model is picked in the Note or the composer's line is closed; fails_when=the watch falls back to the cloud default at once, or still waits after the close.
+  test("from this computer to a cloud default, the watch sends nothing until the User closes the line", async () => {
+    const { core, local, own, calls, events, newVersion, ownWatched } = await setUpNote({
+      cloud: true,
+    });
+    setMindModel(own.client.doc, local);
+    await own.client.settled();
+    await core.deleteChatProvider(local.providerId);
+
+    await newVersion();
+    await vi.waitFor(() => expect(events).toContain("contradictions.waitingForModel"));
+
+    expect(calls).toEqual([]);
+    expect(contradictionWatchOf(own.client.doc)).toBeNull();
+
+    setMindModel(own.client.doc, null);
+    await own.client.settled();
+    await newVersion();
+
+    await ownWatched();
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  test("a model picked in the Note ends the wait: the watch checks on that model", async () => {
+    const { core, local, own, calls, events, newVersion, ownWatched } = await setUpNote({
+      cloud: true,
+    });
+    setMindModel(own.client.doc, local);
+    await own.client.settled();
+    await core.deleteChatProvider(local.providerId);
+    await newVersion();
+    await vi.waitFor(() => expect(events).toContain("contradictions.waitingForModel"));
+    expect(calls).toEqual([]);
+
+    setMindModel(own.client.doc, (await core.getSettings()).user.chatModel);
+    await own.client.settled();
+    await newVersion();
+
+    await ownWatched();
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  test("to a default on this computer, nothing waits: the data stays here", async () => {
+    const { core, local, own, calls, events, newVersion, ownWatched } = await setUpNote({
+      cloud: false,
+    });
+    const other = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: "http://127.0.0.1:11435",
+      modelId: "second-local-model",
+    });
+    expect((await core.getSettings()).user.chatModel?.providerId).toBe(other.id);
+    setMindModel(own.client.doc, local);
+    await own.client.settled();
+    await core.deleteChatProvider(local.providerId);
+
+    await newVersion();
+
+    await ownWatched();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(events).not.toContain("contradictions.waitingForModel");
+  });
+
+  test("from a cloud service, nothing waits: the Note's text had already left this computer", async () => {
+    const { core, own, calls, events, newVersion, ownWatched } = await setUpNote({ cloud: true });
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+      keepDefault: true,
+    });
+    setMindModel(own.client.doc, { providerId: openai.id, modelId: "gpt-6-luna" });
+    await own.client.settled();
+    await core.deleteChatProvider(openai.id);
+
+    await newVersion();
+
+    await ownWatched();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(events).not.toContain("contradictions.waitingForModel");
+  });
+
+  // protects=a provider that is still saved but has lost its key keeps today's behaviour for its Note, with no fallback: the watch sends nothing, to the cloud default or anywhere, and does not say the model was removed; fails_when=the Note's checks go to the Answers default, or the watch claims the model was removed.
+  test("a provider still saved with its key missing is not a removed one: no fallback, nothing waits", async () => {
+    const { core, own, calls, events, keychain, newVersion, followedWatched, ownWatched } =
+      await setUpNote({ cloud: true, control: true });
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+      keepDefault: true,
+    });
+    setMindModel(own.client.doc, { providerId: openai.id, modelId: "gpt-6-luna" });
+    await own.client.settled();
+    await keychain.delete(`chat-provider:${openai.id}:api-key`);
+
+    await newVersion();
+    await followedWatched();
+
+    expect(contradictionWatchOf(own.client.doc)).toBeNull();
+    expect(events).not.toContain("contradictions.waitingForModel");
+    const sentForControl = calls.length;
+
+    await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+      keepDefault: true,
+    });
+    await newVersion();
+
+    await ownWatched();
+    expect(calls.length).toBeGreaterThan(sentForControl);
   });
 });

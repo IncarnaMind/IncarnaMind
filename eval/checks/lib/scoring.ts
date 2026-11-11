@@ -14,6 +14,7 @@
  */
 import { SIMPLIFIED } from "../../../src/shared/hanVariants";
 import { normaliseText } from "../../../src/shared/text";
+import type { JudgeRequest } from "./judge";
 import {
   CHECK_LANGUAGES,
   type CheckLabel,
@@ -39,7 +40,11 @@ export interface CheckOutcome {
   verdict: Verdict;
   /** Why it wasn't checked, in plain words. */
   reason?: string;
+  /** Why it wasn't checked, as the app's check gave it (`ClaimCheckFailure`). */
+  code?: string;
   evidence: FoundEvidence | null;
+  /** Every request the check made to the model, with its reply and Tool calls, when the run kept them. */
+  judge?: JudgeRequest[];
 }
 
 export interface SentenceResult {

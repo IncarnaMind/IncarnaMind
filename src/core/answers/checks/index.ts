@@ -287,6 +287,8 @@ export interface ChecksOptions
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
+    /** Whether background work in a Note whose own pick is `own` waits for the User (../../providers/chat). */
+    waitsForRemovedModel(own: ChatModelChoice | null): boolean;
     /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
     quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
@@ -1588,6 +1590,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
+    waitsForRemovedModel: (own) => options.chat.waitsForRemovedModel(own),
     prepareQuietly: (choice) => prepareQuietly(choice, WATCH_SENDS),
     waitsForConsent: async (choice) => {
       const readiness = await chat.readiness(choice ?? undefined, "checks");

@@ -18,6 +18,8 @@ import type {
   SearchScope,
 } from "../../../src/core";
 import type { Generate } from "../../lib/rewrites";
+import type { RequestWatch } from "../../repeats/requests";
+import { judgeRecord } from "./judge";
 import type { CheckOutcome, FoundEvidence, Verdict } from "./scoring";
 
 export interface ClaimDraft {
@@ -180,40 +182,54 @@ export interface CorePipelineOptions extends Omit<PipelineOptions, "core"> {
   core: Pick<Core, "searchEvidence" | "checkClaim">;
   /** A Document's name in the labels, from a Citation of it. */
   citedName(citation: Citation): string;
+  /**
+   * Watches the core's chat model (`watchRequests`), so each outcome keeps what the judge said
+   * (#2910). The core must have been given its `chatModels`.
+   */
+  watch?: Pick<RequestWatch, "take">;
 }
 
 /** The baseline's extraction, and the app's claim check (`checkClaim`) for each sentence or claim. */
 export function corePipeline(options: CorePipelineOptions): ChecksPipeline {
-  const { core, scope, citedName } = options;
+  const { core, scope, citedName, watch } = options;
   const baseline = baselinePipeline(options);
+
+  async function checkClaim(sentence: string, checked?: CheckedDocument): Promise<CheckOutcome> {
+    let result: Awaited<ReturnType<Core["checkClaim"]>>;
+    try {
+      result = await core.checkClaim({ claim: sentence, scope, ...(checked && { checked }) });
+    } catch (error) {
+      return notChecked(`The check failed: ${messageOf(error)}`);
+    }
+    if (result.verdict === "not-checked") {
+      return {
+        ...notChecked(`${result.reason}${result.detail ? `: ${result.detail}` : ""}`),
+        code: result.reason,
+      };
+    }
+    const { evidence } = result;
+    return {
+      verdict: result.verdict,
+      evidence: evidence
+        ? {
+            document: citedName(evidence),
+            units:
+              evidence.pageFrom !== null && evidence.pageTo !== null
+                ? [evidence.pageFrom, evidence.pageTo]
+                : null,
+            quote: evidence.quote,
+          }
+        : null,
+    };
+  }
+
   return {
     usage: baseline.usage,
     extractClaims: baseline.extractClaims,
 
     async check(sentence, checked) {
-      let result: Awaited<ReturnType<Core["checkClaim"]>>;
-      try {
-        result = await core.checkClaim({ claim: sentence, scope, ...(checked && { checked }) });
-      } catch (error) {
-        return notChecked(`The check failed: ${messageOf(error)}`);
-      }
-      if (result.verdict === "not-checked") {
-        return notChecked(`${result.reason}${result.detail ? `: ${result.detail}` : ""}`);
-      }
-      const { evidence } = result;
-      return {
-        verdict: result.verdict,
-        evidence: evidence
-          ? {
-              document: citedName(evidence),
-              units:
-                evidence.pageFrom !== null && evidence.pageTo !== null
-                  ? [evidence.pageFrom, evidence.pageTo]
-                  : null,
-              quote: evidence.quote,
-            }
-          : null,
-      };
+      const outcome = await checkClaim(sentence, checked);
+      return watch ? { ...outcome, judge: judgeRecord(watch.take().get(sentence) ?? []) } : outcome;
     },
   };
 }
