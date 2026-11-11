@@ -894,6 +894,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
   test(`a locked Folder folded into a count of one keeps its chip's tooltip, and its row in the menu shows the lock and no × (${language})`, async () => {
     await writeFile(join(sources, "Tides.txt"), "Spring tides follow the new moon.\n");
+    // Six of its characters are as wide as six of the Chinese name's: the lock and the Ask leave
+    // them no room in a row this narrow.
+    const lockedName = language === "en" ? "WWWWWWWW board materials" : folderName;
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window, "sonnet-5.5-local");
@@ -911,9 +914,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await core.addDocuments([input.path], { groupId: folder.id });
         return (await core.createMind({ title: "Board note", folderId: folder.id })).id;
       },
-      { folder: folderName, path: join(sources, "Tides.txt") },
+      { folder: lockedName, path: join(sources, "Tides.txt") },
     );
-    const folderRow = sidebarFolder(window, folderName).getByTestId("folder-row");
+    const folderRow = sidebarFolder(window, lockedName).getByTestId("folder-row");
     if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
     await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
     const { composer } = parts(window);
@@ -926,8 +929,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const count = composer.getByTestId("scope-chips-more");
     const wall =
       language === "en"
-        ? `Folder “${folderName}” keeps its work inside it`
-        : `“${folderName}”只在本文件夹内工作`;
+        ? `Folder “${lockedName}” keeps its work inside it`
+        : `“${lockedName}”只在本文件夹内工作`;
     await expect(count).toHaveText(language === "en" ? "1 selected" : "已选 1 项");
     await expect(count).toHaveAttribute("title", wall);
     await expectRowHolds(window, "210");
