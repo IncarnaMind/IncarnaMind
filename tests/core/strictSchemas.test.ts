@@ -141,6 +141,8 @@ function replyTo(body: Record<string, unknown>): Reply {
       };
     case "change-claims":
       return { text: JSON.stringify({ claims: [] }) };
+    case "request-done":
+      return { text: JSON.stringify({ request: "none" }) };
     case "calculations":
       return { text: JSON.stringify({ calculations: [] }) };
     case "quotes":
@@ -212,7 +214,7 @@ describe("Every reply schema the app sends to an API that enforces strict mode",
     const folder = path.join(__dirname, "../../src/core");
     // A judge's question names its schema in `structured(schema, …)`; the module's own
     // Output.object sends whichever schema it is given (src/core/answers/judge.ts).
-    const sends = /Output\.object\(|\bstructured\(\w+Schema\b/g;
+    const sends = /Output\.object\(|\bstructured\(\s*\w+Schema\b/g;
     const found: Record<string, number> = {};
     for (const file of sourcesOf(folder)) {
       if (file === "answers/judge.ts") continue;

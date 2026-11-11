@@ -73,7 +73,7 @@ describe("The line under a reply that still claims a change (#1559)", () => {
       "The assistant didn’t do everything this reply says",
     );
     expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
-      "这条回答说已完成的事，有些未能完成",
+      "这条回答说的事，助手没有全部完成",
     );
   });
 

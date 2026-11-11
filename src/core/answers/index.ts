@@ -3381,6 +3381,7 @@ export function createAnswers(options: AnswersOptions) {
                     const checked = await inStep("change-claim-check", () =>
                       claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
+                        request: context.question,
                         names: options.readableMindName,
                         states: appliedInTurn,
                         parts: (mindId, part) =>

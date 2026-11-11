@@ -464,10 +464,11 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
         { tool: "edit_mind", input: { part: "Nowhere", instruction: "Make it longer" } },
       ],
       en: "The assistant didn’t do everything this reply says",
-      zh: "这条回答说已完成的事，有些未能完成",
+      zh: "这条回答说的事，助手没有全部完成",
     },
   ])("a reply that says it is done after $calls.length writes gets its line", async (each) => {
     const notes: string[] = [];
+    const questions: string[] = [];
     const reply = (done: boolean) =>
       scriptedModel(
         (call): ScriptedReply => {
@@ -482,10 +483,11 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
           };
         },
         {
-          generate: (call) =>
-            call.question === "request-done"
-              ? { text: JSON.stringify({ request: done ? "done" : "not_done" }) }
-              : claimCheckReply(call, []),
+          generate: (call) => {
+            if (call.question !== "request-done") return claimCheckReply(call, []);
+            questions.push(call.prompt);
+            return { text: JSON.stringify({ request: done ? "done" : "not_done" }) };
+          },
         },
       );
     const stubborn = reply(true);
@@ -498,6 +500,12 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
     );
     expect(answer.text).toBe("That's all done.");
     expect(answer.steps?.unbackedClaims).toEqual(["changed"]);
+    // The reply is read against the User's request as they typed it, also once asked again.
+    expect(questions).toHaveLength(2);
+    for (const question of questions) {
+      expect(question).toContain("<question>\nmake the summary longer\n</question>");
+      expect(question).not.toContain("Your reply tells the User");
+    }
     expect(unbackedClaimLine(en, answer)).toBe(each.en);
     expect(unbackedClaimLine(zh, answer)).toBe(each.zh);
 
