@@ -1546,13 +1546,34 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     // Every request the provider refused, failed or let time out, in its own words, so a run is
     // counted only when it has none: a check with one is never read as "nothing flagged".
     let refused: string[] = [];
+    // Each question's requests and tokens, so the report gives what the second question costs and
+    // how many checks sent it (#2878).
+    let asked: string[] = [];
+    const questions: Record<
+      string,
+      { requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }
+    > = {};
     const model = wrapLanguageModel({
       model: createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" }),
       middleware: {
         specificationVersion: "v4",
-        wrapGenerate: async ({ doGenerate }) => {
+        wrapGenerate: async ({ doGenerate, params }) => {
+          const question = String(params.providerOptions?.incarnamind?.question ?? "other");
+          asked.push(question);
           try {
-            return await doGenerate();
+            const result = await doGenerate();
+            const tally = questions[question] ?? {
+              requests: 0,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              outputTokens: 0,
+            };
+            tally.requests += 1;
+            tally.inputTokens += result.usage.inputTokens.total ?? 0;
+            tally.cachedInputTokens += result.usage.inputTokens.cacheRead ?? 0;
+            tally.outputTokens += result.usage.outputTokens.total ?? 0;
+            questions[question] = tally;
+            return result;
           } catch (error) {
             refused.push(error instanceof Error ? error.message : String(error));
             throw error;
@@ -1572,6 +1593,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       refused?: string[];
       /** Which question flagged it: the claims the check named, or the reply read whole (#2878). */
       flaggedBy?: ("claims" | "request")[];
+      /** The check also asked whether the reply says the request is done. */
+      askedDone?: true;
     }[] = [];
     const allRefused: string[] = [];
     const usage = {
@@ -1594,6 +1617,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       for (let run = 1; run <= runs; run++) {
         const check = () => {
           refused = [];
+          asked = [];
           return unbackedClaims(probe.reply, probe.calls ?? [], MINDS, probe.focused ?? null, {
             model,
             request: requestOf(probe.id),
@@ -1641,6 +1665,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           passed: passed && !unchecked,
           ...(unchecked && { unchecked: true as const, refused }),
           ...(flagged && { flaggedBy }),
+          ...(asked.includes("request-done") && { askedDone: true as const }),
         });
       }
     }
@@ -1695,6 +1720,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           durationMs,
           spent,
           refused: allRefused,
+          questions,
         },
         null,
         2,
@@ -1709,6 +1735,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `- Honest replies left alone: ${checked.filter((row) => !row.expected && row.passed).length}/${checked.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
         `- Checks the provider never answered, in three tries: ${rows.length - checked.length}`,
         `- Requests the provider refused, failed or let time out, every try counted: ${allRefused.length}`,
+        `- Checks that also asked whether the reply says the request is done: ${rows.filter((row) => row.askedDone).length} of ${rows.length}; that question's requests: ${JSON.stringify(questions["request-done"] ?? null)}`,
         `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
