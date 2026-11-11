@@ -2038,7 +2038,7 @@ describe("The estimate a whole read's cost question shows", () => {
     if (estimate.billing !== "per-token") throw new Error("No per-token estimate.");
     // As a provider with no measured count may count it, 1.5 tokens for each: its tokens, and its
     // price, the cache's tokens at the cache's price.
-    expect(estimate).toMatchObject({ calls: 4, tokens: 263_250 });
+    expect(estimate).toMatchObject({ providerId: "provider", calls: 4, tokens: 263_250 });
     expect(estimate.cost?.amount).toBeCloseTo((174_750 + 87_000 * 0.1 + 1_500 * 5) / 1e6, 10);
     expect(estimate.upTo).toMatchObject({ calls: 3, tokens: 120_100 });
     expect(estimate.upTo?.cost?.amount).toBeCloseTo((69_200 + 16_300 * 5) / 1e6, 10);

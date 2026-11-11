@@ -8,6 +8,7 @@ import {
   mindModelOf,
   modelInUse,
   observeMindModel,
+  removedModel,
   setMindModel,
 } from "../../src/shared/mindModel";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -194,5 +195,15 @@ describe("the model in use", () => {
   test("skips a pick on a provider that is no longer saved", () => {
     expect(modelInUse({ own, fallback }, (id) => id !== "own")).toEqual(fallback);
     expect(modelInUse({ own, fallback: null }, (id) => id !== "own")).toBeNull();
+  });
+
+  test("a pick on a provider that is no longer saved is the one the composer says is removed, naming what replaces it (#2853)", () => {
+    const gone = (id: string) => id !== "own";
+    expect(removedModel({ own, fallback }, gone)).toEqual({ removed: own, now: fallback });
+    // Saved, even without its key: nothing is removed, so nothing is said.
+    expect(removedModel({ own, fallback }, all)).toBeNull();
+    expect(removedModel({ own: null, fallback }, gone)).toBeNull();
+    // With no default there is nothing it now uses.
+    expect(removedModel({ own, fallback: null }, gone)).toBeNull();
   });
 });

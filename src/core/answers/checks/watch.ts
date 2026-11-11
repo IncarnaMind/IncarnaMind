@@ -104,10 +104,14 @@ export interface WatchOptions extends CheckRuns {
     citedIds: readonly string[],
   ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
+  /** Settles once `evidenceScope` can tell every copy of a cited Document by its text, or `stop` aborts (#2216). */
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
+  /** Whether a Note whose own pick is `own` waits for the User before background work uses the default (#2853). */
+  waitsForRemovedModel(own: ChatModelChoice | null): boolean;
   /** The model to check with, or why not; the consent dialog shows before anything is sent. */
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
@@ -340,10 +344,11 @@ export function createContradictionWatch(options: WatchOptions) {
     };
   }
 
+  const ownModelOf = (mindId: string): ChatModelChoice | null =>
+    content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null));
+
   const modelOf = (mindId: string): ChatModelChoice | null =>
-    options.modelInUse(
-      content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null)),
-    );
+    options.modelInUse(ownModelOf(mindId));
 
   // In the background ---------------------------------------------------------------------------
 
@@ -415,6 +420,10 @@ export function createContradictionWatch(options: WatchOptions) {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
+    if (options.waitsForRemovedModel(ownModelOf(mindId))) {
+      options.log.info("contradictions.waitingForModel", { mindId });
+      return;
+    }
     const prepared = await options.prepareQuietly(modelOf(mindId));
     if (!prepared && !closed && (await options.waitsForConsent(modelOf(mindId)))) {
       // Background work never asks, nor stops without a word (ADR-0022): the line says it waits.
@@ -520,12 +529,14 @@ export function createContradictionWatch(options: WatchOptions) {
       model: ChatModelChoice | null;
     }): Promise<CheckContradictionsResult> {
       const { requestId, mindId } = input;
-      const ready = plan(mindId);
-      if (ready.kind !== "ready") return ready;
-      const model = await options.prepare(input.model ?? modelOf(mindId));
-      if (!model.ok) return model.result;
       const tracked = options.track(requestId, mindId);
       try {
+        await options.evidenceReady(tracked.signal, mindId);
+        if (tracked.signal.aborted) return { kind: "cancelled" };
+        const ready = plan(mindId);
+        if (ready.kind !== "ready") return ready;
+        const model = await options.prepare(input.model ?? modelOf(mindId));
+        if (!model.ok) return model.result;
         const outcome = await check(mindId, requestId, ready, model.prepared, tracked.signal);
         // A full watch, so the next Check knows every cited sentence has been watched, and how
         // this one ended (#1941). No Document started it: the card shows no "changed" line. One

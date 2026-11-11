@@ -77,17 +77,23 @@ export interface TopicVerdict {
   about: boolean | null;
 }
 
-export interface NewUserScores {
-  readable: number;
-  filed: number;
-  /** Every Folder there is, with how many of the Documents it holds. */
-  folderSizes: { folder: ProposedFolder; size: number }[];
+/** The pair counts, each Document scored by one label. */
+export interface PairCounts {
   samePairs: number;
   sameShared: number;
   /** Same-label pairs together, counting a split by area (`splitByArea`) as together. */
   sameTogether: number;
   differentPairs: number;
   differentShared: number;
+}
+
+/** The pairs are scored with `alsoFolder` (`withAlsoFolder`); `written` has them by first labels only. */
+export interface NewUserScores extends PairCounts {
+  readable: number;
+  filed: number;
+  /** Every Folder there is, with how many of the Documents it holds. */
+  folderSizes: { folder: ProposedFolder; size: number }[];
+  written: PairCounts;
   /** Kind Tags against the labels as written: every labelled kind a pair. */
   kinds: { tp: number; fp: number; fn: number };
   /**
@@ -164,6 +170,26 @@ export function splitByArea(outcomes: readonly Outcome[]): Set<string> {
   return allowed;
 }
 
+/**
+ * The outcomes with each Document scored by the label its Folder agrees with (#2737). A Document
+ * labelled with two Folders (`alsoFolder`) takes the second when that is the label the Folder it
+ * was filed in holds most, by the first labels of its other readable Documents; left out, or in a
+ * Folder that holds neither most, it keeps its first.
+ */
+export function withAlsoFolder<D extends Labelled>(outcomes: readonly Outcome<D>[]): Outcome<D>[] {
+  return outcomes.map((each) => {
+    const also = each.doc.alsoFolder;
+    if (!each.readable || each.folder === null || also === undefined) return each;
+    const most = mostlyHolds(
+      outcomes.filter((other) => other !== each),
+      each.folder,
+    );
+    return most.length === 1 && most[0] === also
+      ? { ...each, doc: { ...each.doc, folder: also } }
+      : each;
+  });
+}
+
 /** Readable Documents with a labelled Folder, in pairs: whether they share a label, and a Folder. */
 function pairs(outcomes: readonly Outcome[]) {
   const labelled = outcomes.filter((each) => each.readable && each.doc.folder !== null);
@@ -184,6 +210,19 @@ function pairs(outcomes: readonly Outcome[]) {
       };
     }),
   );
+}
+
+function pairCounts(outcomes: readonly Outcome[]): PairCounts {
+  const all = pairs(outcomes);
+  const same = all.filter((pair) => pair.sameLabel);
+  const different = all.filter((pair) => !pair.sameLabel);
+  return {
+    samePairs: same.length,
+    sameShared: same.filter((pair) => pair.shared).length,
+    sameTogether: same.filter((pair) => pair.together).length,
+    differentPairs: different.length,
+    differentShared: different.filter((pair) => pair.shared).length,
+  };
 }
 
 export function scoreNewUser(
@@ -213,9 +252,6 @@ export function scoreNewUser(
     if (applied.size === 0) noKind += 1;
     if (listed.size === 0) noKindExpected += 1;
   }
-  const all = pairs(outcomes);
-  const same = all.filter((pair) => pair.sameLabel);
-  const different = all.filter((pair) => !pair.sameLabel);
   return {
     readable: readable.length,
     filed: readable.filter((each) => each.folder !== null).length,
@@ -223,11 +259,8 @@ export function scoreNewUser(
       folder,
       size: outcomes.filter((each) => each.folder === folder.id).length,
     })),
-    samePairs: same.length,
-    sameShared: same.filter((pair) => pair.shared).length,
-    sameTogether: same.filter((pair) => pair.together).length,
-    differentPairs: different.length,
-    differentShared: different.filter((pair) => pair.shared).length,
+    ...pairCounts(withAlsoFolder(outcomes)),
+    written: pairCounts(outcomes),
     kinds,
     oneKind,
     noKind,
@@ -251,6 +284,27 @@ export interface Bar {
 
 const kindValue = (counts: NewUserScores["kinds"]) =>
   `${decimal(f1(counts))} (P ${decimal(precision(counts))}, R ${decimal(recall(counts))})`;
+
+const pairBars = (s: PairCounts, scoring: string): Bar[] => [
+  {
+    name: `Same-label pairs together, a split by area allowed${scoring}`,
+    value: fraction(s.sameTogether, s.samePairs),
+    bar: "≥ 90%",
+    pass: atLeast(s.sameTogether, s.samePairs, 9, 10),
+  },
+  {
+    name: `Same-label pairs sharing one Folder, no allowance${scoring}`,
+    value: fraction(s.sameShared, s.samePairs),
+    bar: "≥ 90%",
+    pass: atLeast(s.sameShared, s.samePairs, 9, 10),
+  },
+  {
+    name: `Different-label pairs sharing a Folder${scoring}`,
+    value: fraction(s.differentShared, s.differentPairs),
+    bar: "≤ 10%",
+    pass: atMost(s.differentShared, s.differentPairs, 1, 10),
+  },
+];
 
 export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[] {
   const kindBar = (counts: NewUserScores["kinds"], gates: boolean, name: string): Bar => ({
@@ -276,24 +330,11 @@ export function bars(s: NewUserScores, kindScore: KindScore = "one-kind"): Bar[]
       bar: "every Folder ≥ 3",
       pass: smallest !== null && smallest >= 3,
     },
-    {
-      name: "Same-label pairs together, a split by area allowed",
-      value: fraction(s.sameTogether, s.samePairs),
-      bar: "≥ 90%",
-      pass: atLeast(s.sameTogether, s.samePairs, 9, 10),
-    },
-    {
-      name: "Same-label pairs sharing one Folder, no allowance",
-      value: fraction(s.sameShared, s.samePairs),
-      bar: "≥ 90%",
-      pass: atLeast(s.sameShared, s.samePairs, 9, 10),
-    },
-    {
-      name: "Different-label pairs sharing a Folder",
-      value: fraction(s.differentShared, s.differentPairs),
-      bar: "≤ 10%",
-      pass: atMost(s.differentShared, s.differentPairs, 1, 10),
-    },
+    ...pairBars(s, ""),
+    ...pairBars(s.written, ", the labels as written").map((each) => ({
+      ...each,
+      reported: true as const,
+    })),
     kindBar(s.oneKind, kindScore === "one-kind", "Kind Tag F1, one kind a Document"),
     kindBar(s.kinds, kindScore === "as-written", "Kind Tag F1, the labels as written"),
     {
@@ -515,14 +556,15 @@ export function newUserReport(
     "| Document | Labelled: Folder; kinds | Proposed: Folder; Tags | What is wrong |",
     "|---|---|---|---|",
   );
-  for (const outcome of outcomes) {
-    const problems = problemsOf(outcome, outcomes, verdicts);
+  const scored = withAlsoFolder(outcomes);
+  for (const [at, outcome] of outcomes.entries()) {
+    const problems = problemsOf(scored[at] ?? outcome, scored, verdicts);
     if (!outcome.readable) problems.push(`no text, not measured (Organize: ${outcome.status})`);
     else if (outcome.error) problems.push(`${outcome.status}: ${outcome.error.slice(0, 80)}`);
     if (problems.length === 0) continue;
     const { doc } = outcome;
     lines.push(
-      `| ${doc.id} (${doc.language}, ${formatOf(doc)}) | ${doc.folder ?? "none"}; ${doc.tags.join(", ")} | ${folderName(outcome.folder)}; ${kindList(outcome.tags)} | ${problems.join("; ")} |`,
+      `| ${doc.id} (${doc.language}, ${formatOf(doc)}) | ${doc.folder ?? "none"}${doc.alsoFolder ? ` or ${doc.alsoFolder}` : ""}; ${doc.tags.join(", ")} | ${folderName(outcome.folder)}; ${kindList(outcome.tags)} | ${problems.join("; ")} |`,
     );
   }
   return `${lines.join("\n")}\n`;

@@ -129,6 +129,7 @@ vi.mock("../../src/renderer/src/editor/MindCheckLine", async () => {
 const scope = (id: string): SearchScope => ({ folderIds: [], tagIds: [], documentIds: [id] });
 const estimate = (amount: number): RunEstimate => ({
   billing: "per-token",
+  providerId: "provider-1",
   calls: 3,
   tokens: 1000,
   cost: { amount, currency: "USD" },

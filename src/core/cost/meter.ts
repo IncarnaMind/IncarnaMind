@@ -834,6 +834,7 @@ export function createMeter(options: {
           : costOf(call, price, at, { cacheWrites });
       return {
         billing: "per-token",
+        providerId: model.providerId,
         calls,
         tokens: Math.round(
           calls * (call.inputTokens + call.outputTokens) +
@@ -881,6 +882,7 @@ export function createMeter(options: {
       });
       return {
         billing: "per-token",
+        providerId: model.providerId,
         ...priced(read.likely, (each, known) => {
           // Priced as the provider counts it: at the app's own count "about" read a third low.
           const inputTokens = Math.ceil(each.inputTokens * ratio);
