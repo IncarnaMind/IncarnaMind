@@ -93,6 +93,7 @@ import { PasteChip, usePasteLabel } from "./PasteChip";
 import { PictureChip } from "./PictureChip";
 import { SkillChip } from "./QuestionView";
 import { QuoteChip } from "./QuoteChip";
+import { RemovedModelLine } from "./RemovedModelLine";
 import { ScopeChips } from "./ScopeChips";
 import { type ChoiceListHandle, ScopeChoiceList } from "./ScopePicker";
 import { SkillChoiceList } from "./SkillChoiceList";
@@ -1256,6 +1257,7 @@ export function Composer({
           </button>
         )}
       </div>
+      {mind && <RemovedModelLine doc={mind.doc} />}
       {picking && (
         <div className="composer-picker">
           {picking.kind === "scope" ? (

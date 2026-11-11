@@ -180,6 +180,8 @@ export const formatTokens = (tokens: number, language: Language): string =>
 export interface EstimateLine {
   parts: string[];
   title: string;
+  /** The provider whose price the line's first part is worked out from; absent when it shows no price. */
+  providerId?: string;
 }
 
 /**
@@ -220,5 +222,5 @@ export function estimateLine(
   const price = estimate.cost && estimateText(estimate.cost, most, t, language);
   const run = price ? [price, tokens] : [tokens];
   const parts = [...run, ...month];
-  return { parts, title: joinMeta(parts) };
+  return { parts, title: joinMeta(parts), ...(price && { providerId: estimate.providerId }) };
 }

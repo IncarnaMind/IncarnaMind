@@ -37,6 +37,7 @@ vi.mock("../../src/renderer/src/layoutSlice", () => ({
 
 const perToken: RunEstimate = {
   billing: "per-token",
+  providerId: "provider-1",
   calls: 12,
   tokens: 24_000,
   cost: { amount: 0.36, currency: "USD" },

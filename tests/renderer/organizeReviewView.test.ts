@@ -409,6 +409,10 @@ describe("why a Document is left out", () => {
       "Couldn’t reach OpenAI",
       "无法连接 OpenAI",
     ]);
+    expect(said({ reason: "cutShort" })).toEqual([
+      "The AI model’s reply was cut short",
+      "AI 模型的回复过长，已截断",
+    ]);
     expect(said({ reason: "walled", folderId: "matter" })).toEqual([
       "“Matter” keeps its work inside it",
       "“Matter”只在本文件夹内工作",
