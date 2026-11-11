@@ -21,9 +21,10 @@ import {
 import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
+import { SPEAKER_ME } from "../../src/shared/speakers";
 import { createMemoryKeychain, createTempDataFolder, queryDatabase } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
-import { transcribingCore, until } from "../helpers/transcription";
+import { savedCues, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 
@@ -597,11 +598,14 @@ describe("Words a service turns away never cost the recording (#1031)", { timeou
         record(9 * SECOND, sources);
         await until(core, meeting.id, (each) => each.lines >= 4);
         await core.stopMeeting(meeting.id);
-        const saved = await until(core, meeting.id, (each) => each.state === "saved");
+        const cues = await savedCues(core, meeting.id);
         const transcript = (await until(core, meeting.id, () => true)).fellBack;
         core.close();
-        const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
-        return { cues: cues.map((cue) => [cue.startMs, cue.text]), cloud, transcript };
+        return {
+          cues: cues.map((cue) => [cue.startMs, cue.endMs, cue.text]),
+          cloud,
+          transcript,
+        };
       };
       const plain = await cuesOf();
       const refused = await cuesOf(contextTooLong(afterMs));
@@ -622,10 +626,18 @@ describe("Words a service turns away never cost the recording (#1031)", { timeou
       record(9 * SECOND);
       await until(core, meeting.id, (each) => each.lines >= 4);
       await core.stopMeeting(meeting.id);
-      await until(core, meeting.id, (each) => each.state === "saved");
+      const cues = await savedCues(core, meeting.id);
       const { fellBack } = await until(core, meeting.id, () => true);
       core.close();
-      return { audio: cloud.audio(), connections: cloud.urls.length, fellBack };
+      const startsOf = (mine: boolean) =>
+        cues.filter((cue) => (cue.speaker === SPEAKER_ME) === mine).map((cue) => cue.startMs);
+      return {
+        audio: cloud.audio(),
+        connections: cloud.urls.length,
+        fellBack,
+        mine: startsOf(true),
+        theirs: startsOf(false),
+      };
     };
     const plain = await audioOf();
     // After the first three seconds the microphone's connection has been sent this much and the
@@ -636,6 +648,13 @@ describe("Words a service turns away never cost the recording (#1031)", { timeou
     expect(refused.connections).toBe(4);
     expect(refused.audio).toEqual(plain.audio);
     expect(refused.fellBack).toBeNull();
+    // Each source's lines stay at its own moments. Which of the microphone's are dropped as an
+    // echo follows their wording, so only where one may begin is the same in both Meetings.
+    for (const each of [plain, refused]) {
+      expect(each.theirs).toEqual([192, 3300, 6412]);
+      expect([0, 2056, 4116, 6192, 8252]).toEqual(expect.arrayContaining(each.mine));
+      expect(each.mine.length).toBeGreaterThanOrEqual(2);
+    }
   });
 
   test("qwen: a task failed for its context before it started is started again without it", async () => {
