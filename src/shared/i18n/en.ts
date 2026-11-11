@@ -3942,7 +3942,8 @@ export const en = {
   "ai.jobs.answers.tip":
     "New notes use this, as do notes and conversations with no model of their own.",
   "ai.jobs.quick": "Quick tasks",
-  "ai.jobs.quick.line": "Titles, Tag suggestions, search wording",
+  "ai.jobs.quick.line":
+    "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
   "ai.jobs.images": "Reading images",
   "ai.jobs.images.line": "Scans and a selected area",
   "ai.jobs.follows": "Follows Answers · {model}",
