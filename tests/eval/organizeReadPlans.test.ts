@@ -28,10 +28,12 @@ import {
   documentAgreement,
   folderAgreement,
   folderItems,
+  joinReport,
   lookHereOf,
   plansOf,
   type SavedRun,
   shuffled,
+  verdictsOf,
 } from "../../eval/organize/readPlans";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -118,6 +120,7 @@ describe("the blind items and the key", () => {
 
   test("a key may not go where the repository would keep it", async () => {
     expect(() => checkKeyPath(join(root, "eval/organize/key.json"))).toThrow("in the repository");
+    expect(() => checkKeyPath(join(root, "..secret.json"))).toThrow("in the repository");
     expect(() => checkKeyPath(join(root, "eval/results/key.json"))).not.toThrow();
     expect(() => checkKeyPath(join(tmpdir(), "key.json"))).not.toThrow();
   });
@@ -198,7 +201,7 @@ describe("a join of the readings", () => {
       ["one-on-one", { name: "One-to-one", text: "Notes from a one-to-one." }],
       ["lease", { name: "Lease", text: "This tenancy agreement" }],
     ]);
-    const { items: asked, key: askKey } = answerItems(plansOf(runs, key, model, areas), texts, 7);
+    const { items: asked, key: askKey } = answerItems([plansOf(runs, key, model, areas)], texts, 7);
     expect(asked).toHaveLength(2);
     expect(JSON.stringify(asked)).not.toMatch(new RegExp(LEAKS.join("|")));
     for (const item of asked)
@@ -216,6 +219,80 @@ describe("a join of the readings", () => {
       missed: 0,
       waiting: 0,
     });
+  });
+
+  test("a Folder one reading calls part and the other yes has its Documents asked", () => {
+    const contracts = items.find((item) => item.name === "Contracts");
+    if (!contracts) throw new Error("No Contracts Folder.");
+    const person = new Map(model);
+    person.set(contracts.number, {
+      areas: byArea((area) => (area === "contracts" ? "part" : "no")),
+      arrangedBy: "",
+      unsure: [],
+    });
+    const texts = new Map([
+      ["one-on-one", { name: "One-to-one", text: "Notes from a one-to-one." }],
+      ["lease", { name: "Lease", text: "This tenancy agreement" }],
+    ]);
+    const { items: asked, key: askKey } = answerItems(
+      [plansOf(runs, key, model, areas), plansOf(runs, key, person, areas)],
+      texts,
+      7,
+    );
+    expect(asked.map((item) => `${item.document.name} in ${item.folder.name}`).sort()).toEqual([
+      "Lease in Contracts",
+      "Lease in Team records",
+      "One-to-one in Team records",
+    ]);
+    const answers = lookHereOf(
+      Object.fromEntries(asked.map((item) => [item.number, item.document.name === "Lease"])),
+      askKey,
+    );
+    const second = plansOf(runs, key, person, areas)[1];
+    if (!second) throw new Error("No second plan.");
+    expect(readPlan(second.documents, second.folders, answers.get(second.run.run)).counts).toEqual({
+      right: 2,
+      wrong: 0,
+      rightlyLeftOut: 1,
+      missed: 1,
+      waiting: 0,
+    });
+  });
+
+  test("a join with a Document still waiting in either reading is refused, and prints its bars once none waits", () => {
+    const team = items.find((item) => item.name === "Team records");
+    if (!team) throw new Error("No Team records Folder.");
+    const person = new Map(model);
+    person.set(team.number, { ...reading([]), unsure: [] });
+    const read = (verdicts: typeof model, lookHere?: Map<string, Map<string, boolean>>) =>
+      plansOf(runs, key, verdicts, areas).map((plan) => ({
+        run: plan.run,
+        reading: readPlan(plan.documents, plan.folders, lookHere?.get(plan.run.run)),
+      }));
+    expect(() =>
+      joinReport({ items, model, person, byModel: read(model), byPerson: read(person) }),
+    ).toThrow("2 Documents wait in the model's reading and 0 in the second reader's");
+    const answered = new Map([
+      [
+        "v-ARMONE-tune-en-en-s1-RUNA",
+        new Map([
+          ["one-on-one FOLDERID-2", true],
+          ["lease FOLDERID-2", false],
+        ]),
+      ],
+    ]);
+    const lines = joinReport({
+      items,
+      model,
+      person,
+      byModel: read(model, answered),
+      byPerson: read(person, answered),
+      answers: { model: { "001": true, "002": false }, person: { "001": true, "002": true } },
+    });
+    expect(lines.join("\n")).toContain("en: Documents the same, 7/8 (87.5%, bar 95%): misses");
+    expect(lines.join("\n")).toContain(
+      "Per-Document answers the same: 1/2 (50.0%, bar 90%): misses",
+    );
   });
 
   test("compares the two readings by Folder, by Document and by those either calls wrong", () => {
@@ -241,7 +318,7 @@ describe("a join of the readings", () => {
       },
     );
     expect(() => answerAgreement({}, { "1": true })).toThrow("no answer 1");
-    const documents = ["a", "b", "c", "scan"].map((id) => ({
+    const documents = ["a", "b", "c", "d", "scan"].map((id) => ({
       id,
       scanned: id === "scan",
       label: id === "scan" ? "finance" : null,
@@ -252,16 +329,34 @@ describe("a join of the readings", () => {
           ["a", { area: "reports", second: "meetings" }],
           ["b", { area: "finance" }],
           ["c", { area: null }],
+          ["d", { area: "meetings", second: "reports" }],
         ]),
         new Map<string, DocumentAreas>([
           ["a", { area: "reports" }],
           ["b", { area: "finance" }],
           ["c", { area: "personal" }],
+          ["d", { area: "reports", second: "meetings" }],
           ["scan", { area: "finance" }],
         ]),
         documents,
       ),
-    ).toEqual({ compared: 3, differ: ["a", "c"] });
+    ).toEqual({ compared: 4, differ: ["a", "c"] });
+  });
+
+  test("checks the readings and answers it reads from files", () => {
+    const yes = { areas: byArea((area) => (area === "personal" ? "yes" : "no")), arrangedBy: "" };
+    expect(
+      verdictsOf({ folders: { "001": { reads: [yes, yes, reading([])] } } }).get("001"),
+    ).toEqual({ ...reading(["personal"]), unsure: [] });
+    expect(() =>
+      verdictsOf({ folders: { "001": { areas: { research: "yes" }, arrangedBy: "" } } }),
+    ).toThrow("Folder 001: The reply doesn't say whether the Folder covers reports.");
+    expect(() =>
+      lookHereOf(
+        { "001": "no" },
+        { seed: 7, answers: { "001": { run: "r", document: "d", folder: "f" } } },
+      ),
+    ).toThrow("Answer 001 is neither true nor false.");
   });
 
   test("compares the model's areas on the 37 tuning Documents with text; a scan has its label's", async () => {

@@ -2,7 +2,7 @@
  * Reads saved new-User runs by the ruling on #2737, blind to the arm that made them:
  *
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts items --runs <dir> --match v- --seed 2737 --out <dir> --key <file>
- *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts asks --runs <dir> --match v- --key <file> --folders <model readings> --documents <documents.json> --seed 2737 --out <dir> --asks-key <file>
+ *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts asks --runs <dir> --match v- --key <file> --folders <model readings> --person <person readings> --documents <documents.json> --seed 2737 --out <dir> --asks-key <file>
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts areas --model <the model's areas> --documents <documents.json> [--out <areas.json>]
  *   node --import ./scripts/tsResolve.mjs eval/organize/readPlans.ts join --runs <dir> --match v- --items <folders.json> --key <file> --folders <model readings> --person <person readings> [--answers <model answers> --asks-key <file> --person-answers <person answers>]
  *
@@ -15,11 +15,24 @@
  */
 import { execFileSync } from "node:child_process";
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Language } from "../../src/core/language";
-import { AREAS, AREAS_FILE, type DocumentAreas, isArea, parseAreas, readAreas } from "./lib/areas";
-import { type FolderReading, type FolderVerdict, majority } from "./lib/folderReader";
+import {
+  AREAS,
+  AREAS_FILE,
+  areasOf,
+  type DocumentAreas,
+  isArea,
+  parseAreas,
+  readAreas,
+} from "./lib/areas";
+import {
+  type FolderReading,
+  type FolderVerdict,
+  majority,
+  parseFolderReading,
+} from "./lib/folderReader";
 import {
   askKey,
   OUTCOMES,
@@ -157,8 +170,9 @@ const git = (cwd: string, args: string[]) =>
 /** Refuses a key file the repository would track: it goes to its holder alone. */
 export function checkKeyPath(file: string) {
   const path = resolve(file);
-  const inside = !relative(root, path).startsWith("..");
-  if (!inside) return;
+  const fromRoot = relative(root, path);
+  const outside = fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot);
+  if (outside) return;
   try {
     git(root, ["check-ignore", "-q", path]);
   } catch {
@@ -182,15 +196,28 @@ export function committedAt(file: string): string {
 /** A person's or the model's Folder readings, by number. */
 export interface FolderReadings {
   version?: Record<string, string>;
-  folders: Record<string, FolderReading | { reads: FolderReading[] }>;
+  /** A person's one reading, or the model's three `reads`, each checked when read. */
+  folders: Record<string, unknown>;
 }
+
+const verdictOf = (reading: unknown): FolderVerdict => {
+  if (typeof reading === "object" && reading !== null && "reads" in reading) {
+    const { reads } = reading;
+    if (!Array.isArray(reads)) throw new Error("its reads aren't a list.");
+    return majority(reads.map(parseFolderReading));
+  }
+  return { ...parseFolderReading(reading), unsure: [] };
+};
 
 export function verdictsOf(readings: FolderReadings): Map<string, FolderVerdict> {
   return new Map(
-    Object.entries(readings.folders).map(([number, reading]) => [
-      number,
-      "reads" in reading ? majority(reading.reads) : { ...reading, unsure: [] },
-    ]),
+    Object.entries(readings.folders).map(([number, reading]) => {
+      try {
+        return [number, verdictOf(reading)];
+      } catch (error) {
+        throw new Error(`Folder ${number}: ${error instanceof Error ? error.message : error}`);
+      }
+    }),
   );
 }
 
@@ -238,17 +265,26 @@ export interface AnswerKey {
   answers: Record<string, { run: string; document: string; folder: string }>;
 }
 
+/**
+ * Every Document and Folder that any of the readings leaves waiting, asked once: the model's
+ * Folders and the second reader's may differ on "part" (#2737).
+ */
 export function answerItems(
-  plans: ReturnType<typeof plansOf>,
+  readings: readonly ReturnType<typeof plansOf>[],
   texts: ReadonlyMap<string, { name: string; text: string }>,
   seed: number,
 ) {
-  const asked: { run: SavedRun; document: string; folder: string }[] = [];
-  for (const plan of plans)
-    for (const outcome of readPlan(plan.documents, plan.folders).documents)
-      for (const folder of outcome.asks)
-        asked.push({ run: plan.run, document: outcome.id, folder });
-  const order = shuffled(asked, seed);
+  const asked = new Map<string, { run: SavedRun; document: string; folder: string }>();
+  for (const plans of readings)
+    for (const plan of plans)
+      for (const outcome of readPlan(plan.documents, plan.folders).documents)
+        for (const folder of outcome.asks)
+          asked.set(`${plan.run.run} ${outcome.id} ${folder}`, {
+            run: plan.run,
+            document: outcome.id,
+            folder,
+          });
+  const order = shuffled([...asked.values()], seed);
   const items: AnswerItem[] = order.map((each, at) => {
     const folder = each.run.folders.find((one) => one.id === each.folder);
     const text = texts.get(each.document);
@@ -273,9 +309,10 @@ export function answerItems(
 }
 
 /** The per-Document answers by run, as `readPlan` takes them. */
-export function lookHereOf(answers: Record<string, boolean>, key: AnswerKey) {
+export function lookHereOf(answers: Readonly<Record<string, unknown>>, key: AnswerKey) {
   const byRun = new Map<string, Map<string, boolean>>();
   for (const [number, answer] of Object.entries(answers)) {
+    if (typeof answer !== "boolean") throw new Error(`Answer ${number} is neither true nor false.`);
     const place = key.answers[number];
     if (!place) throw new Error(`Answer ${number} isn't in the key.`);
     const run = byRun.get(place.run) ?? new Map<string, boolean>();
@@ -291,6 +328,12 @@ export interface Agreement {
 }
 
 export const share = ({ compared, same }: Agreement) => (compared ? same / compared : 1);
+
+/**
+ * A per-Document question's estimated cost in dollars: about 600 input and 250 output tokens,
+ * thinking included, at Claude Opus 5.5's list price. Written on the issue before any is sent.
+ */
+export const QUESTION_COST = 0.008;
 
 /** The bars the reader's reading must meet against a person's (#2737). */
 export const BARS = { folders: 0.9, documents: 0.95, wrong: 0.9, answers: 0.9, areasDiffer: 2 };
@@ -333,7 +376,7 @@ export function answerAgreement(
 }
 
 const sameAreas = (a: DocumentAreas, b: DocumentAreas) =>
-  a.area === b.area && (a.second ?? null) === (b.second ?? null);
+  areasOf(a).sort().join(" ") === areasOf(b).sort().join(" ");
 
 /** What `areasDiffering` and `areasWithScans` need of a Document. */
 export interface AreaDocument {
@@ -438,6 +481,50 @@ export function readingTable(
   return lines.join("\n");
 }
 
+export interface ReadRun {
+  run: SavedRun;
+  reading: PlanReading;
+}
+
+/**
+ * The agreements against the bars and each run's counts. Refused while any Document waits in
+ * either reading: waiting is neither agreement nor disagreement.
+ */
+export function joinReport(input: {
+  items: readonly FolderItem[];
+  model: ReadonlyMap<string, FolderReading>;
+  person: ReadonlyMap<string, FolderReading>;
+  byModel: readonly ReadRun[];
+  byPerson: readonly ReadRun[];
+  answers?: { model: Record<string, boolean>; person: Record<string, boolean> };
+}): string[] {
+  const waiting = (read: readonly ReadRun[]) =>
+    read.reduce((sum, each) => sum + each.reading.counts.waiting, 0);
+  const inModel = waiting(input.byModel);
+  const inPerson = waiting(input.byPerson);
+  if (inModel || inPerson)
+    throw new Error(
+      `${inModel} Documents wait in the model's reading and ${inPerson} in the second reader's: no bar while any waits.`,
+    );
+  const verdict = (agreement: Agreement, bar: number) =>
+    `${agreement.same}/${agreement.compared} (${(100 * share(agreement)).toFixed(1)}%, bar ${Math.round(100 * bar)}%): ${share(agreement) >= bar ? "meets" : "misses"}`;
+  const lines: string[] = [];
+  for (const half of [1, 2] as const)
+    lines.push(
+      `Folders, half ${half}, the same areas: ${verdict(folderAgreement(input.items, input.model, input.person, half), BARS.folders)}.`,
+    );
+  for (const [language, tally] of documentAgreement(input.byModel, input.byPerson))
+    lines.push(
+      `${language}: Documents the same, ${verdict(tally.all, BARS.documents)}; of those either calls wrong, ${verdict(tally.wrong, BARS.wrong)}.`,
+    );
+  if (input.answers)
+    lines.push(
+      `Per-Document answers the same: ${verdict(answerAgreement(input.answers.model, input.answers.person), BARS.answers)}.`,
+    );
+  lines.push(readingTable(input.byModel, (run) => run.commit));
+  return lines;
+}
+
 function options(args: readonly string[]) {
   const out = new Map<string, string>();
   for (let at = 0; at < args.length; at += 2) {
@@ -479,9 +566,8 @@ async function main(command: string | undefined, args: readonly string[]) {
   if (command === "asks") {
     const runs = await loadRuns(option.get("runs"), option.maybe("match"));
     const key = await readJson<FolderKey>(option.get("key"));
-    const folders = option.get("folders");
-    committedAt(folders);
-    const verdicts = verdictsOf(await readJson<FolderReadings>(folders));
+    const readings = [option.get("folders"), option.get("person")];
+    for (const file of readings) committedAt(file);
     const areas = await readAreas(root);
     const texts = new Map(
       (await readJson<{ id: string; name: string; text: string }[]>(option.get("documents"))).map(
@@ -490,14 +576,17 @@ async function main(command: string | undefined, args: readonly string[]) {
     );
     const asksKey = option.get("asks-key");
     checkKeyPath(asksKey);
-    const { items, key: answers } = answerItems(
-      plansOf(runs, key, verdicts, areas),
-      texts,
-      Number(option.get("seed")),
+    const plans = await Promise.all(
+      readings.map(async (file) =>
+        plansOf(runs, key, verdictsOf(await readJson<FolderReadings>(file)), areas),
+      ),
     );
+    const { items, key: answers } = answerItems(plans, texts, Number(option.get("seed")));
     await writeJson(join(option.get("out"), "asks.json"), { items });
     await writeJson(asksKey, answers);
-    console.log(`${items.length} per-Document questions; their key is at ${resolve(asksKey)}.`);
+    console.log(
+      `${items.length} per-Document questions from both readings, about $${(items.length * QUESTION_COST).toFixed(2)} at about $${QUESTION_COST} each; their key is at ${resolve(asksKey)}.`,
+    );
     return;
   }
   if (command === "areas") {
@@ -551,26 +640,20 @@ async function main(command: string | undefined, args: readonly string[]) {
     const byModel = read(model);
     const byPerson = read(person);
     const items = (await readJson<{ items: FolderItem[] }>(option.get("items"))).items;
-    const verdict = (agreement: Agreement, bar: number) =>
-      `${agreement.same}/${agreement.compared} (${(100 * share(agreement)).toFixed(1)}%, bar ${100 * bar}%): ${share(agreement) >= bar ? "meets" : "misses"}`;
+    const personAnswers = personAnswersFile
+      ? (await readJson<{ answers: Record<string, boolean> }>(personAnswersFile)).answers
+      : undefined;
+    const report = joinReport({
+      items,
+      model,
+      person,
+      byModel,
+      byPerson,
+      ...(personAnswers ? { answers: { model: modelAnswers, person: personAnswers } } : {}),
+    });
     console.log("Read after the fact; decides nothing about #2917's arms.");
     console.log(`Committed: ${committed.join("; ")}.`);
-    for (const half of [1, 2] as const)
-      console.log(
-        `Folders, half ${half}, the same areas: ${verdict(folderAgreement(items, model, person, half), BARS.folders)}.`,
-      );
-    for (const [language, tally] of documentAgreement(byModel, byPerson))
-      console.log(
-        `${language}: Documents the same, ${verdict(tally.all, BARS.documents)}; of those either calls wrong, ${verdict(tally.wrong, BARS.wrong)}.`,
-      );
-    if (personAnswersFile) {
-      const theirs = (await readJson<{ answers: Record<string, boolean> }>(personAnswersFile))
-        .answers;
-      console.log(
-        `Per-Document answers the same: ${verdict(answerAgreement(modelAnswers, theirs), BARS.answers)}.`,
-      );
-    }
-    console.log(readingTable(byModel, (run) => run.commit));
+    console.log(report.join("\n"));
     return;
   }
   throw new Error("readPlans: items, asks, areas or join.");
