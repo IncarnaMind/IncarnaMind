@@ -487,8 +487,10 @@ export interface ReadRun {
 }
 
 /**
- * The agreements against the bars and each run's counts. Refused while any Document waits in
- * either reading: waiting is neither agreement nor disagreement.
+ * The agreements against the bars and each run's counts. The Folder lines compare Folder readings
+ * only, so they always print. The Documents and answers bars and the counts wait while any
+ * Document waits in either reading, since waiting is neither agreement nor disagreement; the join
+ * is then refused if the caller asked for those bars by giving answers.
  */
 export function joinReport(input: {
   items: readonly FolderItem[];
@@ -497,15 +499,7 @@ export function joinReport(input: {
   byModel: readonly ReadRun[];
   byPerson: readonly ReadRun[];
   answers?: { model: Record<string, boolean>; person: Record<string, boolean> };
-}): string[] {
-  const waiting = (read: readonly ReadRun[]) =>
-    read.reduce((sum, each) => sum + each.reading.counts.waiting, 0);
-  const inModel = waiting(input.byModel);
-  const inPerson = waiting(input.byPerson);
-  if (inModel || inPerson)
-    throw new Error(
-      `${inModel} Documents wait in the model's reading and ${inPerson} in the second reader's: no bar while any waits.`,
-    );
+}): { lines: string[]; refused: boolean } {
   const verdict = (agreement: Agreement, bar: number) =>
     `${agreement.same}/${agreement.compared} (${(100 * share(agreement)).toFixed(1)}%, bar ${Math.round(100 * bar)}%): ${share(agreement) >= bar ? "meets" : "misses"}`;
   const lines: string[] = [];
@@ -513,6 +507,16 @@ export function joinReport(input: {
     lines.push(
       `Folders, half ${half}, the same areas: ${verdict(folderAgreement(input.items, input.model, input.person, half), BARS.folders)}.`,
     );
+  const waiting = (read: readonly ReadRun[]) =>
+    read.reduce((sum, each) => sum + each.reading.counts.waiting, 0);
+  const inModel = waiting(input.byModel);
+  const inPerson = waiting(input.byPerson);
+  if (inModel || inPerson) {
+    lines.push(
+      `${inModel} Documents wait in the model's reading and ${inPerson} in the second reader's: the Documents and answers bars are not printed.`,
+    );
+    return { lines, refused: input.answers !== undefined };
+  }
   for (const [language, tally] of documentAgreement(input.byModel, input.byPerson))
     lines.push(
       `${language}: Documents the same, ${verdict(tally.all, BARS.documents)}; of those either calls wrong, ${verdict(tally.wrong, BARS.wrong)}.`,
@@ -522,7 +526,7 @@ export function joinReport(input: {
       `Per-Document answers the same: ${verdict(answerAgreement(input.answers.model, input.answers.person), BARS.answers)}.`,
     );
   lines.push(readingTable(input.byModel, (run) => run.commit));
-  return lines;
+  return { lines, refused: false };
 }
 
 function options(args: readonly string[]) {
@@ -653,7 +657,8 @@ async function main(command: string | undefined, args: readonly string[]) {
     });
     console.log("Read after the fact; decides nothing about #2917's arms.");
     console.log(`Committed: ${committed.join("; ")}.`);
-    console.log(report.join("\n"));
+    console.log(report.lines.join("\n"));
+    if (report.refused) process.exitCode = 1;
     return;
   }
   throw new Error("readPlans: items, asks, areas or join.");

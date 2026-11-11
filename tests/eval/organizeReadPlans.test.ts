@@ -259,40 +259,75 @@ describe("a join of the readings", () => {
     });
   });
 
-  test("a join with a Document still waiting in either reading is refused, and prints its bars once none waits", () => {
+  describe("a join while Documents wait", () => {
     const team = items.find((item) => item.name === "Team records");
-    if (!team) throw new Error("No Team records Folder.");
     const person = new Map(model);
-    person.set(team.number, { ...reading([]), unsure: [] });
+    if (team) person.set(team.number, { ...reading([]), unsure: [] });
     const read = (verdicts: typeof model, lookHere?: Map<string, Map<string, boolean>>) =>
       plansOf(runs, key, verdicts, areas).map((plan) => ({
         run: plan.run,
         reading: readPlan(plan.documents, plan.folders, lookHere?.get(plan.run.run)),
       }));
-    expect(() =>
-      joinReport({ items, model, person, byModel: read(model), byPerson: read(person) }),
-    ).toThrow("2 Documents wait in the model's reading and 0 in the second reader's");
-    const answered = new Map([
-      [
-        "v-ARMONE-tune-en-en-s1-RUNA",
-        new Map([
-          ["one-on-one FOLDERID-2", true],
-          ["lease FOLDERID-2", false],
-        ]),
-      ],
-    ]);
-    const lines = joinReport({
-      items,
-      model,
-      person,
-      byModel: read(model, answered),
-      byPerson: read(person, answered),
-      answers: { model: { "001": true, "002": false }, person: { "001": true, "002": true } },
+    const answers = {
+      model: { "001": true, "002": false },
+      person: { "001": true, "002": true },
+    };
+    const FOLDER_LINES = [
+      "Folders, half 1, the same areas: 0/1 (0.0%, bar 90%): misses.",
+      "Folders, half 2, the same areas: 2/2 (100.0%, bar 90%): meets.",
+    ];
+    const WAITING =
+      "2 Documents wait in the model's reading and 0 in the second reader's: the Documents and answers bars are not printed.";
+
+    test("without answers, prints the Folder lines for both halves and no Documents or answers bar", () => {
+      const report = joinReport({
+        items,
+        model,
+        person,
+        byModel: read(model),
+        byPerson: read(person),
+      });
+      expect(report).toEqual({ lines: [...FOLDER_LINES, WAITING], refused: false });
     });
-    expect(lines.join("\n")).toContain("en: Documents the same, 7/8 (87.5%, bar 95%): misses");
-    expect(lines.join("\n")).toContain(
-      "Per-Document answers the same: 1/2 (50.0%, bar 90%): misses",
-    );
+
+    test("with answers given and a Document still waiting, prints the Folder lines and refuses the Documents bars", () => {
+      const report = joinReport({
+        items,
+        model,
+        person,
+        byModel: read(model),
+        byPerson: read(person),
+        answers,
+      });
+      expect(report).toEqual({ lines: [...FOLDER_LINES, WAITING], refused: true });
+    });
+
+    test("with none waiting, prints every bar and the counts", () => {
+      const answered = new Map([
+        [
+          "v-ARMONE-tune-en-en-s1-RUNA",
+          new Map([
+            ["one-on-one FOLDERID-2", true],
+            ["lease FOLDERID-2", false],
+          ]),
+        ],
+      ]);
+      const report = joinReport({
+        items,
+        model,
+        person,
+        byModel: read(model, answered),
+        byPerson: read(person, answered),
+        answers,
+      });
+      expect(report.refused).toBe(false);
+      expect(report.lines.slice(0, 4)).toEqual([
+        ...FOLDER_LINES,
+        "en: Documents the same, 7/8 (87.5%, bar 95%): misses; of those either calls wrong, 0/1 (0.0%, bar 90%): misses.",
+        "Per-Document answers the same: 1/2 (50.0%, bar 90%): misses.",
+      ]);
+      expect(report.lines[4]).toContain("| COMMITAAAA | mean | 3.0 | 0.0 | 1.0 | 0.0 | 0.0 | |");
+    });
   });
 
   test("compares the two readings by Folder, by Document and by those either calls wrong", () => {

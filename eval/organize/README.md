@@ -148,20 +148,26 @@ A person writes them, in `tests/fixtures/organize/areas.json` for the tuning hal
 
 Scans are counted apart: how many, and how many the plan filed.
 
-**Blindness.** The model and the person read the same blind items, each Folder alone by an opaque number, in a seeded order; the map from number to run and arm goes to a file apart, which the repository refuses to keep. `readPlans.ts join` refuses until the areas, the person's readings and the model's are each committed, and prints no bar while a Document waits in either reading: waiting is neither agreement nor disagreement. Once none waits, it prints:
-- agreement by Folder, in each half;
+**Blindness.** The model and the person read the same blind items, each Folder alone by an opaque number, in a seeded order; the map from number to run and arm goes to a file apart, which the repository refuses to keep. `readPlans.ts join` refuses until the areas, the person's readings and the model's are each committed. It prints:
+- agreement by Folder, in each half, as soon as both Folder readings are committed: no Document is in them;
 - agreement by Document and on the wrong ones, in each language;
 - agreement on the per-Document answers;
 - each run's counts.
 
+The last three wait while a Document waits in either reading, since waiting is neither agreement nor disagreement. The join then says how many wait in each reading, and ends as a refusal when it was given answers.
+
+**The order.** Each step runs only after the one before it:
+
 | Step | Command (each `node --import ./scripts/tsResolve.mjs …`) |
 |---|---|
-| Blind items and the key | `eval/organize/readPlans.ts items --runs <saved runs> --match v- --seed 2737 --out <dir> --key <file>` |
-| The person's Folder sheet | `eval/organize/folderSheet.ts folders --items <dir>/folders.json --out <sheet.md>`, read back with `read-folders` |
-| The Documents' names and opening text | `INCARNAMIND_ORGANIZE_MODE=documents INCARNAMIND_ORGANIZE_OUT=<dir> npm run eval:organize`, listed with `folderSheet.ts documents` |
-| Per-Document questions | `eval/organize/readPlans.ts asks …`: whatever either reading leaves waiting, asked once, with their count and estimated cost for the issue before any is sent; the person's sheet with `folderSheet.ts answers` (all of them up to 60, else a seeded 60) and `read-answers` |
-| The model's areas against the person's, or written for a set with its scans' | `eval/organize/readPlans.ts areas --model <file> --documents <dir>/documents.json [--out <file>]` |
-| The join | `eval/organize/readPlans.ts join …` |
+| 1. Blind items and the key | `eval/organize/readPlans.ts items --runs <saved runs> --match v- --seed 2737 --out <dir> --key <file>` |
+| 2. The person's Folder sheet, read and committed first | `eval/organize/folderSheet.ts folders --items <dir>/folders.json --out <sheet.md>`, read back with `read-folders` |
+| 3. The Documents' names and opening text | `INCARNAMIND_ORGANIZE_MODE=documents INCARNAMIND_ORGANIZE_OUT=<dir> npm run eval:organize`, listed with `folderSheet.ts documents` |
+| 4. The model's Folder reading, committed | a run with its own approval |
+| 5. The join's Folder lines | `eval/organize/readPlans.ts join …` without answers |
+| 6. Per-Document questions, only once the Folder bar has held on the first half, or on the second half after the question's one allowed change: a changed question changes which Folders read "part" | `eval/organize/readPlans.ts asks …`: whatever either reading leaves waiting, asked once, with their count and estimated cost for the issue before any is sent; the person's sheet with `folderSheet.ts answers` (all of them up to 60, else a seeded 60) and `read-answers` |
+| 7. The model's areas against the person's, or written for a set with its scans' | `eval/organize/readPlans.ts areas --model <file> --documents <dir>/documents.json [--out <file>]` |
+| 8. The join, with answers | `eval/organize/readPlans.ts join …` |
 
 **The bars against the person's reading:**
 - the same areas for at least 90% of the Folders;
