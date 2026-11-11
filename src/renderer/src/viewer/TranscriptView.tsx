@@ -1,14 +1,5 @@
 import type { KeyboardEvent, ReactNode } from "react";
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document, Meeting } from "../../../core/api";
 import {
   type GapReason,
@@ -27,13 +18,11 @@ import { transcriptHandle, useHandle } from "../commands/handles";
 import { MicOffLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
-import { Tip } from "../components/Tip";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
 import { isLive, useMeetings } from "../meetings";
 import { durationLabel } from "../meetingTime";
 import { type SpeakersStep, useAppStore, type ViewerTarget } from "../store";
-import { closeTip, useFeatureTip } from "../tips";
 import { addLineToNote, type LineAdded } from "../transcriptNotes";
 import { useTranscriptPlayer } from "../transcriptPlayer";
 import { useCitedArea } from "./citedArea";
@@ -41,12 +30,13 @@ import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { TranscriptHeadLine } from "./TranscriptHeadLine";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
 import { TranscriptTurn } from "./TranscriptTurn";
 import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
-import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
+import { ViewerHeader } from "./ViewerHeader";
 import { ViewerMessage } from "./ViewerMessage";
 
 /** Within this of the bottom, the view follows new lines as they come. */
@@ -362,10 +352,9 @@ function TranscriptContent({
   // A saved Transcript plays while its audio is kept; never while it records (#138).
   const playable =
     meeting?.status === "stopped" && state === "saved" && meeting.audio.kept && document !== null;
+  // With no lines the view's own sentence says so: a count and a head line would say it twice (#1031).
+  const hasLines = transcript.cues.length > 0;
   const playerOpen = useTranscriptPlayer((player) => player.playback?.owner === owner);
-  // In a Meeting's page, where the prototype has it; a Document's toolbar has no room for it.
-  const { embedded } = useContext(ViewerFrameContext);
-  const tipShown = useFeatureTip("transcript-word", meetingId ?? "", playable && embedded === true);
   useEffect(() => {
     const player = useTranscriptPlayer.getState();
     if (!playable && player.playback?.owner === owner) player.stop();
@@ -550,7 +539,6 @@ function TranscriptContent({
   const onWord = (row: PartRow, at: number) => {
     if (nameable) setCaret({ line: row.id, at });
     if (!playable) return;
-    if (tipShown) closeTip("transcript-word");
     playFrom(timeAt(row.cue, at));
   };
 
@@ -696,18 +684,16 @@ function TranscriptContent({
             {t(added === "added" ? "transcript.addToNote.added" : "transcript.addToNote.already")}
           </span>
         )}
-        <span data-testid="transcript-count" className="viewer-meta">
-          {t(transcript.cues.length === 1 ? "transcript.lines.one" : "transcript.lines.other", {
-            count: transcript.cues.length,
-          })}
-        </span>
-        {tipShown && (
-          <Tip id="transcript-word" onClose={() => closeTip("transcript-word")}>
-            {t("transcript.word.tip")}
-          </Tip>
+        {hasLines && (
+          <span data-testid="transcript-count" className="viewer-meta">
+            {t(transcript.cues.length === 1 ? "transcript.lines.one" : "transcript.lines.other", {
+              count: transcript.cues.length,
+            })}
+          </span>
         )}
         {aside}
       </ViewerHeader>
+      {meeting && hasLines && <TranscriptHeadLine playable={playable} />}
       <div className="relative flex min-h-0 flex-1">
         <div
           ref={scroller}
