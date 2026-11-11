@@ -29,6 +29,7 @@ const actions = vi.hoisted(() => {
 vi.mock("../../src/renderer/src/i18n", () => ({
   useT: () => (key: MessageKey, params?: MessageParams) =>
     translate(actions.language.current, key, params),
+  useLanguage: () => actions.language.current,
   translateNow: (key: MessageKey, params?: MessageParams) =>
     translate(actions.language.current, key, params),
 }));
@@ -368,6 +369,46 @@ describe("meeting notes retained before a later failure", () => {
       expect(line?.textContent).not.toMatch(/\d|quote|引用/);
     },
   );
+});
+
+describe("The Transcript line of a stopped Meeting whose transcription stopped (#2957)", () => {
+  // protects=the line says the recording is kept only while it is: deleting the audio while the line shows turns it to the plain line at once, with nothing reloaded, in both languages; fails_when=the line keeps saying the recording is kept after its audio went; no_claim=the times of day, which meetingAudioWords' tests hold with a fixed clock.
+  test.each([
+    [
+      "en",
+      "Transcription stopped before the end. Your recording is kept. · Try again",
+      "Transcription stopped. · Try again",
+    ],
+    ["zh-CN", "转写中途停止，录音已保留。· 重试", "转写已停止。· 重试"],
+  ] as const)("in %s, deleting its audio turns the line plain", async (language, kept, deleted) => {
+    actions.language.current = language;
+    const base = meetingOf(fillOf({ state: "waiting" }));
+    const meeting: Meeting = {
+      ...base,
+      audio: { kept: true, expiresAt: null, deletedAt: null, keptUntilDeleted: true },
+      transcript: base.transcript && {
+        ...base.transcript,
+        state: "failed",
+        problem: { kind: "engine", message: "The transcription model was stopped." },
+      },
+    };
+    const lineText = () =>
+      container.querySelector('[data-testid="meeting-transcript-line"]')?.textContent;
+
+    await act(async () => root?.render(createElement(TranscriptLines, { meeting })));
+    expect(lineText()).toBe(kept);
+    const gone: Meeting = {
+      ...meeting,
+      audio: {
+        kept: false,
+        expiresAt: null,
+        deletedAt: "2026-11-04T10:05:00.000Z",
+        keptUntilDeleted: false,
+      },
+    };
+    await act(async () => root?.render(createElement(TranscriptLines, { meeting: gone })));
+    expect(lineText()).toBe(deleted);
+  });
 });
 
 describe("Transcript entry points", () => {

@@ -54,6 +54,21 @@ export function modelInUse(
 }
 
 /**
+ * The Mind's own pick when its provider is no longer `saved` and a default takes its place, with
+ * that default: what the composer says once (#2853). Null otherwise, and when there is no default
+ * to move to.
+ */
+export function removedModel(
+  models: { own: ChatModelChoice | null; fallback: ChatModelChoice | null },
+  saved: (providerId: string) => boolean,
+): { removed: ChatModelChoice; now: ChatModelChoice } | null {
+  const { own, fallback } = models;
+  return own !== null && fallback !== null && !saved(own.providerId)
+    ? { removed: own, now: fallback }
+    : null;
+}
+
+/**
  * The model a Conversation goes on with: its last Question's, as it was asked (#2836). Null for a
  * New chat, or when that Question was asked on the Answers default.
  */

@@ -10,7 +10,7 @@ import { useLanguage, useT } from "../../i18n";
 import { setAnswersModel } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
-import { providerName } from "../providers/ProviderPage";
+import { providerName } from "../providers/shared";
 import { PopUpSelect } from "../settings/PopUpButton";
 import { groupByPayer, type Payer, payerOf } from "./payers";
 

@@ -6,6 +6,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  frontMind,
   frontMindName,
   launchApp,
   motionSettled,
@@ -15,6 +16,7 @@ import {
   openSteps,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setWindowSize,
   showSettingsPage,
 } from "./app";
@@ -104,6 +106,15 @@ async function connectOllama(window: Page, baseUrl: string): Promise<void> {
 
 const chipOf = (window: Page) => window.getByTestId("composer-model");
 const menuOf = (window: Page) => window.getByTestId("composer-model-menu");
+const removedLine = (window: Page) => window.getByTestId("composer-model-removed");
+
+/** Removes the saved provider of a kind, as Settings › AI's Remove does. */
+async function removeProviderOf(window: Page, kind: string): Promise<void> {
+  await (await coreOf(window)).evaluate(async (core, wanted) => {
+    const provider = (await core.listChatProviders()).find((each) => each.kind === wanted);
+    if (provider) await core.deleteChatProvider(provider.id);
+  }, kind);
+}
 
 async function openMindNamed(window: Page, name: string): Promise<void> {
   await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: name }));
@@ -306,8 +317,162 @@ test("when a provider is removed, a note on its model falls back to the Answers 
     await (await coreOf(window)).evaluate((core, id) => core.deleteChatProvider(id), anthropic);
 
     await expect(chipOf(window)).toHaveText("fake-model");
+    await expect(removedLine(window)).toContainText(
+      "Claude Haiku 5.5 was removed, so this note now uses fake-model",
+    );
     const answer = await askInAssistant(window, "Which model answers now?");
     await expect(await openSteps(window, answer)).toContainText("Answered by fake-model");
+  } finally {
+    ollama.server.close();
+  }
+});
+
+test("a note whose model was removed says so once under the chip, in English and Chinese; a pick or Close ends it for good, through a restart and ⌘Z; a note whose provider is saved says nothing", async () => {
+  test.setTimeout(180_000);
+  const ollama = await ollamaListing(["fake-model"]);
+  try {
+    let window = await start();
+    await connectOllama(window, ollama.url);
+    await connectAnthropic(window, SONNET);
+    for (const [name, model] of [
+      ["Picks", "fake-model"],
+      ["Closes", "fake-model"],
+      ["Waits", "fake-model"],
+      ["Saved", "Claude Haiku 5.5"],
+    ] as const) {
+      await newMind(window);
+      await nameMind(window, name);
+      await chooseInChip(window, model);
+    }
+    await newMind(window);
+    await nameMind(window, "Plain");
+    await removeProviderOf(window, "ollama");
+    const line = removedLine(window);
+    const change = line.getByTestId("composer-model-removed-change");
+    const close = line.getByTestId("composer-model-removed-close");
+
+    // The line sits under the chip, and Change opens the chip's menu; a pick ends it.
+    await openMindNamed(window, "Picks");
+    await expect(line).toContainText(
+      "fake-model was removed, so this note now uses Claude Sonnet 5.5",
+    );
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    const chipBox = await chipOf(window).boundingBox();
+    const lineBox = await line.boundingBox();
+    if (!chipBox || !lineBox) throw new Error("The chip and the line aren't drawn.");
+    expect(lineBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height);
+    await expect(change).toHaveText("Change");
+    await expect(close).toHaveText("Close");
+    await pointAndClick(window, change);
+    await expect(menuOf(window)).toBeVisible();
+    const option = menuOf(window)
+      .getByTestId("composer-model-option")
+      .filter({ hasText: "Claude Haiku 5.5" });
+    await motionSettled(window);
+    await pointAndClick(window, option);
+    await expect(menuOf(window)).toBeHidden();
+    await expect(line).toHaveCount(0);
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+
+    // A note with no pick, and one whose provider is saved, have nothing to say.
+    await openMindNamed(window, "Plain");
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await expect(line).toHaveCount(0);
+    await openMindNamed(window, "Saved");
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+    await expect(line).toHaveCount(0);
+
+    // Close ends it too; ⌘Z in the note takes back the typing, not the line's end.
+    await openMindNamed(window, "Closes");
+    await expect(line).toBeVisible();
+    await pointAndClick(window, close);
+    await expect(line).toHaveCount(0);
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await frontMind(window).locator(".mind-editor").click();
+    await window.keyboard.type("Typed after closing");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(line).toHaveCount(0);
+
+    // The keyboard reaches Change, and so does ⌘K; the words are Chinese in Chinese.
+    await openMindNamed(window, "Waits");
+    await expect(line).toBeVisible();
+    await change.focus();
+    await window.keyboard.press("Enter");
+    await expect(menuOf(window)).toBeVisible();
+    await closeMenu(window);
+    await runCommand(window, "model.changeRemoved", "Choose another model for this note");
+    await expect(menuOf(window)).toBeVisible();
+    await closeMenu(window);
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("已移除 fake-model，这篇笔记现在使用 Claude Sonnet 5.5");
+    await expect(change).toHaveText("更改");
+    await expect(close).toHaveText("关闭");
+
+    // After a restart, an ended line stays ended and an open one is still there, once.
+    await quit();
+    window = await start();
+    await openMindNamed(window, "Picks");
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+    await expect(removedLine(window)).toHaveCount(0);
+    await openMindNamed(window, "Closes");
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await expect(removedLine(window)).toHaveCount(0);
+    await openMindNamed(window, "Waits");
+    await expect(removedLine(window)).toHaveCount(1);
+    await expect(removedLine(window)).toContainText("已移除 fake-model");
+  } finally {
+    ollama.server.close();
+  }
+});
+
+test("a second window on the same note shows the line too, and closing it in one window closes it in both", async () => {
+  test.setTimeout(180_000);
+  const ollama = await ollamaListing(["fake-model"]);
+  try {
+    const window = await start();
+    await connectOllama(window, ollama.url);
+    await connectAnthropic(window, SONNET);
+    await newMind(window);
+    await nameMind(window, "Shared");
+    await chooseInChip(window, "fake-model");
+    await removeProviderOf(window, "ollama");
+    await expect(removedLine(window)).toBeVisible();
+
+    if (!running) throw new Error("The app isn't running.");
+    const info = await running.evaluate(({ app, BrowserWindow }) => {
+      const [first] = BrowserWindow.getAllWindows();
+      if (!first) throw new Error("The app has no window.");
+      return {
+        url: first.webContents.getURL(),
+        preload: `${app.getAppPath()}/out/preload/index.js`,
+      };
+    });
+    const spawned = running.waitForEvent("window");
+    await running.evaluate(({ BrowserWindow }, values) => {
+      const win = new BrowserWindow({
+        width: 1100,
+        height: 800,
+        show: true,
+        webPreferences: {
+          preload: values.preload,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      void win.loadURL(values.url);
+    }, info);
+    const second = await spawned;
+    await second.waitForLoadState("domcontentloaded");
+    await second
+      .getByTestId("tab-strip")
+      .getByRole("tab", { name: /Shared/u })
+      .click();
+    await expect(removedLine(second)).toBeVisible({ timeout: 20_000 });
+
+    await pointAndClick(second, removedLine(second).getByTestId("composer-model-removed-close"));
+    await expect(removedLine(second)).toHaveCount(0);
+    await expect(removedLine(window)).toHaveCount(0);
   } finally {
     ollama.server.close();
   }

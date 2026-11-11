@@ -27,7 +27,7 @@ import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments } from "../citations";
 import { answerTemperature } from "../engine";
 import { judge, lines } from "../judge";
-import { correctionFor, sameNumber } from "./claimCheck";
+import { correctionFor, sameNumber } from "./correction";
 import { CHECK_TAGS, confirmParts, readChangeLines } from "./prompt";
 
 /** The request: the sentence's words that differ, and the quote's own words for that same thing. */

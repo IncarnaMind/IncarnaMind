@@ -3109,6 +3109,27 @@ export const migrations: readonly Migration[] = [
           AND json_type(value, '$.organizeWith') IS NOT NULL;
     `,
   },
+  {
+    version: 142,
+    description:
+      "A fingerprint of each version's text, so a check leaves out a Document that holds the checked file's text (#2216)",
+    // Worked out from document_pages, which it lives and goes with; the versions stored
+    // before it get theirs after the first window is up (documents/textCopies.ts).
+    sql: `
+      CREATE TABLE text_fingerprints (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL REFERENCES documents (id),
+        content_hash TEXT NOT NULL,
+        shingles INTEGER NOT NULL, -- distinct 5-token shingles in the version's text
+        sample BLOB NOT NULL, -- the shingle hashes ending in three zero bits, ascending, 4 bytes each, little-endian
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX text_fingerprints_by_version ON text_fingerprints (document_id, content_hash)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
