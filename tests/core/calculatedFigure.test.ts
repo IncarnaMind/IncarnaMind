@@ -122,6 +122,10 @@ describe("the other ways of writing a count of periods (#2953)", () => {
       word: unit.kind === "other" ? unit.word : unit.kind,
     }));
 
+  /** A range as two figures: its last number first, then its first number, which only another range's first number matches. */
+  const ends = (chars: string, values: number[], word: string) =>
+    values.map((value, at) => ({ chars, value, word: at === 0 ? word : `${word} (near end)` }));
+
   test.each([
     ["en", "It ran for 3-5 days.", [5, 3], "3-5 days"],
     ["en", "It ran for 3 to 5 days.", [5, 3], "3 to 5 days"],
@@ -137,7 +141,7 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["zh-CN", "它运行了3-5天。", [5, 3], "3-5天"],
     ["zh-CN", "它运行了三到五天。", [5, 3], "三到五天"],
   ])("a range is both its ends: %s: %s", (language, text, values, chars) => {
-    expect(read(text, language)).toEqual(values.map((value) => ({ chars, value, word: "day" })));
+    expect(read(text, language)).toEqual(ends(chars, values, "day"));
   });
 
   test.each([
@@ -145,7 +149,7 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["zh-CN", "公司成立5周年。", [5], "5周年", "year"],
     ["zh-CN", "项目历时3周。", [3], "3周", "week"],
   ])("周岁 and 周年 count years, not weeks: %s: %s", (language, text, values, chars, word) => {
-    expect(read(text, language)).toEqual(values.map((value) => ({ chars, value, word })));
+    expect(read(text, language)).toEqual(ends(chars, values, word));
   });
 
   test.each([
@@ -154,10 +158,7 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["zh-CN", "它运行了一到两年。", "一到两年"],
     ["zh-CN", "它运行了1到2年。", "1到2年"],
   ])("a range of years is both its ends: %s: %s", (language, text, chars) => {
-    expect(read(text, language)).toEqual([
-      { chars, value: 2, word: "year" },
-      { chars, value: 1, word: "year" },
-    ]);
+    expect(read(text, language)).toEqual(ends(chars, [2, 1], "year"));
   });
 
   test.each([
@@ -263,13 +264,12 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     ["en", "You must reply within ten（10） days.", [10], "ten（10） days"],
     ["zh-CN", "它运行了３-５天。", [5, 3], "３-５天"],
   ])("full-width digits and brackets: %s: %s", (language, text, values, chars) => {
-    expect(read(text, language)).toEqual(values.map((value) => ({ chars, value, word: "day" })));
+    expect(read(text, language)).toEqual(ends(chars, values, "day"));
   });
 
   test("a sentence with two periods reads each", () => {
     expect(read("It ran for 3-5 days and 2 months, then ten (10) days.", "en")).toEqual([
-      { chars: "3-5 days", value: 5, word: "day" },
-      { chars: "3-5 days", value: 3, word: "day" },
+      ...ends("3-5 days", [5, 3], "day"),
       { chars: "2 months", value: 2, word: "month" },
       { chars: "ten (10) days", value: 10, word: "day" },
     ]);
@@ -285,6 +285,139 @@ describe("the other ways of writing a count of periods (#2953)", () => {
       expect(read(text, "en")).toEqual([
         { chars: text.slice(11, -1), value: Number.NaN, word: "day" },
       ]);
+    },
+  );
+
+  test.each([
+    [
+      "en",
+      "Days sales outstanding rose 20% to 45 days.",
+      [
+        ["20%", 0.2, "percent"],
+        ["45 days", 45, "day"],
+      ],
+    ],
+    ["en", "The notice period was reduced in 2023 to 30 days.", [["30 days", 30, "day"]]],
+    [
+      "zh-CN",
+      "应收账款周转天数增加5%至60天。",
+      [
+        ["5%", 0.05, "percent"],
+        ["60天", 60, "day"],
+      ],
+    ],
+    [
+      "zh-CN",
+      "它运行了3至5天。",
+      [
+        ["3至5天", 5, "day"],
+        ["3至5天", 3, "day (near end)"],
+      ],
+    ],
+  ])(
+    'a number before a range\'s "to" that is no count stays what it is: %s: %s',
+    (language, text, expected) => {
+      expect(read(text, language)).toEqual(
+        expected.map(([chars, value, word]) => ({ chars, value, word })),
+      );
+    },
+  );
+
+  test.each([
+    ["en", "It lasted two years and a half.", 2.5, "two years and a half", "year"],
+    ["en", "It lasted 2 years and a half.", 2.5, "2 years and a half", "year"],
+    ["en", "It lasted one year and a half.", 1.5, "one year and a half", "year"],
+    ["en", "It lasted a year and a half.", 1.5, "a year and a half", "year"],
+    ["en", "It lasted a day and a half.", 1.5, "a day and a half", "day"],
+  ])('"and a half" after the unit: %s: %s', (language, text, value, chars, word) => {
+    expect(read(text, language)).toEqual([{ chars, value, word }]);
+  });
+
+  test.each([
+    ["zh-CN", "5/6月销售额增长。", []],
+    ["zh-CN", "3/4季度业绩好转。", []],
+    ["zh-CN", "第3季度增长。", []],
+    ["zh-CN", "它持续了3/4个月。", [["3/4个月", 0.75, "month"]]],
+    ["zh-CN", "连续3季度增长。", [["3季度", 3, "quarter"]]],
+  ])("a slash before 月 or 季度 names months or quarters: %s: %s", (language, text, expected) => {
+    expect(read(text, language)).toEqual(
+      expected.map(([chars, value, word]) => ({ chars, value, word })),
+    );
+  });
+
+  test.each([
+    ["近三年半数以上的收入来自海外。", "三年", 3],
+    ["公司有3年半成品生产经验。", "3年", 3],
+  ])("a 半 that starts 半数 or 半成品 is no half: %s", (text, chars, value) => {
+    expect(read(text, "zh-CN")).toEqual([{ chars, value, word: "year" }]);
+  });
+
+  test.each([
+    ["乙方应在30日内付款。", "30日", 30],
+    ["乙方应在30日以内付款。", "30日", 30],
+    ["乙方应在30日之内付款。", "30日", 30],
+    ["乙方应在三十日内付款。", "三十日", 30],
+    ["乙方应在5月1日起30日内付款。", "30日", 30],
+    ["乙方逾期超过三十日的，甲方有权解除合同。", "三十日", 30],
+    ["通知期不少于30日。", "30日", 30],
+    ["通知期不超过30日。", "30日", 30],
+    ["合同满30日后自动终止。", "30日", 30],
+    ["期限为30日以上。", "30日", 30],
+    ["期限为30日以下。", "30日", 30],
+    ["乙方应在30天内付款。", "30天", 30],
+  ])("a number and 日 before 内 is a count of days: %s", (text, chars, value) => {
+    expect(read(text, "zh-CN")).toEqual([{ chars, value, word: "day" }]);
+  });
+
+  test.each([
+    ["它持续了三个季度。", "三个季度", 3],
+    ["它持续了3个季度。", "3个季度", 3],
+    ["前两个季度收入增长。", "两个季度", 2],
+  ])("a number before 个季度 is a count of quarters: %s", (text, chars, value) => {
+    expect(read(text, "zh-CN")).toEqual([{ chars, value, word: "quarter" }]);
+  });
+
+  test("the third quarter by its position is no count", () => {
+    expect(read("第3个季度收入增长。", "zh-CN")).toEqual([]);
+  });
+
+  test.each([
+    "乙方应在5月30日内付款。",
+    "乙方应在每月5日内付款。",
+    "乙方应于30日付款。",
+    "乙方应在每月30日前付款。",
+    "乙方应在30个工作日内付款。",
+  ])("a day of a month, and working days, are no count of days: %s", (text) => {
+    expect(read(text, "zh-CN")).toEqual([]);
+  });
+
+  test.each([
+    ["zh-CN", "金额单位为人民币千元，买方须在30日内支付每张发票。", "30日", 30, "day"],
+    ["zh-CN", "单位：万元。按这两个季度数据计算。", "两个季度", 2, "quarter"],
+    [
+      "en",
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+      "30 days",
+      30,
+      "day",
+    ],
+  ])(
+    "a unit the sentence states for its amounts does not make a count unreadable: %s",
+    (language, text, chars, value, word) => {
+      expect(read(text, language)).toEqual([{ chars, value, word }]);
+    },
+  );
+
+  test.each([
+    ["en", "The city has a 2000 year history.", "2000 year", 2000],
+    ["en", "The city has a two thousand year history.", "two thousand year", 2000],
+    ["en", "The dynasty had a 2000-year reign.", "2000-year", 2000],
+    ["en", "It is a 2000 year old tree.", "2000 year", 2000],
+    ["en", "Revenue grew in the 2024 year results.", "2024 year", 2024],
+  ])(
+    'a year before "year" that describes what follows is a count: %s: %s',
+    (language, text, chars, value) => {
+      expect(read(text, language)).toEqual([{ chars, value, word: "year" }]);
     },
   );
 });

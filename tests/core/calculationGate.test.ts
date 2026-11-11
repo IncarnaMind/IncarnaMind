@@ -868,4 +868,228 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
   ])("the same round number is still judged: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
+
+  test.each([
+    [
+      "Days sales outstanding rose 20% to 45 days.",
+      "Days sales outstanding were 45 days, up 20% on the year.",
+    ],
+    [
+      "Days sales outstanding were 45 days, up 20% on the year.",
+      "Days sales outstanding rose 20% to 45 days.",
+    ],
+    ["Days sales outstanding rose 20% to 45 days.", "Days sales outstanding rose 20% to 45 days."],
+    [
+      "The notice period was reduced in 2023 to 30 days.",
+      "In 2023 the notice period was reduced to 30 days.",
+    ],
+    ["应收账款周转天数增加5%至60天。", "应收账款周转天数为60天，同比增加5%。"],
+  ])(
+    'a percentage or a year before a range\'s "to" is not its near end: %s citing %s',
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["Days sales outstanding rose 30% to 45 days.", "Days sales outstanding rose 20% to 45 days."],
+    ["Days sales outstanding rose 20% to 45 days.", "Days sales outstanding rose 20% to 60 days."],
+    [
+      "The notice period was reduced in 2023 to 60 days.",
+      "In 2023 the notice period was reduced to 30 days.",
+    ],
+    ["应收账款周转天数增加8%至60天。", "应收账款周转天数增加5%至60天。"],
+    ["应收账款周转天数增加5%至90天。", "应收账款周转天数为60天，同比增加5%。"],
+  ])(
+    "and a different percentage or count there is still not judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["It lasted two years and a half.", "It lasted two years."],
+    ["It lasted 2 years and a half.", "It lasted 2 years."],
+    ["It lasted one year and a half.", "It lasted one year."],
+    ["It lasted a year and a half.", "It lasted a year."],
+    ["It lasted a day and a half.", "It lasted a day."],
+  ])('"and a half" after the unit is part of the count: %s citing %s', async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It lasted two years and a half.", "It lasted two and a half years."],
+    ["It lasted 2 years and a half.", "It lasted 2.5 years."],
+    ["It lasted one year and a half.", "It lasted 1.5 years."],
+    ["It lasted a year and a half.", "It lasted one and a half years."],
+    ["It lasted a day and a half.", "It lasted a day and a half."],
+  ])(
+    "and the same fraction said another way is still judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["它持续了3/4个月。", "它持续了1/2个月。"],
+    ["连续3季度增长。", "连续4季度增长。"],
+  ])(
+    "a slash between months or quarters is a name, a slash before 个月 a fraction, 连续 a count: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["5/6月销售额增长。", "5月和6月销售额增长。"],
+    ["3/4季度业绩好转。", "3季度和4季度业绩好转。"],
+    ["它持续了3/4个月。", "它持续了3/4个月。"],
+    ["连续3季度增长。", "连续3季度增长。"],
+  ])(
+    "and the same months, quarters and fractions are judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["近三年半数以上的收入来自海外。", "近五年，半数以上的收入来自海外。"],
+    ["公司有3年半成品生产经验。", "公司有5年的半成品生产经验。"],
+  ])(
+    "a 半 that starts 半数 or 半成品 is no half, and the count is held: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["近三年半数以上的收入来自海外。", "近三年，半数以上的收入来自海外。"],
+    ["公司有3年半成品生产经验。", "公司有3年的半成品生产经验。"],
+  ])("and the same count beside them is judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["乙方应在30日内付款。", "乙方应在60日内付款。"],
+    ["乙方应在30日以内付款。", "乙方应在60日以内付款。"],
+    ["乙方应在30日之内付款。", "乙方应在60日之内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在六十日内付款。"],
+    ["乙方应在30天内付款。", "乙方应在60天内付款。"],
+    ["乙方逾期超过30日的，甲方有权解除合同。", "乙方逾期超过60日的，甲方有权解除合同。"],
+    ["通知期不少于30日。", "通知期不少于60日。"],
+    ["期限为30日以上。", "期限为60日以上。"],
+    ["前两个季度收入增长。", "前三个季度收入增长。"],
+  ])("a number and 日 before 内 is a count of days: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["乙方应在30日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30日以内付款。", "乙方应在30日以内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在三十日内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30天内付款。", "乙方应在30天内付款。"],
+    ["乙方逾期超过30日的，甲方有权解除合同。", "乙方逾期超过30日的，甲方有权解除合同。"],
+    ["通知期不少于30日。", "通知期不少于30日。"],
+    ["期限为30日以上。", "期限为30日以上。"],
+    ["前两个季度收入增长。", "前两个季度收入增长。"],
+    ["乙方应在5月30日内付款。", "乙方应在5月30日内付款。"],
+    ["乙方应在30个工作日内付款。", "乙方应在60个工作日内付款。"],
+  ])(
+    "and the same days are judged, as are a date and working days, which are no count of days: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["The city has a 2000 year history.", "The city has a 3000 year history."],
+    ["The city has a two thousand year history.", "The city has a three thousand year history."],
+    ["The dynasty had a 2000-year reign.", "The dynasty had a 3000-year reign."],
+    ["It is a 2000 year old tree.", "It is a 3000 year old tree."],
+    ["Revenue grew 5% in the 2024 year results.", "In 2024 revenue grew 5%."],
+    ["这座城市连续2000年没有失守。", "这座城市连续3000年没有失守。"],
+  ])(
+    'a year before "year" that describes what follows is a count: %s citing %s',
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["The city has a 2000 year history.", "The city has a 2000 year history."],
+    ["The city has a two thousand year history.", "The city has a two thousand year history."],
+    ["The dynasty had a 2000-year reign.", "The dynasty had a 2000-year reign."],
+    ["It is a 2000 year old tree.", "It is a 2000 year old tree."],
+    ["Revenue grew 5% in the 2024 year results.", "Revenue grew 5% in the 2024 year results."],
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year, then fell.", "In 2024 revenue grew 5%."],
+    ["这座城市连续2000年没有失守。", "这座城市连续2000年没有失守。"],
+  ])(
+    "and the same words, or a year that ends what it names, are judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["It ran for 3 days.", "It ran for 3-5 days."],
+    ["It ran for 3-5 days.", "It ran for 5 days."],
+    ["它运行了3天。", "它运行了3-5天。"],
+    ["它持续了二至两年。", "它持续了二至三年。"],
+    [
+      "Antibodies fell from Dose 1 to 1 Month after each dose.",
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+    ],
+  ])(
+    "a range's first number is held only against another range's first: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["It ran for 5 days.", "It ran for 3-5 days."],
+    ["它运行了5天。", "它运行了3-5天。"],
+    [
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+    ],
+  ])(
+    "and a single count is still held to a range's last number, as before: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    [
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+      "金额单位为人民币千元，买方须在31日内支付每张发票。",
+    ],
+    [
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+      "Amounts are in thousands of pounds. Payment is due within 31 days.",
+    ],
+    ["单位：万元。按这两个季度数据计算。", "单位：万元。按这三个季度数据计算。"],
+  ])(
+    "a unit the sentence states for its amounts does not make a count unreadable, and the count is held: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    [
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+    ],
+    [
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+    ],
+    ["单位：万元。按这两个季度数据计算。", "单位：万元。按这两个季度数据计算。"],
+  ])("and the same words are judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
 });

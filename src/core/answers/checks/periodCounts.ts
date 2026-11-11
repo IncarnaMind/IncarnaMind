@@ -87,37 +87,74 @@ function figureEndingAt(
   };
 }
 
+/** Ambiguities that leave a count readable: a unit or currency the sentence states for its amounts can't apply to a number before a period word (#2953). */
+const READABLE_AS_COUNT: ReadonlySet<string> = new Set(["separator", "range", "scale", "currency"]);
+
 /**
  * The values a figure the reader read gives a count: a comma or a point it can't place is taken
  * as the first way it lists, a range is its far end, then its near end.
  */
 function countValues(figure: Figure): number[] {
   const kinds = figure.ambiguous.map(({ kind }) => kind);
-  if (kinds.some((kind) => kind !== "separator" && kind !== "range")) return [Number.NaN];
-  return kinds.includes("range")
-    ? [asCount(figure.rangeTo), asCount(figure.value)]
-    : [asCount(figure.value)];
+  if (kinds.some((kind) => !READABLE_AS_COUNT.has(kind))) return [Number.NaN];
+  if (kinds.includes("scale") && kinds.includes("range")) return [Number.NaN];
+  const asWritten = figure.ambiguous
+    .flatMap(({ readings }) => readings)
+    .find((reading) => reading.scale === 1 && reading.unit.kind === "plain");
+  const value = kinds.includes("scale") ? (asWritten?.value ?? Number.NaN) : figure.value;
+  return kinds.includes("range") ? [asCount(figure.rangeTo), asCount(value)] : [asCount(value)];
 }
 
-const RANGE_GAP = /^\s*(?:[-–—~～]|to|至|到)\s*$/i;
+const CJK_RANGE_GAP = /^\s*(?:[-–—~～]|至|到)\s*$/;
+const YEAR_LIKE = /^(?:19|20)\d{2}(?![\d,.'])/;
 
-/** The values of `found`, and of the figure just before it when the two are the ends of a range ("3至5", "between 3 and 5"). */
-function withRangeStart(text: string, found: FigureAt): { values: number[]; start: number } {
+/** Whether a figure before a range's connective can be its near end: not a percentage, an amount, a scaled number or a bare year, which stay what they are (#2953). */
+function canBeNearEnd(figure: Figure): boolean {
+  const [value, ...more] = countValues(figure);
+  return (
+    figure.unit.kind === "plain" &&
+    figure.scale === 1 &&
+    figure.currency === null &&
+    figure.footnote === null &&
+    more.length === 0 &&
+    value !== undefined &&
+    !Number.isNaN(value) &&
+    !YEAR_LIKE.test(figure.chars)
+  );
+}
+
+/**
+ * The values of `found`, and of the figure just before it when the two are the ends of a range the
+ * reader leaves apart: "3至5" in Chinese, "between 3 and 5". The reader joins every other English
+ * range itself ("3 to 5", "3 - 5") and leaves "20% to 45" and "in 2023 to 30" as two figures.
+ */
+function withRangeStart(
+  text: string,
+  found: FigureAt,
+  cjk: boolean,
+): { values: number[]; start: number } {
   const values = countValues(found.figure);
   const { previous } = found;
-  if (!previous) return { values, start: found.start };
+  if (!previous || !canBeNearEnd(previous.figure)) return { values, start: found.start };
   const gap = text.slice(previous.end, found.start);
-  const between = /^\s*and\s*$/i.test(gap) && /\bbetween\s*$/i.test(text.slice(0, previous.start));
-  if (!RANGE_GAP.test(gap) && !between) return { values, start: found.start };
+  const joined = cjk
+    ? CJK_RANGE_GAP.test(gap)
+    : /^\s*and\s*$/i.test(gap) && /\bbetween\s*$/i.test(text.slice(0, previous.start));
+  if (!joined) return { values, start: found.start };
   return { values: [...values, ...countValues(previous.figure)], start: previous.start };
 }
 
 const YEAR_NAME_UNIT = /^ +(?:year|quarter|month)$/i;
-const YEAR_LIKE = /^(?:19|20)\d{2}(?![\d,.'])/;
+const DATE_END =
+  /^(?:\s*(?:$|[.,;:!?)\]}"”…—–])|[ -]end\b|\s+(?:and|or|but|vs|versus|compared|against|was|were|is|are)\b)/i;
 
-/** Whether the period word after a number is one a year goes before as its name: "2024 year end", "Q3 2024 quarter", "2019 month-end". */
+/**
+ * Whether the period word after a year ends what it names: "the 2024 year", "2024 year end",
+ * "Q3 2024 quarter". Where it describes what follows ("a 2000 year history", "2000 year old") or the
+ * text doesn't say ("the 2024 year results"), the number counts.
+ */
 const namesYear = (text: string, at: number, matched: string): boolean =>
-  YEAR_NAME_UNIT.test(matched) && !/^[ -]old\b/i.test(text.slice(at + matched.length));
+  YEAR_NAME_UNIT.test(matched) && DATE_END.test(text.slice(at + matched.length));
 
 const spokenNumbers = (words: string) =>
   figuresOf(
@@ -204,10 +241,11 @@ function spelled(window: string, at: number, yearUnit: boolean): Quantity | unde
     }
   }
   const near = NEAR_OF_RANGE.exec(rest) ?? NEAR_AFTER_BETWEEN.exec(rest);
-  if (near) {
+  const nearValue = near ? spelledValue(near[1] ?? "") : Number.NaN;
+  if (near && !Number.isNaN(nearValue)) {
     return {
       start: at - window.length + near.index + near[0].indexOf(near[1] ?? ""),
-      values: [spelledValue(words), spelledValue(near[1] ?? "")],
+      values: [spelledValue(words), nearValue],
     };
   }
   return { start, values: [spelledValue(words)] };
@@ -262,7 +300,7 @@ function digits(
     });
     if (grouped && grouped.start < found.start) found = grouped;
   }
-  const read = found && withRangeStart(text, found);
+  const read = found && withRangeStart(text, found, false);
   const start = read?.start ?? at - run[0].length;
   const numberAt = start + Math.max(0, text.slice(start, at).search(/\p{Nd}/u));
   // A number inside a word is no count, read or not: "FY24 year-end".
@@ -281,6 +319,13 @@ function digits(
   const glued = /[\p{L}-]$/u.test(text.slice(Math.max(0, start - 2), start));
   return { start, values: [glued ? asCount(Number(run[0])) : Number.NaN] };
 }
+
+/**
+ * A range is two figures, its last number then its first. The first has a unit of its own, so a
+ * single count is held to the last number alone and not to the first ("3 days" against "3-5 days"
+ * stays not judged), and a range's first number is held to another range's first (#2953).
+ */
+const unitOf = (unit: string, index: number): string => (index === 0 ? unit : `${unit} (near end)`);
 
 function countFigure(
   text: string,
@@ -307,6 +352,15 @@ function countFigure(
   };
 }
 
+const AND_A_HALF_AFTER = /^[ -]and[ -]a[ -]half\b/i;
+const ARTICLE_AT_END = /\b(an?)$/i;
+
+/** "a year and a half": the article is a count of one only when the half follows. */
+function article(window: string, at: number): Quantity | undefined {
+  const found = ARTICLE_AT_END.exec(window);
+  return found ? { start: at - found[0].length, values: [1] } : undefined;
+}
+
 function englishCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
   for (const match of text.matchAll(new RegExp(EN_PERIOD, "gi"))) {
@@ -314,16 +368,21 @@ function englishCounts(text: string, context: FigureContext): Figure[] {
     if (!unit) continue;
     const at = match.index;
     const window = text.slice(Math.max(0, at - WORD_REACH), at);
+    const halfAfter = AND_A_HALF_AFTER.exec(text.slice(at + match[0].length));
     const found =
       scientific(window, at) ??
       bracketed(text, at, context) ??
       spelled(window, at, namesYear(text, at, match[0])) ??
       fractional(window, at) ??
-      digits(text, at, match[0], context);
+      digits(text, at, match[0], context) ??
+      (halfAfter ? article(window, at) : undefined);
     if (!found) continue;
-    for (const value of found.values) {
-      const decimals = found.decimals ?? decimalsOf(value);
-      counts.push(countFigure(text, found.start, at + match[0].length, value, unit, decimals));
+    const halved = halfAfter !== null && found.values.length === 1;
+    const end = at + match[0].length + (halved ? (halfAfter?.[0].length ?? 0) : 0);
+    for (const [index, value] of found.values.entries()) {
+      const total = halved ? value + 0.5 : value;
+      const decimals = halved ? decimalsOf(total) : (found.decimals ?? decimalsOf(total));
+      counts.push(countFigure(text, found.start, end, total, unitOf(unit, index), decimals));
     }
   }
   return counts;
@@ -338,55 +397,88 @@ const CHINESE_UNITS: Readonly<Record<string, string>> = {
   周: "week",
   天: "day",
   日: "day",
+  个季度: "quarter",
   季度: "quarter",
 };
 
+const DAYS_AFTER = /^(?:(?:以|之)?内|以上|以下|之上|之下)/u;
+const DAYS_BEFORE = /(?:满|超过|不少于|不超过|少于|多于|不足|不满|逾|至少|最多)\s*$/u;
+
+/**
+ * Whether the text around a number makes the unit after it name a date or a position, not a count:
+ * "5/6月" and "5月" are months, "3/4季度" and "第3季度" quarters, "5月30日" a day of a month. "30日内"
+ * and "超过30日" are thirty days; "连续3季度" counts, and so does anything with 个 (#2953).
+ */
+function namesDate(
+  unit: string,
+  before: string,
+  after: string,
+  value: number,
+  halfMonths: boolean,
+): boolean {
+  // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
+  // demonstrative is no count (#2215).
+  if (value === 1 && PERIOD_DEMONSTRATIVE.test(before)) return true;
+  const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
+  if (/第\s*$/u.test(before)) return true;
+  if (unit === "年" && value >= 1000 && !consecutive) return true;
+  const days =
+    unit === "日" &&
+    (DAYS_AFTER.test(after) || DAYS_BEFORE.test(before)) &&
+    !/月份?\s*$/u.test(before);
+  if (
+    (unit === "月" || unit === "日" || unit === "季度") &&
+    !halfMonths &&
+    !consecutive &&
+    !days &&
+    !/个\s*$/u.test(before)
+  ) {
+    return true;
+  }
+  return /(?:公元|民国)\s*$/u.test(before);
+}
+
 function chineseCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
-  for (const match of text.matchAll(/年|个月|月|周岁|周年|周|天|日|季度/gu)) {
+  for (const match of text.matchAll(/年|个月|月|周岁|周年|周|天|日|个季度|季度/gu)) {
     const unit = CHINESE_UNITS[match[0]];
     if (!unit) continue;
     const unitAt = match.index;
     const unitEnd = unitAt + match[0].length;
+    const after = text.slice(unitEnd);
     // "三个半月" is "三个月" and a half: the reader is given "三个月".
     const halfMonths = match[0] === "月" && text.slice(unitAt - 2, unitAt) === "个半";
     const source = halfMonths ? text.slice(0, unitAt - 1) + text.slice(unitAt) : text;
     const readAt = halfMonths ? unitAt - 2 : unitAt;
     const window = source.slice(Math.max(0, readAt - WORD_REACH), readAt);
-    let found: Quantity | undefined =
-      bracketed(source, readAt, context) ?? fractional(window, readAt);
+    let found: Quantity | undefined = bracketed(source, readAt, context);
+    if (!found) {
+      const fraction = fractional(window, readAt);
+      const before = fraction ? text.slice(0, fraction.start) : "";
+      const value = fraction?.values[0] ?? Number.NaN;
+      if (fraction && namesDate(match[0], before, after, value, halfMonths)) continue;
+      found = fraction;
+    }
     if (!found) {
       const read = figureEndingAt(source, readAt, halfMonths ? unitAt : unitEnd, context);
       if (!read) continue;
       const before = text.slice(0, read.start);
-      // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
-      // demonstrative is no count (#2215).
-      if (read.figure.value === 1 && PERIOD_DEMONSTRATIVE.test(before)) continue;
-      const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
-      if (/第\s*$/u.test(before)) continue;
-      if (match[0] === "年" && read.figure.value >= 1000 && !consecutive) continue;
-      if (
-        (match[0] === "月" || match[0] === "日" || match[0] === "季度") &&
-        !halfMonths &&
-        !consecutive &&
-        !/个\s*$/u.test(before)
-      )
-        continue;
-      if (/(?:公元|民国)\s*$/u.test(before)) continue;
-      const ends = withRangeStart(text, read);
+      if (namesDate(match[0], before, after, read.figure.value, halfMonths)) continue;
+      const ends = withRangeStart(text, read, true);
       found = {
         start: ends.start,
         values: ends.values,
         decimals: ends.values.length === 1 ? read.figure.decimals : undefined,
       };
     }
-    const trailingHalf = !halfMonths && /^半(?!导体|夜|径|岛|场)/u.test(text.slice(unitEnd));
+    const trailingHalf =
+      !halfMonths && /^半(?!导体|夜|径|岛|场|数|成品)/u.test(text.slice(unitEnd));
     const halved = halfMonths || trailingHalf;
     const end = trailingHalf ? unitEnd + 1 : unitEnd;
-    for (const value of found.values) {
+    for (const [index, value] of found.values.entries()) {
       const total = halved ? value + 0.5 : value;
       const decimals = halved || found.decimals === undefined ? decimalsOf(total) : found.decimals;
-      counts.push(countFigure(text, found.start, end, total, unit, decimals));
+      counts.push(countFigure(text, found.start, end, total, unitOf(unit, index), decimals));
     }
   }
   return counts;
