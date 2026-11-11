@@ -94,8 +94,8 @@ test("the + opens its menu above it by mouse and by keyboard, in order with its 
     boxOf(composer.getByTestId("composer-model")),
     boxOf(composer),
   ]);
-  expect(plusBox.width).toBe(24);
-  expect(plusBox.height).toBe(24);
+  // A square button, never squeezed: as wide as it is tall.
+  expect(plusBox.width).toBeCloseTo(plusBox.height, 1);
   expect(plusBox.x).toBeGreaterThanOrEqual(composerBox.x);
   expect(plusBox.x + plusBox.width).toBeLessThan(modelBox.x);
   // On the row of Ask, centred on it.
@@ -704,7 +704,8 @@ async function expectRowHolds(window: Page, at = ""): Promise<void> {
     boxOf(plus),
     boxOf(composer.getByTestId("composer-ask")),
   ]);
-  expect(plusBox.width).toBe(24);
+  // Never squeezed: as wide as it is tall, at the narrowest panel as at the widest.
+  expect(plusBox.width, `${at}: + as wide as it is tall`).toBeCloseTo(plusBox.height, 1);
   expect(plusBox.x).toBeGreaterThanOrEqual(composerBox.x);
   expect(askBox.x + askBox.width).toBeLessThanOrEqual(composerBox.x + composerBox.width);
   expect(plusBox.x + plusBox.width).toBeLessThanOrEqual(askBox.x);
@@ -891,53 +892,60 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  if (language === "zh-CN") {
-    test(`a locked Folder folded into a count of one keeps its chip's tooltip, and its row in the menu shows the lock and no × (${language})`, async () => {
-      await writeFile(join(sources, "Tides.txt"), "Spring tides follow the new moon.\n");
-      const { app, window } = await launchApp(dataDir, { fakeChat: true });
-      await dismissChatSetup(window);
-      await useLocalChatModel(window, "sonnet-5.5-local");
-      await setLanguage(window, language);
-      await setWindowSize(app, window, 1600, 900);
-      await sizeAssistant(window, 280);
-      const mindId = await (await coreOf(window)).evaluate(
-        async (core: CoreBridge, input: { folder: string; path: string }) => {
-          const folder = await core.createLibraryGroup({ name: input.folder, description: "" });
-          await core.updateLibraryGroup(folder.id, {
-            name: folder.name,
-            description: "",
-            keepInside: true,
-          });
-          await core.addDocuments([input.path], { groupId: folder.id });
-          return (await core.createMind({ title: "Board note", folderId: folder.id })).id;
-        },
-        { folder: folderName, path: join(sources, "Tides.txt") },
-      );
-      const folderRow = sidebarFolder(window, folderName).getByTestId("folder-row");
-      if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
-      await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
-      const { composer } = parts(window);
-      const count = composer.getByTestId("scope-chips-more");
-      // Six characters of a long Chinese name don't fit beside the lock and the Ask here.
-      await expect(count).toHaveText("已选 1 项");
-      await expect(count).toHaveAttribute("title", `“${folderName}”只在本文件夹内工作`);
-      await expectRowHolds(window, "280");
-
-      await pointAndClick(window, count);
-      const list = window.getByTestId("scope-chips-menu");
-      await expect(list).toBeVisible();
-      await motionSettled(window);
-      const row = list.getByTestId("scope-chips-menu-row");
-      await expect(row).toHaveCount(1);
-      await expect(row).toHaveAttribute("data-walled", "true");
-      await expect(row.getByTestId("scope-chips-menu-lock")).toBeVisible();
-      await expect(row).toHaveAttribute("title", `“${folderName}”只在本文件夹内工作`);
-      await expect(list.getByTestId("scope-chips-menu-remove")).toHaveCount(0);
-      const [listBox, countBox] = await Promise.all([boxOf(list), boxOf(count)]);
-      expect(listBox.x + listBox.width).toBeLessThanOrEqual(countBox.x + countBox.width + 1);
-      await app.close();
+  test(`a locked Folder folded into a count of one keeps its chip's tooltip, and its row in the menu shows the lock and no × (${language})`, async () => {
+    await writeFile(join(sources, "Tides.txt"), "Spring tides follow the new moon.\n");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window, "sonnet-5.5-local");
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1600, 900);
+    await sizeAssistant(window, 280);
+    const mindId = await (await coreOf(window)).evaluate(
+      async (core: CoreBridge, input: { folder: string; path: string }) => {
+        const folder = await core.createLibraryGroup({ name: input.folder, description: "" });
+        await core.updateLibraryGroup(folder.id, {
+          name: folder.name,
+          description: "",
+          keepInside: true,
+        });
+        await core.addDocuments([input.path], { groupId: folder.id });
+        return (await core.createMind({ title: "Board note", folderId: folder.id })).id;
+      },
+      { folder: folderName, path: join(sources, "Tides.txt") },
+    );
+    const folderRow = sidebarFolder(window, folderName).getByTestId("folder-row");
+    if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
+    await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
+    const { composer } = parts(window);
+    await expect(composer.getByTestId("scope-chip")).toHaveAttribute("data-walled", "true");
+    // A room narrower than the narrowest panel gives, as a wider system font leaves: a locked
+    // chip needs less than an unlocked one, and still fits six characters of its name at 280 px.
+    await composer.evaluate((root) => {
+      root.style.maxWidth = "210px";
     });
-  }
+    const count = composer.getByTestId("scope-chips-more");
+    const wall =
+      language === "en"
+        ? `Folder “${folderName}” keeps its work inside it`
+        : `“${folderName}”只在本文件夹内工作`;
+    await expect(count).toHaveText(language === "en" ? "1 selected" : "已选 1 项");
+    await expect(count).toHaveAttribute("title", wall);
+    await expectRowHolds(window, "210");
+
+    await pointAndClick(window, count);
+    const list = window.getByTestId("scope-chips-menu");
+    await expect(list).toBeVisible();
+    await motionSettled(window);
+    const row = list.getByTestId("scope-chips-menu-row");
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute("data-walled", "true");
+    await expect(row.getByTestId("scope-chips-menu-lock")).toBeVisible();
+    await expect(row).toHaveAttribute("title", wall);
+    await expect(list.getByTestId("scope-chips-menu-remove")).toHaveCount(0);
+    const [listBox, countBox] = await Promise.all([boxOf(list), boxOf(count)]);
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(countBox.x + countBox.width + 1);
+    await app.close();
+  });
 
   test(`a Folder and two files fold into one count that says what was selected (${language})`, async () => {
     const paths = [
