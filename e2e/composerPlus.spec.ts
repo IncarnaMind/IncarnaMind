@@ -867,6 +867,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(list).toContainText("Charter");
     // The row under it is as it was.
     await expectRowHolds(window, "320 open");
+    // The count is the last thing before Ask: its menu ends at its right edge, inside the box.
+    await motionSettled(window);
+    const [listBox, countBox, composerBox] = await Promise.all([
+      boxOf(list),
+      boxOf(count),
+      boxOf(composer),
+    ]);
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(countBox.x + countBox.width + 1);
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(composerBox.x + composerBox.width);
     await window.keyboard.press("Escape");
     await expect(list).toBeHidden();
     await expect(count).toBeVisible();
@@ -881,6 +890,54 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await documentsOf(window)).toHaveLength(2);
     await app.close();
   });
+
+  if (language === "zh-CN") {
+    test(`a locked Folder folded into a count of one keeps its chip's tooltip, and its row in the menu shows the lock and no × (${language})`, async () => {
+      await writeFile(join(sources, "Tides.txt"), "Spring tides follow the new moon.\n");
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      await dismissChatSetup(window);
+      await useLocalChatModel(window, "sonnet-5.5-local");
+      await setLanguage(window, language);
+      await setWindowSize(app, window, 1600, 900);
+      await sizeAssistant(window, 280);
+      const mindId = await (await coreOf(window)).evaluate(
+        async (core: CoreBridge, input: { folder: string; path: string }) => {
+          const folder = await core.createLibraryGroup({ name: input.folder, description: "" });
+          await core.updateLibraryGroup(folder.id, {
+            name: folder.name,
+            description: "",
+            keepInside: true,
+          });
+          await core.addDocuments([input.path], { groupId: folder.id });
+          return (await core.createMind({ title: "Board note", folderId: folder.id })).id;
+        },
+        { folder: folderName, path: join(sources, "Tides.txt") },
+      );
+      const folderRow = sidebarFolder(window, folderName).getByTestId("folder-row");
+      if ((await folderRow.getAttribute("aria-expanded")) !== "true") await folderRow.click();
+      await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
+      const { composer } = parts(window);
+      const count = composer.getByTestId("scope-chips-more");
+      // Six characters of a long Chinese name don't fit beside the lock and the Ask here.
+      await expect(count).toHaveText("已选 1 项");
+      await expect(count).toHaveAttribute("title", `“${folderName}”只在本文件夹内工作`);
+      await expectRowHolds(window, "280");
+
+      await pointAndClick(window, count);
+      const list = window.getByTestId("scope-chips-menu");
+      await expect(list).toBeVisible();
+      await motionSettled(window);
+      const row = list.getByTestId("scope-chips-menu-row");
+      await expect(row).toHaveCount(1);
+      await expect(row).toHaveAttribute("data-walled", "true");
+      await expect(row.getByTestId("scope-chips-menu-lock")).toBeVisible();
+      await expect(row).toHaveAttribute("title", `“${folderName}”只在本文件夹内工作`);
+      await expect(list.getByTestId("scope-chips-menu-remove")).toHaveCount(0);
+      const [listBox, countBox] = await Promise.all([boxOf(list), boxOf(count)]);
+      expect(listBox.x + listBox.width).toBeLessThanOrEqual(countBox.x + countBox.width + 1);
+      await app.close();
+    });
+  }
 
   test(`a Folder and two files fold into one count that says what was selected (${language})`, async () => {
     const paths = [
@@ -942,6 +999,18 @@ for (const language of ["en", "zh-CN"] as const) {
         withHint += 1;
         expect(chip.hint.whole, `${width}: hint whole`).toBe(true);
         expect(chip.nameCut, `${width}: hint beside a name that is whole`).toBe(false);
+        // The lock and the hint keep the room a chip with a name button and a × has at its sides.
+        const room = await composer.getByTestId("scope-chip").evaluate((item) => {
+          const box = item.getBoundingClientRect();
+          const lock = item.querySelector("svg")?.getBoundingClientRect();
+          const hint = item.querySelector(".scope-chip-empty")?.getBoundingClientRect();
+          return {
+            left: lock ? lock.left - box.left : -1,
+            right: hint ? box.right - hint.right : -1,
+          };
+        });
+        expect(room.left, `${width}: room left of the lock`).toBeGreaterThan(5.5);
+        expect(room.right, `${width}: room right of the hint`).toBeGreaterThan(5.5);
       }
     }
     // At 320 px and up there is room for "Matter A · empty" whole.

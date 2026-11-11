@@ -3920,6 +3920,10 @@
     max-width: 12rem;
     padding-left: 0;
   }
+  /* A Folder that keeps its Question inside it has neither the name button nor the ×, which give a chip its side room. */
+  .scope-chip[data-walled] {
+    padding-inline: 6px;
+  }
   /* A composer chip's name: its icon and words, a button that opens the "@" picker. */
   .scope-chip-name {
     display: inline-flex;

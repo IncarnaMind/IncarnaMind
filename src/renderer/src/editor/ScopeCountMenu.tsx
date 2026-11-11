@@ -9,8 +9,11 @@ export interface ScopeCountRow {
   name: string;
   /** The name is struck through: the Folder, Tag or Document was deleted. */
   struck: boolean;
+  /** What its chip's tooltip said: for a locked Folder, why it has no ×. */
   title: string;
-  /** What its × does; null for a Folder that keeps its Question inside it, which has none. */
+  /** A Folder that keeps its Question inside it: shown with its lock, and no ×. */
+  walled: boolean;
+  /** What its × does; null for a locked Folder. */
   remove: { label: string; run(): void } | null;
 }
 
@@ -20,20 +23,25 @@ export interface ScopeCountRow {
  */
 export function ScopeCountMenu({
   label,
+  title,
   menuLabel,
   rows,
 }: {
   label: string;
+  /** The tooltip of the count: that of its one chip when it holds one. */
+  title: string | undefined;
   menuLabel: string;
   rows: readonly ScopeCountRow[];
 }) {
-  const menu = usePopoverMenu({ side: "above" });
+  // The count is the last thing before Ask, at the right of the box: its menu ends where it ends.
+  const menu = usePopoverMenu({ side: "above", align: "end" });
   return (
     <>
       <button
         {...menu.buttonProps}
         type="button"
         data-testid="scope-chips-more"
+        title={title}
         // Keep the cursor where it is.
         onMouseDown={(event) => event.preventDefault()}
         className="scope-chip scope-chip-more"
@@ -49,13 +57,20 @@ export function ScopeCountMenu({
       >
         {menu.open &&
           rows.map((row) => (
-            <div key={row.key} title={row.title} className="flex h-7 items-center gap-2 pr-1 pl-2">
+            <div
+              key={row.key}
+              data-testid="scope-chips-menu-row"
+              data-walled={row.walled ? "true" : undefined}
+              title={row.title}
+              className="flex h-7 items-center gap-2 pr-1 pl-2"
+            >
               <span className="flex shrink-0 text-ink-meta">{row.icon}</span>
               {row.struck ? (
                 <s className="min-w-0 flex-1 truncate text-ink-placeholder">{row.name}</s>
               ) : (
                 <span className="min-w-0 flex-1 truncate">{row.name}</span>
               )}
+              {row.walled && <span className="sr-only">{row.title}</span>}
               {row.remove && (
                 <button
                   type="button"

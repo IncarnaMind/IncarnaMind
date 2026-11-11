@@ -99,8 +99,32 @@ export function ScopeChips({
     { folders, groups, deletedGroups, tags, documents, assignments, minds, t },
     scope,
   );
-  const isWalled = (chip: ScopeChip) =>
-    !chip.deleted && chip.kind === "folder" && folderWallOf(groups ?? [], chip.id) !== null;
+  /** What a chip says and is: its name, whether it keeps its Question inside it, and its tooltip. */
+  const describe = (chip: ScopeChip) => {
+    const { deleted } = chip;
+    const name = chip.name ?? t(DELETED_NAMES[chip.kind]);
+    const path = chip.path.length > 1 ? chip.path.join(" › ") : name;
+    const own = !deleted && chip.kind === "folder" && chip.id === ownFolderId;
+    const walled =
+      !deleted && chip.kind === "folder" && folderWallOf(groups ?? [], chip.id) !== null;
+    const title = deleted
+      ? t("scope.chip.deleted")
+      : walled
+        ? t("scope.chip.wall", { name: path })
+        : own
+          ? t(
+              chip.path.length > 1
+                ? ownCount === 1
+                  ? "scope.chip.own.named.one"
+                  : "scope.chip.own.named"
+                : ownCount === 1
+                  ? "scope.chip.own.one"
+                  : "scope.chip.own",
+              chip.path.length > 1 ? { path, count: ownCount } : { name, count: ownCount },
+            )
+          : t(CHIP_TITLES[chip.kind], { name: path });
+    return { name, own, walled, title };
+  };
   /** What a chip's × does: a lone chip of a narrowed scope goes back to the scope it narrowed. */
   const removal = (chip: ScopeChip, name: string) => {
     const goesBack = back !== undefined && chips.length === 1;
@@ -146,27 +170,8 @@ export function ScopeChips({
     >
       {shown.map((chip) => {
         const { deleted } = chip;
-        const name = chip.name ?? t(DELETED_NAMES[chip.kind]);
+        const { name, own, walled, title } = describe(chip);
         const remove = removal(chip, name);
-        const path = chip.path.length > 1 ? chip.path.join(" › ") : name;
-        const own = !deleted && chip.kind === "folder" && chip.id === ownFolderId;
-        const walled = isWalled(chip);
-        const title = deleted
-          ? t("scope.chip.deleted")
-          : walled
-            ? t("scope.chip.wall", { name: path })
-            : own
-              ? t(
-                  chip.path.length > 1
-                    ? ownCount === 1
-                      ? "scope.chip.own.named.one"
-                      : "scope.chip.own.named"
-                    : ownCount === 1
-                      ? "scope.chip.own.one"
-                      : "scope.chip.own",
-                  chip.path.length > 1 ? { path, count: ownCount } : { name, count: ownCount },
-                )
-              : t(CHIP_TITLES[chip.kind], { name: path });
         const label = deleted ? (
           <>
             <s className="truncate">{name}</s>
@@ -234,16 +239,23 @@ export function ScopeChips({
         <li className="scope-chips-more">
           <ScopeCountMenu
             label={counted}
+            // A count of one keeps what its chip's tooltip said, so the name is still one hover away.
+            title={chips.length === 1 && chips[0] ? describe(chips[0]).title : undefined}
             menuLabel={t("scope.picker.label")}
             rows={chips.map((chip) => {
-              const name = chip.name ?? t(DELETED_NAMES[chip.kind]);
+              const { name, walled, title } = describe(chip);
               return {
                 key: `${chip.kind}:${chip.id}`,
-                icon: <ChipIcon chip={chip} />,
+                icon: walled ? (
+                  <LockLineIcon className="scope-chip-icon" data-testid="scope-chips-menu-lock" />
+                ) : (
+                  <ChipIcon chip={chip} />
+                ),
                 name,
                 struck: chip.deleted,
-                title: chip.path.length > 1 ? chip.path.join(" › ") : name,
-                remove: isWalled(chip) ? null : removal(chip, name),
+                title,
+                walled,
+                remove: walled ? null : removal(chip, name),
               };
             })}
           />
