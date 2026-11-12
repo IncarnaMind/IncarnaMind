@@ -152,24 +152,24 @@ for (const [language, width] of [
       await setWindowSize(app, window, width, 760);
       await dismissChatSetup(window);
       await setLanguage(window, language);
+      // A new Library starts with the kind Tags, named in the interface's language (#2339).
+      const kind = t("tags.kind.contract");
       await (await coreOf(window)).evaluate(
-        async (core: CoreBridge, paths) => {
+        async (core: CoreBridge, { paths, kind }) => {
           for (const name of ["Finance", "Research", "财务"]) {
             await core.createLibraryGroup({ name, description: "" });
           }
           await core.createMind({ title: "Plan" });
           await core.addDocuments(paths);
           const survey = (await core.listDocuments()).find((each) => each.name === "Survey");
-          // A new Library may start with it.
-          const tag =
-            (await core.listTags()).find((each) => each.name === "Contract") ??
-            (await core.createTag({ name: "Contract" }));
-          if (survey) await core.addTagToDocuments([survey.id], tag.id);
+          const tag = (await core.listTags()).find((each) => each.name === kind);
+          if (!survey || !tag) throw new Error(`No Document Survey or Tag ${kind}.`);
+          await core.addTagToDocuments([survey.id], tag.id);
         },
-        ["Budget", "Ledger", "Survey"].map((name) => join(sources, `${name}.txt`)),
+        { paths: ["Budget", "Ledger", "Survey"].map((name) => join(sources, `${name}.txt`)), kind },
       );
       await expect(window.getByTestId("document-list-item")).toHaveCount(3);
-      const contract = tagRow(window, "Contract");
+      const contract = tagRow(window, kind);
       await expect(contract).toBeVisible();
       const label = window.getByTestId("drop-label");
       const undoLine = window.getByTestId("undo-message");
@@ -182,16 +182,14 @@ for (const [language, width] of [
         contract,
         async () => {
           await expect(contract).toHaveAttribute("data-drop-target", "true");
-          await expect(label).toHaveText(t("drop.addTag", { tag: "Contract" }));
+          await expect(label).toHaveText(t("drop.addTag", { tag: kind }));
           await screenshot(window, `drag-onto-tag-${language}-${width}`);
         },
       );
       await expect(label).toHaveCount(0);
       await expect(contract).not.toHaveAttribute("data-drop-target", "true");
-      await expect(undoLine).toHaveText(
-        t("undo.tagAdded.one", { name: "Budget", tag: "Contract" }),
-      );
-      await expect.poll(async () => (await where(window)).tags.Budget).toEqual(["Contract"]);
+      await expect(undoLine).toHaveText(t("undo.tagAdded.one", { name: "Budget", tag: kind }));
+      await expect.poll(async () => (await where(window)).tags.Budget).toEqual([kind]);
       await undo(window);
       await expect.poll(async () => (await where(window)).tags.Budget).toEqual([]);
 
@@ -406,21 +404,21 @@ for (const [language, width] of [
       await setWindowSize(app, window, width, 760);
       await dismissChatSetup(window);
       await setLanguage(window, language);
+      const kind = translate(language, "tags.kind.contract");
       await (await coreOf(window)).evaluate(
-        async (core: CoreBridge, paths) => {
+        async (core: CoreBridge, { paths, kind }) => {
           await core.createLibraryGroup({ name: "Finance", description: "" });
           await core.addDocuments(paths);
           // The sidebar lists a Tag once a Document carries it, and Budget is left free to drag onto it.
-          const tag =
-            (await core.listTags()).find((each) => each.name === "Contract") ??
-            (await core.createTag({ name: "Contract" }));
+          const tag = (await core.listTags()).find((each) => each.name === kind);
           const ledger = (await core.listDocuments()).find((each) => each.name === "Ledger");
-          if (ledger) await core.addTagToDocuments([ledger.id], tag.id);
+          if (!ledger || !tag) throw new Error(`No Document Ledger or Tag ${kind}.`);
+          await core.addTagToDocuments([ledger.id], tag.id);
         },
-        ["Budget", "Ledger"].map((name) => join(sources, `${name}.txt`)),
+        { paths: ["Budget", "Ledger"].map((name) => join(sources, `${name}.txt`)), kind },
       );
       const row = documentRow(window, "Budget");
-      const contract = tagRow(window, "Contract");
+      const contract = tagRow(window, kind);
       await expect(row).toBeVisible();
       await expect(contract).toBeVisible();
       const hover = await tokenColor(window, "--color-hover");
