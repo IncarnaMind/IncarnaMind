@@ -403,7 +403,7 @@ import {
 } from "./transcription/model";
 import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
-import { inToldSpelling } from "./transcription/spelling";
+import { inToldSpelling, wordsInToldSpelling } from "./transcription/spelling";
 import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
@@ -5032,6 +5032,10 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
       lineText: (text, words) =>
         inScript(inToldSpelling(text, words), settings.get().chineseScript, words),
+      lineWords: (text, heard, words) =>
+        wordsInToldSpelling(text, heard, words).map((word) =>
+          inScript(word, settings.get().chineseScript, words),
+        ),
       purgedPaths: () =>
         db
           .all<{ path: string }>(

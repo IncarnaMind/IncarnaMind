@@ -311,6 +311,11 @@ export interface TranscriptsOptions {
    * they spell it, and Chinese in the User's script, but for those words (#1031).
    */
   lineText?(text: string, words: readonly string[]): string;
+  /**
+   * The transcriber's own words of a line, each as `lineText` writes it in that line, so each is
+   * found there and keeps its time (#138): a word alone can't say whether the line respelled it.
+   */
+  lineWords?(text: string, heard: readonly string[], words: readonly string[]): string[];
   /** The cloud service the User chose for meeting audio (#141). Absent: always this computer. */
   cloud?: Pick<CloudTranscription, "start" | "sending" | "refuse">;
   changed(): void;
@@ -660,17 +665,16 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live && state.partials.get(segment.stream)?.id === segment.id) {
       state.partials.delete(segment.stream);
     }
-    const words = segment.words
-      ? alignWords(
-          text,
-          segment.words.map((word) => ({
-            text: options.lineText
-              ? options.lineText(word.text, meetingWords(state).here)
-              : word.text,
-            ms: baseMs + word.ms,
-          })),
-        )
-      : [];
+    const heard = segment.words ?? [];
+    const written = options.lineWords?.(
+      segment.text,
+      heard.map((word) => word.text),
+      meetingWords(state).here,
+    );
+    const words = alignWords(
+      text,
+      heard.map((word, at) => ({ text: written?.[at] ?? word.text, ms: baseMs + word.ms })),
+    );
     const cue: Cue = {
       startMs,
       endMs: baseMs + segment.endMs,

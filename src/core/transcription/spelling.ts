@@ -6,6 +6,7 @@
  * can't say which was said, so neither is written. A name with a Chinese character is never
  * written this way: characters read the same are everyday words as often as names (高新 for 高欣).
  */
+import { wordPlaces } from "../../shared/wordTimes";
 import { fold, namesAndParts, toldKeys } from "./context";
 import { latinSound } from "./sounds";
 
@@ -74,6 +75,8 @@ interface Span {
   from: number;
   until: number;
   heard: readonly string[];
+  /** Where each heard word starts. */
+  starts: readonly number[];
 }
 
 /** The runs of words written as names, by their sound, for the sounds a told name has. */
@@ -82,32 +85,36 @@ function spansOf(text: string, told: Told): Map<string, Span[]> {
   const spans = new Map<string, Span[]>();
   for (const [start, first] of found.entries()) {
     const heard: string[] = [];
+    const starts: number[] = [];
     let until = first.at;
     for (const each of found.slice(start, start + told.longest)) {
       if (!writtenAsName(each.word)) break;
       if (heard.length > 0 && !BETWEEN.test(text.slice(until, each.at))) break;
       heard.push(each.word);
+      starts.push(each.at);
       until = each.at + each.word.length;
       const sound = latinSound(heard.join(" "));
       if (!told.sounds.has(sound)) continue;
-      const span = { from: first.at, until, heard: [...heard] };
+      const span = { from: first.at, until, heard: [...heard], starts: [...starts] };
       spans.set(sound, [...(spans.get(sound) ?? []), span]);
     }
   }
   return spans;
 }
 
-/** `text` with the words that sound the same as a told name written as the name. */
-export function inToldSpelling(text: string, words: readonly string[]): string {
+type Swap = Pick<Span, "from" | "until" | "starts"> & { name: string };
+
+/** Where `text` holds words that sound the same as a told name, with the name, in the text's order. */
+function swapsIn(text: string, words: readonly string[]): Swap[] {
   const told = toldOf(words);
-  if (told.sounds.size === 0) return text;
+  if (told.sounds.size === 0) return [];
   const spans = spansOf(text, told);
-  if (spans.size === 0) return text;
+  if (spans.size === 0) return [];
 
   const taken = new Uint8Array(text.length);
   const free = (from: number, until: number) => !taken.subarray(from, until).includes(1);
   const lower = fold(text);
-  const swaps: { from: number; until: number; name: string }[] = [];
+  const swaps: Swap[] = [];
   for (const { name, sound, parts, longest } of told.names) {
     const key = fold(name);
     // A told name already written keeps its place, whatever its case.
@@ -116,7 +123,7 @@ export function inToldSpelling(text: string, words: readonly string[]): string {
         if (free(at, at + key.length)) taken.fill(1, at, at + key.length);
       }
     }
-    for (const { from, until, heard } of spans.get(sound) ?? []) {
+    for (const { from, until, heard, starts } of spans.get(sound) ?? []) {
       if (heard.length > longest || text.slice(from, until) === name || !free(from, until)) {
         continue;
       }
@@ -124,12 +131,40 @@ export function inToldSpelling(text: string, words: readonly string[]): string {
       if (heard.some((word) => told.keys.has(fold(word)) && !parts.has(fold(word)))) continue;
       if (heard.length === 1 && OPENS.test(text.slice(0, from))) continue;
       taken.fill(1, from, until);
-      swaps.push({ from, until, name });
+      swaps.push({ from, until, name, starts });
     }
   }
+  return swaps.sort((a, b) => a.from - b.from);
+}
+
+/** `text` with the words that sound the same as a told name written as the name. */
+export function inToldSpelling(text: string, words: readonly string[]): string {
   let out = text;
-  for (const swap of swaps.sort((a, b) => b.from - a.from)) {
+  for (const swap of swapsIn(text, words).reverse()) {
     out = out.slice(0, swap.from) + swap.name + out.slice(swap.until);
   }
   return out;
+}
+
+/**
+ * The transcriber's own words of `text`, in order, each as `inToldSpelling` writes it there, so
+ * each is found in the line as written and keeps its time (#138). A word alone can't say this: it
+ * opens its own text, and the same spelling may stand twice in a line, written as the name once.
+ * The words heard for a told name are the name's, one for one; where the name has more or fewer
+ * words than were heard, it stands whole for the first of them and the rest are left out.
+ */
+export function wordsInToldSpelling(
+  text: string,
+  heard: readonly string[],
+  words: readonly string[],
+): string[] {
+  const swaps = swapsIn(text, words);
+  if (swaps.length === 0) return [...heard];
+  return wordPlaces(text, heard).map((at, index) => {
+    const swap = swaps.find((each) => each.from <= at && at < each.until);
+    if (!swap) return heard[index] ?? "";
+    const parts = swap.name.split(/\s+/u);
+    if (parts.length !== swap.starts.length) return at === swap.from ? swap.name : "";
+    return parts[swap.starts.indexOf(at)] ?? "";
+  });
 }
