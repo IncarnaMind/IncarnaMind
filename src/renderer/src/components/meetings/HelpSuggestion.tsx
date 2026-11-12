@@ -26,7 +26,10 @@ import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
 
-/** A help Answer, as the core writes it: loaded once, then each write as it streams. */
+/**
+ * A help Answer, as the core writes it: loaded once, then each write as it streams. Only this
+ * help's: never the Answer of a help before it, for which a load may still come back (#3005).
+ */
 export function useHelpAnswer(
   help: { conversationId: string; answerId: string } | null,
 ): ConversationAnswer | null {
@@ -34,7 +37,6 @@ export function useHelpAnswer(
   const conversationId = help?.conversationId;
   const answerId = help?.answerId;
   useEffect(() => {
-    setAnswer(null);
     if (!conversationId || !answerId) return;
     let live = true;
     const stop = core.on("conversation.message", (message) => {
@@ -43,7 +45,9 @@ export function useHelpAnswer(
     core.getConversation(conversationId).then(
       ({ messages }) => {
         const found = messages.find((message) => message.id === answerId);
-        if (found?.kind === "answer") setAnswer((now) => now ?? found);
+        if (live && found?.kind === "answer") {
+          setAnswer((now) => (now?.id === answerId ? now : found));
+        }
       },
       // Deleted meanwhile: the panel shows no suggestion.
       () => undefined,
@@ -53,7 +57,7 @@ export function useHelpAnswer(
       stop();
     };
   }, [conversationId, answerId]);
-  return answer;
+  return answer !== null && answer.id === answerId ? answer : null;
 }
 
 /**
