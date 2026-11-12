@@ -222,7 +222,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(checked).toContainText(
         language === "en"
           ? "Couldn’t tell whether 1 sentence needs checking"
-          : "无法判断 1 句是否需要核对",
+          : "1 句未能判断是否需要核对",
       );
       // Named on this line with no action of its own (#2313), and counted under not checked, so
       // the rows add up to the sentences (#2831): the card's own Check runs the check again.
@@ -377,7 +377,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
   );
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this note’s sentence against your Documents?");
+  await expect(ask).toContainText("Check 1 sentence in this note against your Documents?");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
@@ -392,7 +392,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   );
   // Check every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
   await expect(window.getByTestId("check-card").getByTestId("mind-check-ask")).toContainText(
-    "Check this note’s 15 sentences against your Documents?",
+    "Check 15 sentences in this note against your Documents?",
   );
 });
 
@@ -951,7 +951,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await window.keyboard.press("Enter");
   const ask = card.getByTestId("mind-check-ask");
   // Every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
-  await expect(ask).toContainText("Check this note’s 15 sentences against your Documents?");
+  await expect(ask).toContainText("Check 15 sentences in this note against your Documents?");
   await expect(unchanged).toHaveCount(0);
   expect(await modelRequests(window)).toBe(sent);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));

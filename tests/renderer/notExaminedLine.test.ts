@@ -91,7 +91,7 @@ describe.each([
     "Couldn’t tell whether 1 sentence needs checking",
     "Couldn’t tell whether 3 sentences need checking",
   ],
-  ["zh-CN", "无法判断 1 句是否需要核对", "无法判断 3 句是否需要核对"],
+  ["zh-CN", "1 句未能判断是否需要核对", "3 句未能判断是否需要核对"],
 ] as const)("the line under the check in %s", (language, one, three) => {
   test("counts one sentence and several it couldn't tell are claims, with no action of its own", async () => {
     const single = await lineOf(language, 1);

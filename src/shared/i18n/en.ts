@@ -1718,11 +1718,12 @@ export const en = {
   "mindCheck.command.purpose":
     "Checks this note’s Citations, sentences and figures against your Documents, and contradictions in its Folder",
   "mindCheck.ask.unestimated": "The cost couldn’t be estimated",
-  "mindCheck.ask.claims.folder.one": "Check this note’s sentence against this Folder’s Documents?",
+  "mindCheck.ask.claims.folder.one":
+    "Check 1 sentence in this note against this Folder’s Documents?",
   "mindCheck.ask.claims.folder":
-    "Check this note’s {count} sentences against this Folder’s Documents?",
-  "mindCheck.ask.claims.all.one": "Check this note’s sentence against your Documents?",
-  "mindCheck.ask.claims.all": "Check this note’s {count} sentences against your Documents?",
+    "Check {count} sentences in this note against this Folder’s Documents?",
+  "mindCheck.ask.claims.all.one": "Check 1 sentence in this note against your Documents?",
+  "mindCheck.ask.claims.all": "Check {count} sentences in this note against your Documents?",
   "mindCheck.check": "Check",
   "mindCheck.cancel": "Not now",
   "verify.command": "Check someone else’s file…",
@@ -7678,8 +7679,8 @@ export const en = {
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
   "selfCheck.checkedOnly": "Checked {checked} sentences",
   "selfCheck.checkedOnly.one": "Checked 1 sentence",
-  "selfCheck.leftPart": "{left} claims not checked yet",
-  "selfCheck.leftPart.one": "1 claim not checked yet",
+  "selfCheck.leftPart": "{left} sentences not checked yet",
+  "selfCheck.leftPart.one": "1 sentence not checked yet",
   "selfCheck.costCap": "{count} sentences couldn’t be checked: spending cap reached",
   "selfCheck.costCap.one": "1 sentence couldn’t be checked: spending cap reached",
   "selfCheck.changeCap": "Change the cap",

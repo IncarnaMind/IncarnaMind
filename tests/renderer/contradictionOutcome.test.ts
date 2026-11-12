@@ -28,26 +28,26 @@ describe("What a check for contradictions found, in parts of a line", () => {
   test("says what it found, and how many sentences weren't checked", () => {
     expect(both(run({ contradicted: 2 }))).toEqual([
       ["2 of 12 cited sentences contradicted"],
-      ["12 句有引用的句子中有 2 句与文档矛盾"],
+      ["有引用的 12 句中有 2 句与文档矛盾"],
     ]);
     expect(both(run({ checked: 9, contradicted: 2 }))).toEqual([
       ["2 of 12 cited sentences contradicted", "3 not checked"],
-      ["12 句有引用的句子中有 2 句与文档矛盾", "3 句未核对"],
+      ["有引用的 12 句中有 2 句与文档矛盾", "3 句未核对"],
     ]);
     expect(both(run({ checked: 9 }))).toEqual([
       ["No contradictions in 12 cited sentences", "3 not checked"],
-      ["12 句有引用的句子之间没有矛盾", "3 句未核对"],
+      ["有引用的 12 句都没有发现矛盾", "3 句未核对"],
     ]);
   });
 
   test("sentences none of which could be checked, offline say, are never called free of contradictions", () => {
     expect(both(run({ checked: 0 }))).toEqual([
       ["None of the 12 cited sentences could be checked"],
-      ["12 句有引用的句子都未能核对"],
+      ["有引用的 12 句都未能核对"],
     ]);
     expect(both(run({ claims: 1, checked: 0 }))).toEqual([
       ["The cited sentence couldn’t be checked"],
-      ["这 1 句有引用的句子未能核对"],
+      ["有引用的这 1 句未能核对"],
     ]);
   });
 

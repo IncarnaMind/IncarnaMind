@@ -47,8 +47,8 @@ const REPORT = [
 const WORDS = {
   en: {
     request: "Add a revenue table for checking",
-    line: "Checked 12 sentences · 10 claims not checked yet",
-    lineAfter: "· 0 claims not checked yet",
+    line: "Checked 12 sentences · 10 sentences not checked yet",
+    lineAfter: "· 0 sentences not checked yet",
     rest: "Check",
     badgeWords: "Not checked",
     badgeName: "Not checked",
@@ -63,8 +63,8 @@ const WORDS = {
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
-    line: "已核对 12 句 · 10 条说法待核对",
-    lineAfter: "· 0 条说法待核对",
+    line: "已核对 12 句 · 10 句待核对",
+    lineAfter: "· 0 句待核对",
     rest: "核对",
     badgeWords: "未核对",
     badgeName: "未核对",
