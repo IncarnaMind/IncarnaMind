@@ -621,6 +621,17 @@ describe("the three states of a night", () => {
     expect(night.text).toContain("**not measured**");
   });
 
+  // protects=a night with hundreds of failing cases hands the report a bounded list, in order; fails_when=the status grows with the failures until it no longer fits a job's output; no_claim=none.
+  test("red: hundreds of failing cases are cut to the first ones", () => {
+    const cases = Array.from({ length: 400 }, (_, index) => ({
+      name: `case ${index}`,
+      passed: false,
+    }));
+    const night = summary([attempt(live, { exitCode: 1, cases })], "2026-11-12");
+    expect(night.status.red).toHaveLength(150);
+    expect(night.status.red[0]).toBe("Live tests on Claude: case 0");
+  });
+
   // protects=a step that failed with every case passing, or that ran no case, is red in plain words, not a gap; fails_when=a step that broke before its first case reads as not measured; no_claim=none.
   test("red: a step that reported no case", () => {
     const night = summary([attempt(live, { exitCode: 1, cases: [] })], "2026-11-12");

@@ -62,6 +62,19 @@ describe("first red, carried from the issue's body", () => {
   });
 });
 
+describe("a huge night", () => {
+  // protects=hundreds of long failing names from both workflows still make an issue GitHub accepts (under 65,536 characters), with the rest counted; fails_when=a night with many failures writes a body GitHub refuses, so the issue stops being updated; no_claim=none.
+  test("fits an issue, and counts what it leaves out", () => {
+    const names = (prefix: string) =>
+      Array.from({ length: 400 }, (_, index) => `${prefix} ${index} ${"x".repeat(300)}`);
+    const first = bodyOf(plan(night({ red: names("a") }), null));
+    const both = bodyOf(plan(night({ workflow: "Nightly real models", red: names("b") }), first));
+    expect(both.length).toBeLessThan(65_536);
+    expect(both.match(/^\| `/gm)).toHaveLength(200);
+    expect(both.match(/…and 300 more/g)).toHaveLength(2);
+  });
+});
+
 describe("the three states", () => {
   // protects=a night is red, not measured or green, each in its own words, and the date nothing was measured since is said; fails_when=a night with no credit reads as red or green, or the issue forgets since when; no_claim=none.
   test("red, not measured and green are told apart", () => {

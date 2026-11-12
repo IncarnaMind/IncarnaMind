@@ -348,8 +348,8 @@ export interface Result extends Attempt {
 
 const cell = (text: string) => text.replace(/\|/g, "\\|");
 
-/** The most failing cases a night hands the report, so that it fits a job's output. */
-const MAX_RED = 300;
+/** The most failing cases a night hands the report, so that they fit in a job's output and the report job's environment. */
+const MAX_RED = 150;
 
 const gapOf = (step: Step, why: string): Gap => ({
   what: `${step.name} (${PROVIDER_NAMES[step.provider]})`,
