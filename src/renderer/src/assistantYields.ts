@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react";
-import type { AssistantDock, LayoutGroup, LayoutTab, WindowLayout } from "../../core/api";
+import type {
+  AssistantDock,
+  CitedOrigin,
+  LayoutGroup,
+  LayoutTab,
+  WindowLayout,
+} from "../../core/api";
 import {
   GAP,
   groupsMergedAt,
@@ -9,7 +15,6 @@ import {
   shownDock,
   sideWidth,
 } from "./assistantPlace";
-import type { CitedOrigin } from "./editor/mindContext";
 import { useCardWidth } from "./layoutSlice";
 import { quietAssistantNow } from "./quietAssistant";
 import { useAppStore } from "./store";
