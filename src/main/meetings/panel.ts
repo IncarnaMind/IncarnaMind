@@ -3,8 +3,10 @@
  * buttons' global shortcuts.
  *
  * The panel is a small window above the meeting app, full screen included,
- * that never takes the focus from it: a non-activating panel on macOS, a
- * window that can't be focused elsewhere. It appears when a Meeting starts
+ * that never takes the focus from it by itself: a non-activating panel on macOS, a
+ * window that can't be focused elsewhere. Only its field takes the keyboard, while
+ * the User writes a quick note in it (#2925): its page asks, on a click there, ⌃⌥N
+ * or ⌘K's Quick note, and gives it back on Esc or collapse. It appears when a Meeting starts
  * recording, if Settings › Meetings says so, and goes when it stops; the
  * User can close it until the next meeting. It is kept out of the User's
  * own screen share where the system honours content protection (macOS,
@@ -110,6 +112,10 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
 
   /** What the panel's page last said of itself; reset when a panel opens. */
   let reported = { folded: false, pinned: false };
+  /** The page has said its state, so its listeners are in place; reset when a panel opens. */
+  let pageReady = false;
+  /** ⌃⌥N or ⌘K asked for the field while the panel was still opening. */
+  let noteWaiting = false;
   const panelState = (): PanelState => ({ shown: !!panel, ...reported });
   const tellShown = () => {
     for (const window of options.appWindows()) {
@@ -139,6 +145,41 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       );
   }
 
+  /** Opens the panel if it isn't shown, and asks its page to put the cursor in its field. */
+  function quickNote(): void {
+    if (!liveMeeting()) return;
+    if (!panel) choose(true);
+    if (panel && pageReady) panel.webContents.send(MEETING_PANEL_CHANNELS.command, "note");
+    else noteWaiting = true;
+  }
+
+  /**
+   * The one way the panel becomes focusable: its page asked, for its field. On macOS a panel
+   * takes the keys without making IncarnaMind the active app, so the meeting app stays in front.
+   */
+  function takeKeyboard(window: BrowserWindow): void {
+    if (!window.isVisible()) {
+      window.once("show", () => takeKeyboard(window));
+      return;
+    }
+    window.setFocusable(true);
+    // Windows puts a focusable window on the taskbar.
+    window.setSkipTaskbar(true);
+    window.focus();
+    window.webContents.focus();
+  }
+
+  /**
+   * Back to unfocusable, so a click on a prompt leaves the keys where they are. Off macOS that
+   * also moves the foreground to the window under the panel, which is the app that had it as a
+   * rule; macOS needs the blur, after which the active app's window has the keys again.
+   */
+  function giveKeyboardBack(window: BrowserWindow): void {
+    if (!window.isFocusable()) return;
+    if (mac && window.isFocused()) window.blur();
+    window.setFocusable(false);
+  }
+
   function press(kind: HelpShortcut): void {
     if (kind === "panel") {
       choose(!panel);
@@ -146,6 +187,10 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     }
     if (kind === "mic") {
       toggleMicrophone();
+      return;
+    }
+    if (kind === "note") {
+      quickNote();
       return;
     }
     if (panel && !panel.isDestroyed()) {
@@ -246,6 +291,8 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     themeWindow(window, "sheet");
     panel = window;
     reported = { folded: false, pinned: false };
+    pageReady = false;
+    noteWaiting = false;
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,
@@ -259,6 +306,8 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       const bounds = window.getBounds();
       corner = { right: bounds.x + bounds.width, top: bounds.y };
     });
+    // The User clicked into another app: the next click on a prompt mustn't take the keys back.
+    window.on("blur", () => giveKeyboardBack(window));
     window.on("closed", () => {
       if (panel === window) {
         panel = null;
@@ -303,6 +352,11 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   ipcMain.on(MEETING_PANEL_CHANNELS.close, (event) => {
     if (fromPanel(event)) choose(false);
   });
+  ipcMain.on(MEETING_PANEL_CHANNELS.keyboard, (event, take: unknown) => {
+    if (!fromPanel(event) || !panel || typeof take !== "boolean") return;
+    if (take) takeKeyboard(panel);
+    else giveKeyboardBack(panel);
+  });
   ipcMain.on(MEETING_PANEL_CHANNELS.setUp, (event) => {
     if (!fromPanel(event)) return;
     const [front] = options.appWindows();
@@ -340,15 +394,21 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     if (options.trusted(event)) event.sender.send(FILES_CHANNELS.meetingPanel, panelState());
   });
   ipcMain.on(FILES_CHANNELS.meetingPanelCommand, (event, command: unknown) => {
-    if (!options.trusted(event) || (command !== "pin" && command !== "fold")) return;
-    if (panel && !panel.isDestroyed())
+    if (!options.trusted(event)) return;
+    if (command === "note") quickNote();
+    else if ((command === "pin" || command === "fold") && panel && !panel.isDestroyed())
       panel.webContents.send(MEETING_PANEL_CHANNELS.command, command);
   });
   ipcMain.on(MEETING_PANEL_CHANNELS.state, (event, state: unknown) => {
-    if (!fromPanel(event) || !isRecord(state)) return;
+    if (!fromPanel(event) || !panel || !isRecord(state)) return;
     const { folded, pinned } = state;
     if (typeof folded !== "boolean" || typeof pinned !== "boolean") return;
     reported = { folded, pinned };
+    pageReady = true;
+    if (noteWaiting) {
+      noteWaiting = false;
+      panel.webContents.send(MEETING_PANEL_CHANNELS.command, "note");
+    }
     tellShown();
   });
 

@@ -11660,6 +11660,15 @@ export interface SetMeetingMicrophoneInput {
   paused: boolean;
 }
 
+/** A line or a few typed in the call-help panel's field (#2925). */
+export interface AddQuickNoteInput {
+  meetingId: string;
+  /** One paragraph a line; lines that hold only spaces are left out. */
+  text: string;
+  /** The Meeting's time, in ms, when typing began; null when it wasn't recording then. */
+  atMs: number | null;
+}
+
 /** How loud each source of a recording Meeting is now, from 0 (silence) to 1. */
 export interface MeetingLevel {
   meetingId: string;
@@ -14459,6 +14468,14 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /**
+   * A quick note from the call-help panel (#2925), while the Meeting records or is paused: each
+   * line a paragraph of the User's own text at the end of its Note, after the last line that holds
+   * anything, the first with `atMs` as its time, capped at the Meeting's time now. It reaches an
+   * open copy of the Note as the core's change, not as a step of that editor's Undo:
+   * `undoAddToNote` takes it back. InvalidInputError for no text or a Meeting not live.
+   */
+  addQuickNote(input: AddQuickNoteInput): Promise<AddedToNote>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15220,6 +15237,7 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  addQuickNote: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

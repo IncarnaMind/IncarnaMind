@@ -1,8 +1,14 @@
 import { DOMParser } from "linkedom";
-import { act, type ComponentType, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { ComponentType } from "react";
+import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Meeting, MeetingHelpKind, MeetingHelpTemplate } from "../../src/core/api";
+import type {
+  AddedToNote,
+  Meeting,
+  MeetingHelpKind,
+  MeetingHelpTemplate,
+  UndoAddToNoteResult,
+} from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { askBarKinds } from "../../src/renderer/src/meetingPanel/askBarKinds";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
@@ -19,12 +25,48 @@ vi.mock("../../src/renderer/src/meetingHelp", async () => {
 });
 vi.mock("../../src/renderer/src/motion", () => ({ exit: vi.fn() }));
 
+/** A page as the panel's, with its typing events: React reads the field's typing only when it finds them as it loads. */
+function newPage() {
+  const document = new DOMParser().parseFromString(
+    "<html><head></head><body></body></html>",
+    "text/html",
+  );
+  Object.assign(document, { oninput: null });
+  const window = document.defaultView;
+  for (const [name, value] of Object.entries({
+    document,
+    window,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Event: window.Event,
+    Node: window.Node,
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    vi.stubGlobal(name, value);
+  }
+  return document;
+}
+newPage();
+const { act, createElement } = await import("react");
+const { createRoot } = await import("react-dom/client");
+
 type Keys = Partial<Record<MeetingHelpKind, string>>;
 interface AskBarProps {
   meeting: Meeting;
   keys: Keys;
+  noteWanted: boolean;
   onAsk(kind: MeetingHelpKind): void;
   onReach(reach: number): void;
+  onTakeKeyboard(): void;
+  onNoteTaken(): void;
+  notes: {
+    add(text: string, atMs: number | null): Promise<AddedToNote>;
+    undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
+  };
 }
 
 describe("the ask bar's prompts, in order", () => {
@@ -52,33 +94,32 @@ let usePending: {
 };
 const onAsk = vi.fn<(kind: MeetingHelpKind) => void>();
 const onReach = vi.fn<(reach: number) => void>();
+const onTakeKeyboard = vi.fn<() => void>();
+const onNoteTaken = vi.fn<() => void>();
+const ADDED: AddedToNote = { mindId: "mind-1", blockIds: ["block-1"] };
+const notes = {
+  add: vi.fn<(text: string, atMs: number | null) => Promise<AddedToNote>>(),
+  undo: vi.fn<(added: AddedToNote) => Promise<UndoAddToNoteResult>>(),
+};
 
-const meetingOf = (helpTemplate: MeetingHelpTemplate | null): Meeting =>
-  ({ id: "meeting-1", helpTemplate }) as Meeting;
+/** Recording since 12:00:00 with 4 min 7 s already recorded before it, or paused at 4:07. */
+const RECORDING_SINCE = "2026-11-12T12:00:00.000Z";
+const meetingOf = (
+  helpTemplate: MeetingHelpTemplate | null,
+  status: "recording" | "paused" = "recording",
+): Meeting =>
+  ({
+    id: "meeting-1",
+    helpTemplate,
+    status,
+    recordedMs: 247_000,
+    recordingSince: status === "recording" ? RECORDING_SINCE : null,
+  }) as Meeting;
 
 beforeEach(async () => {
   vi.clearAllMocks();
   state.language.current = "en";
-  const document = new DOMParser().parseFromString(
-    "<html><head></head><body></body></html>",
-    "text/html",
-  );
-  const window = document.defaultView;
-  for (const [name, value] of Object.entries({
-    document,
-    window,
-    HTMLElement: window.HTMLElement,
-    Element: window.Element,
-    Event: window.Event,
-    Node: window.Node,
-    ResizeObserver: class {
-      observe() {}
-      disconnect() {}
-    },
-    IS_REACT_ACT_ENVIRONMENT: true,
-  })) {
-    vi.stubGlobal(name, value);
-  }
+  const document = newPage();
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -98,9 +139,24 @@ afterEach(async () => {
 
 const KEYS: Keys = { say: "⌃⌥1", answer: "⌃⌥2", want: "⌃⌥3", sum: "⌃⌥4", no: "⌃⌥5" };
 
-async function show(template: MeetingHelpTemplate | null = null, keys: Keys = KEYS) {
+async function show(
+  template: MeetingHelpTemplate | null = null,
+  keys: Keys = KEYS,
+  { meeting = meetingOf(template), noteWanted = false }: { meeting?: Meeting; noteWanted?: boolean } = {},
+) {
   await act(async () =>
-    root?.render(createElement(AskBar, { meeting: meetingOf(template), keys, onAsk, onReach })),
+    root?.render(
+      createElement(AskBar, {
+        meeting,
+        keys,
+        noteWanted,
+        onAsk,
+        onReach,
+        onTakeKeyboard,
+        onNoteTaken,
+        notes,
+      }),
+    ),
   );
 }
 
@@ -137,8 +193,39 @@ const fire = (target: Element, type: string) =>
     target.dispatchEvent(new window.Event(type, { bubbles: true }));
   });
 
+const field = () => one("quick-note-field") as HTMLTextAreaElement;
+
+/** Types into the field as a browser does: its value changes, then an input event. */
+async function type(value: string) {
+  await act(async () => {
+    const element = field();
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set;
+    setter?.call(element, value);
+    element.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+}
+
+/** A key pressed in the field; `composing` while an input method holds the text. */
+async function press(key: string, { shift = false, composing = false } = {}): Promise<Event> {
+  const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+  Object.assign(event, {
+    key,
+    shiftKey: shift,
+    isComposing: composing,
+    keyCode: composing ? 229 : 0,
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  return event;
+}
+
+const slashRows = () => all("help-slash-list").flatMap((list) => promptsIn(list).map(([kind]) => kind));
+const chosenRow = () =>
+  all("help-prompt").find((each) => each.getAttribute("aria-selected") === "true")?.getAttribute("data-kind");
+
 describe("the ask bar", () => {
-  test("shows three prompts with their keys, then More…, and no list", async () => {
+  test('shows three prompts with their keys, then More… with "/", the field, and no list', async () => {
     await show();
     const bar = one("ask-bar");
     expect(promptsIn(bar)).toEqual([
@@ -146,21 +233,21 @@ describe("the ask bar", () => {
       ["answer", "⌃⌥2"],
       ["want", "⌃⌥3"],
     ]);
-    expect(bar.textContent).toBe(
-      "What should I say?⌃⌥1Answer their question⌃⌥2What do they want?⌃⌥3More…",
-    );
+    expect(one("help-more").textContent).toBe("More…/");
+    expect(field().getAttribute("placeholder")).toBe("Note for this meeting…");
     expect(one("help-more").getAttribute("aria-expanded")).toBe("false");
     expect(all("help-more-list")).toHaveLength(0);
+    expect(all("help-slash-list")).toHaveLength(0);
   });
 
-  test('shows no key where none is held, and no "/" on More…', async () => {
+  test('shows no key where none is held, and More… keeps its "/", which is the field\'s', async () => {
     await show(null, {});
     expect(promptsIn(one("ask-bar"))).toEqual([
       ["say", null],
       ["answer", null],
       ["want", null],
     ]);
-    expect(one("help-more").textContent).toBe("More…");
+    expect(one("help-more").textContent).toBe("More…/");
   });
 
   test("a row has no tooltip while its label fits", async () => {
@@ -199,7 +286,8 @@ describe("the ask bar", () => {
   test("is in Chinese in a Chinese interface", async () => {
     state.language.current = "zh-CN";
     await show();
-    expect(one("help-more").textContent).toBe("更多…");
+    expect(one("help-more").textContent).toBe("更多…/");
+    expect(field().getAttribute("placeholder")).toBe("记一笔…");
   });
 
   test("More… opens the other four over the answers, with their keys", async () => {
@@ -280,5 +368,361 @@ describe("the ask bar", () => {
     expect(onReach).not.toHaveBeenLastCalledWith(0);
     await fire(one("help-more"), "click");
     expect(onReach).toHaveBeenLastCalledWith(0);
+  });
+});
+
+describe("the field, for quick notes (#2925)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(Date.parse("2026-11-12T12:00:10.000Z"));
+    notes.add.mockResolvedValue(ADDED);
+    notes.undo.mockResolvedValue({ kept: 0 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("Enter adds what was typed with the Meeting's time when typing began, says so in the field for 3 s, and leaves it empty for the next line", async () => {
+    await show();
+    await type("Ask about SSO");
+    vi.setSystemTime(Date.parse("2026-11-12T12:00:25.000Z"));
+    await type("Ask about SSO pricing");
+
+    const enter = await press("Enter");
+
+    expect(enter.defaultPrevented).toBe(true);
+    // 4:07 recorded before, and 10 s of this stretch when the first letter went in.
+    expect(notes.add.mock.calls).toEqual([["Ask about SSO pricing", 257_000]]);
+    expect(field().value).toBe("");
+    expect(field().getAttribute("placeholder")).toBe("Added to notes at 4:17");
+    expect(one("quick-note-undo").textContent).toBe("Undo");
+    await act(async () => vi.advanceTimersByTime(2_999));
+    expect(all("quick-note-undo")).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(all("quick-note-undo")).toHaveLength(0);
+    expect(field().getAttribute("placeholder")).toBe("Note for this meeting…");
+  });
+
+  test("the next line takes its own time, from when it was begun", async () => {
+    await show();
+    await type("First");
+    await press("Enter");
+    vi.setSystemTime(Date.parse("2026-11-12T12:01:00.000Z"));
+    await type("Second");
+    await press("Enter");
+    expect(notes.add.mock.calls).toEqual([
+      ["First", 257_000],
+      ["Second", 307_000],
+    ]);
+  });
+
+  test("Shift-Enter starts a new line and sends nothing", async () => {
+    await show();
+    await type("Budget");
+    const shiftEnter = await press("Enter", { shift: true });
+    expect(shiftEnter.defaultPrevented).toBe(false);
+    expect(notes.add).not.toHaveBeenCalled();
+  });
+
+  test("nothing, or only spaces, sends nothing", async () => {
+    await show();
+    await press("Enter");
+    await type("   \n ");
+    await press("Enter");
+    await fire(one("quick-note-send"), "click");
+    expect(notes.add).not.toHaveBeenCalled();
+  });
+
+  test("the send button adds it as Enter does", async () => {
+    await show();
+    await type("Owner is Dana");
+    await fire(one("quick-note-send"), "click");
+    expect(notes.add.mock.calls).toEqual([["Owner is Dana", 257_000]]);
+    expect(one("quick-note-send").getAttribute("aria-label")).toBe("Add to notes");
+  });
+
+  test("begun while the Meeting is paused, it has no time and the field says only that it went in", async () => {
+    await show(null, KEYS, { meeting: meetingOf(null, "paused") });
+    await type("Side chat");
+    await press("Enter");
+    expect(notes.add.mock.calls).toEqual([["Side chat", null]]);
+    expect(field().getAttribute("placeholder")).toBe("Added to notes");
+  });
+
+  test("in Chinese, the field says it went in at its time", async () => {
+    state.language.current = "zh-CN";
+    await show();
+    await type("问一下单点登录");
+    await press("Enter");
+    expect(field().getAttribute("placeholder")).toBe("已记入笔记 4:17");
+  });
+
+  test("Undo takes the quick note back and the field says nothing more", async () => {
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await fire(one("quick-note-undo"), "click");
+    expect(notes.undo.mock.calls).toEqual([[ADDED]]);
+    expect(all("quick-note-undo")).toHaveLength(0);
+    expect(field().getAttribute("placeholder")).toBe("Note for this meeting…");
+  });
+
+  test("Undo says so when the User changed the line since, and it stays", async () => {
+    notes.undo.mockResolvedValue({ kept: 1 });
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await fire(one("quick-note-undo"), "click");
+    expect(one("quick-note-problem").textContent).toBe("Kept the Block you edited");
+  });
+
+  test("a note that couldn't go in comes back into the field, with why", async () => {
+    notes.add.mockRejectedValue(new Error("The note is read-only."));
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    expect(field().value).toBe("Budget 40k");
+    expect(one("quick-note-problem").textContent).toBe("The note is read-only.");
+    expect(all("quick-note-undo")).toHaveLength(0);
+  });
+
+  test("an Enter that ends a Chinese input method's composition neither sends nor chooses; the next one does", async () => {
+    await show();
+    await type("记一笔");
+    const composing = await press("Enter", { composing: true });
+    expect(composing.defaultPrevented).toBe(false);
+    expect(notes.add).not.toHaveBeenCalled();
+    await press("Enter");
+    expect(notes.add.mock.calls).toEqual([["记一笔", 257_000]]);
+
+    await type("/su");
+    await press("Enter", { composing: true });
+    expect(onAsk).not.toHaveBeenCalled();
+    await press("Enter");
+    expect(onAsk.mock.calls).toEqual([["sum"]]);
+  });
+});
+
+describe('the "/" list (#2925)', () => {
+  test('"/su" lists Sum up so far first; Enter asks it and empties the field, adding no note', async () => {
+    await show();
+    await type("/su");
+    expect(slashRows()).toEqual(["sum", "say"]);
+    expect(chosenRow()).toBe("sum");
+    expect(field().getAttribute("aria-activedescendant")).toBe(
+      all("help-prompt").find((each) => each.getAttribute("data-kind") === "sum")?.id,
+    );
+
+    const enter = await press("Enter");
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(onAsk.mock.calls).toEqual([["sum"]]);
+    expect(notes.add).not.toHaveBeenCalled();
+    expect(field().value).toBe("");
+    expect(all("help-slash-list")).toHaveLength(0);
+  });
+
+  test("a bare \"/\" lists every prompt the meeting has, a template's too, in the bar's order then More…'s", async () => {
+    await show("team");
+    await type("/");
+    expect(slashRows()).toEqual([
+      "say",
+      "answer",
+      "want",
+      "decisions",
+      "disagree",
+      "sum",
+      "no",
+      "ask",
+      "check",
+    ]);
+  });
+
+  test("↓ and ↑ move through the list and wrap at its ends; a row pointed at is chosen too", async () => {
+    await show();
+    await type("/");
+    expect(chosenRow()).toBe("say");
+    await press("ArrowDown");
+    expect(chosenRow()).toBe("answer");
+    await press("ArrowUp");
+    await press("ArrowUp");
+    expect(chosenRow()).toBe("check");
+    await press("ArrowDown");
+    expect(chosenRow()).toBe("say");
+    const want = all("help-prompt").find((each) => each.getAttribute("data-kind") === "want");
+    if (!want) throw new Error("The list has no What do they want?");
+    // The pointer moves from the field onto the row, as a browser reports it.
+    await act(async () => {
+      const moved = new window.Event("mouseout", { bubbles: true });
+      Object.assign(moved, { relatedTarget: want });
+      field().dispatchEvent(moved);
+    });
+    expect(chosenRow()).toBe("want");
+    await press("Enter");
+    expect(onAsk.mock.calls).toEqual([["want"]]);
+  });
+
+  test("typing more starts again at the best match", async () => {
+    await show();
+    await type("/");
+    await press("ArrowDown");
+    await type("/c");
+    expect(chosenRow()).toBe(slashRows()[0]);
+  });
+
+  test('Esc closes the list and clears the "/", and goes no further', async () => {
+    await show();
+    await type("/su");
+    const escape = await press("Escape");
+    expect(escape.defaultPrevented).toBe(true);
+    expect(field().value).toBe("");
+    expect(all("help-slash-list")).toHaveLength(0);
+  });
+
+  test('a "/" later in a sentence opens nothing, and Enter adds the line', async () => {
+    await show();
+    await type("Price / seat is 45");
+    expect(all("help-slash-list")).toHaveLength(0);
+    await press("Enter");
+    expect(notes.add.mock.calls.map(([text]) => text)).toEqual(["Price / seat is 45"]);
+  });
+
+  test("nothing that matches says so, and Enter then does nothing", async () => {
+    await show();
+    await type("/xyz");
+    expect(one("help-slash-none").textContent).toBe("No matches");
+    await press("Enter");
+    expect(onAsk).not.toHaveBeenCalled();
+    expect(notes.add).not.toHaveBeenCalled();
+    expect(field().value).toBe("/xyz");
+  });
+
+  test('"/" closes More…, and More… closes "/" and clears it', async () => {
+    await show();
+    await fire(one("help-more"), "click");
+    await type("/");
+    expect(all("help-more-list")).toHaveLength(0);
+    expect(all("help-slash-list")).toHaveLength(1);
+    await fire(one("help-more"), "click");
+    expect(all("help-more-list")).toHaveLength(1);
+    expect(all("help-slash-list")).toHaveLength(0);
+    expect(field().value).toBe("");
+  });
+
+  test("Esc closes an open More… first, the innermost thing", async () => {
+    await show();
+    await fire(one("help-more"), "click");
+    const escape = await press("Escape");
+    expect(escape.defaultPrevented).toBe(true);
+    expect(all("help-more-list")).toHaveLength(0);
+  });
+
+  test("Esc with no list open is left for the panel, which gives the keyboard back, and the text stays", async () => {
+    await show();
+    await type("Unsent line");
+    const escape = await press("Escape");
+    expect(escape.defaultPrevented).toBe(false);
+    expect(field().value).toBe("Unsent line");
+  });
+});
+
+describe("a list left open (#2925)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const pointer = (type: "pointerleave" | "pointerenter") =>
+    act(async () => {
+      document.documentElement.dispatchEvent(new window.Event(type));
+    });
+
+  test("closes once the pointer has been off the panel for a second, as the panel can't see a click in the meeting app", async () => {
+    await show();
+    await fire(one("help-more"), "click");
+    await pointer("pointerleave");
+    await act(async () => vi.advanceTimersByTime(999));
+    expect(all("help-more-list")).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(all("help-more-list")).toHaveLength(0);
+  });
+
+  test("stays open while the pointer comes back to the panel within the second", async () => {
+    await show();
+    await fire(one("help-more"), "click");
+    await pointer("pointerleave");
+    await act(async () => vi.advanceTimersByTime(600));
+    await pointer("pointerenter");
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(all("help-more-list")).toHaveLength(1);
+  });
+
+  test('the "/" list closes the same way, its "/" cleared', async () => {
+    await show();
+    await type("/su");
+    await pointer("pointerleave");
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(all("help-slash-list")).toHaveLength(0);
+    expect(field().value).toBe("");
+  });
+
+  test("with no list open, the pointer leaving changes nothing", async () => {
+    await show();
+    await type("A line");
+    await pointer("pointerleave");
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(field().value).toBe("A line");
+  });
+});
+
+describe("the keyboard: the panel never takes it by itself (#2925)", () => {
+  test("not when it appears, on a click on a prompt, More… or a list's row, nor when an answer is asked for or arrives", async () => {
+    await show();
+    await fire(one("help-prompt"), "click");
+    await act(async () => usePending.setState({ pending: { "meeting-1": "say" } }));
+    await act(async () => usePending.setState({ pending: {} }));
+    await fire(one("help-more"), "click");
+    const sumUp = all("help-prompt").find((each) => each.getAttribute("data-kind") === "sum");
+    if (!sumUp) throw new Error("The list has no Sum up so far.");
+    await fire(sumUp, "click");
+    await fire(one("quick-note-send"), "click");
+    await show("sales");
+    expect(onTakeKeyboard).not.toHaveBeenCalled();
+    expect(onAsk.mock.calls).toEqual([["say"], ["sum"]]);
+  });
+
+  test("a press in the field takes it", async () => {
+    await show();
+    await fire(field(), "mousedown");
+    expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
+  });
+
+  test("⌃⌥N or ⌘K's Quick note takes it once, the cursor in the field, and a later render doesn't again", async () => {
+    const focus = vi.spyOn(window.HTMLElement.prototype, "focus");
+    await show(null, KEYS, { noteWanted: true });
+    expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
+    expect(onNoteTaken).toHaveBeenCalledTimes(1);
+    expect(focus.mock.contexts).toEqual([field()]);
+    await show(null, KEYS, { noteWanted: false });
+    await show("sales", KEYS, { noteWanted: false });
+    expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
+  });
+
+  test("while the field is being written in, a press on a prompt keeps the cursor there; otherwise it is left alone", async () => {
+    await show();
+    const mouseDown = async (target: Element) => {
+      const event = new window.Event("mousedown", { bubbles: true, cancelable: true });
+      await act(async () => {
+        target.dispatchEvent(event);
+      });
+      return event.defaultPrevented;
+    };
+    expect(await mouseDown(one("help-prompt"))).toBe(false);
+    // The field has the focus, as the browser reports it.
+    Object.defineProperty(document, "activeElement", { configurable: true, get: () => field() });
+    expect(await mouseDown(one("help-prompt"))).toBe(true);
+    expect(await mouseDown(one("help-more"))).toBe(true);
   });
 });

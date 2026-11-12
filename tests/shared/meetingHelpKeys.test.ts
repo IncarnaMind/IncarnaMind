@@ -19,6 +19,13 @@ describe("The shortcuts held during a call", () => {
     expect(helpShortcutLabel("mic")).toBe("meetings.mic.pause");
   });
 
+  test("a quick note has ⌃⌥N on macOS, listed after the seven helps and before Pause my mic (#2925)", () => {
+    expect(defaultHelpKeys("note", true)).toBe("Ctrl+Alt+N");
+    expect(defaultHelpKeys("note", false)).toBeNull();
+    expect(helpShortcutLabel("note")).toBe("meetings.quickNote");
+    expect(HELP_SHORTCUTS.slice(-2)).toEqual(["note", "mic"]);
+  });
+
   test("every macOS default is keys of its own a person can hold", () => {
     const keys = HELP_SHORTCUTS.map((shortcut) => defaultHelpKeys(shortcut, true));
     expect(new Set(keys).size).toBe(keys.length);

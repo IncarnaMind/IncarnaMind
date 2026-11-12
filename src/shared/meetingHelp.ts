@@ -97,24 +97,25 @@ export const isMeetingHelpKind = (value: unknown): value is MeetingHelpKind =>
 
 /**
  * The global shortcuts during a call, in Settings' order: Call help's, which shows or hides the
- * panel the buttons are in, then each general button's, then Pause my mic's.
+ * panel the buttons are in, then each general button's, then the quick note's, which puts the
+ * cursor in the panel's field (#2925), then Pause my mic's.
  */
-export const HELP_SHORTCUTS = ["panel", ...GENERAL_HELP, "mic"] as const;
+export const HELP_SHORTCUTS = ["panel", ...GENERAL_HELP, "note", "mic"] as const;
 export type HelpShortcut = (typeof HELP_SHORTCUTS)[number];
 
 export const isHelpShortcut = (value: unknown): value is HelpShortcut =>
   HELP_SHORTCUTS.some((shortcut) => shortcut === value);
 
-export const helpShortcutLabel = (shortcut: HelpShortcut): MessageKey =>
-  shortcut === "panel"
-    ? "meetings.callHelp"
-    : shortcut === "mic"
-      ? "meetings.mic.pause"
-      : helpLabel(shortcut);
+export function helpShortcutLabel(shortcut: HelpShortcut): MessageKey {
+  if (shortcut === "panel") return "meetings.callHelp";
+  if (shortcut === "note") return "meetings.quickNote";
+  if (shortcut === "mic") return "meetings.mic.pause";
+  return helpLabel(shortcut);
+}
 
 /**
- * A shortcut by default on macOS only: ⌃⌥1–7, ⌃⌥H and ⌃⌥M, which Zoom, Teams and Mac apps leave
- * free. Elsewhere none: the apps a call runs beside use Ctrl+Shift+1–9 (Excel's number formats),
+ * A shortcut by default on macOS only: ⌃⌥1–7, ⌃⌥H, ⌃⌥N and ⌃⌥M, which Zoom, Teams and Mac apps
+ * leave free. Elsewhere none: the apps a call runs beside use Ctrl+Shift+1–9 (Excel's number formats),
  * Ctrl+Alt is AltGr on many European layouts, and no app's keys can all be known. The buttons and
  * ⌘K do everything, and the User sets keys in Settings › Meetings.
  */
@@ -122,6 +123,7 @@ export function defaultHelpKeys(shortcut: HelpShortcut, mac: boolean): string | 
   if (!mac) return null;
   if (shortcut === "panel") return "Ctrl+Alt+H";
   if (shortcut === "mic") return "Ctrl+Alt+M";
+  if (shortcut === "note") return "Ctrl+Alt+N";
   return `Ctrl+Alt+${GENERAL_HELP.indexOf(shortcut) + 1}`;
 }
 

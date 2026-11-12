@@ -5,6 +5,7 @@ import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
+import { meetingTimeAt } from "../shared/blockTimes";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
@@ -7667,6 +7668,26 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetings.setTemplate(meetingId, template);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
+    addQuickNote: async (input) => {
+      const { meetingId, text, atMs } = isRecord(input) ? input : {};
+      const lines =
+        typeof text === "string"
+          ? text
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [];
+      if (lines.length === 0) throw new InvalidInputError("A quick note needs some text.");
+      if (atMs !== null && (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs < 0)) {
+        throw new InvalidInputError("atMs must be a time in the Meeting, in ms, or null.");
+      }
+      const meeting = meetings.get(meetingId);
+      if (meeting.status !== "recording" && meeting.status !== "paused") {
+        throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
+      }
+      const time = atMs === null ? null : Math.min(atMs, meetingTimeAt(meeting, Date.parse(now())));
+      return noteAdding.addLines(meeting.mindId, lines, time);
+    },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
     declineMeetingOffer: async (input) => {

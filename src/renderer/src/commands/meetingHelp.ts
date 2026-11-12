@@ -89,6 +89,18 @@ export const meetingHelpCommands: readonly Command[] = [
     run: () => files.showMeetingPanel(!useMeetingHelp.getState().panel.shown),
   },
   {
+    id: "meeting.quick-note",
+    label: "meetings.quickNote",
+    keywords: ["meetings.callHelp", "meetings.quickNote.placeholder"],
+    group: "main",
+    // It puts the cursor in the panel's field; Esc there gives the keyboard back.
+    reversible: true,
+    when: meetingsOn,
+    enabled: whileLive,
+    globalKeys: () => helpKeysLabel("note", useAppStore.getState().settings),
+    run: () => files.meetingPanelCommand("note"),
+  },
+  {
     id: "meeting.panel-fold",
     label: (_ctx, t) =>
       t(
