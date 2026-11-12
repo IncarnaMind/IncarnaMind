@@ -635,7 +635,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     expect(providers.sent("anthropic")).toBe(1);
   });
 
-  test("a save from a window with an older view never turns the switch on, and never moves when it was turned on", async () => {
+  test("a save from a window with an older view never turns the switch on, nor brings back the turn-on that turning it off ended", async () => {
     const dataDir = await createTempDataFolder();
     const providers = perProvider();
     const core = startCore(dataDir, { createChatModel: providers.createChatModel });
@@ -645,8 +645,8 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
       queryDatabase<{ value: string }>(
         dataDir,
         "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
-      ).map((row) => JSON.parse(row.value).automaticSince);
-    const since = stored();
+      ).map((row) => Object.keys(JSON.parse(row.value).automaticSince));
+    expect(stored()).toEqual([["https://api.anthropic.com"]]);
     const older = (await core.getLibrary()).settings;
     await core.saveLibrarySettings({ ...older, automatic: false });
 
@@ -655,7 +655,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
 
     expect(older.automatic).toBe(true);
     expect((await core.getLibrary()).settings.automatic).toBe(false);
-    expect(stored()).toEqual(since);
+    expect(stored()).toEqual([[]]);
     expect(held.tagging).toBe("off");
     expect(providers.sent("anthropic")).toBe(0);
   });

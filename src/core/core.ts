@@ -3944,6 +3944,8 @@ export function createCore(adapters: CoreAdapters): Core {
       const add = (service: ExternalService | null | undefined) => {
         if (service) services.set(service.id, service);
       };
+      // Local mode keeps everything on this computer, and the row's line there names no service.
+      if (embedding.localOnly()) return [];
       if (classifier.kind !== "automatic") {
         add(tagging.service(classifier));
         return [...services.values()];
@@ -6820,20 +6822,23 @@ export function createCore(adapters: CoreAdapters): Core {
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
       const before = library.chosenSettings();
-      library.saveSettings(input);
+      const named = new Set(library.saveSettings(input).map((service) => service.id));
       const after = library.chosenSettings();
-      // Turning tagging on where its line says what goes is the consent for where it sends now
-      // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
+      // Turning tagging on where its line says what goes is the consent for where it sends now,
+      // the services the turn-on named and no others (ADR-0022, #1617, #2982). Nothing else is: a
+      // save sends the switch as shown (#2308).
       const turnedOn = isRecord(input) && input.turnOn === true;
       const tagsAnew = JSON.stringify(after.classifier) !== JSON.stringify(before.classifier);
       const organizesAnew =
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
-      if (turnedOn) {
-        for (const service of await taggingServices()) consent.choose(["tagging"], service);
+      if (named.size > 0) {
+        for (const service of await taggingServices()) {
+          if (named.has(service.id)) consent.choose(["tagging"], service);
+        }
       }
-      if (turnedOn || organizesAnew) {
+      if (named.size > 0 || organizesAnew) {
         for (const service of await classificationServices()) {
-          consent.choose(["classification"], service);
+          if (organizesAnew || named.has(service.id)) consent.choose(["classification"], service);
         }
       }
       if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();

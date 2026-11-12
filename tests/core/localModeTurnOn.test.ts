@@ -147,6 +147,69 @@ describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
       },
     );
 
+    test.each([
+      { offInLocalMode: true, onAfter: false },
+      { offInLocalMode: false, onAfter: true },
+    ])(
+      "turned on for the cloud model before Local mode (turned off and on again in Local mode: $offInLocalMode): on once Local mode ends: $onAfter",
+      async ({ offInLocalMode, onAfter }) => {
+        const tagging = taggingModel(["Report"]);
+        const dataDir = await createTempDataFolder();
+        const core = startCore(dataDir, {
+          keychain: createMemoryKeychain(),
+          createChatModel: scriptedModels(tagging.model).createChatModel,
+          systemLanguages: () => [language],
+        });
+        try {
+          const provider = await core.saveChatProvider({
+            kind: "anthropic",
+            apiKey: "sk-ant-test",
+            modelId: "claude-haiku-5-5",
+          });
+          await core.saveLibrarySettings({
+            ...(await core.getLibrary()).settings,
+            classifier: {
+              kind: "chat",
+              choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+            },
+          });
+          await turnOn(core);
+          const before = await add(core, "Before.txt", "A report added before Local mode.");
+          await waitForTagging(core, [before.id]);
+          expect(tagging.requests).toHaveLength(1);
+
+          await core.setLocalOnly(true);
+          expect((await core.getLibrary()).settings.automatic).toBe(true);
+          if (offInLocalMode) {
+            await core.saveLibrarySettings({
+              ...(await core.getLibrary()).settings,
+              automatic: false,
+            });
+            await turnOn(core);
+          }
+          const held = offInLocalMode
+            ? await add(core, "季度报告.txt", "季度报告：本季度收入增长百分之十。")
+            : null;
+          await core.setLocalOnly(false);
+
+          expect((await core.getLibrary()).settings.automatic).toBe(onAfter);
+          const after = await add(core, "After.txt", "A memo added after Local mode.");
+          const states = await settled(core, [...(held ? [held.id] : []), after.id]);
+          if (onAfter) {
+            await tagging.requested(2);
+            expect(tagging.requests).toHaveLength(2);
+            expect(tagging.requests[1]?.text).toContain("A memo added after Local mode.");
+          } else {
+            expect(states.map((each) => each.tagging)).toEqual(["off", "off"]);
+            expect(tagging.requests).toHaveLength(1);
+            expect(turnedOnFor(dataDir)).toEqual([]);
+          }
+        } finally {
+          core.close();
+        }
+      },
+    );
+
     test("a model on this computer tags as before in Local mode", async () => {
       const tagging = taggingModel(["Report"]);
       const dataDir = await createTempDataFolder();
