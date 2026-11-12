@@ -9,18 +9,16 @@
  * A key the provider refuses (HTTP 401 or 403) stops them the same way, with no end of its
  * own: it holds until a key or model changes (#1505), as `resumeNow` says.
  */
-import { APICallError, RetryError } from "ai";
 import type { ProviderError } from "../api";
-import { JevRequestError } from "../providers/jev";
-import { classifyProviderError, SignInRouteError } from "../providers/providerErrors";
-import { retryAfterMs } from "../providers/retryAfter";
+import { classifyProviderError } from "../providers/providerErrors";
+import { SHORTEST_RATE_LIMIT_WAIT_MS, statedWaitMs } from "../providers/rateLimitWait";
 import type { PaceTimers } from "../sources/pace";
 
 export const RATE_LIMIT_PAUSE = {
   firstWaitMs: 30_000,
   longestWaitMs: 60 * 60_000,
   /** The least a pause lasts, for a `Retry-After` of 0 or a few milliseconds. */
-  shortestWaitMs: 1_000,
+  shortestWaitMs: SHORTEST_RATE_LIMIT_WAIT_MS,
 };
 
 export type RateLimitPause = ReturnType<typeof createRateLimitPause>;
@@ -49,25 +47,6 @@ export function createRateLimitPause(options: {
 
   const paused = () => until !== null && timers.now() < until;
 
-  /** How long a rate limit asks to wait (null: it doesn't say), or undefined when `error` isn't one. */
-  function limitOf(error: unknown): number | null | undefined {
-    if (classifyProviderError(error).kind !== "rate-limit") return undefined;
-    const retried = RetryError.isInstance(error) ? error.lastError : error;
-    // The AI SDK wraps the error of a stream's route in its own.
-    const cause =
-      retried instanceof Error && retried.cause instanceof SignInRouteError
-        ? retried.cause
-        : retried;
-    if (APICallError.isInstance(cause) && cause.responseHeaders) {
-      return retryAfterMs(new Headers(cause.responseHeaders), timers.now());
-    }
-    if (cause instanceof JevRequestError) return cause.retryAfterMs;
-    if (cause instanceof SignInRouteError && cause.resetsAt !== null) {
-      return Math.max(0, cause.resetsAt - timers.now());
-    }
-    return null;
-  }
-
   function hold(ends: number): void {
     wake?.abort();
     const mine = new AbortController();
@@ -94,7 +73,7 @@ export function createRateLimitPause(options: {
      * isn't a rate limit.
      */
     pause(error: unknown): number | null {
-      const asked = limitOf(error);
+      const asked = statedWaitMs(error, timers.now());
       if (asked === undefined) return null;
       const stated = asked !== null;
       const wait = Math.min(

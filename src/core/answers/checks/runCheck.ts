@@ -4,8 +4,10 @@
  * assistant's writing and the claim-check function. Each flow keeps its own order, landing and
  * what it does with the claims a stop leaves.
  *
- * - A provider that says to slow down has the claim sent again after each pause of
- *   `RATE_LIMIT_PAUSES_MS`, the run's other claims waiting too (../../runs/stop). Still limited
+ * - A provider that says to slow down for a stated time has the refused request sent again inside
+ *   its check once that time is over (../../runs/stop, #2944); past two minutes of waiting it is
+ *   "wait", and the run's later claims aren't sent. One that doesn't say has the claim sent again
+ *   after each pause of `RATE_LIMIT_PAUSES_MS`, the run's other claims waiting too; still limited
  *   after the last, it is "wait", and the run's later claims aren't sent.
  * - The monthly cap or a plan's limit is "stop": nothing more is sent, and the claim and every one
  *   after it are Not checked for its reason.
@@ -21,7 +23,13 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { BEFORE_REPLY } from "../../providers/modelRefusal";
 import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
-import { type ItemOutcome, RunItemError, RunItemGaveWay, runItems } from "../../runs/stop";
+import {
+  type ItemOutcome,
+  RunItemError,
+  RunItemGaveWay,
+  type RunRequests,
+  runItems,
+} from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
 import { failureOf, runFailureOf } from "./checkResults";
 import type { ClaimCheckRequest } from "./claimCheck";
@@ -96,13 +104,18 @@ type StreamPart =
 /** A model lent to a check, and what to tell when a reply comes to it some other way. */
 const lent = new WeakMap<PreparedChatModel, () => void>();
 
+/** How a check's requests go out: straight away, or through its run (`RunRequests.send`). */
+type Send = <R>(request: () => PromiseLike<R>) => PromiseLike<R>;
+
 /**
  * `prepared`, and whether a reply from its model has begun: a request refused before it was
- * sent, or one its provider turned away, began none. `heard` hears the first.
+ * sent, or one its provider turned away, began none. `heard` hears the first; `send` sends each
+ * request.
  */
 export function heardFrom(
   prepared: PreparedChatModel,
   heard?: () => void,
+  send: Send = (request) => request(),
 ): {
   prepared: PreparedChatModel;
   replied(): boolean;
@@ -119,12 +132,12 @@ export function heardFrom(
       middleware: {
         specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate }) => {
-          const result = await doGenerate();
+          const result = await send(doGenerate);
           hear();
           return result;
         },
         wrapStream: async ({ doStream }) => {
-          const result = await doStream();
+          const result = await send(doStream);
           const stream = result.stream.pipeThrough(
             new TransformStream<StreamPart, StreamPart>({
               transform(part, controller) {
@@ -204,26 +217,68 @@ const stopped = (): ClaimCheckResult => ({
   excluded: [],
 });
 
-/** The check, or `TimedOut` once the time limit passes; `read` hears its model reply. */
+/**
+ * The check, or `TimedOut` once the time limit passes; `read` hears its model reply. Its requests
+ * go through `requests` when given, and the time limit doesn't run while one waits on a rate limit.
+ */
 async function within(
   check: ClaimCheck,
   request: ClaimCheckRequest,
   run: CheckRun,
   read: () => void,
+  requests?: RunRequests,
 ): Promise<ClaimCheckResult> {
   const settled = new AbortController();
   const givenUp = new AbortController();
-  const heard = heardFrom(request.model, read);
+  const signal = AbortSignal.any([request.signal, givenUp.signal]);
+  /**
+   * The time limit is moved on by the time the check's requests waited on a rate limit: how many
+   * wait now, since when, the time waited not yet added, and whether the limit came during a wait.
+   */
+  let waiting = 0;
+  let since = 0;
+  let waited = 0;
+  let due = false;
+  let expire = (_ms: number) => undefined;
+  const hold = (on: boolean) => {
+    if (on) {
+      if (waiting++ === 0) since = run.timers.now();
+      return;
+    }
+    if (--waiting > 0) return;
+    waited += run.timers.now() - since;
+    if (!due) return;
+    due = false;
+    expire(waited);
+    waited = 0;
+  };
+  const heard = heardFrom(
+    request.model,
+    read,
+    requests && ((send) => requests.send(send, { signal, waiting: hold })),
+  );
   try {
     // A reply that never comes, even once its check is stopped, is given up on all the same.
     const ended = new Promise<ClaimCheckResult | TimedOut>((resolve) => {
-      run.timers.sleep(run.timeLimitMs, settled.signal).then(
-        () => {
-          givenUp.abort();
-          resolve(new TimedOut());
-        },
-        () => undefined,
-      );
+      expire = (ms) => {
+        run.timers.sleep(ms, settled.signal).then(
+          () => {
+            if (waiting > 0) {
+              due = true;
+              return;
+            }
+            if (waited > 0) {
+              expire(waited);
+              waited = 0;
+              return;
+            }
+            givenUp.abort();
+            resolve(new TimedOut());
+          },
+          () => undefined,
+        );
+      };
+      expire(run.timeLimitMs);
       if (request.signal.aborted) resolve(stopped());
       request.signal.addEventListener("abort", () => resolve(stopped()), {
         once: true,
@@ -231,11 +286,7 @@ async function within(
       });
     });
     const result = await Promise.race([
-      check({
-        ...request,
-        model: heard.prepared,
-        signal: AbortSignal.any([request.signal, givenUp.signal]),
-      }),
+      check({ ...request, model: heard.prepared, signal }),
       ended,
     ]);
     if (result instanceof TimedOut) throw result;
@@ -307,6 +358,10 @@ export async function runClaimChecks<I>(
     concurrency?: number;
     limitedAtOnce?: number;
     onOutcome?(item: I, outcome: CheckOutcome): void;
+    /** Hears the run's wait after a rate limit: when it ends, or null once it has. */
+    onPause?(until: number | null): void;
+    /** Hears each rate limit a check's request met. */
+    onLimit?(): void;
   },
 ): Promise<{
   outcomes: (CheckOutcome | null)[];
@@ -316,11 +371,17 @@ export async function runClaimChecks<I>(
   /** Whether a model replied to each item's check, on any of its tries. */
   const read = items.map(() => false);
   const attempt =
-    (index: number): CheckTry =>
+    (index: number, requests: RunRequests): CheckTry =>
     async (check, request) => {
-      const result = await within(check, request, run, () => {
-        read[index] = true;
-      });
+      const result = await within(
+        check,
+        request,
+        run,
+        () => {
+          read[index] = true;
+        },
+        requests,
+      );
       const failure = runFailureOf(result);
       if (failure) throw new RunItemError(failure);
       return result;
@@ -328,9 +389,9 @@ export async function runClaimChecks<I>(
   const { onOutcome } = run;
   const { outcomes, stop, outcomeError } = await runItems(
     items.map((item, index) => ({ item, index })),
-    async ({ item, index }): Promise<CheckOutcome> => {
+    async ({ item, index }, requests): Promise<CheckOutcome> => {
       try {
-        return { result: await each(item, attempt(index)) };
+        return { result: await each(item, attempt(index, requests)) };
       } catch (error) {
         if (error instanceof RunItemError || error instanceof RunItemGaveWay) throw error;
         if (error instanceof TimedOut) return timedOut(run);
@@ -342,6 +403,8 @@ export async function runClaimChecks<I>(
     {
       concurrency: run.concurrency ?? 1,
       ...(run.limitedAtOnce !== undefined && { limitedAtOnce: run.limitedAtOnce }),
+      ...(run.onPause && { onPause: run.onPause }),
+      ...(run.onLimit && { onLimit: run.onLimit }),
       signal: run.signal,
       // A sleep rejects only when the run is stopped, which ends the pause.
       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),

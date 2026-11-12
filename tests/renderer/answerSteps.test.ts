@@ -17,6 +17,7 @@ import {
   foldedWords,
   mindCallText,
 } from "../../src/renderer/src/answerStepWords";
+import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 
 /*
@@ -1240,20 +1241,34 @@ describe("the live step", () => {
     const step = live({ ...reply, toolCalls: [write(2)] }, { phase: "writing" });
     expect(step).toEqual({ kind: "call", call: { ...write(2), status: "running" } });
     const call = step.kind === "call" ? step.call : write(2);
-    expect(mindCallText(en, call, "Harbour notes")).toBe(
+    expect(mindCallText(en, call, "Harbour notes", "en")).toBe(
       "Checking 2 sentences in “Harbour notes”…",
     );
-    expect(mindCallText(zh, call, "Harbour notes")).toBe("正在核对“Harbour notes”中的 2 句话…");
+    expect(mindCallText(zh, call, "Harbour notes", "zh-CN")).toBe(
+      "正在核对“Harbour notes”中的 2 句话…",
+    );
     // A check that outlives the call keeps the row saying so, as one after the Run does (#2710).
-    expect(mindCallText(en, write(2), "Harbour notes")).toBe(
+    expect(mindCallText(en, write(2), "Harbour notes", "en")).toBe(
       "Checking 2 sentences in “Harbour notes”…",
+    );
+    // While its sentences wait on a rate limit, the row says so in Tags' words (#2944).
+    const resumes = "2026-11-11T15:20:00.000Z";
+    const limited = write(2);
+    if (limited.mindChange) limited.mindChange.limitedUntil = resumes;
+    expect(mindCallText(en, limited, "Harbour notes", "en")).toBe(
+      `Rate limit reached · resumes at ${formatDateTime(resumes, "en")}`,
+    );
+    expect(mindCallText(zh, limited, "Harbour notes", "zh-CN")).toBe(
+      `已达到速率上限 · ${formatDateTime(resumes, "zh-CN")} 继续`,
     );
     const checked = write();
     expect(live({ ...reply, toolCalls: [checked] }, { phase: "writing" })).toEqual({
       kind: "checking",
       count: 2,
     });
-    expect(mindCallText(en, checked, "Harbour notes")).toBe("Edited “Harbour notes” · 1 change");
+    expect(mindCallText(en, checked, "Harbour notes", "en")).toBe(
+      "Edited “Harbour notes” · 1 change",
+    );
   });
 
   test("figures being recorded are no running call; their retry is checking figures", () => {

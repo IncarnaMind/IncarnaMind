@@ -144,6 +144,8 @@ export interface CheckWrittenInput {
   answerFailed?: boolean;
   /** How many sentences are being checked, as the check starts. */
   checking(count: number): void;
+  /** Its requests wait on a rate limit until `until` (ms since the epoch), or null: no longer (#2944). */
+  limited?(until: number | null): void;
   /** Changes the Mind's content, in one transaction. */
   edit(change: (blocks: Y.XmlFragment) => void): void;
 }
@@ -1036,6 +1038,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         ...run,
         concurrency: atOnce,
         limitedAtOnce: claimsAtOnce(prepared),
+        onPause: (until) => input.limited?.(until),
+        onLimit: () => order.limited(),
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure; the check fails after the marks that can land have, so none counts
         // as checked. Refusing stays here: once one edit is refused the rest aren't tried.

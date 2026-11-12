@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ProviderError } from "../../src/core";
 import {
@@ -289,5 +290,153 @@ describe("Running a run's items", () => {
     });
     expect(run.outcomeError).not.toBeNull();
     expect(run.outcomeError?.error).toBeUndefined();
+  });
+});
+
+/** A service's rate limit, as the AI SDK throws it: `retryAfter` in seconds when it says how long. */
+const limited = (retryAfter?: string) =>
+  new APICallError({
+    message: "Rate limit reached.",
+    url: "https://api.example.com/v1/messages",
+    requestBodyValues: {},
+    statusCode: 429,
+    ...(retryAfter !== undefined && { responseHeaders: { "retry-after": retryAfter } }),
+    isRetryable: true,
+  });
+
+/** A clock that moves on by each wait at once, noting each, as a run's pauses keep it. */
+function steppedClock() {
+  let now = 0;
+  const waited: number[] = [];
+  return {
+    waited,
+    now: () => now,
+    wait: async (ms: number) => {
+      waited.push(ms);
+      now += ms;
+    },
+  };
+}
+
+describe("Sending an item's requests through its run (#2944)", () => {
+  // protects=a refused request waits as long as the service says, never less, and is sent again inside its item, which isn't tried again from its start; a stated wait under a second is held to one (#2944); fails_when=the request goes again sooner than stated, or the item starts over; no_claim=the AI SDK's own retry, which a refusal given up on is marked not to make.
+  test("a refused request goes again inside its item once the service's stated wait is over", async () => {
+    const clock = steppedClock();
+    const sent: number[] = [];
+    let starts = 0;
+    const run = await runItems(
+      ["30 s", "half a second"],
+      async (item, requests) => {
+        starts++;
+        let refused = false;
+        return requests.send(async () => {
+          sent.push(clock.now());
+          if (refused) return item;
+          refused = true;
+          throw limited(item === "30 s" ? "30" : "0.5");
+        });
+      },
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done", "done"]);
+    expect(starts).toBe(2);
+    expect(clock.waited).toEqual([30_000, 1_000]);
+    expect(sent).toEqual([0, 30_000, 30_000, 31_000]);
+  });
+
+  // protects=a limit met past the run's proven number brings it back to that number once, however many requests met it, and limits a request waits out take no place away below it (#2532, #2944); fails_when=four refusals leave the run one wide, or the run stays four wide; no_claim=an item's limit thrown to the run, which takes one place away as before.
+  test("refused requests past the proven number bring the run back to it once, and no lower", async () => {
+    const clock = steppedClock();
+    let running = 0;
+    let mostAfter = 0;
+    const run = await runItems(
+      [1, 2, 3, 4, 5, 6, 7, 8],
+      async (item, requests) => {
+        running++;
+        if (item > 4) mostAfter = Math.max(mostAfter, running);
+        let refused = false;
+        await requests.send(async () => {
+          if (item <= 4 && !refused) {
+            refused = true;
+            throw limited("1");
+          }
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        running--;
+        return item;
+      },
+      { concurrency: 4, limitedAtOnce: 2, wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.every((each) => each.status === "done")).toBe(true);
+    expect(mostAfter).toBe(2);
+  });
+
+  // protects=a rate limit that doesn't say how long is thrown as it came, so the AI SDK's own retries and then the run's pauses answer it as before (#2944: "with no stated time, today's steps stay"); fails_when=the request waits a step of its own, or the item isn't tried again after the run's pause; no_claim=the AI SDK's retries, which a scripted throw doesn't make.
+  test("a limit that doesn't say how long is thrown as it came, and the item is tried again after the run's pause", async () => {
+    const clock = steppedClock();
+    let tries = 0;
+    const run = await runItems(
+      ["limited once"],
+      async (item, requests) => {
+        tries++;
+        return requests.send(async () => {
+          if (tries === 1) throw limited();
+          return item;
+        });
+      },
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done"]);
+    expect(tries).toBe(2);
+    expect(clock.waited).toEqual([1_000]);
+  });
+
+  // protects=one request waits on rate limits two minutes in all at most: refused with a stated wait of 50 s a third time it is given up, its item fails for the rate limit and isn't tried again, and the items not started yet aren't sent (#2944); fails_when=a request waits past two minutes, its item starts over, or the later items are sent; no_claim=items already running, which go on.
+  test("a request past two minutes of waiting is given up, and the items not started aren't sent", async () => {
+    const clock = steppedClock();
+    const sent: string[] = [];
+    const run = await runItems(
+      ["limited", "after it"],
+      async (item, requests) =>
+        requests.send(async () => {
+          sent.push(item);
+          if (item === "limited") throw limited("50");
+          return item;
+        }),
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(clock.waited).toEqual([50_000, 50_000]);
+    expect(sent).toEqual(["limited", "limited", "limited"]);
+    expect(run.outcomes.map((each) => each.status)).toEqual(["failed", "failed"]);
+    expect(run.outcomes[1]).toMatchObject({ error: { kind: "rate-limit" } });
+  });
+
+  // protects=a stopped run ends a request's wait at once: it throws the stop, unsent, and its item is stopped (#2944); fails_when=the request waits out the service's stated wait, or is sent after the stop; no_claim=what a stopped check lands, which the written check's tests hold.
+  test("stopping the run ends a request's wait, and it isn't sent again", async () => {
+    const stop = new AbortController();
+    let sent = 0;
+    const run = await runItems(
+      ["limited"],
+      async (_, requests) =>
+        requests.send(async () => {
+          sent++;
+          throw limited("40");
+        }),
+      {
+        signal: stop.signal,
+        wait: (_, signal) =>
+          new Promise<void>((resolve) => {
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+            stop.abort();
+          }),
+      },
+    );
+
+    expect(sent).toBe(1);
+    expect(run.outcomes.map((each) => each.status)).toEqual(["stopped"]);
   });
 });

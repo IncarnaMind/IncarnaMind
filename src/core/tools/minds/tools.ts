@@ -2081,6 +2081,7 @@ export function mindTools(options: MindToolsOptions): {
     const { mindId, ids, blocks } = written.blocks;
     if (ids.length !== blocks.length) return null;
     let reported = false;
+    let checking = 0;
     let checked: WrittenCheck | null = null;
     try {
       checked = await minds.checkWritten({
@@ -2092,7 +2093,16 @@ export function mindTools(options: MindToolsOptions): {
         ...(answerFailed && { answerFailed }),
         checking: (count) => {
           reported = true;
+          checking = count;
           options.changed(toolCallId, { ...written.change, checking: count });
+        },
+        limited: (until) => {
+          if (!reported) return;
+          options.changed(toolCallId, {
+            ...written.change,
+            checking,
+            ...(until !== null && { limitedUntil: new Date(until).toISOString() }),
+          });
         },
         edit: (change) => minds.edit(mindId, change),
       });

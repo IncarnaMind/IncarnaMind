@@ -1610,6 +1610,8 @@ export interface MindChange {
    * they land (#1111). Absent: none, or the check is over.
    */
   checking?: number;
+  /** While those checks wait on the model's rate limit, when the wait ends (ISO 8601 UTC, #2944). */
+  limitedUntil?: string;
   /**
    * The check of the sentences it wrote that a check reads (#1909: every claim,
    * cited or not), once over: how many there were (`checkable`), how many have a

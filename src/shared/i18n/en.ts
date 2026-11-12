@@ -3009,7 +3009,7 @@ export const en = {
   "status.planLimit.unnamed.until": "Your plan’s limit is reached until {time}",
   "status.planLimit.full":
     "{line}. Tagging and Organize wait for it to reset, then go on by themselves.",
-  "status.taggingRateLimited": "Rate limit reached · resumes at {time}",
+  "status.rateLimited": "Rate limit reached · resumes at {time}",
   "status.taggingRateLimited.full": "Rate limit reached: tagging resumes at {time}.",
   "status.taggingKeyRefused": "The key was refused",
   "status.taggingKeyRefused.full":

@@ -2,7 +2,7 @@ import type { AnswerToolCall } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { mindCallText } from "../../answerStepWords";
 import { namedMind } from "../../changeProblems";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { MindLineIcon } from "../lineIcons";
 
@@ -29,7 +29,8 @@ function useCallMind(call: AnswerToolCall): { mindId: string | null; name: strin
 export function MindCall({ call }: { call: AnswerToolCall }) {
   const t = useT();
   const { mindId, name } = useCallMind(call);
-  const text = mindCallText(t, call, name);
+  const language = useLanguage();
+  const text = mindCallText(t, call, name, language);
   const running = call.status === "running";
   return (
     <div

@@ -357,7 +357,7 @@ export type GeneratedReply =
       /** It replies once this resolves, or fails once its request is aborted. */
       until?: Promise<void>;
     }
-  | { error: { status: number; message: string } };
+  | { error: ScriptedRefusal };
 
 export function claimCheckReply(
   call: GenerateCall,
@@ -402,7 +402,7 @@ export type ScriptedReply =
       usage?: ReportedUsage;
     }
   /** The provider refuses the request with an HTTP error. */
-  | { error: { status: number; message: string } };
+  | { error: ScriptedRefusal };
 
 /** A prompt's text but the system prompt: each message's, a blank line apart. */
 export function promptText(prompt: CallOptions["prompt"]): string {
@@ -443,15 +443,27 @@ const systemOf = (prompt: Prompt) =>
     .map((message) => (typeof message.content === "string" ? message.content : ""))
     .join("\n");
 
+/**
+ * A provider's refusal of a request. `retryable`: refused as a service refuses a rate limit, which
+ * the AI SDK sends again itself; `retryAfter`: the seconds its `retry-after` header asks to wait.
+ */
+export interface ScriptedRefusal {
+  status: number;
+  message: string;
+  retryable?: boolean;
+  retryAfter?: string;
+}
+
 /** The provider's refusal of a request, as an HTTP error. */
-const providerError = ({ status, message }: { status: number; message: string }) =>
+const providerError = ({ status, message, retryable, retryAfter }: ScriptedRefusal) =>
   new APICallError({
     message,
     url: "http://127.0.0.1:11434/v1/chat/completions",
     requestBodyValues: {},
     statusCode: status,
+    ...(retryAfter !== undefined && { responseHeaders: { "retry-after": retryAfter } }),
     responseBody: JSON.stringify({ error: { message } }),
-    isRetryable: false,
+    isRetryable: retryable === true,
   });
 
 /**

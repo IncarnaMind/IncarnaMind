@@ -1,4 +1,6 @@
 import type { AnswerToolCall, AskedFrom } from "../../core/api";
+import type { Language } from "../../core/language";
+import { formatDateTime } from "../../shared/dates";
 import type { FoldedLine, ReadDocument } from "./answerSteps";
 import { problemText } from "./changeProblems";
 import type { Translate } from "./objects";
@@ -156,10 +158,18 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
 }
 
 /** What a call of a Minds' Tool is doing, or did, in its row's words. */
-export function mindCallText(t: Translate, call: AnswerToolCall, mind: string): string {
+export function mindCallText(
+  t: Translate,
+  call: AnswerToolCall,
+  mind: string,
+  language: Language,
+): string {
   const change = call.mindChange;
   // A check that outlives the call, as one after the Run does, keeps the row saying so until it ends (#2710).
   const checking = change?.checking ?? 0;
+  if (checking > 0 && change?.limitedUntil) {
+    return t("status.rateLimited", { time: formatDateTime(change.limitedUntil, language) });
+  }
   if (checking > 0) {
     return checking === 1
       ? t("mindCall.checking.one", { mind })

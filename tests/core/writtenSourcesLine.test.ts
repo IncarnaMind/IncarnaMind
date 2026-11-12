@@ -291,7 +291,7 @@ for (const language of ["en", "zh-CN"] as const) {
         translate(language, key, params);
       const write = answer.toolCalls.find((call) => call.tool === "add_to_mind");
       if (!write) throw new Error("No write.");
-      expect(mindCallText(t, write, "Estuary")).toBe(walk.lines.stoppedRow);
+      expect(mindCallText(t, write, "Estuary", language)).toBe(walk.lines.stoppedRow);
     });
   });
 }
@@ -449,6 +449,6 @@ describe("a streamed write taken back as a second copy, then stopped", { timeout
     expect(write?.mindChange).toBeUndefined();
     const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate("en", key, params);
-    expect(write && mindCallText(en, write, "Q3 review")).toBe("Couldn’t change “Q3 review”");
+    expect(write && mindCallText(en, write, "Q3 review", "en")).toBe("Couldn’t change “Q3 review”");
   });
 });

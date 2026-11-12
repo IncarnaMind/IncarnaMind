@@ -32,6 +32,8 @@ export interface Stagger {
   ended(index: number): void;
   /** A check failed with `error`: a provider's limit stops the stagger for the rest of the run. */
   failed(error: unknown): void;
+  /** A provider limited a request of the run, which goes again inside its check (#2944): the stagger stops, as for `failed`. */
+  limited(): void;
 }
 
 const NONE: Stagger = {
@@ -39,6 +41,7 @@ const NONE: Stagger = {
   turn: () => Promise.resolve(),
   ended: () => undefined,
   failed: () => undefined,
+  limited: () => undefined,
 };
 
 const isLimit = (error: unknown) =>
@@ -109,6 +112,11 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
     release();
   };
   signal.addEventListener("abort", release, { once: true });
+  const limit = () => {
+    if (limited) return;
+    limited = true;
+    for (const each of waiting.splice(0)) each.giveWay();
+  };
   return {
     model(index, prepared) {
       if (index >= first) return prepared;
@@ -138,9 +146,8 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
       release();
     },
     failed(error) {
-      if (limited || !isLimit(error)) return;
-      limited = true;
-      for (const each of waiting.splice(0)) each.giveWay();
+      if (isLimit(error)) limit();
     },
+    limited: limit,
   };
 }

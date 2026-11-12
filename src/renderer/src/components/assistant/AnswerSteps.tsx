@@ -15,6 +15,7 @@ import type {
   ConversationQuestion,
   EmbeddingModelStatus,
 } from "../../../../core/api";
+import type { Language } from "../../../../core/language";
 import { citedSpeakers, shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
@@ -53,7 +54,7 @@ import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
@@ -255,7 +256,8 @@ export function LiveLine({
   const stepKind = shown.kind;
   const waitingSeconds = useSecondsOn(stepKey);
   const summary = shown.kind === "thinking" ? shown.summary : "";
-  const label = liveText(t, shown, scope, mindOf, python);
+  const language = useLanguage();
+  const label = liveText(t, shown, scope, mindOf, python, language);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
   const nameOf = useModelNames();
   const modelName = wait?.model ? nameOf(wait.model.modelId, wait.model.providerId).name : null;
@@ -497,6 +499,7 @@ function liveText(
   scope: string,
   mindOf: (call: AnswerToolCall) => string,
   python: EmbeddingModelStatus | null,
+  language: Language,
 ): string {
   switch (step.kind) {
     case "waiting":
@@ -510,7 +513,7 @@ function liveText(
     case "searching":
       return t("steps.live.searching", { scope });
     case "call":
-      return runningText(t, step.call, mindOf, python);
+      return runningText(t, step.call, mindOf, language, python);
     case "thinking":
       return t(step.summary ? "steps.live.thinkingAbout" : "steps.live.thinking");
     case "writing":
@@ -535,13 +538,14 @@ function runningText(
   t: Translate,
   call: AnswerToolCall,
   mindOf: (call: AnswerToolCall) => string,
+  language: Language,
   python: EmbeddingModelStatus | null = null,
 ): string {
   if (call.source === "connector") {
     return t("connectors.call.running", { connector: call.connector?.name ?? "", tool: call.tool });
   }
   if (call.source === "sources") return t("sources.call.running", { query: field(call, "query") });
-  if (call.source === "minds") return mindCallText(t, call, mindOf(call));
+  if (call.source === "minds") return mindCallText(t, call, mindOf(call), language);
   if (call.source === "analysis") return analysisCallText(t, call, python);
   if (call.source === "commands") return commandCallText(t, call);
   if (call.source === "asks") return askCallText(t, call);
