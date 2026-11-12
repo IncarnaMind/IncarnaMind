@@ -320,7 +320,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   await expectEstimateTip(
     window,
     price,
-    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
     pricing,
   );
   await expect(price).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
@@ -507,7 +507,7 @@ for (const language of ["en", "zh-CN"] as const) {
       window,
       health.getByTestId("check-estimate").getByTestId("estimate-price"),
       language === "en"
-        ? /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/
+        ? /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/
         : /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
       pricing,
     );

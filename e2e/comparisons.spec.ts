@@ -221,7 +221,7 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
   await expectEstimateTip(
     window,
     estimateLine,
-    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
     pricing,
   );
   await expect(estimateLine).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
@@ -697,7 +697,7 @@ for (const { language, width } of SCOPE_VARIANTS) {
       estimate,
       language === "zh-CN"
         ? /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/
-        : /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+        : /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
       pricing,
     );
     await expect(pricing).toHaveText(language === "zh-CN" ? "价格 ↗" : "Pricing ↗");

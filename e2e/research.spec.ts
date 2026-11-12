@@ -186,7 +186,7 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await expectEstimateTip(
     window,
     estimate,
-    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
     pricing,
   );
   await expect(estimate).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);

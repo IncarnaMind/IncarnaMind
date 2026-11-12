@@ -19,10 +19,9 @@ export function estimateTip(
   provider: string,
   checked: string,
 ): string {
-  return t("models.provider.cost.tip", {
-    provider,
-    date: formatDate(checked, language, { timeZone: "UTC" }),
-  });
+  // Its spaces don't break, so a wrapped tip breaks before the date and never leaves the year alone.
+  const date = formatDate(checked, language, { timeZone: "UTC" }).replace(/ /g, "\u00a0");
+  return t("models.provider.cost.tip", { provider, date });
 }
 
 export interface EstimateSource {

@@ -292,7 +292,7 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
           cost,
           zh
             ? /^按 DeepSeek 深度求索的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/
-            : /^Estimate from DeepSeek’s price, checked \d{1,2} \w+ \d{4}$/,
+            : /^Estimate from DeepSeek’s price, checked \d{1,2}\s\w+\s\d{4}$/,
         );
         await expect(cost).toHaveAccessibleDescription(/DeepSeek/);
         // The Answers model stays in the menu.

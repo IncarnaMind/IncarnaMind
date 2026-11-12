@@ -133,7 +133,7 @@ const WORDS = [
   {
     language: "en" as const,
     parts: ["About $1.40", "310K tokens"],
-    tip: /^Estimate from DeepSeek’s price, checked \d{1,2} \w+ \d{4}$/,
+    tip: /^Estimate from DeepSeek’s price, checked \d{1,2}\u00a0\w+\u00a0\d{4}$/,
     shown: "About $1.40 · 310K tokens · Pricing ↗",
   },
   {
@@ -153,6 +153,12 @@ test.each(WORDS)(
 
     expect(price()?.getAttribute("title")).toBeNull();
     expect(price()?.getAttribute("aria-description")).toMatch(tip);
+    // A tip that wraps breaks before its date, never inside it, in both languages.
+    const date = price()
+      ?.getAttribute("aria-description")
+      ?.split(/checked |核对于 /)[1];
+    expect(date).toMatch(/\d{4}/);
+    expect(date).not.toContain(" ");
     expect(price()?.getAttribute("tabindex")).toBe("0");
     expect(link()?.getAttribute("href")).toBe(PRICES_URL);
     expect(link()?.getAttribute("target")).toBe("_blank");
