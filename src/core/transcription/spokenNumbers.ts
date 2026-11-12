@@ -85,7 +85,7 @@ const LIST = new RegExp(`${RUN}(?:(?:,| (?:${JOINED})) ${RUN})*`, "gi");
 const PERCENT_END = new RegExp(` (?:${PERCENT})$`, "i");
 // Six percentage points is no percent, and the calculation check reads "6 percentage points" as 6%
 // too, so a number before them stays as said.
-const PERCENT_POINTS_AFTER = new RegExp(`^ (?:${PERCENT}) points?\\b`, "i");
+const PERCENT_POINTS_AFTER = new RegExp(`^ (?:${PERCENT})[ -]points?\\b`, "i");
 // A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
 // of the reasons", "twenty percent and fifty to sixty thousand users". After "or" or "to" the words
 // can't tell a pair ("about five percent to six") from two things unless the numbers after it count

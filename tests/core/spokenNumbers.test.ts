@@ -183,13 +183,15 @@ describe("English numbers in a transcript", () => {
     );
   });
 
-  // protects=a number before "percentage points" is never written as a percent and stays as said, since the calculation check reads "6 percentage points" as 6% too; "percentage" alone and "points" after a number are as before (#1031); fails_when=it rose six percentage points becomes it rose 6% points, a twenty percentage point rise a 20% point rise, or up six points a percent; no_claim=that percentage points could not be written in digits one day.
+  // protects=a number before "percentage points" is never written as a percent and stays as said, since the calculation check reads "6 percentage points" as 6% too; "percentage" alone and "points" after a number are as before (#1031); fails_when=it rose six percentage points becomes it rose 6% points, a twenty percentage point rise a 20% point rise, a twenty percentage-point rise a 20 percentage-point rise, or up six points a percent; no_claim=that percentage points could not be written in digits one day.
   test("a number before percentage points stays as said, and a percent is written as before", () => {
     expect(writtenNumbers("it rose six percentage points")).toBe("it rose six percentage points");
     expect(writtenNumbers("up two percentage points to five percent")).toBe(
       "up two percentage points to 5%",
     );
     expect(writtenNumbers("a twenty percentage point rise")).toBe("a twenty percentage point rise");
+    expect(writtenNumbers("a twenty percentage-point rise")).toBe("a twenty percentage-point rise");
+    expect(writtenNumbers("a twenty-percentage-point rise")).toBe("a twenty-percentage-point rise");
     expect(writtenNumbers("a six point rise")).toBe("a six point rise");
     expect(writtenNumbers("up six points")).toBe("up six points");
     expect(writtenNumbers("twenty percent")).toBe("20%");

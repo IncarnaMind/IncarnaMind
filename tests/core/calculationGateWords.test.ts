@@ -82,6 +82,9 @@ describe("a count said in words is read by the calculation gate", () => {
       true,
     );
     expect(
+      await notJudged("There was a 20% rise.", writtenNumbers("a twenty percentage-point rise")),
+    ).toBe(true);
+    expect(
       await notJudged("The rate is 5%.", writtenNumbers("it's about five percent to six")),
     ).toBe(true);
     expect(await notJudged("第一样是2块。", writtenNumbers("这两样分别是两块五五块。"))).toBe(true);
