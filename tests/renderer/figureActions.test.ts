@@ -10,6 +10,7 @@ import {
   CALCULATED_FIGURE_NODE,
   type Citation,
   type ClaimCheckAttributes,
+  type FigureSchedule,
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
@@ -72,6 +73,51 @@ function basis(): ClaimCheckAttributes {
     excluded: [],
     checkedAt: "2026-10-27T00:00:00.000Z",
   };
+}
+/** The note's Figure schedule as the core reads it from `doc`. */
+const scheduleOf = (doc: Y.Doc) =>
+  figureSchedule({
+    mindId: "note",
+    name: "Results",
+    basis: fingerprintOfMind(doc),
+    blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
+    versions: new Map([["source", "hash"]]),
+    folderId: null,
+    scope: null,
+  });
+/** The note shown in an editor of this window, on `doc`. */
+function openEditor(doc: Y.Doc, mindId: string): Editor {
+  const editor = new Editor({
+    element: globalThis.document.createElement("div"),
+    editorProps: { handleScrollToSelection: () => true },
+    extensions: [
+      ...noteExtensions(),
+      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+    ],
+  });
+  editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  const unregister = registerMindEditor(mindId, editor);
+  cleanup.push(() => {
+    unregister();
+    editor.destroy();
+  });
+  return editor;
+}
+/**
+ * A window's copy of the note in `doc`, kept in step as the core keeps it: each gets the other's
+ * changes only as encoded updates.
+ */
+function copyOf(doc: Y.Doc): Y.Doc {
+  const copy = new Y.Doc();
+  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc), doc);
+  copy.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== doc) Y.applyUpdate(doc, update, copy);
+  });
+  doc.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== copy) Y.applyUpdate(copy, update, doc);
+  });
+  cleanup.push(() => copy.destroy());
+  return copy;
 }
 const citation: Citation = {
   passageId: "p",
@@ -186,31 +232,9 @@ function setup(
         : previous,
     );
   }
-  const editor = new Editor({
-    element: globalThis.document.createElement("div"),
-    editorProps: { handleScrollToSelection: () => true },
-    extensions: [
-      ...noteExtensions(),
-      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
-    ],
-  });
-  editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
-  const unregister = registerMindEditor("note", editor);
-  cleanup.push(() => {
-    unregister();
-    editor.destroy();
-    doc.destroy();
-  });
-  const read = () =>
-    figureSchedule({
-      mindId: "note",
-      name: "Results",
-      basis: fingerprintOfMind(doc),
-      blocks,
-      versions: new Map([["source", "hash"]]),
-      folderId: null,
-      scope: null,
-    });
+  cleanup.push(() => doc.destroy());
+  const editor = openEditor(doc, "note");
+  const read = () => scheduleOf(doc);
   /** Makes a schedule's change as the schedule does: in the note's open editor. */
   const edit = (change: (note: NoteState) => FigureEdit | null) => editNote("note", doc, change);
   return { doc, blocks, editor, read, edit };
@@ -414,6 +438,75 @@ test("with the note not open in an editor, the schedule changes its copy, with a
   expect(markedSentences(blocks)[0]?.check).toEqual(before);
   await undoable?.redo?.();
   expect(markedSentences(blocks)[0]?.check?.figures?.[0]?.kept).toBe(true);
+});
+
+describe("a figure kept from the schedule shows kept there, and the next change is taken", () => {
+  /** Each figure's state in the schedule the core reads, if the window's copy takes it. */
+  const shownIn = (copy: Y.Doc, read: () => FigureSchedule) => {
+    const schedule = read();
+    return schedule.basis === fingerprintOfMind(copy)
+      ? schedule.rows.map((row) => row.shown.state)
+      : "not taken";
+  };
+
+  test("with the note behind the schedule, through the schedule's copy", async () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    const keep = (index: number) => {
+      const schedule = read();
+      const row = schedule.rows[index];
+      if (!row) throw new Error("No figure");
+      return editNote("a note behind the schedule", copy, (note) =>
+        keepFigureViews(note, schedule, [row.id]),
+      );
+    };
+    expect(shownIn(copy, read)).toEqual(["contradicted", "supported"]);
+    keep(1);
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+    const undoable = keep(0);
+    expect(shownIn(copy, read)).toEqual(["kept", "kept"]);
+    await undoable?.undo();
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+  });
+
+  test("with the note in front, through its editor", () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    openEditor(copy, "a note in front");
+    const keep = (index: number) => {
+      const schedule = read();
+      const row = schedule.rows[index];
+      if (!row) throw new Error("No figure");
+      editNote("a note in front", copy, (note) => keepFigureViews(note, schedule, [row.id]));
+    };
+    keep(1);
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+    keep(0);
+    expect(shownIn(copy, read)).toEqual(["kept", "kept"]);
+  });
+
+  test("a Note saved after a keep through the schedule's copy reads kept when it opens again", () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    const stored = new Y.Doc();
+    Y.applyUpdate(stored, Y.encodeStateAsUpdate(doc));
+    cleanup.push(() => stored.destroy());
+    const readStored = () => scheduleOf(stored);
+    const opened = copyOf(stored);
+    expect(shownIn(opened, readStored)).toEqual(["contradicted", "kept"]);
+    const first = readStored().rows[0];
+    if (!first) throw new Error("No figure");
+    editNote("a note behind the schedule", opened, (note) =>
+      keepFigureViews(note, readStored(), [first.id]),
+    );
+    expect(shownIn(opened, readStored)).toEqual(["kept", "kept"]);
+  });
 });
 
 const sourceInput = (chars: string, value: number) => ({
