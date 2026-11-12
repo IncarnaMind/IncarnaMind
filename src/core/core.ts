@@ -49,6 +49,7 @@ import {
   sameStyle,
   writeMindStyle,
 } from "../shared/mindStyle";
+import { missingNumberWords } from "../shared/missingNumbers";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
@@ -2509,7 +2510,18 @@ export function createCore(adapters: CoreAdapters): Core {
       edit: (mindId, change) => content.edit(mindId, change),
       text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
+          .peek(mindId, (blocks) =>
+            readMind(
+              blocks,
+              name,
+              null,
+              null,
+              ids,
+              true,
+              applied,
+              missingNumberWords(settings.get().language),
+            ),
+          )
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2981,6 +2993,7 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
+    missingNumber: () => missingNumberWords(settings.get().language),
     // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
     recheck: (attributes, mindId) =>
       typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)

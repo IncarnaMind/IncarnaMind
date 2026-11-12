@@ -36,11 +36,20 @@ import {
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
+import {
+  holdsMissingNumber,
+  type PlaceKeys,
+  paragraphPlaces,
+  placeKeysOf,
+  TEXT_BLOCKS,
+  takesMissingNumber,
+} from "./placed";
 import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
@@ -141,13 +150,15 @@ const REMOVED_BLOCKS: ReadonlySet<string> = new Set([
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
   CITATION_NODE,
+  MISSING_NUMBER_NODE,
   "hardBreak",
   "paragraph",
   "heading",
 ]);
 // A formula, picture, chart or code block carries no mark in the Mind, so one among the
-// assistant's text already there may be the User's: only Citations, line breaks and empty
-// paragraphs are its own.
+// assistant's text already there may be the User's: only Citations, the mark where a figure
+// couldn't be calculated, which a later Answer's calculated figure takes the place of (#2577),
+// line breaks and empty paragraphs are its own.
 const writtenAtom = (atom: Y.XmlElement): boolean => WRITTEN_ATOMS.has(atom.nodeName);
 
 function allAiText(
@@ -579,6 +590,41 @@ export function citationsDropped(
 ): number {
   const kept = new Set(revised.flatMap(citationsIn));
   return (blocksOf(blocks, over) ?? []).flatMap(citationsIn).filter((key) => !kept.has(key)).length;
+}
+
+/**
+ * Whether `revised`, put in place of `over`'s Blocks, takes out the mark where a figure couldn't
+ * be calculated with no calculated figure in its place (#2577).
+ */
+export function takesMissingNumberOver(
+  blocks: Y.XmlFragment,
+  over: Pick<OwnWaiting, "blockIds" | "fingerprint">,
+  revised: readonly NodeJSON[],
+  options: { removesOnly?: boolean } = {},
+): boolean {
+  const before = (blocksOf(blocks, over) ?? []).flatMap((element) =>
+    paragraphPlaces(element, null),
+  );
+  if (!holdsMissingNumber(before)) return false;
+  const after: PlaceKeys[] = [];
+  const visit = (node: NodeJSON) => {
+    const content = node.content ?? [];
+    if (TEXT_BLOCKS.has(node.type) || content.some((child) => child.type === "text")) {
+      after.push(
+        placeKeysOf(
+          content.map((child) =>
+            child.type === "text"
+              ? { text: child.text ?? "" }
+              : { node: child.type, id: child.attrs?.[BLOCK_ID_ATTRIBUTE] },
+          ),
+        ),
+      );
+      return;
+    }
+    content.forEach(visit);
+  };
+  revised.forEach(visit);
+  return takesMissingNumber(before, after, options);
 }
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */

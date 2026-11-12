@@ -174,6 +174,7 @@ export function editProblemParts(
     case "not-placed":
     case "misnamed":
     case "typed-tag":
+    case "missing-number":
     case "no-table":
     case "unplaced":
       return { text: t(REFUSAL_WORDS[problem.kind].editor), role: "alert" };

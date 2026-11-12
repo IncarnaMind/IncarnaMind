@@ -303,6 +303,101 @@ describe("The Minds an Answer changed", () => {
     expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, droppedSources: 1, extraCells: 3 });
   });
 
+  // protects=the figures a Note's text marks as missing add up across an Answer's calls, naming each figure once, and the card says so in English and Chinese in the one and many forms; fails_when=a later call's count replaces an earlier call's, a name shows twice, or a form is wrong; no_claim=how the card lays it out.
+  test("figures that couldn't be calculated add up across calls, each figure named once (#2577)", () => {
+    const [row] = changedMinds({
+      toolCalls: [
+        call("create_mind", {
+          mindId: "a",
+          created: true,
+          request: "r1",
+          proposals: 1,
+          figuresLeftOut: { count: 1, labels: ["Average monthly loan growth"] },
+        }),
+        call("add_to_mind", {
+          mindId: "a",
+          created: false,
+          request: "r2",
+          proposals: 1,
+          figuresLeftOut: { count: 2, labels: ["Average monthly loan growth", "Total loans"] },
+        }),
+      ],
+    });
+    expect(row?.figuresLeftOut).toEqual({
+      count: 3,
+      labels: ["Average monthly loan growth", "Total loans"],
+    });
+    if (!row) return;
+    expect(keptText(t("en"), row)).toBe(
+      "· 3 figures couldn’t be calculated, so the text says [number missing]: “Average monthly loan growth”, “Total loans”",
+    );
+    expect(keptText(t("zh-CN"), row)).toBe(
+      "· 有 3 个数字未能计算，文中标为[缺少数字]：“Average monthly loan growth”、“Total loans”",
+    );
+  });
+
+  // protects=one figure that couldn't be calculated reads in the one form, named or not, in English and Chinese; fails_when=the one form says "figures", or a named line loses its name; no_claim=how the card lays it out.
+  test.each([
+    [
+      ["Average monthly loan growth"],
+      "· 1 figure couldn’t be calculated, so the text says [number missing]: “Average monthly loan growth”",
+      "· 有 1 个数字未能计算，文中标为[缺少数字]：“Average monthly loan growth”",
+    ],
+    [
+      [],
+      "· 1 figure couldn’t be calculated, so the text says [number missing]",
+      "· 有 1 个数字未能计算，文中标为[缺少数字]",
+    ],
+  ])("one figure that couldn't be calculated, named %j (#2577)", (labels, english, chinese) => {
+    const [row] = changedMinds({
+      toolCalls: [
+        call("create_mind", {
+          mindId: "a",
+          created: true,
+          request: "r1",
+          proposals: 1,
+          figuresLeftOut: { count: 1, labels },
+        }),
+      ],
+    });
+    if (!row) throw new Error("No row.");
+    expect(keptText(t("en"), row)).toBe(english);
+    expect(keptText(t("zh-CN"), row)).toBe(chinese);
+  });
+
+  // protects=a change refused for leaving out [number missing] is said on the Note's row, in the one and many forms, only while no later call changed the Note, in English and Chinese; fails_when=a later call that changed the Note still shows the line, or a form is wrong; no_claim=how the card lays it out.
+  test("a change refused for leaving out the mark is said on the card while it stays refused (#2577)", () => {
+    const refused = (): AnswerToolCall => ({
+      ...call("edit_mind"),
+      mindProblem: { kind: "missing-number", mindId: "a" },
+    });
+    const wrote = call("create_mind", { mindId: "a", created: true, request: "r1", proposals: 1 });
+    const once = changedMinds({ toolCalls: [wrote, refused()] })[0];
+    const twice = changedMinds({ toolCalls: [wrote, refused(), refused()] })[0];
+    const tried = changedMinds({
+      toolCalls: [
+        wrote,
+        refused(),
+        call("edit_mind", { mindId: "a", created: false, request: "r2", proposals: 1 }),
+      ],
+    })[0];
+    if (!once || !twice || !tried) throw new Error("No row.");
+    expect(keptText(t("en"), once)).toBe(
+      "· 1 change wasn’t made: it left out [number missing] without calculating the figure",
+    );
+    expect(keptText(t("zh-CN"), once)).toBe(
+      "· 有 1 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
+    );
+    expect(keptText(t("en"), twice)).toBe(
+      "· 2 changes weren’t made: they left out [number missing] without calculating the figure",
+    );
+    expect(keptText(t("zh-CN"), twice)).toBe(
+      "· 有 2 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
+    );
+    expect(tried.missingNumberRefused).toBeUndefined();
+    expect(keptText(t("en"), tried)).toBeNull();
+  });
+
   // protects=a "No chart" line describes the Note as it is now: a chart a later call drew there answers an earlier call's, while a later refusal still says why; fails_when=the card keeps "No chart" beside a chart the Answer drew, or loses the latest reason; no_claim=how the card lays it out.
   test.each(["en", "zh-CN"] as const)(
     "%s: a chart a later call drew in the Note clears an earlier call's No chart",
