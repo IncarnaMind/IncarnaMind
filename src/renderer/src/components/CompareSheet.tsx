@@ -26,6 +26,7 @@ import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
 import { ComparisonDocumentList } from "./ComparisonDocumentList";
+import { EstimateTip, PricingLink, useEstimateSource } from "./EstimateSource";
 import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine, readinessAction } from "./providers/ChatReadinessNotice";
@@ -448,16 +449,7 @@ export function CompareSheet({
         </div>
       ) : (
         <>
-          {estimated?.line && (
-            <p
-              data-testid="compare-sheet-estimate"
-              className="compare-sheet-estimate"
-              title={estimated.line.title}
-              aria-hidden={blocked}
-            >
-              {joinMeta(estimated.line.parts)}
-            </p>
-          )}
+          {estimated?.line && <SheetEstimate line={estimated.line} hidden={blocked} />}
           <div className="compare-sheet-foot">
             <span className="compare-sheet-chip">
               <TableIcon className="size-3.5" />
@@ -563,6 +555,23 @@ function SourceMenu({ label, onChoose }: { label: string; onChoose(source: Sheet
         )}
       </div>
     </>
+  );
+}
+
+function SheetEstimate({ line, hidden }: { line: EstimateLine; hidden: boolean }) {
+  const source = useEstimateSource(line.providerId);
+  return (
+    <p className="compare-sheet-estimate" aria-hidden={hidden}>
+      <EstimateTip testId="compare-sheet-estimate" tip={source?.tip}>
+        {joinMeta(line.parts)}
+      </EstimateTip>
+      {source && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <PricingLink url={source.url} testId="compare-sheet-pricing" />
+        </>
+      )}
+    </p>
   );
 }
 

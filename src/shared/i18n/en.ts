@@ -3851,6 +3851,8 @@ export const en = {
   "composer.model.useForNew": "Use this for new notes too",
   "composer.model.default": "New notes use {model}, from {settings}.",
   "composer.model.defaultUnset": "New notes have no model yet. Choose one in {settings}.",
+  "composer.model.removed": "{model} was removed, so this note now uses {default}",
+  "composer.model.removed.change": "Change",
   "models.other.title": "Other models",
   "models.other.group.unknown": "Not known to IncarnaMind",
   "models.other.group.older": "Older models",
@@ -5809,9 +5811,7 @@ export const en = {
     "“Checked by me” is yours to give, not mine. It’s on each Citation’s card.",
   "commands.yours.authorship":
     "Only you can mark text as yours. Select it and choose “Mark as mine”.",
-  "commands.yours.openModels": "Open Models",
-  "commands.yours.openPrivacy": "Open Privacy",
-  "commands.yours.openGeneral": "Open General",
+  "commands.yours.openSettings": "Open {page} settings",
   "commands.yours.openDeleted": "Open Recently deleted",
   "commands.window.notOffered": "“{command}” doesn’t apply here now",
   "commands.window.unanswered": "The window didn’t answer: “{command}” wasn’t done.",
@@ -6846,6 +6846,12 @@ export const en = {
     "Couldn’t download the speech model from any source",
   "meetings.transcript.downloadFailed": "The speech model couldn’t be downloaded: {message}",
   "meetings.transcript.engineStopped": "Transcription stopped.",
+  "meetings.transcript.stoppedBeforeEnd":
+    "Transcription stopped before the end. Your recording is kept.",
+  "meetings.transcript.stoppedBeforeEndToday":
+    "Transcription stopped before the end. Your recording is kept until {time} today.",
+  "meetings.transcript.stoppedBeforeEndTomorrow":
+    "Transcription stopped before the end. Your recording is kept until {time} tomorrow.",
   "meetings.transcript.saveFailed": "The transcript couldn’t be saved: {message}",
   "meetings.transcript.notSaved":
     "The transcript wasn’t saved: no folder was chosen for new files.",
@@ -6908,6 +6914,8 @@ export const en = {
   "meetings.fill.problem.notAllowed":
     "you haven’t allowed sending to {service} yet. Ask a Question in the assistant to allow it, then Try again.",
   "meetings.fill.problem.noModel": "choose an AI model first.",
+  "meetings.fill.problem.modelRemoved":
+    "this note’s model was removed. Choose another in the assistant, then Try again.",
   "meetings.fill.undoName": "Fill in the note",
   "meetings.fill.notify": "Note filled in: {meeting}",
   "meetings.fill.notify.partial": "Note partly filled in for {meeting}",
@@ -6953,7 +6961,8 @@ export const en = {
   "transcript.word.split": "Enter splits the line here",
   "transcript.word.playOrSplit": "Play from here · Enter splits the line here",
   "transcript.addToNote.withKey": "Add to note (Enter)",
-  "transcript.word.tip": "Click a word to hear it.",
+  "transcript.head": "Transcribed automatically. Names, numbers and “not” can be misheard.",
+  "transcript.head.play": "Click a word to play from there.",
   "transcript.player": "Meeting audio",
   "transcript.player.play": "Play (Space)",
   "transcript.player.pause": "Pause (Space)",
@@ -6964,6 +6973,7 @@ export const en = {
   "transcript.lines.one": "{count} line",
   "transcript.lines.other": "{count} lines",
   "transcript.waiting": "Lines appear here as people speak.",
+  "transcript.waiting.problem": "Lines appear here when transcription starts.",
   "transcript.none": "Nothing was transcribed.",
   "transcript.gap": "{duration} not transcribed: {reason}",
   "transcript.gap.restarted": "transcription restarted",
@@ -7834,6 +7844,7 @@ export const en = {
   "command.answer.stop": "Stop the Answer",
   "command.ready.stop": "Stop waiting for the Documents",
   "command.answer.stop.unavailable": "No Answer is being written",
+  "command.model.changeRemoved": "Choose another model for this note",
   "origin.open": "Open the source conversation",
   "origin.deleted": "From the conversation “{title}”, now in Recently deleted",
   "origin.gone": "From a conversation that has been deleted",

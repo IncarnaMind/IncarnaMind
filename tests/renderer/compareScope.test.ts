@@ -103,6 +103,7 @@ describe("A large run asks first", () => {
     calls = 3,
   ): RunEstimate => ({
     billing: "per-token",
+    providerId: "provider-1",
     calls,
     tokens: 1_000,
     cost: amount === null ? null : { amount, currency },

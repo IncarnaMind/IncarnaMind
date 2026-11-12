@@ -4,6 +4,7 @@ import type * as Y from "yjs";
 import type { MindCheckRun } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { useChecks } from "../checks";
+import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
@@ -35,7 +36,7 @@ export function AskBlock({
   return (
     <div role="status" data-testid={testId} className="check-card-ask">
       <p className="check-card-ask-title">{question}</p>
-      {estimate && <MetaLine parts={estimate.parts} title={estimate.title} />}
+      {estimate && <EstimateMeta line={estimate} />}
       <div className="check-card-ask-actions">
         <button
           type="button"

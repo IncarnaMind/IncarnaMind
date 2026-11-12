@@ -152,6 +152,8 @@ export interface WrittenCheckOptions extends CheckRuns {
   sortTimeLimit?(): AbortSignal;
   /** Where a reply out on the check's provider holds its next request (./repliesFirst). */
   repliesOut?: RepliesOut;
+  /** The core's lifetime: once it ends, the database is closed and nothing more is read. */
+  closed: AbortSignal;
   /** Registers a check under its request, so the Note's Stop and quitting reach it (./index `track`). */
   track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
   /** Marks the request's sentences still being checked as stopped (./index `settleStopped`). */
@@ -601,7 +603,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** The checks begun and not ended, the one whose turn it is among them. */
   let begunChecks = 0;
   /** IncarnaMind quit: a write's check that would begin now reads nothing of the closed database. */
-  let closed = false;
+  const closed = () => options.closed.aborted;
 
   function requestOf(
     sentence: Sentence,
@@ -658,7 +660,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     for (const older of [...live.values()]) {
       if (older.mindId === mindId) older.leave(input.ids);
     }
-    if (closed || judgesUnreliably(input.prepared)) return null;
+    if (closed() || judgesUnreliably(input.prepared)) return null;
     const sentences = checkableSentences(blocks);
     if (sentences.length === 0) return null;
     // Read as the write lands, before anything is awaited: a reject meanwhile leaves no Proposal to
@@ -674,10 +676,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // Readied as IncarnaMind quits, the model's readiness reads the closed database: that is
     // the check ending, not failing.
     const allowed = await options.prepare(input.prepared).catch((error: unknown) => {
-      if (closed) return null;
+      if (closed()) return null;
       throw error;
     });
-    if (closed) return null;
+    if (closed()) return null;
     const waiting = !allowed && options.widened(input.prepared);
     if (!allowed && !waiting) return null;
     // Waiting, nothing is sent: the Answer's model only names who the marks wait for.
@@ -686,7 +688,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const quick = holding
       ? null
       : await options.quickModel(prepared).catch((error: unknown) => {
-          if (closed) return null;
+          if (closed()) return null;
           console.warn(
             `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -695,10 +697,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // An Undo or a reject while the check was readied reached no check yet: it marks nothing, which
     // would land on the words brought back, and sends nothing. A window writing the Blocks again
     // only looks so for a moment (#2378).
-    if (closed) return null;
+    if (closed()) return null;
     if (writeGone(mindId, shape)) {
       await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
-      if (closed || writeGone(mindId, shape)) return null;
+      if (closed() || writeGone(mindId, shape)) return null;
     }
     // The write landed before the Stop: its sentences say they were stopped, as a Stop mid-check
     // leaves them (#2710), rather than no mark, which reads as checked.
@@ -1020,7 +1022,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       record: ran.record && {
         ...ran.record,
         recordAiUse: (inputs: Parameters<NonNullable<typeof ran.record>["recordAiUse"]>[0]) => {
-          if (!closed) ran.record?.recordAiUse(inputs);
+          if (!closed()) ran.record?.recordAiUse(inputs);
         },
       },
     };
@@ -1289,7 +1291,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
 
     /** Ends every check at once, as IncarnaMind quits: what each hadn't checked lands not checked. */
     stopAll(): void {
-      closed = true;
       for (const check of [...live.values()]) check.end();
     },
   };

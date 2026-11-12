@@ -36,6 +36,7 @@ const NAMES: ReadonlySet<string> = new Set([
   "claimed",
   "host",
   "connector",
+  "page",
 ]);
 
 // A space only where the template's own Chinese meets a value: "约 ¥{amount}" stays "约 ¥0.12".

@@ -6,6 +6,7 @@ import { evalCache } from "../lib/cache";
 const MODES = {
   classifier: "eval/organize/organize.check.ts",
   "new-user": "eval/organize/newUser.check.ts",
+  documents: "eval/organize/documentTexts.check.ts",
 } as const;
 
 const mode = process.env.INCARNAMIND_ORGANIZE_MODE?.trim() || "classifier";
