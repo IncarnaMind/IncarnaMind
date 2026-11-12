@@ -1203,10 +1203,10 @@ export function createAnswers(options: AnswersOptions) {
         .filter((each) => ["found", "unsupported", "contradicted"].includes(each.check))
         .map((each) => each.marker),
     );
-    /** The places of sentences this judgement gave a result, passed or not. */
+    /** The places of sentences the model answered about, passed or not. */
     const settled = new Set<number>();
-    const passed = (sentence: CitedSentence, result: SupportResult | null) => {
-      if (result) for (const at of sentence.at) settled.add(at);
+    const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
+      if (read) for (const at of sentence.at) settled.add(at);
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
         const at = sentence.at[index];
@@ -1249,8 +1249,9 @@ export function createAnswers(options: AnswersOptions) {
       }
     };
     /**
-     * A sentence that had passed keeps its ✓ when judging it anew stopped, failed or couldn't
-     * reach the model (#2847): only a result takes the places Check again took off.
+     * A sentence that had passed keeps its ✓ when the model gave no answer about it this time:
+     * judging it anew stopped, failed, couldn't reach the model, held no record for it, or had no
+     * Passage in scope to send (#2847). Any answer takes the places Check again took off.
      */
     const giveBack = () => {
       let given = false;

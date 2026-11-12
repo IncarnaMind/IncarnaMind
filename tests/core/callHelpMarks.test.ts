@@ -499,11 +499,13 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   );
 
   test.each([
-    { how: "fails at the provider", stop: false },
-    { how: "is stopped", stop: true },
-  ])(
-    "a sentence that had passed keeps its ✓ when Check again $how before judging it",
-    async ({ stop }) => {
+    { how: "fails at the provider", second: "fails" },
+    { how: "is stopped", second: "stopped" },
+    { how: "gets a reply with no record for it", second: "no record" },
+  ] as const)(
+    "a sentence that had passed keeps its ✓ when Check again $how",
+    async ({ second }) => {
+      const stop = second === "stopped";
       let round = 0;
       let release = () => {};
       const held = new Promise<void>((resolve) => {
@@ -522,7 +524,9 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
             ? batchOf(call, [["answers at once", { verdict: "supported", kind: "opinion" }]])
             : stop
               ? { ...batchOf(call, []), until: held }
-              : { error: { status: 503, message: "Service unavailable." } },
+              : second === "no record"
+                ? { text: JSON.stringify({ sentences: [] }) }
+                : { error: { status: 503, message: "Service unavailable." } },
       });
       const first = await (await pressed(core, meeting, "answer")).judged();
 
@@ -584,32 +588,47 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(chips(after).map((chip) => chip.passed)).toEqual([true, true, false, false]);
   });
 
-  test("Check again judges anew: a ✓ its first check gave a sentence goes once the second doesn't pass it", async () => {
-    let round = 0;
-    const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
-    const { core, meeting } = await setUp({
-      reply,
-      judge: (call) =>
-        ++round === 1
-          ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
-          : batchOf(call, [["", { verdict: "unsupported" }]]),
-    });
-    const first = await (await pressed(core, meeting, "answer")).judged();
+  test.each([
+    { answer: "unsupported", verdict: { verdict: "unsupported" }, check: "unsupported" },
+    {
+      answer: "supported, its quoted words not stating it",
+      verdict: { verdict: "supported", quoted: "other" },
+      check: "not-checked",
+    },
+    {
+      answer: "sorted as opinion",
+      verdict: { verdict: "supported", kind: "opinion" },
+      check: "not-checked",
+    },
+  ] satisfies { answer: string; verdict: Verdict; check: string }[])(
+    "Check again judges anew: a ✓ its first check gave a sentence goes once the second reads it and doesn't pass it ($answer)",
+    async ({ verdict, check }) => {
+      let round = 0;
+      const reply = `${ENGLISH}\n\nI'll confirm the price in writing today [^1]\n→ buys time`;
+      const { core, meeting } = await setUp({
+        reply,
+        judge: (call) =>
+          ++round === 1
+            ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
+            : batchOf(call, [["", verdict]]),
+      });
+      const first = await (await pressed(core, meeting, "answer")).judged();
 
-    await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
-    const again = await answerJudged(core, first.conversationId, first.id);
+      await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
+      const again = await answerJudged(core, first.conversationId, first.id);
 
-    expect(first.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
-    expect(chips(first)).toEqual([
-      { marker: 1, passed: true },
-      { marker: 1, passed: false },
-    ]);
-    expect(again.citations).toMatchObject([{ marker: 1, check: "unsupported" }]);
-    expect(chips(again)).toEqual([
-      { marker: 1, passed: false },
-      { marker: 1, passed: false },
-    ]);
-  });
+      expect(first.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+      expect(chips(first)).toEqual([
+        { marker: 1, passed: true },
+        { marker: 1, passed: false },
+      ]);
+      expect(again.citations).toMatchObject([{ marker: 1, check }]);
+      expect(chips(again)).toEqual([
+        { marker: 1, passed: false },
+        { marker: 1, passed: false },
+      ]);
+    },
+  );
 
   test("a Citation of the call's own line takes ✓ once the check passes the sentence it is cited in", async () => {
     const reply =
