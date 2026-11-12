@@ -47,35 +47,35 @@ const REPORT = [
 const WORDS = {
   en: {
     request: "Add a revenue table for checking",
-    line: "Checked 12 sentences · 10 claims not checked yet",
-    lineAfter: "· 0 claims not checked yet",
+    line: "Checked 12 sentences · 10 sentences not checked yet",
+    lineAfter: "· 0 sentences not checked yet",
     rest: "Check",
-    badgeWords: "Claims not checked",
-    badgeName: "Claims not checked",
+    badgeWords: "Not checked",
+    badgeName: "Not checked",
     afterBadgeWords: "1 needs a look",
     afterBadgeName: "1 needs a look",
-    toCheck: "11 claims not checked yet",
+    toCheck: "11 not checked",
     tableCells: "10 table cells",
-    found: "22 Citations found",
-    unsupported: "1 claim needs a look",
-    uncited: "1 claim supported",
-    noCitation: "1 claim with no Citation",
+    supported: "12 supported",
+    supportedAfter: "22 supported",
+    look: "1 needs a look",
+    uncited: "1 supported",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
-    line: "已核对 12 句 · 10 条说法待核对",
-    lineAfter: "· 0 条说法待核对",
+    line: "已核对 12 句 · 10 句待核对",
+    lineAfter: "· 0 句待核对",
     rest: "核对",
-    badgeWords: "说法未核对",
-    badgeName: "说法未核对",
+    badgeWords: "未核对",
+    badgeName: "未核对",
     afterBadgeWords: "需要留意 1 处",
     afterBadgeName: "需要留意 1 处",
-    toCheck: "11 条说法待核对",
+    toCheck: "11 句未核对",
     tableCells: "10 个表格单元格",
-    found: "22 处引用已找到",
-    unsupported: "1 条说法需要留意",
-    uncited: "1 条说法有依据",
-    noCitation: "1 条说法没有引用",
+    supported: "12 句有依据",
+    supportedAfter: "22 句有依据",
+    look: "1 句需要留意",
+    uncited: "1 句有依据",
   },
 } as const;
 
@@ -138,11 +138,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(badge.locator(".check-badge-words")).toHaveText(words.badgeWords);
     await screenshot(window, `check-counts-line-${language}`);
 
-    // Its card counts the same 11 (the old text too), and says the write's 10 are table cells.
+    // Its card counts each sentence once (#2831): the 12 the write checked supported, its 10 table
+    // cells and the Note's old text not checked, and no row of Citations.
     const card = await checkCard(window);
     await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
     await expect(card.getByTestId("health-table-cells")).toContainText(words.tableCells);
-    await expect(card.getByTestId("health-found")).toContainText(words.found);
+    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    await expect(card.getByTestId("health-found")).toHaveCount(0);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
     await screenshot(window, `check-counts-card-${language}`);
     // The card holds at a narrow window too.
@@ -168,7 +170,8 @@ for (const language of ["en", "zh-CN"] as const) {
     // What needs a look still shows, so the card never says everything is checked (#1909): every
     // cell is Supported, each figure bound to the row its label names, after the write as after
     // the Check (#1459), and the Note's old sentence with no Citation needs a look.
-    await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
+    await expect(done.getByTestId("health-look")).toContainText(words.look);
+    await expect(done.getByTestId("health-supported")).toContainText(words.supportedAfter);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
       new RegExp(words.afterBadgeName),
@@ -178,7 +181,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(done).toHaveCount(0);
 
-    // A clean check: one sentence the Documents support, still to cite, so the card names that (#1941).
+    // A clean check: one sentence the Documents support, still to cite: supported, and done.
     await newMind(window);
     const clean = window.getByTestId("mind-editor");
     await clean.click();
@@ -190,10 +193,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-unsupported")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-all-checked")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-summary")).toHaveText(words.uncited);
-    await expect(allDone.getByTestId("health-noCitation")).toContainText(words.noCitation);
+    await expect(allDone.getByTestId("health-look")).toHaveCount(0);
+    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831).
+    await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
+    await expect(allDone.getByTestId("health-supported")).toContainText(words.uncited);
+    await expect(allDone.getByTestId("health-noCitation")).toHaveCount(0);
     await screenshot(window, `check-counts-all-${language}`);
     await app.close();
   });

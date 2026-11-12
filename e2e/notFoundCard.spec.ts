@@ -51,7 +51,7 @@ const LANGUAGES = {
   en: {
     heading: "Needs a look · Not found",
     mark: "Sentence check: Needs a look · Not found",
-    needLook: "2 claims need a look",
+    needLook: "2 need a look",
     cut: "Cut it",
     keep: "Keep as my view",
     searchAll: "Search all Documents",
@@ -68,7 +68,7 @@ const LANGUAGES = {
   "zh-CN": {
     heading: "需要留意：未找到",
     mark: "句子核对：需要留意：未找到",
-    needLook: "2 条说法需要留意",
+    needLook: "2 句需要留意",
     cut: "删除这句",
     keep: "保留为我的观点",
     searchAll: "搜索全部文档",
@@ -319,7 +319,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks).toHaveCount(3);
     expect(await keptWords(editor)).toEqual([NOTHING]);
     await expect.poll(() => wordsOf(lines.nth(0))).toBe(allFour);
-    await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
+    await expect((await checkCard(window)).getByTestId("health-look")).toContainText(
       words.needLook,
     );
     await app.close();

@@ -50,6 +50,23 @@ export function PlusLineIcon(props: IconProps) {
   );
 }
 
+export function UploadLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M12 15V4M7 9l5-5 5 5M5 20h14" />
+    </LineIcon>
+  );
+}
+
+export function AtLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.3 6.7" />
+    </LineIcon>
+  );
+}
+
 /** A note beside a highlight: a page corner with two lines of writing (#327). */
 export function NoteLineIcon(props: IconProps) {
   return (

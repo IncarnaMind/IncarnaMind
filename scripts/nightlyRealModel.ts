@@ -8,7 +8,10 @@
  * - the everyday requests in Chinese on Kimi K2.6,
  *
  * and writes `summary.md` (a result for every case, and the spend) with each step's reports into
- * NIGHTLY_OUT (eval/results/nightly-real-model by default). It exits 1 when a step fails.
+ * NIGHTLY_OUT (eval/results/nightly-real-model by default). It exits 1 when a step fails or could
+ * not be measured, and hands the report job (scripts/nightlyIssue.ts) which, as `status.json` and
+ * the job's `status` output. Each key is first asked one request (probeKey), so that a key with no
+ * credit leaves its steps not measured rather than failed.
  *
  * The keys come from the environment, never from the command line: NIGHTLY_ANTHROPIC_KEY_1 and _2
  * (the run moves to the second for good when the first is out of credit) and NIGHTLY_KIMI_KEY.
@@ -28,9 +31,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
+import { PROVIDER_ERROR_KINDS, type ProviderErrorKind } from "../src/core/api";
 import { costOf, inCurrency } from "../src/core/cost/price";
 import type { Price } from "../src/core/providers/catalog/types";
+import { OUT_OF_CREDIT as CORE_OUT_OF_CREDIT } from "../src/core/providers/creditWords";
+import type { Gap, Status } from "./nightlyIssue";
 import type { Usage } from "./usageTally";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -39,7 +47,9 @@ export const SECRETS = {
   anthropic: ["NIGHTLY_ANTHROPIC_KEY_1", "NIGHTLY_ANTHROPIC_KEY_2"],
   kimi: ["NIGHTLY_KIMI_KEY"],
 } as const;
-type Provider = keyof typeof SECRETS;
+export type Provider = keyof typeof SECRETS;
+
+const PROVIDER_NAMES: Readonly<Record<Provider, string>> = { anthropic: "Anthropic", kimi: "Kimi" };
 
 /** Per million tokens, as the catalog has them (a test holds the two together). */
 export const RATES: Readonly<Record<string, Price>> = {
@@ -50,9 +60,218 @@ export const RATES: Readonly<Record<string, Price>> = {
   "kimi-k3": { currency: "CNY", input: 20, output: 100, cacheRead: 2 },
 };
 
-/** What Anthropic and Kimi say when a key's credit or spending limit is used up. */
-export const OUT_OF_CREDIT =
-  /credit balance is too low|insufficient[ _](?:credit|balance|funds|quota)|balance (?:is )?insufficient|exceeded_current_quota|specified (?:workspace )?API usage limits|payment required/i;
+/**
+ * What providers say when a key's credit or spending limit is used up: the core's words, and two
+ * its list lacks, Anthropic's for a key's own cap and the reason phrase of a 402.
+ */
+export const OUT_OF_CREDIT = new RegExp(
+  `${CORE_OUT_OF_CREDIT.source}|specified (?:workspace )?API usage limits|payment required`,
+  "i",
+);
+
+const OUT_OF_CREDIT_KIND: ProviderErrorKind = "out-of-credit";
+
+export type Probe = { ok: true } | { ok: false; why: string };
+
+const SMALLEST_ASK = [{ role: "user", content: "." }];
+
+const PROBES: Readonly<
+  Record<Provider, { url: string; headers: (key: string) => Record<string, string>; body: object }>
+> = {
+  anthropic: {
+    url: "https://api.anthropic.com/v1/messages",
+    headers: (key) => ({ "x-api-key": key, "anthropic-version": "2023-06-01" }),
+    body: { model: "claude-haiku-5-5", max_tokens: 1, messages: SMALLEST_ASK },
+  },
+  kimi: {
+    url: "https://api.moonshot.ai/v1/chat/completions",
+    headers: (key) => ({ authorization: `Bearer ${key}` }),
+    body: { model: "kimi-k2.6", max_tokens: 1, messages: SMALLEST_ASK },
+  },
+};
+
+/**
+ * Before a key is used for a batch, asks its provider the smallest request there is and reads the
+ * status only: a key with no credit is refused here, and the batch is not measured, rather than
+ * every case in it failing. The answer's body is never read, kept or logged.
+ */
+export async function probeKey(
+  provider: Provider,
+  key: string,
+  ask: typeof fetch = fetch,
+): Promise<Probe> {
+  const probe = PROBES[provider];
+  let status: number;
+  try {
+    const response = await ask(probe.url, {
+      method: "POST",
+      headers: { ...probe.headers(key), "content-type": "application/json" },
+      body: JSON.stringify(probe.body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    status = response.status;
+    await response.body?.cancel();
+  } catch (error) {
+    console.error(
+      `The first request to ${PROVIDER_NAMES[provider]} got no answer: ${error instanceof Error ? error.message : "error"}`,
+    );
+    return { ok: false, why: "no answer" };
+  }
+  console.log(`The first request to ${PROVIDER_NAMES[provider]} got status ${status}.`);
+  return status >= 200 && status < 300 ? { ok: true } : { ok: false, why: `status ${status}` };
+}
+
+const STATUS =
+  /(?:\bstatus(?: code)?|\bstatusCode|\bHTTP(?:\/[\d.]+)?|\b(?:Error|APICallError))["':= ]{0,4}([1-5]\d\d)\b/i;
+
+const KINDS = Object.keys(PROVIDER_ERROR_KINDS).join("|");
+
+/** The core's own failure, whose message is the provider's: `"kind":"rate-limit"` in a result, `kind: 'rate-limit'` in an error printed with its fields. */
+const KIND = new RegExp(`\\bkind["']?\\s*:\\s*["'](${KINDS})["']`);
+
+/** The core's own line for a failure, `auth (401)`: its kind, then its status. */
+const KIND_STATUS = new RegExp(`\\b(${KINDS}) \\(([1-5]\\d\\d)\\)`);
+
+const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
+
+const NO_ANSWER = /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i;
+
+/** The AI SDK's wording for a request that got no answer, whichever error class carries it. */
+const CANNOT_CONNECT = /Cannot connect to API/;
+
+/** The AI SDK's errors whose message is what a provider answered. */
+const PROVIDER_ERROR =
+  /\b(?:AI_)?(?:APICall|Retry|JSONParse|TypeValidation|InvalidResponseData)Error\b/;
+
+const PROVIDER_ANSWERED = "failed: the provider answered with an error";
+
+const providerSaid = (text: string) =>
+  PROVIDER_ERROR.test(text) && !NO_ANSWER.test(text) && !CANNOT_CONNECT.test(text);
+
+/**
+ * What the text says about a provider's answer to a request, in words of ours, or null when it
+ * quotes none. The text may hold what the provider answered, with an account or key id in it.
+ * Credit words count only on a line that also says a provider answered (a status of 400 or more,
+ * one of the core's kinds, an AI SDK error, a `responseBody` member, or, as `after`, a message
+ * member after one of those in the same object): "没有欠费的会员" is a sentence of a test's
+ * Document, and a 402 or the kind `out-of-credit` count alone.
+ */
+function answered(text: string, after = false): string | null {
+  const printed = KIND_STATUS.exec(text);
+  const status = Number(STATUS.exec(text)?.[1] ?? printed?.[2]);
+  const kind = KIND.exec(text)?.[1] ?? printed?.[1];
+  const refusal =
+    after ||
+    status >= 400 ||
+    kind !== undefined ||
+    providerSaid(text) ||
+    RESPONSE_BODY.test(text);
+  if (status === 402 || kind === OUT_OF_CREDIT_KIND || (refusal && OUT_OF_CREDIT.test(text))) {
+    return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
+  }
+  if (status >= 400 && status < 500) return `refused: status ${status}`;
+  if (status >= 500) return `failed: status ${status}`;
+  return kind ? `failed: ${kind}` : null;
+}
+
+/**
+ * What a failure's text says about the request, in words of ours, or null when it says nothing we
+ * can name. Only fixed words and a status code leave this function, never the text: the summary is
+ * an artifact and the job's log a page, and anyone can read either.
+ */
+function classify(text: string): string | null {
+  const answer = answered(text);
+  if (answer) return answer;
+  if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
+  if (NO_ANSWER.test(text)) return "failed: no answer from the provider";
+  if (/^\s*(?:AssertionError|expected )/.test(text)) return "failed: an expectation did not hold";
+  return providerSaid(text) ? PROVIDER_ANSWERED : null;
+}
+
+/** A failed case's line in the summary: `classify`'s words, or a pointer to the job's log. */
+export const describeFailure = (text: string): string =>
+  classify(text) ?? "failed: see the job's log";
+
+/** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
+const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
+
+/** A line of a printed object, in a diff or not: a key, then a colon. */
+const MEMBER = /^[+-]?\s+(?:"[^"]*"|'[^']*'|[\w$]+)\s*:/;
+const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
+
+/** How far a line is indented; -1 for a blank line. A diff's marker stands where an unchanged line has a space, so it is a column. */
+const indentOf = (line: string): number =>
+  line.trim() === "" ? -1 : (/^[+-]?\s*/.exec(line)?.[0].length ?? 0);
+
+/**
+ * Reads a step's output a line at a time and says what each line quotes of a provider's answer,
+ * in words of ours, or null when it quotes none. A message member of a printed object is the
+ * provider's when a member line of the same object before it has said so (`"kind": "rate-limit"`,
+ * `statusCode: 401`), so the reader remembers that for every later line indented at least as
+ * deep as the one that said it, and forgets it at the first line indented less, at a blank line
+ * or at a test's own line: braces are not counted, so a nested object or a list that closes
+ * before the message does not end it. A message of ours follows no such line and stays. A member line that holds a message
+ * anywhere in it is told the same way, as Node prints a short parsed body on one line:
+ * `data: { error: { message: … } }`. A test's own line says nothing.
+ */
+function answerReader(): (line: string) => string | null {
+  let said: { words: string; indent: number } | null = null;
+  return (line) => {
+    const plain = stripVTControlCharacters(line);
+    if (TEST_LINE.test(plain)) {
+      said = null;
+      return null;
+    }
+    const indent = indentOf(plain);
+    const member = MEMBER.test(plain);
+    if (said && indent < said.indent) said = null;
+    const after = said !== null && member && HOLDS_MESSAGE.test(plain);
+    const quoted =
+      answered(plain, after) ??
+      (providerSaid(plain) ? classify(plain) : null) ??
+      (RESPONSE_BODY.test(plain) ? PROVIDER_ANSWERED : null);
+    if (quoted && member && !said) said = { words: quoted, indent };
+    return quoted ?? (after ? (said?.words ?? null) : null);
+  };
+}
+
+/** Whether the step's output says its key's credit is used up, by the words, status or kind `answered` knows. */
+function ranOutOfCredit(log: string): boolean {
+  const read = answerReader();
+  return stripVTControlCharacters(log)
+    .split("\n")
+    .some((line) => read(line)?.startsWith("refused: out of credit") === true);
+}
+
+/**
+ * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
+ * provider's answer (see `answerReader`) becomes its status or the core's failure kind and our
+ * words, every other line stays as it is.
+ */
+export function logFilter(): (line: string) => string {
+  const read = answerReader();
+  return (line) => {
+    const words = read(line);
+    return words ? `(a provider's words left out) ${words}` : line;
+  };
+}
+
+/** Prints text to `to` a whole line at a time, so that the filter never judges half a line. */
+function lineByLine(to: NodeJS.WritableStream) {
+  const inTheLog = logFilter();
+  let rest = "";
+  return {
+    add(text: string) {
+      const lines = (rest + text).split("\n");
+      rest = lines.pop() ?? "";
+      for (const line of lines) to.write(`${inTheLog(line)}\n`);
+    },
+    end() {
+      if (rest) to.write(inTheLog(rest));
+      rest = "";
+    },
+  };
+}
 
 interface Case {
   name: string;
@@ -197,8 +416,9 @@ type Execute = (
 /**
  * Runs each step with the first key of its provider that still has credit. A step that fails
  * saying a key is out of credit runs again with the next one, and every step after it starts there.
- * `stop` says, before each step, whether the night should go no further (and why); `after` hears
- * each attempt as it ends.
+ * `probe` is asked once about each key, before the first step that would use it, and a key it
+ * refuses is left out as if it had no credit. `stop` says, before each step, whether the night
+ * should go no further (and why); `after` hears each attempt as it ends.
  */
 export async function runSteps(
   steps: readonly Step[],
@@ -206,13 +426,34 @@ export async function runSteps(
   {
     stop,
     after,
+    probe,
   }: {
     stop?: (attempts: readonly Attempt[]) => string | null;
     after?: (attempts: readonly Attempt[]) => void;
+    probe?: (secret: string, provider: Provider) => Promise<Probe>;
   } = {},
 ): Promise<Attempt[]> {
   const attempts: Attempt[] = [];
   const spent = new Set<string>();
+  const probed = new Set<string>();
+  const refused = new Map<string, string>();
+  const accepted = async (secret: string, provider: Provider) => {
+    if (probe && !probed.has(secret)) {
+      probed.add(secret);
+      const answer = await probe(secret, provider);
+      if (!answer.ok) {
+        refused.set(secret, answer.why);
+        spent.add(secret);
+      }
+    }
+    return !refused.has(secret);
+  };
+  const noKeyLeft = (names: readonly string[]) => {
+    const got = [...new Set(names.flatMap((name) => refused.get(name) ?? []))];
+    return got.length > 0
+      ? `no key was accepted: the first request got ${got.join(" and ")}`
+      : "every key is out of credit";
+  };
   const notRun = (step: Step, secret: string, skipped: string) => {
     attempts.push({ step, secret, exitCode: 1, log: "", seconds: 0, outOfCredit: false, skipped });
     after?.(attempts);
@@ -224,19 +465,18 @@ export async function runSteps(
       notRun(step, names.find((name) => !spent.has(name)) ?? names.at(-1) ?? "", why);
       continue;
     }
-    const candidates = names.filter((name) => !spent.has(name));
-    if (candidates.length === 0) {
-      notRun(step, names.at(-1) ?? "", "every key is out of credit");
-      continue;
-    }
-    for (const secret of candidates) {
+    let ran = false;
+    for (const secret of names) {
+      if (spent.has(secret) || !(await accepted(secret, step.provider))) continue;
+      ran = true;
       const run = await execute(step, secret);
-      const outOfCredit = run.exitCode !== 0 && OUT_OF_CREDIT.test(run.log);
+      const outOfCredit = run.exitCode !== 0 && ranOutOfCredit(run.log);
       attempts.push({ step, secret, outOfCredit, ...run });
       after?.(attempts);
       if (!outOfCredit) break;
       spent.add(secret);
     }
+    if (!ran) notRun(step, names.at(-1) ?? "", noKeyLeft(names));
   }
   return attempts;
 }
@@ -271,22 +511,42 @@ export interface Result extends Attempt {
 
 const cell = (text: string) => text.replace(/\|/g, "\\|");
 
-/** The last line of a step's log that names an error, or none. */
+/** The most failing cases a night hands the report, so that they fit in a job's output and the report job's environment. */
+const MAX_RED = 150;
+
+const gapOf = (step: Step, why: string): Gap => ({
+  what: `${step.name} (${PROVIDER_NAMES[step.provider]})`,
+  why,
+  keeps: `${step.name}: `,
+});
+
+/** The failing cases of a step that was measured, named by the step; a step that failed with no failing case is named in plain words. */
+const redOf = (step: Step, cases: readonly Case[], ran: boolean, failing: number): string[] =>
+  failing > 0
+    ? cases.filter((each) => !each.passed).map((each) => `${step.name}: ${each.name}`)
+    : [`${step.name}: ${ran ? "the step failed with every case passing" : "no case reported a result"}`];
+
+/** Lines our own code writes, which hold numbers and no provider's words. */
+const OWN_LINE =
+  /^(?:Error: \d+% of the cited sentences are Supported, under the target of \d+(?:\.\d+)?%\.|Stopped after [\d.]+ minutes\.)$/;
+
+/** Why the last line of a step's log that names an error failed the step, in our words, or none. */
 function failureLine(log: string): string {
   const line = log
     .split("\n")
     .filter((each) => /\b(?:Error|Stopped after)\b/.test(each))
-    .at(-1);
-  return line ? line.trim().slice(0, 240) : "";
+    .at(-1)
+    ?.trim();
+  return line === undefined ? "" : OWN_LINE.test(line) ? line : (classify(line) ?? "");
 }
 
 /** The night's report: a line for each step, then a result for every case, and what it spent. */
 export function summary(
   results: readonly Result[],
   date: string,
-  /** The steps the night means to run, and why it is unfinished when it is: what isn't in `results` is listed as not run. */
+  /** The steps the night means to run, and why it is unfinished when it is: what isn't in `results` is listed as not measured. */
   night: { planned?: readonly Step[]; unfinished?: string } = {},
-): { text: string; passed: boolean } {
+): { text: string; passed: boolean; status: Status } {
   const steps = [...new Set(results.map((result) => result.step))];
   const waiting = (night.planned ?? []).filter((step) => !steps.includes(step));
   const unfinished =
@@ -297,6 +557,7 @@ export function summary(
   let total = 0;
   let unpriced = 0;
   let passed = true;
+  const status: Status = { red: [], gaps: [], measured: false };
   for (const step of steps) {
     const tries = results.filter((result) => result.step === step);
     const last = tries.at(-1);
@@ -312,12 +573,22 @@ export function summary(
     const ok = last.exitCode === 0 && ran;
     passed &&= ok;
     const failing = last.cases.filter((each) => !each.passed).length;
+    const notMeasured = last.cancelled
+      ? "the night was cancelled during this step"
+      : (last.skipped ??
+        (last.outOfCredit ? "the key ran out of credit during the step" : undefined));
+    if (notMeasured) {
+      status.gaps.push(gapOf(step, notMeasured));
+    } else {
+      status.measured ||= ran;
+      if (!ok) status.red.push(...redOf(step, last.cases, ran, failing));
+    }
     const minutes = (tries.reduce((sum, attempt) => sum + attempt.seconds, 0) / 60).toFixed(1);
     const skippedCases = last.skippedCases ? ` (${last.skippedCases} skipped)` : "";
     const outcome = last.cancelled
       ? "**cancelled**"
-      : last.skipped
-        ? "**not run**"
+      : notMeasured
+        ? "**not measured**"
         : ok
           ? "passed"
           : "**failed**";
@@ -325,7 +596,7 @@ export function summary(
       `| ${step.name} | ${last.secret} | ${outcome} | ${last.cases.length - failing} of ${last.cases.length}${skippedCases} | $${dollars.toFixed(2)} | ${minutes} min |`,
     );
     const why = last.skipped
-      ? `Not run: ${last.skipped}.`
+      ? `Not measured: ${last.skipped}.`
       : last.exitCode === 0
         ? "No case ran: every test skipped itself, or the requests named no case."
         : "No results: read the job's log.";
@@ -333,7 +604,10 @@ export function summary(
     sections.push(
       `## ${step.name}`,
       "",
-      ...(ran && !ok && failing === 0 && reason
+      ...(notMeasured && ran
+        ? [`Not measured: ${notMeasured}; the results below are not counted.`, ""]
+        : []),
+      ...(ran && !ok && failing === 0 && reason && !notMeasured
         ? [`The step failed, every case passed: ${reason}`, ""]
         : []),
       ...(!ran
@@ -349,14 +623,20 @@ export function summary(
           ]),
     );
   }
-  for (const step of waiting) rows.push(`| ${step.name} | – | **not run** | – | – | – |`);
+  for (const step of waiting) {
+    rows.push(`| ${step.name} | – | **not measured** | – | – | – |`);
+    status.gaps.push(gapOf(step, "the night ended before this step ran"));
+  }
+  status.red = status.red.slice(0, MAX_RED);
   const verdict = unfinished
-    ? passed
-      ? "No step that ran has failed."
-      : "A step has failed."
-    : passed
-      ? "Every step passed."
-      : "A step failed.";
+    ? status.red.length > 0
+      ? "A step has failed."
+      : "No step that ran has failed."
+    : status.red.length > 0
+      ? "A step failed."
+      : status.gaps.length > 0
+        ? "No step failed, but not every step was measured."
+        : "Every step passed.";
   const text = [
     `# Nightly real-model checks, ${date}`,
     "",
@@ -371,7 +651,7 @@ export function summary(
     "",
     ...sections,
   ].join("\n");
-  return { text, passed: passed && !unfinished };
+  return { text, passed: passed && !unfinished, status };
 }
 
 function readJson(path: string): unknown {
@@ -445,11 +725,11 @@ export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: n
   const cases = all
     .filter((each) => each.status === "passed" || each.status === "failed")
     .map((each) => {
-      const reason = each.failureMessages?.[0]?.split("\n")[0]?.slice(0, 200);
+      const failure = each.failureMessages?.join("\n");
       return {
         name: each.fullName,
         passed: each.status === "passed",
-        ...(reason && { detail: reason }),
+        ...(failure && { detail: describeFailure(failure) }),
       };
     });
   return { cases, skipped: all.length - cases.length };
@@ -511,9 +791,18 @@ export function executeIn(
         [run.stdout, process.stdout],
         [run.stderr, process.stderr],
       ] as const) {
+        const decoder = new StringDecoder("utf8");
+        const shown = lineByLine(to);
         stream.on("data", (chunk: Buffer) => {
-          log += chunk.toString();
-          to.write(chunk);
+          const text = decoder.write(chunk);
+          log += text;
+          shown.add(text);
+        });
+        stream.on("end", () => {
+          const text = decoder.end();
+          log += text;
+          shown.add(text);
+          shown.end();
         });
       }
       const finish = (exitCode: number) => {
@@ -564,11 +853,13 @@ export async function runNight({
   steps,
   env,
   out,
+  probe,
 }: {
   steps: readonly Step[];
   env: Record<string, string | undefined>;
   out: string;
-}): Promise<{ text: string; passed: boolean }> {
+  probe?: (secret: string, provider: Provider) => Promise<Probe>;
+}): Promise<{ text: string; passed: boolean; status: Status }> {
   const limit = Number(env.NIGHTLY_MAX_USD) > 0 ? Number(env.NIGHTLY_MAX_USD) : DEFAULT_MAX_USD;
   mkdirSync(out, { recursive: true });
   const keys = Object.values(SECRETS)
@@ -589,8 +880,15 @@ export async function runNight({
     });
     const text = withoutKeys(night.text, keys);
     writeFileSync(join(out, "summary.md"), text);
+    writeFileSync(join(out, "status.json"), JSON.stringify(night.status));
     removeKeys(out, keys);
-    return { text, passed: night.passed };
+    return { text, passed: night.passed, status: night.status };
+  };
+  // The report job reads the verdict from this job's output; JSON.stringify leaves it on one line.
+  const hand = (status: Status) => {
+    if (env.GITHUB_OUTPUT) {
+      appendFileSync(env.GITHUB_OUTPUT, `status=${withoutKeys(JSON.stringify(status), keys)}\n`);
+    }
   };
   const running: Running = { current: null };
   let done: readonly Attempt[] = [];
@@ -609,10 +907,11 @@ export async function runNight({
         cancelled: true,
       });
     }
-    const { text } = write(
+    const { text, status } = write(
       attempts,
       step ? `cancelled during ${step.step.name}` : "cancelled between steps",
     );
+    hand(status);
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${text}\n`);
     console.log(text);
     process.exit(1);
@@ -620,6 +919,7 @@ export async function runNight({
   process.on("SIGINT", cancelled);
   process.on("SIGTERM", cancelled);
   const attempts = await runSteps(steps, executeIn(out, env, running), {
+    ...(probe && { probe }),
     after: (each) => {
       done = [...each];
       write(each);
@@ -637,6 +937,7 @@ export async function runNight({
   process.off("SIGINT", cancelled);
   process.off("SIGTERM", cancelled);
   const night = write(attempts);
+  hand(night.status);
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${night.text}\n`);
   return night;
 }
@@ -662,7 +963,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const out = resolve(ROOT, env.NIGHTLY_OUT ?? join("eval", "results", "nightly-real-model"));
-  const night = await runNight({ steps, env, out });
+  const night = await runNight({
+    steps,
+    env,
+    out,
+    probe: (secret, provider) => probeKey(provider, env[secret] ?? ""),
+  });
   console.log(night.text);
   process.exit(night.passed ? 0 : 1);
 }

@@ -8,7 +8,13 @@ import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
-import { exportMarksOf, isExportMarks, writeExportMarks } from "../shared/exportMarks";
+import {
+  chosenExportMarks,
+  exportMarksOf,
+  isExportMarksChoice,
+  isMarkedFormat,
+  writeExportMarks,
+} from "../shared/exportMarks";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
@@ -1088,6 +1094,7 @@ export function createCore(adapters: CoreAdapters): Core {
       db,
       dataDir,
       now,
+      localOnly: () => embedding.localOnly(),
       log: adapters.log ?? silentLogger,
       model: embedding.model,
       textRecognition: textRecognitionModel && timedRecognition(textRecognitionModel),
@@ -3389,7 +3396,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return lineSpacing === "default" ? null : lineSpacing;
     },
     bibliography: (mindId) => content.readSettings(mindId, bibliographyShown),
-    exportMarks: (mindId) => content.readSettings(mindId, exportMarksOf),
+    exportMarks: (mindId, format) =>
+      content.readSettings(mindId, (settings) => exportMarksOf(settings, format)),
     formatCitations: (request) => citationStyles.format(request),
     citedPage: (citation) => citedPages.image(citation),
     citedUnits: ({ documentId, contentHash, pageFrom, pageTo }) => {
@@ -3784,10 +3792,16 @@ export function createCore(adapters: CoreAdapters): Core {
       throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
     return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
   };
+  // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+  const taggingMaySend = (id: string, service: ExternalService, pressed: boolean) =>
+    !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq));
   const tagger = createTagger({
-    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
-    maySend: (id, service, pressed) =>
-      !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
+    maySend: taggingMaySend,
+    heldBack: (id) => {
+      const classifier = tagsWith();
+      const service = classifier && tagging.service(classifier);
+      return !!service && !taggingMaySend(id, service, false);
+    },
     db,
     now,
     offered: (id, text) => offeredTags(db, [id], undefined, new Map([[id, text]])).get(id) ?? [],
@@ -3964,8 +3978,6 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
-    consentedAt: (service) =>
-      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -6822,20 +6834,26 @@ export function createCore(adapters: CoreAdapters): Core {
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
       const before = library.chosenSettings();
-      library.saveSettings(input);
+      const named = new Set(library.saveSettings(input).map((service) => service.id));
       const after = library.chosenSettings();
-      // Turning tagging on where its line says what goes is the consent for where it sends now
-      // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
+      // Turning tagging on where its line says what goes is the consent for where it sends now,
+      // the services the turn-on named and no others (ADR-0022, #1617, #2982). Nothing else is: a
+      // save sends the switch as shown (#2308).
       const turnedOn = isRecord(input) && input.turnOn === true;
       const tagsAnew = JSON.stringify(after.classifier) !== JSON.stringify(before.classifier);
       const organizesAnew =
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
-      if (turnedOn) {
-        for (const service of await taggingServices()) consent.choose(["tagging"], service);
+      if (named.size > 0) {
+        for (const service of await taggingServices()) {
+          if (named.has(service.id)) consent.choose(["tagging"], service);
+        }
       }
-      if (turnedOn || organizesAnew) {
+      // A model chosen in Local mode, whose line names no service, names none either: its first
+      // use after Local mode asks (#2982).
+      const chosen = organizesAnew && !embedding.localOnly();
+      if (named.size > 0 || chosen) {
         for (const service of await classificationServices()) {
-          consent.choose(["classification"], service);
+          if (chosen || named.has(service.id)) consent.choose(["classification"], service);
         }
       }
       if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
@@ -7500,12 +7518,22 @@ export function createCore(adapters: CoreAdapters): Core {
       await adapters.shell.openPath(path);
     },
     getMindStyle: async (mindId) => content.readSettings(minds.get(mindId).id, mindStyleOf),
-    getExportMarks: async (mindId) => content.readSettings(minds.get(mindId).id, exportMarksOf),
+    getExportMarks: async (mindId, format) => {
+      if (!isMarkedFormat(format)) throw new InvalidInputError({ key: "error.exportMarks.format" });
+      return content.readSettings(minds.get(mindId).id, (settings) =>
+        exportMarksOf(settings, format),
+      );
+    },
     setExportMarks: async (mindId, marks) => {
-      if (!isExportMarks(marks)) throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      if (!isExportMarksChoice(marks)) {
+        throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      }
       const mind = writableMind(mindId);
       content.editSettings(mind.id, (mindSettings) => writeExportMarks(mindSettings, marks));
-      return content.readSettings(mind.id, exportMarksOf);
+      return content.readSettings(
+        mind.id,
+        (settings) => chosenExportMarks(settings) ?? { watermark: "none" },
+      );
     },
     getPageSetup: async (mindId) => {
       const mind = minds.get(mindId);

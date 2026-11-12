@@ -12,10 +12,11 @@ export interface ComparisonViews {
 
 /** Kept in the HTML as `data-…`, so a table copied within IncarnaMind keeps what it holds. */
 function dataAttribute(name: string, json = false) {
+  const key = `data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
   return {
     default: null,
     parseHTML: (element: HTMLElement) => {
-      const raw = element.getAttribute(`data-${name}`);
+      const raw = element.getAttribute(key);
       if (raw === null || !json) return raw;
       try {
         return JSON.parse(raw) as unknown;
@@ -26,7 +27,7 @@ function dataAttribute(name: string, json = false) {
     renderHTML: (attributes: Record<string, unknown>) => {
       const value = attributes[name];
       if (value === null || value === undefined) return {};
-      return { [`data-${name}`]: json ? JSON.stringify(value) : String(value) };
+      return { [key]: json ? JSON.stringify(value) : String(value) };
     },
   };
 }
@@ -52,8 +53,8 @@ export const ComparisonTable = Node.create<ComparisonViews>({
     return {
       title: dataAttribute("title"),
       questions: dataAttribute("questions", true),
-      providerId: dataAttribute("provider-id"),
-      modelId: dataAttribute("model-id"),
+      providerId: dataAttribute("providerId"),
+      modelId: dataAttribute("modelId"),
       instruction: dataAttribute("instruction"),
     };
   },
@@ -88,8 +89,8 @@ export const ComparisonRow = Node.create<ComparisonViews>({
 
   addAttributes() {
     return {
-      documentId: dataAttribute("document-id"),
-      documentName: dataAttribute("document-name"),
+      documentId: dataAttribute("documentId"),
+      documentName: dataAttribute("documentName"),
     };
   },
 
@@ -118,13 +119,13 @@ export const ComparisonCell = Node.create<ComparisonViews>({
 
   addAttributes() {
     return {
-      questionId: dataAttribute("question-id"),
+      questionId: dataAttribute("questionId"),
       status: dataAttribute("status"),
       edited: dataAttribute("edited"),
-      fillId: dataAttribute("fill-id"),
+      fillId: dataAttribute("fillId"),
       problem: dataAttribute("problem"),
       message: dataAttribute("message"),
-      resetsAt: dataAttribute("resets-at"),
+      resetsAt: dataAttribute("resetsAt"),
     };
   },
 

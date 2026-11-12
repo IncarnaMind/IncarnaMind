@@ -19,9 +19,12 @@ import {
   sameNumber,
   showResult,
 } from "../../../shared/formula";
-import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
+import { wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
+import { PERIOD_DEMONSTRATIVE, periodCounts } from "./periodCounts";
+
+export { periodCounts };
 
 function printedFigures(text: string, context: FigureContext): Figure[] {
   const references = citedCases(text).map((reference, index, citations) => {
@@ -46,140 +49,6 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
     ),
     ...counts,
   ].sort((a, b) => a.start - b.start);
-}
-
-/**
- * Whether a text before a single period makes it say which one, not how many: "这一年", "那一年",
- * "每一年", "同一年", "另一年", "哪一年" and "当一年" are this, that, every, the same, another,
- * which and a year. A 当 that ends a word ("应当") is no prefix; 前 and 后 stay out because
- * "前后一年" counts a year or so (#2215).
- */
-const PERIOD_DEMONSTRATIVE = /(?:[这那每同另哪]|(?<!\p{Script=Han})当)\s*$/u;
-
-const EN_PERIOD =
-  "(?:[ -]+(?:consecutive|successive))?[ -]+(years?|months?|weeks?|days?|quarters?)\\b";
-
-const COUNT_REACH = 40;
-
-/** The figure that ends at `at`, read as any number is from the characters before `through`, which may take in the period word after it. */
-function figureEndingAt(
-  text: string,
-  at: number,
-  through: number,
-  context: FigureContext,
-): { figure: Figure; start: number } | undefined {
-  const from = Math.max(0, at - COUNT_REACH);
-  const local = text.slice(from, through);
-  const figure = readFigures(local, {
-    ...context,
-    dates: true,
-    midLine: true,
-    header: null,
-  }).findLast(
-    (each) => each.end === at - from || (each.start < at - from && each.end === local.length),
-  );
-  return figure && { figure, start: from + figure.start };
-}
-
-const asCount = (value: number | null): number =>
-  value !== null && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : Number.NaN;
-
-/**
- * A count's value as the figure reader read it: a comma or a point it can't place is taken as the
- * first way it lists, a range as its far end. NaN when it can't be a count, which no Passage
- * states, so a sentence with one is left not judged, never passed (#2943).
- */
-function countValue(figure: Figure): number {
-  const kinds = figure.ambiguous.map(({ kind }) => kind);
-  if (kinds.some((kind) => kind !== "separator" && kind !== "range")) return Number.NaN;
-  return asCount(kinds.includes("range") ? figure.rangeTo : figure.value);
-}
-
-export function periodCounts(text: string, context: FigureContext): Figure[] {
-  const counts: Figure[] = [];
-  const count = (
-    start: number,
-    end: number,
-    value: number,
-    unit: string,
-    decimals = 0,
-  ): Figure => ({
-    start,
-    end,
-    chars: text.slice(start, end),
-    value,
-    scale: 1,
-    scaleWord: null,
-    unit: { kind: "other", word: unit },
-    decimals,
-    currency: null,
-    approximate: false,
-    rangeTo: null,
-    footnote: null,
-    ambiguous: [],
-  });
-  const spelled = new RegExp(`\\b(${INTEGER_WORDS})${EN_PERIOD}`, "gi");
-  for (const match of text.matchAll(spelled)) {
-    const unit = match[2]?.toLowerCase().replace(/s$/, "");
-    if (!unit) continue;
-    const value = asCount(wholeNumberWords(match[1] ?? ""));
-    counts.push(count(match.index, match.index + match[0].length, value, unit));
-  }
-  for (const match of text.matchAll(new RegExp(EN_PERIOD, "gi"))) {
-    const unit = match[1]?.toLowerCase().replace(/s$/, "");
-    const before = text.slice(Math.max(0, match.index - COUNT_REACH), match.index);
-    const digits = /\p{Nd}+$/u.exec(before);
-    if (!unit || !digits) continue;
-    const found = figureEndingAt(text, match.index, match.index, context);
-    const numberAt = found
-      ? found.start + Math.max(0, text.slice(found.start, match.index).search(/\p{Nd}/u))
-      : match.index - digits[0].length;
-    // A number inside a word is no count, read or not: "FY24 year-end", "1e3 days" (as before).
-    if (/\w/.test(text.charAt(numberAt - 1))) continue;
-    // The reader leaves out a number a hyphen glues to a word ("over-60-day", "1-in-200-year"): its
-    // digits alone are the count. Any other number it won't read has no value.
-    const glued = !found && /[\p{L}-]$/u.test(before.slice(0, digits.index));
-    let value = Number.NaN;
-    if (found) value = countValue(found.figure);
-    else if (glued) value = asCount(Number(digits[0]));
-    const start = found?.start ?? match.index - digits[0].length;
-    counts.push(count(start, match.index + match[0].length, value, unit, found?.figure.decimals));
-  }
-  const units: Readonly<Record<string, string>> = {
-    年: "year",
-    个月: "month",
-    月: "month",
-    周: "week",
-    天: "day",
-    日: "day",
-    季度: "quarter",
-  };
-  for (const match of text.matchAll(/年|个月|月|周|天|日|季度/gu)) {
-    const unitAt = match.index;
-    const found = figureEndingAt(text, unitAt, unitAt + match[0].length, context);
-    if (!found) continue;
-    const { figure, start } = found;
-    const before = text.slice(0, start);
-    // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
-    // demonstrative is no count (#2215).
-    if (figure.value === 1 && PERIOD_DEMONSTRATIVE.test(before)) continue;
-    const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
-    if (/第\s*$/u.test(before)) continue;
-    if (match[0] === "年" && figure.value >= 1000 && !consecutive) continue;
-    if (
-      (match[0] === "月" || match[0] === "日" || match[0] === "季度") &&
-      !consecutive &&
-      !/个\s*$/u.test(before)
-    )
-      continue;
-    if (/(?:公元|民国)\s*$/u.test(before)) continue;
-    const unit = units[match[0]];
-    if (unit) {
-      const end = unitAt + match[0].length;
-      counts.push(count(start, end, countValue(figure), unit, figure.decimals));
-    }
-  }
-  return counts;
 }
 
 /**

@@ -99,6 +99,11 @@ export interface TaggerOptions {
    */
   maySend(id: string, service: ExternalService, pressed: boolean): boolean;
   /**
+   * Whether a new Document may not go by itself where tagging sends now (`maySend`): it waits for
+   * the User, "off", at once, not as one waiting for its turn (#2982).
+   */
+  heldBack?(id: string): boolean;
+  /**
    * The User's own Tags a Document is about, which its request may offer (./about), judged on
    * `text`, what the request sends of it: a scan's first pages while the rest is read.
    */
@@ -552,7 +557,7 @@ export function createTagger(options: TaggerOptions) {
       // Processed again (e.g. by a newer pipeline), its rest read or embedded: the same file
       // keeps its Tags.
       if (!row || row.tagging_status === "tagged") return;
-      if (!automatic()) {
+      if (!automatic() || (!asked.has(id) && options.heldBack?.(id) === true)) {
         setState(id, "off");
         return;
       }

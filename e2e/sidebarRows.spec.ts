@@ -119,9 +119,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await (await coreOf(window)).evaluate(async (core, name) => {
         const tags = await core.listTags();
         const item = (await core.listDocuments()).find((each) => each.name === name);
-        for (const tag of ["Paper", "Notes", "Report"]) {
+        for (const tag of ["Paper", "Book", "Report"]) {
           const found = tags.find((each) => each.name === tag);
-          if (item && found) await core.addDocumentTag(item.id, found.id);
+          if (!item || !found) throw new Error(`No Document ${name} or Tag ${tag}.`);
+          await core.addDocumentTag(item.id, found.id);
         }
         await core.createMind({ title: name });
       }, names.document);

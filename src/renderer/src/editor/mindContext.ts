@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { ChatModelChoice, FigureScheduleRow } from "../../../core/api";
+import type { ChatModelChoice, CitedOrigin, FigureScheduleRow } from "../../../core/api";
 import type { SignOffRecord } from "../../../shared/signOffs";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
@@ -35,12 +35,6 @@ export interface JudgedAnswer {
  * Null outside the assistant, where a Citation's page is opened from the Note.
  */
 export const AssistantFoldedContext = createContext<boolean | null>(null);
-
-/**
- * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
- * or the Note and what acts beside it (its Citations, cards, tabs and commands).
- */
-export type CitedOrigin = "note" | "assistant";
 
 /** The origin of a page opened from this component: the assistant it is drawn in, else the Note. */
 export const useCitedOrigin = (): CitedOrigin =>

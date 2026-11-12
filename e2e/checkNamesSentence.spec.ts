@@ -405,7 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
     };
     expect(await inView()).toBe(false);
     const health = window.getByTestId("check-card");
-    await pointAndClick(window, (await checkCard(window)).getByTestId("health-unsupported"));
+    await pointAndClick(window, (await checkCard(window)).getByTestId("health-look"));
     await expect(card).toHaveAttribute("data-check", "unsupported");
     await expect(health).toHaveCount(0);
     await expect.poll(inView).toBe(true);
@@ -420,7 +420,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.getByTestId("check-badge-open").focus();
     await window.keyboard.press("Enter");
     await expect(health).toBeVisible();
-    await health.getByTestId("health-contradicted").focus();
+    await health.getByTestId("health-look").focus();
     await window.keyboard.press("Enter");
     await expect(card).toHaveAttribute("data-check", "contradicted");
     await expect(health).toHaveCount(0);
@@ -477,7 +477,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(page.height, "the paragraph is taller than the page").toBeGreaterThan(view.height);
     expect(before.y, "the sentence starts below the page").toBeGreaterThan(view.y + view.height);
 
-    await pointAndClick(window, (await checkCard(window)).getByTestId("health-unsupported"));
+    await pointAndClick(window, (await checkCard(window)).getByTestId("health-look"));
     const card = window.getByTestId("claim-card");
     await expect(card).toHaveAttribute("data-check", "unsupported");
     await expect(card.getByTestId("claim-sentence")).toHaveText(`“${sentence}”`);

@@ -48,7 +48,7 @@ const WORDS = {
     footnotes: "2 footnotes",
     marked: "AI text marked",
     unmarked: "AI text not marked",
-    notChecked: "Claims not checked",
+    notChecked: "Not checked",
     change: "Change",
     list: "2 Citations in a list at the end",
     undo: "Word files now leave the text IncarnaMind wrote unmarked",
@@ -58,7 +58,7 @@ const WORDS = {
     footnotes: "2 个脚注",
     marked: "已标出 AI 生成的文字",
     unmarked: "未标出 AI 生成的文字",
-    notChecked: "说法未核对",
+    notChecked: "未核对",
     change: "更改",
     list: "2 个引用列在文末",
     undo: "Word 导出改为不标出 IncarnaMind 写的内容",
@@ -351,7 +351,7 @@ test("a note with nothing to check says nothing about checks; a sentence it hold
   await window.keyboard.type(" Spring tides come twice a month.");
   await exportFromMenu(window, "docx");
   await expect(done).toContainText(savedLine("Tides 2.docx", out));
-  await expect(unchecked).toHaveText(["Claims not checked"]);
+  await expect(unchecked).toHaveText(["Not checked"]);
   await app.close();
 });
 

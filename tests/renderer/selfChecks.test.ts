@@ -117,7 +117,7 @@ describe("What a write's check left to do", () => {
     expect(live(10)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 10 claims not checked yet",
+        text: "Checked 10 sentences · 10 sentences not checked yet",
         details: [],
         action: { label: "Check", does: "check" },
       },
@@ -125,7 +125,7 @@ describe("What a write's check left to do", () => {
     expect(live(1)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 1 claim not checked yet",
+        text: "Checked 10 sentences · 1 sentence not checked yet",
         details: [],
         action: { label: "Check", does: "check" },
       },
@@ -133,13 +133,13 @@ describe("What a write's check left to do", () => {
     expect(live(0)).toEqual([
       {
         kind: "left",
-        text: "Checked 10 sentences · 0 claims not checked yet",
+        text: "Checked 10 sentences · 0 sentences not checked yet",
         details: [],
         action: null,
       },
     ]);
     // One sentence checked beside a live count: the checked phrase is singular too (English).
-    expect(live2(1)).toBe("Checked 1 sentence · 2 claims not checked yet");
+    expect(live2(1)).toBe("Checked 1 sentence · 2 sentences not checked yet");
     expect(
       selfCheckLines(
         of({ request: "w", checkable: 20, cited: 13, sent: 12, checked: 1, failed: 0 }),
@@ -148,7 +148,7 @@ describe("What a write's check left to do", () => {
         new Date("2026-10-18T09:00:00.000Z"),
         2,
       ).find((line) => line.kind === "left")?.text,
-    ).toBe("已核对 1 句 · 2 条说法待核对");
+    ).toBe("已核对 1 句 · 2 句待核对");
     // One sentence checked, with the rest of the write left and no live count to say by how much.
     expect(
       words("en", of({ request: "w", checkable: 3, cited: 1, sent: 1, checked: 1, failed: 0 })),
