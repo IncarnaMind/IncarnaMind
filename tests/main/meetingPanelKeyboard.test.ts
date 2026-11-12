@@ -136,7 +136,7 @@ const press = (kind: string) =>
   ).incarnamindPressHelpKeys(kind);
 
 /** A Meeting recording on macOS or elsewhere, its panel shown or not. */
-async function recording(mac: boolean, { shown = true } = {}) {
+async function recording(mac: boolean, { shown = true, linux = false } = {}) {
   const core = startCore(await createTempDataFolder(), {
     audioCapture: createFakeCapture(),
     now: manualClock().now,
@@ -153,12 +153,13 @@ async function recording(mac: boolean, { shown = true } = {}) {
     appWindows: () => [],
     trusted: () => true,
     mac,
+    linux,
     log: recordingLog().log,
     testHooks: true,
   });
   const { id } = await core.createMeeting();
   await core.startMeeting({ meetingId: id });
-  await vi.waitFor(() => expect([...electron.registered.keys()]).toContain("Ctrl+Alt+N"));
+  await vi.waitFor(() => expect([...electron.registered.keys()]).toContain("Ctrl+Alt+1"));
   return { core, meetingId: id };
 }
 
@@ -297,5 +298,12 @@ describe("The call-help panel and the keyboard (#2925)", () => {
     const panel = await shownPanel();
     ready(panel);
     expect(notesAsked(panel)).toBe(1);
+  });
+
+  test("on Linux, where the panel has no field, ⌃⌥N isn't held and a Quick note asked anyway opens nothing", async () => {
+    await recording(false, { shown: false, linux: true });
+    expect([...electron.registered.keys()]).toEqual(["Ctrl+Alt+1"]);
+    electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "note");
+    expect(electron.made).toHaveLength(0);
   });
 });

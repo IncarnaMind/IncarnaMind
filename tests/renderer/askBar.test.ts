@@ -66,7 +66,7 @@ interface AskBarProps {
   notes: {
     add(text: string, atMs: number | null): Promise<AddedToNote>;
     undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
-  };
+  } | null;
 }
 
 describe("the ask bar's prompts, in order", () => {
@@ -145,7 +145,8 @@ async function show(
   {
     meeting = meetingOf(template),
     noteWanted = false,
-  }: { meeting?: Meeting; noteWanted?: boolean } = {},
+    quickNotes = true,
+  }: { meeting?: Meeting; noteWanted?: boolean; quickNotes?: boolean } = {},
 ) {
   await act(async () =>
     root?.render(
@@ -157,7 +158,7 @@ async function show(
         onReach,
         onTakeKeyboard,
         onNoteTaken,
-        notes,
+        notes: quickNotes ? notes : null,
       }),
     ),
   );
@@ -287,6 +288,14 @@ describe("the ask bar", () => {
     cutLabelsOf(["What should I say?"]);
     await show(null, {});
     expect(one("help-prompt").getAttribute("title")).toBe("What should I say?");
+  });
+
+  test('where the panel has no quick notes (Linux), there is no field, and More… shows no "/"', async () => {
+    await show(null, KEYS, { quickNotes: false });
+    expect(all("quick-note-field")).toHaveLength(0);
+    expect(all("help-more-keys")).toHaveLength(0);
+    expect(one("help-more").textContent).toBe("More…");
+    expect(one("ask-bar").textContent).not.toMatch(/Note for this meeting|\//);
   });
 
   test("is in Chinese in a Chinese interface", async () => {

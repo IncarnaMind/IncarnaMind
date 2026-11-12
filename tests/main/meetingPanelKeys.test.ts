@@ -60,7 +60,7 @@ const mainInFront = (front: boolean) =>
     globalThis as unknown as { incarnamindMainFocused(front: boolean): void }
   ).incarnamindMainFocused(front);
 
-async function serve(mac: boolean, meetingHelpKeys: HelpKeys = {}) {
+async function serve(mac: boolean, meetingHelpKeys: HelpKeys = {}, linux = false) {
   const core = startCore(await createTempDataFolder(), {
     audioCapture: createFakeCapture(),
     now: manualClock().now,
@@ -73,6 +73,7 @@ async function serve(mac: boolean, meetingHelpKeys: HelpKeys = {}) {
     appWindows: () => [],
     trusted: () => true,
     mac,
+    linux,
     log: recordingLog().log,
     testHooks: true,
   });
@@ -138,6 +139,12 @@ describe("The shortcuts held over the meeting app while a meeting records", () =
     await vi.waitFor(() => expect(held()).toEqual(["Ctrl+Alt+F8"]));
     await core.stopMeeting(id);
     await vi.waitFor(() => expect(held()).toEqual([]));
+  });
+
+  test("Linux holds no quick note key, even one the User set, as its panel has no field (#2925)", async () => {
+    const { record } = await serve(false, { note: "Ctrl+Alt+N", say: "Ctrl+Alt+1" }, true);
+    await record();
+    await vi.waitFor(() => expect(held()).toEqual(["Ctrl+Alt+1"]));
   });
 
   test("macOS keeps holding its defaults with a main window in front, as Pause my mic is wanted while taking notes", async () => {

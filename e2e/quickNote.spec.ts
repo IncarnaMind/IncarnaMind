@@ -28,6 +28,11 @@ const BUYER = [
   "How much is the Enterprise plan per seat, and does it include single sign-on?",
 ];
 
+test.skip(
+  process.platform === "linux",
+  "On Linux the panel has no field (#2925); meetingHelp.spec checks nothing offers one there.",
+);
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -316,6 +321,9 @@ test("quick note: with the Note open and typed in, a quick note lands at the end
   const chip = window.getByTestId("meeting-view-chip");
   await pointAndClick(window, chip);
   await pointAndClick(window, window.getByTestId("meeting-view-mine"));
-  await expect(editor.locator(":is(p, h1, h2, h3):visible")).toHaveText(["Quick from the panel"]);
+  // The empty line the cursor stays in shows too, as My notes keeps the cursor's line.
+  await expect(editor.locator(":is(p, h1, h2, h3):visible").filter({ hasText: /\S/ })).toHaveText([
+    "Quick from the panel",
+  ]);
   await app.close();
 });

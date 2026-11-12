@@ -4,6 +4,7 @@ import {
   HELP_SHORTCUTS,
   helpKeysOf,
   helpShortcutLabel,
+  helpShortcutsOn,
   isGlobalKeys,
   isHelpKeys,
   isHelpShortcut,
@@ -24,6 +25,11 @@ describe("The shortcuts held during a call", () => {
     expect(defaultHelpKeys("note", false)).toBeNull();
     expect(helpShortcutLabel("note")).toBe("meetings.quickNote");
     expect(HELP_SHORTCUTS.slice(-2)).toEqual(["note", "mic"]);
+  });
+
+  test("Linux has every shortcut but the quick note's, as its panel has no field", () => {
+    expect(helpShortcutsOn(true)).toEqual(HELP_SHORTCUTS.filter((each) => each !== "note"));
+    expect(helpShortcutsOn(false)).toEqual(HELP_SHORTCUTS);
   });
 
   test("every macOS default is keys of its own a person can hold", () => {

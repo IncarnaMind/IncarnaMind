@@ -106,6 +106,14 @@ export type HelpShortcut = (typeof HELP_SHORTCUTS)[number];
 export const isHelpShortcut = (value: unknown): value is HelpShortcut =>
   HELP_SHORTCUTS.some((shortcut) => shortcut === value);
 
+/**
+ * The shortcuts a system has: on Linux, none for the quick note, as the panel has no field there
+ * (#2925). Under X11 a window made unable to take the keyboard, as the panel is so a click on it
+ * leaves the keys with the meeting app, can't take it later, and Wayland lets no app take it.
+ */
+export const helpShortcutsOn = (linux: boolean): readonly HelpShortcut[] =>
+  linux ? HELP_SHORTCUTS.filter((shortcut) => shortcut !== "note") : HELP_SHORTCUTS;
+
 export function helpShortcutLabel(shortcut: HelpShortcut): MessageKey {
   if (shortcut === "panel") return "meetings.callHelp";
   if (shortcut === "note") return "meetings.quickNote";
@@ -115,9 +123,9 @@ export function helpShortcutLabel(shortcut: HelpShortcut): MessageKey {
 
 /**
  * A shortcut by default on macOS only: ⌃⌥1–7, ⌃⌥H, ⌃⌥N and ⌃⌥M, which Zoom, Teams and Mac apps
- * leave free. Elsewhere none: the apps a call runs beside use Ctrl+Shift+1–9 (Excel's number formats),
- * Ctrl+Alt is AltGr on many European layouts, and no app's keys can all be known. The buttons and
- * ⌘K do everything, and the User sets keys in Settings › Meetings.
+ * leave free. Elsewhere none: the apps a call runs beside use Ctrl+Shift+1–9 (Excel's number
+ * formats), Ctrl+Alt is AltGr on many European layouts, and no app's keys can all be known. The
+ * buttons and ⌘K do everything, and the User sets keys in Settings › Meetings.
  */
 export function defaultHelpKeys(shortcut: HelpShortcut, mac: boolean): string | null {
   if (!mac) return null;

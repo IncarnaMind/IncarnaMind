@@ -15,6 +15,7 @@ import {
   helpKeysLabel,
   helpToKeepOf,
   liveMeetingNow,
+  quickNotesHere,
   useMeetingHelp,
 } from "../meetingHelp";
 import { canRecordMeetings } from "../meetings";
@@ -95,7 +96,7 @@ export const meetingHelpCommands: readonly Command[] = [
     group: "main",
     // It puts the cursor in the panel's field; Esc there gives the keyboard back.
     reversible: true,
-    when: meetingsOn,
+    when: () => meetingsOn() && quickNotesHere(),
     enabled: whileLive,
     globalKeys: () => helpKeysLabel("note", useAppStore.getState().settings),
     run: () => files.meetingPanelCommand("note"),

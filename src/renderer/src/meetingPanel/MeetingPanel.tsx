@@ -30,7 +30,7 @@ import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { helpToKeep } from "../helpReply";
 import { translateNow, useT } from "../i18n";
-import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
+import { addHelpToNotes, askHelp, quickNotesHere, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
@@ -286,11 +286,14 @@ function Panel({
 }) {
   const t = useT();
   const meetingId = meeting.id;
-  const notes = useMemo<QuickNotes>(
-    () => ({
-      add: (text, atMs) => core.addQuickNote({ meetingId, text, atMs }),
-      undo: (added) => core.undoAddToNote(added),
-    }),
+  const notes = useMemo<QuickNotes | null>(
+    () =>
+      quickNotesHere()
+        ? {
+            add: (text, atMs) => core.addQuickNote({ meetingId, text, atMs }),
+            undo: (added) => core.undoAddToNote(added),
+          }
+        : null,
     [meetingId],
   );
   const hidden = useAppStore((state) => state.settings?.device.meetingPanelHidden ?? true);

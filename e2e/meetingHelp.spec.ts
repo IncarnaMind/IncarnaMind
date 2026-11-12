@@ -167,7 +167,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
     /^What do they want\?/,
   ]);
   await expect(bar.first().getByTestId("help-prompt-keys")).toHaveText(mac ? "⌃⌥1" : "Ctrl+Alt+1");
-  await expect(more).toHaveText("More…/");
+  await expect(more).toHaveText(process.platform === "linux" ? "More…" : "More…/");
   await pointAndClick(panel, more);
   await expect(moreList).toHaveText([
     /^Sum up so far/,
@@ -815,9 +815,21 @@ test("help during the call on Windows and Linux: no shortcut is held until the U
   await expect(hide).not.toContainText("Ctrl");
   await window.keyboard.press("Escape");
 
+  // On Linux the panel has no field for quick notes (#2925): nothing offers one, its key included.
+  const linux = process.platform === "linux";
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Quick note");
+  await expect(paletteFound(window).filter({ hasText: "Quick note" })).toHaveCount(linux ? 0 : 1);
+  await window.keyboard.press("Escape");
+  await expect(panel.getByTestId("quick-note-field")).toHaveCount(linux ? 0 : 1);
+  await expect(panel.getByTestId("help-more")).toHaveText(linux ? "More…" : "More…/");
+
   const settings = await openSettings(window, "meetings");
   const rows = settings.getByTestId("help-keys-row");
-  await expect(rows).toHaveCount(9);
+  await expect(rows).toHaveCount(linux ? 9 : 10);
+  await expect(settings.locator('[data-testid="help-keys"][data-kind="note"]')).toHaveCount(
+    linux ? 0 : 1,
+  );
   const field = (kind: string) =>
     settings.locator(`[data-testid="help-keys"][data-kind="${kind}"]`);
   const remove = settings.getByTestId("help-keys-remove");

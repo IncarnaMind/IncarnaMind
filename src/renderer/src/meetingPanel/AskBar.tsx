@@ -34,7 +34,8 @@ type Keys = Partial<Record<MeetingHelpKind, string>>;
  * once the pointer has been off the panel for a second.
  *
  * Only a press in the field and `noteWanted` (⌃⌥N, ⌘K) take the keyboard; a press on a row or a
- * button never does, and while the field has it, keeps the cursor there.
+ * button never does, and while the field has it, keeps the cursor there. With no `notes` (Linux,
+ * `helpShortcutsOn`) there is no field, and More… shows no "/".
  */
 export function AskBar({
   meeting,
@@ -53,7 +54,7 @@ export function AskBar({
   onReach(reach: number): void;
   onTakeKeyboard(): void;
   onNoteTaken(): void;
-  notes: QuickNotes;
+  notes: QuickNotes | null;
 }) {
   const t = useT();
   const { bar, more } = askBarKinds(meeting.helpTemplate);
@@ -223,9 +224,11 @@ export function AskBar({
           className="ask-row ask-more"
         >
           <span className="ask-label">{t("meetings.help.more")}</span>
-          <kbd data-testid="help-more-keys" className="ask-key">
-            /
-          </kbd>
+          {notes && (
+            <kbd data-testid="help-more-keys" className="ask-key">
+              /
+            </kbd>
+          )}
         </button>
         {moreOpen && (
           <div
@@ -242,52 +245,54 @@ export function AskBar({
           </div>
         )}
       </div>
-      <div ref={fieldAnchor} className="ask-anchor">
-        <NoteField
-          meeting={meeting}
-          field={field}
-          text={text}
-          onText={changeText}
-          list={
-            typed === null
-              ? null
-              : { id: listId, chosenId: found.length > 0 ? optionId(shownChosen) : undefined }
-          }
-          listKeys={listKeys}
-          notes={notes}
-          onTakeKeyboard={onTakeKeyboard}
-        />
-        {typed !== null && (
-          <div
-            ref={slashList}
-            id={listId}
-            role="listbox"
-            aria-label={t("meetings.help.label")}
-            data-testid="help-slash-list"
-            className="editor-menu ask-list"
-          >
-            {found.length === 0 ? (
-              <p data-testid="help-slash-none" className="editor-menu-note">
-                {t("editor.slash.empty")}
-              </p>
-            ) : (
-              found.map((kind, index) => (
-                <Prompt
-                  key={kind}
-                  kind={kind}
-                  shortcut={keys[kind]}
-                  option={{
-                    id: optionId(index),
-                    selected: index === shownChosen,
-                    onPoint: () => setChosen(index),
-                  }}
-                  onChoose={choose}
-                />
-              ))
-            )}
-          </div>
-        )}
-      </div>
+      {notes && (
+        <div ref={fieldAnchor} className="ask-anchor">
+          <NoteField
+            meeting={meeting}
+            field={field}
+            text={text}
+            onText={changeText}
+            list={
+              typed === null
+                ? null
+                : { id: listId, chosenId: found.length > 0 ? optionId(shownChosen) : undefined }
+            }
+            listKeys={listKeys}
+            notes={notes}
+            onTakeKeyboard={onTakeKeyboard}
+          />
+          {typed !== null && (
+            <div
+              ref={slashList}
+              id={listId}
+              role="listbox"
+              aria-label={t("meetings.help.label")}
+              data-testid="help-slash-list"
+              className="editor-menu ask-list"
+            >
+              {found.length === 0 ? (
+                <p data-testid="help-slash-none" className="editor-menu-note">
+                  {t("editor.slash.empty")}
+                </p>
+              ) : (
+                found.map((kind, index) => (
+                  <Prompt
+                    key={kind}
+                    kind={kind}
+                    shortcut={keys[kind]}
+                    option={{
+                      id: optionId(index),
+                      selected: index === shownChosen,
+                      onPoint: () => setChosen(index),
+                    }}
+                    onChoose={choose}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </fieldset>
   );
 }

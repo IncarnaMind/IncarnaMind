@@ -35,7 +35,7 @@ import type { Meeting, Settings } from "../../core/api";
 import { isRecord } from "../../core/errors";
 import { FILES_CHANNELS } from "../../shared/bridge";
 import { keysForm } from "../../shared/keyForms";
-import { HELP_SHORTCUTS, type HelpShortcut, helpKeysOf } from "../../shared/meetingHelp";
+import { type HelpShortcut, helpKeysOf, helpShortcutsOn } from "../../shared/meetingHelp";
 import {
   type HeldKeys,
   MEETING_PANEL_ARGUMENT,
@@ -61,6 +61,8 @@ export interface MeetingPanelOptions {
   trusted(event: IpcMainInvokeEvent | IpcMainEvent): boolean;
   /** On macOS the shortcuts have ⌃⌥ defaults; elsewhere none is held until the User sets one. */
   mac: boolean;
+  /** On Linux the panel has no field for quick notes, so no ⌃⌥N (`helpShortcutsOn`); this system's by default. */
+  linux?: boolean;
   log: Logger;
   /** A test build lets the smoke tests press a shortcut, which no test can send the system. */
   testHooks: boolean;
@@ -68,6 +70,7 @@ export interface MeetingPanelOptions {
 
 export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): void {
   const { mac } = options;
+  const shortcuts = helpShortcutsOn(options.linux ?? process.platform === "linux");
   let meetings: Meeting[] = [];
   let settings: Settings | null = null;
   let panel: BrowserWindow | null = null;
@@ -147,7 +150,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
 
   /** Opens the panel if it isn't shown, and asks its page to put the cursor in its field. */
   function quickNote(): void {
-    if (!liveMeeting()) return;
+    if (!liveMeeting() || !shortcuts.includes("note")) return;
     if (!panel) choose(true);
     if (panel && pageReady) panel.webContents.send(MEETING_PANEL_CHANNELS.command, "note");
     else noteWaiting = true;
@@ -207,7 +210,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   function holdKeys(active: boolean): void {
     const wanted = new Map<HelpShortcut, string>();
     if (active && settings) {
-      for (const kind of HELP_SHORTCUTS) {
+      for (const kind of shortcuts) {
         const keys = helpKeysOf(kind, settings.device.meetingHelpKeys, mac);
         if (keys && !takenByWindow(keys)) wanted.set(kind, keys);
       }
