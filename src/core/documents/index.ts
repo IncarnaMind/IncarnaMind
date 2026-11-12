@@ -81,7 +81,7 @@ import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
-import { markArrived, nextSequence } from "../tags/held";
+import { arrivalPlace, markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { whileOpen } from "../whileOpen";
 import { isPlaceholderDate } from "./creationDate";
@@ -587,6 +587,8 @@ export interface DocumentsOptions {
   };
   reportError?: (error: unknown) => void;
   log?: Logger;
+  /** Local mode: what arrives now never goes to a cloud service by itself (../tags/held). */
+  localOnly?(): boolean;
 }
 
 /** Which Documents `list` returns. Every condition given must match. */
@@ -802,7 +804,7 @@ export function createDocuments(options: DocumentsOptions) {
           deletedAt,
         ],
       );
-      markArrived(db, id, at, nextSequence(db, at));
+      markArrived(db, id, at, arrivalPlace(db, at, options.localOnly?.() ?? false));
       record();
     });
   }
@@ -2073,6 +2075,7 @@ export function createDocuments(options: DocumentsOptions) {
     retryMs: options.linkedFolders.retryMs,
     detectDataless: options.linkedFolders.detectDataless,
     readingSeconds: (files) => reading.seconds(files),
+    localOnly: () => options.localOnly?.() ?? false,
     hooks: {
       process,
       stillQueued: (id) => {

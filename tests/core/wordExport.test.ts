@@ -73,11 +73,7 @@ async function importFile(core: Core, bytes: Buffer, origin: "own" | "someone-el
 async function setUp(input: WordFileInput, origin: "own" | "someone-else" = "own") {
   const core = startCore(await createTempDataFolder());
   const bytes = wordFile(input);
-  const imported = await importFile(core, bytes, origin);
-  // Page numbers and a watermark are the Note's own choice (#1258), off here so a file nothing
-  // changed is still byte for byte the one it was; their tests turn them on.
-  await core.setExportMarks(imported.mindId, { pageNumbers: false, watermark: "none" });
-  return { core, bytes, ...imported };
+  return { core, bytes, ...(await importFile(core, bytes, origin)) };
 }
 
 async function exported(core: Core, mindId: string) {
@@ -210,7 +206,6 @@ describe("what the Mind didn't change", () => {
         core,
         wordFile({ body: paragraph("Text."), sectPr }),
       );
-      await core.setExportMarks(mindId, { pageNumbers: false, watermark: "none" });
       editText(client, (value) => `${value} Edited.`);
       await client.settled();
 
