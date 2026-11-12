@@ -534,7 +534,11 @@ export async function expectMarksAsChecked(
       const answer = messages.find((message) => message.id === answerId);
       if (answer?.kind !== "answer" || answer.status === "streaming") return null;
       if (answer.citations.some((citation) => citation.check === "checking")) return null;
-      return answer.citations.map(({ check, passedAt }) => ({ check, passedAt: passedAt ?? [] }));
+      return answer.citations.map(({ marker, check, passedAt }) => ({
+        marker,
+        check,
+        passedAt: passedAt ?? [],
+      }));
     }, help);
   await expect.poll(settled, { timeout: 20_000 }).not.toBeNull();
   const citations = (await settled()) ?? [];
@@ -543,7 +547,11 @@ export async function expectMarksAsChecked(
   for (let index = 0; index < (await chips.count()); index++) {
     const chip = chips.nth(index);
     const at = Number(await chip.getAttribute("data-at"));
-    const passed = citations.some((citation) => citation.passedAt.includes(at));
+    const marker = Number(await chip.getAttribute("data-marker"));
+    // The chip's own Citation passed its own place: a pass recorded on another marker is no ✓.
+    const own = citations.find((citation) => citation.marker === marker);
+    if (!own) throw new Error(`A chip shows marker ${marker}, which has no Citation.`);
+    const passed = own.passedAt.includes(at);
     await expect(chip).toHaveAttribute("data-passed", String(passed));
     await (passed
       ? expect(chip.getByTestId("help-citation-check")).toBeVisible()
@@ -551,6 +559,32 @@ export async function expectMarksAsChecked(
     shown.push({ at, check: (await chip.getAttribute("data-check")) ?? "", passed });
   }
   return shown;
+}
+
+/** Presses a prompt of the call-help panel's ask bar: in the bar, or under More…, which the press closes. */
+export async function pressHelpPrompt(panel: Page, name: string): Promise<void> {
+  const inTheBar = panel
+    .getByTestId("ask-bar")
+    .getByTestId("help-prompt")
+    .filter({ hasText: name });
+  if ((await inTheBar.count()) > 0) {
+    await pointAndClick(panel, inTheBar);
+    return;
+  }
+  await pointAndClick(panel, panel.getByTestId("help-more"));
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-more-list").getByTestId("help-prompt").filter({ hasText: name }),
+  );
+}
+
+/** Presses a call-help prompt and waits for its reply to end: the reply under its heading. */
+export async function pressHelp(panel: Page, name: string): Promise<Locator> {
+  await pressHelpPrompt(panel, name);
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await expect(suggestion.getByTestId("help-heading")).toContainText(name);
+  return suggestion;
 }
 
 export async function expectBarOneRow(bar: Locator): Promise<void> {

@@ -13,6 +13,7 @@ import {
   readHelpReply,
   sentencePassed,
   shownItems,
+  uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
@@ -343,5 +344,21 @@ describe("A help reply", () => {
     };
     expect(sentencePassed(foundOnly, 0)).toBe(false);
     expect(sentencePassed(judgedOnly, 0)).toBe(false);
+  });
+
+  test("a chip names why its sentence was never checked only where the User can act on it", () => {
+    expect(uncheckedReason({ check: "not-checked", checkReason: "monthly-limit" })).toBe(
+      "monthly-limit",
+    );
+    expect(uncheckedReason({ check: "not-checked", checkReason: "answer-limit" })).toBe(
+      "answer-limit",
+    );
+    expect(uncheckedReason({ check: "not-checked", checkReason: "small-model" })).toBe(
+      "small-model",
+    );
+    // A line the check doesn't judge, a quote not found, and a sentence it judged say nothing more.
+    expect(uncheckedReason({ check: "not-checked", checkReason: null })).toBeNull();
+    expect(uncheckedReason({ check: "not-found", checkReason: "quote-not-on-pages" })).toBeNull();
+    expect(uncheckedReason({ check: "unsupported", checkReason: null })).toBeNull();
   });
 });

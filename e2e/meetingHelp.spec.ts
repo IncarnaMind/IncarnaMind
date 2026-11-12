@@ -16,6 +16,8 @@ import {
   panelOf,
   panelOpen,
   pointAndClick,
+  pressHelp,
+  pressHelpPrompt,
   pressHeldKeys as pressKeys,
   recordMeeting,
   removeDataFolder,
@@ -68,31 +70,6 @@ async function recordingMeeting(window: Page) {
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
   await firstTranscriptLine(window);
   return bar;
-}
-
-/** Presses a prompt of the panel's ask bar: in the bar, or under More…, which the press closes. */
-async function pressPrompt(panel: Page, name: string): Promise<void> {
-  const inTheBar = panel
-    .getByTestId("ask-bar")
-    .getByTestId("help-prompt")
-    .filter({ hasText: name });
-  if ((await inTheBar.count()) > 0) {
-    await pointAndClick(panel, inTheBar);
-    return;
-  }
-  await pointAndClick(panel, panel.getByTestId("help-more"));
-  await pointAndClick(
-    panel,
-    panel.getByTestId("help-more-list").getByTestId("help-prompt").filter({ hasText: name }),
-  );
-}
-
-async function pressIn(page: Page, name: string): Promise<Locator> {
-  await pressPrompt(page, name);
-  const suggestion = page.getByTestId("help-suggestion").last();
-  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
-  await expect(suggestion.getByTestId("help-heading")).toContainText(name);
-  return suggestion;
 }
 
 /** Up to three short lines, none starred and none with an arrow. */
@@ -151,7 +128,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
     "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   );
   const panel = await panelOf(app);
-  await pressPrompt(panel, "Say no politely");
+  await pressHelpPrompt(panel, "Say no politely");
   await expect(panel.getByTestId("help-set-up")).toHaveText(
     "Choose an AI model to get help during the call · Set up",
   );
@@ -205,7 +182,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await expect(panel.getByTestId("help-more-list")).toHaveCount(0);
 
   // A press shows the outline at once, then the options; the panel still isn't focused.
-  await pressPrompt(panel, "Say no politely");
+  await pressHelpPrompt(panel, "Say no politely");
   await expect(panel.getByTestId("help-outline").first()).toBeVisible();
   const sayNo = panel.getByTestId("help-suggestion");
   await expect(sayNo).toHaveAttribute("data-status", "done", { timeout: 20_000 });
@@ -215,7 +192,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await shot(panel, "help-panel-say-no-en");
 
   // "What do they want?": readings, each resting on a moment of the transcript it cites.
-  const want = await pressIn(panel, "What do they want?");
+  const want = await pressHelp(panel, "What do they want?");
 
   await expect(want.getByTestId("help-heading")).toHaveText(
     "What do they want? · Read from what they said",
@@ -227,8 +204,8 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await expectMarksAsChecked(window, want);
 
   // What to ask next writes options; Check what was said, up to three lines.
-  await expectOptions(await pressIn(panel, "What to ask next"));
-  await expectLines(await pressIn(panel, "Check what was said"));
+  await expectOptions(await pressHelp(panel, "What to ask next"));
+  await expectLines(await pressHelp(panel, "Check what was said"));
 
   // While the panel shows, the assistant has no second row of the same buttons.
   await expect(window.getByTestId("help-strip")).toHaveCount(0);
@@ -251,9 +228,9 @@ test("help during the call: the floating panel above the meeting gives one or tw
   ]);
   await pointAndClick(panel, more);
   await expect(panel.getByTestId("panel-template")).toHaveText("Sales call");
-  await expectOptions(await pressIn(panel, "Handle the objection"));
-  await expectOptions(await pressIn(panel, "Propose the next step"));
-  await expectLines(await pressIn(panel, "Facts from my documents"));
+  await expectOptions(await pressHelp(panel, "Handle the objection"));
+  await expectOptions(await pressHelp(panel, "Propose the next step"));
+  await expectLines(await pressHelp(panel, "Facts from my documents"));
   await pointAndClick(panel, panel.getByTestId("panel-template"));
   await pointAndClick(
     panel,
@@ -262,12 +239,12 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await pointAndClick(panel, more);
   await expect(moreList.nth(1)).toHaveText("Am I leading them?");
   await pointAndClick(panel, more);
-  const leading = await pressIn(panel, "Am I leading them?");
+  const leading = await pressHelp(panel, "Am I leading them?");
   await expect(leading.getByTestId("help-heading")).toHaveText(
     /^Am I leading them\? · You said: “.+”$/,
   );
-  await expectOptions(await pressIn(panel, "A follow-up question"));
-  await expectLines(await pressIn(panel, "Not covered yet"));
+  await expectOptions(await pressHelp(panel, "A follow-up question"));
+  await expectLines(await pressHelp(panel, "Not covered yet"));
   await pointAndClick(panel, panel.getByTestId("panel-template"));
   await pointAndClick(
     panel,
@@ -277,8 +254,8 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await expect(moreList).toHaveCount(6);
   await expect(moreList.nth(1)).toHaveText("Where we disagree");
   await pointAndClick(panel, more);
-  await expectLines(await pressIn(panel, "Decisions and owners so far"));
-  await expectLines(await pressIn(panel, "Where we disagree"));
+  await expectLines(await pressHelp(panel, "Decisions and owners so far"));
+  await expectLines(await pressHelp(panel, "Where we disagree"));
   await shot(panel, "help-panel-team-en");
 
   // In a Chinese interface the buttons and headings are Chinese; the options keep the call's
@@ -287,13 +264,13 @@ test("help during the call: the floating panel above the meeting gives one or tw
     bridge.updateSettings({ user: { language: "zh-CN" } }),
   );
   await expect(bar.first()).toContainText("我该怎么说？");
-  const sayNoZh = await pressIn(panel, "礼貌地拒绝");
+  const sayNoZh = await pressHelp(panel, "礼貌地拒绝");
   await expect(sayNoZh.getByTestId("help-heading")).toHaveText(/^礼貌地拒绝 · 对方说：“.+”$/);
   await expectOptions(sayNoZh);
   await expect(sayNoZh.getByTestId("help-option-say").first()).toContainText("Friday");
-  await expectOptions(await pressIn(panel, "接下来问什么"));
-  await expectLines(await pressIn(panel, "核对刚才说的话"));
-  await expectLines(await pressIn(panel, "分歧在哪里"));
+  await expectOptions(await pressHelp(panel, "接下来问什么"));
+  await expectLines(await pressHelp(panel, "核对刚才说的话"));
+  await expectLines(await pressHelp(panel, "分歧在哪里"));
   await shot(panel, "help-panel-say-no-zh");
   await app.close();
 });
@@ -309,7 +286,7 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   await useLocalChatModel(window);
   const bar = await recordingMeeting(window);
   const panel = await panelOf(app);
-  await expectLines(await pressIn(panel, "Sum up so far"));
+  await expectLines(await pressHelp(panel, "Sum up so far"));
 
   // Folded to a pill: only the dot, the time, the level bars and expand show; the rest is in its
   // name. The level bars move with the voices, and pointed at or focused, are Stop.
@@ -511,7 +488,7 @@ test("help during the call: Answer their question cites the price sheet, checked
   const bar = await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  const answer = await pressIn(panel, "Answer their question");
+  const answer = await pressHelp(panel, "Answer their question");
   await expect(answer.getByTestId("help-option-say").first()).toContainText("$45 per seat");
   // The price line states it, so the check passes the option's sentence: ✓ (#2847).
   expect((await expectMarksAsChecked(window, answer))[0]).toMatchObject({ passed: true });
@@ -603,7 +580,7 @@ test("help during the call: a model's notes before its records never show, the o
   await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  await pressPrompt(panel, "Answer their question");
+  await pressHelpPrompt(panel, "Answer their question");
   const suggestion = panel.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
   const seen: string[] = [];
@@ -632,7 +609,7 @@ test("help during the call: a reading that came without its → line stays once 
   await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  await pressPrompt(panel, "What do they want?");
+  await pressHelpPrompt(panel, "What do they want?");
   const suggestion = panel.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   await shot(panel, "help-panel-move-taken-back-done");
@@ -660,7 +637,7 @@ test("help during the call: a reply with nothing to show says so, with Try again
   await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  const suggestion = await pressIn(panel, "Sum up so far");
+  const suggestion = await pressHelp(panel, "Sum up so far");
   await shot(panel, "help-panel-nothing-en");
   await expect(suggestion.getByTestId("help-option")).toHaveCount(0);
   const nothing = suggestion.getByTestId("help-nothing");
@@ -754,7 +731,7 @@ test("help during the call with the live text behind and no line yet: the panel 
     .toBe("behind");
   const panel = await panelOf(app);
 
-  const english = await pressIn(panel, "Answer their question");
+  const english = await pressHelp(panel, "Answer their question");
   const line = english.getByTestId("help-option");
   await expect(line).toHaveCount(1);
   await expect(line).toContainText("The live text is behind, so none of the call is written yet");
@@ -762,7 +739,7 @@ test("help during the call with the live text behind and no line yet: the panel 
   await shot(panel, "help-panel-behind-en");
 
   await setLanguage(window, "zh-CN");
-  const chinese = await pressIn(panel, "回答对方的问题");
+  const chinese = await pressHelp(panel, "回答对方的问题");
   await expect(chinese.getByTestId("help-option")).toHaveCount(1);
   await expect(chinese.getByTestId("help-option")).toContainText(
     "实时转写跟不上，通话内容还没有转写出来",
@@ -786,15 +763,15 @@ test("help during the call follows the call's language: a Chinese call gets Chin
   const panel = await panelOf(app);
   const han = /\p{Script=Han}/u;
 
-  const sum = await pressIn(panel, "Sum up so far");
+  const sum = await pressHelp(panel, "Sum up so far");
   await expectLines(sum);
   await expect(sum.getByTestId("help-option-say").first()).toHaveText(han);
-  const ask = await pressIn(panel, "What to ask next");
+  const ask = await pressHelp(panel, "What to ask next");
   await expectOptions(ask);
   await expect(ask.getByTestId("help-option-say").first()).toHaveText(han);
   await expect(ask.getByTestId("help-option-effect").first()).toHaveText(han);
   await expect(ask.getByTestId("help-heading")).toHaveText(/^What to ask next · They said: “.+”$/);
-  const check = await pressIn(panel, "Check what was said");
+  const check = await pressHelp(panel, "Check what was said");
   await expectLines(check);
   await expect(check.getByTestId("help-option-say").first()).toHaveText(han);
 
@@ -806,7 +783,7 @@ test("help during the call follows the call's language: a Chinese call gets Chin
     panel,
     panel.locator('[data-testid="panel-template-option"][data-template="sales"]'),
   );
-  const objection = await pressIn(panel, "处理异议");
+  const objection = await pressHelp(panel, "处理异议");
   await expectOptions(objection);
   await expect(objection.getByTestId("help-option-say").first()).toHaveText(han);
   await expect(objection.getByTestId("help-heading")).toHaveText(/^处理异议 · 对方说：“.+”$/);
@@ -923,7 +900,7 @@ test("help during the call: a model that can't answer says why in the panel, in 
   await useLocalChatModel(window, "fake-not-found");
   const bar = await recordingMeeting(window);
   const panel = await panelOf(app);
-  await pressPrompt(panel, "Sum up so far");
+  await pressHelpPrompt(panel, "Sum up so far");
   const failed = panel.getByTestId("help-failed");
   await expect(failed).toHaveText(
     "No help this time: Ollama doesn’t know fake-not-found · Try again",

@@ -39,7 +39,7 @@ export interface ReplyItem {
 const DEFINITION = /^\[\^\d+\]:/;
 
 /** The pieces of `text`, whose first Citation marker is the reply's `first`. */
-export function pieces(text: string, first = 0): ReplyPiece[] {
+export function pieces(text: string, first: number): ReplyPiece[] {
   const found: ReplyPiece[] = [];
   let from = 0;
   let cited = first;
@@ -184,6 +184,21 @@ export function citationNumbers(
  */
 export const sentencePassed = (citation: Pick<MarkedCitation, "passedAt">, at: number): boolean =>
   citation.passedAt?.includes(at) === true;
+
+/**
+ * Why a help reply's Citation was never checked, where the User can do something about it: the
+ * Answer's checking limit or the monthly limit reached, or a model too small to judge. Null
+ * otherwise, a line the check doesn't judge among them.
+ */
+export function uncheckedReason(
+  citation: Pick<MarkedCitation, "check" | "checkReason">,
+): "answer-limit" | "monthly-limit" | "small-model" | null {
+  if (citation.check !== "not-checked") return null;
+  const reason = citation.checkReason;
+  return reason === "answer-limit" || reason === "monthly-limit" || reason === "small-model"
+    ? reason
+    : null;
+}
 
 const CITATION_MARKER = /\[\^\d+\]/g;
 

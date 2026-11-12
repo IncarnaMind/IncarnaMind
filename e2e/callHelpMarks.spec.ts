@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
@@ -10,7 +10,7 @@ import {
   launchApp,
   panelOf,
   panelOpen,
-  pointAndClick,
+  pressHelp,
   recordMeeting,
   removeDataFolder,
   setLanguage,
@@ -86,17 +86,6 @@ async function holdChecks(app: ElectronApplication, hold: boolean): Promise<void
   }, hold);
 }
 
-async function pressIn(page: Page, name: string): Promise<Locator> {
-  await pointAndClick(
-    page,
-    page.getByTestId("ask-bar").getByTestId("help-prompt").filter({ hasText: name }),
-  );
-  const suggestion = page.getByTestId("help-suggestion").last();
-  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
-  await expect(suggestion.getByTestId("help-heading")).toContainText(name);
-  return suggestion;
-}
-
 for (const call of CALLS) {
   test(`call help in ${call.language}: a ✓ only beside a sentence the check passed, the Citation plain otherwise, in its place`, async () => {
     const { app, window } = await launchApp(dataDir, {
@@ -128,7 +117,7 @@ for (const call of CALLS) {
 
     // An option resting on the price sheet, its check held: the chip shows its number alone.
     await holdChecks(app, true);
-    const answer = await pressIn(panel, call.answer);
+    const answer = await pressHelp(panel, call.answer);
     const chip = answer.getByTestId("help-citation").first();
     await expect(chip).toHaveAttribute("data-check", "checking");
     await expect(chip).toHaveAttribute("data-passed", "false");
@@ -153,7 +142,7 @@ for (const call of CALLS) {
     await shot(panel, `call-help-marks-answer-${call.interface}`);
 
     // A reading of what they said: its moment's chip shows what the check gave that line.
-    const want = await pressIn(panel, call.want);
+    const want = await pressHelp(panel, call.want);
     const wantMarks = await expectMarksAsChecked(window, want);
     expect(wantMarks.length).toBeGreaterThan(0);
     test.info().annotations.push({
@@ -165,7 +154,7 @@ for (const call of CALLS) {
     // Its check held, the panel closed and its check let go while it is closed: the check runs
     // on, and the panel shown again has the reply with the mark its check gave.
     await holdChecks(app, true);
-    const pressed = await pressIn(panel, call.answer);
+    const pressed = await pressHelp(panel, call.answer);
     await expect(pressed.getByTestId("help-citation").first()).toHaveAttribute(
       "data-check",
       "checking",
