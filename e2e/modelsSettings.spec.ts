@@ -6,6 +6,7 @@ import {
   acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
+  expectEstimateTip,
   launchApp,
   openSettings,
   removeDataFolder,
@@ -282,18 +283,17 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
         await expect(flash).toHaveAttribute("data-model", "deepseek-flash");
         const cost = flash.getByTestId("provider-model-cost");
         await expect(cost).toHaveText(zh ? /^约 ¥\d+\.\d+$/ : /^About ¥\d+\.\d+$/);
-        await expect(cost).toHaveAttribute(
-          "title",
-          zh
-            ? /^按 DeepSeek 深度求索的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/
-            : /^Estimate from DeepSeek’s price, checked \d{1,2} \w+ \d{4}$/,
-        );
         await expect(page.getByTestId("provider-cost-head")).toHaveText(
           zh ? "每 100 个回答的费用 · 价格 ↗" : "Cost per 100 Answers · Pricing ↗",
         );
-        // Where the estimate comes from is reached by the keyboard too.
-        await cost.focus();
-        await expect(cost).toBeFocused();
+        // Where the estimate comes from shows in the app's tip on the keyboard's focus too (#1257).
+        await expectEstimateTip(
+          window,
+          cost,
+          zh
+            ? /^按 DeepSeek 深度求索的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/
+            : /^Estimate from DeepSeek’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+        );
         await expect(cost).toHaveAccessibleDescription(/DeepSeek/);
         // The Answers model stays in the menu.
         await expect(flash.getByTestId("provider-model-in-menu")).toBeDisabled();

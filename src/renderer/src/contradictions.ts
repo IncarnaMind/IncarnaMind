@@ -14,6 +14,7 @@ import type {
   ChatModelChoice,
   ContradictionCheckPlan,
   ContradictionWatchRun,
+  RunEstimate,
   TextStretch,
 } from "../../core/api";
 import { contradictionWatchOf, observeContradictionWatch } from "../../shared/contradictionWatch";
@@ -25,13 +26,14 @@ import {
   useChecks,
 } from "./checks";
 import { core } from "./core";
-import { type EstimateLine, estimateLine } from "./cost";
-import { languageNow, translateNow } from "./i18n";
 import { useAppStore } from "./store";
 
 interface ContradictionsState {
-  /** By Note: the question asked before a run billed per token, with its estimate. */
-  asking: Readonly<Record<string, { claims: number; estimate: EstimateLine | null }>>;
+  /**
+   * By Note: the question asked before a run billed per token, with its estimate, put in words
+   * where it is shown so they follow the interface's language while it is open (#2831).
+   */
+  asking: Readonly<Record<string, { claims: number; estimate: RunEstimate }>>;
 }
 
 export const useContradictions = create<ContradictionsState>()(() => ({ asking: {} }));
@@ -54,7 +56,7 @@ const problemOf = (plan: Exclude<ContradictionCheckPlan, { kind: "ready" }>): Ch
 
 /** What the check badge's card shows of it, if anything. */
 export type ContradictionLineShown =
-  | { kind: "asking"; claims: number; estimate: EstimateLine | null }
+  | { kind: "asking"; claims: number; estimate: RunEstimate }
   | { kind: "watched"; run: ContradictionWatchRun };
 
 /**
@@ -172,7 +174,7 @@ export async function startContradictionCheck(mindId: string): Promise<void> {
     if (estimate === null || estimate.billing !== "per-token") return checkContradictions(mindId);
     setFor("asking", mindId, {
       claims: plan.claims,
-      estimate: estimateLine(estimate, translateNow, languageNow()),
+      estimate,
     });
   } catch (error) {
     setCheckProblem(mindId, {

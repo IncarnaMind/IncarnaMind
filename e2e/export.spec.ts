@@ -99,7 +99,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await pointAndClick(window, window.getByTestId("export-mind"));
   await expect(items).toHaveText([
     /^Word \(\.docx\)/,
-    "1 claim not checked yet · Check first",
+    "1 sentence not checked yet · Check first",
     "PDF",
     "More formats",
     "Citation styleNumbered (Document and Location)",
@@ -124,7 +124,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(items).toHaveText([
     new RegExp(`^PDF${shortcut.source}`),
     "Word (.docx)",
-    "1 claim not checked yet · Check first",
+    "1 sentence not checked yet · Check first",
     "More formats",
     /^Citation style/,
     "Export options…",
@@ -180,7 +180,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(items).toHaveText([
     /^Markdown（\.md）/,
     "Word（.docx）",
-    "1 条说法待核对 · 先核对",
+    "1 句待核对 · 先核对",
     "PDF",
     "更多格式",
     /^引用格式/,

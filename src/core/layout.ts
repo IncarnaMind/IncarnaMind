@@ -132,6 +132,7 @@ function parseCitation(value: unknown): TabCitation {
     throw new InvalidInputError("A Citation's place needs its check.");
   }
   const citation: TabCitation = { check: value.check as CitationCheck };
+  if (value.origin === "note" || value.origin === "assistant") citation.origin = value.origin;
   // Why it can't be checked: the viewer's mark for a scan's unsure word reads it (#535).
   if (REASONS.includes(value.checkReason as CitationCheckReason)) {
     citation.checkReason = value.checkReason as CitationCheckReason;

@@ -25,7 +25,12 @@ import { isRecord } from "../../shared/record";
 import type { ProviderError } from "../api";
 import { asAttribute, asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
-import { CutShortError, type ModelCallKind, outputTokens } from "../providers/outputLimits";
+import {
+  CutShortError,
+  type ModelCallKind,
+  type OwnRoom,
+  outputTokens,
+} from "../providers/outputLimits";
 import { tokenUsageOf } from "../providers/promptCache";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { TokenUsage } from "../runs/engine";
@@ -157,6 +162,8 @@ export interface JudgeAsk<T> {
   reply: JudgeReply<T>;
   /** For a question whose output limit is so much an item: how many items it asks about. */
   items?: number;
+  /** Where its caller holds the request's output limit under the question's own. */
+  within?: OwnRoom;
   /** How many times the provider's request is sent again when it fails. */
   retries: number;
   signal: AbortSignal;
@@ -450,13 +457,13 @@ async function streamed<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
     reply.kind === "structured"
       ? streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
           output: Output.object({ schema: reply.schema, name: reply.name }),
           onError: () => undefined,
         }).fullStream
       : streamText({
           ...call,
-          maxOutputTokens: outputTokens(ask.question.id, ask.items),
+          maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
           onError: () => undefined,
         }).fullStream;
   let text = "";
@@ -481,7 +488,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   if (reply.kind !== "structured") {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
     });
     return {
       text: result.text,
@@ -492,7 +499,7 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   try {
     const result = await generateText({
       ...call,
-      maxOutputTokens: outputTokens(ask.question.id, ask.items),
+      maxOutputTokens: outputTokens(ask.question.id, ask.items, ask.within),
       output: Output.object({ schema: reply.schema, name: reply.name }),
     });
     return {
@@ -512,9 +519,13 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   }
 }
 
+const parsedOnce = (parsed: { value: unknown }, text: string): unknown =>
+  changesAKey(replyText(text)) ? undefined : parsed.value;
+
 function readOf<T>(reply: JudgeReply<T>, replied: Replied): T | null {
   if (reply.kind === "lines") return reply.read(replyText(replied.text));
-  const value = replied.parsed ? replied.parsed.value : replyJson(replied.text);
+  // The provider's own parse keeps the last of a key given twice, so its text is held to the rule.
+  const value = replied.parsed ? parsedOnce(replied.parsed, replied.text) : replyJson(replied.text);
   return value === undefined ? null : reply.read(value);
 }
 

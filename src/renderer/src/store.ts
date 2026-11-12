@@ -418,6 +418,12 @@ export interface AppState extends LayoutSlice {
    */
   pickDocumentsOrFolder(): Promise<void>;
   /**
+   * "Add files…" in the chat box's + menu (#2924): the system's open dialog, then the files picked
+   * are added, into `folderId` when the Question is behind a Folder wall. Gives the ids of the
+   * Documents they are, those already in IncarnaMind too, so the Question can search them.
+   */
+  pickDocumentsForChat(folderId: string | null): Promise<string[]>;
+  /**
    * "Add Documents here…" on a Folder's menu (#212): the system's open dialog,
    * then each file picked is added and filed in that Folder as the User's choice.
    */
@@ -948,14 +954,15 @@ export const useAppStore = create<AppState>()((set, get) => {
    * Adds files by path, as Documents: names those IncarnaMind has already,
    * and those it can't take, once (in the footer), and offers any that turn
    * out to be folders for linking. Given a `folderId`, the new Documents are
-   * filed in that Folder as the User's choice.
+   * filed in that Folder as the User's choice. Gives the ids of the Documents
+   * the files are, those already in IncarnaMind too, in the order given.
    */
   const addByPath = async (
     paths: readonly string[],
     folders: readonly string[],
     notOnDisk: readonly string[],
     folderId: string | null = null,
-  ) => {
+  ): Promise<string[]> => {
     // Before adding: what status events bring meanwhile is new, not something added before.
     documentUpdates.flush();
     const known = new Set(get().documents.map((each) => each.id));
@@ -998,8 +1005,10 @@ export const useAppStore = create<AppState>()((set, get) => {
       };
     });
     offerLinks(linkable);
-    if (result.added.length === 0) return;
+    const ids = result.documents.map((item) => item.id);
+    if (result.added.length === 0) return ids;
     push(documentsAdded(result.added.length, () => removeOwn(result.added)));
+    return ids;
   };
 
   /** Dropped or picked files' paths, and the names of those that aren't on disk. */
@@ -1014,18 +1023,24 @@ export const useAppStore = create<AppState>()((set, get) => {
     return { paths, notOnDisk };
   };
 
-  /** The system's open dialog for files, then adds each picked into `folderId` (null: no Folder). */
-  const pickFiles = (folderId: string | null) =>
-    attempt(async () => {
+  /**
+   * The system's open dialog for files, then adds each picked into `folderId` (null: no Folder).
+   * Gives the ids of the Documents the files are; none when the dialog was closed or the add failed.
+   */
+  const pickFiles = async (folderId: string | null): Promise<string[]> => {
+    let ids: string[] = [];
+    await attempt(async () => {
       if (get().pickingDocuments) return;
       set({ pickingDocuments: true });
       try {
         const paths = await files.pickDocuments();
-        if (paths.length > 0) await addByPath(paths, [], [], folderId);
+        if (paths.length > 0) ids = await addByPath(paths, [], [], folderId);
       } finally {
         set({ pickingDocuments: false });
       }
     });
+    return ids;
+  };
 
   return {
     ...createLayoutSlice(set, get, (error) => useNotices.getState().showError(error)),
@@ -1803,7 +1818,11 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     addPaths: (paths) => attempt(() => addByPath(paths, [], [])),
 
-    pickDocuments: () => pickFiles(null),
+    pickDocuments: async () => {
+      await pickFiles(null);
+    },
+
+    pickDocumentsForChat: pickFiles,
 
     pickDocumentsOrFolder: () =>
       attempt(async () => {
@@ -1817,7 +1836,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
       }),
 
-    pickDocumentsIntoFolder: (folderId) => pickFiles(folderId),
+    pickDocumentsIntoFolder: async (folderId) => {
+      await pickFiles(folderId);
+    },
 
     async locateDocumentFile(id) {
       const paths = await files.pickDocuments();
