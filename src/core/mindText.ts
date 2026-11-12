@@ -60,6 +60,7 @@ import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
+import { countingCheckOf, hasMarkIn, markValueOf } from "../shared/markKeys";
 import { cutTitle } from "../shared/naming";
 import {
   isNumberingScheme,
@@ -96,7 +97,6 @@ import {
   CITATION_NODE,
   type Citation,
   type CitedWork,
-  CLAIM_CHECK_MARK,
   type ClaimCalculation,
   COMMENT_MARK,
   COMPARISON_ROW_NODE,
@@ -1229,6 +1229,7 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
   const color = readTextColor(attributeOf(attributes[TEXT_COLOR_MARK], "color"));
   const font = readTextFont(attributeOf(attributes[TEXT_FONT_MARK], "family"));
   const size = readTextSize(attributeOf(attributes[TEXT_SIZE_MARK], "size"));
+  const comment = attributeOf(markValueOf(COMMENT_MARK, attributes), "id");
   const vertical = Object.hasOwn(attributes, SUPERSCRIPT_MARK)
     ? "superscript"
     : Object.hasOwn(attributes, SUBSCRIPT_MARK)
@@ -1242,9 +1243,7 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
-    ...(typeof attributeOf(attributes[COMMENT_MARK], "id") === "string" && {
-      comment: attributeOf(attributes[COMMENT_MARK], "id") as string,
-    }),
+    ...(typeof comment === "string" && { comment }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),
@@ -1280,17 +1279,19 @@ function readInline(
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as Run[]) {
         const attributes = run.attributes ?? {};
-        const added = changeReading(attributes[PROPOSAL_INSERT_MARK], options.review);
-        if (PROPOSAL_INSERT_MARK in attributes && added !== "waiting" && added !== "applied") {
+        const insertion = markValueOf(PROPOSAL_INSERT_MARK, attributes);
+        const removal = markValueOf(PROPOSAL_DELETE_MARK, attributes);
+        const added = changeReading(insertion, options.review);
+        if (insertion !== undefined && added !== "waiting" && added !== "applied") {
           continue;
         }
         if (typeof run.insert === "string" && run.insert !== "") {
-          const removed = changeReading(attributes[PROPOSAL_DELETE_MARK], options.review);
+          const removed = changeReading(removal, options.review);
           if (removed === "applied") continue;
           const ai =
             options.review !== undefined &&
             (options.wholeAnswerAi === true || GENERATED_MARK in attributes);
-          const checkId = readClaimCheck(attributes[CLAIM_CHECK_MARK])?.id;
+          const checkId = readClaimCheck(countingCheckOf(attributes)?.attrs)?.id;
           const sentenceCheck =
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
           addText(content, {
@@ -1300,10 +1301,10 @@ function readInline(
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),
             ...(added === "waiting" && {
-              inserted: pendingIn(attributes[PROPOSAL_INSERT_MARK], options),
+              inserted: pendingIn(insertion, options),
             }),
             ...(removed === "waiting" && {
-              deleted: pendingIn(attributes[PROPOSAL_DELETE_MARK], options),
+              deleted: pendingIn(removal, options),
             }),
           });
         }
@@ -1502,8 +1503,7 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
   if (element instanceof Y.XmlText) {
     return (element.toDelta() as Run[])
       .map((run) =>
-        typeof run.insert === "string" &&
-        !(run.attributes && PROPOSAL_INSERT_MARK in run.attributes)
+        typeof run.insert === "string" && !hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes)
           ? run.insert
           : "",
       )

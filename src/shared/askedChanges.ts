@@ -18,6 +18,7 @@ import {
   type SentenceChanges,
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
+import { hasMarkIn, markValueOf } from "./markKeys";
 import {
   proposalRequestOf,
   readProposalAttribute,
@@ -106,12 +107,13 @@ function measureOwnText(
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
         for (const run of runsOf(child)) {
-          const added = readProposalRef(run.attributes[PROPOSAL_INSERT_MARK]);
+          const added = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
           if (added) changeOf(added.id).back += run.insert;
-          if (marked(run, GENERATED_MARK) || marked(run, PROPOSAL_INSERT_MARK)) continue;
+          if (marked(run, GENERATED_MARK) || hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes))
+            continue;
           own += run.insert.length;
           words += wordCharacters(run.insert);
-          const deleted = readProposalRef(run.attributes[PROPOSAL_DELETE_MARK]);
+          const deleted = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if (goes) removed += wordCharacters(run.insert);
           else if (deleted && requests.has(deleted.request)) changeOf(deleted.id).out += run.insert;
         }
