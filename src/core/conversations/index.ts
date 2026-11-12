@@ -65,6 +65,7 @@ import {
   CLAIMED_COMMANDS,
   CLAIMED_TOOLS,
   MOST_ASKED_QUOTES,
+  PROVIDER_ERROR_KINDS,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
@@ -216,32 +217,8 @@ const IN = "IN (SELECT value FROM json_each(?))";
 
 const STATUSES: readonly AnswerStatus[] = ["streaming", "done", "stopped", "failed"];
 const SUPPORTS: readonly CitationSupport[] = ["tools", "structured-output", "none"];
-const ERROR_KINDS: Record<ProviderErrorKind, true> = {
-  auth: true,
-  "api-key-unreadable": true,
-  model: true,
-  "rate-limit": true,
-  network: true,
-  provider: true,
-  refused: true,
-  "out-of-credit": true,
-  region: true,
-  "consent-declined": true,
-  "consent-revoked": true,
-  "local-mode": true,
-  "ollama-not-running": true,
-  "data-retention": true,
-  "not-signed-in": true,
-  "plan-limit": true,
-  blocked: true,
-  "too-long": true,
-  "cost-cap": true,
-  "no-answer": true,
-  "cut-short": true,
-  unknown: true,
-};
 const isErrorKind = (value: string | null): value is ProviderErrorKind =>
-  value !== null && Object.hasOwn(ERROR_KINDS, value);
+  value !== null && Object.hasOwn(PROVIDER_ERROR_KINDS, value);
 
 const PHASES: Record<AnswerPhase, true> = {
   "waiting-for-consent": true,

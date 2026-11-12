@@ -1,0 +1,193 @@
+diff --git a/src/core/answers/checks/runCheck.ts b/src/core/answers/checks/runCheck.ts
+index 5798b620e..011799bd6 100644
+--- a/src/core/answers/checks/runCheck.ts
++++ b/src/core/answers/checks/runCheck.ts
+@@ -306,6 +306,7 @@ export async function runClaimChecks<I>(
+   run: CheckRun & {
+     concurrency?: number;
+     limitedAtOnce?: number;
++    limited?: AbortSignal;
+     onOutcome?(item: I, outcome: CheckOutcome): void;
+   },
+ ): Promise<{
+@@ -342,6 +343,7 @@ export async function runClaimChecks<I>(
+     {
+       concurrency: run.concurrency ?? 1,
+       ...(run.limitedAtOnce !== undefined && { limitedAtOnce: run.limitedAtOnce }),
++      ...(run.limited && { limited: run.limited }),
+       signal: run.signal,
+       // A sleep rejects only when the run is stopped, which ends the pause.
+       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),
+diff --git a/src/core/answers/checks/stagger.ts b/src/core/answers/checks/stagger.ts
+index 344b1c89e..82ad60d8e 100644
+--- a/src/core/answers/checks/stagger.ts
++++ b/src/core/answers/checks/stagger.ts
+@@ -5,8 +5,9 @@
+  * 2026-11-05 that made the first mark later on Claude Sonnet 5.5's Chinese write). None starts
+  * later than it would at six places: the n-th later one goes once n checks have ended.
+  *
+- * Once a provider limits requests, the run is six wide and its own places and pause order what is
+- * left: a later sentence still waiting is handed back to the run, untried, and none waits again.
++ * Once a provider refuses one of the run's requests, the run is six wide and its own places and
++ * pause order what is left: a later sentence still waiting is handed back to the run, untried, and
++ * none waits again.
+  */
+ import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
+ import type { PreparedChatModel } from "../../providers/chat";
+@@ -32,6 +33,8 @@ export interface Stagger {
+   ended(index: number): void;
+   /** A check failed with `error`: a provider's limit stops the stagger for the rest of the run. */
+   failed(error: unknown): void;
++  /** Aborts at the run's first refused request, for the run to go six wide from then on. */
++  refused?: AbortSignal;
+ }
+ 
+ const NONE: Stagger = {
+@@ -47,12 +50,17 @@ const isLimit = (error: unknown) =>
+     : classifyProviderError(error).kind === "rate-limit";
+ 
+ /**
+- * Calls `back` as each request `model` is sent ends: its reply streamed to the end, returned, or
+- * failed for anything but a limit, which the run answers instead (`failed`).
++ * Calls `refused` when a provider refuses a request `model` is sent, the AI SDK's own retries
++ * included, and `back` as any other ends: its reply streamed to the end, returned, or failed.
+  */
+-function hearingReplies(model: ChatLanguageModel, back: () => void): ChatLanguageModel {
++function hearingReplies(
++  model: ChatLanguageModel,
++  refused: () => void,
++  back?: () => void,
++): ChatLanguageModel {
+   const failed = (error: unknown) => {
+-    if (!isLimit(error)) back();
++    if (isLimit(error)) refused();
++    else back?.();
+   };
+   return wrapLanguageModel({
+     model,
+@@ -61,7 +69,7 @@ function hearingReplies(model: ChatLanguageModel, back: () => void): ChatLanguag
+       wrapGenerate: async ({ doGenerate }) => {
+         try {
+           const result = await doGenerate();
+-          back();
++          back?.();
+           return result;
+         } catch (error) {
+           failed(error);
+@@ -79,7 +87,7 @@ function hearingReplies(model: ChatLanguageModel, back: () => void): ChatLanguag
+         const stream = result.stream.pipeThrough(
+           new TransformStream<StreamPart, StreamPart>({
+             flush() {
+-              back();
++              back?.();
+             },
+           }),
+         );
+@@ -94,8 +102,13 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
+   if (first === null) return NONE;
+   const back = new Set<number>();
+   let ended = 0;
+-  let limited = false;
++  const refused = new AbortController();
+   const waiting: { after: number; go(): void; giveWay(): void }[] = [];
++  const limit = () => {
++    if (refused.signal.aborted) return;
++    refused.abort();
++    for (const each of waiting.splice(0)) each.giveWay();
++  };
+   const release = () => {
+     for (const each of [...waiting]) {
+       if (back.size < first && ended <= each.after && !signal.aborted) continue;
+@@ -111,13 +124,16 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
+   signal.addEventListener("abort", release, { once: true });
+   return {
+     model(index, prepared) {
+-      if (index >= first) return prepared;
+       let hearing: ChatLanguageModel | null = null;
+       return {
+         ...prepared,
+         // Wrapped when a request first asks for it, as the check's own listener is (./runCheck).
+         get model() {
+-          hearing ??= hearingReplies(prepared.model, () => isBack(index));
++          hearing ??= hearingReplies(
++            prepared.model,
++            limit,
++            index < first ? () => isBack(index) : undefined,
++          );
+           return hearing;
+         },
+       };
+@@ -125,7 +141,13 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
+     turn(index) {
+       // The sentence at `first + n` would take the place the (n + 1)th check to end freed.
+       const after = index - first;
+-      if (limited || after < 0 || back.size >= first || ended > after || signal.aborted) {
++      if (
++        refused.signal.aborted ||
++        after < 0 ||
++        back.size >= first ||
++        ended > after ||
++        signal.aborted
++      ) {
+         return Promise.resolve();
+       }
+       return new Promise((go, refuse) => {
+@@ -138,9 +160,8 @@ export function stagger(first: number | null, signal: AbortSignal): Stagger {
+       release();
+     },
+     failed(error) {
+-      if (limited || !isLimit(error)) return;
+-      limited = true;
+-      for (const each of waiting.splice(0)) each.giveWay();
++      if (isLimit(error)) limit();
+     },
++    refused: refused.signal,
+   };
+ }
+diff --git a/src/core/answers/checks/written.ts b/src/core/answers/checks/written.ts
+index 9dc56de57..23da37bce 100644
+--- a/src/core/answers/checks/written.ts
++++ b/src/core/answers/checks/written.ts
+@@ -1036,6 +1036,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
+         ...run,
+         concurrency: atOnce,
+         limitedAtOnce: claimsAtOnce(prepared),
++        ...(order.refused && { limited: order.refused }),
+         // The run hears a throw once and returns it, so a mark that can't land is never its
+         // sentence's failure; the check fails after the marks that can land have, so none counts
+         // as checked. Refusing stays here: once one edit is refused the rest aren't tried.
+diff --git a/src/core/runs/stop.ts b/src/core/runs/stop.ts
+index 341be2c2d..d8ae85195 100644
+--- a/src/core/runs/stop.ts
++++ b/src/core/runs/stop.ts
+@@ -59,6 +59,8 @@ export interface RunItemsOptions<I, T> {
+    * provider's proven number drops straight back to it, then loses one more per limit (#2532).
+    */
+   limitedAtOnce?: number;
++  /** Aborts when a provider refuses one of the run's requests: from then on at most `limitedAtOnce` run. */
++  limited?: AbortSignal;
+   /** Hears each item's outcome as soon as it has one. */
+   onOutcome?(item: I, outcome: ItemOutcome<T>): void;
+   /** Ends the run: items running or waiting are "stopped". */
+@@ -105,6 +107,7 @@ export async function runItems<I, T>(
+   {
+     concurrency = 1,
+     limitedAtOnce,
++    limited,
+     onOutcome,
+     signal,
+     wait = sleep,
+@@ -125,6 +128,13 @@ export async function runItems<I, T>(
+   let allowed = workers;
+   /** The most a calm round brings back: every worker, until a provider limits requests. */
+   let ceiling = workers;
++  const narrow = () => {
++    if (limitedAtOnce === undefined) return;
++    ceiling = Math.min(ceiling, limitedAtOnce);
++    allowed = Math.min(allowed, ceiling);
++  };
++  if (limited?.aborted) narrow();
++  else limited?.addEventListener("abort", narrow, { once: true });
+   /** Items that ended without a rate limit since the last one: a round of them brings one more back. */
+   let calm = 0;
+   /** A limit that outlasted every pause: the rest aren't sent, so a limited key gives up after one round (#1618). */
