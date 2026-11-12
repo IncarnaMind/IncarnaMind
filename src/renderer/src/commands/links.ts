@@ -30,6 +30,7 @@ export const linkCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+K" },
     group: "main",
     appliesTo: ["block"],
+    appliesToText: true,
     // One Undo step, taken back with the note's own undo (⌘Z).
     reversible: true,
     when(ctx) {
