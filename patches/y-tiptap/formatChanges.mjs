@@ -30,8 +30,9 @@
 // whole text's marks. Everything from the first `export` on is what the package gets.
 
 /**
- * The formatting that gives `ytext` the marks of `content`, for the runs whose marks differ only:
- * a run that already has its marks is retained with no attributes, so nothing is written for it.
+ * The formatting that gives `ytext` the marks of `content`, for the marks that differ only: a run
+ * is retained with the marks whose values changed, null for one that went, and a run that already
+ * has its marks with no attributes, so nothing is written for a mark no one changed.
  */
 export const formatChanges = (ytext, content) => {
   const held = ytext.toDelta().map((d) => ({
@@ -47,8 +48,9 @@ export const formatChanges = (ytext, content) => {
       const here = held[run];
       const take = Math.min(left, here.length - used);
       const last = ops[ops.length - 1];
-      if (!sameValue(c.attributes, here.attributes)) {
-        ops.push({ retain: take, attributes: c.attributes });
+      const changed = changedMarks(c.attributes, here.attributes);
+      if (changed) {
+        ops.push({ retain: take, attributes: changed });
       } else if (last && last.attributes === undefined) {
         last.retain += take;
       } else {
@@ -63,6 +65,21 @@ export const formatChanges = (ytext, content) => {
     }
   }
   return ops;
+};
+
+/**
+ * The marks of `wanted` whose values differ from those `held`, with null for a held mark `wanted`
+ * hasn't; null when none differ.
+ */
+export const changedMarks = (wanted, held) => {
+  let changed = null;
+  for (const key of new Set([...Object.keys(wanted), ...Object.keys(held)])) {
+    if (!sameValue(wanted[key], held[key])) {
+      changed = changed || {};
+      changed[key] = wanted[key] == null ? null : wanted[key];
+    }
+  }
+  return changed;
 };
 
 /**

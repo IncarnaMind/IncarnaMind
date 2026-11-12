@@ -97,14 +97,14 @@ describe.each([
     typeText(editor, typed);
     expect(editor.state.doc.textContent).toContain(`${typed}10`);
   }
-  /** The core lands a newer result on the second sentence: Contradicted. */
-  function landContradicted(core: Y.Doc) {
+  /** The core lands a newer result on a sentence, the second unless named: Contradicted. */
+  function landContradicted(core: Y.Doc, id: "first" | "second" = "second") {
     const landing = markedSentences(core.getXmlFragment(MIND_CONTENT_FIELD)).find(
-      (each) => each.check.id === "second",
+      (each) => each.check.id === id,
     );
-    if (!landing) throw new Error("The second sentence has no check");
+    if (!landing) throw new Error(`The ${id} sentence has no check`);
     markSentence(landing.element, landing.from, landing.to, {
-      ...check("second", second, "contradicted"),
+      ...check(id, id === "first" ? first : second, "contradicted"),
       checkedAt: "2026-11-12T09:01:00.000Z",
     });
   }
@@ -113,6 +113,49 @@ describe.each([
       each.check.id,
       each.check.state,
     ]);
+
+  // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
+  test.each([
+    ["the first", "before", "first", 1],
+    ["the first", "after", "first", 3],
+    ["the second", "before", "second", 1],
+    ["the second", "after", "second", 3],
+  ] as const)(
+    "bold on %s sentence while a result lands on the other leaves that result, the bold ordered %s it",
+    (_, _order, bolded, copyId) => {
+      const other = bolded === "first" ? "second" : "first";
+      const core = checkedNote();
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      copy.clientID = copyId;
+      core.clientID = 2;
+      const editor = boundEditorTo(copy);
+      landContradicted(core, other);
+      let start = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (start < 0 && node.isText) start = pos;
+      });
+      const from = bolded === "first" ? start : start + first.length + gap.length;
+      const bold = editor.schema.marks.bold;
+      if (!bold) throw new Error("No bold");
+      editor.view.dispatch(
+        editor.state.tr.addMark(
+          from,
+          from + (bolded === "first" ? first : second).length,
+          bold.create(),
+        ),
+      );
+      Y.applyUpdate(core, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      for (const note of [core, copy]) {
+        expect(note.getXmlFragment(MIND_CONTENT_FIELD).toString()).toContain("<bold>");
+        expect(results(note)).toEqual([
+          ["first", bolded === "first" ? "supported" : "contradicted"],
+          ["second", bolded === "second" ? "supported" : "contradicted"],
+        ]);
+      }
+    },
+  );
 
   test("opening the Note writes nothing", () => {
     const core = checkedNote();
@@ -207,19 +250,39 @@ test("the editor's sync formats only the runs whose marks changed", () => {
     type.create({ ...check("second", second, "supported"), kept: true }),
   );
   updateYFragment(doc, blocks, kept.doc, keeping.meta);
-  const delta = written.mock.calls.at(-1)?.[0];
-  expect(
-    delta?.map((op: { retain?: number; attributes?: unknown }) => [
-      op.retain,
-      op.attributes !== undefined,
-    ]),
-    unpatched,
-  ).toEqual([
-    [start + 6, false],
-    [second.length, true],
+  /** Each formatting op of the last write: how far it reaches, and the marks it sets. */
+  const lastWrite = () =>
+    (written.mock.calls.at(-1)?.[0] ?? []).map(
+      (op: { retain?: number; attributes?: Record<string, unknown> }) => [
+        op.retain,
+        Object.keys(op.attributes ?? {}),
+      ],
+    );
+  expect(lastWrite(), unpatched).toEqual([
+    [start + 6, []],
+    [second.length, [CLAIM_CHECK_MARK]],
   ]);
   expect(markedSentences(blocks).map((each) => [each.check.id, each.check.kept ?? false])).toEqual([
     ["first", false],
     ["second", true],
+  ]);
+
+  // Bold on a checked sentence sets bold there, and writes no check.
+  const bolding = initProseMirrorDoc(blocks, schema);
+  const bold = schema.marks.bold;
+  if (!bold) throw new Error("No bold");
+  const emboldened = EditorState.create({ schema, doc: bolding.doc }).tr.addMark(
+    1,
+    1 + first.length + 6,
+    bold.create(),
+  );
+  updateYFragment(doc, blocks, emboldened.doc, bolding.meta);
+  expect(lastWrite(), unpatched).toEqual([
+    [first.length + 6, ["bold"]],
+    [gap.length + second.length, []],
+  ]);
+  expect(markedSentences(blocks).map((each) => [each.check.id, each.check.state])).toEqual([
+    ["first", "supported"],
+    ["second", "supported"],
   ]);
 });
