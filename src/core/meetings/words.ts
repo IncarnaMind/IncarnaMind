@@ -7,10 +7,11 @@
  * computer is told only as many as fit (../transcription/context), and a cloud service only as
  * many as its own field takes (../transcription/cloud/words).
  *
- * They are two lists. `sent` is what a cloud service may be told, and `here` what stays on this
- * computer, for its engine and for how a line spells a name: all of `sent`, and the capitalised
- * words that are a name as often as an ordinary word (./names). While the Meeting is recorded its
- * Note is read again as the User types, for `here` alone: `sent` stays as first gathered.
+ * They are two lists, cut at `MAX_WORDS`. `sent` is what a cloud service may be told; `here` stays
+ * on this computer, for its engine and a line's spelling: each part's words, with the capitalised
+ * words that are a name as often as an ordinary word (./names). During the call the Note is read
+ * again when it changes (by the User or the assistant), for `here` alone: `sent` is kept as first
+ * gathered until IncarnaMind quits, and gathered again for a Meeting recorded on after a reopen.
  */
 import { wordKey } from "../../shared/meetingWords";
 import type { CalendarAttendee } from "../api";
