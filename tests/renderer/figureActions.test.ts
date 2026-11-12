@@ -485,7 +485,7 @@ describe("a figure kept from the schedule shows kept there, and the next change 
     expect(shownIn(copy, read)).toEqual(["kept", "kept"]);
   });
 
-  test("a Note saved after a keep through the schedule's copy reads kept when it opens again", () => {
+  test("a Note holding a keep made at a narrow window, saved and opened again, reads kept and takes the next change", () => {
     const { doc, read } = setup();
     const copy = copyOf(doc);
     const schedule = read();
@@ -507,6 +507,105 @@ describe("a figure kept from the schedule shows kept there, and the next change 
     );
     expect(shownIn(opened, readStored)).toEqual(["kept", "kept"]);
   });
+});
+
+describe("a change from behind the tab writes only the Block it changed", () => {
+  const costs = "Costs were 8, as planned.";
+  /** The note's first paragraph, and a second whose sentence has a check of its own. */
+  function twoBlocks() {
+    const ready = setup();
+    ready.blocks.push([paragraph(costs, "q")].map(createElement));
+    const second = ready.blocks.get(1);
+    if (!(second instanceof Y.XmlElement)) throw new Error("No second paragraph");
+    const figures = figuresInMind(ready.blocks)
+      .filter((figure) => figure.reading.chars === "8")
+      .map((figure) => ({
+        ...basis(),
+        ...emptyFigureFinding(figure),
+        text: costs,
+        state: "supported" as const,
+      }));
+    markSentence(second, 0, costs.length, {
+      ...basis(),
+      id: "costs",
+      text: costs,
+      state: "supported",
+      figures,
+      remainder: { ...basis(), id: "costs", text: costs, state: "supported" },
+    });
+    return ready;
+  }
+  /** The Blocks an update changes as the core takes it in, by id. */
+  function blocksChangedBy(doc: Y.Doc, update: Uint8Array): string[] {
+    const top = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const changed = new Set<string>();
+    const took = (transaction: Y.Transaction) => {
+      for (const type of transaction.changed.keys()) {
+        let block = type;
+        while (block.parent && block.parent !== top) block = block.parent;
+        changed.add(block instanceof Y.XmlElement ? String(block.getAttribute("id")) : "the list");
+      }
+    };
+    doc.on("afterTransaction", took);
+    Y.applyUpdate(doc, update);
+    doc.off("afterTransaction", took);
+    return [...changed].sort();
+  }
+  const shown = (doc: Y.Doc) => scheduleOf(doc).rows.map((row) => row.shown.state);
+
+  test("a keep sends a change to its own Block alone", () => {
+    const { doc, read } = twoBlocks();
+    expect(shown(doc)).toEqual(["contradicted", "supported", "supported"]);
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    cleanup.push(() => copy.destroy());
+    const sent: Uint8Array[] = [];
+    copy.on("update", (update: Uint8Array) => sent.push(update));
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    expect(sent).toHaveLength(1);
+    const [update] = sent;
+    if (!update) throw new Error("Nothing sent");
+    expect(blocksChangedBy(doc, update)).toEqual(["p"]);
+    expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
+  });
+
+  // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "a check result that lands on another Block while a keep is on its way stays, the keep ordered %s it",
+    (_, copyId) => {
+      const { doc, blocks, read } = twoBlocks();
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      cleanup.push(() => copy.destroy());
+      copy.clientID = copyId;
+      doc.clientID = 2;
+      const schedule = read();
+      const row = schedule.rows[1];
+      if (!row) throw new Error("No figure");
+      const landing = markedSentences(blocks).find((each) => each.check.id === "costs");
+      if (!landing) throw new Error("No check on the second paragraph");
+      markSentence(landing.element, landing.from, landing.to, {
+        ...landing.check,
+        state: "contradicted",
+        figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+      });
+      editNote("a note behind the schedule", copy, (note) =>
+        keepFigureViews(note, schedule, [row.id]),
+      );
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      expect(shown(doc)).toEqual(["contradicted", "kept", "contradicted"]);
+      expect(shown(copy)).toEqual(["contradicted", "kept", "contradicted"]);
+    },
+  );
 });
 
 const sourceInput = (chars: string, value: number) => ({
