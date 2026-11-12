@@ -837,6 +837,7 @@ test("a correction of a whole sentence leaves its check to the model", async () 
     { type: "paragraph", content: [marked("The rate is 36.8%.", whole)] },
   ]);
   const earlier = claimCheckShown(claim(editor, "one").check, {
+    footing: "not-yet-known",
     text: claim(editor, "one").sentence.text,
     versions: null,
     folderId: null,

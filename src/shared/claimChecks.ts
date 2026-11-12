@@ -18,6 +18,7 @@ import {
   type ClaimVerdict,
   claimCheckActions,
   type FigureCheckAttributes,
+  type FigureFootingNow,
   type RecordCiteResult,
   type RetainedFigureAnalysis,
   type SearchScope,
@@ -411,8 +412,20 @@ export function cantBeChecked(shown: ClaimCheckShown): boolean {
   return shown.state === "not-checked" && UNCHECKABLE_FAILURES.has(shown.reason);
 }
 
+/** A figure's footing against its table as the Note's marks and numbers are now (#2998). */
+export type LiveFooting = Omit<FigureFootingNow, "id">;
+
+/**
+ * Each figure's footing as the Note is now, by its id; a figure that is no total has none. A
+ * figure's verdict reads this, never the footing stored when its check landed, which went stale
+ * once a cell it counts landed later or changed. "not-yet-known" only where it can't be known yet
+ * (the editor, before the Note's figures are first read), and then the stored footing stands.
+ */
+export type NoteFooting = ReadonlyMap<string, LiveFooting> | "not-yet-known";
+
 /** What a check is compared with. */
 export interface ClaimCheckNow {
+  footing: NoteFooting;
   figureContexts?: ReadonlyMap<string, string> | null;
   /** The sentence is a table cell holding figures the one Check checks each with its own source; unknown when absent. */
   figured?: boolean;
@@ -464,7 +477,7 @@ function saysUnsupported(check: ClaimCheckBasis): boolean {
 }
 
 /** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
-function referentsMoved(check: ClaimCheckBasis, now: ClaimCheckNow): boolean {
+function referentsMoved(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">): boolean {
   const checked = (check.recordCites ?? []).flatMap((cite) => (cite.via ? [cite.via] : []));
   if (!now.note || checked.length === 0) return false;
   const current = shortFormsThrough(now.noteText?.() ?? now.text, now.note);
@@ -478,7 +491,7 @@ function referentsMoved(check: ClaimCheckBasis, now: ClaimCheckNow): boolean {
   );
 }
 
-function scopeChanged(searched: ClaimCheckScope, now: ClaimCheckNow): boolean {
+function scopeChanged(searched: ClaimCheckScope, now: Omit<ClaimCheckNow, "footing">): boolean {
   const chosen = now.scope && !sameScope(now.scope, folderScope(now.folderId)) ? now.scope : null;
   if (searched.chosen) return !chosen || !sameScope(chosen, searched.chosen);
   return chosen !== null && (hasSearchScope(chosen) || searched.folderId !== null);
@@ -622,7 +635,7 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
 }
 
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
-function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown {
+function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
   if (
     check.parts !== undefined
@@ -816,19 +829,20 @@ export function analysisFigureShown(
   return shown.state === "not-checked" ? shown : { state: "not-checked", reason: "unread" };
 }
 
-export function figureCheckShown(
+// An Analysis figure's evidence is its run's inputs, each one: behind a wall the Note is now
+// outside, the check made inside it backs nothing (#2378).
+const analysisKeptInside = (figure: FigureCheckAttributes, now: Omit<ClaimCheckNow, "footing">) =>
+  figure.calculated?.figure.analysis &&
+  [figure.evidence?.documentId, ...figure.versions.map((version) => version.documentId)].some(
+    (documentId) => documentId && now.keptInside?.(documentId),
+  );
+
+/** How a figure's own check shows, before its table's footing is read: whether it still holds. */
+export function figureBasisShown(
   figure: FigureCheckAttributes,
-  now: ClaimCheckNow,
+  now: Omit<ClaimCheckNow, "footing">,
 ): ClaimCheckShown {
-  // An Analysis figure's evidence is its run's inputs, each one: behind a wall the Note is now
-  // outside, the check made inside it backs nothing (#2378).
-  if (
-    figure.calculated?.figure.analysis &&
-    [figure.evidence?.documentId, ...figure.versions.map((version) => version.documentId)].some(
-      (documentId) => documentId && now.keptInside?.(documentId),
-    )
-  )
-    return { state: "not-checked", reason: "kept-inside" };
+  if (analysisKeptInside(figure, now)) return { state: "not-checked", reason: "kept-inside" };
   const shown = basisShown(figure, now);
   // Unknown contexts (null) are a reader that hasn't read them yet, not a change to them.
   if (
@@ -839,10 +853,31 @@ export function figureCheckShown(
     now.figureContexts.get(figure.id) !== figure.context
   )
     return { state: "needs-recheck", why: "edited" };
-  return shown.state !== "kept" &&
-    shown.state !== "needs-recheck" &&
-    shown.state !== "contradicted" &&
-    figureProblem(figure) !== null
+  return shown;
+}
+
+const NOT_FOOTED: LiveFooting = { footing: [], waiting: false };
+
+export function figureCheckShown(
+  figure: FigureCheckAttributes,
+  now: ClaimCheckNow,
+): ClaimCheckShown {
+  const shown = figureBasisShown(figure, now);
+  if (
+    analysisKeptInside(figure, now) ||
+    shown.state === "kept" ||
+    shown.state === "needs-recheck" ||
+    shown.state === "contradicted"
+  )
+    return shown;
+  const live =
+    now.footing === "not-yet-known"
+      ? { footing: figure.footing, waiting: false }
+      : (now.footing.get(figure.id) ?? NOT_FOOTED);
+  // A cell it counts is still out: shown now, its verdict could turn once that cell lands, with
+  // nothing changed by the User (#2998), whether or not its own check could be made.
+  if (live.waiting) return { state: "checking" };
+  return figureProblem({ ...figure, footing: live.footing }) !== null
     ? { state: "unsupported" }
     : shown;
 }

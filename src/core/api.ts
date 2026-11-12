@@ -8956,6 +8956,15 @@ export interface MindContentSnapshot {
   state: Uint8Array;
   /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
   cellFigures: CellFigurePlace[];
+  /** Each total's footing against its table as the Note is now, which its verdict reads (#2998). */
+  footing: FigureFootingNow[];
+}
+
+/** A total's footing as the Note's marks and numbers are now; `waiting` while a cell it counts is still being checked. */
+export interface FigureFootingNow {
+  id: string;
+  footing: FigureFinding["footing"];
+  waiting: boolean;
 }
 
 /** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */

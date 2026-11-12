@@ -37,7 +37,7 @@ import { editMind, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 
 const schema = getSchema(noteExtensions());
-const context = { versions: null, folderId: null, scope: null };
+const context = { footing: "not-yet-known" as const, versions: null, folderId: null, scope: null };
 const citation: Citation = {
   passageId: "passage",
   documentId: "results",
@@ -240,7 +240,11 @@ for (const example of cases)
         const [marked] = checkedSentences(blocks);
         expect(marked?.sentence).toBe(example.text);
         expect(
-          marked && claimCheckShown(marked.check, { ...context, text: marked.sentence }),
+          marked &&
+            claimCheckShown(marked.check, {
+              ...context,
+              text: marked.sentence,
+            }),
         ).toEqual({ state: "supported" });
       }
     });

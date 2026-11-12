@@ -22,7 +22,9 @@ import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/a
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import type { CitationLive } from "../../../shared/citations";
+import type { NoteFooting } from "../../../shared/claimChecks";
 import { figureRunsFor } from "../../../shared/figureRuns";
+import { footingOfRows } from "../../../shared/figureSchedule";
 import { type MessageKey, translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
@@ -656,6 +658,12 @@ function MindEditorView({
     () => (rows ? new Map(rows.map((row) => [row.id, row.context ?? ""])) : null),
     [rows],
   );
+  // The latest schedule, even one change behind: a total keeps its live footing until the next is
+  // read, rather than showing the one stored when its check landed meanwhile (#2998).
+  const footing = useMemo<NoteFooting>(
+    () => (schedule?.mindId === mindId ? footingOfRows(schedule.rows) : "not-yet-known"),
+    [schedule, mindId],
+  );
   const figurePlaces = useMemo(
     () =>
       rows
@@ -683,6 +691,7 @@ function MindEditorView({
   useEffect(() => {
     if (!editor.isDestroyed)
       setClaimContext(editor.view, {
+        footing,
         versions,
         folderId,
         scope,
@@ -690,7 +699,7 @@ function MindEditorView({
         figurePlaces,
         keptInside,
       });
-  }, [editor, versions, folderId, scope, figureContexts, figurePlaces, keptInside]);
+  }, [editor, footing, versions, folderId, scope, figureContexts, figurePlaces, keptInside]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.
