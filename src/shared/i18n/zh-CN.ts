@@ -5891,6 +5891,7 @@ export const zhCN = {
   "error.question.model": "无法使用这个模型，请选择其他模型。",
   "error.mindStyle.invalid": "无法使用这个字体和字号。",
   "error.exportMarks.invalid": "无法使用这个页码和水印设置。",
+  "error.exportMarks.format": "只有 Word 文件和 PDF 有页码和水印。",
   "error.privacy.usageDataLocalMode": "使用数据保持关闭：已开启“所有内容都留在这台电脑上”。",
   "error.check.claimTooLong": "这条说法太长，无法核对：最多 {max} 个字符。",
   "error.check.noDocumentPicked": "请选择要对照核对的文档或文件夹。",

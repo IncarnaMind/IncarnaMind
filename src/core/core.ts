@@ -7508,8 +7508,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     getMindStyle: async (mindId) => content.readSettings(minds.get(mindId).id, mindStyleOf),
     getExportMarks: async (mindId, format) => {
-      if (!isMarkedFormat(format))
-        throw new InvalidInputError('The format must be "docx" or "pdf".');
+      if (!isMarkedFormat(format)) throw new InvalidInputError({ key: "error.exportMarks.format" });
       return content.readSettings(minds.get(mindId).id, (settings) =>
         exportMarksOf(settings, format),
       );
