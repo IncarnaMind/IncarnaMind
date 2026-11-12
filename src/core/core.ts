@@ -7708,9 +7708,9 @@ export function createCore(adapters: CoreAdapters): Core {
               .map((line) => line.trim())
               .filter(Boolean)
           : [];
-      if (lines.length === 0) throw new InvalidInputError("A quick note needs some text.");
+      if (lines.length === 0) throw new InvalidInputError({ key: "error.meeting.quickNoteEmpty" });
       if (atMs !== null && (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs < 0)) {
-        throw new InvalidInputError("atMs must be a time in the Meeting, in ms, or null.");
+        throw new InvalidInputError({ key: "error.meeting.quickNoteTime" });
       }
       const meeting = meetings.get(meetingId);
       if (meeting.status !== "recording" && meeting.status !== "paused") {

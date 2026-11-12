@@ -6127,6 +6127,8 @@ export const en = {
   "error.meeting.notRecording": "That Meeting isn’t recording.",
   "error.meeting.notPaused": "That Meeting isn’t paused.",
   "error.meeting.notBeingRecorded": "That Meeting isn’t being recorded.",
+  "error.meeting.quickNoteEmpty": "Type something to add to notes.",
+  "error.meeting.quickNoteTime": "That isn’t a time in the meeting.",
   "error.meetingOffer.gone": "That call has ended.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",

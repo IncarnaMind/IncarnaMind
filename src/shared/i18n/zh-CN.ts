@@ -5822,6 +5822,8 @@ export const zhCN = {
   "error.meeting.notRecording": "这个会议没有在录制。",
   "error.meeting.notPaused": "这个会议没有暂停。",
   "error.meeting.notBeingRecorded": "这个会议不在录制中。",
+  "error.meeting.quickNoteEmpty": "写点内容再记入笔记。",
+  "error.meeting.quickNoteTime": "这不是会议中的时间。",
   "error.meetingOffer.gone": "这次通话已经结束。",
   "error.openAtLogin.unsupported": "这个版本的 IncarnaMind 无法在登录时打开。",
   "error.meeting.helpButton": "这场会议没有这项帮助。",
