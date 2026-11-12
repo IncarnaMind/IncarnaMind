@@ -615,6 +615,92 @@ describe("a change from behind the tab writes only the Block it changed", () => 
   );
 });
 
+describe("a keep in a paragraph leaves a newer result on another sentence of it (#2988)", () => {
+  const costs = " Costs were 8, as planned.";
+  /** One paragraph: the note's sentence with its two figures, then a second checked sentence. */
+  function oneParagraph() {
+    const ready = setup([paragraph(words + costs, "p")]);
+    const element = ready.blocks.get(0);
+    if (!(element instanceof Y.XmlElement)) throw new Error("No paragraph");
+    const text = costs.trim();
+    const figures = figuresInMind(ready.blocks)
+      .filter((figure) => figure.reading.chars === "8")
+      .map((figure) => ({
+        ...basis(),
+        ...emptyFigureFinding(figure),
+        text,
+        state: "supported" as const,
+      }));
+    markSentence(element, words.length + 1, words.length + costs.length, {
+      ...basis(),
+      id: "costs",
+      text,
+      state: "supported",
+      figures,
+      remainder: { ...basis(), id: "costs", text, state: "supported" },
+    });
+    return ready;
+  }
+  function landContradicted(blocks: Y.XmlFragment) {
+    const landing = markedSentences(blocks).find((each) => each.check.id === "costs");
+    if (!landing) throw new Error("No check on the second sentence");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...landing.check,
+      state: "contradicted",
+      figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+    });
+  }
+  const shown = (doc: Y.Doc) => scheduleOf(doc).rows.map((row) => row.shown.state);
+
+  test.each([
+    ["behind the schedule, through its copy", "a note behind the schedule", false],
+    ["in front, through its editor", "a note in front", true],
+  ])("Undo of a keep with the note %s", async (_, mindId, inEditor) => {
+    const { doc, blocks, read } = oneParagraph();
+    const copy = copyInStep(doc);
+    const editor = inEditor ? openEditor(copy, mindId) : null;
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    const undoable = editNote(mindId, copy, (note) => keepFigureViews(note, schedule, [row.id]));
+    expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
+    landContradicted(blocks);
+    if (editor) editor.commands.undo();
+    else await undoable?.undo();
+    expect(shown(doc)).toEqual(["contradicted", "supported", "contradicted"]);
+    expect(shown(copy)).toEqual(["contradicted", "supported", "contradicted"]);
+  });
+
+  // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
+  test.each([
+    ["behind the schedule, through its copy", "before", false, 1],
+    ["behind the schedule, through its copy", "after", false, 3],
+    ["in front, through its editor", "before", true, 1],
+    ["in front, through its editor", "after", true, 3],
+  ])(
+    "a keep with the note %s while a result lands on the other sentence, ordered %s it",
+    (_, _order, inEditor, copyId) => {
+      const { doc, blocks, read } = oneParagraph();
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      cleanup.push(() => copy.destroy());
+      copy.clientID = copyId;
+      doc.clientID = 2;
+      const mindId = inEditor ? "a note in front" : "a note behind the schedule";
+      if (inEditor) openEditor(copy, mindId);
+      const schedule = read();
+      const row = schedule.rows[1];
+      if (!row) throw new Error("No figure");
+      landContradicted(blocks);
+      editNote(mindId, copy, (note) => keepFigureViews(note, schedule, [row.id]));
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      expect(shown(doc)).toEqual(["contradicted", "kept", "contradicted"]);
+      expect(shown(copy)).toEqual(["contradicted", "kept", "contradicted"]);
+    },
+  );
+});
+
 const sourceInput = (chars: string, value: number) => ({
   name: "revenue",
   label: "Revenue",

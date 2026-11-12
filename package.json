@@ -18,6 +18,7 @@
     }
   },
   "scripts": {
+    "postinstall": "patch-package --error-on-fail --error-on-warn",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
@@ -172,6 +173,7 @@
     "hyparquet": "1.31.5",
     "hyparquet-compressors": "1.1.2",
     "opencc-data": "1.4.2",
+    "patch-package": "8.0.1",
     "posthog-node": "5.54.1",
     "pyodide": "314.0.7",
     "tailwindcss": "4.3.3",
