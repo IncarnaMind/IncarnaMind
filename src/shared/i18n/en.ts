@@ -528,7 +528,7 @@ export const en = {
   "document.peek": "Peek",
   "object.copy": "Copy",
   "document.tags": "Tags…",
-  "folder.organize": "Organize This Folder",
+  "folder.organize": "Organize this Folder",
   "folder.organize.empty": "The Folder has no Documents to organize.",
   "folder.tagWithAi": "Tag with AI",
   "folder.editDescription": "Edit description…",
