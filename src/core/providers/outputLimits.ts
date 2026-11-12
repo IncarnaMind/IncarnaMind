@@ -59,8 +59,9 @@ export const OUTPUT_LIMITS = {
   // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
   // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).
   "sentence-batch": { most: 7_400, each: 300, base: 5_000 },
-  // A batch's records alone: the least room a batch gets, and its room where the room above can't
-  // be set aside beside the batches still to come under the Answer's limit or the monthly cap (#2951).
+  // A batch's records alone: the least room a batch gets (#2951). Where the room above can't be set
+  // aside beside the batches still to come under the Answer's limit or the monthly cap, a batch has
+  // this and an equal part of what those limits leave (#2962).
   "sentence-batch-records": { most: 2_400, each: 300 },
   // Room for a model that thinks whatever it is asked, before its plan.
   "research-plan": { most: 4_096 },

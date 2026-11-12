@@ -62,6 +62,7 @@ import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
 import { useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
+import { useModelNames } from "../modelNames";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
 import { openCited as openCitedPlace } from "../openCited";
@@ -911,6 +912,11 @@ function CitationCard({
         ? citationSource(attributes, t, language, lives).text
         : name);
   const stoppedAt = useJudgementLimit();
+  const modelNames = useModelNames();
+  const judgedAnswer = useContext(JudgedAnswerContext);
+  const judgedBy = judgedAnswer?.model
+    ? modelNames(judgedAnswer.model.modelId, judgedAnswer.model.providerId).name
+    : null;
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
@@ -918,18 +924,32 @@ function CitationCard({
         ? t("citation.reason.answer-limit", { limit: stoppedAt.limit })
         : state.reason === "monthly-limit"
           ? t("citation.reason.monthly-limit", { cap: stoppedAt.cap })
-          : state.reason === "small-model"
-            ? t("citation.reason.small-model")
-            : state.check === "not-checked"
-              ? t("citation.reason.notChecked")
-              : state.reason === "unsure-word"
-                ? // The line under it says which words may be misread.
-                  null
-                : state.reason === "document-removed" && attributes.yourNoteAt
-                  ? t("citation.reason.source-removed")
-                  : state.reason
-                    ? t(`citation.reason.${state.reason}`)
-                    : null;
+          : state.reason === "answer-limit-unfinished"
+            ? judgedBy
+              ? t("citation.reason.answer-limit-unfinished", {
+                  limit: stoppedAt.limit,
+                  model: judgedBy,
+                })
+              : t("citation.reason.answer-limit-unfinished.unnamed", { limit: stoppedAt.limit })
+            : state.reason === "monthly-limit-unfinished"
+              ? judgedBy
+                ? t("citation.reason.monthly-limit-unfinished", {
+                    cap: stoppedAt.cap,
+                    model: judgedBy,
+                  })
+                : t("citation.reason.monthly-limit-unfinished.unnamed", { cap: stoppedAt.cap })
+              : state.reason === "small-model"
+                ? t("citation.reason.small-model")
+                : state.check === "not-checked"
+                  ? t("citation.reason.notChecked")
+                  : state.reason === "unsure-word"
+                    ? // The line under it says which words may be misread.
+                      null
+                    : state.reason === "document-removed" && attributes.yourNoteAt
+                      ? t("citation.reason.source-removed")
+                      : state.reason
+                        ? t(`citation.reason.${state.reason}`)
+                        : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const runOn = quotedWordsRunOnTo(attributes.quotedWords);

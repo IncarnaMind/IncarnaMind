@@ -15,6 +15,7 @@ import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
 import {
+  type JudgedAnswer,
   JudgedAnswerContext,
   PictureSurfaceContext,
   RegenerateAnswerContext,
@@ -75,7 +76,7 @@ export function AnswerText({
   /** Writes the Answer again. */
   regenerate(): void;
   /** The Answer itself, whose sentences are judged and can be checked again. */
-  judged: { id: string; conversationId: string };
+  judged: JudgedAnswer;
   onOpenTable(table: NodeJSON): void;
 }) {
   const t = useT();

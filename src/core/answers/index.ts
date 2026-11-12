@@ -258,6 +258,7 @@ import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerCheckInput,
+  type JudgementCut,
   type JudgementStop,
   judgedMarkers,
   type SupportResult,
@@ -1194,7 +1195,7 @@ export function createAnswers(options: AnswersOptions) {
     const judged = (
       marker: number | null,
       result: SupportResult | null,
-      stop: JudgementStop | null = null,
+      stop: JudgementStop | JudgementCut | null = null,
     ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {

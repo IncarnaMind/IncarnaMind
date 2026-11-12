@@ -29,7 +29,14 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
-import { CHECK_RUN, fakeAbsence, fakePresence, fakeRestate, fakeSentenceBatch } from "./checks";
+import {
+  CHECK_RUN,
+  fakeAbsence,
+  fakePresence,
+  fakeRestate,
+  fakeSentenceBatch,
+  thinksPastItsRoom,
+} from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -254,6 +261,14 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
     }
     // A model id ending "-always-thinks" thinks through its whole reply to a plan, as one with no off switch may (#1369).
     if (spec.modelId.endsWith("-always-thinks") && asksForPlan(options)) {
+      return {
+        content: [{ type: "text", text: "" }],
+        finishReason: { unified: "length", raw: undefined },
+        usage: USAGE,
+        warnings: [],
+      };
+    }
+    if (thinksPastItsRoom(options)) {
       return {
         content: [{ type: "text", text: "" }],
         finishReason: { unified: "length", raw: undefined },

@@ -4587,6 +4587,14 @@ export const en = {
     "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
   "citation.reason.monthly-limit":
     "Not checked: your monthly limit of {cap} was reached before this sentence.",
+  "citation.reason.answer-limit-unfinished":
+    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+  "citation.reason.monthly-limit-unfinished":
+    "Not checked: your monthly limit of {cap} was reached before {model} finished checking this sentence.",
+  "citation.reason.monthly-limit-unfinished.unnamed":
+    "Not checked: your monthly limit of {cap} was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
