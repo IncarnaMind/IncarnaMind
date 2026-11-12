@@ -35,14 +35,13 @@ import {
   removeDir,
   sealShell,
   shot,
+  showAllDocuments,
   startFrames,
   takeKeyLatency,
   tempDir,
 } from "./harness";
 
 const RUNS = 3;
-
-test.describe.configure({ mode: "serial" });
 
 /** Renderer timings: navigation, first paint, contentful paint, layout shifts. */
 function pageTimings(window: Page) {
@@ -399,7 +398,10 @@ test("B0 startup breakdown: Electron's own baseline, and the main process's mark
   for (let i = 0; i < RUNS; i++) {
     const dataDir = tempDir("baseline");
     const { launched, result } = await (async () => {
-      const l = await launch(dataDir, { appPath: join(__dirname, "baseline") });
+      const l = await launch(dataDir, {
+        appPath: join(__dirname, "baseline"),
+        readyTestId: "plain-editor",
+      });
       const page = await pageTimings(l.window);
       return {
         launched: l,
@@ -503,8 +505,10 @@ test("B1 startup: cold (fresh data folder) and warm, 3× each", async () => {
   }
   const warm: unknown[] = [];
   for (let i = 0; i < RUNS; i++) {
-    const { launched, result } = await timedLaunch(dataDir, "mind-editor", true);
-    // The open Mind's Citations, kept from the Answer, are back on screen.
+    // A later launch opens on Home, the Mind it had in front still in its tab beside it.
+    const { launched, result } = await timedLaunch(dataDir, "home", true);
+    await launched.window.getByTestId("mind-tab").click();
+    // The Mind's Citations, kept from the Answer, are back on screen.
     await expect(
       launched.window.getByTestId("mind-editor").getByTestId("citation").first(),
     ).toBeVisible();
@@ -727,7 +731,8 @@ test("B2 typing: a short Mind and a long one (~300 blocks, many Citations)", asy
   }
 });
 
-test("B2b typing with 500 changes from Edit with AI waiting in the Mind (#93)", async () => {
+// Shorten applies at once now, so no changes wait for `proposals-count` to count (#2926).
+test.fixme("B2b typing with 500 changes from Edit with AI waiting in the Mind (#93)", async () => {
   test.setTimeout(10 * 60_000);
   const dataDir = tempDir("data");
   const app = await launch(dataDir, { fakeChat: true, readyTestId: "plus-menu" });
@@ -858,7 +863,7 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
     // Link the folder as a person does, then type in the Mind while it indexes.
     await answerOpenDialog(app.app, fixtures.scale);
     await click(window, window.getByTestId("plus-menu"));
-    await click(window, window.getByTestId("plus-link-folder"));
+    await click(window, window.getByTestId("plus-add-documents"));
     const dialog = window.getByTestId("link-folder-dialog");
     const previewStarted = Date.now();
     await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 60_000 });
@@ -889,7 +894,7 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
           await click(window, window.getByTestId("open-library"));
           actionsWhileIndexing.library?.push(await done());
           done = await armUntil(window, "selectorShown", '[data-testid="mind-editor"]');
-          await click(window, window.getByRole("button", { name: "Back to note" }));
+          await click(window, window.getByTestId("library-tab").getByTestId("tab-close"));
           actionsWhileIndexing.back?.push(await done());
         }
       },
@@ -913,6 +918,7 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
       rendererMainThread: busy(m0, await cdpMetrics(session)),
     });
     await window.waitForTimeout(2000);
+    await showAllDocuments(window);
     await shot(window, "B22-sidebar-2000");
     record(
       "speed.scale.dom",
@@ -988,23 +994,6 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
       record("speed.scale.sidebarHover", await stopHover());
     }
 
-    // Switch the sidebar between Folders and Folders on disk (re-renders every row). With
-    // Folders in the Library the sidebar opens on Folders: start from Folders on disk.
-    const views = window.getByTestId("browse-views");
-    const folders = views.getByRole("button", { name: "Folders", exact: true });
-    const sources = views.getByRole("button", { name: "Folders on disk", exact: true });
-    const sourcesShown = '[data-testid="folder-item"][data-root="true"]';
-    if (await folders.count()) {
-      if ((await sources.getAttribute("aria-pressed")) !== "true") await click(window, sources);
-      await expect(window.locator(sourcesShown).first()).toBeVisible();
-      const done = await armUntil(window, "selectorShown", '[data-testid="library-folders"]');
-      await click(window, folders);
-      record("speed.scale.toggleFoldersMs", await done());
-      const back = await armUntil(window, "selectorShown", sourcesShown);
-      await click(window, sources);
-      record("speed.scale.toggleSourcesMs", await back());
-    }
-
     // The Library: open it, scroll it, search it.
     const lib = await armUntil(window, "libraryShown");
     await click(window, window.getByTestId("open-library"));
@@ -1021,7 +1010,7 @@ test("B3 2,000 Documents: linking, the sidebar, the Library, Organize, and a war
     }
     await window.waitForTimeout(300);
     const libraryScroll = await stopLib();
-    const search = window.getByPlaceholder("Find by name or tag");
+    const search = window.getByTestId("library-search");
     await click(window, search);
     await takeKeyLatency(window);
     for (const ch of "harbour tide") {
@@ -1167,6 +1156,7 @@ test("B4 the viewer: a 300-page PDF, a 50k-cell sheet, a Word file with images (
       await bridge.addLinkedFolder(folder);
     }, fixtures.formats);
     await documentsReady(window, 14, 120_000);
+    await showAllDocuments(window);
     await click(window, window.getByTestId("plus-menu"));
     await click(window, window.getByTestId("plus-new-mind"));
     const session = await cdp(window);

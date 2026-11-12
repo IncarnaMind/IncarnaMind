@@ -48,6 +48,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "plan-limit": true,
   "out-of-credit": true,
   failed: true,
+  "timed-out": true,
   stopped: true,
   "answer-failed": true,
   "too-many": true,
@@ -85,6 +86,7 @@ const EXCLUSIONS: readonly EvidenceExclusion[] = [
   "own-workings",
   "own-note",
   "checked-document",
+  "same-text",
 ];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",

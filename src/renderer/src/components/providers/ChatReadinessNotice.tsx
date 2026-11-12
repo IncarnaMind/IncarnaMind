@@ -18,7 +18,7 @@ import { readinessKey, serviceName } from "./shared";
 /** Where to fix it: a declined data flow is allowed again on the Privacy page, the rest under Models. */
 export const settingsPageFor = (
   readiness: Extract<ChatReadiness, { ready: false }>,
-): SettingsPage => (readiness.reason === "consent-declined" ? "privacy" : "models");
+): SettingsPage => (readiness.reason === "consent-declined" ? "privacy" : "ai");
 
 /** A sign-in route's way back from being signed out: the `index`th, first the main one. */
 function routeWayBack(

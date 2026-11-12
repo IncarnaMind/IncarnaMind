@@ -54,11 +54,37 @@ When a person changes a label or a quote, the test says which quote isn't found 
 1. A temporary data folder, as for the other evaluations. The Folder's files and the received documents are added and the web pages saved, then the Folder's Documents are moved into a Folder. Searches run as the app's do by default: keyword search's top 60, reranked by the built-in model, with embeddings off. The chat model is saved as the app's, and setting the variables is the consent for the "checks" flow.
 2. **Find support:** each sentence is checked against the Folder by the app's claim check (`checkClaim`, #96), the check Run Find support runs.
 3. **Verify:** each received document's stored text goes to claim extraction. Each claim extracted is checked the same way, with the received document left out (`checked`).
-4. The results are scored and written to `eval/results/<start time>-checks/` (`report.md`, `report.json`), and a summary is printed.
+4. The results are scored and written to `eval/results/<start time>-checks/` (`report.md`, `report.json`, `replies.md`), and a summary is printed.
 
 The check is the app's (`corePipeline` in `lib/pipeline.ts`). Claim extraction is still a baseline of one model call (`baselinePipeline`), until verify's extraction (#97) can be called on its own; the run's bars gate then (`GATING` in `checks.eval.ts`). A model that fails, refuses or replies with no verdict leaves the sentence "not checked", which never counts as supported.
 
 Each run makes one extraction call per received document, and a check Run per sentence or claim, about 375 in all: a few requests each (search, cite, the verdict, and the confirmation of a contradiction).
+
+## The judge's replies
+
+Each sentence and claim keeps, beside its outcome, every request the app's check made to the model, in order (`lib/judge.ts`, #2910): the model's reply, its Tool calls (`search_documents`, `cite`, `calculate`) as it wrote them, and for `cite` and `calculate` what the app answered, which says why a record was turned away. The explanation asked for again in the interface's language is its own request (`restate`). A request carries only the model's words and the app's: no key, header or setting, and the Documents are the evaluation's own, made up.
+
+- `report.json` holds them as `outcome.judge`, with each sentence's words and label, so a run reads without the set.
+- `replies.md` has a section for each sentence and claim, headed by its id: what the check made of it, then each request with its calls and its reply.
+
+A Not checked has the core's own reason in `outcome.code`. The report and the summary count them by cause, and split the core's "no evidence" by what the replies show:
+
+- **Quote not found:** the app turned the judge's last `cite` away, or nothing shows a calculation was owed.
+- **Calculation not made:** no usable calculation where the sentence needed one, and no quote the app turned away: the judge called `calculate` and its figure settled nothing, the app sent it back to calculate and it didn't, or its reply names a calculation it never made. The check turns a quote away before it asks for a calculation, so a quote comes first.
+- **Malformed reply:** the core's "malformed", a reply with no verdict that could be read.
+- **Other:** every other reason the core gives, such as a refusal, a failed request or a limit.
+
+## Comparing two arms
+
+Run `npm run eval -- eval/checks` on each commit once or more, then compare the results folders (it needs no model and no network):
+
+```sh
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/checks/compare.ts \
+  --arm main eval/results/<main run 1>-checks eval/results/<main run 2>-checks \
+  --arm branch eval/results/<branch run 1>-checks eval/results/<branch run 2>-checks
+```
+
+It prints each arm's correct Supported and Contradicted-on-the-wrong-label per run, each arm's Not checked by cause over its runs, and the sentences that flip the same way in every run: one verdict in every run of the first arm, another in every run of the second. Each is listed under its direction (lost Supported first, then gained) with the replies of every run of both arms, and where to find them in `replies.md`. With one run for each arm, a flip may be the run-to-run spread. A results folder written before the replies were kept is refused, naming it.
 
 ## Scoring
 
@@ -83,4 +109,4 @@ Each run makes one extraction call per received document, and a check Run per se
 ## Files
 
 - `labels.json`: the labels. `received/`: the documents to verify. `web/`: the web pages' HTML. `make-fixtures.py`: writes both (see its header for the libraries). `ATTRIBUTION.md`: sources and licences.
-- `checks.eval.ts`: the run. `lib/set.ts`: reads and checks `labels.json`. `lib/pipeline.ts`: extraction, search and the check. `lib/scoring.ts`: the scores and bars. `lib/report.ts`: the reports.
+- `checks.eval.ts`: the run. `lib/set.ts`: reads and checks `labels.json`. `lib/pipeline.ts`: extraction, search and the check. `lib/scoring.ts`: the scores and bars. `lib/judge.ts`: the replies kept and the causes of a Not checked. `lib/report.ts`: the reports. `compare.ts` and `lib/compare.ts`: the comparison of two arms.

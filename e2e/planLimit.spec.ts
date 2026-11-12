@@ -304,7 +304,7 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
     await planLineShots(app, window, "tagging-limit-zh");
 
     await pointAndClick(window, useKey);
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "models");
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await setLanguage(window, "en");
     await closeSettings(window);
 
@@ -494,8 +494,7 @@ test("an Organize the User runs on the plan, while Automatic tagging goes to ano
       });
       await core.createLibraryGroup({ name: "Invoices", description: "Invoices" });
       await core.saveLibrarySettings({
-        classifier: null,
-        organizeWith: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
+        classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: false,
       });
       await core.setTaggingWithAi(null, false);

@@ -27,6 +27,11 @@ export interface ExampleCheck {
   evidence: ExampleQuote;
   /** What the Document says, in one plain sentence. */
   says: string;
+  /**
+   * For a contradicted one: its old words and the Document's for them, as its quote writes them,
+   * which its card offers to write in their place, as any check's correction (#2081).
+   */
+  correction?: { from: string; to: string };
 }
 
 export interface ExampleSet {
@@ -75,6 +80,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
               "Group gross margin was 38.6%, down from 40.3% a year earlier, with online the main drag.",
           },
           says: "The Q3 results say gross margin was 38.6%, not 36.8%.",
+          correction: { from: "36.8%", to: "38.6%" },
         },
       ],
       question: "Is Northwind inside its leverage covenant?",
@@ -134,6 +140,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
             quote: "集团毛利率为 38.6%，上年同期为 40.3%，主要受线上业务拖累。",
           },
           says: "第三季度业绩写的是毛利率 38.6%，不是 36.8%。",
+          correction: { from: "36.8%", to: "38.6%" },
         },
       ],
       question: "Northwind 的杠杆率还在贷款协议的上限之内吗？",

@@ -15,7 +15,6 @@ import {
   isPreset,
 } from "../../../../core/providers/catalog/providers";
 import { OLLAMA_CLOUD } from "../../../../core/providers/ollamaCloud";
-import { formatDate } from "../../../../shared/dates";
 import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
@@ -26,6 +25,7 @@ import { type KeyRefusal, useKeyRefusals } from "../../keyRefusals";
 import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
+import { EstimateTip, estimateTip, PricingLink } from "../EstimateSource";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { PlusLineIcon, TrashLineIcon } from "../lineIcons";
 import { OnThisComputer } from "../OnThisComputer";
@@ -48,12 +48,15 @@ import {
   rowFieldClass,
   successTextClass,
 } from "../ui";
+import { ChatGptPlanRow } from "./ChatGptPlanSettings";
+import { ClaudePlanRow } from "./ClaudePlan";
+import { CopilotPlanRow } from "./CopilotPlan";
 import { KeyCheckLine, useKeyCheck } from "./keyCheck";
 import { LocalModeUnavailable } from "./LocalModeUnavailable";
 import { OtherModels } from "./OtherModels";
 import { KeyNotCheckedLine, KeyRefusedLine, ProviderSendsLine, TestResult } from "./ProviderForm";
 import { logoIdOf, ProviderLogo } from "./ProviderLogo";
-import { keyProviderName, useProviderKey } from "./shared";
+import { keyProviderName, providerName, useProviderKey } from "./shared";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -62,22 +65,6 @@ export interface RemovedProvider {
   provider: string;
   answers?: ChatModelChoice | null;
   automatic: boolean;
-}
-
-export function providerName(provider: ChatProvider, t: Translate, language: Language): string {
-  if (provider.kind === "chatgpt") return t("chatgpt.title");
-  if (provider.kind === "claude-account" || provider.kind === "copilot") {
-    return t(`providers.kind.${provider.kind}`);
-  }
-  const catalog = catalogProviderOf(provider.kind, provider.catalogId);
-  if (provider.kind === "openai-compatible" && !isPreset(catalog) && provider.baseUrl) {
-    try {
-      return new URL(provider.baseUrl).host;
-    } catch {
-      return provider.baseUrl;
-    }
-  }
-  return keyProviderName(provider.catalogId ?? provider.kind, t, language);
 }
 
 const contextSize = (tokens: number) =>
@@ -264,7 +251,7 @@ export function ProviderPage({
       data-provider-id={provider.id}
       className="flex flex-col gap-6"
     >
-      <SettingsBackLink label={t("settings.pages.models")} testId="models-back" onBack={onBack} />
+      <SettingsBackLink label={t("settings.pages.ai")} testId="models-back" onBack={onBack} />
       <header className="flex items-start gap-3">
         <ProviderLogo id={logoIdOf(provider)} large />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -289,6 +276,18 @@ export function ProviderPage({
       </header>
 
       {provider.service && provider.kind !== "ollama" && <LocalModeUnavailable />}
+
+      {plan && (
+        <SettingsGroup role="list">
+          {provider.kind === "chatgpt" ? (
+            <ChatGptPlanRow />
+          ) : provider.kind === "claude-account" ? (
+            <ClaudePlanRow />
+          ) : (
+            <CopilotPlanRow />
+          )}
+        </SettingsGroup>
+      )}
 
       <form onSubmit={(event) => void saveKey(event)}>
         <SettingsSection
@@ -509,15 +508,7 @@ function ModelsList({
             {prices && priced && (
               <>
                 {" · "}
-                <a
-                  href={prices.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-testid="provider-pricing"
-                  className="underline underline-offset-2 hover:text-ink"
-                >
-                  {t("models.provider.pricing")} ↗
-                </a>
+                <PricingLink url={prices.url} testId="provider-pricing" />
               </>
             )}
           </p>
@@ -593,7 +584,6 @@ function CostText({
   language: Language;
 }) {
   const t = useT();
-  const tipId = useId();
   if (!cost) return null;
   if (cost.kind === "free")
     return <span data-testid="provider-model-cost">{t("models.provider.cost.free")}</span>;
@@ -601,30 +591,13 @@ function CostText({
     return <span data-testid="provider-model-cost">{t("models.provider.cost.plan")}</span>;
   const about = perHundredAnswers(cost, t, language);
   if (!about) return null;
-  const tip =
-    checked &&
-    t("models.provider.cost.tip", {
-      provider,
-      date: formatDate(checked, language, { timeZone: "UTC" }),
-    });
   return (
-    <>
-      <span
-        data-testid="provider-model-cost"
-        title={tip || undefined}
-        // Reached by Tab too, so where the estimate comes from isn't for the mouse alone.
-        tabIndex={tip ? 0 : undefined}
-        aria-describedby={tip ? tipId : undefined}
-        className="rounded-sm"
-      >
-        {about}
-      </span>
-      {tip && (
-        <span id={tipId} className="sr-only">
-          {tip}
-        </span>
-      )}
-    </>
+    <EstimateTip
+      testId="provider-model-cost"
+      tip={checked ? estimateTip(t, language, provider, checked) : undefined}
+    >
+      {about}
+    </EstimateTip>
   );
 }
 
@@ -719,7 +692,7 @@ function AddModelId({
 function ProviderCostLine({ providerId }: { providerId: string }) {
   const t = useT();
   const language = useLanguage();
-  const summary = useCostSummary("models");
+  const summary = useCostSummary("ai");
   const used = summary?.providers.find(
     (each) => each.providerId === providerId && each.billing === "per-token",
   );

@@ -6,6 +6,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  frontMind,
   frontMindName,
   launchApp,
   motionSettled,
@@ -15,6 +16,7 @@ import {
   openSteps,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setWindowSize,
   showSettingsPage,
 } from "./app";
@@ -104,6 +106,15 @@ async function connectOllama(window: Page, baseUrl: string): Promise<void> {
 
 const chipOf = (window: Page) => window.getByTestId("composer-model");
 const menuOf = (window: Page) => window.getByTestId("composer-model-menu");
+const removedLine = (window: Page) => window.getByTestId("composer-model-removed");
+
+/** Removes the saved provider of a kind, as Settings › AI's Remove does. */
+async function removeProviderOf(window: Page, kind: string): Promise<void> {
+  await (await coreOf(window)).evaluate(async (core, wanted) => {
+    const provider = (await core.listChatProviders()).find((each) => each.kind === wanted);
+    if (provider) await core.deleteChatProvider(provider.id);
+  }, kind);
+}
 
 async function openMindNamed(window: Page, name: string): Promise<void> {
   await pointAndClick(window, window.getByTestId("mind-list-item").filter({ hasText: name }));
@@ -161,7 +172,7 @@ test("a model picked in a note's chip is for that note only: a new note and an o
   await expect(menu).toHaveAccessibleName("This note uses");
   await expect(menu.getByTestId("composer-model-heading")).toHaveText("This note uses");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Sonnet 5.5, from Settings › Models.",
+    "New notes use Claude Sonnet 5.5, from Settings › AI.",
   );
   // The note already uses the Answers default: there is nothing to set.
   await expect(menu.getByTestId("composer-model-for-new")).toHaveAttribute("aria-disabled", "true");
@@ -204,7 +215,7 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   await pointAndClick(window, forNew);
   // The menu stays, so the foot says at once what new notes now use.
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "New notes use Claude Haiku 5.5, from Settings › Models.",
+    "New notes use Claude Haiku 5.5, from Settings › AI.",
   );
   await expect(forNew).toHaveAttribute("aria-disabled", "true");
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: HAIKU });
@@ -219,11 +230,11 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   menu = await openMenu(window);
   await pointAndClick(window, menu.getByTestId("composer-model-settings"));
   const settings = window.getByTestId("settings");
-  await expect(settings).toHaveAttribute("data-page", "models");
+  await expect(settings).toHaveAttribute("data-page", "ai");
   const answers = settings.getByTestId("model-default-chatModel");
   await expect(answers).toHaveValue(`${providerId}\n${HAIKU}`);
   await expect(answers).toHaveAccessibleDescription(
-    "New notes use this, as do notes and conversations with no model of their own.",
+    /New notes use this, as do notes and conversations with no model of their own\.$/,
   );
   await settings.getByRole("button", { name: "Close Settings" }).click();
 
@@ -233,12 +244,12 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   menu = await openMenu(window);
   await expect(menu).toHaveAccessibleName("这篇笔记使用");
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Haiku 5.5，在“设置 › 模型”中设置。",
+    "新笔记使用 Claude Haiku 5.5，在“设置 › AI”中设置。",
   );
   await expect(forNew).toHaveText("新笔记也用这个");
   await pointAndClick(window, forNew);
   await expect(menu.getByTestId("composer-model-default")).toHaveText(
-    "新笔记使用 Claude Opus 5.5，在“设置 › 模型”中设置。",
+    "新笔记使用 Claude Opus 5.5，在“设置 › AI”中设置。",
   );
   await expect.poll(() => answersModel(window)).toEqual({ providerId, modelId: OPUS });
   await closeMenu(window);
@@ -246,9 +257,9 @@ test("“Use this for new notes too” makes the note's model the Answers defaul
   await expect(chipOf(window)).toHaveText("Opus 5.5");
 
   await window.getByRole("button", { name: "设置" }).click();
-  const settingsZh = await showSettingsPage(window, "models");
+  const settingsZh = await showSettingsPage(window, "ai");
   await expect(settingsZh.getByTestId("model-default-chatModel")).toHaveAccessibleDescription(
-    "新笔记使用这个模型，没有自选模型的笔记和对话也使用它。",
+    /新笔记使用这个模型，没有自选模型的笔记和对话也使用它。$/,
   );
 });
 
@@ -270,7 +281,7 @@ test("the menu groups models by who pays: your plans, your keys, on this compute
     await expect(groups.nth(2).getByTestId("composer-model-option")).toHaveText([/fake-model/]);
     // The menu ends with what new notes use, in view however long the list: only the models scroll.
     const last = menu.getByRole("menuitem").last();
-    await expect(last).toHaveText("Settings › Models");
+    await expect(last).toHaveText("Settings › AI");
     await closeMenu(window);
     if (!running) throw new Error("The app isn't running.");
     await setWindowSize(running, window, 1100, 640);
@@ -306,8 +317,162 @@ test("when a provider is removed, a note on its model falls back to the Answers 
     await (await coreOf(window)).evaluate((core, id) => core.deleteChatProvider(id), anthropic);
 
     await expect(chipOf(window)).toHaveText("fake-model");
+    await expect(removedLine(window)).toContainText(
+      "Claude Haiku 5.5 was removed, so this note now uses fake-model",
+    );
     const answer = await askInAssistant(window, "Which model answers now?");
     await expect(await openSteps(window, answer)).toContainText("Answered by fake-model");
+  } finally {
+    ollama.server.close();
+  }
+});
+
+test("a note whose model was removed says so once under the chip, in English and Chinese; a pick or Close ends it for good, through a restart and ⌘Z; a note whose provider is saved says nothing", async () => {
+  test.setTimeout(180_000);
+  const ollama = await ollamaListing(["fake-model"]);
+  try {
+    let window = await start();
+    await connectOllama(window, ollama.url);
+    await connectAnthropic(window, SONNET);
+    for (const [name, model] of [
+      ["Picks", "fake-model"],
+      ["Closes", "fake-model"],
+      ["Waits", "fake-model"],
+      ["Saved", "Claude Haiku 5.5"],
+    ] as const) {
+      await newMind(window);
+      await nameMind(window, name);
+      await chooseInChip(window, model);
+    }
+    await newMind(window);
+    await nameMind(window, "Plain");
+    await removeProviderOf(window, "ollama");
+    const line = removedLine(window);
+    const change = line.getByTestId("composer-model-removed-change");
+    const close = line.getByTestId("composer-model-removed-close");
+
+    // The line sits under the chip, and Change opens the chip's menu; a pick ends it.
+    await openMindNamed(window, "Picks");
+    await expect(line).toContainText(
+      "fake-model was removed, so this note now uses Claude Sonnet 5.5",
+    );
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    const chipBox = await chipOf(window).boundingBox();
+    const lineBox = await line.boundingBox();
+    if (!chipBox || !lineBox) throw new Error("The chip and the line aren't drawn.");
+    expect(lineBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height);
+    await expect(change).toHaveText("Change");
+    await expect(close).toHaveText("Close");
+    await pointAndClick(window, change);
+    await expect(menuOf(window)).toBeVisible();
+    const option = menuOf(window)
+      .getByTestId("composer-model-option")
+      .filter({ hasText: "Claude Haiku 5.5" });
+    await motionSettled(window);
+    await pointAndClick(window, option);
+    await expect(menuOf(window)).toBeHidden();
+    await expect(line).toHaveCount(0);
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+
+    // A note with no pick, and one whose provider is saved, have nothing to say.
+    await openMindNamed(window, "Plain");
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await expect(line).toHaveCount(0);
+    await openMindNamed(window, "Saved");
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+    await expect(line).toHaveCount(0);
+
+    // Close ends it too; ⌘Z in the note takes back the typing, not the line's end.
+    await openMindNamed(window, "Closes");
+    await expect(line).toBeVisible();
+    await pointAndClick(window, close);
+    await expect(line).toHaveCount(0);
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await frontMind(window).locator(".mind-editor").click();
+    await window.keyboard.type("Typed after closing");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(line).toHaveCount(0);
+
+    // The keyboard reaches Change, and so does ⌘K; the words are Chinese in Chinese.
+    await openMindNamed(window, "Waits");
+    await expect(line).toBeVisible();
+    await change.focus();
+    await window.keyboard.press("Enter");
+    await expect(menuOf(window)).toBeVisible();
+    await closeMenu(window);
+    await runCommand(window, "model.changeRemoved", "Choose another model for this note");
+    await expect(menuOf(window)).toBeVisible();
+    await closeMenu(window);
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("已移除 fake-model，这篇笔记现在使用 Claude Sonnet 5.5");
+    await expect(change).toHaveText("更改");
+    await expect(close).toHaveText("关闭");
+
+    // After a restart, an ended line stays ended and an open one is still there, once.
+    await quit();
+    window = await start();
+    await openMindNamed(window, "Picks");
+    await expect(chipOf(window)).toHaveText("Haiku 5.5");
+    await expect(removedLine(window)).toHaveCount(0);
+    await openMindNamed(window, "Closes");
+    await expect(chipOf(window)).toHaveText("Sonnet 5.5");
+    await expect(removedLine(window)).toHaveCount(0);
+    await openMindNamed(window, "Waits");
+    await expect(removedLine(window)).toHaveCount(1);
+    await expect(removedLine(window)).toContainText("已移除 fake-model");
+  } finally {
+    ollama.server.close();
+  }
+});
+
+test("a second window on the same note shows the line too, and closing it in one window closes it in both", async () => {
+  test.setTimeout(180_000);
+  const ollama = await ollamaListing(["fake-model"]);
+  try {
+    const window = await start();
+    await connectOllama(window, ollama.url);
+    await connectAnthropic(window, SONNET);
+    await newMind(window);
+    await nameMind(window, "Shared");
+    await chooseInChip(window, "fake-model");
+    await removeProviderOf(window, "ollama");
+    await expect(removedLine(window)).toBeVisible();
+
+    if (!running) throw new Error("The app isn't running.");
+    const info = await running.evaluate(({ app, BrowserWindow }) => {
+      const [first] = BrowserWindow.getAllWindows();
+      if (!first) throw new Error("The app has no window.");
+      return {
+        url: first.webContents.getURL(),
+        preload: `${app.getAppPath()}/out/preload/index.js`,
+      };
+    });
+    const spawned = running.waitForEvent("window");
+    await running.evaluate(({ BrowserWindow }, values) => {
+      const win = new BrowserWindow({
+        width: 1100,
+        height: 800,
+        show: true,
+        webPreferences: {
+          preload: values.preload,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      void win.loadURL(values.url);
+    }, info);
+    const second = await spawned;
+    await second.waitForLoadState("domcontentloaded");
+    await second
+      .getByTestId("tab-strip")
+      .getByRole("tab", { name: /Shared/u })
+      .click();
+    await expect(removedLine(second)).toBeVisible({ timeout: 20_000 });
+
+    await pointAndClick(second, removedLine(second).getByTestId("composer-model-removed-close"));
+    await expect(removedLine(second)).toHaveCount(0);
+    await expect(removedLine(window)).toHaveCount(0);
   } finally {
     ollama.server.close();
   }

@@ -172,7 +172,8 @@ test("⌘K opens Words to know with its field ready, and a word told there is wr
   await expect(transcript.getByText(/Donna/)).toHaveCount(0);
 });
 
-test("A route chosen before the words were sent says so under Words to know and on the Privacy row; Send sends them alone, in English and Chinese", async () => {
+/** The profile as one that chose Soniox before the words were sent: its consent names the audio alone. */
+async function chooseSonioxBeforeWords(): Promise<void> {
   const first = await launchApp(dataDir);
   await dismissChatSetup(first.window);
   await acceptPlainTextKeys(first.window);
@@ -182,14 +183,66 @@ test("A route chosen before the words were sent says so under Words to know and 
     await bridge.updateSettings({ device: { transcriptionRoute: "soniox" } });
   });
   await first.app.close();
-  // The profile as one that chose Soniox before the words were sent: its consent names the audio alone.
   const db = openDatabase(join(dataDir, "incarnamind.db"));
   db.run(
     `UPDATE data_flow_consents SET data_kinds = '["meeting-audio"]'
      WHERE flow = 'transcription' AND deleted_at IS NULL`,
   );
   db.close();
+}
 
+const AUDIO_ONLY_LINES = {
+  en: {
+    audio: "Audio goes to Soniox while you record.",
+    paused: "Paused: “Keep everything on this computer” is on.",
+  },
+  "zh-CN": {
+    audio: "录音期间，音频会发送给 Soniox。",
+    paused: "已暂停：已开启“所有内容都留在这台电脑上”。",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`A route chosen before the words were sent: Local mode pauses its line in Settings › AI and Settings › Meetings, and turning it off brings the audio-only line back (${language})`, async () => {
+    const said = AUDIO_ONLY_LINES[language];
+    await chooseSonioxBeforeWords();
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      const localMode = (on: boolean) =>
+        window.evaluate(
+          (value) =>
+            (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(value),
+          on,
+        );
+      const settings = await openSettings(window, "ai");
+      await setLanguage(window, language);
+      const consent = settings
+        .getByTestId("model-default-row-transcription")
+        .getByTestId("meetings-route-consent");
+      await expect(consent).toHaveText(said.audio);
+
+      await localMode(true);
+      await expect(consent).toHaveText(said.paused);
+      await showSettingsPage(window, "meetings");
+      const routeLine = settings.getByTestId("meetings-route-line");
+      await expect(routeLine).toContainText(said.paused);
+      await expect(routeLine).not.toContainText(said.audio);
+
+      await localMode(false);
+      await expect(routeLine).toContainText(said.audio);
+      await expect(routeLine).not.toContainText(said.paused);
+      await showSettingsPage(window, "ai");
+      await expect(consent).toHaveText(said.audio);
+      expect((await settingsOf(window)).device.transcriptionRoute).toBe("soniox");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+test("A route chosen before the words were sent says so under Words to know and on the Privacy row; Send sends them alone, in English and Chinese", async () => {
+  await chooseSonioxBeforeWords();
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1440, 900);

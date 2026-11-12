@@ -35,6 +35,7 @@ const USE_LABELS: Readonly<Record<Use, MessageKey>> = {
   "search-sources": "aiStatement.use.search-sources",
   "search-web": "aiStatement.use.search-web",
   "sentence-checked": "aiStatement.use.sentence-checked",
+  "sentence-asked": "aiStatement.use.sentence-asked",
 };
 
 const CITATION_ROWS: readonly [keyof CitationCounts, MessageKey][] = [

@@ -511,7 +511,7 @@ export function HealthCard({
             label: t("checks.problem.chooseModel"),
             onClick: () => {
               dismissCheckProblem(mindId);
-              openSettings("models");
+              openSettings("ai");
             },
           }}
         >

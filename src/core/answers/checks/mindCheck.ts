@@ -61,6 +61,7 @@ import type { CheckedCitation } from "./claimCheck";
 import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
+import { checkRunOf } from "./runCheck";
 import {
   type ChecksRun,
   claimsAtOnce,
@@ -94,6 +95,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   unread: VerifyOptions["unread"];
   recordUnread: VerifyOptions["recordUnread"];
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
+  /** Settles once `scopeOf` can tell every copy of the file a Note was imported from, or `stop` aborts (#2216). */
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
   warmReranker?: VerifyOptions["warmReranker"];
@@ -622,6 +625,8 @@ export function createMindCheck(options: MindCheckOptions) {
     const sent = sending(mindId, mode, input.figureIds);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
+    await options.evidenceReady(signal, mindId);
+    if (signal.aborted) return { kind: "cancelled" };
     const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
     if (empty) return empty;
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;
@@ -640,7 +645,12 @@ export function createMindCheck(options: MindCheckOptions) {
       signal,
     };
     const limit = slots(claimsAtOnce(ready.prepared));
-    const early = earlyChecks(options.claimCheck, run, limit);
+    const early = earlyChecks(
+      options.claimCheck,
+      run,
+      limit,
+      checkRunOf(options, ready.prepared, signal, mindId).record,
+    );
     const nowOf = (blocks: Y.XmlFragment) => {
       const current = everySentence(blocks);
       return input.figureIds === null
@@ -956,11 +966,11 @@ export function createMindCheck(options: MindCheckOptions) {
       return true;
     },
 
-    /** See `CoreApi.forgetCheckWindow`. */
-    forgetCheckWindow(clientId: unknown): void {
-      if (typeof clientId !== "string" || clientId === "") {
-        throw new InvalidInputError({ key: "error.mindCheck.request" });
-      }
+    /**
+     * The window is gone, or its page started again (#2240): a Note its Check was being planned
+     * on, and hadn't run, is free again for another window's Check.
+     */
+    forgetCheckWindow(clientId: string): void {
       for (const [mindId, held] of checking)
         if (held.clientId === clientId) {
           // A running Check keeps the Note: only the claims end can free it, having lost its window.

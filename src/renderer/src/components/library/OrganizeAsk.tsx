@@ -139,7 +139,7 @@ function NeedsModel({ target, noProvider }: { target: OrganizeTarget; noProvider
           data-testid="library-organize-set-up"
           onClick={() => {
             close();
-            useAppStore.getState().openSettings("models", "tagging");
+            useAppStore.getState().openSettings("ai", "tagging");
           }}
           className={buttonStyle("secondary", "sm")}
         >

@@ -18,6 +18,7 @@ import {
   nameMind,
   newMind,
   openDocumentMenu,
+  openPlanPage,
   openSettings,
   removeDataFolder,
   setWindowSize,
@@ -165,9 +166,8 @@ test("Continue with ChatGPT opens OpenAI's sign-in for IncarnaMind's own registr
   const { app, window } = await launchApp(dataDir);
   await interceptOpenExternal(app);
 
-  // Settings → Models has it too. Nothing is signed in here: the browser is stood in for.
-  await openSettings(window, "models");
-  const section = window.getByTestId("chatgpt-settings");
+  // Settings › AI's plan page has it too. Nothing is signed in here: the browser is stood in for.
+  const section = await openPlanPage(window, "chatgpt");
   await expect(section.getByTestId("chatgpt-continue")).toBeVisible();
   // Where the sign-in couldn't be kept safely (Linux without a keyring), that's said up front and
   // Continue waits, so OpenAI's page never opens for a sign-in that would have nowhere to go.
@@ -261,19 +261,20 @@ test("first run asks for no model; the first own Question waits while the setup 
   await first.app.close();
 });
 
-test("Settings → Models offers Add a provider, and “Already pay for a plan?” with the ChatGPT plan", async () => {
+test("Settings › AI offers Add an account or key, whose sheet starts with the plans to sign in to", async () => {
   const { app, window } = await launchApp(dataDir);
-  const settings = await openSettings(window, "models");
-  await expect(settings.getByTestId("models-add-provider")).toHaveText("Add a provider…");
-  const plans = settings.getByTestId("plans-settings");
-  await expect(plans).toContainText("Already pay for a plan?");
-  await expect(plans).toContainText("ChatGPT Plus or Pro");
+  const settings = await openSettings(window, "ai");
+  await expect(settings.getByTestId("models-add-provider")).toHaveText("Add an account or key…");
+  await settings.getByTestId("models-add-provider").click();
+  const plans = settings.locator('[data-testid="provider-directory-group"][data-group="plans"]');
+  await expect(plans).toContainText("Sign in with a plan you already pay for");
+  await expect(plans).toContainText("ChatGPTPlus or Pro");
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
       user: { language: "zh-CN" },
     }),
   );
-  await expect(plans).toContainText("已经在付费订阅？");
+  await expect(plans).toContainText("登录你已付费的订阅");
   await app.close();
 });
 
@@ -328,7 +329,7 @@ test("the window opens at the size and place it was left at", async () => {
 test("an API key typed for one chat provider is cleared when another is chosen, or when the server changes", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const settings = await openSettings(window, "models");
+  const settings = await openSettings(window, "ai");
 
   // Typed for OpenAI, the key isn't kept for Anthropic: there is nothing to test or use with it.
   let form = await addProviderForm(settings, "openai");

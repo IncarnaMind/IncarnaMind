@@ -17,7 +17,7 @@ import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
-/** Where an undo line of a change made in Settings › Models shows: the sidebar's is behind it. */
+/** Where an undo line of a change made in Settings › AI shows: the sidebar's is behind it. */
 export const MODELS_UNDO_PLACE = "settings:models";
 
 /** What a failed connection test means, in words. The ChatGPT plan's own kinds live under `chatgpt.`. */
@@ -77,6 +77,22 @@ export function keyProviderName(id: string, t: Translate, language: Language): s
   const preset = catalogProvider(id);
   if (isPreset(preset)) return preset.name[language === "zh-CN" ? "zh" : "en"];
   return t(`providers.kind.${kindOfCatalogId(id)}`);
+}
+
+export function providerName(provider: ChatProvider, t: Translate, language: Language): string {
+  if (provider.kind === "chatgpt") return t("chatgpt.title");
+  if (provider.kind === "claude-account" || provider.kind === "copilot") {
+    return t(`providers.kind.${provider.kind}`);
+  }
+  const catalog = catalogProviderOf(provider.kind, provider.catalogId);
+  if (provider.kind === "openai-compatible" && !isPreset(catalog) && provider.baseUrl) {
+    try {
+      return new URL(provider.baseUrl).host;
+    } catch {
+      return provider.baseUrl;
+    }
+  }
+  return keyProviderName(provider.catalogId ?? provider.kind, t, language);
 }
 
 /** A provider's name where room is short: a chip, a form's title, the key field's question. */

@@ -58,13 +58,18 @@ const HF_MIRROR = "hf-mirror.com";
 // A host and its subdomains. Hugging Face serves its files from its CDN on hf.co; hf-mirror.com
 // sends a request from outside mainland China on to Hugging Face.
 const HUGGING_FACE_HOSTS = [HUGGING_FACE, "hf.co"];
+const HF_MIRROR_HOSTS = [HF_MIRROR, ...HUGGING_FACE_HOSTS];
 const OWN_HOSTS: Partial<Record<ModelSourceId, readonly string[]>> = {
   huggingface: HUGGING_FACE_HOSTS,
-  "hf-mirror": [HF_MIRROR, ...HUGGING_FACE_HOSTS],
+  "hf-mirror": HF_MIRROR_HOSTS,
 };
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const within = (host: string, hosts: readonly string[]) =>
   hosts.some((each) => host === each || host.endsWith(`.${each}`));
+
+/** Whether a host is one the built-in models download from: Hugging Face, its CDN and its mirror. */
+export const isModelHost = (host: string) => within(host, HF_MIRROR_HOSTS);
+
 const PROBE_URLS = {
   huggingface: "https://huggingface.co/",
   modelscope: "https://www.modelscope.cn/",

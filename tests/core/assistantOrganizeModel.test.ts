@@ -176,7 +176,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
       expect(await proposed(core)).toHaveLength(4);
       // The Folder it proposed waits to be made with them.
       expect((await core.getLibrary()).groups).toEqual([]);
-      expect((await core.getLibrary()).settings.organizeWith).toEqual({
+      expect((await core.getLibrary()).settings.classifier).toEqual({
         kind: "chat",
         choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
       });
@@ -216,7 +216,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
 
     expect(requestsWith(models.model, "Harbour Street")).toBe(0);
     const library = await core.getLibrary();
-    expect(library.settings.organizeWith).toBeNull();
+    expect(library.settings.classifier).toEqual({ kind: "automatic" });
     expect(library.groups).toEqual([]);
     expect(await proposed(core)).toEqual([]);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
@@ -241,7 +241,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(await proposed(core)).toHaveLength(4);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent).toBe("declined");
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
   });
 
   // protects=a model the User picks with the Library's "Use {company}" while the card waits is the one Organize uses and keeps, with or without a standing no; fails_when=Allow keeps Automatic's pick over theirs, or puts the Organize model back to none; no_claim=which Folder the classifier picks.
@@ -265,14 +265,14 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
       choice: { providerId: provider.id, modelId: "claude-sonnet-5-5" },
     } as const;
     const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({ ...settings, organizeWith: theirs });
+    await core.saveLibrarySettings({ ...settings, classifier: theirs });
     const asked = models.specs.length;
 
     const ended = answerEnded(core, result.answerId);
     await core.respondToApproval(request.requestId, "allow-once");
 
     expect((await ended).event).toBe("finished");
-    expect((await core.getLibrary()).settings.organizeWith).toEqual(theirs);
+    expect((await core.getLibrary()).settings.classifier).toEqual(theirs);
     expect(await proposed(core)).toHaveLength(4);
     expect(models.specs.slice(asked).map((spec) => spec.modelId)).toContain("claude-sonnet-5-5");
   });
@@ -294,7 +294,9 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
 
     expect(requests).toHaveLength(0);
     expect(await proposed(core)).toHaveLength(4);
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toMatchObject({
+      choice: { modelId: "claude-sonnet-5-5" },
+    });
     expect(models.specs.slice(asked).map((spec) => spec.modelId)).toContain("claude-sonnet-5-5");
   });
 
@@ -398,7 +400,7 @@ describe("The first Organize leaves the switch as the User set it (#2252, #2308)
     const pick = (await library.core.getTaggingModels()).automatic;
     if (!pick) throw new Error("Automatic has no pick.");
     const { settings } = await library.core.getLibrary();
-    await library.core.saveLibrarySettings({ ...settings, organizeWith: pick.classifier });
+    await library.core.saveLibrarySettings({ ...settings, classifier: pick.classifier });
 
     expect(storedSwitch(library.dataDir)).toEqual({ automaticSince: {} });
     expect(storedSwitch(assistant.dataDir)).toEqual({ automaticSince: {} });
@@ -459,14 +461,15 @@ async function waitingUnderStandingNo(keychain = createMemoryKeychain()) {
   return user;
 }
 
-/** The model the Library stored for Organize; null when it stored none. */
-const storedOrganizeWith = (dataDir: string) => {
+/** The model the Library stored for Organize and Tags; Automatic when it stored none. */
+const storedChoice = (dataDir: string) => {
   const [row] = queryDatabase<{ value: string }>(
     dataDir,
     "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
   );
-  const stored = JSON.parse(row?.value ?? "{}") as { organizeWith?: unknown };
-  return stored.organizeWith ?? null;
+  const stored = JSON.parse(row?.value ?? "{}") as { classifier?: unknown; organizeWith?: unknown };
+  expect(stored.organizeWith).toBeUndefined();
+  return stored.classifier ?? { kind: "automatic" };
 };
 
 describe("The first Organize tells the window and leaves nothing behind (#2252)", {
@@ -530,7 +533,7 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
     );
     const core = startCore(user.dataDir, { keychain, createChatModel: restarted.createChatModel });
 
-    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "automatic" });
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent).toBe("declined");
     expect(requestsWith(restarted.model, "Harbour Street")).toBe(0);
@@ -543,7 +546,7 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
 
     await core.saveLibrarySettings({ classifier: { kind: "automatic" }, automatic: false });
 
-    expect(storedOrganizeWith(dataDir)).toBeNull();
+    expect(storedChoice(dataDir)).toEqual({ kind: "automatic" });
   });
 
   // protects=the Library's Use {company} records the answer the same during a run under a standing no as outside one, so Organize never has a model with the no still standing; fails_when=during the run the model is saved but the consent isn't recorded; no_claim=which Folder the classifier picks.
@@ -563,13 +566,13 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
       const pick = (await core.getTaggingModels()).automatic;
       if (!pick) throw new Error("Automatic has no pick.");
       const { settings } = await core.getLibrary();
-      expect(settings.organizeWith).toBeNull();
+      expect(settings.classifier).toEqual({ kind: "automatic" });
 
-      await core.saveLibrarySettings({ ...settings, organizeWith: pick.classifier });
+      await core.saveLibrarySettings({ ...settings, classifier: pick.classifier });
 
       const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
       expect(flow?.consent).toBe("accepted");
-      expect(storedOrganizeWith(dataDir)).toEqual(pick.classifier);
+      expect(storedChoice(dataDir)).toEqual(pick.classifier);
     },
   );
 });

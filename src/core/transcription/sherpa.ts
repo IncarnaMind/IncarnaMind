@@ -10,13 +10,59 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
-import { contextWords, echoes, hotwordsOf, mayMend, withToldWords } from "./context";
+import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
-import { textOfResult, wordsOnly } from "./speechText";
+import { onlyPromptWord, resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
+import {
+  borrowedInto,
+  shareAWord,
+  spokenLanguageOf,
+  unnamedLatin,
+  writtenOutside,
+} from "./spokenLanguage";
 import { writtenNumbers } from "./spokenNumbers";
 
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
+
+/**
+ * Qwen3-ASR's limits, sherpa-onnx's own defaults set here so the log can say when a reading
+ * reaches one: it writes at most `MAX_NEW_TOKENS`, its header "language Chinese<asr_text>"
+ * (`HEADER_TOKENS`) among them, and holds its prompt (`PROMPT_TOKENS` and the words it is told),
+ * the audio (`AUDIO_TOKENS_PER_SECOND`) and what it writes in `MAX_TOTAL_TOKENS`. Reaching the
+ * total, it stops with no word in sherpa-onnx's own log, and the end of the stretch is lost (#1031).
+ */
+const MAX_NEW_TOKENS = 128;
+const MAX_TOTAL_TOKENS = 512;
+const HEADER_TOKENS = 3;
+const PROMPT_TOKENS = 15;
+const AUDIO_TOKENS_PER_SECOND = 13;
+/**
+ * The most speech one reading takes, so that it reaches neither: 15 s of audio is 195 tokens,
+ * which leaves all 128 it may write with the prompt and the words told, and the densest speech of
+ * the meeting set, about 5.7 tokens a second, writes about 86 of them in it. On that set, 15 s
+ * read better than 12 s, whose extra cuts cost context (#1031).
+ */
+const LONGEST_READING_MS = 15_000;
+/**
+ * Qwen3-ASR guesses a reading's language from its audio, and with under about 3 s of it guesses
+ * wrong: a short English "yeah" comes back as "对。", a Mandarin "那就这样" as Cantonese (#1031).
+ * Such a reading is told its stream's language, as `AGREEING` of the stream's `LATEST` readings of
+ * at least `LANGUAGE_FROM_MS` show it in their words and the other shows no other: from that
+ * length the model's guess holds.
+ */
+const TOLD_LANGUAGE_UNDER_MS = 3000;
+const LANGUAGE_FROM_MS = 4000;
+const AGREEING = 2;
+const LATEST = 3;
+/**
+ * What a long reading in Latin letters shows when its words name no language: nothing against
+ * English, the one language named here that is written in them, and that it is no other. One
+ * between two English readings is English said without the words that tell it, about one in nine
+ * on the meeting set; two of the latest three are a call in another language written in those
+ * letters.
+ */
+const UNNAMED = "";
 
 /**
  * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
@@ -66,7 +112,8 @@ function sileroDetector(sherpa: Sherpa, vadFile: string, minSpeech: number): Voi
         threshold: 0.5,
         minSpeechDuration: minSpeech,
         minSilenceDuration: 0.5,
-        // Long speech is cut, so its final text never waits long.
+        // Past this, sherpa-onnx only looks harder for a pause: a stretch can run on well beyond
+        // it, so the speech host cuts long speech itself (`longestMs`, #1031).
         maxSpeechDuration: 20,
         windowSize: WINDOW,
       },
@@ -194,6 +241,28 @@ async function liveReadingsOrNone(
   }
 }
 
+/**
+ * Says in the log when a reading reached one of Qwen3-ASR's limits, its words cut short: counted
+ * from the `tokens` its words took and the audio it read, erring high. None of its words are logged.
+ */
+function sayIfAtLimit(samples: Float32Array, words: readonly string[], tokens: number): void {
+  const written = tokens + HEADER_TOKENS;
+  const seconds = samples.length / MEETING_SAMPLE_RATE;
+  const total =
+    PROMPT_TOKENS + toldTokens(words) + Math.ceil(seconds * AUDIO_TOKENS_PER_SECOND) + written;
+  if (written < MAX_NEW_TOKENS && total < MAX_TOTAL_TOKENS) return;
+  // The process has no logger of its own: its output goes to the app's log.
+  console.warn(
+    "A reading of the speech model reached its token limit; its words may be cut short.",
+    {
+      limit: written >= MAX_NEW_TOKENS ? MAX_NEW_TOKENS : MAX_TOTAL_TOKENS,
+      seconds: Math.round(seconds * 10) / 10,
+      written,
+      total,
+    },
+  );
+}
+
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
@@ -213,6 +282,8 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         decoder: required("decoder"),
         tokenizer: required("tokenizer"),
         hotwords: "",
+        maxNewTokens: MAX_NEW_TOKENS,
+        maxTotalLen: MAX_TOTAL_TOKENS,
       },
       tokens: "",
       numThreads: model.threads,
@@ -224,33 +295,88 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
   const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
   const live = model.live && (await liveReadingsOrNone(model.live));
 
-  async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
+  /**
+   * What each stream's latest readings long enough to show a language showed: its name, null for
+   * more than one or one with no name here, or `UNNAMED`.
+   */
+  const heard = new Map<string, (string | null)[]>();
+
+  function languageOf(stream: string): string | undefined {
+    const latest = heard.get(stream) ?? [];
+    const named = latest.filter((each) => each !== UNNAMED);
+    const [first] = named;
+    if (named.length < AGREEING || !first || named.some((each) => each !== first)) return undefined;
+    return first === "English" || named.length === latest.length ? first : undefined;
+  }
+
+  function learn(stream: string, text: string): void {
+    if (!/\p{L}/u.test(text)) return;
+    const shown = unnamedLatin(text) ? UNNAMED : spokenLanguageOf(text);
+    heard.set(stream, [...(heard.get(stream) ?? []), shown].slice(-LATEST));
+  }
+
+  async function read(
+    samples: Float32Array,
+    words: readonly string[],
+    language?: string,
+  ): Promise<string> {
     const stream = recognizer.createStream();
     if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
+    if (language) stream.setOption("language", language);
     stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+    let result: { text: string; tokens?: unknown };
     try {
-      return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+      result = await recognizer.decodeAsync(stream);
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
       // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
       const addon = await SHERPA_ADDON.load();
-      return writtenNumbers(
-        wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+      result = resultOf(addon.getOfflineStreamResultAsJson(stream.handle));
+    }
+    const said = untilEndOfText(result);
+    if (said.ranOn) {
+      console.warn(
+        "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
       );
     }
+    sayIfAtLimit(samples, words, said.tokens);
+    return writtenNumbers(wordsOnly(said.text));
   }
 
   return {
     detector,
     ...(live && { live }),
+    longestMs: LONGEST_READING_MS,
     recognizer: {
-      async decode(samples, _stream, given) {
+      async decode(samples, name, given) {
         const words = contextWords(given);
-        const plain = await read(samples, []);
+        const short = samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000;
+        const language = short ? languageOf(name) : undefined;
+        const plain = await read(samples, [], language);
+        // A stream not yet known to be English counts as not English: a word left out is the
+        // smaller harm than one written that nobody said (#1031).
+        if (onlyPromptWord(plain) && languageOf(name) !== "English") return "";
+        if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(name, plain);
+        const outside =
+          language && writtenOutside(plain, language) && !borrowedInto(plain, language);
+        if (outside || (language && onlyPromptWord(plain))) {
+          // Told the call's language, it still wrote another, or wrote only "system", as it also
+          // does told English for a stretch it can't read. Kept only if its own guess agrees, as
+          // a word said alone (a name, a one-word answer) reads the same both ways. If that
+          // second reading fails, so does the stretch: the host notes it as not transcribed,
+          // rather than keeping words this check doubts.
+          if (!shareAWord(plain, await read(samples, []))) {
+            console.warn(
+              "The speech model read a short stretch one way told its call's language and another way untold; it is left out.",
+              { language },
+            );
+            return "";
+          }
+        }
         if (!mayMend(plain, words)) return plain;
         let told: string;
         try {
-          told = await read(samples, words);
+          told = await read(samples, words, language);
         } catch (error) {
           // The second reading only mends names: the stretch keeps the reading it has.
           console.warn(

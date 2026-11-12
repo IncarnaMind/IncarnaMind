@@ -90,6 +90,9 @@ describe("the Organize benchmark's new-User scores", () => {
       ["1/4 (25%)", false, false],
       ["1/4 (25%)", false, false],
       ["2/6 (33%)", false, false],
+      ["1/4 (25%)", false, true],
+      ["1/4 (25%)", false, true],
+      ["2/6 (33%)", false, true],
       ["0.83 (P 0.83, R 0.83)", true, false],
       ["0.77 (P 0.83, R 0.71)", false, true],
       ["0", true, true],
@@ -98,7 +101,81 @@ describe("the Organize benchmark's new-User scores", () => {
     ]);
     // With the labels as written gating instead, the one-kind score is the one reported.
     const written = bars(scoreNewUser(outcomes, folders, verdicts), "as-written");
-    expect(written.slice(5, 7).map((each) => each.reported ?? false)).toEqual([true, false]);
+    expect(written.slice(8, 10).map((each) => each.reported ?? false)).toEqual([true, false]);
+  });
+
+  // protects=a Document the labels give two Folders is scored by the one its Folder holds most, so filing a project's report with its meetings isn't counted wrong twice; fails_when=the pair bars read the first label only, or take the second where the Folder holds a third (#2737).
+  describe("a Document labelled with two Folders (alsoFolder)", () => {
+    const three = (prefix: string, label: string, folder: string) =>
+      Array.from({ length: 3 }, (_, at) => outcome(`${prefix}${at}`, label, ["notes"], folder, []));
+    const status = (folder: string | null): Outcome => ({
+      ...outcome("w", "reports", ["report"], folder, []),
+      doc: { id: "w", folder: "reports", alsoFolder: "meetings", tags: ["report"] },
+    });
+    const counts = (each: Outcome[]) => {
+      const { samePairs, sameShared, differentPairs, differentShared, written } = scoreNewUser(
+        each,
+        folders,
+        [],
+      );
+      return { now: [samePairs, sameShared, differentPairs, differentShared], written };
+    };
+
+    test("filed with its second label's Documents, it counts right, where the labels as written count it wrong twice", () => {
+      const scored = counts([
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        status("f1"),
+      ]);
+      expect(scored.now).toEqual([9, 9, 12, 0]);
+      expect(scored.written).toMatchObject({
+        samePairs: 9,
+        sameShared: 6,
+        differentPairs: 12,
+        differentShared: 3,
+      });
+    });
+
+    test("filed with its first label's Documents, it counts right under both", () => {
+      const scored = counts([
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        status("f2"),
+      ]);
+      expect(scored.now).toEqual([9, 9, 12, 0]);
+      expect(scored.written).toMatchObject({ sameShared: 9, differentShared: 0 });
+    });
+
+    test("filed with a third label's Documents, or left out, it counts by its first label, once", () => {
+      const filed = [
+        ...three("m", "meetings", "f1"),
+        ...three("r", "reports", "f2"),
+        ...three("x", "finance", "f3"),
+      ];
+      expect(counts([...filed, status("f3")]).now).toEqual([12, 9, 33, 3]);
+      expect(counts([...filed, status(null)]).now).toEqual([12, 9, 33, 0]);
+    });
+
+    test("in a Folder that holds its two labels alike, it keeps its first", () => {
+      const tie = [
+        outcome("m", "meetings", ["notes"], "f1", []),
+        outcome("r", "reports", ["report"], "f1", []),
+        status("f1"),
+      ];
+      expect(counts(tie).now).toEqual([1, 1, 2, 2]);
+    });
+
+    test("a Document with one label scores as before", () => {
+      const { written, ...now } = scoreNewUser(outcomes, folders, verdicts);
+      expect(written).toEqual({
+        samePairs: 4,
+        sameShared: 1,
+        sameTogether: 1,
+        differentPairs: 6,
+        differentShared: 2,
+      });
+      expect(now).toMatchObject(written);
+    });
   });
 
   describe("kind Tag F1 with one kind a Document, the rule settled on 2026-11-08", () => {

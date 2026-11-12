@@ -75,6 +75,8 @@ interface StoredRerank {
   modelId: string | null;
   /** Nothing is stored: the default, not the User's choice. */
   byDefault?: boolean;
+  /** It went back to the built-in model when the last key of its company's account went. */
+  keyRemoved?: boolean;
 }
 
 /** Reranking on a device where the User hasn't chosen: the built-in model. */
@@ -89,7 +91,11 @@ const isService = (kind: RerankProviderKind): kind is RerankServiceKind => kind 
 function parseStored(value: unknown): StoredRerank | null {
   if (value === undefined) return DEFAULT_RERANK;
   if (!isRecord(value) || !isRerankKind(value.kind)) return null;
-  return { kind: value.kind, modelId: typeof value.modelId === "string" ? value.modelId : null };
+  return {
+    kind: value.kind,
+    modelId: typeof value.modelId === "string" ? value.modelId : null,
+    ...(value.keyRemoved === true && { keyRemoved: true }),
+  };
 }
 
 function parseModel(value: unknown): string | null {
@@ -123,12 +129,25 @@ export function createRerank(options: {
   /** Aborts requests when the core closes. */
   signal: AbortSignal;
   reportError?: (error: unknown) => void;
+  /**
+   * The key of the User's account with the company, where it is one of their chat providers
+   * (Cohere), used when no key of reranking's own is kept: one key per company (#2835).
+   */
+  accountKey?(kind: RerankServiceKind): Promise<string | null>;
 }) {
   const { settings, secrets, consent, createModel, builtIn, signal } = options;
   const gate = createSendGate(consent, options.localOnly);
   const reportError = options.reportError ?? ((error) => console.error(error));
 
   const stored = () => parseStored(settings.readDeviceValue(SETTINGS_VALUE));
+  /**
+   * The key for `kind`, as stored: one typed for reranking itself (`own`: it was typed for this
+   * kind), else the account's. Reranking's own comes first, as it was kept.
+   */
+  const keyOf = async (kind: RerankServiceKind, own: boolean): Promise<string | null> => {
+    const kept = own ? await secrets.tryGet(KEY_NAME) : null;
+    return kept ?? (options.accountKey ? await options.accountKey(kind) : null);
+  };
   const modelOf = (rerankSettings: StoredRerank) =>
     isService(rerankSettings.kind)
       ? (rerankSettings.modelId ?? DEFAULT_RERANK_MODELS[rerankSettings.kind])
@@ -160,10 +179,11 @@ export function createRerank(options: {
       enabled: current !== null,
       kind: current?.kind ?? null,
       modelId: current ? modelOf(current) : null,
-      hasApiKey: service !== null && (await secrets.tryGet(KEY_NAME)) !== null,
+      hasApiKey: service !== null && (await keyOf(service, true)) !== null,
       service: service ? RERANK_SERVICES[service] : null,
       paused: pausedNow(current),
       byDefault: current?.byDefault === true,
+      ...(current?.keyRemoved === true && { keyRemoved: true }),
       model: builtIn.status(),
       runsOn: builtIn.device(),
     };
@@ -196,7 +216,7 @@ export function createRerank(options: {
     abortSignal: AbortSignal | undefined,
     background: boolean,
   ): Promise<SearchCandidate[]> => {
-    const apiKey = await secrets.tryGet(KEY_NAME);
+    const apiKey = await keyOf(kind, true);
     if (!apiKey) return [...candidates];
     try {
       await consent.ensure("rerank", RERANK_SERVICES[kind], undefined, { background });
@@ -321,19 +341,53 @@ export function createRerank(options: {
       const modelId =
         input.modelId === undefined ? (sameKind ? saved.modelId : null) : parseModel(input.modelId);
       refuseInLocalMode();
-      if (apiKey === undefined && (!sameKind || (await secrets.tryGet(KEY_NAME)) === null)) {
+      if (apiKey === undefined && (await keyOf(kind, sameKind)) === null) {
         throw new InvalidInputError({
           key: "error.provider.keyMissing",
           values: { provider: RERANK_SERVICES[kind].name },
         });
       }
       if (apiKey !== undefined) await secrets.set(KEY_NAME, apiKey);
+      // Another service's key is never sent to this one: its account's key is used instead.
+      else if (!sameKind) await secrets.delete(KEY_NAME);
       settings.writeDeviceValue(SETTINGS_VALUE, { kind, modelId } satisfies StoredRerank);
       // Choosing it, where the form says what goes, allows it (ADR-0022).
       consent.choose(["rerank"], RERANK_SERVICES[kind]);
       // The built-in model, if it ran, isn't needed any more.
       builtIn.unload();
       return status();
+    },
+
+    /**
+     * The User's last key with a company went: its reranking service, with no key of reranking's
+     * own, goes back to the built-in model. Returns whether it went back.
+     */
+    async accountGone(kind: string): Promise<boolean> {
+      const saved = stored();
+      if (!saved || !isService(saved.kind) || saved.kind !== kind) return false;
+      if ((await keyOf(saved.kind, true)) !== null) return false;
+      settings.writeDeviceValue(SETTINGS_VALUE, {
+        kind: "built-in",
+        modelId: null,
+        keyRemoved: true,
+      } satisfies StoredRerank);
+      builtIn.retry();
+      return true;
+    },
+
+    /** As the embedding's: an older key typed for reranking itself, the same as the account's or not. */
+    async olderKey(): Promise<"same" | "other" | null> {
+      const saved = stored();
+      if (!saved || !isService(saved.kind)) return null;
+      const own = await secrets.tryGet(KEY_NAME);
+      const account = options.accountKey ? await options.accountKey(saved.kind) : null;
+      if (own === null || account === null) return null;
+      return own === account ? "same" : "other";
+    },
+
+    /** Forgets reranking's older key: the account's key is used from now on. */
+    async forgetOlderKey(): Promise<void> {
+      await secrets.delete(KEY_NAME);
     },
 
     /** Forgets rerank on this device: its settings, then its key. The built-in model stops. */
@@ -362,9 +416,7 @@ export function createRerank(options: {
             ? saved.modelId
             : null
           : parseModel(input.modelId);
-      const apiKey =
-        parseApiKey(input?.apiKey) ??
-        (sameKind ? storedApiKey(await secrets.tryGet(KEY_NAME)) : null);
+      const apiKey = parseApiKey(input?.apiKey) ?? storedApiKey(await keyOf(kind, sameKind));
       if (!apiKey)
         throw new InvalidInputError({
           key: "error.provider.keyMissing",

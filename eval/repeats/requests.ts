@@ -1,6 +1,6 @@
 /**
  * Watches the chat model's requests by sentence: what each check asked, the
- * searches it made, the Passages it was handed, what came back, the tokens
+ * Tool calls it made, the Passages it was handed, what came back, the tokens
  * and the time. A check's cost and the cause of a wrong verdict are read from
  * these, not guessed.
  */
@@ -10,7 +10,20 @@ import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
 import { checkNow } from "../../src/core/answers/checks/checkedText";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { DOCUMENT_TOOLS } from "../../src/core/tools";
 import { type HandedPassage, passagesIn } from "./passagesHanded";
+
+/** A Tool call the model made: its input as the model wrote it, and what the app told it back. */
+export interface WatchedCall {
+  id: string;
+  tool: string;
+  input: string;
+  /**
+   * What `cite` and `calculate` answered, the app's own words; null for a search, whose Passages
+   * are in `handed`, and until a later request carries the answer.
+   */
+  result: string | null;
+}
 
 export interface WatchedRequest {
   /** What the request is for, by its instructions: the check's Run, or a judgement after it. */
@@ -23,8 +36,12 @@ export interface WatchedRequest {
   reply: string;
   /** The searches this request asked for. */
   asked: string[];
+  /** Every Tool call it made, in order. */
+  calls: WatchedCall[];
   /** The check was asked to search again before it says the sentence isn't found (#1608). */
   searchAgain: boolean;
+  /** The check was sent back to calculate before it gives its verdict. */
+  calculateAsked: boolean;
   inputTokens: number;
   /** Of `inputTokens`, those read from the provider's prompt cache and those written to it. */
   cacheReadTokens: number;
@@ -42,17 +59,25 @@ const KINDS: readonly [string, string][] = [
   ["Reply in exactly three lines", "strict"],
   ["both state a figure, date, name or outcome", "nearest"],
   ["Compare a sentence the User wrote", "confirm"],
+  ["Write one sentence in", "restate"],
 ];
 
 function kindOf(system: string): string {
   return KINDS.find(([words]) => system.includes(words))?.[1] ?? "other";
 }
 
+/** How the check's "calculate-first" turn check starts its note (src/core/answers/checks/claimCheck.ts). */
+const CALCULATE_FIRST = "The numerical check is incomplete.";
+
+/** The Tools whose answer is the app's own words about the model's records. */
+const KEPT_ANSWERS: ReadonlySet<string> = new Set([DOCUMENT_TOOLS.cite, DOCUMENT_TOOLS.calculate]);
+
 function read(prompt: LanguageModelV4Prompt) {
   let system = "";
   let asked = "";
   const queries: string[] = [];
   const handed: HandedPassage[] = [];
+  const answers = new Map<string, string>();
   for (const message of prompt) {
     if (message.role === "system") system += message.content;
     else if (message.role === "user") {
@@ -69,10 +94,24 @@ function read(prompt: LanguageModelV4Prompt) {
         if (part.type === "tool-result" && part.output.type === "text") {
           handed.push(...passagesIn(part.output.value));
         }
+        if (
+          part.type === "tool-result" &&
+          KEPT_ANSWERS.has(part.toolName) &&
+          (part.output.type === "text" || part.output.type === "error-text")
+        ) {
+          answers.set(part.toolCallId, part.output.value);
+        }
       }
     }
   }
-  return { system, asked, queries, handed };
+  return { system, asked, queries, handed, answers };
+}
+
+/** The app's answer to a call reaches the model in the next request's prompt, so it is read from there. */
+function answered(earlier: readonly WatchedRequest[], answers: ReadonlyMap<string, string>) {
+  for (const call of earlier.flatMap((request) => request.calls)) {
+    call.result ??= answers.get(call.id) ?? null;
+  }
 }
 
 /** A search's query as the model wrote it; its raw input when that isn't JSON, as a model may write. */
@@ -107,7 +146,7 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
   let claims: { request: WatchedRequest; asked: string }[] = [];
 
   function start(prompt: LanguageModelV4Prompt) {
-    const { system, asked, queries, handed } = read(prompt);
+    const { system, asked, queries, handed, answers } = read(prompt);
     // The check tags every request it makes with its sentence and part; one that names
     // sentences itself (finding the claims) is no sentence's, and is read from its words.
     const checked = checkNow();
@@ -120,20 +159,29 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       handed,
       reply: "",
       asked: [],
+      calls: [],
       searchAgain: asked.includes(SEARCH_AGAIN),
+      calculateAsked: asked.includes(CALCULATE_FIRST),
       inputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       outputTokens: 0,
       ms: 0,
     };
-    if (checked) watched.set(checked.sentence, [...(watched.get(checked.sentence) ?? []), request]);
-    else if (request.kind === "claims") claims.push({ request, asked });
-    else if (named.length === 1 && sentence !== undefined) {
-      watched.set(sentence, [...(watched.get(sentence) ?? []), request]);
-    }
+    const owner =
+      checked?.sentence ?? (request.kind !== "claims" && named.length === 1 ? sentence : undefined);
+    if (owner !== undefined) {
+      const earlier = watched.get(owner) ?? [];
+      answered(earlier, answers);
+      watched.set(owner, [...earlier, request]);
+    } else if (request.kind === "claims") claims.push({ request, asked });
     return { request, began: performance.now() };
   }
+
+  const called = (request: WatchedRequest, id: string, tool: string, input: string) => {
+    request.calls.push({ id, tool, input, result: null });
+    if (tool === "search_documents") request.asked.push(queryOf(input));
+  };
 
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
@@ -144,9 +192,9 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
             if (part.type === "text-delta") request.reply += part.delta;
-            else if (part.type === "tool-call" && part.toolName === "search_documents") {
-              request.asked.push(queryOf(part.input));
-            } else if (part.type === "finish") {
+            else if (part.type === "tool-call")
+              called(request, part.toolCallId, part.toolName, part.input);
+            else if (part.type === "finish") {
               request.inputTokens = part.usage.inputTokens.total ?? 0;
               request.cacheReadTokens = part.usage.inputTokens.cacheRead ?? 0;
               request.cacheWriteTokens = part.usage.inputTokens.cacheWrite ?? 0;
@@ -162,7 +210,11 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
     wrapGenerate: async ({ doGenerate, params }) => {
       const { request, began } = start(params.prompt);
       const result = await doGenerate();
-      for (const part of result.content) if (part.type === "text") request.reply += part.text;
+      for (const part of result.content) {
+        if (part.type === "text") request.reply += part.text;
+        else if (part.type === "tool-call")
+          called(request, part.toolCallId, part.toolName, part.input);
+      }
       request.inputTokens = result.usage.inputTokens.total ?? 0;
       request.cacheReadTokens = result.usage.inputTokens.cacheRead ?? 0;
       request.cacheWriteTokens = result.usage.inputTokens.cacheWrite ?? 0;

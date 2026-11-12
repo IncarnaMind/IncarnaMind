@@ -76,9 +76,9 @@ export async function continueWithChatGpt(
  * signs in right there. If that fails, Settings → Models says why. True once
  * signed in.
  */
-export async function signInAgain(openSettings: (page: "models") => void): Promise<boolean> {
+export async function signInAgain(openSettings: (page: "ai") => void): Promise<boolean> {
   const result = await continueWithChatGpt({ keepDefault: true });
-  if (result && "kind" in result) openSettings("models");
+  if (result && "kind" in result) openSettings("ai");
   return result !== null && !("kind" in result);
 }
 

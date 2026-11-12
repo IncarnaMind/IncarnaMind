@@ -11,13 +11,45 @@ import { escapedInStrings } from "../../shared/jsonText";
 const CONTROLS = /[\u0000-\u001f\u007f]/g;
 const BREAKS = /[\t\n\v\f\r]/g;
 
-/** The text of an engine's result JSON, however it escaped what the text holds. Throws if it isn't one. */
-export function textOfResult(json: string): string {
+/**
+ * An engine's result JSON, however it escaped what the text holds: its text, and the tokens it
+ * wrote as the JSON has them. Throws if it isn't JSON.
+ */
+export function resultOf(json: string): { text: string; tokens?: unknown } {
   const result: unknown = JSON.parse(escapedInStrings(json));
-  if (typeof result === "object" && result !== null && "text" in result) {
-    return typeof result.text === "string" ? result.text : "";
-  }
-  return "";
+  if (typeof result !== "object" || result === null) return { text: "" };
+  const text = "text" in result && typeof result.text === "string" ? result.text : "";
+  return "tokens" in result ? { text, tokens: result.tokens } : { text };
+}
+
+/** The text of an engine's result JSON (see `resultOf`). */
+export const textOfResult = (json: string): string => resultOf(json).text;
+
+/**
+ * Qwen3-ASR's end-of-text token, which sherpa-onnx doesn't stop at: the model sometimes writes it
+ * after a stretch's words and runs on with a passage of its own, the same one over and over
+ * ("Human Rights Watch（人权观察）是…"), until it reaches its limit (#1031). Nothing after it was said.
+ */
+const END_OF_TEXT = "<|endoftext|>";
+
+/**
+ * A result's words up to the model's end-of-text token, and how many tokens they took; `ranOn`
+ * when the model wrote more after it than space.
+ */
+export function untilEndOfText(result: { text: string; tokens?: unknown }): {
+  text: string;
+  tokens: number;
+  ranOn: boolean;
+} {
+  const tokens = Array.isArray(result.tokens) ? result.tokens : [];
+  const end = result.text.indexOf(END_OF_TEXT);
+  if (end < 0) return { text: result.text, tokens: tokens.length, ranOn: false };
+  const at = tokens.findIndex((token) => typeof token === "string" && token.includes(END_OF_TEXT));
+  return {
+    text: result.text.slice(0, end),
+    tokens: at < 0 ? tokens.length : at,
+    ranOn: result.text.slice(end + END_OF_TEXT.length).trim() !== "",
+  };
 }
 
 /**
@@ -27,10 +59,23 @@ export function textOfResult(json: string): string {
  * it, is taken off; one further in belongs to words that can't be told from it.
  */
 const HEADER = /^(?:\S{1,16}\n)?language[ \t]+\p{L}+<asr_text>/u;
+/**
+ * A reading that is only the model's header ("language Chinese", "language None"), which it
+ * writes for a short or quiet stretch instead of words: nothing was said (#1031).
+ */
+const HEADER_ONLY = /^(?:language[ \t]+\p{L}+)?[\s\p{P}]*$/iu;
 
 export function wordsOnly(text: string): string {
-  return text.replace(HEADER, "");
+  const words = text.replace(HEADER, "").replace(/^\s*<asr_text>/u, "");
+  return HEADER_ONLY.test(words) ? "" : words;
 }
+
+/**
+ * Whether a reading is only the word "system", which the model takes from its own prompt for a
+ * short stretch it misread ("是的" in a Mandarin call, #1031). In an English call it can also be
+ * the answer someone gave, so only the engine, knowing the call's language, can leave it out.
+ */
+export const onlyPromptWord = (text: string): boolean => /^\s*system[\s\p{P}]*$/iu.test(text);
 
 /**
  * What a stretch of speech said, kept: a break (a newline, a tab) is a space, any other control

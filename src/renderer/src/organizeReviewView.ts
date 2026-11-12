@@ -284,6 +284,8 @@ export function leftOutText(
       return t("organizeReview.leftOut.noText");
     case "unreachable":
       return t("organizeReview.leftOut.unreachable", { service: leftOut.service });
+    case "cutShort":
+      return t("organizeReview.leftOut.cutShort");
     case "walled":
       return t("organizeReview.leftOut.walled", { folder: folderName(leftOut.folderId) });
     case "noTag":

@@ -595,7 +595,10 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
             details={runStopParts(stop, t, language).slice(1)}
             action={
               stop.reason === "cost-cap"
-                ? { label: t("answer.error.changeCap"), onClick: () => openSettings("general") }
+                ? {
+                    label: t("answer.error.changeCap"),
+                    onClick: () => openSettings("ai", "spending-cap"),
+                  }
                 : undefined
             }
           >

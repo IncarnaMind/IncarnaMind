@@ -41,7 +41,7 @@ test.afterEach(async () => {
   await removeDataFolder(home);
 });
 
-test("the chip, its menu, Settings → Models and the steps show a model's name with its id on hover, and the menu's search finds it by either, in English and Chinese", async () => {
+test("the chip, its menu, Settings › AI and the steps show a model's name with its id on hover, and the menu's search finds it by either, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home });
   try {
     await dismissChatSetup(window);
@@ -84,7 +84,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
       "title",
       "gpt-6.1-sol",
     );
-    await expect(menu).toContainText("New notes use GPT-6 Luna, from Settings › Models.");
+    await expect(menu).toContainText("New notes use GPT-6 Luna, from Settings › AI.");
     await screenshot(window, "model-names-menu-en");
 
     // Search finds a model by its id (not in its name) and by its name (not in its id).
@@ -103,10 +103,10 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await expect(options).toHaveCount(3);
     await window.keyboard.press("Escape");
 
-    // Settings → Models: the Answers default by name, its id in its tooltip; on OpenAI's page its
+    // Settings › AI: the Answers default by name, its id in its tooltip; on OpenAI's page its
     // models and Other models by name.
-    const settings = await openSettings(window, "models");
-    const model = settings.getByRole("combobox", { name: "Your AI" });
+    const settings = await openSettings(window, "ai");
+    const model = settings.getByRole("combobox", { name: "Answers and writing" });
     await expect(model).toHaveValue(/\ngpt-6-luna$/);
     await expect
       .poll(() =>
@@ -155,7 +155,7 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await pointAndClick(window, chip);
     await expect(options.first()).toBeVisible();
     await expect.poll(namesShown).toEqual(["GPT-6 Astra", "GPT-6 Luna", "GPT-6.1 Sol"]);
-    await expect(menu).toContainText("新笔记使用 GPT-6 Luna，在“设置 › 模型”中设置。");
+    await expect(menu).toContainText("新笔记使用 GPT-6 Luna，在“设置 › AI”中设置。");
     await expect(menu.getByTestId("composer-model-search")).toHaveAttribute(
       "placeholder",
       "搜索模型",
@@ -167,8 +167,8 @@ test("the chip, its menu, Settings → Models and the steps show a model's name 
     await window.keyboard.press("Escape");
     await expect(answer.getByTestId("answer-timeline")).toContainText("GPT-6 Luna");
     await window.getByRole("button", { name: "设置" }).click();
-    const settingsZh = await showSettingsPage(window, "models");
-    const modelZh = settingsZh.getByRole("combobox", { name: "你的 AI" });
+    const settingsZh = await showSettingsPage(window, "ai");
+    const modelZh = settingsZh.getByRole("combobox", { name: "回答和写作" });
     await expect(modelZh).toHaveValue(/\ngpt-6-luna$/);
     await expect(modelZh.locator("option:checked")).toHaveText("GPT-6 Luna · OpenAI");
     await screenshot(window, "model-names-settings-zh");

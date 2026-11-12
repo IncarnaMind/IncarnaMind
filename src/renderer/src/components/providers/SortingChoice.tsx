@@ -194,6 +194,7 @@ export function SortingSelect({
   popUp = false,
   labelledBy,
   options,
+  groups,
   current,
   setUp = null,
   onChange,
@@ -204,6 +205,8 @@ export function SortingSelect({
   popUp?: boolean;
   labelledBy?: string;
   options: readonly SortingOption[];
+  /** The options under their group names (Settings › AI groups them by who pays); else `options` as they are. */
+  groups?: readonly { label: string; options: readonly SortingOption[] }[];
   current: SortingOption | null;
   setUp?: SetUpRows | null;
   onChange(option: SortingOption): void;
@@ -211,6 +214,11 @@ export function SortingSelect({
   const t = useT();
   const noPlaceholder = t("setup.sorting.noChoice");
   const Field = popUp ? PopUpSelect : "select";
+  const optionOf = (option: SortingOption) => (
+    <option key={sortingKey(option.classifier)} value={sortingKey(option.classifier)}>
+      {option.label}
+    </option>
+  );
   return (
     <Field
       id={id}
@@ -232,11 +240,13 @@ export function SortingSelect({
       className={className}
     >
       {!current && !setUp?.open && <option value="">{noPlaceholder}</option>}
-      {options.map((option) => (
-        <option key={sortingKey(option.classifier)} value={sortingKey(option.classifier)}>
-          {option.label}
-        </option>
-      ))}
+      {groups
+        ? groups.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map(optionOf)}
+            </optgroup>
+          ))
+        : options.map(optionOf)}
       {setUp && setUp.offers.length > 0 && (
         <optgroup label={t("decisions.setUp.group")}>
           {setUp.offers.map((offer) => (

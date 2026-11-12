@@ -128,14 +128,13 @@ import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { checkRunStart } from "./checkRun";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
-  checkRunStart,
   createClaimCheck,
-  recordJudged,
 } from "./claimCheck";
 import { createFastPaths } from "./fastPaths";
 import { libraryNow } from "./libraryFacts";
@@ -149,7 +148,17 @@ import {
   withRecordCites,
 } from "./recordCites";
 import { REWRITE_TIMEOUT_MS, rewriteFromPassage } from "./rewrite";
-import { pendingParts } from "./runChecks";
+import {
+  type CheckOutcome,
+  CLAIM_TIME_LIMIT_MS,
+  checkRunOf,
+  heardFrom,
+  recordCheck,
+  resultOf,
+  runCheck,
+  runClaimChecks,
+} from "./runCheck";
+import { notCheckedMark, pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
   checkedSentences,
@@ -232,6 +241,8 @@ export interface ChecksOptions
     | "discardWordMind"
     | "recordAiUse"
     | "unread"
+    | "timers"
+    | "claimTimeLimitMs"
   > {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
@@ -241,7 +252,7 @@ export interface ChecksOptions
   /** What contradiction watch needs besides (#112). */
   watch: Pick<
     WatchOptions,
-    "minds" | "documentVersions" | "background" | "runCost" | "delayMs" | "claimTimeLimitMs" | "log"
+    "minds" | "documentVersions" | "background" | "runCost" | "delayMs" | "log"
   >;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
@@ -276,6 +287,8 @@ export interface ChecksOptions
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
+    /** Whether background work in a Note whose own pick is `own` waits for the User (../../providers/chat). */
+    waitsForRemovedModel(own: ChatModelChoice | null): boolean;
     /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
     quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
@@ -288,7 +301,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {
@@ -1302,9 +1315,17 @@ export function createChecks(options: ChecksOptions) {
     const task = { id: input.requestId, ...(budget && { budget }) };
     /** The first check the budget stopped: no part after it sends anything. */
     let stopped: AtomicClaimCheckResult | null = null;
+    /** A window that ended the read, as the runner says: nothing after it is sent (./runCheck). */
+    const end: { by: CheckOutcome | null } = { by: null };
+    // Each window is one check; the sentence its windows decide is the use of AI recorded.
+    const windows = checkRunOf(options, prepared, signal, null);
+    const { record } = checkRunOf(options, prepared, signal, mindId);
     const atomic = async (request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> => {
       if (stopped) return stopped;
-      const result = await atomicCheck(request);
+      if (end.by) return resultOf(end.by);
+      const outcome = await runCheck(atomicCheck, request, { ...windows, signal: request.signal });
+      if ("failure" in outcome && outcome.failure !== "failed") end.by ??= outcome;
+      const result = resultOf(outcome);
       if (result.verdict === "not-checked" && result.reason === "read-budget") {
         stopped ??= { ...result, versions: [], excluded: [] };
       }
@@ -1315,20 +1336,32 @@ export function createChecks(options: ChecksOptions) {
       if (!current()) break;
       wholeRead.claim(key, input.requestId);
       try {
-        const reading = wholeRead.reader(input, read, prepared, atomic, current);
-        const result = withSpent(
-          await currentTask.run(task, () =>
-            withCites(createPartCheck(options, reading.readPart))({
-              ...checkRequest(queued, read.scope, prepared, mindId, signal),
-              undecidedOnly: true,
-            }),
-          ),
-          (currency) => options.readSpent(input.requestId, currency),
-          "previous" in queued ? queued.previous : undefined,
-        );
+        let outcome: CheckOutcome;
+        let pages = 0;
+        if (end.by) outcome = end.by;
+        else {
+          const reading = wholeRead.reader(input, read, prepared, atomic, current);
+          const heard = heardFrom(prepared);
+          let result: ClaimCheckResult | null = null;
+          try {
+            result = withSpent(
+              await currentTask.run(task, () =>
+                withCites(createPartCheck(options, reading.readPart))({
+                  ...checkRequest(queued, read.scope, heard.prepared, mindId, signal),
+                  undecidedOnly: true,
+                }),
+              ),
+              (currency) => options.readSpent(input.requestId, currency),
+              "previous" in queued ? queued.previous : undefined,
+            );
+          } finally {
+            if (heard.replied()) recordCheck(record, prepared, result);
+          }
+          outcome = { result };
+          pages = reading.pagesRead();
+        }
         if (!current()) break;
         const at = options.now().toISOString();
-        recordJudged(options.recordAiUse, mindId, prepared, result, at);
         const kept = content.edit(mindId, (blocks) => {
           if (!wholeRead.owns(key, input.requestId)) return false;
           const again = selectedSentences(blocks, stretches);
@@ -1339,26 +1372,35 @@ export function createChecks(options: ChecksOptions) {
           const owner = input.part ? currentPartOwner(blocks, input.part) : null;
           if (input.part && !owner) return false;
           const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
-          const settled = noteResult(
-            begun.pending,
-            result,
-            at,
-            blocks,
-            mindId,
-            begun.queued.claim,
-            begun.queued.priorParts,
-            begun.queued.before,
-          );
+          const settled =
+            "result" in outcome
+              ? noteResult(
+                  begun.pending,
+                  outcome.result,
+                  at,
+                  blocks,
+                  mindId,
+                  begun.queued.claim,
+                  begun.queued.priorParts,
+                  begun.queued.before,
+                )
+              : notCheckedMark(
+                  begun.pending,
+                  blocks,
+                  { withResult: noteResult, mindId, at },
+                  outcome.reason,
+                  outcome.detail,
+                );
           markSentence(now.element, now.from, now.to, {
             ...settled,
-            read: { pages: reading.pagesRead(), of: read.pages },
+            read: { pages, of: read.pages },
           });
           if (input.part) removeOpinion(blocks, input.part.id);
           recordOpinions(blocks, []);
           return true;
         });
         if (!kept) continue;
-        if (result.verdict !== "not-checked") checked++;
+        if ("result" in outcome && outcome.result.verdict !== "not-checked") checked++;
         retainEvidence(mindId);
       } finally {
         wholeRead.release(key, input.requestId);
@@ -1440,30 +1482,48 @@ export function createChecks(options: ChecksOptions) {
     }
 
     let checked = 0;
-    for (const sentence of queued) {
-      if (signal.aborted) break;
-      const result = await claimCheck(
-        checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal, check.wanted),
-      );
-      if (signal.aborted) break;
-      if (result.verdict !== "not-checked") checked++;
-      const at = options.now().toISOString();
-      recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
-      const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) =>
-          noteResult(
-            check,
-            result,
-            at,
-            blocks,
-            mindId,
-            sentence.claim,
-            sentence.priorParts,
-            sentence.before,
-          ),
+    const { outcomeError } = await runClaimChecks(
+      queued,
+      (sentence, attempt) =>
+        attempt(
+          claimCheck,
+          checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal, check.wanted),
         ),
-      );
-      if (kept) retainEvidence(mindId);
+      {
+        ...checkRunOf(options, ready.prepared, signal, mindId),
+        onOutcome(sentence, outcome) {
+          if (signal.aborted) return;
+          if ("result" in outcome && outcome.result.verdict !== "not-checked") checked++;
+          const at = options.now().toISOString();
+          const kept = content.edit(mindId, (blocks) =>
+            updateCheck(blocks, sentence.id, (check) =>
+              "result" in outcome
+                ? noteResult(
+                    check,
+                    outcome.result,
+                    at,
+                    blocks,
+                    mindId,
+                    sentence.claim,
+                    sentence.priorParts,
+                    sentence.before,
+                  )
+                : notCheckedMark(
+                    check,
+                    blocks,
+                    { withResult: noteResult, mindId, at },
+                    outcome.reason,
+                    outcome.detail,
+                  ),
+            ),
+          );
+          if (kept) retainEvidence(mindId);
+        },
+      },
+    );
+    if (outcomeError !== null) {
+      console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError.error);
+      throw outcomeError.error;
     }
     if (signal.aborted) {
       settleStopped(mindId, input.requestId);
@@ -1519,6 +1579,7 @@ export function createChecks(options: ChecksOptions) {
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1529,6 +1590,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
+    waitsForRemovedModel: (own) => options.chat.waitsForRemovedModel(own),
     prepareQuietly: (choice) => prepareQuietly(choice, WATCH_SENDS),
     waitsForConsent: async (choice) => {
       const readiness = await chat.readiness(choice ?? undefined, "checks");
@@ -1545,6 +1607,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1558,6 +1621,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1615,7 +1679,6 @@ export function createChecks(options: ChecksOptions) {
     withResult: noteResult,
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
-    claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
   /**
@@ -1637,6 +1700,7 @@ export function createChecks(options: ChecksOptions) {
   }
 
   const answerCheck = createAnswerCheck({
+    language: options.language,
     prepare: answeringModel,
     scope: (mindId, documentIds) => options.evidence.scope(mindId, documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
@@ -1664,7 +1728,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
-    claimTimeLimitMs: options.watch.claimTimeLimitMs,
+    claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     mostOf: (model, request) => {
       const estimate = options.estimateRead(model, { likely: [request], most: [request] });
       return estimate?.billing === "per-token" ? (estimate.upTo?.cost ?? null) : null;
@@ -1690,7 +1754,11 @@ export function createChecks(options: ChecksOptions) {
     ...verify,
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    checkWritten,
+    async checkWritten(input: Parameters<typeof checkWritten>[0]) {
+      // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
+      await options.evidence.ready(undefined, () => leftOutOf(input.mindId));
+      return checkWritten(input);
+    },
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -1725,6 +1793,8 @@ export function createChecks(options: ChecksOptions) {
       const tracked = track(parsed.requestId, parsed.mindId);
       if (within) wholeReads.add(parsed.requestId);
       try {
+        await options.evidence.ready(tracked.signal, () => leftOutOf(parsed.mindId));
+        if (tracked.signal.aborted) return { kind: "cancelled" };
         if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
@@ -1750,6 +1820,7 @@ export function createChecks(options: ChecksOptions) {
         const run = running.get(requestId);
         if (run?.mindId === mindId) run.controller.abort();
       }
+      await options.evidence.ready(undefined, () => leftOutOf(mindId));
       return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
@@ -1781,7 +1852,7 @@ export function createChecks(options: ChecksOptions) {
     ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
-    forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
+    forgetCheckWindow: (clientId: string) => mindCheck.forgetCheckWindow(clientId),
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
@@ -1838,6 +1909,7 @@ export function createChecks(options: ChecksOptions) {
           key: result.kind === "local-mode" ? "error.check.localMode" : "error.check.declined",
         });
       }
+      await options.evidence.ready(undefined, () => parsed.checked);
       const scope = options.evidence.scope(
         parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
@@ -1863,16 +1935,22 @@ export function createChecks(options: ChecksOptions) {
       }
       const checksDocument =
         (parsed.checked.documentIds?.length ?? 0) + (parsed.checked.contentHashes?.length ?? 0) > 0;
-      return claimCheck({
-        claim: parsed.claim,
-        context: parsed.context,
-        cited: citedNow(parsed.cited),
-        scope,
-        model: ready.prepared,
-        // Reading the document being checked makes the Run third-party (#78).
-        ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
-        signal: signal ?? new AbortController().signal,
-      });
+      const ends = signal ?? new AbortController().signal;
+      const outcome = await runCheck(
+        claimCheck,
+        {
+          claim: parsed.claim,
+          context: parsed.context,
+          cited: citedNow(parsed.cited),
+          scope,
+          model: ready.prepared,
+          // Reading the document being checked makes the Run third-party (#78).
+          ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
+          signal: ends,
+        },
+        checkRunOf(options, ready.prepared, ends, parsed.mindId),
+      );
+      return resultOf(outcome);
     },
 
     async rewriteFromDocuments(input: unknown): Promise<RewriteFromDocumentsResult> {
@@ -1945,11 +2023,13 @@ export function createChecks(options: ChecksOptions) {
       const wanted =
         stored.check.scope.chosen ??
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
+      await options.evidence.ready(undefined, () => leftOutOf(input.mindId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      const leftOut = leftOutOf(input.mindId);
       const scope = options.evidence.scope(
         input.mindId,
         options.scopeDocuments(wanted, input.mindId),
-        leftOutOf(input.mindId),
+        leftOut,
       );
       const document = recordCiteLibrary(options.documents, scope).documents.find(
         (each) => each.id === input.documentId,

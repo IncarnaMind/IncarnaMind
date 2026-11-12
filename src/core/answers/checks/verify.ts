@@ -46,7 +46,6 @@ import {
   type FindClaimsResult,
   MIND_SETTINGS_FIELD,
   type Mind,
-  type RecordAiUseInput,
   type ScannedText,
   type SearchScope,
   type UnreadFile,
@@ -65,6 +64,7 @@ import { markdownToBlocks } from "../markdown";
 import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
+import type { CheckRuns } from "./runCheck";
 import { pendingParts, runChecks } from "./runChecks";
 import {
   checkText,
@@ -89,7 +89,7 @@ type Prepared =
       result: Extract<FindClaimsResult, { kind: "not-ready" | "local-mode" | "cancelled" }>;
     };
 
-export interface VerifyOptions {
+export interface VerifyOptions extends CheckRuns {
   content: Pick<MindContent, "read" | "edit" | "readSettings">;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
@@ -132,6 +132,8 @@ export interface VerifyOptions {
   /** Loads the reranker the checks' searches will use, while the model names the claims (#2532). */
   warmReranker?(): void;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
+  /** Settles once `evidenceScope` can tell every copy of the file by its text, or `stop` aborts (#2216). */
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult(
     check: ClaimCheckAttributes,
@@ -144,7 +146,6 @@ export interface VerifyOptions {
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
-  recordAiUse(inputs: RecordAiUseInput[]): void;
   /** The files `listUnreadFiles` lists for a Search scope; null for every Document. */
   unread(scope: SearchScope | null): UnreadFile[];
   /** Runs inside the edit that adds the request's marks: what it keeps goes when no mark names it. */
@@ -153,7 +154,6 @@ export interface VerifyOptions {
   settleStopped(mindId: string, request: string): void;
   /** Records a request as running, so `cancelCheck` stops it; `done` when it ends. */
   track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
-  now(): Date;
 }
 
 /** What a claim check of the Mind searches, and how its marks record it. */
@@ -345,6 +345,8 @@ export function createVerify(options: VerifyOptions) {
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
       return { kind: "cancelled" };
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
+    await options.evidenceReady(signal, mindId);
+    if (signal.aborted) return { kind: "cancelled" };
     const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
     if (empty) return empty;
     const ready = await options.prepare(input.model ?? options.defaultModel());

@@ -36,7 +36,6 @@ import type {
   Document,
   DocumentStatus,
   Money,
-  RecordAiUseInput,
   RunStop,
   TextPlace,
   TextStretch,
@@ -49,8 +48,15 @@ import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
-import { RunItemError, runItems } from "../../runs/stop";
-import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import type { ClaimCheckRequest } from "./claimCheck";
+import {
+  type CheckOutcome,
+  type CheckRuns,
+  checkRunOf,
+  resultOf,
+  runCheck,
+  runClaimChecks,
+} from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
   everySentence,
@@ -72,13 +78,6 @@ const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "read
 /** How long after a new version arrives its Folder's Minds are checked: more versions may follow. */
 export const AFTER_NEW_VERSION_MS = 30_000;
 
-/**
- * How long a background check of one claim may take. A request whose reply
- * never comes would otherwise hold the background queue for good (seen once
- * with GPT-6 Luna); no one is there to press Stop.
- */
-export const CLAIM_TIME_LIMIT_MS = 3 * 60_000;
-
 type Prepared =
   | { ok: true; prepared: PreparedChatModel }
   | {
@@ -86,7 +85,7 @@ type Prepared =
       result: Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>;
     };
 
-export interface WatchOptions {
+export interface WatchOptions extends CheckRuns {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -105,10 +104,14 @@ export interface WatchOptions {
     citedIds: readonly string[],
   ): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
+  /** Settles once `evidenceScope` can tell every copy of a cited Document by its text, or `stop` aborts (#2216). */
+  evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** Every live Document's current version, for telling a new one when it arrives. */
   documentVersions(): ReadonlyMap<string, string>;
   defaultModel(): ChatModelChoice | null;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
+  /** Whether a Note whose own pick is `own` waits for the User before background work uses the default (#2853). */
+  waitsForRemovedModel(own: ChatModelChoice | null): boolean;
   /** The model to check with, or why not; the consent dialog shows before anything is sent. */
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
@@ -125,17 +128,13 @@ export interface WatchOptions {
     sourceText?: string,
   ): ClaimCheckAttributes;
   retainEvidence(mindId: string): void;
-  recordAiUse(inputs: RecordAiUseInput[]): void;
   track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
   background: Pick<BackgroundQueue, "add">;
   /** What a run's requests billed per token cost; null when none was priced. */
   runCost(runId: string): Money | null;
   /** How long after a new version its Folder's Minds are checked, in ms (`AFTER_NEW_VERSION_MS`). */
   delayMs: number;
-  /** How long a background check of one claim may take, in ms (`CLAIM_TIME_LIMIT_MS`). */
-  claimTimeLimitMs: number;
   log: Logger;
-  now(): Date;
 }
 
 /** A cited sentence to check: where it is, and the Documents it may be checked against. */
@@ -158,6 +157,25 @@ type Plan =
 const citedIdsOf = (sentence: SelectedSentence) => [
   ...new Set(sentence.cited.flatMap((each) => (each.documentId ? [each.documentId] : []))),
 ];
+
+const requestOf = (
+  claim: Claim,
+  mindId: string,
+  model: PreparedChatModel,
+  signal: AbortSignal,
+): ClaimCheckRequest => ({
+  claim: claim.projection?.text ?? comparableSentence(claim.text),
+  ...(claim.projection && { projection: claim.projection }),
+  ...(claim.figures && { figures: claim.figures }),
+  recordClaim: claim.noteText,
+  context: claim.context,
+  scope: claim.scope,
+  model,
+  mindId,
+  place: claim.place,
+  cacheKey: mindId,
+  signal,
+});
 
 export function createContradictionWatch(options: WatchOptions) {
   const { content } = options;
@@ -217,7 +235,6 @@ export function createContradictionWatch(options: WatchOptions) {
     prepared: PreparedChatModel,
   ) {
     const at = options.now().toISOString();
-    recordJudged(options.recordAiUse, mindId, prepared, result, at);
     const kept = content.edit(mindId, (blocks) => {
       const sentence = everySentence(blocks).find(
         (each) => each.blockId === claim.blockId && each.text === claim.text,
@@ -289,35 +306,20 @@ export function createContradictionWatch(options: WatchOptions) {
     const runId = randomUUID();
     let checked = 0;
     let contradicted = 0;
-    const { stop, outcomeError } = await runItems(
+    const { stop, outcomeError } = await runClaimChecks(
       ready.claims,
-      (claim) =>
+      (claim, attempt) =>
         asCheckWork(() =>
-          currentTask.run({ id: runId }, async () => {
-            const result = await options.claimCheck({
-              claim: claim.projection?.text ?? comparableSentence(claim.text),
-              ...(claim.projection && { projection: claim.projection }),
-              recordClaim: claim.noteText,
-              context: claim.context,
-              scope: claim.scope,
-              ...(claim.figures && { figures: claim.figures }),
-              model: prepared,
-              mindId,
-              place: claim.place,
-              cacheKey: mindId,
-              signal,
-            });
-            const failure = runFailureOf(result);
-            if (failure) throw new RunItemError(failure);
-            return result;
-          }),
+          currentTask.run({ id: runId }, () =>
+            attempt(options.claimCheck, requestOf(claim, mindId, prepared, signal)),
+          ),
         ),
       {
+        ...checkRunOf(options, prepared, signal, mindId),
         concurrency: claimsAtOnce(prepared),
-        signal,
         onOutcome(claim, outcome) {
-          if (outcome.status !== "done" || signal.aborted) return;
-          const result = outcome.value;
+          if (signal.aborted) return;
+          const result = resultOf(outcome);
           if (write(mindId, request, ready.folderId, claim, result, prepared)) {
             if (result.verdict !== "not-checked") checked++;
             if (result.verdict === "contradicted") contradicted++;
@@ -342,10 +344,11 @@ export function createContradictionWatch(options: WatchOptions) {
     };
   }
 
+  const ownModelOf = (mindId: string): ChatModelChoice | null =>
+    content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null));
+
   const modelOf = (mindId: string): ChatModelChoice | null =>
-    options.modelInUse(
-      content.readSettings(mindId, (settings) => (settings.doc ? mindModelOf(settings.doc) : null)),
-    );
+    options.modelInUse(ownModelOf(mindId));
 
   // In the background ---------------------------------------------------------------------------
 
@@ -417,6 +420,10 @@ export function createContradictionWatch(options: WatchOptions) {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
+    if (options.waitsForRemovedModel(ownModelOf(mindId))) {
+      options.log.info("contradictions.waitingForModel", { mindId });
+      return;
+    }
     const prepared = await options.prepareQuietly(modelOf(mindId));
     if (!prepared && !closed && (await options.waitsForConsent(modelOf(mindId)))) {
       // Background work never asks, nor stops without a word (ADR-0022): the line says it waits.
@@ -466,58 +473,34 @@ export function createContradictionWatch(options: WatchOptions) {
       if (--left > 0) return;
       record(stop);
     };
+    /** Once a claim ends the run, what each claim after it lands, sending nothing. */
+    let rest: CheckOutcome | null = null;
     for (const claim of ready.claims) {
       options.background.add({
         kind: ACTION,
         async run(call) {
           try {
-            if (stop || closed) return;
-            if (!prepared.provider.service) call.runsLocally();
-            const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
-            const ended = AbortSignal.any([call.signal, timedOut]);
-            // A reply that never comes, even once aborted, is given up on all the same.
-            const givenUp = new Promise<null>((resolve) =>
-              ended.addEventListener("abort", () => resolve(null), { once: true }),
-            );
-            const checking = currentTask.run({ id: runId }, () =>
-              options.claimCheck({
-                claim: claim.projection?.text ?? comparableSentence(claim.text),
-                ...(claim.projection && { projection: claim.projection }),
-                ...(claim.figures && { figures: claim.figures }),
-                recordClaim: claim.noteText,
-                context: claim.context,
-                scope: claim.scope,
-                model: prepared,
-                mindId,
-                place: claim.place,
-                cacheKey: mindId,
-                signal: ended,
-              }),
-            );
-            const replied = await Promise.race([checking, givenUp]);
+            if (closed) return;
+            if (!rest && !prepared.provider.service) call.runsLocally();
+            const outcome =
+              rest ??
+              (await currentTask.run({ id: runId }, () =>
+                runCheck(
+                  options.claimCheck,
+                  requestOf(claim, mindId, prepared, call.signal),
+                  checkRunOf(options, prepared, call.signal, mindId),
+                ),
+              ));
             // Given way to an Answer, it runs again later; closing, it never does.
             if (call.signal.aborted) return;
-            const result: ClaimCheckResult =
-              replied === null || timedOut.aborted
-                ? {
-                    verdict: "not-checked",
-                    reason: "failed",
-                    detail: `No reply within ${Math.round(options.claimTimeLimitMs / 1000)} seconds.`,
-                    versions: [],
-                    excluded: [],
-                  }
-                : replied;
-            const failure = runFailureOf(result);
-            if (failure?.kind === "cost-cap") stop = { reason: "cost-cap" };
-            else if (failure?.kind === "plan-limit")
-              stop = { reason: "plan-limit", resetsAt: null };
-            else {
-              options.requireMind(mindId);
-              // A sentence whose mark couldn't be written isn't checked (#2543).
-              if (mark(claim, result)) {
-                if (result.verdict !== "not-checked") checked++;
-                if (result.verdict === "contradicted") contradicted++;
-              }
+            if ("failure" in outcome && outcome.failure !== "failed") rest ??= outcome;
+            if ("stop" in outcome) stop ??= outcome.stop;
+            options.requireMind(mindId);
+            const result = resultOf(outcome);
+            // A sentence whose mark couldn't be written isn't checked (#2543).
+            if (mark(claim, result)) {
+              if (result.verdict !== "not-checked") checked++;
+              if (result.verdict === "contradicted") contradicted++;
             }
           } finally {
             // A run that gives way or closes ends without finishing: its record says so, so a
@@ -546,12 +529,14 @@ export function createContradictionWatch(options: WatchOptions) {
       model: ChatModelChoice | null;
     }): Promise<CheckContradictionsResult> {
       const { requestId, mindId } = input;
-      const ready = plan(mindId);
-      if (ready.kind !== "ready") return ready;
-      const model = await options.prepare(input.model ?? modelOf(mindId));
-      if (!model.ok) return model.result;
       const tracked = options.track(requestId, mindId);
       try {
+        await options.evidenceReady(tracked.signal, mindId);
+        if (tracked.signal.aborted) return { kind: "cancelled" };
+        const ready = plan(mindId);
+        if (ready.kind !== "ready") return ready;
+        const model = await options.prepare(input.model ?? modelOf(mindId));
+        if (!model.ok) return model.result;
         const outcome = await check(mindId, requestId, ready, model.prepared, tracked.signal);
         // A full watch, so the next Check knows every cited sentence has been watched, and how
         // this one ended (#1941). No Document started it: the card shows no "changed" line. One

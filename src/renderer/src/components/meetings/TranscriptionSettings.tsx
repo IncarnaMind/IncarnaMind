@@ -16,7 +16,6 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
   const t = useT();
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
-  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   // A list that couldn't be read says nothing of where the audio goes: the saved route stands.
   if (read.state === "failed") {
     return (
@@ -42,21 +41,23 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
   return (
     <div id={id} data-testid="meetings-route-line" className="flex flex-col gap-0.5">
       <p className="tabular-nums">{serviceMeta(service, t, language)}</p>
-      {localMode ? <p>{t("meetings.route.paused")}</p> : <CloudLine service={service} />}
+      <CloudLine service={service} />
       <LanguagesLine service={service} />
     </div>
   );
 }
 
 /**
- * Where Settings › Models offers the Meetings choice: before a cloud
+ * Where Settings › AI offers the Meetings choice: before a cloud
  * service is chosen, what choosing one sends, so the choice is the consent (ADR-0022); after,
- * where the audio goes. Nothing while no service has a key, as nothing else is offered.
+ * where the audio goes. Nothing while no service has a key, as nothing else is offered. With Local
+ * mode on none can be chosen, so nothing is said of choosing one (#2913).
  */
 export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const t = useT();
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   if (read.state === "failed") {
     return (
       <div data-read-host>
@@ -72,9 +73,12 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const service = services.find((each) => each.route === route);
   if (!service && !services.some((each) => each.hasKey)) return null;
   if (!service) {
+    const line =
+      chooseAgainLine(services, t, language) ?? (localMode ? null : t("meetings.route.consent"));
+    if (line === null) return null;
     return (
       <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
-        {chooseAgainLine(services, t, language) ?? t("meetings.route.consent")}
+        {line}
       </p>
     );
   }

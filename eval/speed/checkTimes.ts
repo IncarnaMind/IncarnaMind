@@ -22,13 +22,13 @@ import {
   EVIDENCE_INSTRUCTIONS,
   NEAREST_INSTRUCTIONS,
   PRESENCE_INSTRUCTIONS,
-  RECHECK_INSTRUCTIONS,
   RECORD_CITE_INSTRUCTIONS,
+  recheckInstructions,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "../../src/core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
 import type { ClaimCheckAttributes } from "../../src/core/api";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { median } from "../lib/timing";
@@ -57,7 +57,7 @@ export interface CheckRequest {
 }
 
 const KINDS: readonly [string, string][] = [
-  ["batch", SENTENCE_BATCH_INSTRUCTIONS],
+  ["batch", sentenceBatchInstructions("en")],
   ["find-claims", FIND_CLAIMS_INSTRUCTIONS],
   ["find-claims", FIND_OWN_CLAIMS_INSTRUCTIONS],
   ["confirm", CONFIRM_INSTRUCTIONS],
@@ -67,7 +67,7 @@ const KINDS: readonly [string, string][] = [
   ["strict-compare", STRICT_INSTRUCTIONS],
   ["presence", PRESENCE_INSTRUCTIONS],
   ["presence", STRICT_PRESENCE_INSTRUCTIONS],
-  ["recheck", RECHECK_INSTRUCTIONS],
+  ["recheck", recheckInstructions("en")],
   ["record-cite", RECORD_CITE_INSTRUCTIONS],
 ];
 

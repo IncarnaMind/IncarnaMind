@@ -3092,6 +3092,44 @@ export const migrations: readonly Migration[] = [
       DROP TABLE kind_names;
     `,
   },
+  {
+    version: 141,
+    description:
+      "Organize keeps no model of its own: the one it kept is dropped, and the Library's choice stays as it was (#2835)",
+    // Under Automatic, only Organize used the model it kept, `organizeWith`; tagging followed
+    // Automatic's pick. Making the kept model the choice would move Tags to another service in the
+    // background, so it is dropped instead: Tags stay where they were, and Organize follows the
+    // choice, asking for consent when the User runs it. Nothing else in the record changes, the
+    // switch and its turn-ons included, and no consent is recorded.
+    sql: `
+      UPDATE device_settings
+        SET value = json_remove(value, '$.organizeWith'),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL AND json_valid(value)
+          AND json_type(value, '$.organizeWith') IS NOT NULL;
+    `,
+  },
+  {
+    version: 142,
+    description:
+      "A fingerprint of each version's text, so a check leaves out a Document that holds the checked file's text (#2216)",
+    // Worked out from document_pages, which it lives and goes with; the versions stored
+    // before it get theirs after the first window is up (documents/textCopies.ts).
+    sql: `
+      CREATE TABLE text_fingerprints (
+        id TEXT PRIMARY KEY NOT NULL,
+        document_id TEXT NOT NULL REFERENCES documents (id),
+        content_hash TEXT NOT NULL,
+        shingles INTEGER NOT NULL, -- distinct 5-token shingles in the version's text
+        sample BLOB NOT NULL, -- the shingle hashes ending in three zero bits, ascending, 4 bytes each, little-endian
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX text_fingerprints_by_version ON text_fingerprints (document_id, content_hash)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

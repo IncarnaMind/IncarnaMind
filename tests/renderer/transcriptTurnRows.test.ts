@@ -17,6 +17,7 @@ import {
   withLineSplit,
   withSpeakerChosen,
 } from "../../src/shared/speakers";
+import { joinsUnspaced } from "../../src/shared/transcriptTurns";
 
 /** One Speaker's monologue, a line a sentence, as a cloud route gives it. */
 const CUES: Cue[] = [
@@ -73,4 +74,61 @@ describe("Who speaks a split's rest", () => {
       turnRowsOf(rowsOf(named), named, [], null).map((turn) => turn.paragraphs.flat().length),
     ).toEqual([1, 1, 2]);
   });
+});
+
+describe("A long stretch the engine on this computer read in parts (#1031)", () => {
+  /** Three parts of one stretch, each cut at a quiet moment inside a sentence. */
+  const PARTS = {
+    en: [
+      "We looked at the three offices on the list and the one near the station has room for forty people and a",
+      "kitchen on the second floor, so I think we should take it if the landlord agrees to the",
+      "longer lease and the parking. Then we can move in March.",
+    ],
+    "zh-CN": [
+      "我们看了名单上的三个办公室，车站旁边那个能坐四十个人，还有一个",
+      "在二楼的厨房，所以我觉得如果房东同意更长的",
+      "租期和停车位，我们就租下来。三月份就能搬进去。",
+    ],
+  };
+  const TIMES = [0, 11_850, 23_400, 31_000];
+
+  for (const [language, texts] of Object.entries(PARTS)) {
+    // protects=the parts of a long stretch, cut inside a sentence and touching end to end, are drawn as one turn of one paragraph that reads straight on across each cut, with a space between English words and none between Chinese characters; fails_when=a cut starts a new turn or paragraph, repeats the time and Speaker, or joins its words wrongly; no_claim=a cut at a sentence's end after 30 s, where a paragraph may break, which the turn tests cover.
+    test(`reads as one paragraph of one turn across cuts that aren't sentence ends, ${language}`, () => {
+      const rows: PartRow[] = texts.map((text, at) => {
+        const cue: Cue = {
+          startMs: TIMES[at] as number,
+          endMs: TIMES[at + 1] as number,
+          text,
+          speaker: "Me",
+        };
+        return {
+          id: lineId(cue.startMs, cue.endMs, cue.speaker),
+          part: partsOf(null, fileLineOf(cue))[0] as PartRow["part"],
+          cue,
+          pieces: [],
+        };
+      });
+
+      const turns = turnRowsOf(rows, null, [], null);
+
+      expect(turns).toHaveLength(1);
+      expect(turns[0]?.paragraphs.map((paragraph) => paragraph.length)).toEqual([3]);
+      const paragraph = turns[0]?.paragraphs[0] ?? [];
+      const shown = paragraph
+        .map((row, at) => {
+          const before = paragraph[at - 1];
+          return before && !joinsUnspaced(before.part.text, row.part.text)
+            ? ` ${row.part.text}`
+            : row.part.text;
+        })
+        .join("");
+      expect(shown).toBe(texts.join(language === "en" ? " " : ""));
+      expect(shown).toContain(
+        language === "en"
+          ? "forty people and a kitchen on the second floor"
+          : "还有一个在二楼的厨房",
+      );
+    });
+  }
 });

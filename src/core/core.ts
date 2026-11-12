@@ -76,7 +76,8 @@ import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
-import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
+import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
+import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
   locateQuote,
@@ -114,6 +115,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
+  type CoreApiMethod,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
@@ -125,7 +127,6 @@ import {
   type EmbeddingModelStatus,
   type EmbeddingSettings,
   type ExportFile,
-  type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
   type FigureSchedule,
@@ -141,6 +142,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  type OlderKeyJob,
   type OpenAtLogin,
   type OrganizeStart,
   type OwnFileKind,
@@ -238,6 +240,7 @@ import { createExports, ExportChangedError, type ExportsDependencies } from "./e
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
+import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
@@ -304,7 +307,7 @@ import {
   type OrganizeReviewRun,
   organizeReviewCount,
 } from "./organizeReview";
-import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
+import { createOutputFiles, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
@@ -404,6 +407,7 @@ import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
+import { createWindowPresence, type HostWindow } from "./windowPresence";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -437,6 +441,14 @@ export interface Core extends CoreApi, CoreEventSource {
    * left to that read. Calling it again while it runs does nothing.
    */
   upgradeKeywordIndex(): void;
+  /**
+   * Fingerprints the text of Documents stored before an older version kept fingerprints, so a
+   * check can tell a copy of the file it checks by its text (#2216): one Document a turn, on
+   * this thread. The host calls it once the first window is up; a check started before it is
+   * done waits for it. Settles when every Document is fingerprinted, or the fill stops on an
+   * error, which it reports. Called again while it runs, it gives the same promise.
+   */
+  fillTextFingerprints(): Promise<void>;
   /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
@@ -490,6 +502,22 @@ export interface Core extends CoreApi, CoreEventSource {
   sessionEnding(): UnsavedAtEnd;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
+  /**
+   * One of the host's windows makes this call. The host says so before every call it serves,
+   * naming the window by a key of its own: that is how the core learns which window holds what.
+   */
+  windowCalled(window: HostWindow, method: CoreApiMethod, input: unknown): void;
+  /**
+   * That window closed or crashed: the commands it was asked to run and hasn't answered weren't
+   * done (#1421), a Note it kept for a Check that hasn't run is free (#2240), and a column
+   * change no longer waits for it. Never throws.
+   */
+  windowGone(window: HostWindow): void;
+  /**
+   * That window's page started again: as `windowGone`, except that it keeps its place among the
+   * windows a column change waits for. Never throws.
+   */
+  windowReloaded(window: HostWindow): void;
   /** Every event the core emits, for the host to forward to the UI. */
   onAnyEvent(listener: AnyEventListener): Unsubscribe;
   /** Every external data flow. Core modules register theirs here; consent covers each one. */
@@ -960,6 +988,7 @@ export function createCore(adapters: CoreAdapters): Core {
     createModel: adapters.createEmbeddingModel ?? createAiSdkEmbeddingModel,
     signal: lifetime.signal,
     onChange: () => embeddingChanged(),
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   // Usage data: only from a copy built to send it, only while the User agrees, never in local mode.
   const usageData = createUsageData({
@@ -1312,12 +1341,21 @@ export function createCore(adapters: CoreAdapters): Core {
     builtIn: rerankingModel,
     localOnly: () => embedding.localOnly(),
     signal: lifetime.signal,
+    accountKey: async (kind) => (await chat.apiKeyOf(kind))?.apiKey ?? null,
   });
   const rerankChanged = async () => {
     const status = await rerank.status();
     if (!lifetime.signal.aborted) events.emit("rerank.changed", status);
     return status;
   };
+  // A key typed for search or reranking before keys were one per company (#2835) that is the
+  // account's key too changes nothing when it goes; one that differs stays, and its row says so.
+  void (async () => {
+    if ((await embedding.olderKey()) === "same") await embedding.forgetOlderKey();
+    if ((await rerank.olderKey()) === "same") await rerank.forgetOlderKey();
+  })().catch((error: unknown) => {
+    if (!lifetime.signal.aborted) console.error("Couldn't tidy the older search keys:", error);
+  });
   reportRerank = () => {
     if (!rerank.usesBuiltIn()) return;
     rerankChanged().catch((error: unknown) => {
@@ -2031,6 +2069,13 @@ export function createCore(adapters: CoreAdapters): Core {
   // files and the document being checked. Answers themselves search everything, as before.
   const evidence = createEvidence({
     db,
+    textCopies: documents.textCopies,
+    textFingerprinted: () => documents.fillTextFingerprints(),
+    readImported: (sha256) => {
+      const kept = wordImports.keptFile(sha256);
+      return kept === null ? null : documents.readFileText(kept, "docx");
+    },
+    log: adapters.log ?? silentLogger,
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
       documents.searchTool(query, {
@@ -3144,9 +3189,10 @@ export function createCore(adapters: CoreAdapters): Core {
       background,
       runCost: (runId) => meter.taskCost(runId),
       delayMs: adapters.contradictionWatch?.delayMs ?? AFTER_NEW_VERSION_MS,
-      claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
       log: adapters.log ?? silentLogger,
     },
+    claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
+    timers: paceTimers,
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,
@@ -3215,6 +3261,24 @@ export function createCore(adapters: CoreAdapters): Core {
     checkingEarly: (event) => events.emit("mindCheck.early", event),
     now: () => adapters.now?.() ?? new Date(),
   });
+
+  const windows = createWindowPresence(
+    [
+      {
+        calls: ["askInConversation", "regenerateConversationAnswer"],
+        gone: (clientId) => windowCommands.forget(clientId),
+        reloaded: (clientId) => windowCommands.forget(clientId),
+      },
+      {
+        calls: ["holdMindCheck"],
+        gone: (clientId) => checks.forgetCheckWindow(clientId),
+        reloaded: (clientId) => checks.forgetCheckWindow(clientId),
+      },
+      // A reloaded page keeps its id and its Notes open, so a column change still waits for it.
+      { calls: ["watchComparisonMind"], gone: (clientId) => comparisons.forgetWindow(clientId) },
+    ],
+    (error) => console.error("A window that went still holds something:", error),
+  );
 
   /**
    * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
@@ -3369,50 +3433,6 @@ export function createCore(adapters: CoreAdapters): Core {
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
   });
-  const ownFileOf = (options: Pick<ExportMindOptions, "format">): OwnFileKind =>
-    options.format === "source-pack" ? "source-pack" : "export";
-  /**
-   * Each export saved since the app opened, by its path: the Note it came from, and the
-   * fingerprint of the bytes IncarnaMind last wrote there, so a file the User changed since is
-   * never written over (#110).
-   */
-  const exportFiles = new Map<
-    string,
-    { mindId: string; path: string; format: ExportFormat; wrote: string }
-  >();
-  /**
-   * Each Change of an export, by the path it wrote, newest last (#110): the id its Undo names, so
-   * an Undo refused on one side never makes the next one put back the wrong step; the bytes it
-   * replaced, null where it wrote a copy beside; and the Note's comment choice before it, null
-   * where it set none.
-   */
-  const rewrittenExports = new Map<
-    string,
-    { id: string; before: Uint8Array | null; comments: boolean | null }[]
-  >();
-  const keepStep = (path: string, before: Uint8Array | null, comments: boolean | null) => {
-    const id = crypto.randomUUID();
-    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
-    return id;
-  };
-  /**
-   * Changes and Undos of one export run one after another, each reading what the last one wrote,
-   * so two at once never both write over the same bytes (#110).
-   */
-  const exportTurns = new Map<string, Promise<void>>();
-  const inExportTurn = <T>(path: unknown, run: () => Promise<T>): Promise<T> => {
-    const key = typeof path === "string" ? path : "";
-    const turn = (exportTurns.get(key) ?? Promise.resolve()).then(run);
-    const settled = turn.then(
-      () => undefined,
-      () => undefined,
-    );
-    exportTurns.set(key, settled);
-    void settled.then(() => {
-      if (exportTurns.get(key) === settled) exportTurns.delete(key);
-    });
-    return turn;
-  };
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
   const setNoteComments = (mindId: string, on: boolean) => {
@@ -3492,12 +3512,11 @@ export function createCore(adapters: CoreAdapters): Core {
             : options.format === "markdown",
       },
     });
-  const modelInUseIn = (mindId: string) =>
-    chat.modelInUse(
-      content.readSettings(mindId, (mindSettings) =>
-        mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
-      ),
+  const ownModelIn = (mindId: string) =>
+    content.readSettings(mindId, (mindSettings) =>
+      mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
     );
+  const modelInUseIn = (mindId: string) => chat.modelInUse(ownModelIn(mindId));
   // Make this a Skill: the chat model drafts it from the Mind, on the chat flow's consent.
   const skillDrafts = createSkillDrafts({
     mindMarkdown: async (mindId) => {
@@ -3527,6 +3546,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordOwnFile,
     log: adapters.log ?? silentLogger,
   });
+  const exportLedger = createExportLedger({ outputs, folderOf: folderOfNote });
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
    * export's pictures. The User let that folder take the export, so it takes these too.
@@ -3996,11 +4016,15 @@ export function createCore(adapters: CoreAdapters): Core {
     organizeModelOf(library.settings())
       ? null
       : ((await taggingModels()).automatic?.classifier ?? null);
-  /** Keeps `classifier` as Organize's model when none is chosen. It records no consent. */
+  /**
+   * Keeps `classifier`, the model Organize was offered, as the Library's one choice for Organize
+   * and Tags when none is chosen: Organize keeps no model of its own (#2835). It records no
+   * consent, and the switch for new Documents stays as shown.
+   */
   const keepOrganizeModel = async (classifier: TaggingClassifier) => {
     const saved = library.settings();
     if (organizeModelOf(saved)) return;
-    library.saveSettings({ ...saved, organizeWith: classifier });
+    library.saveSettings({ ...saved, classifier });
     await dataFlowsChanged();
     await taggingChanged();
   };
@@ -4380,7 +4404,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return hosts;
   };
   /**
-   * Before a key, workspace or chat provider goes, sorting, and Organize's kept model, stop
+   * Before a key, workspace or chat provider goes, sorting stops
    * naming what it reached (#1907, #2693): back to Automatic, which starts no host and turns
    * nothing on. The app never picks another host in its place, so nothing goes anywhere the User
    * hasn't allowed.
@@ -5215,6 +5239,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     async route(mindId) {
       const language = settings.get().language;
+      // Filling in never picks a cloud service for a Note whose own model, on this computer, is gone (#2853).
+      if (chat.waitsForRemovedModel(ownModelIn(mindId))) {
+        return {
+          problem: {
+            kind: "model-removed",
+            message: translate(language, "meetings.fill.problem.modelRemoved"),
+          },
+        };
+      }
       const choice = await chat.answeringModel(modelInUseIn(mindId) ?? undefined);
       const readiness = await chat.readiness(choice);
       if (!readiness.ready) {
@@ -5896,6 +5929,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return found;
     },
     upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
+    fillTextFingerprints: () => documents.fillTextFingerprints(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.
@@ -6395,9 +6429,11 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const scope = parseSearchScope(options?.scope);
       const mindId = typeof options?.mindId === "string" ? options.mindId : null;
+      const checked = parseCheckedDocument(options?.checked);
+      await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), parseCheckedDocument(options?.checked)),
+        evidence.scope(mindId, scopeDocuments(scope), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },
@@ -6437,6 +6473,19 @@ export function createCore(adapters: CoreAdapters): Core {
       await rerank.remove();
       return rerankChanged();
     },
+    getOlderKeys: async () => {
+      const jobs: OlderKeyJob[] = [];
+      if ((await embedding.olderKey()) === "other") jobs.push("embeddings");
+      if ((await rerank.olderKey()) === "other") jobs.push("rerank");
+      return jobs;
+    },
+    switchToAccountKey: async (job) => {
+      if (job === "embeddings") await embedding.forgetOlderKey();
+      else if (job === "rerank") {
+        await rerank.forgetOlderKey();
+        await rerankChanged();
+      } else throw new InvalidInputError({ key: "error.olderKey.job" });
+    },
     testRerankConnection: (input) => loggingTest("rerank")(rerank.test(input)),
 
     listChatProviders: () => chat.list(),
@@ -6459,7 +6508,17 @@ export function createCore(adapters: CoreAdapters): Core {
           (classifier.kind === "decision" && riding.includes(classifier.host)) ||
           (classifier.kind === "chat" && classifier.choice.providerId === id),
       );
+      const gone = (await chat.list()).find((each) => each.id === id);
       await chat.delete(id);
+      // As sorting does: search and reranking on that company's account go back to built-in.
+      const company = gone ? (gone.catalogId ?? gone.kind) : null;
+      if (company) {
+        if (await embedding.accountGone(company)) await dataFlowsChanged();
+        if (await rerank.accountGone(company)) {
+          await rerankChanged();
+          await dataFlowsChanged();
+        }
+      }
       if (riding.length > 0) await decisionsChanged(await decisionHosts.list());
       else if (forgot) await taggingChanged();
       // A transcription route that used this provider's key has none now.
@@ -6531,7 +6590,6 @@ export function createCore(adapters: CoreAdapters): Core {
     watchComparisonMind: (input) => comparisons.watchMind(input),
     unwatchComparisonMind: (input) => comparisons.unwatchMind(input),
     acknowledgeComparisonStructure: (input) => comparisons.acknowledge(input),
-    forgetComparisonWindow: (input) => comparisons.forgetWindow(input),
     stopComparisonTable: (input) => comparisons.stop(input),
     listFillingComparisons: async () => comparisons.filling(),
     listTasks: async () => tasks.list(),
@@ -6580,7 +6638,6 @@ export function createCore(adapters: CoreAdapters): Core {
     planMindCheck: (mindId, mode, allDocuments, figureIds) =>
       checks.planMindCheck(mindId, mode, allDocuments, figureIds),
     holdMindCheck: async (input) => checks.holdMindCheck(input),
-    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
@@ -7143,8 +7200,6 @@ export function createCore(adapters: CoreAdapters): Core {
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
     answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
-    forgetCommandWindow: async (input) =>
-      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 
@@ -7242,11 +7297,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return exported;
     },
     rewriteMindExport: (mindId, options, path, checkComments) =>
-      inExportTurn(path, async () => {
-        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-        if (!known || known.mindId !== mindId || known.format !== options?.format) {
-          throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
-        }
+      exportLedger.inTurn(path, async () => {
+        const known = exportLedger.known(path, mindId, options?.format);
         if (checkComments !== undefined && typeof checkComments !== "boolean") {
           throw new InvalidInputError({ key: "error.export.checkComments" });
         }
@@ -7271,31 +7323,7 @@ export function createCore(adapters: CoreAdapters): Core {
         // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
         // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
         await saveExportFiles(files, dirname(known.path), known.mindId);
-        const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
-        const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
-        let file: SavedFile;
-        let changedFile: string | undefined;
-        let step: string;
-        if (written.kind === "written") {
-          file = written.file;
-          step = keepStep(file.path, written.before, choiceBefore);
-        } else {
-          changedFile = basename(known.path);
-          try {
-            file = await outputs.save({
-              name: changedFile,
-              data,
-              ownFile: ownFile.kind,
-              fromFolder: ownFile.fromFolder,
-              folder: dirname(known.path),
-              approved: true,
-            });
-          } catch (error) {
-            throw fileProblem(changedFile, error);
-          }
-          step = keepStep(file.path, null, choiceBefore);
-        }
-        exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
+        const { file, step, changedFile } = await exportLedger.rewrite(known, data, choiceBefore);
         // Only once the file holds them, so the choice never says what the file doesn't.
         if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
         const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
@@ -7310,41 +7338,9 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }),
     restoreMindExport: (path, step) =>
-      inExportTurn(path, async () => {
-        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-        const steps = known ? rewrittenExports.get(known.path) : undefined;
-        const at = steps?.findIndex((each) => each.id === step) ?? -1;
-        const kept = steps?.[at];
-        if (!known || !steps || !kept) {
-          throw new InvalidInputError({
-            key: "error.export.restore.nothing",
-            values: { name: typeof path === "string" ? basename(path) : "" },
-          });
-        }
-        const values = { name: basename(known.path) };
-        const changed = new TranslatableError({ key: "error.export.restore.changed", values });
-        // A later Change wrote the file since: this step's bytes would take that one back too.
-        if (at < steps.length - 1) throw changed;
-        const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
-        const done = kept.before
-          ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
-          : await outputs.remove(known.path, known.wrote);
-        if (done.kind === "gone") {
-          // The copy can never come back to be taken away, so its step goes with it.
-          exportFiles.delete(known.path);
-          rewrittenExports.delete(known.path);
-          throw new TranslatableError({ key: "error.export.restore.copyGone" });
-        }
-        if (done.kind === "changed") throw changed;
-        if (done.kind === "read-only") {
-          throw new TranslatableError({ key: "error.export.rewrite.locked", values });
-        }
-        if (kept.before)
-          exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
-        else exportFiles.delete(known.path);
-        steps.pop();
-        if (steps.length === 0) rewrittenExports.delete(known.path);
-        if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
+      exportLedger.inTurn(path, async () => {
+        const { mindId, comments } = await exportLedger.restore(path, step);
+        if (comments !== null) setNoteComments(mindId, comments);
       }),
     setCheckComments: async (mindId, on) => {
       const mind = writableMind(mindId);
@@ -7383,12 +7379,7 @@ export function createCore(adapters: CoreAdapters): Core {
         await outputs.remove(saved.file.path, fingerprintOf(data)).catch(() => undefined);
         throw error;
       }
-      exportFiles.set(saved.file.path, {
-        mindId,
-        path: saved.file.path,
-        format: options.format,
-        wrote: fingerprintOf(data),
-      });
+      exportLedger.saved({ mindId, path: saved.file.path, format: options.format }, data);
       const sentKept = read === null || keepSent(mindId, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };
@@ -7716,6 +7707,9 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.awake();
       calendars.awake();
     },
+    windowCalled: (window, method, input) => windows.called(window, method, input),
+    windowGone: (window) => windows.gone(window),
+    windowReloaded: (window) => windows.reloaded(window),
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),
     dataFlows: consent.registry,

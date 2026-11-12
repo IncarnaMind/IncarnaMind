@@ -3622,6 +3622,8 @@ export interface TranscriptionServiceStatus {
   /** The saved chat provider whose key it uses, for a `key` "provider" route that has one; null otherwise. */
   providerId: string | null;
   hasKey: boolean;
+  /** The service refused the key it has now, and keeps refusing it until the key changes. */
+  refused: boolean;
   liveSpeakers: boolean;
   keyUrl: string | null;
   /** Where credit is added to the account the key is for; null where none is known. */
@@ -4453,8 +4455,16 @@ export interface OwnFile {
  * - "checked-document": it is the document being checked, an earlier version
  *   of it, or a copy of either (the same content fingerprint, at any path).
  *   Never evidence for that check.
+ * - "same-text": its text holds nearly all of the text of the document being
+ *   checked or an earlier version of it, whatever its format (#2216). Never
+ *   evidence for that check.
  */
-export type EvidenceExclusion = "own-file" | "own-workings" | "own-note" | "checked-document";
+export type EvidenceExclusion =
+  | "own-file"
+  | "own-workings"
+  | "own-note"
+  | "checked-document"
+  | "same-text";
 
 /** The document a check verifies (#97, #110): it, its earlier versions and their copies are never its evidence. */
 export interface CheckedDocument {
@@ -5748,12 +5758,16 @@ export type EmbeddingConnectionTestResult =
  * its Passages, but vector search doesn't: vectors from different models are
  * never compared. Turning embeddings off ends it: nothing is embedded.
  */
+/** A job with a key of its own from before keys were one per company (#2835). */
+export type OlderKeyJob = "embeddings" | "rerank";
+
 export interface EmbeddingRebuild {
   /**
    * "provider-changed": the User turned embeddings on, or chose another embedding model.
    * "local-mode": local mode switched a cloud provider back to the built-in model.
+   * "key-removed": the User removed the last key of the company whose model it was.
    */
-  reason: "provider-changed" | "local-mode";
+  reason: "provider-changed" | "local-mode" | "key-removed";
   /** Documents with Passages to search. */
   total: number;
   /** Of those, the ones whose Passages are all embedded with the current model. */
@@ -5820,6 +5834,8 @@ export interface RerankSettings {
   enabled: boolean;
   /** The User hasn't chosen on this device: reranking is on with the built-in model, the default. */
   byDefault: boolean;
+  /** It went back to the built-in model when the last key of its company's account was removed (#2835). */
+  keyRemoved?: boolean;
   kind: RerankProviderKind | null;
   /** The model, e.g. "rerank-v3.5" or the built-in model's name; null when rerank isn't set up. */
   modelId: string | null;
@@ -6349,11 +6365,6 @@ export interface ComparisonStructureAck {
   clientId: string;
 }
 
-/** A window that is gone, or no longer answers: the core stops waiting for it. */
-export interface ComparisonWindow {
-  clientId: string;
-}
-
 /**
  * What asking for a comparison table, or for its cells to be filled, did: it
  * is in the Mind (a change to accept, the first time) and its cells are being
@@ -6605,6 +6616,8 @@ export interface RunEstimateInput {
 export type RunEstimate =
   | {
       billing: "per-token";
+      /** The saved provider whose price the cost is worked out from (`ChatProvider.id`). */
+      providerId: string;
       calls: number;
       tokens: number;
       /** Null for a model with no known price. */
@@ -7176,6 +7189,8 @@ export type ClaimCheckFailure =
   | "plan-limit"
   | "out-of-credit"
   | "failed"
+  /** No reply within the check's time limit; its detail is the limit, in seconds. */
+  | "timed-out"
   | "stopped"
   | "answer-failed"
   | "too-many"
@@ -7679,7 +7694,10 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
-  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  /**
+   * The Mind being checked, whose own snapshot is never its evidence (#335), and whose record of
+   * AI use holds the check.
+   */
   mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;
@@ -9894,8 +9912,10 @@ export const aiUseKinds = [
   "comparison-table-accepted",
   /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
   "outside-agent-change-accepted",
-  /** A sentence of the Mind's checked against the Documents (#906). */
+  /** A sentence of the Mind's checked against the Documents (#906): its model gave a verdict. */
   "sentence-checked",
+  /** A sentence of the Mind's whose check a model replied to, left Not checked (#2897). */
+  "sentence-asked",
 ] as const;
 export type AiUseKind = (typeof aiUseKinds)[number];
 
@@ -11527,11 +11547,21 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
+ * - "model-removed": the Note's own model, on this computer, was removed, and the default is in the
+ *   cloud: nothing is sent until the User picks a model in the Note or closes the composer's line;
  * - "no-transcript": the Transcript has no lines;
  * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
+  kind:
+    | "model"
+    | "stopped"
+    | "local-mode"
+    | "not-allowed"
+    | "no-model"
+    | "model-removed"
+    | "no-transcript"
+    | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
@@ -12126,18 +12156,17 @@ export interface CoreApi {
   /**
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
-   * classifier of null is Automatic; `organizeWith` left out stays as it was.
+   * classifier of null is Automatic. A model lent to a run (`organizeWith`) is never saved.
    * `automatic` is the switch as shown, and a save can only turn it off.
    * `turnOn` turns it on, and records when, as the consent for the services
    * it sends to now (ADR-0022): only where the line says what goes, as
-   * setup's Use this, Settings › Models' Tagging section and Turn on… do.
+   * setup's Use this and Settings › AI's Organize and Tags switch do.
    * Turned on for one service, it reads off for another until it is turned
    * on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
-      organizeWith?: TaggingClassifier | null;
       turnOn?: boolean;
     },
   ): Promise<void>;
@@ -13224,6 +13253,14 @@ export interface CoreApi {
   /** Turns reranking off on this device and removes a service's key: search keeps its own order. The built-in model's files are kept. */
   removeRerankSettings(): Promise<RerankSettings>;
   /**
+   * The jobs that still send with a key typed for them before keys were one per company (#2835),
+   * where it isn't the account's key: Document search ("embeddings") and Best results first
+   * ("rerank").
+   */
+  getOlderKeys(): Promise<OlderKeyJob[]>;
+  /** Deletes `job`'s older key, so it uses the company's account key from now on. */
+  switchToAccountKey(job: OlderKeyJob): Promise<void>;
+  /**
    * Reranks two fixed texts against a fixed query, nothing of the User's,
    * with the given service settings or the saved ones. The "rerank" flow
    * needs consent first. Not for the built-in model.
@@ -13340,11 +13377,6 @@ export interface CoreApi {
   unwatchComparisonMind(input: ComparisonWatch): Promise<void>;
   /** Its changes for the Mind have reached the core; a waiting structure change may go on. */
   acknowledgeComparisonStructure(input: ComparisonStructureAck): Promise<void>;
-  /**
-   * Its window is gone (closed or crashed): stop waiting for it on every Mind.
-   * The core also drops a window that misses one wait, after that wait.
-   */
-  forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
   /**
    * Stops filling a comparison table: cells being written stay as they were. With a `pass`,
    * stops that refill alone: its cells are asked no more and write nothing.
@@ -13556,11 +13588,6 @@ export interface CoreApi {
    * request keeps it.
    */
   holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
-  /**
-   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
-   * again for another window's Check.
-   */
-  forgetCheckWindow(input: { clientId: string }): Promise<void>;
   /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
@@ -13973,11 +14000,6 @@ export interface CoreApi {
    * didn't say it started in time), so it counts as not done.
    */
   answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
-  /**
-   * The window is gone, closed or reloaded (#1421): the commands it was asked to run and hasn't
-   * answered weren't done.
-   */
-  forgetCommandWindow(input: { clientId: string }): Promise<void>;
   /**
    * Answers an approval request. Answering one that's no longer waiting (decided
    * in another window, or its Answer stopped) does nothing. "always-allow" of a
@@ -14845,6 +14867,8 @@ const methods: Record<CoreApiMethod, true> = {
   downloadRerankingModel: true,
   saveRerankSettings: true,
   removeRerankSettings: true,
+  getOlderKeys: true,
+  switchToAccountKey: true,
   testRerankConnection: true,
   listChatProviders: true,
   saveChatProvider: true,
@@ -14874,7 +14898,6 @@ const methods: Record<CoreApiMethod, true> = {
   watchComparisonMind: true,
   unwatchComparisonMind: true,
   acknowledgeComparisonStructure: true,
-  forgetComparisonWindow: true,
   stopComparisonTable: true,
   listFillingComparisons: true,
   listTasks: true,
@@ -14912,7 +14935,6 @@ const methods: Record<CoreApiMethod, true> = {
   checkContradictions: true,
   planMindCheck: true,
   holdMindCheck: true,
-  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
@@ -15052,7 +15074,6 @@ const methods: Record<CoreApiMethod, true> = {
   listUserQuestions: true,
   answerUserQuestion: true,
   answerWindowCommand: true,
-  forgetCommandWindow: true,
   listSkills: true,
   previewSkillImport: true,
   importSkill: true,

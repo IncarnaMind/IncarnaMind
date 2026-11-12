@@ -8,7 +8,9 @@
  * parts (one fact, or the wrong part and the probe), so the judge alone decides them: a sorter that
  * reads "should" as advice would leave the sentence unchecked, which says nothing of the judge.
  * Everything else is the real model, and every request is logged with its case, so each verdict
- * says which path decided it (the check's own verdict and fields, the judgements after it).
+ * says which path decided it (the check's own verdict and fields, the judgements after it). Its bars
+ * are about verdicts, so each check of a case is a Note of its own, sorted afresh, and the report
+ * counts a case's sorts beside its checks (#2964).
  *
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
@@ -204,6 +206,8 @@ const spentOf = async (core: Core) =>
     .reduce((total, each) => total + each.amount, 0);
 
 interface Sample {
+  /** The sort this check rests on: each check of a case sorts in a Note of its own. */
+  sort: number;
   outcome: string;
   /** The probe part's own verdict, for a sentence of two parts. */
   probe: string | null;
@@ -259,18 +263,21 @@ async function checkLibrary(
       skipped.push(each.key);
       continue;
     }
-    const { id: mindId } = await core.createMind({ title: each.key, folderId: null });
-    const client = await connectToMind(core, mindId);
-    writeMind(client, [note(each.sentence)]);
-    await client.settled();
     const samples: Sample[] = [];
     for (let run = 1; run <= RUNS; run++) {
+      const { id: mindId } = await core.createMind({ title: each.key, folderId: null });
+      const client = await connectToMind(core, mindId);
+      writeMind(client, [note(each.sentence)]);
+      await client.settled();
       logged = [];
-      const mode = run === 1 ? "changed" : "all";
       const requestId = `${mindId}-${run}`;
-      if (run === 1)
-        await core.findMindClaims({ requestId: `${requestId}-claims`, mindId, mode, model });
-      await core.checkMind({ requestId, mindId, mode, model });
+      await core.findMindClaims({
+        requestId: `${requestId}-claims`,
+        mindId,
+        mode: "changed",
+        model,
+      });
+      await core.checkMind({ requestId, mindId, mode: "changed", model });
       const check = (await marksOf(core, mindId)).find(
         (mark) => mark.sentence === each.sentence,
       )?.check;
@@ -284,6 +291,7 @@ async function checkLibrary(
           ? (parts.find((part) => part.text === each.probe)?.verdict ?? "no-part")
           : null;
       samples.push({
+        sort: run,
         outcome: outcomeOf(check),
         probe,
         parts: each.shape === "walk" ? parts : [],
@@ -496,6 +504,7 @@ describe("held-out near copies on the judge", () => {
             items: number;
             itemsSupported: number;
             checks: number;
+            sorts: number;
             supported: number;
             unsettled: number;
           }
@@ -506,12 +515,16 @@ describe("held-out near copies on the judge", () => {
             items: 0,
             itemsSupported: 0,
             checks: 0,
+            sorts: 0,
             supported: 0,
             unsettled: 0,
           };
           row.items += 1;
           row.itemsSupported += samples.some(supported) ? 1 : 0;
           row.checks += samples.filter((sample) => !unsettled(sample)).length;
+          row.sorts += new Set(
+            samples.filter((sample) => !unsettled(sample)).map((sample) => sample.sort),
+          ).size;
           row.supported += samples.filter(supported).length;
           row.unsettled += samples.filter(unsettled).length;
           groups.set(name, row);

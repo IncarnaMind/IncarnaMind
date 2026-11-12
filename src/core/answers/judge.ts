@@ -53,6 +53,7 @@ export const JUDGE_QUESTIONS = [
   "quote-retry",
   "figure-retry",
   "working-text",
+  "restate",
 ] as const satisfies readonly ModelCallKind[];
 
 export type JudgeQuestion = (typeof JUDGE_QUESTIONS)[number];

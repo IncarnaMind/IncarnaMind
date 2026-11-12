@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import type { Core, CoreAdapters, MarkedCitation } from "../../src/core";
-import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { answerEnded, answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type GenerateCall, type GeneratedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -54,7 +53,7 @@ function judge(each: Case) {
 const answeringModel = (each: Case) =>
   scriptedModel(answering(each), {
     generate: (call) =>
-      call.system === SENTENCE_BATCH_INSTRUCTIONS ? judge(each)(call) : { text: '{"claims":[]}' },
+      call.question === "sentence-batch" ? judge(each)(call) : { text: '{"claims":[]}' },
   });
 
 async function judgedCitation(core: Core, question: string): Promise<MarkedCitation | undefined> {

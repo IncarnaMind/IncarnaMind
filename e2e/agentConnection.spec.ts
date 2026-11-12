@@ -7,7 +7,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
-  openSettings,
+  openPlanPage,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -120,15 +120,12 @@ test("the model setup keeps its Claude app shortcut separate from Agents setting
     await card.getByTestId("setup-later").click();
     await expect(card).toBeHidden();
 
-    const settings = await openSettings(window, "models");
-    const plans = settings.getByTestId("plans-settings");
+    const plans = await openPlanPage(window, "chatgpt");
     for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       await expect(plans.getByTestId("chatgpt-continue")).toHaveText(
         language === "en" ? "Continue with ChatGPT" : "使用 ChatGPT 继续",
       );
-      await expect(plans.getByTestId("plans-claude")).toHaveCount(0);
-      await expect(plans.getByTestId("plans-google")).toHaveCount(0);
     }
   } finally {
     await app.close();

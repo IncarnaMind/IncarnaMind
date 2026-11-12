@@ -2,13 +2,14 @@ import { describe, expect, test } from "vitest";
 import { periodCounts, statedFigure } from "../../src/core/answers/checks/calculated";
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
-import { wholeNumberWords } from "../../src/shared/numberWords";
+import { figuresOf, wholeNumberWords } from "../../src/shared/numberWords";
 import { listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import {
   comparesAQuote,
   type GenerateCall,
   type ModelCall,
+  restatedAsQuoted,
   scriptedModel,
   unscripted,
 } from "../helpers/models";
@@ -154,6 +155,7 @@ async function check(
             text: outcomes[target]?.judge?.(quote) ?? outcomes[target]?.judgement ?? "neither",
           };
         }
+        if (call.question === "restate") return { text: restatedAsQuoted(call) };
         if (call.question === "recheck") {
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           looks.set(target, (looks.get(target) ?? 0) + 1);
@@ -2090,8 +2092,63 @@ describe("structural part and declared-count readers", () => {
     ["four five", null],
     ["three years", null],
     ["three and four", null],
+    ["three hundred and four", 304],
+    ["one hundred and twenty-eight thousand four hundred", 128400],
+    ["two thousand and three", 2003],
+    ["three hundred four thousand five hundred", 304500],
+    ["three hundred and four hundred", null],
+    ["two thousand and three thousand", null],
+    ["one hundred thousand two hundred thousand", null],
   ])("whole number words %s", (word, value) => {
     expect(wholeNumberWords(String(word))).toBe(value);
+  });
+
+  // protects=numbers said one after another are each read with their own words (#1031); fails_when=one hundred twenty one hundred reads 100 and 2,100, or three hundred four thousand five hundred two thousand three reads 304,000 and 502,003; no_claim=which numbers a speaker meant where the words allow two readings.
+  test.each<[string, number[]]>([
+    ["one hundred twenty one hundred", [120, 100]],
+    ["three hundred fifty four hundred", [350, 400]],
+    ["two thousand five hundred three thousand", [2500, 3000]],
+    ["three hundred four thousand five hundred two thousand three", [304500, 2003]],
+    ["two thousand three hundred thousand", [2000, 300000]],
+    ["twenty twenty five", [20, 25]],
+    ["four five", [4, 5]],
+    ["three hundred four thousand five hundred", [304500]],
+  ])("the numbers of %s", (words, values) => {
+    expect(figuresOf(words.split(" ")).map((figure) => figure.value)).toEqual(values);
+  });
+
+  // protects=a run of number words is read in one pass however long it is (#1031); fails_when=the reader calls itself on the rest of the words at every new number, and 10,000 numbers overflow the stack; no_claim=how long the reading takes.
+  test("10,000 numbers in a row are read, and are not one number", () => {
+    const run = "one hundred ".repeat(10_000).trim();
+    expect(figuresOf(run.split(" "))).toHaveLength(10_000);
+    expect(wholeNumberWords(run)).toBeNull();
+    expect(periodCounts(`${run} days`, {})).toMatchObject([{ value: Number.NaN }]);
+    expect(wholeNumberWords("one hundred")).toBe(100);
+  });
+
+  // protects=words that say two numbers are not read as one: the check has no figure for them, and still reads a number said whole (#1031); fails_when=three hundred and four hundred reads 30400, two thousand and three thousand reads 5000, or three hundred and four stops reading 304; no_claim=that each of the two numbers is read by itself.
+  test.each([
+    ["three hundred and four", "The site holds three hundred and four machines.", 304],
+    [
+      "one hundred and twenty-eight thousand four hundred",
+      "It shipped one hundred and twenty-eight thousand four hundred units.",
+      128400,
+    ],
+    ["two thousand and three", "The plan lists two thousand and three stores.", 2003],
+    [
+      "three hundred and four hundred",
+      "It holds between three hundred and four hundred machines.",
+      null,
+    ],
+    [
+      "two thousand and three thousand",
+      "It costs between two thousand and three thousand a month.",
+      null,
+    ],
+  ])("reads a count said in words whole or not at all: %s", (stated, sentence, value) => {
+    expect(statedFigure(String(sentence), String(stated), { language: "en" })?.value ?? null).toBe(
+      value,
+    );
   });
 
   test.each([
@@ -2128,6 +2185,8 @@ describe("structural part and declared-count readers", () => {
     ["6 months", 6, "month"],
     ["two weeks", 2, "week"],
     ["five days", 5, "day"],
+    ["three hundred and four days", 304, "day"],
+    ["two thousand and three days", 2003, "day"],
     ["连续三年", 3, "year"],
     ["三个月", 3, "month"],
     ["两周", 2, "week"],
@@ -2144,6 +2203,18 @@ describe("structural part and declared-count readers", () => {
       expect(periodCounts(text, {})).toEqual([]);
     },
   );
+  // protects=a unit after words that say two numbers keeps a count with no value, which no Passage states, so its sentence is left not judged; a number said whole still counts (#1031, #2943); fails_when=three hundred and four hundred days reads 30,400 days, four five days reads 5 or 45, or the count is left out and the sentence has no figure to check; no_claim=which end of a range said in words a Passage must state.
+  test.each<[string, number]>([
+    ["three hundred and four hundred days", Number.NaN],
+    ["two thousand and three thousand days", Number.NaN],
+    ["four five days", Number.NaN],
+    ["four hundred days", 400],
+    ["three thousand days", 3000],
+  ])("a unit after number words is counted by one whole number or by none: %s", (text, value) => {
+    expect(periodCounts(text, {})).toMatchObject([
+      { chars: text, value, unit: { kind: "other", word: "day" } },
+    ]);
+  });
 
   test("display markers do not turn Calculation none into an arithmetic declaration", () => {
     expect(readVerdict("Verdict: supported\nCalculation: none[^1][^2]")?.calculations).toEqual([]);

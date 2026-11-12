@@ -8,6 +8,7 @@
 import { join } from "node:path";
 import type { EmbeddingModelSource } from "../adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../api";
+import { ChannelClosedError } from "../channelRequests";
 import { downloadModel, isModelDownloaded, ModelDownloadError, progressReporter } from "./download";
 import type { ModelSources } from "./modelSources";
 
@@ -26,7 +27,8 @@ export interface DownloadableModel {
   onReady(listener: () => void): void;
   /**
    * Loads the model into its runner. Resolves true once it can run, or false
-   * if the model isn't ready or can't start (the state is then "failed").
+   * if the model isn't ready, is closed, or can't start (the state is then
+   * "failed", unless the runner was closed on purpose while it loaded).
    */
   load(): Promise<boolean>;
   /** Stops a download (keeping what it got). The runner is the caller's to close. */
@@ -131,6 +133,7 @@ export function createDownloadableModel<Files>(
       await options.loadRunner(files);
       return true;
     } catch (error) {
+      if (error instanceof ChannelClosedError) return false;
       fail({ kind: "load", message: error instanceof Error ? error.message : String(error) });
       return false;
     }
@@ -151,7 +154,7 @@ export function createDownloadableModel<Files>(
       readyListeners.add(listener);
     },
     load() {
-      if (status.state !== "ready") return Promise.resolve(false);
+      if (status.state !== "ready" || lifetime.signal.aborted) return Promise.resolve(false);
       loading ??= loadOnce().finally(() => {
         loading = undefined;
       });

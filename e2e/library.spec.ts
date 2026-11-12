@@ -20,7 +20,6 @@ import {
   expectReadyDocuments,
   launchApp,
   leaveText,
-  openAdvancedModels,
   openFolderInLibrary,
   openSettings,
   placeAssistant,
@@ -45,27 +44,21 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/**
- * The Tagging section in Settings → Models → Advanced: opened by hand on the defaults, or open by
- * itself once a model was chosen.
- */
-async function taggingSettings(window: Page, { chosen = false } = {}) {
-  const settings = await openSettings(window, "models");
-  if (chosen) await expect(settings.getByTestId("models-advanced")).toHaveAttribute("open", "");
-  const section = chosen
-    ? settings.getByTestId("tagging-settings")
-    : await openAdvancedModels(settings);
-  await section.scrollIntoViewIfNeeded();
-  return section;
+/** Settings › AI's jobs, with Organize and Tags' "Other model…" open under its row (#2835). */
+async function taggingSettings(window: Page) {
+  const settings = await openSettings(window, "ai");
+  const jobs = settings.getByTestId("ai-jobs");
+  await jobs.getByTestId("models-sorting").selectOption("set-up:other");
+  await expect(jobs.getByTestId("tagging-other-form")).toBeVisible();
+  return jobs;
 }
 
-/** "Other model…": fills in a model the list doesn't have, and uses it. */
+/** "Other model…": fills in a model the picker doesn't list, and uses it. */
 async function chooseOtherModel(section: Locator, fill: (form: Locator) => Promise<void>) {
-  await section.getByTestId("tagging-other").click();
   const form = section.getByTestId("tagging-other-form");
   await fill(form);
   await form.getByRole("button", { name: "Use this model", exact: true }).click();
-  await expect(section.getByTestId("tagging-other").getByRole("radio")).toBeChecked();
+  await expect(form).toHaveCount(0);
 }
 
 const makeFolders = async (
@@ -259,7 +252,7 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
     });
     // On by default; turned off here, so the Document waits for Organize.
     const automatic = settings.getByRole("switch", {
-      name: /^Tag and sort new Documents automatically/,
+      name: /^Sort and tag new Documents as they arrive/,
     });
     await expect(automatic).toBeChecked();
     await automatic.uncheck();
@@ -322,8 +315,7 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
     const library = reopened.window.getByTestId("library");
     const row = rowOf(section(library, "Not in a Folder"), "Research notes");
     await expect(row.getByTestId("document-tags")).toContainText("Invoice");
-    const settings = await taggingSettings(reopened.window, { chosen: true });
-    await expect(settings.getByTestId("tagging-other")).toContainText("small-classifier");
+    const settings = await taggingSettings(reopened.window);
     await expect(settings.getByLabel("Model name", { exact: true })).toHaveValue(
       "small-classifier",
     );
@@ -353,7 +345,7 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
       await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
     });
     await settings
-      .getByRole("switch", { name: /^Tag and sort new Documents automatically/ })
+      .getByRole("switch", { name: /^Sort and tag new Documents as they arrive/ })
       .uncheck();
     await closeSettings(window);
     const names = ["Research notes A", "Research notes B", "Research notes C"];
@@ -818,7 +810,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     );
     await organized(scan, /clef-flash/);
     // Explicit Clef override can include or omit PDF images; the choice persists.
-    settings = await taggingSettings(window, { chosen: true });
+    settings = await taggingSettings(window);
     const form = settings.getByTestId("tagging-other-form");
     await expect(form.getByLabel("Connection", { exact: true })).toHaveValue("auto");
     const images = form.getByRole("switch", { name: /Up to 3 PDF page images/ });
@@ -828,11 +820,11 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
       await images.check();
     });
     await closeSettings(window);
-    settings = await taggingSettings(window, { chosen: true });
+    settings = await taggingSettings(window);
     await expect(images).toBeChecked();
     await chooseOtherModel(settings, () => images.uncheck());
     await closeSettings(window);
-    settings = await taggingSettings(window, { chosen: true });
+    settings = await taggingSettings(window);
     await expect(images).not.toBeChecked();
     await closeSettings(window);
   } finally {
@@ -1259,10 +1251,10 @@ test("a Library whose automatic tagging and sorting went off for a cloud model s
 
     // The way back is one click: Settings opens on the Tagging switch, and the line is gone for good.
     await line.getByTestId("library-automatic-off-settings").click();
-    const tagging = window.getByTestId("tagging-settings");
+    const tagging = window.getByTestId("ai-organize-automatic");
     await expect(tagging).toBeVisible();
     await expect(
-      tagging.getByRole("switch", { name: /^Tag and sort new Documents automatically/ }),
+      tagging.getByRole("switch", { name: /^Sort and tag new Documents as they arrive/ }),
     ).not.toBeChecked();
     await closeSettings(window);
     await expect(window.getByTestId("library-automatic-off")).toHaveCount(0);

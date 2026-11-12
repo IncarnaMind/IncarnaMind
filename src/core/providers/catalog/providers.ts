@@ -11,7 +11,8 @@
  * This module holds no model facts, so the renderer can import it for names
  * and defaults without the generated data (see ./index).
  */
-import type { ChatProviderKind } from "../../api";
+import type { ChatProvider, ChatProviderKind } from "../../api";
+import { billingOf, OLLAMA_CLOUD_PRICES_CHECKED } from "./billing";
 import { PRESETS } from "./presets";
 import type {
   CatalogProvider,
@@ -883,6 +884,23 @@ export const pricingUrlOf = (
   endpointId: string | null | undefined,
 ): string | undefined =>
   endpointOf(provider, endpointId)?.pricingUrl ?? provider.pricingUrl ?? provider.docsUrl;
+
+/**
+ * Where a saved provider's prices are and when they were checked, for an estimate to say where its
+ * figure comes from; null for a plan, a model on this computer and a provider with no prices.
+ */
+export function pricesOfProvider(
+  provider: Pick<ChatProvider, "kind" | "catalogId" | "endpoint" | "service">,
+): { url: string; checked: string } | null {
+  const catalog = catalogProviderOf(provider.kind, provider.catalogId);
+  if (provider.kind === "ollama") {
+    const url = catalog?.pricingUrl;
+    return url ? { url, checked: OLLAMA_CLOUD_PRICES_CHECKED } : null;
+  }
+  if (billingOf(provider.kind, provider.service) !== "per-token" || !catalog) return null;
+  const url = pricingUrlOf(catalog, provider.endpoint);
+  return url ? { url, checked: catalog.checked } : null;
+}
 
 /** The provider's endpoint with this id, else its first (the default); none for a server the User gives. */
 export const endpointOf = (

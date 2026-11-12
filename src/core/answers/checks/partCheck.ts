@@ -18,12 +18,12 @@ import type {
 } from "../../api";
 import { slots } from "../../runs/stop";
 import { inCheck } from "./checkedText";
+import { failureOf } from "./checkResults";
 import {
   type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
   createClaimCheck,
-  failureOf,
 } from "./claimCheck";
 import { readPartsLine } from "./claims";
 import { claimsAmong } from "./findClaims";
@@ -36,6 +36,7 @@ type Sorted = { plans: readonly ClaimPartPlan[] } | { failed: ClaimCheckResult }
 const STOPS: readonly ClaimCheckFailure[] = [
   "stopped",
   "failed",
+  "timed-out",
   "rate-limit",
   "cost-cap",
   "read-budget",

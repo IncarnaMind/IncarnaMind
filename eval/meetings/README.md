@@ -60,7 +60,7 @@ npm run eval:meetings:score -- <folder>  # any transcriber's results in <folder>
 
 - **Fetching.** Every download is checked against `sources.json`, and every case built from them against `cases.json`; one that doesn't match is not kept, and the run says which. The first fetch downloads about 4 GB (about 3.4 GB of it is the AliMeeting archive, which takes a few minutes) and keeps 2.0 GB. A case already built and checked is left alone, so a second run makes no network request. The AMI and ASCEND downloads are kept in `sources/` and are checked again each time they are used; the AliMeeting files used are kept in `alimeeting/`; the cases are in `cases/<id>/`.
 - **Moving a pin.** `npm run eval:meetings:fetch -- --pin [ids]` keeps what it builds and writes the new hashes to `cases.json` and `sources.json` (a changed source file's own hash and size go in `sources.json` by hand first). Read the diff.
-- **Running this computer's engine.** `npm run eval:meetings -- run` feeds each track of each case to the transcription process's own code (`createSpeechHost`, Qwen3-ASR 0.6B with Silero VAD, as the app runs them) in 100 ms frames, as fast as it takes them, and labels the lines as a live Meeting does: "Me" for the microphone, "Them" for the system audio, nothing for a room. `INCARNAMIND_EVAL_CASES` picks cases; `INCARNAMIND_EVAL_UNTIL_MINUTES=4` runs and scores only the first minutes; `INCARNAMIND_EVAL_OUT` is the results folder (`eval/results/meetings-local-<date>` by default). The real-time factor is the time the whole case took over its length, partial text included but fed unpaced, on a computer that is also doing other things: the report is only as good as the machine was free.
+- **Running this computer's engine.** `npm run eval:meetings -- run` feeds each track of each case to the transcription process's own code (`createSpeechHost`, Qwen3-ASR 0.6B with Silero VAD, as the app runs them) in 100 ms frames, as fast as it takes them, and labels the lines as a live Meeting does: "Me" for the microphone, "Them" for the system audio, nothing for a room. `INCARNAMIND_EVAL_CASES` picks cases; `INCARNAMIND_EVAL_UNTIL_MINUTES=4` runs and scores only the first minutes; `INCARNAMIND_EVAL_OUT` is the results folder (`eval/results/meetings-local-<date>` by default). The real-time factor is the time the whole case took over its length, partial text included but fed unpaced, on a computer that is also doing other things: the report is only as good as the machine was free. Each case's line also gives how many lines it wrote and the process's CPU time per minute of audio, which a busy machine changes less.
 - **Scoring another transcriber.** Put one JSON file per case in a folder, named `<case id>.json`:
 
   ```json
@@ -119,6 +119,34 @@ What this leaves different, on purpose or for want of a rule: a Chinese numeral 
 - The worst case, `zh-room-R8007_M8010` (CER 49.4%), is four people talking over each other in a room: the reference has 1,181 turns, the engine returns 117 lines with 10,121 characters against the reference's 17,028, and the engine's log reports a line cut at its 128-token limit three times in the run.
 - Per-case scores are in the report that `npm run eval:meetings:score` writes (`score.md` and `score.json`).
 - Numbers from one run on one busy machine: a check that the set works and a baseline to beat, not a ranking. #137's bake-off runs the whole set on three machines.
+
+**Long stretches read in parts (#1031),** the same engine on the whole set, 2026-11-09, Apple M2 Max (load average 9 to 35). Before, a stretch was read whole, and Qwen3-ASR stopped at 128 written tokens or at 512 in all with its prompt and audio, which a stretch past about 27 s reached with nothing in sherpa-onnx's log. Now no reading takes more than 15 s of speech, cut at its quietest moment (`src/core/transcription/speech.ts`, ADR-0027):
+
+| Language | Setting | Error rate, before | Now | Lines in the room cases, before | Now | Reference turns |
+|---|---|---|---|---|---|---|
+| English | online | WER 28.1% | WER 26.6% | | | |
+| English | room | WER 23.6% | WER 23.6% | 319, 553 | 345, 556 | 688, 659 |
+| Chinese | online | CER 16.9% | CER 16.3% | | | |
+| Chinese | room | CER 38.3% | CER 38.0% | 250, 119 | 286, 190 | 674, 1,181 |
+| Mixed | conversation | MER 34.2% | MER 33.3% | | | |
+
+- Readings that reached a limit: 8 before (1 at 128 written, the only one sherpa-onnx logs, and 7 at 512 in all), none now. The longest line went from 36.0 s to 15.0 s.
+- Read at most 12 s at a time, the set had more lines but read worse in Chinese online (CER 17.7%), where shorter readings lost context.
+- The CPU time per minute of audio is the same, measured with both versions running at once on the same cases, since the machine's load changed it more than the change did.
+
+**Short replies said on their own (#1031),** the same engine on the whole set, 2026-11-09. Qwen3-ASR guesses a reading's language from its audio, and with under 3 s of it often guesses wrong. Now a stream's reading under 3 s is told the language that at least two of the stream's latest three readings of 4 s or more were in, when the third shows no other (`src/core/transcription/sherpa.ts`, `spokenLanguage.ts`). Short turns are those the reference has under a second long, with nothing else on their track within 0.6 s, scored against the lines the run wrote for them:
+
+| Calls | Short turns as said, before | Now | In another language, before | Now | Left out, before | Now |
+|---|---|---|---|---|---|---|
+| English, online (2) | 61 | 81 | 33 | 2 | 37 | 34 |
+| Chinese, online (2) | 134 | 135 | 3 | 1 | 19 | 19 |
+| Mixed (1 with short turns) | 9 | 9 | 0 | 0 | 4 | 4 |
+
+- Before, a short "yeah" in an English call came back as "对。", "okay" as "可以。" or "係。", and "who was doing that" as "谁在做呢？". The 2 left are "mm-hmm" as "嗯哼。" and "mm 'kay" as "嗯，拜拜。".
+- A stream is told nothing while its long readings mix scripts or disagree. The mixed calls here are mostly Chinese with English terms in it, so their short readings are told Chinese about seven times in ten, and their short turns read as before.
+- English is named by words no other language written in Latin letters uses, so about one long English reading in nine names no language; one such among the latest three doesn't stop a stream being told English, two do. Replayed over the English calls' lines, 88% of their short readings are told English.
+- Told English, the model writes "system" for some stretches it can't read, 13 times in the two English online calls and never where it was said. Such a reading is read again untold and kept only if that says "system" too.
+- Error rates, before and now: English online WER 26.6% and 26.1%, English room 23.6% and 23.0%, Chinese online CER 16.3% both, Chinese room 38.0% both, mixed MER 33.3% and 33.2%. The English online and mixed numbers are of the rule as it is; the English room and Chinese ones were measured with the latest two readings agreeing and a longer English word list, under which the Chinese calls' short readings are told the same.
 
 **Words to know (#1031),** the same engine on the whole set, 2026-11-01, Apple M2 Max (load average 5 to 16), told nothing and told each case's words in `words.json`. Told, a final stretch is read as before, and again told the words only where that reading holds a told name misheard; it keeps the first reading but for those names (`src/core/transcription/context.ts`). A Chinese told name mends nothing:
 

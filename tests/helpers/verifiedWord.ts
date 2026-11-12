@@ -36,6 +36,7 @@ export const PLANS: Record<string, Plan> = {
     verdict: "contradicted",
     quote: "Harbours publish the times of high water every year.",
     says: "Tides says harbours publish them every year, not every week.",
+    restated: "Tides 写的是港口每年公布一次高潮时间，不是每周。",
   },
   [DIFFERS]: { verdict: "unsupported", quote: "The harbour wall was raised in 1984." },
   [NOT_FOUND]: { verdict: "unsupported" },

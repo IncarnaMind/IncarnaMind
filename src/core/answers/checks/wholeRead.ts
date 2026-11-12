@@ -29,15 +29,11 @@ import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
 import { absencePrompt, WHOLE_READ } from "./absence";
-import {
-  type AtomicClaimCheckResult,
-  afterRun,
-  type CheckStart,
-  type ClaimCheckRequest,
-  checkSession,
-  NO_DATE,
-  runFailureOf,
-} from "./claimCheck";
+import { runFailureOf } from "./checkResults";
+import type { CheckStart } from "./checkRun";
+import { checkSession, NO_DATE } from "./checkSetup";
+import type { AtomicClaimCheckResult, ClaimCheckRequest } from "./claimCheck";
+import { afterRun } from "./looks";
 import {
   confirmPrompt,
   PRESENCE_INSTRUCTIONS,
@@ -137,7 +133,7 @@ const coverageOf = (passages: ToRead["passages"], received: ReadonlySet<string>)
     .length;
 };
 
-const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode", "read-budget"]);
+const ENDS_READ = new Set(["failed", "timed-out", "consent-revoked", "local-mode", "read-budget"]);
 
 /** The Documents the windows of a read read whole, each once with every Location read. */
 function readDocumentsOf(results: readonly AtomicClaimCheckResult[]): ClaimReadDocument[] {

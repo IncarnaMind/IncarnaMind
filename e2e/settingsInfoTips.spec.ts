@@ -46,13 +46,13 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`Settings help opens by keyboard and pointer without changing its setting, and Escape closes only the help (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
-    const settings = await openSettings(window, "general");
+    const settings = await openSettings(window, "ai");
     await setLanguage(window, language);
     const name = language === "en" ? "More information" : "查看说明";
     const tooltip = window.getByRole("tooltip");
     for (const width of [1440, 900]) {
       await setWindowSize(app, window, width, width === 900 ? 560 : 900);
-      await showSettingsPage(window, "general");
+      await showSettingsPage(window, "ai");
       await window.mouse.move(0, 0);
       const cap = settings.getByTestId("spending-cap-settings");
       const help = cap.getByRole("button", { name, exact: true });
@@ -67,7 +67,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(help).toHaveAccessibleDescription(explanation);
       await expect(tooltip).toHaveText(explanation);
       await fits(window, tooltip);
-      await shot(window, `help-general-${language}-${width}`);
+      await shot(window, `help-ai-${language}-${width}`);
       await window.keyboard.press("Escape");
       await expect(tooltip).toHaveCount(0);
       await expect(settings).toBeVisible();
@@ -132,9 +132,9 @@ test("Settings help shown for the keyboard goes as soon as the focus moves on, w
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
-    const settings = await openSettings(window, "general");
+    const settings = await openSettings(window, "ai");
     await setWindowSize(app, window, 1440, 900);
-    await showSettingsPage(window, "general");
+    await showSettingsPage(window, "ai");
     const tooltip = window.getByRole("tooltip");
     const cap = settings.getByTestId("spending-cap-settings");
     const help = cap.getByRole("button", { name: "More information", exact: true });

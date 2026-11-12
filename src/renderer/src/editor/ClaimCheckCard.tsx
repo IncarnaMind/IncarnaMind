@@ -464,7 +464,7 @@ export function ClaimMark({
                 done();
               }}
               onTurnOnWebSearch={() => {
-                useAppStore.getState().openSettings("search");
+                useAppStore.getState().openSettings("ai", "web-search");
                 done();
               }}
               onRemove={() => {
@@ -1291,11 +1291,19 @@ export function ClaimCard({
           );
         }
         // The file being checked says every sentence of it: only where nothing else did is it news.
-        if (left.reason === "checked-document" && state === "unsupported") {
+        if (
+          (left.reason === "checked-document" || left.reason === "same-text") &&
+          state === "unsupported"
+        ) {
           if (left.documentId === verified) return null;
           return (
             <p key={left.documentId} data-testid="claim-left-out" className="citation-card-note">
-              {t("evidence.excluded.checked", { name })}
+              {t(
+                left.reason === "same-text"
+                  ? "evidence.excluded.sameText"
+                  : "evidence.excluded.checked",
+                { name },
+              )}
             </p>
           );
         }

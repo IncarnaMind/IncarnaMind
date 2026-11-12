@@ -9,6 +9,7 @@ import {
   type Verification,
   verificationOf,
 } from "../../../shared/verification";
+import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
 import {
@@ -326,9 +327,7 @@ export function VerifyCard({
         <p className="check-card-ask-title">
           {t(inFolder ? "verify.ask.folder" : "verify.ask.all")}
         </p>
-        {estimate && (
-          <MetaLine data-testid="verify-estimate" parts={estimate.parts} title={estimate.title} />
-        )}
+        {estimate && <EstimateMeta testId="verify-estimate" line={estimate} />}
         <div className="check-card-ask-actions">
           <button
             type="button"
@@ -449,7 +448,7 @@ export function VerifyCard({
         <ProblemLine
           testId="verify-problem"
           className="mind-verify-problem"
-          action={{ label: t("checks.problem.chooseModel"), onClick: () => openSettings("models") }}
+          action={{ label: t("checks.problem.chooseModel"), onClick: () => openSettings("ai") }}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>
