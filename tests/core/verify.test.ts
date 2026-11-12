@@ -107,6 +107,7 @@ async function shownChecks(core: Core, client: MindClient) {
     sentence: span.sentence.text,
     check: span.check,
     shown: claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId: null,

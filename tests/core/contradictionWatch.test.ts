@@ -168,6 +168,7 @@ async function shownChecks(core: Core, client: MindClient, folderId: string) {
     sentence: span.sentence.text.replace(/￼/gu, "").trim(),
     check: span.check,
     shown: claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId,

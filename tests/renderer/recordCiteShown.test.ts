@@ -51,7 +51,7 @@ const docOf = (before: string, check: ClaimCheckAttributes) => {
   return schema.nodeFromJSON({ type: "doc", content: blocks });
 };
 
-const context = { versions: null, folderId: null, scope: null };
+const context = { footing: "not-yet-known" as const, versions: null, folderId: null, scope: null };
 
 test("an Id. in a sentence with a Citation reads the Note as it holds the sentence, Citation and all", () => {
   // Checks read the sentence without its Citation; its record cites, with it, as they were checked.

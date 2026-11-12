@@ -15,12 +15,27 @@ import {
   type DifferingCell,
   differingLine,
 } from "./analysisTables";
+import type { LiveFooting } from "./claimChecks";
 import { formatDateTime } from "./dates";
 import type { Figure, FigureUnit, Reading } from "./figures";
 import { formulaText } from "./formula";
 import { type MessageKey, translate } from "./i18n";
 import { listOf } from "./i18n/join";
 import { checkedByMe } from "./signOffs";
+
+/**
+ * The Note's footing as the core read it into the schedule (#2998): a total's row is Checking while
+ * a cell it counts is still being checked.
+ */
+export function footingOfRows(rows: readonly FigureScheduleRow[]): Map<string, LiveFooting> {
+  return new Map(
+    rows.flatMap((row): [string, LiveFooting][] =>
+      row.footing.length > 0
+        ? [[row.id, { footing: row.footing, waiting: row.shown.state === "checking" }]]
+        : [],
+    ),
+  );
+}
 
 export type FigureFilter = "all" | "look" | "supported" | "not-checked" | "not-mine";
 export interface ScheduleLine {

@@ -29,6 +29,7 @@ import {
   QUESTION_BLOCK,
   type UnreadFile,
 } from "../api";
+import { noteFooting } from "../figureSchedule";
 import {
   type Block,
   type Footnote,
@@ -339,6 +340,8 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const carried = counts();
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const { figureContexts, figured } = figuresNow(fragment);
+  const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
+  const footing = noteFooting(fragment, { versions, folderId: sources.folderId, scope });
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
   for (const marked of checkedSentences(fragment)) {
@@ -346,11 +349,12 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
+      footing,
       figureContexts,
       figured: figured(marked),
       versions,
       folderId: sources.folderId,
-      scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
+      scope,
     });
     const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
