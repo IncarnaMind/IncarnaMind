@@ -129,6 +129,11 @@ export interface MindCheckOptions extends RunChecksOptions {
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
 
+// What a run sends reads each total's own check: Checking while a cell it counts is out in another
+// check is only what the User sees, and a total whose check couldn't be made is still sent (#2998).
+const footingToSend = (...args: Parameters<typeof noteFooting>) =>
+  new Map([...noteFooting(...args)].map(([id, live]) => [id, { ...live, waiting: false }]));
+
 /** The figures a run checks: a non-empty list of distinct ids, or null for the whole Note. */
 function parseFigureIds(value: unknown): string[] | null {
   if (value === undefined) return null;
@@ -321,7 +326,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
       const { figureContexts, figured } = figuresNow(blocks);
-      const footing = noteFooting(blocks, { versions, folderId, scope });
+      const footing = footingToSend(blocks, { versions, folderId, scope });
       const note = recordCiteNote(blocks);
       return checkedSentences(blocks).flatMap((marked) =>
         addedCouldChange(
@@ -447,7 +452,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
       const { figureContexts } = figuresNow(blocks);
-      const footing = noteFooting(blocks, { versions, folderId, scope });
+      const footing = footingToSend(blocks, { versions, folderId, scope });
       const note = recordCiteNote(blocks);
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const sentences = everySentence(blocks);

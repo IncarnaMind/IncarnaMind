@@ -366,6 +366,45 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
   });
 
+  // protects=a total whose own check couldn't be made, shown as Checking only because a cell it counts is out in another check, is still sent by Check this Note: what a run sends reads the total's own check, not the hold (#2998); fails_when=the run skips the total as checking and leaves it Not checked; no_claim=how a real provider fails.
+  test("Check this Note sends a total its own check missed while a cell it counts is out in another check", async () => {
+    let meanwhile: (string | null)[][] = [];
+    let sentMeanwhile: string[] = [];
+    const script: Run = {
+      last: null,
+      fails: "380",
+      async meanwhile(world) {
+        meanwhile = await shownIn(world);
+        run.sent.push([]);
+        await world.core.checkMind({
+          requestId: randomUUID(),
+          mindId: world.mindId,
+          mode: "changed",
+        });
+        sentMeanwhile = [...(run.sent.at(-1) ?? [])];
+        world.release();
+      },
+    };
+    const run = await checkThisNote(example, sheetOf(example, 380), "380", script);
+    await run.result;
+    await run.client.settled();
+    expect((await shownIn(run))[2]).toEqual(["380", "not-checked"]);
+
+    script.last = RETURNS;
+    await run.core.checkSentences({
+      requestId: randomUUID(),
+      mindId: run.mindId,
+      action: "check-against-documents",
+      from: { blockId: RETURNS_CELL, offset: 0 },
+      to: { blockId: RETURNS_CELL, offset: RETURNS.length },
+    });
+    await run.client.settled();
+
+    expect(meanwhile[2]).toEqual(["380", "checking"]);
+    expect(sentMeanwhile).toEqual(["380"]);
+    expect((await shownIn(run))[2]).toEqual(["380", "supported"]);
+  });
+
   // protects=a total its cells add up to stays Supported when its check ends first: its footing agrees once "(120)" is read as a minus (#2560); fails_when=the total's footing is left unworked out, or misfoots it; no_claim=a real model's reading.
   test("a total its cells add up to stays Supported when its check ends first", async () => {
     const run = await checkThisNote(example, sheetOf(example, 380), "380", {
