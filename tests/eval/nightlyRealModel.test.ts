@@ -8,7 +8,7 @@ import {
   casesOf,
   describeFailure,
   executeIn,
-  inTheLog,
+  logFilter,
   missingMessage,
   missingSecrets,
   OUT_OF_CREDIT,
@@ -704,7 +704,7 @@ describe("a provider's words stay out of the summary and the log", () => {
     "TypeError: fetch failed",
     `Error: 503 upstream ${ORG} is down`,
     "Error: something we never classified, with org-0000 in it",
-    `Organize failed on Document 4d3c.2b1a: invalid-key (401). Invalid Authentication for ${ACCESS}`,
+    `Organize failed on Document 4d3c.2b1a: auth (401). Invalid Authentication for ${ACCESS}`,
     `AI_APICallError: This request would exceed the rate limit for your organization (${ORG}).`,
   ];
 
@@ -726,6 +726,17 @@ describe("a provider's words stay out of the summary and the log", () => {
         "AI_APICallError: Cannot connect to API: connect ECONNREFUSED example.test:443",
       ),
     ).toBe("failed: no answer from the provider");
+    expect(describeFailure("AI_APICallError: Cannot connect to API: read ETIMEDOUT")).toBe(
+      "failed: timed out",
+    );
+    expect(describeFailure("AI_APICallError: Cannot connect to API: other side closed")).toBe(
+      "failed: see the job's log",
+    );
+    expect(
+      describeFailure(
+        "AI_RetryError: Failed after 3 attempts. Last error: The operation was aborted due to timeout",
+      ),
+    ).toBe("failed: timed out");
     expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
       "refused: out of credit (status 402)",
     );
@@ -889,7 +900,7 @@ describe("a provider's words stay out of the summary and the log", () => {
         "failed: the provider answered with an error",
       ],
       [
-        `Organize failed on Document 4d3c.2b1a: invalid-key (401). Invalid Authentication for ${ACCESS}`,
+        `Organize failed on Document 4d3c.2b1a: auth (401). Invalid Authentication for ${ACCESS}`,
         "refused: status 401",
       ],
       [
@@ -903,7 +914,7 @@ describe("a provider's words stay out of the summary and the log", () => {
       [`Error: 400 账户 ${ORG} 已暂停`, "refused: status 400"],
     ];
     for (const [line, words] of quoting) {
-      const printed = inTheLog(line);
+      const printed = logFilter()(line);
       expect(printed).toBe(`(a provider's words left out) ${words}`);
       expect(printed).not.toMatch(/org-|ak-|proj_|upstream|suspended/);
     }
@@ -924,8 +935,63 @@ describe("a provider's words stay out of the summary and the log", () => {
       "保存了 3 份文件，共 500 字。",
       "",
       "ab-".repeat(300_000),
+      " Test Files  2 failed | 448 passed (450)",
+      "      Tests  3 failed | 497 passed (500)",
+      "indexed the passages (512)",
+      '    "message": "expected 0 to be greater than 0",',
+      '    "kind": "heading",',
+      '    "message": "a heading of ours",',
     ];
-    expect(ours.map(inTheLog)).toEqual(ours);
+    const filter = logFilter();
+    expect(ours.map(filter)).toEqual(ours);
+  });
+
+  // protects=a provider's words inside the core's own failure (its result printed on one line, as a pretty-printed object in a diff, or with its fields) are replaced by the failure's kind and our words, whatever the sentence says; fails_when=a rate-limit, invalid-key or overloaded sentence prints with its ids, or a message of ours that follows no failure kind of the core is replaced; no_claim=a message printed before its kind, or one that follows no kind line.
+  test("a failure of the core is told by its kind, in every shape it is printed in", () => {
+    const failures: [kind: string, sentence: string][] = [
+      ["rate-limit", `Rate limit reached for ${ORG} in project proj_9f8e7d6c`],
+      ["auth", `Invalid Authentication for ${ACCESS}`],
+      ["provider", `Overloaded, retry later (request ${ORG}, key ${ACCESS})`],
+    ];
+    const left = (kind: string) => `(a provider's words left out) failed: ${kind}`;
+    for (const [kind, sentence] of failures) {
+      const oneLine = `AssertionError: ${JSON.stringify({ ok: false, error: { kind, message: sentence } })}`;
+      expect(logFilter()(oneLine)).toBe(left(kind));
+
+      const diff = [
+        "- Expected",
+        "+ Received",
+        "",
+        "  {",
+        '-   "ok": true,',
+        '+   "error": {',
+        `+     "kind": "${kind}",`,
+        `+     "message": ${JSON.stringify(sentence)},`,
+        "+   },",
+        '+   "ok": false,',
+        "  }",
+      ];
+      const filter = logFilter();
+      expect(diff.map(filter)).toEqual([
+        ...diff.slice(0, 6),
+        left(kind),
+        left(kind),
+        ...diff.slice(8),
+      ]);
+
+      const printed = ["  {", `    kind: '${kind}',`, `    message: '${sentence}',`, "  }"];
+      const inspect = logFilter();
+      expect(printed.map(inspect)).toEqual([printed[0], left(kind), left(kind), printed[3]]);
+    }
+    const body = `  responseBody: '{"error":{"message":"Rate limit reached for ${ORG}","type":"rate_limit_error"}}',`;
+    expect(logFilter()(body)).toBe(
+      "(a provider's words left out) failed: the provider answered with an error",
+    );
+    for (const [kind, sentence] of failures) {
+      expect(describeFailure(`AssertionError: {"kind":"${kind}","message":"${sentence}"}`)).toBe(
+        `failed: ${kind}`,
+      );
+    }
   });
 
   /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */

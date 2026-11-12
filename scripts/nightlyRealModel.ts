@@ -34,6 +34,7 @@ import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import { PROVIDER_ERROR_KINDS } from "../src/core/api";
 import { costOf, inCurrency } from "../src/core/cost/price";
 import type { Price } from "../src/core/providers/catalog/types";
 import type { Gap, Status } from "./nightlyIssue";
@@ -115,14 +116,27 @@ export async function probeKey(
 const STATUS =
   /(?:\bstatus(?: code)?|\bstatusCode|\bHTTP(?:\/[\d.]+)?|\b(?:Error|APICallError))["':= ]{0,4}([1-5]\d\d)\b/i;
 
-/** The status in the core's own line for a failure, `invalid-key (401)`. */
-const KIND_STATUS = /[a-z] \(([1-5]\d\d)\)/;
+const KINDS = Object.keys(PROVIDER_ERROR_KINDS).join("|");
+
+/** The core's own failure, whose message is the provider's: `"kind":"rate-limit"` in a result, `kind: 'rate-limit'` in an error printed with its fields. */
+const KIND = new RegExp(`\\bkind["']?\\s*:\\s*["'](${KINDS})["']`);
+
+/** The status in the core's own line for a failure, `auth (401)`. */
+const KIND_STATUS = new RegExp(`\\b(?:${KINDS}) \\(([1-5]\\d\\d)\\)`);
 
 const NO_ANSWER = /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i;
 
-/** The AI SDK's errors whose message is what a provider answered, a refused connection excepted. */
+/** The AI SDK's wording for a request that got no answer, whichever error class carries it. */
+const CANNOT_CONNECT = /Cannot connect to API/;
+
+/** The AI SDK's errors whose message is what a provider answered. */
 const PROVIDER_ERROR =
   /\b(?:AI_)?(?:APICall|Retry|JSONParse|TypeValidation|InvalidResponseData)Error\b/;
+
+const PROVIDER_ANSWERED = "failed: the provider answered with an error";
+
+const providerSaid = (text: string) =>
+  PROVIDER_ERROR.test(text) && !NO_ANSWER.test(text) && !CANNOT_CONNECT.test(text);
 
 /**
  * What the text says about a provider's answer to a request, in words of ours, or null when it
@@ -135,10 +149,8 @@ function answered(text: string): string | null {
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
   if (status >= 500) return `failed: status ${status}`;
-  if (PROVIDER_ERROR.test(text) && !NO_ANSWER.test(text)) {
-    return "failed: the provider answered with an error";
-  }
-  return null;
+  const kind = KIND.exec(text)?.[1];
+  return kind ? `failed: ${kind}` : null;
 }
 
 /**
@@ -152,7 +164,7 @@ function classify(text: string): string | null {
   if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
   if (NO_ANSWER.test(text)) return "failed: no answer from the provider";
   if (/^\s*(?:AssertionError|expected )/.test(text)) return "failed: an expectation did not hold";
-  return null;
+  return providerSaid(text) ? PROVIDER_ANSWERED : null;
 }
 
 /** A failed case's line in the summary: `classify`'s words, or a pointer to the job's log. */
@@ -162,18 +174,40 @@ export const describeFailure = (text: string): string =>
 /** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
 const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
 
+/** A line of a printed object, in a diff or not: a key, then a colon. */
+const MEMBER = /^[+-]?\s+(?:"[^"]*"|[\w$]+)\s*:/;
+const MESSAGE = /^[+-]?\s+"?message"?\s*:/;
+const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
+
 /**
- * A line of a step's output as the job's log shows it: a line that quotes a provider's answer
- * becomes its status and our words, every other line stays as it is.
+ * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
+ * provider's answer becomes its status or the core's failure kind and our words, every other line
+ * stays as it is. A message member of a printed object is the provider's when a line of the same
+ * object before it has said so (`"kind": "rate-limit"`), so the filter remembers that until the
+ * object ends; a message of ours follows no such line and stays.
  */
-export function inTheLog(line: string): string {
-  const plain = stripVTControlCharacters(line);
-  const answer = TEST_LINE.test(plain) ? null : answered(plain);
-  return answer ? `(a provider's words left out) ${answer}` : line;
+export function logFilter(): (line: string) => string {
+  let said: string | null = null;
+  return (line) => {
+    const plain = stripVTControlCharacters(line);
+    if (TEST_LINE.test(plain)) {
+      said = null;
+      return line;
+    }
+    const quoted =
+      answered(plain) ??
+      (providerSaid(plain) ? classify(plain) : null) ??
+      (RESPONSE_BODY.test(plain) ? PROVIDER_ANSWERED : null);
+    const member = MEMBER.test(plain);
+    const words = quoted ?? (member && MESSAGE.test(plain) ? said : null);
+    said = member ? (quoted ?? said) : null;
+    return words ? `(a provider's words left out) ${words}` : line;
+  };
 }
 
-/** Prints text to `to` a whole line at a time, so that `inTheLog` never judges half a line. */
+/** Prints text to `to` a whole line at a time, so that the filter never judges half a line. */
 function lineByLine(to: NodeJS.WritableStream) {
+  const inTheLog = logFilter();
   let rest = "";
   return {
     add(text: string) {
