@@ -6,7 +6,8 @@
 
 const HAN = /\p{Script=Han}/u;
 
-function latinSound(text: string): string {
+/** The rough sound of a spelling in Latin letters: the same for two spellings said alike (Katherine, Catherine). */
+export function latinSound(text: string): string {
   return text
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")

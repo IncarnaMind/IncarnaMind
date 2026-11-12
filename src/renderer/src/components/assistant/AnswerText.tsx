@@ -14,6 +14,7 @@ import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
+import { MissingNumberView, missingNumberWordsNow } from "../../editor/MissingNumberView";
 import {
   JudgedAnswerContext,
   PictureSurfaceContext,
@@ -107,6 +108,8 @@ export function AnswerText({
             (props) => <CalculatedFigureView {...props} doc={runs} />,
             { as: "span" },
           ),
+          missingNumberView: ReactNodeViewRenderer(MissingNumberView, { as: "span" }),
+          missingNumberWords: missingNumberWordsNow,
           analysisTableView: ReactNodeViewRenderer(
             (props) => <AnalysisTableView {...props} doc={runs} />,
             { as: "span" },

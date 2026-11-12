@@ -9,10 +9,12 @@
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
 import { withoutInertBrackets } from "../../../shared/inertBrackets";
+import { markValueOf } from "../../../shared/markKeys";
 import { isNumberingScheme, itemLevel, type NumberingScheme } from "../../../shared/numbering";
 import { readTextColor, readTextFont, readTextSize } from "../../../shared/paragraphFormat";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { readWordAtom } from "../../../shared/wordFiles";
+import { marksOfRun } from "../../answers/blocks";
 import {
   ANSWER_BLOCK,
   COMMENT_MARK,
@@ -122,10 +124,11 @@ export function textPendings(node: NodeJSON, review: ReviewReading | undefined):
   return { ...(inserted && { inserted }), ...(deleted && { deleted }) };
 }
 
-const MARK_KINDS: ReadonlyMap<string, "insert" | "delete"> = new Map([
+const KINDS = [
   [PROPOSAL_INSERT_MARK, "insert"],
   [PROPOSAL_DELETE_MARK, "delete"],
-]);
+] as const;
+const MARK_KINDS: ReadonlyMap<string, "insert" | "delete"> = new Map(KINDS);
 
 /**
  * The changes on what a Mind's node holds, its text and the nodes within it, not on the node
@@ -137,8 +140,8 @@ export function changesWithin(element: Y.XmlElement): Map<string, string> {
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
         for (const run of child.toDelta() as { attributes?: Record<string, unknown> }[]) {
-          for (const [mark, kind] of MARK_KINDS) {
-            const ref = readProposalRef(run.attributes?.[mark]);
+          for (const [mark, kind] of KINDS) {
+            const ref = readProposalRef(markValueOf(mark, run.attributes));
             if (ref) found.set(`${ref.id} ${kind}`, ref.request);
           }
         }
@@ -194,17 +197,10 @@ export function mindJson(
         attributes?: Record<string, unknown>;
       }[]) {
         const attributes = run.attributes ?? {};
-        if (
-          PROPOSAL_INSERT_MARK in attributes &&
-          !pendingOf(attributes[PROPOSAL_INSERT_MARK], review)
-        )
-          continue;
+        const added = markValueOf(PROPOSAL_INSERT_MARK, attributes);
+        if (added !== undefined && !pendingOf(added, review)) continue;
         if (typeof run.insert !== "string" || run.insert === "") continue;
-        const marks: MarkJSON[] = Object.entries(attributes).map(([type, value]) =>
-          value && typeof value === "object"
-            ? { type, attrs: value as Record<string, unknown> }
-            : { type },
-        );
+        const marks: MarkJSON[] = marksOfRun(attributes);
         // An outside agent's inert brackets read as written in the file (#352).
         const text = withoutInertBrackets(run.insert);
         content.push({ type: "text", text, ...(marks.length > 0 && { marks }) });

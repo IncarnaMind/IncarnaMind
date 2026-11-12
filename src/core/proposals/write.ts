@@ -32,6 +32,14 @@
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
 import { looksLikeTable, rowCells, type TableAlign, tableStart } from "../../shared/markdownTables";
+import {
+  hasMarkIn,
+  keyedFormats,
+  keyedMarkOf,
+  markKeyOf,
+  markValueOf,
+} from "../../shared/markKeys";
+import { MISSING_NUMBER_WORDS } from "../../shared/missingNumbers";
 import { citesSource, linkSources, type NamedSource } from "../../shared/namedSources";
 import {
   INLINE_NODES,
@@ -60,6 +68,7 @@ import {
   GENERATED_MARK,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -267,6 +276,17 @@ export interface Selection {
   after: string;
   /** How many characters it holds, for the model's window. */
   characters: number;
+  /**
+   * The words the mark where a figure couldn't be calculated reads as (#2577); null: the mark
+   * reads as nothing.
+   */
+  missingNumber: string | null;
+  /**
+   * How many of those marks it holds: the new text's words of the mark, in either language, are
+   * the mark again that many times at most, counted from its start, so words the User typed in a
+   * passage with none stay words.
+   */
+  marks: number;
 }
 
 export type ReadResult =
@@ -327,7 +347,7 @@ const sizeOf = (element: Y.XmlElement) =>
   layout(element).reduce((sum, child) => sum + child.size, 0);
 
 const hasProposal = (attributes: Attributes | undefined) =>
-  !!attributes && (PROPOSAL_INSERT_MARK in attributes || PROPOSAL_DELETE_MARK in attributes);
+  hasMarkIn(PROPOSAL_INSERT_MARK, attributes) || hasMarkIn(PROPOSAL_DELETE_MARK, attributes);
 
 /**
  * How a token is compared: words as they are; an inline node by what it is,
@@ -339,6 +359,7 @@ const keyOf = {
   footnote: (n: number) => `\u0000f${n}`,
   math: (latex: string) => `\u0000m${latex}`,
   break: () => "\u0000b",
+  missing: () => "\u0000x",
   node: (name: string, n: number) => `\u0000n${name}${n}`,
 };
 
@@ -347,7 +368,12 @@ const keyOf = {
  * isn't in the Mind (it changed), the text holds Proposals still waiting, or
  * an Answer being written holds it.
  */
-export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): ReadResult {
+export function readSelection(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  missingNumber: string | null = null,
+): ReadResult {
   const all = textBlocks(blocks);
   const first = all.findIndex(
     ({ element }) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === from.blockId,
@@ -369,6 +395,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   const text: string[] = [];
   const context: string[] = [];
   let characters = 0;
+  let marks = 0;
   /** An inline node of the selection, as the model reads it: a numbered marker, a formula. */
   const nodeToken = (node: Y.XmlElement, attributes: Attributes, index: number): NodeKey => {
     const name = node.nodeName;
@@ -392,6 +419,10 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       return { key: keyOf.math(latex), shown: `$${latex}$` };
     }
     if (name === BREAK) return { key: keyOf.break(), shown: "\n" };
+    if (name === MISSING_NUMBER_NODE && missingNumber !== null) {
+      marks++;
+      return { key: keyOf.missing(), shown: missingNumber };
+    }
     // Nothing the model can keep: it comes back without it, for the User to review.
     return { key: keyOf.node(name, index), shown: "" };
   };
@@ -428,7 +459,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
     text.push(modelText);
-    context.push(blockText(element));
+    context.push(blockText(element, missingNumber));
     characters += shownText.length;
   }
   const firstBlock = chosen[0]?.element;
@@ -454,9 +485,13 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
         .join("\n\n"),
       marked,
       context: context.join("\n\n"),
-      before: firstBlock ? nearWords(blockText(firstBlock, 0, from.offset), "before") : "",
-      after: lastBlock ? nearWords(blockText(lastBlock, to.offset), "after") : "",
+      before: firstBlock
+        ? nearWords(blockText(firstBlock, missingNumber, 0, from.offset), "before")
+        : "",
+      after: lastBlock ? nearWords(blockText(lastBlock, missingNumber, to.offset), "after") : "",
       characters,
+      missingNumber,
+      marks,
     },
   };
 }
@@ -513,7 +548,7 @@ export function selectionParts(
     const from = placeOf(first, "from");
     const to = placeOf(last, "to");
     if (!from || !to) return null;
-    const result = readSelection(blocks, from, to);
+    const result = readSelection(blocks, from, to, selection.missingNumber);
     return result.ok ? result.selection : null;
   };
   // The runs of segments inside one Block: a part is whole ones of these.
@@ -584,11 +619,12 @@ export function withBlocksAround(blocks: Y.XmlFragment, selection: Selection): S
   const from = first ? all.indexOf(first) : -1;
   const to = last ? all.indexOf(last) : -1;
   if (from < 0 || to < from) return selection;
+  const words = selection.missingNumber;
   const before =
-    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement), AROUND_CHARACTERS) : "";
+    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement, words), AROUND_CHARACTERS) : "";
   const after =
     to < all.length - 1
-      ? startingWith(blockText(all[to + 1] as Y.XmlElement), AROUND_CHARACTERS)
+      ? startingWith(blockText(all[to + 1] as Y.XmlElement, words), AROUND_CHARACTERS)
       : "";
   if (before === "" && after === "") return selection;
   return {
@@ -668,8 +704,10 @@ function viewOf(element: Y.XmlElement, request: string, accepted: boolean): stri
     if (!(node instanceof Y.XmlText)) continue;
     for (const run of node.toDelta() as Run[]) {
       if (typeof run.insert !== "string") continue;
-      const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request;
-      const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK])?.request === request;
+      const adds =
+        readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request === request;
+      const removes =
+        readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes))?.request === request;
       if (accepted ? removes : adds) continue;
       text += run.insert;
     }
@@ -724,7 +762,9 @@ export function leftOutText(
         }
         for (const run of node.toDelta() as Run[]) {
           if (typeof run.insert !== "string") continue;
-          if (readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request)
+          if (
+            readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request === request
+          )
             continue;
           const end = at + run.insert.length;
           text += run.insert.slice(Math.max(0, from - at), Math.max(0, to - at));
@@ -815,7 +855,12 @@ function tokensIn(
  * `end` (`TextPlace` offsets), as the Mind reads it: what Proposals still
  * waiting add left out, inline nodes as they read, Citations as "[·]".
  */
-function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFINITY): string {
+function blockText(
+  element: Y.XmlElement,
+  missingNumber: string | null,
+  start = 0,
+  end = Number.POSITIVE_INFINITY,
+): string {
   let text = "";
   for (const { node, start: at, size } of layout(element)) {
     if (at + size <= start || at >= end) continue;
@@ -825,7 +870,7 @@ function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFIN
         const words = stringOf(run.insert);
         const from = offset;
         offset += typeof run.insert === "string" ? words.length : 1;
-        if (run.attributes && PROPOSAL_INSERT_MARK in run.attributes) continue;
+        if (hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes)) continue;
         text += words.slice(Math.max(0, start - from), Math.max(0, end - from));
       }
       continue;
@@ -834,6 +879,7 @@ function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFIN
     if (node.nodeName === MATH) text += `$${stringOf(node.getAttribute("latex"))}$`;
     else if (node.nodeName === BREAK) text += "\n";
     else if (node.nodeName === CITATION_NODE) text += "[·]";
+    else if (node.nodeName === MISSING_NUMBER_NODE && missingNumber !== null) text += missingNumber;
   }
   return text.trim();
 }
@@ -1033,6 +1079,11 @@ function newParagraphs(
       node: { name: FOOTNOTE_NODE, attributes: source.getAttributes() as Attributes, source },
     };
   };
+  const markers =
+    selection.marks === 0
+      ? MARKER
+      : new RegExp(`${MARKER.source}|(${MISSING_NUMBER_WORDS.source})`, "g");
+  let marksLeft = selection.marks;
   const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
     const emphasis = emphasisOf(written);
@@ -1053,12 +1104,17 @@ function newParagraphs(
       }
     };
     let at = 0;
-    for (const match of paragraph.matchAll(MARKER)) {
+    for (const match of paragraph.matchAll(markers)) {
       words(paragraph.slice(at, match.index), at);
       at = match.index + match[0].length;
-      const [, footnote, citation, formula] = match;
+      const [, footnote, citation, formula, missing] = match;
       if (match[0] === "\n") {
         tokens.push({ key: keyOf.break(), node: { name: BREAK, attributes: {} } });
+      } else if (missing !== undefined && marksLeft > 0) {
+        marksLeft--;
+        tokens.push({ key: keyOf.missing(), node: { name: MISSING_NUMBER_NODE, attributes: {} } });
+      } else if (missing !== undefined) {
+        words(match[0], match.index);
       } else if (footnote !== undefined || citation !== undefined) {
         const n = Number(footnote ?? citation);
         const node = footnote !== undefined ? footnoteNode(n) : citationNode(n);
@@ -1285,6 +1341,11 @@ export interface Written {
    * doesn't place (#2424): the change is refused.
    */
   notPlaced?: true;
+  /**
+   * What it wrote takes out the mark where a figure couldn't be calculated, which only a
+   * calculated figure may take the place of (#2577): the change is refused.
+   */
+  takesMissingNumber?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
@@ -1301,7 +1362,8 @@ const asAiText = (marks: Attributes): Attributes =>
 function withoutProposals(attributes: Attributes | undefined): Attributes {
   const kept: Attributes = {};
   for (const [key, value] of Object.entries(attributes ?? {})) {
-    if (key !== PROPOSAL_INSERT_MARK && key !== PROPOSAL_DELETE_MARK) kept[key] = value;
+    const mark = keyedMarkOf(key);
+    if (mark !== PROPOSAL_INSERT_MARK && mark !== PROPOSAL_DELETE_MARK) kept[key] = value;
   }
   return kept;
 }
@@ -1322,7 +1384,11 @@ function markRemoved(element: Y.XmlElement, from: number, to: number, ref: Propo
     const end = Math.min(to, child.start + child.size);
     if (start >= end) continue;
     if (child.node instanceof Y.XmlText) {
-      child.node.format(start - child.start, end - start, { [PROPOSAL_DELETE_MARK]: refOf(ref) });
+      child.node.format(
+        start - child.start,
+        end - start,
+        keyedFormats(child.node, PROPOSAL_DELETE_MARK, refOf(ref)),
+      );
     } else {
       setProposal(child.node, { ...refOf(ref), kind: "delete" });
     }
@@ -1507,7 +1573,7 @@ function insertTokens(
     if (words === "") return;
     insertText(element, position, words, {
       ...asAiText(wordMarks),
-      [PROPOSAL_INSERT_MARK]: inserted,
+      [markKeyOf(PROPOSAL_INSERT_MARK, inserted.id)]: inserted,
     });
     position += words.length;
     words = "";
@@ -3876,8 +3942,8 @@ export function takeBackForRegenerate(
       if (child.node instanceof Y.XmlText) {
         for (const run of child.node.toDelta() as Run[]) {
           const length = typeof run.insert === "string" ? run.insert.length : 1;
-          const adds = isIt(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removes = isIt(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const adds = isIt(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removes = isIt(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if (adds || removes) from ??= { blockId, offset };
           if (adds) continue;
           offset += length;

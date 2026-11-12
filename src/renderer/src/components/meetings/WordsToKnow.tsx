@@ -104,6 +104,7 @@ function WordRow({
 export function WordsToKnow({ services }: { services: ServicesView }) {
   const t = useT();
   const waiting = useWordsWaiting(services);
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const words = useAppStore((state) => state.settings?.user.meetingWords);
   const [draft, setDraft] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -241,8 +242,10 @@ export function WordsToKnow({ services }: { services: ServicesView }) {
           ))}
         </SettingsGroup>
       )}
-      {/* The waiting line names what goes; the help doesn't say it again. */}
-      <SettingsHelp>{t(waiting ? "meetings.words.bodyHere" : "meetings.words.body")}</SettingsHelp>
+      {/* The waiting line names what goes; the help doesn't say it again. Local mode sends nothing. */}
+      <SettingsHelp>
+        {t(waiting || localMode ? "meetings.words.bodyHere" : "meetings.words.body")}
+      </SettingsHelp>
       {waiting && <WordsWaitingLine service={waiting} onSent={() => field.current?.focus()} />}
       <UndoLineAt place={UNDO_PLACE} />
     </SettingsSection>

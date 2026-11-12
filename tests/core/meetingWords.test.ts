@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
-import type { Core } from "../../src/core";
+import { describe, expect, test, vi } from "vitest";
+import type { Core, MeetingTranscript } from "../../src/core";
 import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { FakeSpeechOptions } from "../../src/core/transcription/fake";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, nextTurn } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { recordingLog } from "../helpers/log";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -13,13 +16,19 @@ const SECOND = 1000;
 /** The other side's lines say "Dana is joining us from the Leeds office.", which the engine mishears. */
 const MISHEARING: FakeSpeechOptions = { mishears: { Dana: "Donna", Leeds: "Leads" } };
 
+/** The Transcript's Document is listed from its first line, so this reads its lines while the Meeting records too. */
+async function transcriptLines(core: Core, transcript: MeetingTranscript) {
+  const document = (await core.listDocuments()).find((each) => each.id === transcript.documentId);
+  const path = document?.path ?? "";
+  return () => readVtt(readFileSync(path, "utf8")).cues.map((cue) => cue.text);
+}
+
 async function linesOf(core: Core, meetingId: string, record: (ms: number) => void) {
   record(12 * SECOND);
   const transcript = await until(core, meetingId, (each) => each.lines >= 6);
   await core.stopMeeting(meetingId);
   await until(core, meetingId, (each) => each.state === "saved");
-  const document = (await core.listDocuments()).find((each) => each.id === transcript.documentId);
-  return readVtt(readFileSync(document?.path ?? "", "utf8")).cues.map((cue) => cue.text);
+  return (await transcriptLines(core, transcript))();
 }
 
 describe("The transcriber on this computer knows the names in the call (#1031)", {
@@ -129,6 +138,144 @@ describe("The transcriber on this computer knows the names in the call (#1031)",
     const lines = await linesOf(core, meeting.id, record);
     expect(lines).toContain("Donna is joining us from the Leads office.");
     expect(lines.join(" ")).not.toContain("Dana");
+  });
+});
+
+describe("A name is written as the meeting's Note writes it (#1031)", { timeout: 60_000 }, () => {
+  const SPELLED: FakeSpeechOptions = {
+    lines: ["We asked Katherine to send the draft."],
+    theirLines: ["高新说下周交付。"],
+  };
+
+  // protects=an English name the engine spells another way than the meeting's Note is written the Note's way, on every line, while a Chinese line whose characters read the same as a told name stays as the engine wrote it; fails_when=the English line keeps Katherine, or the Chinese line is rewritten to 高欣; no_claim=a name the engine heard as other sounds, a name that opens a sentence, or any Chinese name.
+  test("an English name the Note spells another way is written the Note's way; a Chinese line that reads like a told name stays as heard", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: SPELLED,
+    });
+    await core.updateSettings({ user: { meetingWords: ["高欣"] } });
+    const mind = await core.createMind({ title: "Sync with Catherine Marsh" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("We asked Catherine to send the draft.");
+    expect(lines).toContain("高新说下周交付。");
+    expect(lines.join(" ")).not.toMatch(/Katherine|高欣/);
+  });
+
+  // protects=a line the engine writes with its accents apart (e and U+0301) has the name written the Note's way, the whole name with no accent left behind, and what the Note doesn't name stays in the Transcript as the engine wrote it, its accent still apart; fails_when=the line keeps Kathérine, or reads Catherine with a stray accent or half the heard name after it, or Renée is rewritten or its accent put into its letter; no_claim=which spellings sound the same (tests/core/toldSpelling.test.ts holds the table).
+  test("a name the engine writes with its accent apart is written the Note's way, whole; a name the Note doesn't hold stays as the engine wrote it", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: {
+        lines: ["We asked Kathe\u0301rine to send the draft."],
+        theirLines: ["Then Rene\u0301e joined the call."],
+      },
+    });
+    const mind = await core.createMind({ title: "Sync with Catherine Marsh" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("We asked Catherine to send the draft.");
+    expect(lines).toContain("Then Rene\u0301e joined the call.");
+    expect(lines.join(" ")).not.toMatch(/Kathe|\u0301rine|Ren\u00e9e/);
+  });
+
+  test("its twin: a meeting whose Note doesn't name her keeps the engine's spelling", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: SPELLED,
+    });
+    const mind = await core.createMind({ title: "Sync about the draft" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("We asked Katherine to send the draft.");
+    expect(lines.join(" ")).not.toContain("Catherine");
+  });
+
+  // protects=a name typed in the meeting's Note during the call is told to the engine on this computer, so the lines after it spell it the Note's way, and the lines written before stay as they were; fails_when=the later line still reads Donna, or the earlier line is rewritten; no_claim=how soon after typing (the Note is read once it is quiet), a cloud service's own spelling, or the lines before the name was typed.
+  test("a name typed in the Note during the call is in the lines that follow; the lines before it stay", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
+    const mind = await core.createMind({ title: "Weekly call" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+    record(12 * SECOND);
+    const live = await transcriptLines(
+      core,
+      await until(core, meeting.id, (each) => each.lines >= 6),
+    );
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    expect(live().join(" ")).not.toContain("Dana");
+
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [note("Then we ask Dana about the Leeds office.")]);
+    await client.settled();
+    await vi.waitFor(
+      () => {
+        record(SECOND);
+        expect(live()).toContain("Dana is joining us from the Leeds office.");
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    await core.stopMeeting(meeting.id);
+    core.close();
+  });
+
+  // protects=the Note's title is part of what a Meeting's words are gathered from, so a name put in it by renaming the Note during the call is told to the engine on this computer, and the lines after it spell it the Note's way, while the lines written before stay as they were; fails_when=the later line still reads Donna and Leads, or the earlier line is rewritten; no_claim=what a cloud service is sent, which the renaming does not change (tests/core/cloudWords.test.ts).
+  test("a name put in the Note's title during the call is in the lines that follow; the lines before it stay", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
+    const mind = await core.createMind({ title: "Weekly call" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+    record(12 * SECOND);
+    const live = await transcriptLines(
+      core,
+      await until(core, meeting.id, (each) => each.lines >= 6),
+    );
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    expect(live().join(" ")).not.toContain("Dana");
+
+    await core.renameMind(mind.id, "Weekly call with Dana in Leeds");
+    await vi.waitFor(
+      () => {
+        record(SECOND);
+        expect(live()).toContain("Dana is joining us from the Leeds office.");
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    await core.stopMeeting(meeting.id);
+    core.close();
+  });
+
+  test("typing in the Note and quitting at once reads nothing after the core closed", async () => {
+    const { log, entries } = recordingLog();
+    const errors = vi.spyOn(console, "error");
+    const { core, record, engineHost } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+      log,
+    });
+    const mind = await core.createMind({ title: "Weekly call" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+    record(6 * SECOND);
+    await until(core, meeting.id, (each) => each.lines >= 2);
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [note("Then we ask Dana about the Leeds office.")]);
+    await client.settled();
+
+    core.close();
+    await nextTurn();
+    expect(engineHost.started).toBe(1);
+    expect(entries.filter((entry) => entry.level !== "info")).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });
 

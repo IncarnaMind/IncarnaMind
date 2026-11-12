@@ -76,7 +76,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   settings = await showSettingsPage(window, "meetings");
   const line = settings.getByTestId("meetings-route-line");
   await expect(line).toContainText(
-    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(line).toContainText(
     "Cloudflare doesn’t train AI models on what Workers AI transcribes",
@@ -114,7 +114,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   await shot(window, "settings-models-deepgram-cloudflare-zh-900");
   settings = await showSettingsPage(window, "meetings");
   await expect(line).toContainText(
-    "录音期间，音频会发送给 Cloudflare，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "录音期间，音频会发送给 Cloudflare，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   );
   await setLanguage(window, "en");
 
@@ -150,7 +150,7 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   await expect(settings.getByTestId("meetings-route")).toHaveValue("assemblyai");
   settings = await showSettingsPage(window, "meetings");
   await expect(settings.getByTestId("meetings-route-line")).toContainText(
-    "Audio goes to AssemblyAI while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to AssemblyAI while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await closeSettings(window);
 
@@ -227,7 +227,7 @@ test("each service set up from the picker says whether Save checks its key; Glad
   const meetings = settings.getByTestId("meetings-settings");
   const line = meetings.getByTestId("meetings-route-line");
   await expect(line).toContainText(
-    "Audio goes to Gladia while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Gladia while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(line).toContainText(
     "Gladia trains its models on the audio unless you opt out in your account",
@@ -238,7 +238,7 @@ test("each service set up from the picker says whether Save checks its key; Glad
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
   await expect(line).toContainText(
-    "录音期间，音频会发送给 Gladia，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "录音期间，音频会发送给 Gladia，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   );
   await expect(line).toContainText("除非你在 Gladia 账户中选择退出，否则它会用音频训练模型");
   const box = await meetings.boundingBox();

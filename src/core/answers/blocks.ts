@@ -17,6 +17,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../shared/blockJson";
+import { countingMarkOf, KEYED_MARKS, keyedMarkOf, markKeyOf } from "../../shared/markKeys";
 import {
   ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
@@ -107,12 +108,29 @@ function childrenOf(content: readonly NodeJSON[]): Child[] {
   return children;
 }
 
-/** A text node's marks as Yjs formatting attributes, each named after its mark. */
+/**
+ * A text node's marks as Yjs formatting attributes, each named after its mark; a check, comment or
+ * assistant's change under a key of its own (#2996).
+ */
 export function formattingOf(
   marks: readonly MarkJSON[] | undefined,
 ): FormattingAttributes | undefined {
   if (!marks || marks.length === 0) return undefined;
-  return Object.fromEntries(marks.map((mark) => [mark.type, mark.attrs ?? {}]));
+  return Object.fromEntries(
+    marks.map((mark) => {
+      const keyed = KEYED_MARKS.find((name) => name === mark.type);
+      return [keyed ? markKeyOf(keyed, mark.attrs?.id) : mark.type, mark.attrs ?? {}];
+    }),
+  );
+}
+
+/** A run's Yjs formatting as marks in JSON: of each keyed mark, the one that counts, by name. */
+export function marksOfRun(attributes: FormattingAttributes | undefined): MarkJSON[] {
+  return Object.entries(attributes ?? {}).flatMap(([type, value]) => {
+    const keyed = keyedMarkOf(type);
+    if (keyed && type !== countingMarkOf(keyed, attributes)?.key) return [];
+    return [{ type: keyed ?? type, ...(isRecord(value) && { attrs: value }) }];
+  });
 }
 
 /** A node's attributes that are set (y-tiptap stores no null attribute). */
@@ -158,10 +176,7 @@ export function nodeOf(element: Y.XmlElement): NodeJSON {
     if (!(child instanceof Y.XmlText)) return [];
     return (child.toDelta() as Run[]).flatMap((run) => {
       if (typeof run.insert !== "string") return [];
-      const marks = Object.entries(run.attributes ?? {}).map(([type, value]) => ({
-        type,
-        ...(isRecord(value) && { attrs: value }),
-      }));
+      const marks = marksOfRun(run.attributes);
       return [{ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) }];
     });
   });

@@ -396,6 +396,7 @@ const FAILED_THERE: ReadonlySet<MindProblem["kind"]> = new Set([
   "unplaced",
   "misnamed",
   "typed-tag",
+  "missing-number",
   "not-placed",
   "copy",
   "new-version",

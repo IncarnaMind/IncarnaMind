@@ -435,6 +435,7 @@ function partsClaim(
     to: span.to,
     sentence: { from: span.from, to: span.to, text: span.text },
     shown: claimCheckShown(check, {
+      footing: "not-yet-known",
       text: now ?? span.text,
       versions: new Map(),
       folderId: null,
@@ -714,7 +715,13 @@ describe("Keep as my view on a contradicted sentence", () => {
     const check = readClaimCheck(attrs);
     expect(
       check &&
-        claimCheckShown(check, { text: "Two dogs.", versions: null, folderId: null, scope: null }),
+        claimCheckShown(check, {
+          footing: "not-yet-known",
+          text: "Two dogs.",
+          versions: null,
+          folderId: null,
+          scope: null,
+        }),
     ).toEqual({ state: "kept" });
 
     const [change] = useUndo.getState().done;
@@ -732,6 +739,7 @@ describe("Keep as my view on a contradicted sentence", () => {
     expect(
       restored &&
         claimCheckShown(restored, {
+          footing: "not-yet-known",
           text: "Two dogs.",
           versions: null,
           folderId: null,
@@ -1022,6 +1030,7 @@ describe("Use the Document's wording for one forecast part", () => {
     expect(
       retained &&
         claimCheckShown(retained, {
+          footing: "not-yet-known",
           text: editor.state.doc.textContent,
           versions: null,
           folderId: null,

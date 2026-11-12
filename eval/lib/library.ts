@@ -128,6 +128,8 @@ export interface LibraryOptions {
   helpFormJudged?: CoreAdapters["helpFormJudged"];
   /** Whether found quotes show as the model gave them, for an arm that decides it. */
   quotesAsGiven?: CoreAdapters["quotesAsGiven"];
+  /** Whether call help's ✓ comes from a found quote alone, for an arm that decides it. */
+  helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
 }
 
 export interface EvalWebPage {
@@ -333,6 +335,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.notesBeforeSpeakers && { notesBeforeSpeakers: options.notesBeforeSpeakers }),
     ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
     ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
+    ...(options.helpMarksQuoteOnly && { helpMarksQuoteOnly: options.helpMarksQuoteOnly }),
   });
   const close = async () => {
     core.close();
