@@ -974,6 +974,12 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         : [];
     }),
   );
+  // A Note outside the walled Folder that keeps a total's source never reads it again, nor shows the
+  // rows of it the Note never cited; its cells still foot it from the Note's own numbers.
+  const readable = (total: FigureFinding) => {
+    const documentId = total.sourceInput?.citation.documentId;
+    return !documentId || !input.keptInside?.(documentId);
+  };
   const signOffs = figureSignOffs(
     blocks.doc ? signOffsOf(blocks.doc) : [],
     occurrences.map((occurrence) => occurrence.id),
@@ -987,7 +993,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       ...existing,
       footing,
       sourceFooting:
-        state?.current && state.child?.state === "supported"
+        state?.current && state.child?.state === "supported" && readable(existing)
           ? sourceFootingsOf(existing, footing, findings, checked, input.documents)
           : [],
     };

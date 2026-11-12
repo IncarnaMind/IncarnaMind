@@ -402,6 +402,27 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     expect(total.sourceFooting).toMatchObject([{ axis: "row", sum: 400, agrees: true }]);
   });
 
+  // protects=a Note moved outside the walled Folder that keeps the total's source reads nothing behind the wall: the Figures tab shows the total's verdict and its sum from the Note's own numbers, and no row of the sheet the Note never cited (#2998); fails_when=the left-out row is read from the walled Document for a Note outside the wall; no_claim=the wall's own Citation re-check.
+  test("a Note moved outside the wall that keeps the sheet shows no row it never cited", async () => {
+    const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", { last: null });
+    await run.result;
+    await run.client.settled();
+    expect((await rowOf(run.core, run.mindId, "400")).sourceFooting).toHaveLength(1);
+
+    await run.core.updateLibraryGroup(run.folderId, {
+      name: "Accounts",
+      description: "",
+      keepInside: true,
+    });
+    const general = await run.core.createLibraryGroup({ name: "General", description: "" });
+    await run.core.moveToFolder({ mindIds: [run.mindId], folderId: general.id });
+
+    const total = await rowOf(run.core, run.mindId, "400");
+    expect([total.shown.state, total.reason]).toEqual(["unsupported", "doesnt-add-up"]);
+    expect(total.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
+    expect(total.sourceFooting).toEqual([]);
+  });
+
   // protects=Stop with a cell's check still out writes no footing: the total shows its own verdict, footed against the cells as they are, and once the cell is checked later the total follows it (#2560, #2998); fails_when=the total keeps a footing made without the cell; no_claim=what a real provider does on a stop.
   test("Stop with a cell's check still out, then a check of the cell: the total follows it", async () => {
     const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {

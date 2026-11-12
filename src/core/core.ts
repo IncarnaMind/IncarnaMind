@@ -5931,6 +5931,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
+      const versions = documentVersions();
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
           throw new InvalidInputError("A Note id must be text.");
@@ -5944,7 +5945,7 @@ export function createCore(adapters: CoreAdapters): Core {
           throw error;
         }
         const now = {
-          versions: documentVersions(),
+          versions,
           folderId: mind.folderId,
           scope: content.readSettings(mindId, mindScopeIn),
         };
