@@ -206,7 +206,7 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
         line: `Last time they said: ${EUROPE} [^1].`,
         number: 1,
         source: expect.stringMatching(
-          /^1 · Transcript · Meeting, \d+ \w+ · Them · 0:\d\d · started \d\d:\d\d$/,
+          /^1 · Transcript · Meeting, \d+ \w+ · Them · 0:\d\d · started \d{1,2}:\d\d(?: [ap]m)?$/,
         ),
         call: "earlier",
         quote: EUROPE,
