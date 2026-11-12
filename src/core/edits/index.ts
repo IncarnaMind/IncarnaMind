@@ -186,6 +186,8 @@ export interface EditsOptions {
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
+  /** The words the mark where a figure couldn't be calculated reads as, for the model (#2577). */
+  missingNumber(): string;
   /**
    * A Citation's attributes checked again now: its new attributes, or null when its check comes
    * out the same, or the Note may not read its Document (#2746).
@@ -1097,7 +1099,7 @@ export function createEdits(options: EditsOptions) {
     to: TextPlace,
   ): { ok: true; draft: Draft } | Extract<ReadResult, { ok: false }> {
     const copy = copyOf(content.state(mindId));
-    const read = readSelection(copy.blocks, from, to);
+    const read = readSelection(copy.blocks, from, to, options.missingNumber());
     if (!read.ok) {
       copy.doc.destroy();
       return read;
@@ -1138,7 +1140,7 @@ export function createEdits(options: EditsOptions) {
       const region = takeBack(copy.doc, blocks, input.proposalId);
       if (!region) return { kind: "changed" };
       const { from, to } = region;
-      const read = readSelection(blocks, from, to);
+      const read = readSelection(blocks, from, to, options.missingNumber());
       if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
       /** The change goes: there is no change to make now. */
       const withdraw = () => {
@@ -1198,7 +1200,7 @@ export function createEdits(options: EditsOptions) {
             offset: layout(end.element).reduce((sum, child) => sum + child.size, 0),
           }
         : input.to;
-      const read = readSelection(blocks, input.from, to);
+      const read = readSelection(blocks, input.from, to, options.missingNumber());
       const bounds = boundsOf(blocks, own);
       if (!read.ok || !bounds) return nothing({ kind: "changed" });
       const { selection } = read;

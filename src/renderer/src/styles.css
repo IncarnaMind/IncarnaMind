@@ -6062,6 +6062,17 @@
     border-radius: 3px;
     background: var(--color-chip);
   }
+  /* Where a figure couldn't be calculated (#2577): the same can't-check look, words in ink-secondary. */
+  .missing-number {
+    padding: 1px 2px;
+    border-radius: 3px;
+    background: var(--color-chip);
+    color: var(--color-ink-secondary);
+  }
+  .ProseMirror-selectednode .missing-number {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
   .unchecked-figure-mark {
     margin-left: 3px;
     padding: 0 2px;

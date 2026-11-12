@@ -105,6 +105,7 @@ import {
   DOCUMENT_CHIP_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
+  MISSING_NUMBER_NODE,
   PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
@@ -461,6 +462,11 @@ export interface ReadOptions {
   tableNote?(run: RetainedFigureAnalysis, table: Y.XmlElement): string | null;
   /** Set by the reader in an Answer from before AI text was marked, which is the AI's as a whole. */
   wholeAnswerAi?: boolean;
+  /**
+   * The words the mark where a figure couldn't be calculated reads as, in the language the figure
+   * footnotes use (#2577). Absent: it is read as nothing.
+   */
+  missingNumber?: string;
 }
 
 /** What reading for review needs to know of a Mind's changes (`reviewReading`). */
@@ -1353,6 +1359,10 @@ function readInlineElement(
       });
       break;
     }
+    case MISSING_NUMBER_NODE:
+      if (options.missingNumber)
+        add({ kind: "text", text: options.missingNumber, marks: NO_MARKS });
+      break;
     case "inlineMath":
       add({ kind: "math", latex: stringAttribute(child, "latex") });
       break;

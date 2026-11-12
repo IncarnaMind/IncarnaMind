@@ -23,6 +23,7 @@ import { factWords, sourceWords } from "../../shared/libraryFacts";
 import { citationLocation, type Translate } from "../../shared/locations";
 import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
+import { missingNumberWords } from "../../shared/missingNumbers";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
 import { pendingProposals } from "../../shared/proposals";
@@ -277,6 +278,7 @@ export function createExports(deps: ExportsDependencies) {
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,
       leavesApp: true,
+      missingNumber: missingNumberWords(language),
     };
     const libraryNow = Object.entries(deps.libraryFactsNow(mind.id));
     const {

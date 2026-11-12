@@ -4607,6 +4607,9 @@ export const en = {
   "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
   "uncheckedFigure.why":
     "It comes from “{word}”, which was read from a scan and may be misread. Check it on the page.",
+  "missingNumber.words": "[number missing]",
+  "missingNumber.tip":
+    "IncarnaMind couldn’t calculate the figure that belongs here, so no number was written.",
   "citation.quote": "The quote:",
   "citation.quoted.answer": "In the Answer",
   "citation.closest.on": "Closest words on {location}",
@@ -7775,13 +7778,14 @@ export const en = {
   "mindChanges.dropped.one": "· 1 source couldn’t be matched, so it was left out",
   "mindChanges.extraCells": "· {count} extra cells were kept as text",
   "mindChanges.extraCells.one": "· 1 extra cell was kept as text",
-  "mindChanges.figuresLeft.one": "· 1 figure couldn’t be written, so its marker stays in the text",
+  "mindChanges.figuresLeft.one":
+    "· 1 figure couldn’t be calculated, so the text says [number missing]",
   "mindChanges.figuresLeft.one.named":
-    "· 1 figure couldn’t be written, so its marker stays in the text: {figures}",
+    "· 1 figure couldn’t be calculated, so the text says [number missing]: {figures}",
   "mindChanges.figuresLeft":
-    "· {count} figures couldn’t be written, so their markers stay in the text",
+    "· {count} figures couldn’t be calculated, so the text says [number missing]",
   "mindChanges.figuresLeft.named":
-    "· {count} figures couldn’t be written, so their markers stay in the text: {figures}",
+    "· {count} figures couldn’t be calculated, so the text says [number missing]: {figures}",
   "mindCall.failed.localMode": "Couldn’t change “{mind}”: “Keep everything on this computer” is on",
   "mindCall.failed.notReady": "Couldn’t change “{mind}”: the model can’t be used now",
   "mindCall.failed.model": "Couldn’t change “{mind}”: the model failed",

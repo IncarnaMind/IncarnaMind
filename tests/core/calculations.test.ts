@@ -181,7 +181,9 @@ function shown(blocks: readonly NodeJSON[]): string {
       ? (node.text ?? "")
       : node.type === "calculatedFigure"
         ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
-        : (node.content ?? []).map(inline).join("");
+        : node.type === "missingNumber"
+          ? "‹mark›"
+          : (node.content ?? []).map(inline).join("");
   return blocks
     .map((block) =>
       block.type === "table"
@@ -930,7 +932,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     expect(answer.figures).toEqual([]);
   });
 
-  test("a number the model wrote right before its marker is shown once when it is the figure, and kept and flagged when it isn't; markers in code stay, and one with no figure goes", async () => {
+  test("a number the model wrote right before its marker is shown once when it is the figure, and kept and flagged when it isn't; markers in code stay, and one with no figure is the mark that says so (#2577)", async () => {
     const model = calculatingModel({
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
@@ -942,7 +944,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     const { answer, finished } = await askAndRead(core, "How did Acme do in 2025?");
 
     expect(shown(answerBlocks(answer))).toBe(
-      "Revenue grew 20.4% in 2025, gross margin rose 2.3% 2.3 percentage points, costs fell, and [=1] is how it is written.",
+      "Revenue grew 20.4% in 2025, gross margin rose 2.3% 2.3 percentage points, costs fell ‹mark›, and [=1] is how it is written.",
     );
     expect(answer.figures).toMatchObject([
       { marker: 1, shown: "20.4%", written: null },
@@ -6641,7 +6643,7 @@ describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }
 });
 
 describe("Structured output, for a model offered calculate", { timeout: 60_000 }, () => {
-  test("its figures come in its JSON and are worked out the same way; one in error is dropped, and the Answer says so", async () => {
+  test("its figures come in its JSON and are worked out the same way; one in error is dropped, the mark stands in its place, and the Answer says so", async () => {
     const growth = GROWTH({ revenue: 1, margin: 2 });
     const badMargin = {
       ...growth[1],
@@ -6680,7 +6682,7 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
     expect(finished.uncalculated).toBe(1);
     // A cloud model gets no second request, as for quotes.
     expect(finished.figureRetry).toBeNull();
-    expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4%, and gross margin rose.");
+    expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4%, and gross margin rose ‹mark›.");
     expect(calculateCall(answer)).toMatchObject({ resultCount: 1, uncalculated: 1 });
     expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
   });

@@ -406,8 +406,12 @@ export interface CreateMindInput {
  *   a what-if as the workbook's own figure, so it opens these Notes read-only.
  *   Older content is version 55 content as it is: a figure without it is the
  *   workbook's own, or a what-if of the one input it names.
+ * - 57: where a figure couldn't be calculated, the text holds a `missingNumber`
+ *   mark (#2577). An older editor would drop the node and leave the sentence
+ *   without its number, saying nothing, so it opens these Notes read-only.
+ *   Older content is version 56 content as it is: it holds no mark.
  */
-export const CONTENT_SCHEMA_VERSION = 56;
+export const CONTENT_SCHEMA_VERSION = 57;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1686,6 +1690,13 @@ export interface SkillScriptRun {
 export const CITATION_NODE = "citation";
 
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
+/**
+ * Where a figure that couldn't be calculated would be (#2577): an inline mark with no attributes,
+ * read as "[number missing]" in the language the figure footnotes use, never as a number or a
+ * figure marker, and with no number in the one series.
+ */
+export const MISSING_NUMBER_NODE = "missingNumber";
 
 /**
  * A table an Analysis gave is one calculated object (#2378): its table Block holds

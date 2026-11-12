@@ -77,6 +77,7 @@ import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import { missingNumberWords, withMissingNumbers } from "../../shared/missingNumbers";
 import {
   linkKnownSources,
   type NamedSource,
@@ -1840,14 +1841,16 @@ export function createAnswers(options: AnswersOptions) {
                 withAnalysisPictures(blocks, analyses),
                 analyses.map((analysis) => ({ answerId, analysis })),
               );
-              return asGenerated(
-                calculating
-                  ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
-                      id: answerId,
-                      analyses,
-                    })
-                  : drawn,
-              );
+              // Once it has ended, a marker with no figure is the mark that says so (#2577).
+              const figured = calculating
+                ? withCalculatedFigures(
+                    drawn,
+                    (marker) => figures.figure(marker),
+                    { id: answerId, analyses },
+                    final ? () => undefined : undefined,
+                  )
+                : drawn;
+              return asGenerated(final ? withMissingNumbers(figured) : figured);
             },
             citations: () => {
               const found: MarkedCitation[] = [];
@@ -2970,16 +2973,19 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                // A marker no figure was recorded for stays in the text, and the change says so.
+                // A marker no figure was recorded for is the mark that says so, and the change says
+                // which; the mark's words read from a Note are the mark again (#2577).
                 const unwritten = new Set<number>();
-                const uncited = calculating
-                  ? withCalculatedFigures(
-                      cited,
-                      (marker) => figures.figure(marker),
-                      { id: answerId, analyses },
-                      (marker) => unwritten.add(marker),
-                    )
-                  : cited;
+                const uncited = withMissingNumbers(
+                  calculating
+                    ? withCalculatedFigures(
+                        cited,
+                        (marker) => figures.figure(marker),
+                        { id: answerId, analyses },
+                        (marker) => unwritten.add(marker),
+                      )
+                    : cited,
+                );
                 // An Analysis's own table names the rows and files it read, so content that gives one isn't uncited.
                 const bound = withAnalysisTables(uncited, markerRuns);
                 const blocks = asGenerated(bound);
@@ -4106,7 +4112,16 @@ export function createAnswers(options: AnswersOptions) {
     const ids = contextCitationsFor(mindId);
     const readsPictures = model === null || options.readsImages?.(model) !== false;
     const reading = content.peek(mindId, (blocks) =>
-      readMind(blocks, name, focus, documents, ids, readsPictures),
+      readMind(
+        blocks,
+        name,
+        focus,
+        documents,
+        ids,
+        readsPictures,
+        undefined,
+        missingNumberWords(options.interfaceLanguage()),
+      ),
     );
     return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
@@ -4564,6 +4579,7 @@ export function createAnswers(options: AnswersOptions) {
           QUESTION_CONTEXT_TOKEN_BUDGET,
           options.documents.names(),
           ids,
+          missingNumberWords(options.interfaceLanguage()),
         );
         const asked = {
           ...askedWith(context, question.element, mindId),

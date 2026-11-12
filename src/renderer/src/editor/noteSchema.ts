@@ -51,6 +51,7 @@ import {
   TextFont,
   TextSize,
 } from "./formatSchema";
+import { MissingNumber } from "./missingNumberSchema";
 import { Numbering } from "./numbering";
 import { PageBreak } from "./pageBreakSchema";
 import { Picture } from "./pictureSchema";
@@ -129,6 +130,10 @@ export interface NoteSchemaOptions {
   citationView?: NodeViewRenderer;
   /** Draws calculated figures and their numbered markers. */
   calculatedFigureView?: NodeViewRenderer;
+  /** Draws the mark where a figure couldn't be calculated, with its tip (#2577). */
+  missingNumberView?: NodeViewRenderer;
+  /** That mark's words in the interface language, as it is copied. */
+  missingNumberWords?: () => string;
   /** Draws the marker on an Analysis table's caption line, which opens the table's card (#2378). */
   analysisTableView?: NodeViewRenderer;
   /** Draws the markers of the User's footnotes, e.g. as numbers that open their text. */
@@ -160,7 +165,8 @@ export interface NoteSchemaOptions {
  * by lowlight, inline and block math rendered by KaTeX, and tables, each with
  * an "include in Question context" flag. Questions and Answers, top-level
  * only. Document chips the User writes with "@". Citations, inline in Answers and in whatever they are copied into,
- * table cells included. Calculated figures, inline, each keeping its inputs and result.
+ * table cells included. Calculated figures, inline, each keeping its inputs and result, and the
+ * mark where one couldn't be calculated.
  * Footnotes the User writes, inline, each holding its
  * text. Charts, drawn from a table or from cited figures, each value with its
  * Citation (#436). Pictures the User pasted or dropped, as Blocks of their own, with their alt
@@ -183,6 +189,8 @@ export function noteExtensions({
   answerView,
   citationView,
   calculatedFigureView,
+  missingNumberView,
+  missingNumberWords = () => translate("en", "missingNumber.words"),
   analysisTableView,
   footnoteView,
   documentChipView,
@@ -238,6 +246,7 @@ export function noteExtensions({
     Answer.configure({ view: answerView ?? null }),
     Citation.configure({ view: citationView ?? null }),
     CalculatedFigure.configure({ view: calculatedFigureView ?? null }),
+    MissingNumber.configure({ view: missingNumberView ?? null, words: missingNumberWords }),
     FigureTableRoles,
     AnalysisTableBinding,
     AnalysisTableMarker.configure({ view: analysisTableView ?? null }),

@@ -43,10 +43,14 @@ import type { ContextCitations } from "./contextCitations";
 /** The live Documents a Citation's name is looked up in; null: not known, so names stay as cited. */
 type Documents = readonly LiveDocument[] | null;
 
-/** How Citations are named: by `documents`, each with its id in `ids` when the Answer has them. */
+/**
+ * How Citations are named: by `documents`, each with its id in `ids` when the Answer has them; and
+ * the words the mark where a figure couldn't be calculated reads as (#2577).
+ */
 interface Naming {
   documents: Documents;
   ids?: ContextCitations | undefined;
+  missingNumber?: string | undefined;
 }
 
 const textOf = (value: unknown) => (typeof value === "string" ? value : null);
@@ -121,6 +125,7 @@ const readOptions = (naming: Naming): ReadOptions => ({
   includeQuestions: true,
   footnote: (attributes) => citationSource(attributes, naming),
   trimBeforeCitation: false,
+  ...(naming.missingNumber && { missingNumber: naming.missingNumber }),
 });
 
 /**
@@ -149,8 +154,9 @@ export function elementMarkdown(
   documents: Documents = null,
   review?: ReviewReading,
   ids?: ContextCitations,
+  missingNumber?: string,
 ): string {
-  const naming = { documents, ids };
+  const naming = { documents, ids, missingNumber };
   return blocksMarkdown(readBlock(element, readingOf(element, naming, review)), naming).trim();
 }
 
@@ -160,8 +166,9 @@ export function contentMarkdownOf(
   documents: Documents = null,
   review?: ReviewReading,
   ids?: ContextCitations,
+  missingNumber?: string,
 ): string {
-  const naming = { documents, ids };
+  const naming = { documents, ids, missingNumber };
   return blocksMarkdown(readBlocks(element, readingOf(element, naming, review)), naming).trim();
 }
 

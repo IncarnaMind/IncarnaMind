@@ -95,6 +95,7 @@ import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
 import { MindOutline } from "../editor/MindOutline";
+import { MissingNumberView, missingNumberWordsNow } from "../editor/MissingNumberView";
 import { MeetingFillPlace } from "../editor/meetingFillPlace";
 import { MeetingNotes } from "../editor/meetingNotes";
 import {
@@ -478,6 +479,8 @@ function MindEditorView({
             (props) => <CalculatedFigureView {...props} doc={doc} />,
             { as: "span" },
           ),
+          missingNumberView: ReactNodeViewRenderer(MissingNumberView, { as: "span" }),
+          missingNumberWords: missingNumberWordsNow,
           analysisTableView: ReactNodeViewRenderer(
             (props) => <AnalysisTableView {...props} doc={doc} />,
             { as: "span" },
