@@ -74,7 +74,7 @@ const A_HUNDRED_PERCENT = "a hundred percent";
 // "one hundred and twenty-eight thousand", "nine point three", "six percent". A run starts at a
 // number, never at a scale word alone ("a few million", "several hundred", "a million reasons"),
 // but for "a hundred percent".
-const RUN = `\\b(?:${INTEGER_WORDS}(?: point(?: (?:${DIGIT_WORD}))+(?: (?:${SCALE_WORD}))?)?(?: (?:${PERCENT}))?|${A_HUNDRED_PERCENT})(?![A-Za-z-])`;
+const RUN = `\\b(?:${INTEGER_WORDS}(?: point(?: (?:${DIGIT_WORD}))+(?: (?:${SCALE_WORD}))?)?(?: (?:${PERCENT})(?! points?\\b))?|${A_HUNDRED_PERCENT})(?![A-Za-z-])`;
 // Numbers joined by these read as one figure, written together or not at all: "fifty to sixty
 // percent", "two or three hundred", "between five and ten percent".
 const JOINED = "to|or|and";
@@ -83,6 +83,9 @@ const RANGE = new RegExp(`${RUN}(?: (?:${JOINED}) ${RUN})*`, "gi");
 // Numbers said one after another share a "hundred" or "thousand" across a comma too.
 const LIST = new RegExp(`${RUN}(?:(?:,| (?:${JOINED})) ${RUN})*`, "gi");
 const PERCENT_END = new RegExp(` (?:${PERCENT})$`, "i");
+// Six percentage points is no percent, and the calculation check reads "6 percentage points" as 6%
+// too, so a number before them stays as said.
+const PERCENT_POINTS_AFTER = new RegExp(`^ (?:${PERCENT}) points?\\b`, "i");
 // A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
 // of the reasons", "twenty percent and fifty to sixty thousand users". After "or" or "to" the words
 // can't tell a pair ("about five percent to six") from two things unless the numbers after it count
@@ -300,6 +303,7 @@ function writtenRange(text: string, range: string, at: number): string {
   // Beside a digit it is part of a figure the engine already wrote.
   if (/\d\s*$/.test(before) || /^\s*\d/.test(after)) return range;
   if (MORE_BEFORE.test(before) || MORE_AFTER.test(after)) return range;
+  if (PERCENT_POINTS_AFTER.test(after)) return range;
   if (ENDS_IN_TENS.test(range) && UNIT_AFTER.test(after)) return range;
   if (ENDS_IN_SCALE.test(range) && ORDINAL_AFTER.test(after)) return range;
   const runs = range.match(EACH_RUN) ?? [];
