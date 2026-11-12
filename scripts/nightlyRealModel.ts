@@ -34,9 +34,10 @@ import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
-import { PROVIDER_ERROR_KINDS } from "../src/core/api";
+import { PROVIDER_ERROR_KINDS, type ProviderErrorKind } from "../src/core/api";
 import { costOf, inCurrency } from "../src/core/cost/price";
 import type { Price } from "../src/core/providers/catalog/types";
+import { OUT_OF_CREDIT as CORE_OUT_OF_CREDIT } from "../src/core/providers/creditWords";
 import type { Gap, Status } from "./nightlyIssue";
 import type { Usage } from "./usageTally";
 
@@ -59,9 +60,16 @@ export const RATES: Readonly<Record<string, Price>> = {
   "kimi-k3": { currency: "CNY", input: 20, output: 100, cacheRead: 2 },
 };
 
-/** What Anthropic and Kimi say when a key's credit or spending limit is used up. */
-export const OUT_OF_CREDIT =
-  /credit balance is too low|insufficient[ _](?:credit|balance|funds|quota)|balance (?:is )?insufficient|exceeded_current_quota|specified (?:workspace )?API usage limits|payment required/i;
+/**
+ * What providers say when a key's credit or spending limit is used up: the core's words, and two
+ * its list lacks, Anthropic's for a key's own cap and the reason phrase of a 402.
+ */
+export const OUT_OF_CREDIT = new RegExp(
+  `${CORE_OUT_OF_CREDIT.source}|specified (?:workspace )?API usage limits|payment required`,
+  "i",
+);
+
+const OUT_OF_CREDIT_KIND: ProviderErrorKind = "out-of-credit";
 
 export type Probe = { ok: true } | { ok: false; why: string };
 
@@ -144,12 +152,12 @@ const providerSaid = (text: string) =>
  */
 function answered(text: string): string | null {
   const status = Number(STATUS.exec(text)?.[1] ?? KIND_STATUS.exec(text)?.[1]);
-  if (OUT_OF_CREDIT.test(text)) {
+  const kind = KIND.exec(text)?.[1];
+  if (status === 402 || kind === OUT_OF_CREDIT_KIND || OUT_OF_CREDIT.test(text)) {
     return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
   if (status >= 500) return `failed: status ${status}`;
-  const kind = KIND.exec(text)?.[1];
   return kind ? `failed: ${kind}` : null;
 }
 
@@ -174,9 +182,19 @@ export const describeFailure = (text: string): string =>
 /** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
 const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
 
+/**
+ * Whether the step's output says its key's credit is used up, by the words, status or kind that
+ * `answered` knows. A test's own line, whose title may say so, does not.
+ */
+function ranOutOfCredit(log: string): boolean {
+  return stripVTControlCharacters(log)
+    .split("\n")
+    .some((line) => !TEST_LINE.test(line) && answered(line)?.startsWith("refused: out of credit"));
+}
+
 /** A line of a printed object, in a diff or not: a key, then a colon. */
 const MEMBER = /^[+-]?\s+(?:"[^"]*"|[\w$]+)\s*:/;
-const MESSAGE = /^[+-]?\s+"?message"?\s*:/;
+const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
 const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
 
 /**
@@ -184,7 +202,9 @@ const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
  * provider's answer becomes its status or the core's failure kind and our words, every other line
  * stays as it is. A message member of a printed object is the provider's when a line of the same
  * object before it has said so (`"kind": "rate-limit"`), so the filter remembers that until the
- * object ends; a message of ours follows no such line and stays.
+ * object ends; a message of ours follows no such line and stays. A member line that holds a
+ * message anywhere in it is told the same way, as Node prints a short parsed body on one line:
+ * `data: { error: { message: … } }`.
  */
 export function logFilter(): (line: string) => string {
   let said: string | null = null;
@@ -199,7 +219,7 @@ export function logFilter(): (line: string) => string {
       (providerSaid(plain) ? classify(plain) : null) ??
       (RESPONSE_BODY.test(plain) ? PROVIDER_ANSWERED : null);
     const member = MEMBER.test(plain);
-    const words = quoted ?? (member && MESSAGE.test(plain) ? said : null);
+    const words = quoted ?? (member && HOLDS_MESSAGE.test(plain) ? said : null);
     said = member ? (quoted ?? said) : null;
     return words ? `(a provider's words left out) ${words}` : line;
   };
@@ -419,7 +439,7 @@ export async function runSteps(
       if (spent.has(secret) || !(await accepted(secret, step.provider))) continue;
       ran = true;
       const run = await execute(step, secret);
-      const outOfCredit = run.exitCode !== 0 && OUT_OF_CREDIT.test(run.log);
+      const outOfCredit = run.exitCode !== 0 && ranOutOfCredit(run.log);
       attempts.push({ step, secret, outOfCredit, ...run });
       after?.(attempts);
       if (!outOfCredit) break;

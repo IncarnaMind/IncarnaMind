@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { inspect } from "node:util";
+import { APICallError } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import { readStatus } from "../../scripts/nightlyIssue";
 import {
@@ -87,6 +89,37 @@ describe("the second key", () => {
       "kimi-live NIGHTLY_KIMI_KEY",
     ]);
     expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false, false, false]);
+  });
+
+  // protects=a key with no credit is told by the core's words (Chinese ones included), by any 402 and by the core's own out-of-credit kind, so the night moves to the next key and does not call it a failed night; fails_when=a Kimi key that answers in Chinese, a bare 402 or a message with no credit word in it runs once and fails; no_claim=how the providers word the error.
+  test("the core's words, a 402 and the core's kind move the night to the next key", async () => {
+    for (const log of [
+      "Error: 429 账户已欠费，请充值 (org-1111aaaa2222bbbb3333cccc4444dddd)",
+      "AssertionError: 余额不足",
+      'Error: 402 {"error":"nope"}',
+      '{"ok":false,"error":{"kind":"out-of-credit","message":"This key cannot be used right now."}}',
+    ]) {
+      const asked: string[] = [];
+      const attempts = await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return secret === SECRETS.anthropic[0] ? run(1, `${log}\n`) : run(0);
+      });
+      expect(asked, log).toEqual([...SECRETS.anthropic]);
+      expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+    }
+  });
+
+  // protects=a test's own line that says out of credit, in a run that failed for another reason, does not move the night to the next key; fails_when=a failing run whose log holds a reporter's line for a test titled with those words is called out of credit; no_claim=none.
+  test("a test's title that says out of credit is not a key out of credit", async () => {
+    const asked: string[] = [];
+    await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return run(
+        1,
+        " ✓ tests/live/x.live.test.ts > a key that is out of credit is refused 12ms\n FAIL  tests/live/y.live.test.ts > a case\n",
+      );
+    });
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
   });
 
   // protects=any other failure is a failure, not a reason to spend again on the second key; fails_when=a failing case runs twice; no_claim=none.
@@ -737,6 +770,17 @@ describe("a provider's words stay out of the summary and the log", () => {
         "AI_RetryError: Failed after 3 attempts. Last error: The operation was aborted due to timeout",
       ),
     ).toBe("failed: timed out");
+    expect(describeFailure("AssertionError: 请求被拒绝：账户余额不足，请充值")).toBe(
+      "refused: out of credit",
+    );
+    expect(describeFailure('Error: 402 {"error":"nope"}')).toBe(
+      "refused: out of credit (status 402)",
+    );
+    expect(
+      describeFailure(
+        '{"ok":false,"error":{"kind":"out-of-credit","message":"This key cannot be used right now."}}',
+      ),
+    ).toBe("refused: out of credit");
     expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
       "refused: out of credit (status 402)",
     );
@@ -992,6 +1036,30 @@ describe("a provider's words stay out of the summary and the log", () => {
         `failed: ${kind}`,
       );
     }
+  });
+
+  // protects=an AI SDK error printed by Node with a short body, which Node puts on one line (data: { error: { message: ... } }), is told from the line before it that a provider answered, and a data member of ours in an object where no line said so stays; fails_when=the key id in a short body is printed, or a data member of ours is replaced; no_claim=a body that is not an AI SDK error.
+  test("an AI SDK error with a short body is printed with no id from its body", () => {
+    const key = "ak-demo9876";
+    const body = { error: { message: `Bad key ${key}`, type: "auth" } };
+    const error = new APICallError({
+      message: `Bad key ${key}`,
+      url: "https://api.example.test/v1/messages",
+      requestBodyValues: { model: "demo" },
+      statusCode: 401,
+      responseHeaders: { "x-request-id": "req-demo" },
+      responseBody: JSON.stringify(body),
+      isRetryable: false,
+      data: body,
+    });
+    const printed = inspect(error).split("\n");
+    expect(printed.some((line) => /^\s+data: \{ error: \{ message:/.test(line))).toBe(true);
+    const shown = printed.map(logFilter());
+    expect(shown.join("\n")).not.toContain(key);
+    expect(shown).toContain("  url: 'https://api.example.test/v1/messages',");
+
+    const ours = ["  url: 'https://ours.example.test',", "  data: { message: 'ours' },"];
+    expect(ours.map(logFilter())).toEqual(ours);
   });
 
   /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */
