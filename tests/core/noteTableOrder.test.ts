@@ -96,6 +96,8 @@ interface Run {
   last: string | null;
   /** What the test does once the others' checks have ended, with the waiting check still out. */
   meanwhile?(world: World): Promise<void>;
+  /** The claim whose first check's request fails, as a provider's server error does. */
+  fails?: string;
 }
 
 interface World {
@@ -120,6 +122,10 @@ async function coreOf(
     release = resolve;
   });
   const claims = Object.keys(plans).length;
+  /** Each claim sent to be checked, by the run it was sent in, from 0. */
+  const sent: string[][] = [[]];
+  let waited = false;
+  let failed = false;
   const othersEnded = async () => {
     const at = world.current;
     if (!at) throw new Error("The checks began before the Note was made.");
@@ -134,9 +140,15 @@ async function coreOf(
   };
   const check = (call: ModelCall): ScriptedReply => {
     const sentence = sentenceOf(call);
+    if (call.results.length === 0) sent.at(-1)?.push(sentence);
+    if (sentence === run.fails && !failed) {
+      failed = true;
+      return { error: { status: 500, message: "The provider failed." } };
+    }
     const reply = checkReply(call, plans);
     const read = sentence.includes(RETURNS) ? asMinus(reply) : reply;
-    if (sentence !== run.last || call.results.length > 0) return read;
+    if (sentence !== run.last || call.results.length > 0 || waited) return read;
+    waited = true;
     return { ...read, pause: { after: 0, until: othersEnded() } };
   };
   const model = scriptedModel(
@@ -172,6 +184,7 @@ async function coreOf(
     dataDir,
     folderId: folder.id,
     sources,
+    sent,
     /** Begins the run on the Note the checks read. */
     begin(client: MindClient, mindId: string, requestId: string): World {
       world.current = { core, client, mindId, requestId, release };
@@ -180,16 +193,23 @@ async function coreOf(
   };
 }
 
-const cell = (type: "tableHeader" | "tableCell", text: string): JSONContent => ({
+const cell = (
+  type: "tableHeader" | "tableCell",
+  text: string,
+  id: string = randomUUID(),
+): JSONContent => ({
   type,
   attrs: { colspan: 1, rowspan: 1 },
-  content: [{ type: "paragraph", attrs: { id: randomUUID() }, content: [{ type: "text", text }] }],
+  content: [{ type: "paragraph", attrs: { id }, content: [{ type: "text", text }] }],
 });
 
 const row = (type: "tableHeader" | "tableCell", ...cells: string[]): JSONContent => ({
   type: "tableRow",
   content: cells.map((text) => cell(type, text)),
 });
+
+/** The paragraph id of the cell that holds "(120)". */
+const RETURNS_CELL = "returns-cell";
 
 /** Check this Note on the User's own table, each cell a claim of its own. */
 async function checkThisNote(
@@ -210,7 +230,10 @@ async function checkThisNote(
       content: [
         row("tableHeader", ...headings),
         row("tableCell", labels.sales, "500"),
-        row("tableCell", labels.returns, RETURNS),
+        {
+          type: "tableRow",
+          content: [cell("tableCell", labels.returns), cell("tableCell", RETURNS, RETURNS_CELL)],
+        },
         row("tableCell", labels.total, total),
       ],
     },
@@ -425,3 +448,63 @@ describe("Verify foots a table in its order", () => {
     ]);
   });
 });
+
+type Again = "Check this Note again" | "a check of the cell";
+
+describe.each([EN, ZH])(
+  "$language: a total is footed again when a cell is checked in a later run",
+  (example) => {
+    // protects=a cell whose check couldn't be made in one run, then checked in a later one, has the totals that count it footed against its new mark: cells that don't add up make the total Unsupported with its footing, and the total isn't sent to a model again (#2998); fails_when=the total keeps the footing it got without the cell, "(120)" unread, and stays Supported; no_claim=how a real provider fails or how a real model reads "(120)".
+    test.each<{ ended: "a failed request" | "the monthly cap"; again: Again }>([
+      { ended: "a failed request", again: "Check this Note again" },
+      { ended: "a failed request", again: "a check of the cell" },
+      { ended: "the monthly cap", again: "Check this Note again" },
+      { ended: "the monthly cap", again: "a check of the cell" },
+    ])("its cell ended Not checked by $ended, then $again", async ({ ended, again }) => {
+      const capped = ended === "the monthly cap";
+      const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
+        last: capped ? RETURNS : null,
+        ...(!capped && { fails: RETURNS }),
+        async meanwhile({ core, release }) {
+          await core.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
+          release();
+        },
+      });
+      await run.result;
+      await run.client.settled();
+      expect(states(run.client)).toEqual([
+        ["500", "supported"],
+        [RETURNS, "not-checked"],
+        ["400", "supported"],
+        [example.prose, "supported"],
+      ]);
+
+      if (capped) await run.core.updateSettings({ user: { monthlyCap: null } });
+      run.sent.push([]);
+      const requestId = randomUUID();
+      if (again === "Check this Note again")
+        await run.core.checkMind({ requestId, mindId: run.mindId, mode: "changed" });
+      else
+        await run.core.checkSentences({
+          requestId,
+          mindId: run.mindId,
+          action: "check-against-documents",
+          from: { blockId: RETURNS_CELL, offset: 0 },
+          to: { blockId: RETURNS_CELL, offset: RETURNS.length },
+        });
+      await run.client.settled();
+
+      expect(run.sent.at(-1)).toEqual([RETURNS]);
+      const marks = marksIn(run.client);
+      expect(marks.map(({ text, state }) => [text, state])).toEqual([
+        ["500", "supported"],
+        [RETURNS, "supported"],
+        ["400", "unsupported"],
+        [example.prose, "supported"],
+      ]);
+      expect(marks.find((mark) => mark.text === "400")?.footing).toMatchObject([
+        { axis: "row", sum: 380, agrees: false },
+      ]);
+    });
+  },
+);
