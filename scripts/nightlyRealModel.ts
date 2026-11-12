@@ -152,15 +152,20 @@ const providerSaid = (text: string) =>
  * What the text says about a provider's answer to a request, in words of ours, or null when it
  * quotes none. The text may hold what the provider answered, with an account or key id in it.
  * Credit words count only on a line that also says a provider answered (a status of 400 or more,
- * one of the core's kinds, an AI SDK error, a `responseBody` member): "没有欠费的会员" is a
- * sentence of a test's Document, and a 402 or the kind `out-of-credit` count alone.
+ * one of the core's kinds, an AI SDK error, a `responseBody` member, or, as `after`, a message
+ * member after one of those in the same object): "没有欠费的会员" is a sentence of a test's
+ * Document, and a 402 or the kind `out-of-credit` count alone.
  */
-function answered(text: string): string | null {
+function answered(text: string, after = false): string | null {
   const printed = KIND_STATUS.exec(text);
   const status = Number(STATUS.exec(text)?.[1] ?? printed?.[2]);
   const kind = KIND.exec(text)?.[1] ?? printed?.[1];
   const refusal =
-    status >= 400 || kind !== undefined || providerSaid(text) || RESPONSE_BODY.test(text);
+    after ||
+    status >= 400 ||
+    kind !== undefined ||
+    providerSaid(text) ||
+    RESPONSE_BODY.test(text);
   if (status === 402 || kind === OUT_OF_CREDIT_KIND || (refusal && OUT_OF_CREDIT.test(text))) {
     return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
   }
@@ -190,43 +195,68 @@ export const describeFailure = (text: string): string =>
 /** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
 const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
 
-/**
- * Whether the step's output says its key's credit is used up, by the words, status or kind that
- * `answered` knows. A test's own line, whose title may say so, does not.
- */
-function ranOutOfCredit(log: string): boolean {
-  return stripVTControlCharacters(log)
-    .split("\n")
-    .some((line) => !TEST_LINE.test(line) && answered(line)?.startsWith("refused: out of credit"));
-}
-
 /** A line of a printed object, in a diff or not: a key, then a colon. */
 const MEMBER = /^[+-]?\s+(?:"[^"]*"|[\w$]+)\s*:/;
 const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
+const CLOSING = /^[+-]?\s*[\]})]+[,;]?\s*$/;
+
+/** How far a line is indented, after a diff's marker; -1 for a blank line. */
+const indentOf = (line: string): number =>
+  line.trim() === "" ? -1 : (/^[+-]?(\s*)/.exec(line)?.[1]?.length ?? 0);
+
 /**
- * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
- * provider's answer becomes its status or the core's failure kind and our words, every other line
- * stays as it is. A message member of a printed object is the provider's when a line of the same
- * object before it has said so (`"kind": "rate-limit"`), so the filter remembers that until the
- * object ends; a message of ours follows no such line and stays. A member line that holds a
- * message anywhere in it is told the same way, as Node prints a short parsed body on one line:
- * `data: { error: { message: … } }`.
+ * Reads a step's output a line at a time and says what each line quotes of a provider's answer,
+ * in words of ours, or null when it quotes none. A message member of a printed object is the
+ * provider's when a member line of the same object before it has said so (`"kind": "rate-limit"`,
+ * `statusCode: 401`), so the reader remembers that until the object ends, which is a line
+ * indented less than that member (or a blank one); a nested object's closing brace does not end
+ * it. A message of ours follows no such line and stays. A member line that holds a message
+ * anywhere in it is told the same way, as Node prints a short parsed body on one line:
+ * `data: { error: { message: … } }`. A test's own line says nothing.
  */
-export function logFilter(): (line: string) => string {
-  let said: string | null = null;
+function answerReader(): (line: string) => string | null {
+  let said: { words: string; indent: number } | null = null;
   return (line) => {
     const plain = stripVTControlCharacters(line);
     if (TEST_LINE.test(plain)) {
       said = null;
-      return line;
+      return null;
     }
+    const indent = indentOf(plain);
+    const member = MEMBER.test(plain);
+    if (
+      said &&
+      !(indent > said.indent || (indent === said.indent && (member || CLOSING.test(plain))))
+    ) {
+      said = null;
+    }
+    const after = said !== null && member && HOLDS_MESSAGE.test(plain);
     const quoted =
-      answered(plain) ??
+      answered(plain, after) ??
       (providerSaid(plain) ? classify(plain) : null) ??
       (RESPONSE_BODY.test(plain) ? PROVIDER_ANSWERED : null);
-    const member = MEMBER.test(plain);
-    const words = quoted ?? (member && HOLDS_MESSAGE.test(plain) ? said : null);
-    said = member ? (quoted ?? said) : null;
+    if (quoted && member && !said) said = { words: quoted, indent };
+    return quoted ?? (after ? (said?.words ?? null) : null);
+  };
+}
+
+/** Whether the step's output says its key's credit is used up, by the words, status or kind `answered` knows. */
+function ranOutOfCredit(log: string): boolean {
+  const read = answerReader();
+  return stripVTControlCharacters(log)
+    .split("\n")
+    .some((line) => read(line)?.startsWith("refused: out of credit") === true);
+}
+
+/**
+ * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
+ * provider's answer (see `answerReader`) becomes its status or the core's failure kind and our
+ * words, every other line stays as it is.
+ */
+export function logFilter(): (line: string) => string {
+  const read = answerReader();
+  return (line) => {
+    const words = read(line);
     return words ? `(a provider's words left out) ${words}` : line;
   };
 }

@@ -111,6 +111,30 @@ describe("the second key", () => {
     }
   });
 
+  // protects=credit words on a line after one that said a provider answered, in the same printed object (a status, then the message that holds the words, even past a nested closing brace), move the night to the next key; a member line of ours with the same words and no such line before it does not; fails_when=the night fails where the key was merely empty, or a member line of ours spends the key; no_claim=none.
+  test("credit words after a status in the same object move the night to the next key", async () => {
+    const answered = [
+      "  statusCode: 400,\n  data: { error: { message: 'Your credit balance is too low' } },\n",
+      "  statusCode: 400,\n  data: {\n    error: {\n      details: {\n        field: 'x'\n      },\n      message: 'Your credit balance is too low'\n    }\n  }\n",
+      '+     "status": 429,\n+     "message": "账户已欠费，请充值",\n',
+    ];
+    for (const log of answered) {
+      const asked: string[] = [];
+      const attempts = await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return secret === SECRETS.anthropic[0] ? run(1, log) : run(0);
+      });
+      expect(asked, log).toEqual([...SECRETS.anthropic]);
+      expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+    }
+    const asked: string[] = [];
+    await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return run(1, "  data: { error: { message: 'we are out of credits for coffee' } },\n");
+    });
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+  });
+
   // protects=credit words on a line of ours (a sentence of a test's Document, an assertion on a text) are not a key out of credit: only a line that also says a provider answered counts them; fails_when=a failed step whose output holds such a sentence on an assertion line spends the key, reruns on the next one, or reads "out of credit" in the summary; no_claim=none.
   test("credit words in a sentence of ours are a failed step, not a spent key", async () => {
     const ours = [
@@ -1088,6 +1112,29 @@ describe("a provider's words stay out of the summary and the log", () => {
 
     const ours = ["  url: 'https://ours.example.test',", "  data: { message: 'ours' },"];
     expect(ours.map(logFilter())).toEqual(ours);
+  });
+
+  // protects=a message deeper in an object that a provider answered is told past a nested closing brace, and ends with the object; fails_when=the key id in a message after a nested object is printed, or a message of ours after the object is replaced; no_claim=none.
+  test("a message after a nested object of a provider's error is told, and not one after the error", () => {
+    const key = "ak-demo9876";
+    const printed = [
+      "  statusCode: 401,",
+      "  data: {",
+      "    error: {",
+      "      details: {",
+      "        field: 'authorization'",
+      "      },",
+      `      message: 'Bad key ${key}'`,
+      "    }",
+      "  }",
+      "}",
+      "  message: 'ours'",
+    ];
+    const shown = printed.map(logFilter());
+    expect(shown.join("\n")).not.toContain(key);
+    expect(shown[4]).toBe("        field: 'authorization'");
+    expect(shown[6]).toMatch(/^\(a provider's words left out\) /);
+    expect(shown.slice(7)).toEqual(printed.slice(7));
   });
 
   /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */
