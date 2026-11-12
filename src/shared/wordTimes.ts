@@ -29,21 +29,35 @@ export interface HeardWord {
 const NEXT_WORD_WITHIN = 40;
 
 /**
+ * Where each of a transcriber's words is in `text`, each looked for just after the one before:
+ * -1 for a word the text doesn't have there.
+ */
+export function wordPlaces(text: string, words: readonly string[]): number[] {
+  let from = 0;
+  return words.map((word) => {
+    const wanted = word.trim();
+    const at = wanted ? foldedIndexOf(text, wanted, from, NEXT_WORD_WITHIN) : -1;
+    if (at >= 0) from = at + wanted.length;
+    return at;
+  });
+}
+
+/**
  * Where a transcriber's words fall in a line's text as it was written, each looked for just after
  * the one before. A word the text no longer has as it came (a number written as figures, the
  * other Chinese script) is left out, and its time with it.
  */
 export function alignWords(text: string, words: readonly HeardWord[]): WordTime[] {
   const placed: WordTime[] = [];
-  let from = 0;
-  for (const word of words) {
-    const wanted = word.text.trim();
-    if (!wanted) continue;
-    const at = foldedIndexOf(text, wanted, from, NEXT_WORD_WITHIN);
+  const places = wordPlaces(
+    text,
+    words.map((word) => word.text),
+  );
+  for (const [index, word] of words.entries()) {
+    const at = places[index] ?? -1;
     if (at < 0) continue;
     const last = placed.at(-1);
     if (!last || (at > last.at && word.ms >= last.ms)) placed.push({ at, ms: Math.round(word.ms) });
-    from = at + wanted.length;
   }
   return placed;
 }

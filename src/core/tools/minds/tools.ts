@@ -98,6 +98,7 @@ import {
   type EditAction,
   type EditWithAiResult,
   type Effect,
+  type FiguresLeftOut,
   type MindChange,
   type MindProblem,
   PROPOSAL_ATTRIBUTE,
@@ -125,6 +126,7 @@ import {
   ownWaitingTexts,
   replaceApplied,
   replaceOwn,
+  takesMissingNumberOver,
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
@@ -247,6 +249,12 @@ export interface MindToolsOptions {
   focused: { mindId: string; blockIds: readonly string[] } | null;
   /** Why a named Note outside the Folder can't be read. */
   wallMessage?: string;
+  /**
+   * What the model reads when its change takes out the mark where a figure couldn't be calculated
+   * with no calculated figure in its place (#2577), in the language the mark's words are in: of a
+   * change it wrote as `content`, and of one it asked for by `instruction`.
+   */
+  missingNumberRefused: { content: string; instruction: string };
   /** Called when a named Note is refused because of the Folder wall. */
   wallRefused?(): void;
   /** Whether a Note with this name exists outside the current wall. */
@@ -322,6 +330,8 @@ export interface MindToolsOptions {
     unlinkedSources: number;
     /** Cells beyond its tables' columns, their text kept in the row's last cell. */
     extraCells: number;
+    /** Figure markers no figure was recorded for, marked as missing in the text (#2577). */
+    figuresLeftOut?: FiguresLeftOut;
     searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
     analysisTables: readonly AnalysisTableMatch[];
@@ -859,14 +869,17 @@ const someTableNotes = ({
   unlinkedSources = 0,
   droppedSources = 0,
   extraCells,
+  figuresLeftOut,
 }: {
   unlinkedSources?: number;
   droppedSources?: number;
   extraCells: number;
+  figuresLeftOut?: FiguresLeftOut;
 }) => ({
   ...(unlinkedSources > 0 && { unlinkedSources }),
   ...(droppedSources > 0 && { droppedSources }),
   ...(extraCells > 0 && { extraCells }),
+  ...(figuresLeftOut && { figuresLeftOut }),
 });
 
 function noTableMessage(name: string, said: string, text: string | null): string {
@@ -955,6 +968,7 @@ function notProposed(
   result: EditWithAiResult,
   mind: ChangeableMind,
   noTableSaid: string,
+  missingNumberRefused: string,
 ): Refusal | string {
   const { id: mindId, name } = mind;
   switch (result.kind) {
@@ -1018,6 +1032,8 @@ function notProposed(
         { kind: "typed-tag", mindId },
         `Nothing was proposed in “${name}”: the rewrite left out a <removed> tag the User typed there, which would take their words out. The text is as it was: don't say it was changed. You may try again once, keeping each tag the User typed as it is.`,
       );
+    case "missing-number":
+      return new Refusal({ kind: "missing-number", mindId }, missingNumberRefused);
     case "not-placed":
       return new Refusal(
         { kind: "not-placed", mindId },
@@ -2417,6 +2433,14 @@ export function mindTools(options: MindToolsOptions): {
     if (uncited) throw uncited;
     const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
     if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
+    if (
+      minds.read(mind.id, (note) => takesMissingNumberOver(note, over, blocks, { removesOnly }))
+    ) {
+      throw new Refusal(
+        { kind: "missing-number", mindId: mind.id },
+        options.missingNumberRefused.content,
+      );
+    }
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();
@@ -2702,7 +2726,12 @@ export function mindTools(options: MindToolsOptions): {
         removesOnly: input.removes_only === true,
       });
       if (result.kind !== "proposed") {
-        const why = notProposed(result, mind, unmadeSaid(mind.name));
+        const why = notProposed(
+          result,
+          mind,
+          unmadeSaid(mind.name),
+          options.missingNumberRefused.instruction,
+        );
         if (typeof why === "string") return why;
         if (why.problem.kind === "waiting") {
           const now = minds.read(mind.id, (blocks) =>

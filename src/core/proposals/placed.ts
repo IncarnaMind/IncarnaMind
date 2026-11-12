@@ -6,15 +6,19 @@
  * none its reply didn't place (`unplacedSince`).
  */
 import * as Y from "yjs";
-import { readProposalAttribute } from "../../shared/proposals";
+import { readProposalAttribute, readProposalRef } from "../../shared/proposals";
 import {
   ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
 } from "../api";
+import { diffSteps, hunksOf, splitWords } from "./diff";
 
 type Attributes = Record<string, unknown>;
 
@@ -84,6 +88,129 @@ export function tallyCiting(
     tallyCiting(counts, child, request, by);
   }
   return counts;
+}
+
+/** A paragraph's words, its marks where a figure couldn't be calculated and its calculated figures, in order. */
+export type PlaceKeys = readonly string[];
+
+const MARK_KEY = "\u0000mark";
+
+/** The Blocks that hold a line of text and inline nodes. */
+export const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
+const FIGURE_KEY = "\u0000figure:";
+
+/** A paragraph's keys from its words and nodes: a mark, a calculated figure by its id, else its words. */
+export function placeKeysOf(
+  parts: readonly ({ text: string } | { node: string; id?: unknown })[],
+): string[] {
+  return parts.flatMap((part) =>
+    "text" in part
+      ? splitWords(part.text)
+      : part.node === MISSING_NUMBER_NODE
+        ? [MARK_KEY]
+        : part.node === CALCULATED_FIGURE_NODE
+          ? [`${FIGURE_KEY}${String(part.id ?? "")}`]
+          : [],
+  );
+}
+
+/**
+ * The paragraphs in `root` as they read with `request`'s changes accepted and no other's, as
+ * `takesMissingNumber` compares them (#2577); with `request` null, as they hold, changes and all.
+ */
+export function paragraphPlaces(
+  root: Y.XmlFragment | Y.XmlElement,
+  request: string | null,
+): PlaceKeys[] {
+  const paragraphs: PlaceKeys[] = [];
+  const ours = (value: unknown) => request === null || readProposalRef(value)?.request === request;
+  const skipped = (proposal: ReturnType<typeof readProposalAttribute>) =>
+    request !== null &&
+    ((proposal?.kind === "insert" && proposal.request !== request) ||
+      (proposal?.kind === "delete" && proposal.request === request));
+  const visit = (node: Y.XmlFragment | Y.XmlElement) => {
+    const children = node.toArray();
+    // A table cell's paragraph may hold the mark alone, with no text beside it.
+    const textBlock =
+      (node instanceof Y.XmlElement && TEXT_BLOCKS.has(node.nodeName)) ||
+      children.some((child) => child instanceof Y.XmlText);
+    if (textBlock) {
+      const parts: ({ text: string } | { node: string; id?: unknown })[] = [];
+      for (const child of children) {
+        if (child instanceof Y.XmlText) {
+          for (const run of child.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
+            const added = run.attributes?.[PROPOSAL_INSERT_MARK];
+            const removed = run.attributes?.[PROPOSAL_DELETE_MARK];
+            if (request !== null && removed !== undefined && ours(removed)) continue;
+            if (added !== undefined && !ours(added)) continue;
+            if (typeof run.insert === "string") parts.push({ text: run.insert });
+          }
+        } else if (child instanceof Y.XmlElement) {
+          if (skipped(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE)))) continue;
+          parts.push({ node: child.nodeName, id: child.getAttribute(BLOCK_ID_ATTRIBUTE) });
+        }
+      }
+      paragraphs.push(placeKeysOf(parts));
+      return;
+    }
+    for (const child of children) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (skipped(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE)))) continue;
+      visit(child);
+    }
+  };
+  visit(root);
+  return paragraphs;
+}
+
+/** Whether any of the paragraphs holds the mark where a figure couldn't be calculated. */
+export const holdsMissingNumber = (paragraphs: readonly PlaceKeys[]): boolean =>
+  paragraphs.some((paragraph) => paragraph.includes(MARK_KEY));
+
+const BREAK_KEY = "\u0000¶";
+
+/** Paragraphs as one run of words, a break between each two, so no paragraph answers for another. */
+const oneRun = (paragraphs: readonly PlaceKeys[]): string[] =>
+  paragraphs.flatMap((paragraph, index) =>
+    index === 0 ? [...paragraph] : [BREAK_KEY, ...paragraph],
+  );
+
+/**
+ * Whether going from the paragraphs `before` to `after`, in order, takes out a mark where a figure
+ * couldn't be calculated with no calculated figure in its place (#2577). Both are read as one run
+ * of words and compared once: a mark a changed place takes out is replaced only by a calculated
+ * figure new in that same place, never by digits; a mark written in another place, as when its
+ * sentence moves, keeps it. With `removesOnly`, the User asked only for text to go, and a change
+ * that writes nothing may take a mark out with its words. What it can't tell: a change that types
+ * digits where the mark was and writes the mark where another number stood lands, as the mark it
+ * writes keeps one.
+ */
+export function takesMissingNumber(
+  before: readonly PlaceKeys[],
+  after: readonly PlaceKeys[],
+  { removesOnly = false }: { removesOnly?: boolean } = {},
+): boolean {
+  if (!holdsMissingNumber(before)) return false;
+  const old = oneRun(before);
+  const now = oneRun(after);
+  const figuresBefore = new Set(old.filter((key) => key.startsWith(FIGURE_KEY)));
+  const isNewFigure = (key: string) => key.startsWith(FIGURE_KEY) && !figuresBefore.has(key);
+  const hunks = hunksOf(diffSteps(old, now), () => false);
+  const writesNothing = hunks.every((hunk) =>
+    now.slice(hunk.newFrom, hunk.newTo).every((key) => key === BREAK_KEY || key.trim() === ""),
+  );
+  if (removesOnly && writesNothing) return false;
+  let uncovered = 0;
+  let elsewhere = 0;
+  for (const hunk of hunks) {
+    const out = old.slice(hunk.oldFrom, hunk.oldTo).filter((key) => key === MARK_KEY).length;
+    const added = now.slice(hunk.newFrom, hunk.newTo);
+    const marks = added.filter((key) => key === MARK_KEY).length;
+    const figures = added.filter(isNewFigure).length;
+    uncovered += Math.max(0, out - marks - figures);
+    elsewhere += Math.max(0, marks - out);
+  }
+  return uncovered > elsewhere;
 }
 
 const same = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) =>

@@ -397,6 +397,11 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
     const reading = readingOf(book, cell.shown);
     const unit: ResultUnit = reading?.unit ?? { kind: "plain" };
     const decimals = reading?.decimals ?? 2;
+    // The cell's decimals are in the cell's own scale: given none, they would be read in 万 or
+    // thousands, and 27,000 would show as 3万 (#2577).
+    const scales = reading
+      ? [{ exponent: Math.round(Math.log10(reading.scale)), word: reading.scaleWord, decimals }]
+      : [];
     const result = showResult(
       {
         ok: true,
@@ -405,7 +410,7 @@ export function workbookTools(options: WorkbookToolOptions): Tool[] {
         unit,
         approximate: false,
         literals: [],
-        scales: [],
+        scales,
       },
       { language: options.language, as: null, decimals, scale: null },
     );

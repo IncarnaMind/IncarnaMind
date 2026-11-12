@@ -97,7 +97,7 @@ test("with a Soniox key, the first recording's sheet offers it under Other ways�
   await expect(ways).toContainText("Soniox · your key");
   await expect(ways.getByTestId("meeting-route-use-soniox")).toBeFocused();
   await expect(ways).toContainText(
-    "Choosing one sends the meeting’s audio to that service while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Choosing one sends the meeting’s audio to that service while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await shot(window, "route-other-ways-en-1600");
 
@@ -184,7 +184,7 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   const ways = sheet.getByTestId("meeting-route-ways");
   await expect(ways).toContainText("Qwen · your key · China (Beijing)");
   await expect(ways).toContainText(
-    "Audio goes to Alibaba Cloud while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Alibaba Cloud while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(ways).toContainText("isn’t used for model training or optimization");
   await expect(ways.getByRole("link", { name: "Agreement" })).toHaveAttribute(
@@ -197,7 +197,7 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   await setWindowSize(app, window, 900, 720);
   await expect(ways).toContainText("通义千问 · 你的密钥 · 中国内地（北京）");
   await expect(ways).toContainText(
-    "录音期间，音频会发送给阿里云，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "录音期间，音频会发送给阿里云，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   );
   await expect(ways.getByRole("link", { name: "协议" })).toHaveAttribute(
     "href",
@@ -216,7 +216,7 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   await use.click();
   await expect(line).toContainText("Transcribe with Qwen");
   await expect(line).toContainText(
-    "Audio goes to Alibaba Cloud while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Alibaba Cloud while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   const chosen = await core(window);
   expect(chosen.settings.device.transcriptionRoute).toBe("qwen");
@@ -289,7 +289,7 @@ test("Settings › Meetings' line describes the route chosen in Settings › AI:
     };
     line = await choose("soniox");
     await expect(line).toContainText(
-      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     );
     await shot(window, "route-line-cloud-en-1600");
     await setLanguage(window, "zh-CN");
@@ -300,7 +300,7 @@ test("Settings › Meetings' line describes the route chosen in Settings › AI:
     await shot(window, "route-line-key-saved-zh-900");
     line = await choose("soniox");
     await expect(line).toContainText(
-      "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+      "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
     );
     await shot(window, "route-line-cloud-zh-900");
     await setWindowSize(app, window, 1600, 900);

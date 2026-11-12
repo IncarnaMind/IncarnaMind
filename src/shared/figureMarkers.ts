@@ -2,7 +2,8 @@
  * Calculated figures where an Answer writes them (ADR-0021): a marker such as
  * "[=1]" where the number goes, beside Citation markers ("[^1]"). Each reader
  * of an Answer puts the figure's shown text there, and a marker with no figure
- * is left out, with the space before it. A model often writes the number too,
+ * is left out, with the space before it; where text reaches a Note, or a finished Answer is shown,
+ * it becomes the mark that says no number was written (#2577). A model often writes the number too,
  * right before its marker ("25% [=1]"): when it reads as the same figure it is
  * left out, so the text shows it once; when it doesn't, it stays, and the
  * figure keeps what the Answer wrote (`CalculatedFigure.written`). Words the
@@ -20,6 +21,7 @@ import {
   withoutSpaceBeforeRemoved,
 } from "./blockJson";
 import { type Figure, type FigureUnit, readFigures } from "./figures";
+import { missingNumberNode } from "./missingNumbers";
 
 /** A figure marker as the model writes it: "[=1]". */
 export const FIGURE_MARKER = /\[=(\d{1,4})\]/g;
@@ -42,6 +44,11 @@ export function numberBefore(before: string, figure: PlacedFigure): NumberBefore
   if (!last || last.end !== trimmed.length) return null;
   return { start: last.start, chars: last.chars, same: sameFigure(last, figure) };
 }
+
+const endsWithNumber = (before: string): boolean => {
+  const trimmed = before.replace(/\s+$/u, "");
+  return readFigures(trimmed).at(-1)?.end === trimmed.length;
+};
 
 /**
  * Whether what a model wrote reads as the figure: the same unit (a number
@@ -174,16 +181,23 @@ function place(
  * Turns the figure markers in Blocks into their figures: what `show` gives
  * for each (a node, or text with the marks around it), told what the Answer
  * wrote right before it when that isn't the figure. A marker `figureOf` has
- * no figure for is left out.
+ * no figure for is left out; with `missing`, it becomes the mark that says no number was written,
+ * and `missing` is told, unless the Answer wrote its number right before it: a sentence is never
+ * left without its number, unsaid (#2577).
  */
 export function withFigures<F extends PlacedFigure>(
   blocks: readonly NodeJSON[],
   figureOf: (marker: number) => F | null,
   show: (figure: F, marker: number, written: string | null) => NodeJSON | string,
+  missing?: (marker: number) => void,
 ): NodeJSON[] {
   return replaceMarkers(blocks, FIGURE_MARKER, (match, before, after) => {
     const marker = Number(match[1]);
     const figure = figureOf(marker);
+    if (!figure && missing && !endsWithNumber(before)) {
+      missing(marker);
+      return { before, put: missingNumberNode() };
+    }
     const placed = place(figure, before, after);
     return {
       before: placed.before,
