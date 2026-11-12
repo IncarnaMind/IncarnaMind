@@ -498,6 +498,58 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     },
   );
 
+  test.each([
+    { how: "fails at the provider", stop: false },
+    { how: "is stopped", stop: true },
+  ])(
+    "a sentence that had passed keeps its ✓ when Check again $how before judging it",
+    async ({ stop }) => {
+      let round = 0;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reply =
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+      const { core, meeting, batches } = await setUp({
+        reply,
+        records: [
+          { marker: 1, from: "sheet" },
+          { marker: 2, from: "sheet" },
+        ],
+        judge: (call) =>
+          ++round === 1
+            ? batchOf(call, [["answers at once", { verdict: "supported", kind: "opinion" }]])
+            : stop
+              ? { ...batchOf(call, []), until: held }
+              : { error: { status: 503, message: "Service unavailable." } },
+      });
+      const first = await (await pressed(core, meeting, "answer")).judged();
+
+      const again = core.checkAnswerAgain({
+        conversationId: first.conversationId,
+        answerId: first.id,
+      });
+      await vi.waitFor(() => expect(batches).toHaveLength(2));
+      if (stop) {
+        await core.stopConversationAnswer({
+          conversationId: first.conversationId,
+          answerId: first.id,
+        });
+        release();
+      }
+      await again;
+      const after = await answerJudged(core, first.conversationId, first.id);
+
+      expect(chips(first).map((chip) => chip.passed)).toEqual([true, true, false]);
+      expect(after.citations).toMatchObject([
+        { marker: 1, check: "found" },
+        { marker: 2, check: "not-checked" },
+      ]);
+      expect(chips(after).map((chip) => chip.passed)).toEqual([true, true, false]);
+    },
+  );
+
   test("Check again passing a sentence again gives its ✓ back to a Citation another sentence left unsupported", async () => {
     let round = 0;
     const reply =
@@ -651,13 +703,13 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect([...new Set(states)].sort()).toEqual(["supported", "unsupported"]);
   });
 
-  // protects=the evaluation's switch to main's path keeps call help's ✓ on a found quote alone and sends no check, so a paired run compares the two paths and nothing else; fails_when=the switch judges the sentences or leaves the Citation checking; no_claim=which path is right (#2847).
-  test("with main's path, the evaluation's switch, a found quote is marked found at the end and nothing is judged", async () => {
+  // protects=the evaluation's quote-only switch keeps call help's ✓ on a found quote alone and sends no check, so a paired run compares the two paths and nothing else; fails_when=the switch judges the sentences or leaves the Citation checking; no_claim=which path is right (#2847).
+  test("with the evaluation's quote-only switch, a found quote is marked found at the end and nothing is judged", async () => {
     let quoteOnly = true;
     const { core, meeting, batches } = await setUp({ reply: ENGLISH }, () => quoteOnly);
 
     const { atEnd } = await pressed(core, meeting, "answer");
-    // The branch's path, pressed after it in the same core, is checked: a batch is seen when sent.
+    // Without the switch, a press after it in the same core is checked: a batch is seen when sent.
     quoteOnly = false;
     const judgedPress = await (await pressed(core, meeting, "answer")).judged();
 

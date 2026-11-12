@@ -1182,6 +1182,8 @@ export function createAnswers(options: AnswersOptions) {
     mindId: string | null,
     documentIds: readonly string[] | null,
     limit: Money = ANSWER_CHECKING_LIMIT,
+    /** By marker, the places of passed sentences Check again took off to judge them anew. */
+    taken: ReadonlyMap<number, readonly number[]> = new Map(),
   ) {
     const waiting = new Set(
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
@@ -1201,7 +1203,10 @@ export function createAnswers(options: AnswersOptions) {
         .filter((each) => ["found", "unsupported", "contradicted"].includes(each.check))
         .map((each) => each.marker),
     );
+    /** The places of sentences this judgement gave a result, passed or not. */
+    const settled = new Set<number>();
     const passed = (sentence: CitedSentence, result: SupportResult | null) => {
+      if (result) for (const at of sentence.at) settled.add(at);
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
         const at = sentence.at[index];
@@ -1243,6 +1248,23 @@ export function createAnswers(options: AnswersOptions) {
         options.conversations.writeCitations(answer.id, answer.text, citations);
       }
     };
+    /**
+     * A sentence that had passed keeps its ✓ when judging it anew stopped, failed or couldn't
+     * reach the model (#2847): only a result takes the places Check again took off.
+     */
+    const giveBack = () => {
+      let given = false;
+      citations = citations.map((citation): MarkedCitation => {
+        const back = (taken.get(citation.marker) ?? []).filter((at) => !settled.has(at));
+        if (back.length === 0) return citation;
+        given = true;
+        const places = [...new Set([...(citation.passedAt ?? []), ...back])];
+        return { ...citation, passedAt: places.sort((a, b) => a - b) };
+      });
+      if (given && judgements.get(answer.id)?.controller === controller) {
+        options.conversations.writeCitations(answer.id, answer.text, citations);
+      }
+    };
     try {
       const { checkAnswer } = options;
       if (checkAnswer && answer.model) {
@@ -1268,6 +1290,7 @@ export function createAnswers(options: AnswersOptions) {
       options.reportError(error);
     } finally {
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
+      giveBack();
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
     }
   }
@@ -4883,9 +4906,12 @@ export function createAnswers(options: AnswersOptions) {
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
           .flatMap((each) => each.at),
       );
+      const taken = new Map<number, number[]>();
       const waiting = answer.citations.map((citation): MarkedCitation => {
         const { passedAt: earlier, ...rest } = citation;
         const kept = (earlier ?? []).filter((at) => !rejudged.has(at));
+        const off = (earlier ?? []).filter((at) => rejudged.has(at));
+        if (off.length > 0) taken.set(citation.marker, off);
         return {
           ...rest,
           ...(citation.check === "not-checked" && { check: "checking" }),
@@ -4898,6 +4924,7 @@ export function createAnswers(options: AnswersOptions) {
         judgedMind(question),
         documentIds,
         limit ?? undefined,
+        taken,
       );
     },
 
