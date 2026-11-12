@@ -1044,6 +1044,24 @@ describe("The estimate before a large run", () => {
     expect(await local.core.estimateRun({ items: 9, searches: 4 })).toEqual({ billing: "free" });
   });
 
+  test("an estimate names the saved provider whose price it is worked out from: the default model's, or the one asked about (#1257)", async () => {
+    const { core, provider } = await cloudCore(reportingModel([{ input: 0, output: 0 }]));
+    expect(await core.estimateRun({ items: 3 })).toMatchObject({ providerId: provider.id });
+
+    const other = await core.saveChatProvider({
+      kind: "deepseek",
+      apiKey: "sk-test",
+      modelId: "deepseek-flash",
+    });
+    expect(
+      await core.estimateRun({
+        items: 3,
+        each: "check",
+        model: { providerId: other.id, modelId: "deepseek-flash" },
+      }),
+    ).toMatchObject({ providerId: other.id });
+  });
+
   test("under a cap, it says how much of the month is used", async () => {
     const { core } = await cloudCore(reportingModel([{ input: 1_000, output: 100 }]));
     await request(core);
@@ -1106,13 +1124,14 @@ describe("The estimate before a check run (#973)", () => {
 
   test("Answers recorded on the model leave a check's estimate as it was, while an Answer's averages them", async () => {
     // A computer that has asked about long Documents: each call of an Answer read 28,000 tokens.
-    const { core } = await cloudCore(reportingModel([{ input: 28_000, output: 300 }]));
+    const { core, provider } = await cloudCore(reportingModel([{ input: 28_000, output: 300 }]));
     for (let call = 0; call < 6; call++) await request(core);
     const fresh = await cloudCore(reportingModel([{ input: 0, output: 0 }]));
 
-    expect(await core.estimateRun({ items: 14, each: "check" })).toEqual(
-      await fresh.core.estimateRun({ items: 14, each: "check" }),
-    );
+    expect(await core.estimateRun({ items: 14, each: "check" })).toEqual({
+      ...(await fresh.core.estimateRun({ items: 14, each: "check" })),
+      providerId: provider.id,
+    });
     expect(await core.estimateRun({ items: 14 })).toMatchObject({
       calls: 42,
       tokens: 42 * 28_300,

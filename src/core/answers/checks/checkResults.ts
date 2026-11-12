@@ -91,7 +91,8 @@ export function createCheckResults(
       (each) =>
         each.reason === "own-file" ||
         each.reason === "own-note" ||
-        each.reason === "checked-document",
+        each.reason === "checked-document" ||
+        each.reason === "same-text",
     ),
     ...(request.window && { readPassages: [...readPassages] }),
   });

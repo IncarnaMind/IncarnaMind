@@ -8,12 +8,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { cpus, loadavg, totalmem } from "node:os";
 import { join, resolve } from "node:path";
-import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { test } from "vitest";
-import type { SaveChatProviderInput } from "../../src/core";
-import { costOf } from "../../src/core/cost/price";
-import { catalogFacts } from "../../src/core/providers/catalog";
-import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -24,7 +19,7 @@ import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
-import { gradeAnswer } from "./judge";
+import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
 import {
@@ -57,60 +52,13 @@ import {
   wentFirstByCell,
 } from "./pairedReport";
 import { percentile } from "./report";
-import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
+import { env, list, modelsAsked, spentUsd } from "./settings";
 import { writtenSet } from "./written";
 
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
 /** An error kind no later item would get past (src/core/api.ts, ProviderErrorKind). */
 const KEY_REFUSED = /^(?:out-of-credit|auth):/;
-
-/** The judge, never a model under test, with what it has cost from the catalog's price. */
-function judgeOf(models: readonly SaveChatProviderInput[]) {
-  const sonnet = models.some((each) => each.modelId === "claude-sonnet-5-5");
-  const named = modelNamed(
-    env("JUDGE") ?? `anthropic/${sonnet ? "claude-opus-5-5" : "claude-sonnet-5-5"}`,
-    "JUDGE",
-  );
-  if (models.some((each) => each.kind === named.kind && each.modelId === named.modelId)) {
-    throw new Error("INCARNAMIND_EVAL_SPEED_JUDGE: the judge can't be a model under test.");
-  }
-  const price = catalogFacts(named.kind, named.modelId)?.price;
-  let spent = 0;
-  const counting: LanguageModelMiddleware = {
-    specificationVersion: "v4",
-    wrapGenerate: async ({ doGenerate }) => {
-      const result = await doGenerate();
-      if (price) {
-        const { inputTokens, outputTokens } = result.usage;
-        spent += costOf(
-          {
-            inputTokens: inputTokens.total ?? 0,
-            cachedInputTokens: inputTokens.cacheRead ?? 0,
-            cacheWriteTokens: inputTokens.cacheWrite ?? 0,
-            outputTokens: outputTokens.total ?? 0,
-          },
-          price,
-          new Date(),
-          { cacheWrites: named.kind === "anthropic" },
-        );
-      }
-      return result;
-    },
-  };
-  const model = wrapLanguageModel({
-    model: createAiSdkChatModel({
-      kind: named.kind,
-      modelId: named.modelId,
-      apiKey: named.apiKey ?? null,
-      baseUrl: null,
-      endpoint: named.endpoint ?? null,
-      thinking: "off",
-    }),
-    middleware: counting,
-  });
-  return { name: `${named.kind}/${named.modelId}`, model, spent: () => spent };
-}
 
 function recorderOf(library: Library): TimingRecorder {
   if (!library.timings) throw new Error("The library records no timings.");

@@ -444,7 +444,7 @@ export interface Embedder {
   load(files: EmbeddingModelFiles): Promise<void>;
   /** The text's vector. Rejects if the model isn't loaded or fails on it. */
   embed(text: string): Promise<Float32Array>;
-  /** Stops the model and frees its memory. Loading again starts it afresh. */
+  /** Stops the model and frees its memory: what it is still asked rejects. Loading again starts it afresh. */
   close(): void;
 }
 
@@ -504,7 +504,7 @@ export interface CrossEncoder {
    * scores, higher is better. Rejects if the model isn't loaded or fails.
    */
   score(query: string, texts: readonly string[]): Promise<number[]>;
-  /** Stops the model and frees its memory. Loading again starts it afresh. */
+  /** Stops the model and frees its memory: what it is still asked rejects. Loading again starts it afresh. */
   close(): void;
 }
 
@@ -873,7 +873,7 @@ export interface Transcriber {
   open(stream: string, cloud: CloudStream): void;
   /** Hears every segment, and how far each stream is done: all its audio up to `doneMs` has given its final text. */
   listen(listener: TranscriberListener): void;
-  /** Stops the engine and frees its memory. Loading again starts it afresh. */
+  /** Stops the engine and frees its memory: what it is still asked rejects. Loading again starts it afresh. */
   close(): void;
 }
 

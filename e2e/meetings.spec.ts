@@ -373,7 +373,13 @@ test("an engine that can't start says so in plain words, never in its JavaScript
   const { app, window } = await launchApp(dataDir, { transcriber: { failToLoad: error } });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
-  await startRecording(window, await recordMeeting(window), { notice: true });
+  // Its audio is kept until it is deleted, so the line after Stop names no time of day.
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      device: { keepMeetingAudio: true },
+    }),
+  );
+  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
 
   const line = window.getByTestId("meeting-transcript-line");
   await expect(line).toHaveText("Transcription stopped. · Try again", { timeout: 30_000 });
@@ -384,6 +390,30 @@ test("an engine that can't start says so in plain words, never in its JavaScript
   await shot(window, "meeting-transcript-engine-stopped-zh");
   const [meeting] = await bridge(window);
   expect(meeting?.status).toBe("recording");
+
+  // Stopped, the Meeting's Note says the Transcript isn't finished and that its recording is kept,
+  // while it is (#2957).
+  await bar.getByTestId("meeting-stop").click();
+  await expect
+    .poll(async () => (await bridge(window))[0]?.audio)
+    .toMatchObject({ kept: true, keptUntilDeleted: true });
+  await expect(line).toHaveText("转写中途停止，录音已保留。· 重试");
+  await shot(window, "meeting-transcript-stopped-before-end-zh");
+  await setLanguage(window, "en");
+  await expect(line).toHaveText(
+    "Transcription stopped before the end. Your recording is kept. · Try again",
+  );
+  await expect(line).not.toContainText("createAsync");
+  await shot(window, "meeting-transcript-stopped-before-end-en");
+
+  // Its audio deleted, the line no longer says it is kept, with nothing reloaded.
+  const meetingId = meeting?.id as string;
+  await window.evaluate(
+    (id) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.deleteMeetingAudio(id),
+    meetingId,
+  );
+  await expect(line).toHaveText("Transcription stopped. · Try again");
 });
 
 test("Open beside opens the live Transcript next to the meeting, closing its tab hides it, and at Stop it is saved", async () => {

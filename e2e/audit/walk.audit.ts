@@ -26,15 +26,42 @@ import {
   sealShell,
   setWindowSize,
   shot,
+  showAllDocuments,
   startFrames,
   tempDir,
   typeLike,
 } from "./harness";
 
 const failures: { test: string; step: string; error: string }[] = [];
+const failedSteps = new Set<string>();
 const contrast: Record<string, unknown> = {};
 
-async function step(testName: string, name: string, run: () => Promise<void>) {
+type Run = () => Promise<void>;
+
+// Steps of the working session that later steps need.
+const MIND = "a Mind: a heading, a Note, Questions";
+const LISTED = "list every Document in the sidebar";
+
+/**
+ * Runs one step of a walk. A failure is recorded and the walk goes on. A step that
+ * `needs` earlier ones is skipped, and recorded as failed too, when any of them failed:
+ * without its Documents or its Answer it would only wait out its timeouts.
+ */
+function step(testName: string, name: string, run: Run): Promise<void>;
+function step(testName: string, name: string, needs: readonly string[], run: Run): Promise<void>;
+async function step(testName: string, name: string, ...rest: [Run] | [readonly string[], Run]) {
+  const [needs, run] = rest.length === 1 ? [[], rest[0]] : rest;
+  const missing = needs.find((each) => failedSteps.has(`${testName}/${each}`));
+  if (missing !== undefined) {
+    failedSteps.add(`${testName}/${name}`);
+    failures.push({
+      test: testName,
+      step: name,
+      error: `skipped, as "${missing}" failed before it`,
+    });
+    record("walk.failures", failures);
+    return;
+  }
   try {
     await run();
   } catch (error) {
@@ -46,7 +73,8 @@ async function step(testName: string, name: string, run: () => Promise<void>) {
             .slice(0, 4)
             .join(" | ")
         : String(error);
-    failures.push({ test: testName, step: name, error: message ?? "" });
+    failedSteps.add(`${testName}/${name}`);
+    failures.push({ test: testName, step: name, error: message });
     record("walk.failures", failures);
   }
 }
@@ -169,12 +197,25 @@ async function endOfMind(window: Page) {
 
 test.describe.configure({ mode: "serial" });
 
+// A step's failure doesn't stop the walk, so the run ends by saying which failed: it
+// exits non-zero, and `walk.failures` is written even when empty, over an older run's.
+test.afterAll(() => {
+  record("walk.failures", failures);
+  if (failures.length === 0) return;
+  const lines = failures.map((each) => `  ${each.test} › ${each.step}: ${each.error}`);
+  throw new Error(
+    `${failures.length} steps of the walk failed or were skipped:\n${lines.join("\n")}`,
+  );
+});
+
 test("A1 first run: the example Mind and its Citation card", async () => {
   const T = "A1";
   const dataDir = tempDir("data");
+  const root = tempDir("fixtures");
+  const fixtures = writeFixtures(root, 0);
   let app: Launched | undefined;
   try {
-    app = await launch(dataDir, { examples: true });
+    app = await launch(dataDir, { examples: true, fakeChat: true });
     const { window } = app;
     await sealShell(app.app);
     await step(T, "example mind", async () => {
@@ -215,14 +256,25 @@ test("A1 first run: the example Mind and its Citation card", async () => {
       const stops = await focusWalk(window, 45, "focus/A05");
       record("walk.focus.exampleMind", stops);
     });
+    // The card offers its Question once a Document of the User's own has been read, so the
+    // step links a folder from the card first, as a first run does; asked about those
+    // Documents it needs a model, so the scripted one is chosen.
     await step(
       T,
-      "the ready question: the assistant with its Answer, written in advance",
+      "the ready question: the assistant with its Answer, from the folder linked",
       async () => {
         await window.keyboard.press("Escape");
+        await answerOpenDialog((app as Launched).app, fixtures.formats);
+        await click(window, window.getByTestId("first-open-link-folder"));
+        const dialog = window.getByTestId("link-folder-dialog");
+        await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 20_000 });
+        await click(window, dialog.getByTestId("link-folder-confirm"));
+        await expect(dialog).toBeHidden();
+        await documentsSettled(window, 14);
+        await chooseFakeModel(window);
         await click(window, window.getByTestId("first-open-ready"));
         const answer = window.getByTestId("assistant-answer").last();
-        await expect(answer).toHaveAttribute("data-status", "done");
+        await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
         await window.waitForTimeout(300);
         await shot(window, "A06-ready-question");
       },
@@ -230,6 +282,7 @@ test("A1 first run: the example Mind and its Citation card", async () => {
   } finally {
     if (app) await close(app);
     removeDir(dataDir);
+    removeDir(root);
   }
 });
 
@@ -350,7 +403,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
     await step(T, "link a folder", async () => {
       await answerOpenDialog((app as Launched).app, fixtures.formats);
       await click(window, window.getByTestId("plus-menu"));
-      await click(window, window.getByTestId("plus-link-folder"));
+      await click(window, window.getByTestId("plus-add-documents"));
       const dialog = window.getByTestId("link-folder-dialog");
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 20_000 });
       await window.waitForTimeout(300);
@@ -362,22 +415,27 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await shot(window, "A21-indexing");
       await shot(window.getByTestId("sidebar"), "A21-sidebar-indexing");
     });
-    await step(T, "documents settle", async () => {
+    await step(T, "documents settle", ["link a folder"], async () => {
       const states = await documentsSettled(window, 14);
       record("walk.formats.states", states);
       await window.waitForTimeout(1500);
       await shot(window.getByTestId("sidebar"), "A22-sidebar-folders");
-      const sources = window.getByRole("button", { name: "Folders on disk", exact: true });
-      if (await sources.count()) {
-        await click(window, sources);
-        await window.waitForTimeout(300);
-        await shot(window.getByTestId("sidebar"), "A23-sidebar-source-locations");
-        await scan(window, "A23-sidebar-source-locations");
-        record("walk.overflow.sidebar", await overflowProbe(window));
-      }
+      // The Linked folder has its own section ("Folders on disk") under the Library's Folders.
+      const sources = window.getByTestId("linked-folders-section");
+      await sources.scrollIntoViewIfNeeded();
+      await expect(sources).toBeVisible();
+      await window.waitForTimeout(300);
+      await shot(window.getByTestId("sidebar"), "A23-sidebar-source-locations");
+      await scan(window, "A23-sidebar-source-locations");
+      record("walk.overflow.sidebar", await overflowProbe(window));
+    });
+    // The sidebar lists the first few Documents and "Show more" for the rest: the steps that
+    // open a Document by its row need them all.
+    await step(T, LISTED, ["documents settle"], async () => {
+      await showAllDocuments(window);
     });
 
-    await step(T, "a Mind: a heading, a Note, Questions", async () => {
+    await step(T, MIND, ["documents settle"], async () => {
       await click(window, window.getByTestId("plus-menu"));
       await click(window, window.getByTestId("plus-new-mind"));
       await typeLike(window, "# Harbour survey: what the documents say", 50);
@@ -403,7 +461,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await shot(window, "A25-answer-with-citation");
       await scan(window, "A25-answer-with-citation");
     });
-    await step(T, "more Questions: many Citations, a misquote", async () => {
+    await step(T, "more Questions: many Citations, a misquote", [MIND], async () => {
       await endOfMind(window);
       await ask(window, "What does each document say about tides and the harbour?", 1);
       await endOfMind(window);
@@ -413,7 +471,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await shot(window, "A26-answers-many-citations-full", true);
       await scan(window, "A26-answers-many-citations");
     });
-    await step(T, "the Citation card and its page", async () => {
+    await step(T, "the Citation card and its page", [MIND], async () => {
       const chip = window.getByTestId("assistant-answer").first().getByTestId("citation-chip");
       await glide(window, chip);
       const card = window.getByTestId("citation-card");
@@ -430,7 +488,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await shot(window, "A28-viewer-from-citation");
       await scan(window, "A28-viewer-from-citation");
     });
-    await step(T, "Escape closes the viewer", async () => {
+    await step(T, "Escape closes the viewer", ["the Citation card and its page"], async () => {
       await glide(window, window.getByTestId("viewer"));
       await window.keyboard.press("Escape");
       await window.waitForTimeout(400);
@@ -453,7 +511,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
     ];
     const viewerOpen: Record<string, number> = {};
     for (const [kind, name, selector] of formats) {
-      await step(T, `viewer ${kind}`, async () => {
+      await step(T, `viewer ${kind}`, [LISTED], async () => {
         const row = window
           .getByTestId("document-list-item")
           .filter({ has: window.getByTestId("row-text").getByText(name, { exact: true }) })
@@ -469,7 +527,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
     }
     record("walk.viewerOpenMs", viewerOpen);
 
-    await step(T, "viewer controls: hover and states", async () => {
+    await step(T, "viewer controls: hover and states", ["viewer pdf"], async () => {
       const header = window.getByTestId("viewer-header");
       const buttons = header.locator("button");
       const out: unknown[] = [];
@@ -485,7 +543,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await shot(header, "A31-viewer-header");
     });
 
-    await step(T, "a Document's More menu and Tags", async () => {
+    await step(T, "a Document's More menu and Tags", [LISTED], async () => {
       const row = window
         .getByTestId("document-list-item")
         .filter({ hasText: fixtures.names.md })
@@ -512,31 +570,18 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await window.keyboard.press("Escape");
     });
 
-    await step(T, "the Library (document sheet)", async () => {
+    await step(T, "the Library (document sheet)", ["documents settle"], async () => {
       await click(window, window.getByTestId("open-library"));
       await expect(window.getByTestId("library")).toBeVisible();
       await window.waitForTimeout(800);
       await shot(window, "A36-library");
       await scan(window, "A36-library");
       record("walk.overflow.library", await overflowProbe(window));
-      const organize = window
-        .getByTestId("library")
-        .getByRole("button", { name: /Organize/ })
-        .first();
-      if (await organize.count()) {
-        record("walk.states.organize", {
-          disabled: await organize.isDisabled(),
-          style: await organize.evaluate((el) => {
-            const s = getComputedStyle(el);
-            return { bg: s.backgroundColor, opacity: s.opacity, cursor: s.cursor };
-          }),
-        });
-      }
       await click(window, window.getByTestId("library-tab").getByTestId("tab-close"));
       await expect(window.getByTestId("library")).toBeHidden();
     });
 
-    await step(T, "export dialog", async () => {
+    await step(T, "export dialog", [MIND], async () => {
       const tab = window.getByTestId("mind-tab").filter({ hasText: "Harbour survey" });
       await click(window, tab);
       await click(window, window.getByTestId("export-mind"));
@@ -602,7 +647,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       await window.emulateMedia({ colorScheme: "light" });
     });
 
-    await step(T, "Chinese", async () => {
+    await step(T, "Chinese", [LISTED, MIND], async () => {
       await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await bridge.updateSettings({ user: { language: "zh-CN" } } as never);
@@ -671,6 +716,7 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
     await step(
       T,
       "error states: a Missing Document, an Unavailable folder, a failed action",
+      [LISTED],
       async () => {
         rmSync(join(fixtures.formats, "Interview transcript.txt"));
         await window.waitForTimeout(4000);

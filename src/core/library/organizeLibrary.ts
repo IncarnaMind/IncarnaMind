@@ -414,9 +414,12 @@ export function createLibraryOrganizer(options: {
                 placed = done;
                 report();
               },
-              leavesOut: (error) =>
-                !gateStop(error) &&
-                ["network", "provider", "rate-limit"].includes(classifyProviderError(error).kind),
+              leavesOut: (error) => {
+                if (gateStop(error)) return null;
+                const { kind } = classifyProviderError(error);
+                if (kind === "cut-short") return "cutShort";
+                return ["network", "provider", "rate-limit"].includes(kind) ? "unreachable" : null;
+              },
             }).catch((error: unknown) => {
               tagStop.abort();
               throw error;
@@ -449,8 +452,10 @@ export function createLibraryOrganizer(options: {
           if (place.kind === "none")
             return proposal({
               kind: "leftOut",
-              leftOut: place.unreachable
-                ? { reason: "unreachable", service }
+              leftOut: place.failed
+                ? place.failed === "unreachable"
+                  ? { reason: "unreachable", service }
+                  : { reason: "cutShort" }
                 : input.folderId !== null
                   ? { reason: "staysInFolder" }
                   : fitsNone,

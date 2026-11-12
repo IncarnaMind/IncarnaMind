@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import type { ChatModelChoice } from "../../core/api";
-import { mindModelOf, modelInUse, observeMindModel, setMindModel } from "../../shared/mindModel";
+import {
+  mindModelOf,
+  modelInUse,
+  observeMindModel,
+  removedModel,
+  setMindModel,
+} from "../../shared/mindModel";
 import { conversationModel, pickForConversation, useConversationModel } from "./conversationModel";
 import { isSaved, loadSavedProviders, useSavedProviders } from "./savedProviders";
 import { useAppStore } from "./store";
@@ -47,6 +53,28 @@ export function modelInUseOf(doc: Y.Doc | null): ChatModelChoice | null {
     },
     isSaved(useSavedProviders.getState().ids),
   );
+}
+
+/** As `removedModel` for the Mind in view, kept up to date; never for the assistant's conversation. */
+export function useRemovedModel(doc: Y.Doc | null) {
+  const own = useOwnModel(doc);
+  const fallback = useAnswersModel();
+  const ids = useSavedProviders((state) => state.ids);
+  useEffect(loadSavedProviders, []);
+  return doc ? removedModel({ own, fallback }, isSaved(ids)) : null;
+}
+
+/** The Mind in view now, as `useRemovedModel` would read it. */
+export function removedModelNow(doc: Y.Doc | null) {
+  return doc
+    ? removedModel(
+        {
+          own: mindModelOf(doc),
+          fallback: useAppStore.getState().settings?.user.chatModel ?? null,
+        },
+        isSaved(useSavedProviders.getState().ids),
+      )
+    : null;
 }
 
 /**

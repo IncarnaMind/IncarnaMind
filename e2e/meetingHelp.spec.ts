@@ -28,7 +28,7 @@ import {
 
 /**
  * One-click help during a call, on the scripted chat model and the fake capture and
- * transcriber every smoke test gets: the floating panel above the meeting with the buttons and
+ * transcriber every smoke test gets: the floating panel above the meeting with the ask bar and
  * the latest suggestion, the buttons at the top of the assistant, the shortcuts held only while
  * a meeting records, and the level bars. Set INCARNAMIND_SCREENSHOTS to a folder to also save
  * screenshots.
@@ -70,9 +70,25 @@ async function recordingMeeting(window: Page) {
   return bar;
 }
 
+/** Presses a prompt of the panel's ask bar: in the bar, or under More…, which the press closes. */
+async function pressPrompt(panel: Page, name: string): Promise<void> {
+  const inTheBar = panel
+    .getByTestId("ask-bar")
+    .getByTestId("help-prompt")
+    .filter({ hasText: name });
+  if ((await inTheBar.count()) > 0) {
+    await pointAndClick(panel, inTheBar);
+    return;
+  }
+  await pointAndClick(panel, panel.getByTestId("help-more"));
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-more-list").getByTestId("help-prompt").filter({ hasText: name }),
+  );
+}
+
 async function pressIn(page: Page, name: string): Promise<Locator> {
-  const button = page.getByTestId("help-button").filter({ hasText: name });
-  await pointAndClick(page, button);
+  await pressPrompt(page, name);
   const suggestion = page.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   await expect(suggestion.getByTestId("help-heading")).toContainText(name);
@@ -135,10 +151,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
     "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
   );
   const panel = await panelOf(app);
-  await pointAndClick(
-    panel,
-    panel.getByTestId("help-button").filter({ hasText: "Say no politely" }),
-  );
+  await pressPrompt(panel, "Say no politely");
   await expect(panel.getByTestId("help-set-up")).toHaveText(
     "Choose an AI model to get help during the call · Set up",
   );
@@ -167,22 +180,32 @@ test("help during the call: the floating panel above the meeting gives one or tw
   });
   // It doesn't say so until real screen shares confirm it.
   await expect(panel.getByTestId("panel-hidden")).toHaveCount(0);
-  const buttons = panel.getByTestId("help-button");
-  await expect(buttons).toHaveText([
+  // The bar shows three prompts with their keys and More…; the other four are under More….
+  const bar = panel.getByTestId("ask-bar").getByTestId("help-prompt");
+  const more = panel.getByTestId("help-more");
+  const moreList = panel.getByTestId("help-more-list").getByTestId("help-prompt");
+  await expect(bar).toHaveText([
     /^What should I say\?/,
     /^Answer their question/,
     /^What do they want\?/,
+  ]);
+  await expect(bar.first().getByTestId("help-prompt-keys")).toHaveText(mac ? "⌃⌥1" : "Ctrl+Alt+1");
+  await expect(more).toHaveText("More…");
+  await pointAndClick(panel, more);
+  await expect(moreList).toHaveText([
     /^Sum up so far/,
     /^Say no politely/,
     /^What to ask next/,
     /^Check what was said/,
   ]);
-  await expect(buttons.first().getByTestId("help-button-keys")).toHaveText(
-    mac ? "⌃⌥1" : "Ctrl+Alt+1",
+  await expect(moreList.first().getByTestId("help-prompt-keys")).toHaveText(
+    mac ? "⌃⌥4" : "Ctrl+Alt+4",
   );
+  await pointAndClick(panel, more);
+  await expect(panel.getByTestId("help-more-list")).toHaveCount(0);
 
   // A press shows the outline at once, then the options; the panel still isn't focused.
-  await pointAndClick(panel, buttons.filter({ hasText: "Say no politely" }));
+  await pressPrompt(panel, "Say no politely");
   await expect(panel.getByTestId("help-outline").first()).toBeVisible();
   const sayNo = panel.getByTestId("help-suggestion");
   await expect(sayNo).toHaveAttribute("data-status", "done", { timeout: 20_000 });
@@ -216,8 +239,17 @@ test("help during the call: the floating panel above the meeting gives one or tw
     panel,
     panel.locator('[data-testid="panel-template-option"][data-template="sales"]'),
   );
-  await expect(buttons).toHaveCount(10);
-  await expect(buttons.nth(7)).toHaveText("Handle the objection");
+  await pointAndClick(panel, more);
+  await expect(moreList).toHaveText([
+    "Handle the objection",
+    "Propose the next step",
+    "Facts from my documents",
+    /^Sum up so far/,
+    /^Say no politely/,
+    /^What to ask next/,
+    /^Check what was said/,
+  ]);
+  await pointAndClick(panel, more);
   await expect(panel.getByTestId("panel-template")).toHaveText("Sales call");
   await expectOptions(await pressIn(panel, "Handle the objection"));
   await expectOptions(await pressIn(panel, "Propose the next step"));
@@ -227,7 +259,9 @@ test("help during the call: the floating panel above the meeting gives one or tw
     panel,
     panel.locator('[data-testid="panel-template-option"][data-template="interview"]'),
   );
-  await expect(buttons.nth(8)).toHaveText("Am I leading them?");
+  await pointAndClick(panel, more);
+  await expect(moreList.nth(1)).toHaveText("Am I leading them?");
+  await pointAndClick(panel, more);
   const leading = await pressIn(panel, "Am I leading them?");
   await expect(leading.getByTestId("help-heading")).toHaveText(
     /^Am I leading them\? · You said: “.+”$/,
@@ -239,8 +273,10 @@ test("help during the call: the floating panel above the meeting gives one or tw
     panel,
     panel.locator('[data-testid="panel-template-option"][data-template="team"]'),
   );
-  await expect(buttons).toHaveCount(9);
-  await expect(buttons.nth(8)).toHaveText("Where we disagree");
+  await pointAndClick(panel, more);
+  await expect(moreList).toHaveCount(6);
+  await expect(moreList.nth(1)).toHaveText("Where we disagree");
+  await pointAndClick(panel, more);
   await expectLines(await pressIn(panel, "Decisions and owners so far"));
   await expectLines(await pressIn(panel, "Where we disagree"));
   await shot(panel, "help-panel-team-en");
@@ -250,7 +286,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await (await core(window)).evaluate((bridge) =>
     bridge.updateSettings({ user: { language: "zh-CN" } }),
   );
-  await expect(buttons.first()).toContainText("我该怎么说？");
+  await expect(bar.first()).toContainText("我该怎么说？");
   const sayNoZh = await pressIn(panel, "礼貌地拒绝");
   await expect(sayNoZh.getByTestId("help-heading")).toHaveText(/^礼貌地拒绝 · 对方说：“.+”$/);
   await expectOptions(sayNoZh);
@@ -302,13 +338,13 @@ test("help during the call: the panel folds to level bars that become Stop, ⌘K
   await expect(stop.getByTestId("level-stop-icon")).toBeVisible();
   await stop.blur();
   await pointAndClick(panel, pill.getByTestId("panel-expand"));
-  await expect(panel.getByTestId("help-buttons")).toBeVisible();
+  await expect(panel.getByTestId("ask-bar")).toBeVisible();
 
   // ⌘K in the app's window folds and unfolds the panel, pins its suggestion and adds it to notes.
   await fromPalette(window, "Collapse the call help panel");
   await expect(pill).toBeVisible();
   await fromPalette(window, "Expand the call help panel");
-  await expect(panel.getByTestId("help-buttons")).toBeVisible();
+  await expect(panel.getByTestId("ask-bar")).toBeVisible();
   await fromPalette(window, "Pin the latest suggestion");
   await expect(panel.getByTestId("help-pin").last()).toHaveAttribute("aria-pressed", "true");
   await fromPalette(window, "Add the latest suggestion to the note");
@@ -567,10 +603,7 @@ test("help during the call: a model's notes before its records never show, the o
   await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  await pointAndClick(
-    panel,
-    panel.getByTestId("help-button").filter({ hasText: "Answer their question" }),
-  );
+  await pressPrompt(panel, "Answer their question");
   const suggestion = panel.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "streaming", { timeout: 20_000 });
   const seen: string[] = [];
@@ -599,10 +632,7 @@ test("help during the call: a reading that came without its → line stays once 
   await recordingMeeting(window);
   const panel = await panelOf(app);
 
-  await pointAndClick(
-    panel,
-    panel.getByTestId("help-button").filter({ hasText: "What do they want?" }),
-  );
+  await pressPrompt(panel, "What do they want?");
   const suggestion = panel.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   await shot(panel, "help-panel-move-taken-back-done");
@@ -797,8 +827,8 @@ test("help during the call on Windows and Linux: no shortcut is held until the U
   ]) {
     expect(await held(app, keys), keys).toBe(false);
   }
-  await expect(panel.getByTestId("help-button").first()).toBeVisible();
-  await expect(panel.getByTestId("help-button-keys")).toHaveCount(0);
+  await expect(panel.getByTestId("help-prompt").first()).toBeVisible();
+  await expect(panel.getByTestId("help-prompt-keys")).toHaveCount(0);
   const mic = panel.getByTestId("panel-mic");
   await expect(mic).toHaveAttribute("title", "Pause my mic. The other side is still recorded");
   await window.keyboard.press("ControlOrMeta+k");
@@ -893,7 +923,7 @@ test("help during the call: a model that can't answer says why in the panel, in 
   await useLocalChatModel(window, "fake-not-found");
   const bar = await recordingMeeting(window);
   const panel = await panelOf(app);
-  await pointAndClick(panel, panel.getByTestId("help-button").filter({ hasText: "Sum up so far" }));
+  await pressPrompt(panel, "Sum up so far");
   const failed = panel.getByTestId("help-failed");
   await expect(failed).toHaveText(
     "No help this time: Ollama doesn’t know fake-not-found · Try again",

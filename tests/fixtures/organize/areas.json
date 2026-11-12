@@ -1,0 +1,129 @@
+{
+  "note": "The area of each of the 40 tuning Documents, for reading a plan (#2737), and a second area only where one file is two things. Written by the second reader on 2026-11-10, before any model reading.",
+  "areas": {
+    "en-battery-paper": {
+      "area": "research"
+    },
+    "en-paper-scan": {
+      "area": "research"
+    },
+    "en-anomaly-paper": {
+      "area": "research"
+    },
+    "en-stats-textbook": {
+      "area": "research"
+    },
+    "en-qbr-deck": {
+      "area": "reports"
+    },
+    "en-weekly-status": {
+      "area": "reports",
+      "second": "meetings"
+    },
+    "en-incident-review-deck": {
+      "area": "reports"
+    },
+    "en-lease": {
+      "area": "contracts"
+    },
+    "en-service-agreement-invoice": {
+      "area": "contracts",
+      "second": "finance"
+    },
+    "en-employment-agreement": {
+      "area": "contracts"
+    },
+    "en-terms-of-service": {
+      "area": "contracts"
+    },
+    "en-invoice-kestrel": {
+      "area": "finance"
+    },
+    "en-receipt-scan": {
+      "area": "finance"
+    },
+    "en-invoice-xlsx": {
+      "area": "finance"
+    },
+    "en-annual-results-deck": {
+      "area": "finance",
+      "second": "reports"
+    },
+    "en-cashflow": {
+      "area": "finance"
+    },
+    "en-launch-meeting": {
+      "area": "meetings"
+    },
+    "en-renewal-minutes": {
+      "area": "meetings",
+      "second": "contracts"
+    },
+    "en-one-on-one": {
+      "area": "meetings"
+    },
+    "en-near-empty": {
+      "area": "personal"
+    },
+    "en-recipe": {
+      "area": "personal"
+    },
+    "en-journal": {
+      "area": "personal"
+    },
+    "en-coffee-manual": {
+      "area": "personal"
+    },
+    "zh-battery-paper": {
+      "area": "research"
+    },
+    "zh-thesis-chapter": {
+      "area": "research"
+    },
+    "zh-heat-island-survey": {
+      "area": "research"
+    },
+    "zh-prepared-food-report": {
+      "area": "reports"
+    },
+    "zh-project-weekly-deck": {
+      "area": "reports"
+    },
+    "zh-strategy-deck": {
+      "area": "reports"
+    },
+    "zh-survey-results": {
+      "area": "reports"
+    },
+    "zh-lease": {
+      "area": "contracts"
+    },
+    "zh-labor-contract-injection": {
+      "area": "contracts"
+    },
+    "zh-vat-invoice-scan": {
+      "area": "finance"
+    },
+    "zh-receipt": {
+      "area": "finance"
+    },
+    "zh-e-invoice": {
+      "area": "finance"
+    },
+    "zh-launch-meeting": {
+      "area": "meetings"
+    },
+    "zh-weekly-meeting": {
+      "area": "meetings"
+    },
+    "zh-action-tracker": {
+      "area": "meetings"
+    },
+    "zh-purifier-manual": {
+      "area": "personal"
+    },
+    "zh-book-notes": {
+      "area": "personal"
+    }
+  }
+}

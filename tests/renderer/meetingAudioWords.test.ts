@@ -3,7 +3,12 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Meeting } from "../../src/core/api";
-import { audioSaid, canKeepAudio, useAudioSaid } from "../../src/renderer/src/meetingAudioWords";
+import {
+  audioSaid,
+  canKeepAudio,
+  stoppedBeforeEndSaid,
+  useAudioSaid,
+} from "../../src/renderer/src/meetingAudioWords";
 import { translate } from "../../src/shared/i18n";
 
 const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
@@ -50,6 +55,67 @@ describe("A Meeting's audio line (#687)", () => {
     expect(audioSaid(deleted, zh, "zh-CN", now)).toBe("音频已于10月14日删除");
     expect(canKeepAudio(deleted)).toBe(false);
     expect(audioSaid(meeting({ kept: false }), en, "en", now)).toBe("No audio was recorded");
+  });
+});
+
+describe("A stopped Meeting whose transcription stopped before its end (#2957)", () => {
+  const zone = process.env.TZ;
+  beforeEach(() => {
+    process.env.TZ = "Europe/London";
+  });
+  afterEach(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+  const at = (now: string) => ({ now: new Date(now), twelveHour: false });
+
+  // protects=the line says the recording is kept only while its audio is, and until when, as the audio line words the day; audio deleted, or whose time has come and the sweep hasn't deleted yet, gets the plain line; fails_when=the line promises a recording that is gone or about to go, or names the wrong day; no_claim=where the line shows, which the window spec covers.
+  test.each([
+    [
+      "kept until the User deletes it",
+      meeting({ keptUntilDeleted: true }),
+      at("2026-10-14T16:00:00+01:00"),
+      "Transcription stopped before the end. Your recording is kept.",
+      "转写中途停止，录音已保留。",
+    ],
+    [
+      "due to be deleted today",
+      meeting({ expiresAt: "2026-10-14T23:30:00+01:00" }),
+      at("2026-10-14T16:00:00+01:00"),
+      "Transcription stopped before the end. Your recording is kept until 23:30 today.",
+      "转写中途停止，录音保留到今天 23:30。",
+    ],
+    [
+      "due to be deleted tomorrow",
+      meeting({ expiresAt: "2026-10-15T09:54:00+01:00" }),
+      at("2026-10-14T16:00:00+01:00"),
+      "Transcription stopped before the end. Your recording is kept until 09:54 tomorrow.",
+      "转写中途停止，录音保留到明天 09:54。",
+    ],
+    [
+      "already deleted",
+      meeting({ kept: false, deletedAt: "2026-10-14T09:00:00Z" }),
+      at("2026-10-14T16:00:00+01:00"),
+      "Transcription stopped.",
+      "转写已停止。",
+    ],
+    [
+      "past its time a few minutes ago, not deleted yet",
+      meeting({ expiresAt: "2026-10-14T15:55:00+01:00" }),
+      at("2026-10-14T16:00:00+01:00"),
+      "Transcription stopped.",
+      "转写已停止。",
+    ],
+    [
+      "past its time before midnight, not deleted yet",
+      meeting({ expiresAt: "2026-10-14T23:55:00+01:00" }),
+      at("2026-10-15T00:10:00+01:00"),
+      "Transcription stopped.",
+      "转写已停止。",
+    ],
+  ])("%s", (_state, stopped, now, english, chinese) => {
+    expect(stoppedBeforeEndSaid(stopped, en, "en", now)).toBe(english);
+    expect(stoppedBeforeEndSaid(stopped, zh, "zh-CN", now)).toBe(chinese);
   });
 });
 

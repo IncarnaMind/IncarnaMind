@@ -442,6 +442,14 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   upgradeKeywordIndex(): void;
   /**
+   * Fingerprints the text of Documents stored before an older version kept fingerprints, so a
+   * check can tell a copy of the file it checks by its text (#2216): one Document a turn, on
+   * this thread. The host calls it once the first window is up; a check started before it is
+   * done waits for it. Settles when every Document is fingerprinted, or the fill stops on an
+   * error, which it reports. Called again while it runs, it gives the same promise.
+   */
+  fillTextFingerprints(): Promise<void>;
+  /**
    * The number a workbook's cell stores when its shown text isn't that
    * number written plainly (0.04213 for "4.2%"), from the Document's
    * current version; null when it shows its number plainly, isn't a number,
@@ -2061,6 +2069,13 @@ export function createCore(adapters: CoreAdapters): Core {
   // files and the document being checked. Answers themselves search everything, as before.
   const evidence = createEvidence({
     db,
+    textCopies: documents.textCopies,
+    textFingerprinted: () => documents.fillTextFingerprints(),
+    readImported: (sha256) => {
+      const kept = wordImports.keptFile(sha256);
+      return kept === null ? null : documents.readFileText(kept, "docx");
+    },
+    log: adapters.log ?? silentLogger,
     leaveOutOwnFiles: () => settings.get().user.leaveOutOwnFiles,
     search: (query, options) =>
       documents.searchTool(query, {
@@ -3089,6 +3104,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
@@ -3498,12 +3514,11 @@ export function createCore(adapters: CoreAdapters): Core {
             : options.format === "markdown",
       },
     });
-  const modelInUseIn = (mindId: string) =>
-    chat.modelInUse(
-      content.readSettings(mindId, (mindSettings) =>
-        mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
-      ),
+  const ownModelIn = (mindId: string) =>
+    content.readSettings(mindId, (mindSettings) =>
+      mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
     );
+  const modelInUseIn = (mindId: string) => chat.modelInUse(ownModelIn(mindId));
   // Make this a Skill: the chat model drafts it from the Mind, on the chat flow's consent.
   const skillDrafts = createSkillDrafts({
     mindMarkdown: async (mindId) => {
@@ -5226,6 +5241,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     async route(mindId) {
       const language = settings.get().language;
+      // Filling in never picks a cloud service for a Note whose own model, on this computer, is gone (#2853).
+      if (chat.waitsForRemovedModel(ownModelIn(mindId))) {
+        return {
+          problem: {
+            kind: "model-removed",
+            message: translate(language, "meetings.fill.problem.modelRemoved"),
+          },
+        };
+      }
       const choice = await chat.answeringModel(modelInUseIn(mindId) ?? undefined);
       const readiness = await chat.readiness(choice);
       if (!readiness.ready) {
@@ -5907,6 +5931,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return found;
     },
     upgradeKeywordIndex: () => documents.upgradeKeywordIndex(),
+    fillTextFingerprints: () => documents.fillTextFingerprints(),
     // The Library lists the examples until the User has a Document of their own (#1942), so a first
     // search looks in them; from the first Document of the User's own on, they are left out before
     // the search's limit, so they never take one of its places.
@@ -6406,9 +6431,11 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const scope = parseSearchScope(options?.scope);
       const mindId = typeof options?.mindId === "string" ? options.mindId : null;
+      const checked = parseCheckedDocument(options?.checked);
+      await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), parseCheckedDocument(options?.checked)),
+        evidence.scope(mindId, scopeDocuments(scope), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },

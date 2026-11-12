@@ -4,6 +4,7 @@ import { readBudget, readsUnasked } from "../../src/shared/readBudget";
 
 const estimate = (about: number, most: number): RunEstimate => ({
   billing: "per-token",
+  providerId: "provider-1",
   calls: 8,
   tokens: 190_000,
   cost: { amount: about, currency: "USD" },
@@ -45,6 +46,7 @@ describe("The most a whole read may spend", () => {
   test("no price, a plan or a model on this computer: no budget, as for the monthly cap", () => {
     const unknown: RunEstimate = {
       billing: "per-token",
+      providerId: "provider-1",
       calls: 8,
       tokens: 190_000,
       cost: null,
