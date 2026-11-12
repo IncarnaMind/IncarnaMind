@@ -1088,6 +1088,7 @@ export function createCore(adapters: CoreAdapters): Core {
       db,
       dataDir,
       now,
+      localOnly: () => embedding.localOnly(),
       log: adapters.log ?? silentLogger,
       model: embedding.model,
       textRecognition: textRecognitionModel && timedRecognition(textRecognitionModel),
@@ -3784,10 +3785,16 @@ export function createCore(adapters: CoreAdapters): Core {
       throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
     return { ...(await prepareTagger(classifier)), service: tagging.service(classifier) };
   };
+  // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+  const taggingMaySend = (id: string, service: ExternalService, pressed: boolean) =>
+    !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq));
   const tagger = createTagger({
-    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
-    maySend: (id, service, pressed) =>
-      !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq)),
+    maySend: taggingMaySend,
+    heldBack: (id) => {
+      const classifier = tagsWith();
+      const service = classifier && tagging.service(classifier);
+      return !!service && !taggingMaySend(id, service, false);
+    },
     db,
     now,
     offered: (id, text) => offeredTags(db, [id], undefined, new Map([[id, text]])).get(id) ?? [],
@@ -6834,9 +6841,12 @@ export function createCore(adapters: CoreAdapters): Core {
           if (named.has(service.id)) consent.choose(["tagging"], service);
         }
       }
-      if (named.size > 0 || organizesAnew) {
+      // A model chosen in Local mode, whose line names no service, names none either: its first
+      // use after Local mode asks (#2982).
+      const chosen = organizesAnew && !embedding.localOnly();
+      if (named.size > 0 || chosen) {
         for (const service of await classificationServices()) {
-          if (organizesAnew || named.has(service.id)) consent.choose(["classification"], service);
+          if (chosen || named.has(service.id)) consent.choose(["classification"], service);
         }
       }
       if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();

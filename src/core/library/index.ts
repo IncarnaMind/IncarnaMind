@@ -1097,24 +1097,26 @@ export function createLibrary(options: {
         stopForDestination();
         return;
       }
-      state(id, "classifying");
       const settingsNow = getSettings();
-      const classifier = await options.prepare(settingsNow, call.permit);
-      if (classifier.local) call.runsLocally();
-      if (stale()) return;
-      if (abandoned()) return;
-      // Checked on where this request goes, as prepared; the User's own Organize goes.
+      // Checked on where this request goes, before the model is prepared: a Document that may not
+      // go by itself is held, never left waiting for a consent that wouldn't send it (#2982). The
+      // User's own Organize goes.
       const service = options.organizeService(settingsNow);
-      if (destinationChanged()) {
-        stopForDestination();
-        return;
-      }
       const services = service ? [service] : [];
       if (
         !asked.has(id) &&
         (!mayBackgroundSend(db, id, services, turnedOnSeq) || (services.length > 0 && inWall(id)))
       ) {
         holdBack(id, initial);
+        return;
+      }
+      state(id, "classifying");
+      const classifier = await options.prepare(settingsNow, call.permit);
+      if (classifier.local) call.runsLocally();
+      if (stale()) return;
+      if (abandoned()) return;
+      if (destinationChanged()) {
+        stopForDestination();
         return;
       }
       const read = source(current);
