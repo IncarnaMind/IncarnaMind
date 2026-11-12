@@ -143,6 +143,61 @@ describe("English numbers in a transcript", () => {
     expect(writtenNumbers(said)).toBe(said);
   });
 
+  // protects=a percent ends its number, so it is written though a number said after it stays as said, unless "between" or "from" leads both ends in, with or without a word such as "about" (#1031); fails_when=it was fifteen percent or two points higher stays as said, twenty percent and a hundred percent becomes twenty percent and 100%, or it fell from fifteen percent to nine becomes it fell from 15% to nine, or between about five percent and nine between about 5% and nine; no_claim=what the number after the percent is.
+  test("a percent is written though the number said after it stays as said, but not a range's near end", () => {
+    expect(writtenNumbers("it was fifteen percent or two points higher")).toBe(
+      "it was 15% or two points higher",
+    );
+    expect(writtenNumbers("it fell fifteen percent to nine")).toBe("it fell 15% to nine");
+    expect(writtenNumbers("fifty to sixty percent or two points higher")).toBe(
+      "50 to 60% or two points higher",
+    );
+    expect(writtenNumbers("twenty percent and a hundred percent")).toBe("20% and 100%");
+    expect(writtenNumbers("it fell from fifteen percent to nine")).toBe(
+      "it fell from fifteen percent to nine",
+    );
+    expect(writtenNumbers("it went from about fifteen percent to nine")).toBe(
+      "it went from about fifteen percent to nine",
+    );
+    expect(writtenNumbers("between five percent and nine")).toBe("between five percent and nine");
+    expect(writtenNumbers("between about five percent and nine")).toBe(
+      "between about five percent and nine",
+    );
+    expect(writtenNumbers("it rose five to fifteen percent or two points")).toBe(
+      "it rose five to fifteen percent or two points",
+    );
+  });
+
+  // protects=numbers said after a percent are a row of their own, so a pair after it that may share a word leaves the percent written; with no percent between them the row stays as said (#1031); fails_when=revenue grew twenty percent and fifty to sixty thousand users joined stays as said, or twenty, fifty to sixty thousand users joined becomes 20, fifty to sixty thousand users joined; no_claim=which reading of the pair the speaker meant.
+  test("a percent before a pair that may share a word is written, and the pair stays as said", () => {
+    expect(
+      writtenNumbers("revenue grew twenty percent and fifty to sixty thousand users joined"),
+    ).toBe("revenue grew 20% and fifty to sixty thousand users joined");
+    expect(writtenNumbers("twenty percent, fifty or sixty thousand")).toBe(
+      "20%, fifty or sixty thousand",
+    );
+    expect(writtenNumbers("twenty, fifty to sixty thousand users joined")).toBe(
+      "twenty, fifty to sixty thousand users joined",
+    );
+    expect(writtenNumbers("between twenty percent and fifty to sixty thousand")).toBe(
+      "between twenty percent and fifty to sixty thousand",
+    );
+  });
+
+  // protects=a row of numbers is written at every end or at none: one that says two numbers in a run keeps the numbers said in a row with it as said (#1031); fails_when=one hundred, two hundred and three hundred dollars becomes 100, two hundred and three hundred dollars, or one hundred, two hundred and fifty dollars is no longer 100, 250 dollars; no_claim=that such a row could not be written whole one day.
+  test("a row with a run that says two numbers stays as said, and a row of whole numbers is written", () => {
+    expect(writtenNumbers("one hundred, two hundred and three hundred dollars")).toBe(
+      "one hundred, two hundred and three hundred dollars",
+    );
+    expect(writtenNumbers("fifty, one hundred two hundred dollars")).toBe(
+      "fifty, one hundred two hundred dollars",
+    );
+    expect(writtenNumbers("one hundred, two hundred and fifty dollars")).toBe("100, 250 dollars");
+    expect(writtenNumbers("one hundred, two hundred, three hundred dollars")).toBe(
+      "100, 200, 300 dollars",
+    );
+  });
+
   // protects=a line of number words is written in one pass however long it is (#1031); fails_when=the reader of a run calls itself at every new number and 10,000 of them overflow the stack; no_claim=how long the writing takes.
   test("a line of 10,000 numbers in a row is left as said", () => {
     const said = "one hundred ".repeat(10_000).trim();
@@ -283,6 +338,26 @@ describe("Chinese numbers in a transcript", () => {
     "周二十到三十个",
   ])("%s is left as said", (said) => {
     expect(writtenNumbers(said)).toBe(said);
+  });
+
+  // protects=a rough count of days or years runs up to a date, so the date after it is written, while a rough number's range stays as said at both ends (#1031); fails_when=这几天到二十号都有空 stays as said, or 十几号到二十号 becomes 十几号到20号 and 这几天到二十天 这几天到20天; no_claim=that a rough number is ever written as digits.
+  test("a date after a rough count of days or years is written, and a range from a rough number stays as said", () => {
+    expect(writtenNumbers("这几天到二十号都有空")).toBe("这几天到20号都有空");
+    expect(writtenNumbers("前几年到二零二五年")).toBe("前几年到2025年");
+    expect(writtenNumbers("十多天到二十号")).toBe("十多天到20号");
+    expect(writtenNumbers("十几号到二十号")).toBe("十几号到二十号");
+    expect(writtenNumbers("这几天到二十天")).toBe("这几天到二十天");
+    expect(writtenNumbers("前几年到二十年")).toBe("前几年到二十年");
+  });
+
+  // protects=amounts said one after another are written at every end or at none: one before an amount that goes on (两块五) stays as said with it, and the next amount never starts at the digit that goes on (#1031); fails_when=五块两块五 becomes 5块两块五, 两块五五块 2块五五块, 两块五一百块都行 2块五一百块都行, or 五块两块 is no longer 5块2块; no_claim=that 两块五 could not be written 2.5块 one day.
+  test("an amount before one that goes on stays as said, a digit that goes on starts no amount, and whole amounts are written", () => {
+    expect(writtenNumbers("五块两块五")).toBe("五块两块五");
+    expect(writtenNumbers("三块五块两块五")).toBe("三块五块两块五");
+    expect(writtenNumbers("两块五五块")).toBe("两块五五块");
+    expect(writtenNumbers("两块五一百块都行")).toBe("两块五一百块都行");
+    expect(writtenNumbers("五块两块")).toBe("5块2块");
+    expect(writtenNumbers("一百块两百块都行")).toBe("100块200块都行");
   });
 
   test("a line that is only a number, a number at each end of a line, and both languages in one line", () => {

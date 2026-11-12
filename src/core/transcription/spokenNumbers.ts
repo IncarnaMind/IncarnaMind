@@ -83,8 +83,12 @@ const RANGE = new RegExp(`${RUN}(?: (?:${JOINED}) ${RUN})*`, "gi");
 // Numbers said one after another share a "hundred" or "thousand" across a comma too.
 const LIST = new RegExp(`${RUN}(?:(?:,| (?:${JOINED})) ${RUN})*`, "gi");
 const PERCENT_END = new RegExp(` (?:${PERCENT})$`, "i");
-// After a percent, "and" goes on to something else: "twenty percent and one of the reasons".
-const PERCENT_AND = new RegExp(`(?<= (?:${PERCENT})) and `, "i");
+// A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
+// of the reasons", "fifteen percent or two points higher", "twenty percent and fifty to sixty
+// thousand users". "between" and "from" lead both ends of a range in: "from fifteen percent to nine",
+// "between about five percent and nine".
+const AFTER_PERCENT = new RegExp(`(?<= (?:${PERCENT}))((?:,| (?:${JOINED})) )`, "i");
+const LEADS_BOTH_ENDS = /\b(?:between|from)(?: [a-z]+)? $/i;
 
 const TENS_WORD = [...TENS.keys()].join("|");
 const TENTHS = [...TENS.keys()].map((each) => each.replace(/y$/, "ieth")).join("|");
@@ -93,14 +97,14 @@ const DECADES = [...TENS.keys()].map((each) => each.replace(/y$/, "ies")).join("
 // and" fifty, "a thousand" two hundred, "point" five, twelve "and a half", "a hundred to" two
 // hundred, the nineteen "nineties", the twelve "thousandth", nineteen "oh five" and "nineteen oh"
 // five, twenty "point fifteen", one point one "hundred". After "this", "that", "which" or "some",
-// "point" is a moment: "at this point fifteen percent".
+// "point" is a moment: "at this point fifteen percent". "a hundred percent" is a run of its own.
 const FRACTION = `and (?:a|${DIGIT_WORD}) (?:half|quarters?|thirds?)`;
 const MORE_BEFORE = new RegExp(
   `\\b(?:(?:hundred|${SCALE_WORD})(?: (?:${JOINED}))?|(?<!\\b(?:this|that|which|some) )point|${FRACTION} (?:${JOINED})|(?:${NUMBER_WORD}) oh) $`,
   "i",
 );
 const MORE_AFTER = new RegExp(
-  `^ (?:${FRACTION}|(?:${JOINED}) an? (?:hundred|${SCALE_WORD})|${DECADES}|(?:hundred|${SCALE_WORD})(?:s|ths?)?|oh[ -](?:${DIGIT_WORD})|point (?:${NUMBER_WORD}))\\b`,
+  `^ (?:${FRACTION}|(?:${JOINED}) (?!${A_HUNDRED_PERCENT}(?![A-Za-z-]))an? (?:hundred|${SCALE_WORD})|${DECADES}|(?:hundred|${SCALE_WORD})(?:s|ths?)?|oh[ -](?:${DIGIT_WORD})|point (?:${NUMBER_WORD}))\\b`,
   "i",
 );
 // "twenty third" is the 23rd, "thirty fives" are 35s and "one hundred and first" is the 101st.
@@ -217,6 +221,8 @@ interface Sharing {
   near: { digits: number; top: number } | null;
   /** The "hundred" or "thousand" its first number ends with, and how many digits it multiplies. */
   far: { word: number; digits: number } | null;
+  /** Whether it says more than one number: "two hundred and three hundred". */
+  several: boolean;
 }
 
 /**
@@ -227,7 +233,9 @@ interface Sharing {
  * million stays a word, which reads as said either way.
  */
 function sharingOf(run: string): Sharing {
-  if (/ point /i.test(run) || word(run) === A_HUNDRED_PERCENT) return { near: null, far: null };
+  if (/ point /i.test(run) || word(run) === A_HUNDRED_PERCENT) {
+    return { near: null, far: null, several: false };
+  }
   const integer = run.replace(PERCENT_END, "");
   const words = wordsOf(integer);
   const numbers = figuresOf(words);
@@ -244,25 +252,28 @@ function sharingOf(run: string): Sharing {
         ? null
         : { digits: whole, top: last.reduce((top, each) => Math.max(top, sizeOf(each)), 1) },
     far: multiplied === null ? null : { word: sizeOf(end), digits: multiplied },
+    several: numbers.length > 1,
   };
+}
+
+/**
+ * Whether numbers said in a row stay as said, all of them: one run says two numbers ("one hundred,
+ * two hundred and three hundred"), or one may share the next one's "hundred" or "thousand".
+ */
+function staysAsSaid(row: string): boolean {
+  const runs = (row.match(EACH_RUN) ?? []).map(sharingOf);
+  return runs.some(({ far, several }, each) => {
+    const near = runs[each - 1]?.near ?? null;
+    return (
+      several || (far !== null && near !== null && near.top < far.word && near.digits <= far.digits)
+    );
+  });
 }
 
 /** A range of `text`, which starts at `at`, as digits at every end, or as said. */
 function writtenRange(text: string, range: string, at: number): string {
   const before = text.slice(Math.max(0, at - NEAR), at);
   const after = text.slice(at + range.length, at + range.length + NEAR);
-  // "between" leads both ends in: "between twenty percent and thirty".
-  const sides = /\bbetween $/i.test(before) ? [range] : range.split(PERCENT_AND);
-  if (sides.length > 1) {
-    let from = at;
-    return sides
-      .map((side) => {
-        const written = writtenRange(text, side, from);
-        from += side.length + " and ".length;
-        return written;
-      })
-      .join(" and ");
-  }
   // Beside a digit it is part of a figure the engine already wrote.
   if (/\d\s*$/.test(before) || /^\s*\d/.test(after)) return range;
   if (MORE_BEFORE.test(before) || MORE_AFTER.test(after)) return range;
@@ -286,16 +297,21 @@ function englishNumbers(text: string): string {
         : ordinal,
     );
   return dated.replace(LIST, (list: string, at: number) => {
-    const runs = (list.match(EACH_RUN) ?? []).map(sharingOf);
-    const shares = runs.some(({ far }, each) => {
-      const near = runs[each - 1]?.near ?? null;
-      return far !== null && near !== null && near.top < far.word && near.digits <= far.digits;
-    });
-    return shares
-      ? list
-      : list.replace(RANGE, (range: string, offset: number) =>
-          writtenRange(dated, range, at + offset),
-        );
+    const rows = LEADS_BOTH_ENDS.test(dated.slice(Math.max(0, at - NEAR), at))
+      ? [list]
+      : list.split(AFTER_PERCENT);
+    let from = at;
+    return rows
+      .map((row) => {
+        const start = from;
+        from += row.length;
+        return staysAsSaid(row)
+          ? row
+          : row.replace(RANGE, (range: string, offset: number) =>
+              writtenRange(dated, range, start + offset),
+            );
+      })
+      .join("");
   });
 }
 
@@ -438,13 +454,18 @@ const ZH_ROUGH_BEFORE = new RegExp(
   `几(?:(?:${ZH_UNITS})?(?:${ZH_JOINED}))?$|[${ZH_NUMERAL}]多(?:${ZH_UNITS})?(?:${ZH_JOINED})$`,
   "u",
 );
+// A rough count of days or years runs up to a date, which is no end of a range with it:
+// 这几天到二十号, 前几年到二零二五年.
+const ZH_ROUGH_STRETCH = new RegExp(`(?:几|[${ZH_NUMERAL}]多)[天年](?:${ZH_JOINED})$`, "u");
+const ZH_DATE = new RegExp(`^(?:[${ZH_NUMERAL}]+[月日号]|[零〇一二三四五六七八九]{4}年)`, "u");
 // 两块五 is 2.5块, 十块零五 10.05块 and 三元五角 3.5元: a digit after money goes on with the amount,
-// unless it counts something itself (五十块一个) or is the next amount (一百块两百块都行).
+// unless it counts something itself (五十块一个) or starts the next amount (一百块两百块都行), which
+// never starts at 零 or at a digit before another: 两块五五块 is 两块五 and 五块. The amounts said
+// before one that goes on stay as said with it: 五块两块五.
 const ZH_MONEY_BEFORE = new RegExp(`[${ZH_NUMERAL}](?:${ZH_MONEY.join("|")})$`, "u");
-const ZH_GOES_ON = new RegExp(
-  `^[零〇]?[一二两三四五六七八九](?!${ZH_UNITS}|[${ZH_NUMERAL}]*(?:${ZH_MONEY.join("|")}))`,
-  "u",
-);
+const ZH_ON = `(?:[零〇][一二两三四五六七八九]|[一二两三四五六七八九](?!${ZH_UNITS}|[十百千万亿][${ZH_NUMERAL}]*(?:${ZH_MONEY.join("|")})))`;
+const ZH_GOES_ON = new RegExp(`^${ZH_ON}`, "u");
+const ZH_AMOUNTS_GO_ON = new RegExp(`^(?:[${ZH_NUMERAL}]+(?:${ZH_MONEY.join("|")}))*${ZH_ON}`, "u");
 // 周六日 is the weekend, 下周二十号 may be a Tuesday and 下周二十个人 ten people on a Tuesday. 本周十五号
 // names no day of the week, and 一周 or 两个星期 is a length of time.
 const ZH_WEEKDAY_BEFORE = new RegExp(`(?<![${ZH_NUMERAL}\\d]个?)(?:周|星期|礼拜)$`, "u");
@@ -503,11 +524,12 @@ function chineseNumbers(text: string): string {
       [...ZH_NUMERAL].includes(before.at(-1) ?? "")
     )
       return range;
-    if (ZH_ROUGH_BEFORE.test(before)) return range;
+    if (ZH_ROUGH_BEFORE.test(before) && !(ZH_ROUGH_STRETCH.test(before) && ZH_DATE.test(range)))
+      return range;
     if (ZH_MONEY_BEFORE.test(before) && ZH_GOES_ON.test(range)) return range;
     const parts = range.split(ZH_JOINER);
     const far = ZH_PARTS.exec(parts.at(-1) ?? "")?.[5];
-    if (far !== undefined && ZH_MONEY.includes(far) && ZH_GOES_ON.test(after)) return range;
+    if (far !== undefined && ZH_MONEY.includes(far) && ZH_AMOUNTS_GO_ON.test(after)) return range;
     const written = parts.map((part, at) => {
       if (at % 2 === 1) return part;
       const [, percent, whole = "", places = "", big = "", unit] = ZH_PARTS.exec(part) ?? [];
