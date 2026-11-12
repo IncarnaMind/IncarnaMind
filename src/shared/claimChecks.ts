@@ -874,10 +874,9 @@ export function figureCheckShown(
     now.footing === "not-yet-known"
       ? { footing: figure.footing, waiting: false }
       : (now.footing.get(figure.id) ?? NOT_FOOTED);
-  // Its own check has ended but a cell it counts is still out: shown now, its verdict could turn
-  // once that cell lands, with nothing changed by the User (#2998).
-  if (live.waiting && (shown.state === "supported" || shown.state === "unsupported"))
-    return { state: "checking" };
+  // A cell it counts is still out: shown now, its verdict could turn once that cell lands, with
+  // nothing changed by the User (#2998), whether or not its own check could be made.
+  if (live.waiting) return { state: "checking" };
   return figureProblem({ ...figure, footing: live.footing }) !== null
     ? { state: "unsupported" }
     : shown;

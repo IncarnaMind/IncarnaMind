@@ -59,6 +59,14 @@ const ZH: Example = {
 /** "(120)" in a cell may be a minus or an aside: its check reads it as the sheet's -120. */
 const RETURNS = "(120)";
 
+/** How a mark shows on its own, before the Note's footing is read. */
+const NO_CONTEXT = {
+  footing: "not-yet-known" as const,
+  versions: null,
+  folderId: null,
+  scope: null,
+};
+
 /**
  * The sheet a Note's table is checked against: sales, returns as a minus and, when `other` is
  * given, a row the Note's table leaves out; then its total.
@@ -137,9 +145,19 @@ async function coreOf(
   const othersEnded = async () => {
     const at = world.current;
     if (!at) throw new Error("The checks began before the Note was made.");
+    // A request that fails gets no reply, so its claim's end shows only on its mark.
+    const failedEnded = async () => {
+      if (run.fails === undefined) return true;
+      await at.client.settled();
+      return claimsOf(readMind(at.client), NO_CONTEXT).claims.some(
+        (claim) => claim.sentence.text === run.fails && claim.check.state !== "checking",
+      );
+    };
+    const replied = claims - 1 - (run.fails === undefined ? 0 : 1);
     for (;;) {
       const uses = await at.core.listAiUse(at.mindId);
-      if (uses.filter((use) => use.kind === "sentence-checked").length >= claims - 1) break;
+      const checked = uses.filter((use) => use.kind === "sentence-checked").length;
+      if (checked >= replied && (await failedEnded())) break;
       await nextTurn();
     }
     await at.client.settled();
@@ -322,6 +340,30 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
       ["400", "checking"],
       [example.prose, "supported"],
     ]);
+  });
+
+  // protects=a total whose own request failed reads Checking while a cell it counts is still out, never a footing's Unsupported first, and once that cell lands the cells that don't add up show (#2998); fails_when=the total reads Unsupported from the cells as they are while one of them is still being checked; no_claim=how a real provider fails.
+  test("a total whose own check couldn't be made reads Checking while a cell it counts is out", async () => {
+    let meanwhile: (string | null)[][] = [];
+    const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
+      last: "500",
+      fails: "400",
+      async meanwhile(world) {
+        meanwhile = await shownIn(world);
+        world.release();
+      },
+    });
+
+    await run.result;
+    await run.client.settled();
+
+    expect(meanwhile).toEqual([
+      ["500", "checking"],
+      [RETURNS, "supported"],
+      ["400", "checking"],
+      [example.prose, "supported"],
+    ]);
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
   });
 
   // protects=a total its cells add up to stays Supported when its check ends first: its footing agrees once "(120)" is read as a minus (#2560); fails_when=the total's footing is left unworked out, or misfoots it; no_claim=a real model's reading.
