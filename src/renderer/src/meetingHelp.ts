@@ -46,17 +46,20 @@ export const useMeetingHelp = create<HelpState>()(() => ({
 }));
 
 /**
- * A press asked, by Meeting: the Answer of the help its Meeting had before it. A call's reply can
- * arrive before the event with the Meeting's new help (#3005), so the press keeps its outline until
- * the help changes rather than showing the one before again.
+ * A Meeting's latest press: its Answer once asked, and the helps this window has had for the
+ * Meeting since. A call's reply can arrive before the event with the Meeting's new help (#3005), so
+ * the press keeps its outline until its own Answer has been the Meeting's help, rather than showing
+ * the one before again. A later press replaces it, and the earlier one's reply then changes nothing.
  */
-const answered = new Map<string, string | null>();
+interface Press {
+  answerId: string | null;
+  helped: Set<string>;
+}
 
-const helpAnswerOf = (meetingId: string): string | null =>
-  useMeetings.getState().meetings.find((each) => each.id === meetingId)?.help?.answerId ?? null;
+const presses = new Map<string, Press>();
 
 function settle(meetingId: string, blocked?: HelpState["blocked"][string]): void {
-  answered.delete(meetingId);
+  presses.delete(meetingId);
   useMeetingHelp.setState((state) => {
     const { [meetingId]: _pending, ...pending } = state.pending;
     const { [meetingId]: _blocked, ...rest } = state.blocked;
@@ -74,18 +77,19 @@ core.on("chatReadiness.changed", (readiness) => {
   }));
 });
 
-/** A press's outline goes once its Meeting has the help it asked for, and with a Meeting that stopped. */
+/** A press's outline goes once its own Answer has been its Meeting's help, and with a Meeting that stopped. */
 function settleAsked(meetings: readonly Meeting[]): void {
   const { pending } = useMeetingHelp.getState();
   for (const meetingId of Object.keys(pending)) {
     const meeting = meetings.find((each) => each.id === meetingId);
-    if (!isLive(meeting)) settle(meetingId);
-    else if (
-      answered.has(meetingId) &&
-      (meeting.help?.answerId ?? null) !== answered.get(meetingId)
-    ) {
+    if (!isLive(meeting)) {
       settle(meetingId);
+      continue;
     }
+    const press = presses.get(meetingId);
+    if (!press) continue;
+    if (meeting.help) press.helped.add(meeting.help.answerId);
+    if (press.answerId !== null && press.helped.has(press.answerId)) settle(meetingId);
   }
 }
 
@@ -100,8 +104,9 @@ export async function askHelp(
   kind: MeetingHelpKind,
   conversationId?: string | null,
 ): Promise<{ conversationId: string; answerId: string } | null> {
-  const before = helpAnswerOf(meeting.id);
-  answered.delete(meeting.id);
+  const press: Press = { answerId: null, helped: new Set() };
+  presses.set(meeting.id, press);
+  const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
     pending: { ...state.pending, [meeting.id]: kind },
     blocked: Object.fromEntries(
@@ -115,19 +120,24 @@ export async function askHelp(
       ...(conversationId !== undefined && { conversationId }),
     });
     if (!result.asked) {
-      settle(
-        meeting.id,
-        result.reason === "not-ready"
-          ? { readiness: result.readiness }
-          : { message: translateNow("meetings.help.failed", { message: result.skill }) },
-      );
+      if (latest()) {
+        settle(
+          meeting.id,
+          result.reason === "not-ready"
+            ? { readiness: result.readiness }
+            : { message: translateNow("meetings.help.failed", { message: result.skill }) },
+        );
+      }
       return null;
     }
-    answered.set(meeting.id, before);
-    settleAsked(useMeetings.getState().meetings);
+    if (latest()) {
+      press.answerId = result.answerId;
+      settleAsked(useMeetings.getState().meetings);
+    }
     return { conversationId: result.conversation.id, answerId: result.answerId };
   } catch (error) {
-    settle(meeting.id, { message: errorMessage(error, translateNow) });
+    if (latest()) settle(meeting.id, { message: errorMessage(error, translateNow) });
+    else useAppStore.getState().reportError(error);
     return null;
   }
 }

@@ -24,6 +24,11 @@ const fake = vi.hoisted(() => {
     asks: [] as { kind: string; resolve(answerId: string): void }[],
     loads: [] as ((messages: unknown[]) => void)[],
     added: [] as string[],
+    /** Add to note's outcome: the Blocks it adds, or why it fails, once the test says. */
+    adding: null as null | { resolve(): void; reject(error: Error): void },
+    holdAdding: false,
+    reported: [] as unknown[],
+    command: null as null | ((command: string) => void),
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
     },
@@ -50,7 +55,10 @@ vi.mock("../../src/renderer/src/core", () => ({
       new Promise((resolve) => fake.loads.push((messages) => resolve({ messages }))),
     addToNote: ({ blocks }: { blocks: unknown[] }) => {
       fake.added.push(JSON.stringify(blocks));
-      return Promise.resolve({ blockIds: ["block-1"] });
+      if (!fake.holdAdding) return Promise.resolve({ blockIds: ["block-1"] });
+      return new Promise((resolve, reject) => {
+        fake.adding = { resolve: () => resolve({ blockIds: ["block-1"] }), reject };
+      });
     },
     undoAddToNote: () => Promise.resolve(),
   },
@@ -67,7 +75,7 @@ vi.mock("../../src/renderer/src/store", async () => {
     useAppStore: create(() => ({
       settings: null,
       reportError: (error: unknown) => {
-        throw error;
+        fake.reported.push(error);
       },
     })),
   };
@@ -101,7 +109,10 @@ const panelBridge = {
   keys: () => Promise.resolve({}),
   onKeys: () => () => undefined,
   onHelp: () => () => undefined,
-  onCommand: () => () => undefined,
+  onCommand: (listener: (command: string) => void) => {
+    fake.command = listener;
+    return () => undefined;
+  },
   resize: () => undefined,
   state: () => undefined,
   close: () => undefined,
@@ -195,6 +206,9 @@ beforeEach(async () => {
   fake.asks.length = 0;
   fake.loads.length = 0;
   fake.added.length = 0;
+  fake.adding = null;
+  fake.holdAdding = false;
+  fake.reported.length = 0;
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -341,17 +355,61 @@ describe("a second prompt pressed after a finished first one", () => {
       expect(fake.added[0]).not.toContain("June audit");
     },
   );
+
+  test("pressed while another prompt is still being asked, shows its own heading until its own reply starts", async () => {
+    await wantShown();
+    await press("say");
+    await press("sum");
+    expect(shown()).toEqual(sumOutline);
+    await replied(1, "answer-say");
+    await changed(helpOf("say", "answer-say"));
+    expect(shown()).toEqual(sumOutline);
+    await replied(2, "answer-sum");
+    expect(shown()).toEqual(sumOutline);
+    await changed(helpOf("sum", "answer-sum"));
+    await loaded([answerOf("answer-sum", "", "streaming")]);
+    expect(shown()).toEqual(sumOutline);
+    await written(answerOf("answer-sum", SUM, "done"));
+    expect(shown()).toMatchObject({
+      heading: "Sum up so far",
+      text: "Their audit is in June | They asked for a fixed monthly price",
+      pin: true,
+    });
+  });
+
+  test("keeps a pinned suggestion shown while it waits, and Pin from ⌘K then changes nothing", async () => {
+    const headings = () => all("help-heading").map((each) => each.textContent ?? "");
+    await wantShown();
+    await click(all("help-pin")[0]);
+    await press("sum");
+    await loaded([answerOf("answer-want", WANT, "done")]);
+    expect(headings()).toEqual([expect.stringContaining("What do they want?"), "Sum up so far"]);
+    await run(() => fake.command?.("pin"));
+    expect(headings()).toEqual([expect.stringContaining("What do they want?"), "Sum up so far"]);
+    expect(all("help-pin").map((each) => each.getAttribute("aria-pressed"))).toEqual(["true"]);
+  });
 });
 
 describe("a press whose Meeting stops before its reply", () => {
   // protects=#3005: holding a press's outline for its help never outlives the Meeting; fails_when=a press answered after Stop keeps waiting for a help that never comes; no_claim=what Stop shows.
-  test("leaves nothing waiting", async () => {
+  test.each([
+    ["before the reply", "stop"],
+    ["after the reply, before the Meeting's new help", "reply"],
+  ] as const)("leaves nothing waiting, stopped %s", async (_when, first) => {
     const { useMeetingHelp } = await import("../../src/renderer/src/meetingHelp");
+    const stop = () =>
+      run(() => fake.emit("meetings.changed", [{ ...meetingWith(null), status: "ready" }]));
     await changed(null);
     await press("want");
     expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": "want" });
-    await run(() => fake.emit("meetings.changed", [{ ...meetingWith(null), status: "ready" }]));
-    await replied(0, "answer-want");
+    if (first === "stop") {
+      await stop();
+      await replied(0, "answer-want");
+    } else {
+      await replied(0, "answer-want");
+      expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": "want" });
+      await stop();
+    }
     expect(useMeetingHelp.getState().pending).toEqual({});
   });
 });
@@ -379,6 +437,18 @@ describe("a help asked in the app's window while the panel shows", () => {
       add: true,
       checks: 0,
     });
+  });
+});
+
+describe("an Add to note still on its way when the suggestion is replaced", () => {
+  // protects=#3005: replacing the suggestion never loses why its Add to note failed (AGENTS.md rule 6); fails_when=the failure lands on a suggestion no longer shown and is dropped; no_claim=where the app shows it.
+  test("still reports its failure", async () => {
+    await wantShown();
+    fake.holdAdding = true;
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    await changed(helpOf("sum", "answer-sum"));
+    await run(() => fake.adding?.reject(new Error("The note can't be changed now.")));
+    expect(fake.reported).toEqual([new Error("The note can't be changed now.")]);
   });
 });
 
@@ -414,5 +484,26 @@ describe("a help's Answer, as the panel reads it", () => {
         return help !== "answer-want" && answer !== "none" && answer !== help;
       }),
     ).toEqual([]);
+  });
+
+  test("keeps what its own Answer has written: a late load, of the help before or its own older one, takes nothing back", async () => {
+    const hookPath = "../../src/renderer/src/components/meetings/HelpSuggestion";
+    const { useHelpAnswer }: { useHelpAnswer(help: MeetingHelp): ConversationAnswer | null } =
+      await import(hookPath);
+    let shownText: string | null = null;
+    function Probe({ help }: { help: MeetingHelp }) {
+      shownText = useHelpAnswer(help)?.text ?? null;
+      return null;
+    }
+    const show = (help: MeetingHelp) => run(() => root?.render(createElement(Probe, { help })));
+    await show(helpOf("want", "answer-want"));
+    await show(helpOf("sum", "answer-sum"));
+    const [wantLoad, sumLoad] = fake.loads;
+    await written(answerOf("answer-sum", "- Their audit is in June", "streaming"));
+    const older = [answerOf("answer-want", WANT, "done"), answerOf("answer-sum", "", "streaming")];
+    await run(() => wantLoad?.(older));
+    expect(shownText).toBe("- Their audit is in June");
+    await run(() => sumLoad?.(older));
+    expect(shownText).toBe("- Their audit is in June");
   });
 });

@@ -101,7 +101,9 @@ export function MeetingPanel() {
       ),
     [],
   );
-  const latestPinned = pinned.some((each) => each.answerId === meeting?.help?.answerId);
+  // While a press waits for its help, the Meeting's help is still the one before, which isn't shown.
+  const asking = useMeetingHelp((state) => (meeting ? state.pending[meeting.id] : undefined));
+  const latestPinned = !asking && pinned.some((each) => each.answerId === meeting?.help?.answerId);
   useEffect(() => bridge.state({ folded, pinned: latestPinned }), [folded, latestPinned]);
 
   const meetingRef = useRef(meeting);
@@ -116,8 +118,9 @@ export function MeetingPanel() {
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
-        const help = meetingRef.current?.help;
-        if (command === "pin" && help) togglePin(help);
+        const live = meetingRef.current;
+        const waiting = live && useMeetingHelp.getState().pending[live.id];
+        if (command === "pin" && live?.help && !waiting) togglePin(live.help);
       }),
     ];
     return () => {
@@ -243,7 +246,8 @@ function Panel({
   const [reach, setReach] = useState(0);
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const help = meeting.help;
-  const shownPinned = pinned.filter((each) => each.answerId !== help?.answerId);
+  const asking = useMeetingHelp((state) => state.pending[meeting.id]);
+  const shownPinned = asking ? pinned : pinned.filter((each) => each.answerId !== help?.answerId);
   return (
     <section
       aria-label={t("meetings.help.label")}
@@ -445,6 +449,18 @@ function Suggestion({
   const answer = useHelpAnswer(help);
   const [added, setAdded] = useState<{ blockIds: string[] } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
+  // Replaced by another help before Add to note or its Undo ends: its failure is still told.
+  const failed = (error: unknown) => {
+    if (shown.current) setProblem(errorMessage(error, translateNow));
+    else useAppStore.getState().reportError(error);
+  };
   useEffect(() => {
     if (!added) return;
     const timer = setTimeout(() => setAdded(null), ADDED_MS);
@@ -465,14 +481,12 @@ function Suggestion({
       const { blockIds } = await addHelpToNotes(meeting, help);
       setAdded({ blockIds });
     } catch (error) {
-      setProblem(errorMessage(error, translateNow));
+      failed(error);
     }
   };
   const undoAdd = (blockIds: string[]) => {
     setAdded(null);
-    core
-      .undoAddToNote({ mindId: meeting.mindId, blockIds })
-      .catch((error: unknown) => setProblem(errorMessage(error, translateNow)));
+    core.undoAddToNote({ mindId: meeting.mindId, blockIds }).catch(failed);
   };
   return (
     <div className="panel-suggestion" data-pinned={pinned}>
