@@ -12,6 +12,8 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { GENERATED_MARK, MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
+import { markedSentences, markSentence } from "../../src/core/answers/checks/sentences";
+import type { ClaimCheckAttributes } from "../../src/core/api";
 import { replaceOwn, waitingIn } from "../../src/core/proposals/ownWaiting";
 import { planChanges, writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -545,5 +547,64 @@ describe("Changes the User asked the assistant for", () => {
     if (change?.kind !== "words") throw new Error("No inline change was planned.");
     expect(change.from).toMatchObject({ blockId: "p", offset: 5 });
     expect(change.to).toMatchObject({ blockId: "p", offset: 5 });
+  });
+
+  test("Undo of an accepted change leaves a check result that landed since on another sentence of its paragraph (#2988)", () => {
+    const first = "Revenue was about 10 in May.";
+    const second = "Costs were 8 in May.";
+    const { doc, blocks, schema } = mindWith([
+      {
+        type: "paragraph",
+        attrs: { id: "p" },
+        content: [
+          text("Revenue was "),
+          text("about ", [{ type: "proposalInsert", attrs: ref("a", "asked") }]),
+          text(`10 in May. ${second}`),
+        ],
+      },
+    ]);
+    const paragraph = blocks.get(0);
+    if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph");
+    const checked = (id: string, sentence: string, state: ClaimCheckAttributes["state"]) =>
+      ({
+        id,
+        request: "check-note",
+        action: "check-against-documents",
+        state,
+        reason: null,
+        detail: null,
+        providerId: "provider",
+        modelId: "model",
+        text: sentence,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId: null, widened: true },
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-11-12T09:00:00.000Z",
+      }) satisfies ClaimCheckAttributes;
+    markSentence(paragraph, 0, first.length, checked("first", first, "supported"));
+    const start = first.length + 1;
+    markSentence(paragraph, start, start + second.length, checked("second", second, "supported"));
+    const undo = new Y.UndoManager(blocks, { trackedOrigins: new Set([Asked]) });
+
+    writeAccepted(doc, new Set(["asked"]), new Aside(), new Asked(), schema);
+    const landing = markedSentences(blocks).find((each) => each.check.id === "second");
+    if (!landing) throw new Error("The second sentence has no check");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...checked("second", second, "contradicted"),
+      checkedAt: "2026-11-12T09:01:00.000Z",
+    });
+    undo.undo();
+
+    expect(textOf(blocks)).toEqual([`Revenue was 10 in May. ${second}`]);
+    expect(markedSentences(blocks).map((each) => [each.check.id, each.check.state])).toEqual([
+      ["first", "supported"],
+      ["second", "contradicted"],
+    ]);
   });
 });
