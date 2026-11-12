@@ -24,6 +24,8 @@ interface State extends RowGivesWay {
 function shortOfItsText(box: HTMLElement): boolean {
   const text = document.createRange();
   text.selectNodeContents(box);
+  // A DOM with no layout (the unit tests') has no rectangle for a range, and nothing is cut there.
+  if (typeof text.getBoundingClientRect !== "function") return false;
   return text.getBoundingClientRect().width > box.getBoundingClientRect().width + 0.05;
 }
 
