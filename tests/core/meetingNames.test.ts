@@ -84,6 +84,35 @@ describe("Names in a Meeting's Note and its Folder's Documents (#1031)", () => {
     expect(spaced.besideChinese.size).toBe(0);
   });
 
+  // protects=one English word written against a Chinese character is kept apart wherever it stands, where it opens a line, a list item or a sentence too, so this computer's transcriber is told it, and it is no name: the names found are the ones found without it; fails_when=Priya, Budget or Plan is of no kind, or is among the names, or a line's first word with no Chinese character against it becomes of any kind; no_claim=a word before a colon, which stays an item's opener (the test below).
+  test("one English word against a Chinese character is kept apart where it opens a line, a list item or a sentence too, and is no name", () => {
+    const found = namesIn(
+      [
+        "周会",
+        "Priya跟进预算",
+        "- Budget下周定",
+        "先看合同. Plan先不动",
+        "请Maya Lindqvist跟进",
+      ].join("\n"),
+    );
+    expect([...found.besideChinese.keys()]).toEqual(["Priya", "Budget", "Plan"]);
+    expect([...found.names.keys()]).toEqual(["Maya Lindqvist"]);
+    expect(found.itemOpeners.size).toBe(0);
+    // Its twin: with no Chinese character against it, a line's first word is of no kind.
+    const english = namesIn(
+      ["Priya follows up on the budget", "- Budget is due", "Then Maya Lindqvist signs."].join(
+        "\n",
+      ),
+    );
+    expect([...english.names.keys()]).toEqual(["Maya Lindqvist"]);
+    expect(english.besideChinese.size).toBe(0);
+    expect(english.itemOpeners.size).toBe(0);
+    // Before a colon it is an item's opener, as it was: the colon stands between it and the Chinese.
+    const colon = namesIn("Tom：工期");
+    expect([...colon.itemOpeners.keys()]).toEqual(["Tom"]);
+    expect(colon.besideChinese.size).toBe(0);
+  });
+
   test("one word that opens a line before a colon, or is a list item alone, is kept apart", () => {
     const found = namesIn(
       [

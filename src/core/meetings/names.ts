@@ -83,7 +83,9 @@ function latinNames(text: string, add: (kind: Kind, name: string) => void): void
     }
     const [only] = run;
     if (run.length > 1) add("names", run.map((each) => each.text).join(" "));
-    else if (only && !opens) add(besideChinese(text, only) ? "besideChinese" : "names", only.text);
+    // Against a Chinese character it is that kind wherever it stands: a line opens with it too.
+    else if (only && besideChinese(text, only)) add("besideChinese", only.text);
+    else if (only && !opens) add("names", only.text);
     else if (only && opensItem(text, only)) add("itemOpeners", only.text);
     run = [];
   };

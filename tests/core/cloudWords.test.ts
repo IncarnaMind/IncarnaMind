@@ -450,23 +450,52 @@ const mixedNote = () => [
   bulletList("Tom", "和Lumen Foods签合同"),
 ];
 
+/** The words the first stream was sent for a Note of these blocks, and all that reached the pretend service. */
+async function reachedWith(blocks: JSONContent[]) {
+  const { core, cloud, meeting } = await meetingOn("soniox", {
+    name: null,
+    words: [],
+    note: "产品周会",
+    blocks,
+  });
+  const sent = sentWords("soniox", cloud);
+  const reached = [...cloud.urls, ...cloud.frames, JSON.stringify(cloud.sessions)].join("\n");
+  await core.stopMeeting(meeting.id);
+  core.close();
+  return { sent, reached };
+}
+
+/** The words the engine on this computer was last told for a Note of these blocks. */
+async function toldHere(blocks: JSONContent[]) {
+  const told: string[][] = [];
+  const { core, record } = await transcribingCore(await createTempDataFolder(), {
+    engineFactory: async () => {
+      const engine = createFakeSpeechEngine();
+      return {
+        ...engine,
+        recognizer: {
+          decode(samples, stream, words) {
+            told.push([...words]);
+            return engine.recognizer.decode(samples, stream, words);
+          },
+        },
+      };
+    },
+  });
+  const mind = await core.createMind({ title: "产品周会" });
+  await typed(core, mind.id, blocks);
+  const meeting = await core.createMeeting({ mindId: mind.id });
+  await core.startMeeting({ meetingId: meeting.id });
+  record(6 * SECOND);
+  await until(core, meeting.id, (each) => each.lines >= 2);
+  await core.stopMeeting(meeting.id);
+  core.close();
+  return told.at(-1);
+}
+
 describe("Words kept on this computer reach no cloud service (#1031)", { timeout: 60_000 }, () => {
   // protects=one English word written against a Chinese character, a list's heading and a list item of one word are a name as often as an ordinary word, so no cloud service is sent a word found only that way: the request holds only the names of several words; and the same word is sent like any other once the Note also writes it inside a sentence; fails_when=Priya, Plan, Risks or Tom is in the request as it reaches the pretend service while Tom is only a list item, or Maya Lindqvist or Lumen Foods is missing from it, or Tom is missing once a sentence of the Note holds it; no_claim=a word written with spaces around it, or a title-case heading, which the finder takes for a name as before.
   test("the request holds the names of several words, and none of the single word inside Chinese, the list's heading or its item; the item's word written inside a sentence too is sent", async () => {
-    const reachedWith = async (blocks: JSONContent[]) => {
-      const { core, cloud, meeting } = await meetingOn("soniox", {
-        name: null,
-        words: [],
-        note: "产品周会",
-        blocks,
-      });
-      const sent = sentWords("soniox", cloud);
-      const reached = [...cloud.urls, ...cloud.frames, JSON.stringify(cloud.sessions)].join("\n");
-      await core.stopMeeting(meeting.id);
-      core.close();
-      return { sent, reached };
-    };
-
     const asItem = await reachedWith(mixedNote());
     expect(asItem.sent).toEqual(["Maya Lindqvist", "Lumen Foods"]);
     expect(asItem.reached).toContain("Maya Lindqvist");
@@ -484,30 +513,30 @@ describe("Words kept on this computer reach no cloud service (#1031)", { timeout
   });
 
   test("its twin: the engine on this computer is told all of them, those kept here after the names", async () => {
-    const told: string[][] = [];
-    const { core, record } = await transcribingCore(await createTempDataFolder(), {
-      engineFactory: async () => {
-        const engine = createFakeSpeechEngine();
-        return {
-          ...engine,
-          recognizer: {
-            decode(samples, stream, words) {
-              told.push([...words]);
-              return engine.recognizer.decode(samples, stream, words);
-            },
-          },
-        };
-      },
-    });
-    const mind = await core.createMind({ title: "产品周会" });
-    await typed(core, mind.id, mixedNote());
-    const meeting = await core.createMeeting({ mindId: mind.id });
-    await core.startMeeting({ meetingId: meeting.id });
-    record(6 * SECOND);
-    await until(core, meeting.id, (each) => each.lines >= 2);
-    expect(told.at(-1)).toEqual(["Maya Lindqvist", "Lumen Foods", "Priya", "Plan", "Risks", "Tom"]);
-    await core.stopMeeting(meeting.id);
-    core.close();
+    expect(await toldHere(mixedNote())).toEqual([
+      "Maya Lindqvist",
+      "Lumen Foods",
+      "Priya",
+      "Plan",
+      "Risks",
+      "Tom",
+    ]);
+  });
+
+  // protects=a line of the Note that opens with an English word against a Chinese character (Priya跟进预算) has its word told to this computer's transcriber, and to no one else: what a cloud service is sent is what it is sent without that line; fails_when=Priya or Budget is in anything that reaches the pretend service, or the words sent differ from those of the Note without the two lines, or this computer's engine isn't told Priya and Budget; no_claim=the same word written inside an English sentence of the Note, which is a name and is sent (the test above, with Tom).
+  test("a line that opens with an English word against Chinese: no request holds the word, the words sent are those sent without the line, and the engine on this computer is told it", async () => {
+    const without = [note("请Maya Lindqvist跟进，和Lumen Foods签合同。")];
+    const opening = [note("Priya跟进预算"), ...without, bulletList("Budget下周定")];
+
+    const cloud = await reachedWith(opening);
+    expect(cloud.sent).toEqual(["Maya Lindqvist", "Lumen Foods"]);
+    expect(cloud.sent).toEqual((await reachedWith(without)).sent);
+    expect(cloud.reached).toContain("Maya Lindqvist");
+    for (const kept of ["Priya", "Budget"]) expect(cloud.reached).not.toContain(kept);
+
+    expect(await toldHere(opening)).toEqual(["Maya Lindqvist", "Lumen Foods", "Priya", "Budget"]);
+    // Its twin: without the two lines, this computer's engine is told the names alone.
+    expect(await toldHere(without)).toEqual(["Maya Lindqvist", "Lumen Foods"]);
   });
 
   // protects=a name typed in the Note while a cloud service transcribes changes nothing in what is sent or when: a stream opened after it is set up with the words the first was, while the same words typed before a Meeting starts are sent; fails_when=a later stream's setup holds the typed name, or drops a word the first held, or a Meeting started after the typing isn't sent it; no_claim=the line's spelling on this computer, which the typed name does change (tests/core/meetingWords.test.ts).
