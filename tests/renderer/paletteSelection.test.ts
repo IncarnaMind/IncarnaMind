@@ -26,6 +26,8 @@ Object.assign(globalThis, {
   document: page,
   Element: page.defaultView.Element,
   HTMLElement: page.defaultView.HTMLElement,
+  HTMLInputElement: page.defaultView.HTMLInputElement,
+  HTMLTextAreaElement: page.defaultView.HTMLTextAreaElement,
   ResizeObserver: class {
     observe() {}
     unobserve() {}
@@ -41,6 +43,7 @@ const palette = await import("../../src/renderer/src/palette");
 const { noteHandle } = await import("../../src/renderer/src/commands/handles");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 const { useAppStore } = await import("../../src/renderer/src/store");
+const { useSelection } = await import("../../src/renderer/src/selection");
 
 const AT = "2026-10-13T09:00:00.000Z";
 const NOTE: Mind = {
@@ -62,6 +65,8 @@ useAppStore.setState({ documents: [documentOf("d-1"), documentOf("d-2")], minds:
 const CHECK = "command:check.againstDocuments";
 
 afterEach(() => {
+  useSelection.getState().clear();
+  document.body.replaceChildren();
   const note = noteHandle.current;
   noteHandle.current = null;
   note?.editor.destroy();
@@ -123,11 +128,11 @@ describe("⌘K with something selected", () => {
     ["en", "delete", "Delete 2 Documents", "Show Recently deleted"],
     ["zh-CN", "笔记", "用这 2 个文档新建笔记", "新建笔记"],
   ] as const)(
-    "with Documents chosen in the Library (%s), %s lists their own action first",
+    "with Documents picked in the Library (%s), %s lists their own action first",
     (language, query, own, other) => {
       const names = actions(
         query,
-        { selection: twoDocuments, focus: null, surface: "palette" },
+        { selection: twoDocuments, focus: null, surface: "palette", picked: true },
         language,
       ).map((item) => item.name);
       expect(names[0]).toBe(own);
@@ -149,6 +154,55 @@ describe("⌘K with something selected", () => {
       "command:mind.check",
     );
   });
+
+  /** A row in a list marked as `surface`, which ⌘K opens from: what it acts on is that list's. */
+  const rowIn = (surface: "sidebar" | "library"): Element => {
+    const list = document.createElement("div");
+    list.dataset.surface = surface;
+    const row = document.createElement("button");
+    list.append(row);
+    document.body.append(list);
+    return row;
+  };
+  const firstFrom = (row: Element, query: string, language: "en" | "zh-CN") =>
+    keys(query, palette.contextAt(row), language)[0];
+
+  // protects=from the sidebar, the row lit for the Note shown is no selection: "new" runs New note and "pdf" Export as PDF, until the User picks a row, and again after Esc (#1741); fails_when=the shown Note's actions come first with nothing picked, or a picked row's don't; no_claim=which commands a word finds.
+  test.each([
+    ["en", "new"],
+    ["zh-CN", "新"],
+  ] as const)(
+    "from the sidebar (%s), the Note shown is no selection; one picked is, until Esc",
+    (language, typed) => {
+      const row = rowIn("sidebar");
+      useSelection.getState().choose("sidebar", aNote);
+      expect(firstFrom(row, typed, language)).toBe("command:mind.new");
+      expect(firstFrom(row, "pdf", language)).toBe("command:mind.exportAs.pdf");
+      // Shift-click on its own row picks it, the shown Note's own.
+      useSelection.getState().extendTo("sidebar", aNote);
+      expect(firstFrom(row, typed, language)).toBe("command:mind.openTab");
+      expect(firstFrom(row, "pdf", language)).toBe("command:mind.print");
+      useSelection.getState().clear();
+      expect(firstFrom(row, typed, language)).toBe("command:mind.new");
+    },
+  );
+
+  test.each([
+    ["en", "note"],
+    ["zh-CN", "笔记"],
+  ] as const)(
+    "in the Library (%s), the row opened is no selection; one picked is, until Esc",
+    (language, typed) => {
+      const row = rowIn("library");
+      const opened: ObjectRef = { kind: "document", id: "d-1" };
+      useSelection.getState().choose("library", opened);
+      expect(firstFrom(row, typed, language)).toBe("command:mind.new");
+      useSelection.getState().extendTo("library", opened);
+      expect(firstFrom(row, typed, language)).toBe("command:document.startMind");
+      useSelection.getState().clear();
+      expect(firstFrom(row, typed, language)).toBe("command:mind.new");
+    },
+  );
 
   test("with nothing typed, the list is as it was", () => {
     const ctx = withWordsSelected("Harbours publish the times of high water.");

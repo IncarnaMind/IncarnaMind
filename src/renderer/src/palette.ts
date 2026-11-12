@@ -85,7 +85,7 @@ function textSelected(): boolean {
 function acting(
   target: ObjectRef | undefined,
   active: Element | null,
-  on: Pick<CommandContext, "selection" | "focus">,
+  on: Pick<CommandContext, "selection" | "focus" | "picked">,
 ): CommandContext {
   const targets = on.selection.length > 0 ? on.selection : on.focus ? [on.focus] : [];
   const moveTo = () => moveFromPalette(targets);
@@ -113,13 +113,14 @@ function acting(
  * shows, as a list's own keys and the shortcuts on the note decide.
  */
 export function contextAt(active: Element | null): CommandContext {
-  const { surface, items } = useSelection.getState();
+  const { surface, items, picked } = useSelection.getState();
   // By the list's own mark: the Figure schedule holds a selection without being a command surface.
   const list = active?.closest<HTMLElement>("[data-surface]")?.dataset.surface;
   if (surface !== null && items.length > 0 && list === surface) {
     return acting(items.length === 1 ? items[0] : undefined, active, {
       selection: items,
       focus: null,
+      ...(picked && { picked: true }),
     });
   }
   const focus = underTab(objectAt(active)) ?? objectInFront();
@@ -332,9 +333,12 @@ export function recentGroup(
   return items.length > 0 ? [{ id: "recent", items }] : [];
 }
 
-/** Whether a command acts on what is selected: the rows chosen in a list, or the text in a Note. */
+/**
+ * Whether a command acts on what the User selected: the rows they picked in a list, or the words
+ * selected in a Note. A list's current row, the one shown or opened, is not a selection here.
+ */
 const onSelection = (command: Command, ctx: CommandContext): boolean =>
-  (ctx.selection.length > 0 && command.appliesTo !== undefined) ||
+  (ctx.picked === true && ctx.selection.length > 0 && command.appliesTo !== undefined) ||
   (ctx.textSelected === true && command.appliesToText === true);
 
 /**
@@ -343,8 +347,8 @@ const onSelection = (command: Command, ctx: CommandContext): boolean =>
  * Chinese, hold every word typed at a word's start or one typo from it, best
  * first, so letters inside a word or across two never find an action (#1372);
  * with nothing typed, the few that are `top`, in its order, or, for ">" (`all`),
- * every one in the menus' order. With rows or text selected, the actions on the
- * selection come before the others that match, each part best first.
+ * every one in the menus' order. With rows picked or words selected, the actions
+ * on the selection come before the others that match, each part best first.
  */
 export function actionGroup(
   words: readonly string[],

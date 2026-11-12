@@ -90,6 +90,8 @@ export interface CommandContext {
   assistant?: true;
   /** Text was selected in the Note last written in: what `appliesToText` commands act on. */
   textSelected?: true;
+  /** The User picked the rows in `selection`; without it they are only the current row. */
+  picked?: true;
 }
 
 export interface Command {
