@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { COMMENT_MARK } from "../../../core/api";
+import { ySyncOf } from "../../../shared/markKeys";
 
 /** The comment a mark holds, by the record's id: null when it holds none. */
 export const commentOfMark = (value: unknown): string | null => {
@@ -25,6 +26,8 @@ export const Comment = Mark.create({
   }),
   parseHTML: () => [],
   renderHTML: () => ["span", {}, 0],
+  // Each comment under a key of its own in the editor's Yjs sync (patches/y-tiptap/marks.mjs, #2996).
+  extendMarkSchema: (extension) => (extension.name === COMMENT_MARK ? ySyncOf(COMMENT_MARK) : {}),
 });
 
 export const COMMENTS_REDRAWN = "commentsRedrawn";

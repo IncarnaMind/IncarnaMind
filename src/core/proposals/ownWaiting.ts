@@ -18,6 +18,7 @@ import {
 } from "../../shared/askedChanges";
 import { originOf, setOrigins } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
+import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
   keepRevised,
   proposalRequestOf,
@@ -102,8 +103,8 @@ function holdsProposal(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[])
     if (node instanceof Y.XmlText) {
       return (node.toDelta() as Run[]).some(
         (run) =>
-          !!run.attributes &&
-          (PROPOSAL_INSERT_MARK in run.attributes || PROPOSAL_DELETE_MARK in run.attributes),
+          hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes) ||
+          hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes),
       );
     }
     if (!(node instanceof Y.XmlElement)) return false;
@@ -117,8 +118,8 @@ function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): s
     for (const node of nodes) {
       if (node instanceof Y.XmlText) {
         for (const run of node.toDelta() as Run[]) {
-          const insert = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removed = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const insert = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removed = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if (insert) requests.add(insert.request);
           if (removed) requests.add(removed.request);
         }
@@ -253,7 +254,7 @@ function unsafeInlineInsertion(element: Y.XmlElement, current: ReadonlySet<strin
       }
       if (!(node instanceof Y.XmlText)) return false;
       return (node.toDelta() as Run[]).some((run) => {
-        const proposal = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+        const proposal = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
         return (
           !!proposal &&
           current.has(proposal.request) &&

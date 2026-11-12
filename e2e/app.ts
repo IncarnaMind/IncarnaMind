@@ -510,6 +510,83 @@ export async function panelOf(app: ElectronApplication): Promise<Page> {
   return page;
 }
 
+/**
+ * Each Citation a help suggestion shows has its ✓ exactly where the sentence check passed the line
+ * it is cited on, as the core recorded it once every mark settled (#2847): never from a found quote
+ * alone. Returns each chip's check, for a spec that names what the check gave a line.
+ */
+export async function expectMarksAsChecked(
+  window: Page,
+  suggestion: Locator,
+): Promise<{ at: number; check: string; passed: boolean }[]> {
+  const help = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const live = (await bridge.listMeetings()).find(
+      (meeting) => meeting.status === "recording" || meeting.status === "paused",
+    );
+    return live?.help ?? null;
+  });
+  if (!help) throw new Error("The meeting has no help reply.");
+  const settled = async () =>
+    window.evaluate(async ({ conversationId, answerId }) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { messages } = await bridge.getConversation(conversationId);
+      const answer = messages.find((message) => message.id === answerId);
+      if (answer?.kind !== "answer" || answer.status === "streaming") return null;
+      if (answer.citations.some((citation) => citation.check === "checking")) return null;
+      return answer.citations.map(({ marker, check, passedAt }) => ({
+        marker,
+        check,
+        passedAt: passedAt ?? [],
+      }));
+    }, help);
+  await expect.poll(settled, { timeout: 20_000 }).not.toBeNull();
+  const citations = (await settled()) ?? [];
+  const chips = suggestion.getByTestId("help-citation");
+  const shown: { at: number; check: string; passed: boolean }[] = [];
+  for (let index = 0; index < (await chips.count()); index++) {
+    const chip = chips.nth(index);
+    const at = Number(await chip.getAttribute("data-at"));
+    const marker = Number(await chip.getAttribute("data-marker"));
+    // The chip's own Citation passed its own place: a pass recorded on another marker is no ✓.
+    const own = citations.find((citation) => citation.marker === marker);
+    if (!own) throw new Error(`A chip shows marker ${marker}, which has no Citation.`);
+    const passed = own.passedAt.includes(at);
+    await expect(chip).toHaveAttribute("data-passed", String(passed));
+    await (passed
+      ? expect(chip.getByTestId("help-citation-check")).toBeVisible()
+      : expect(chip.getByTestId("help-citation-check")).toBeHidden());
+    shown.push({ at, check: (await chip.getAttribute("data-check")) ?? "", passed });
+  }
+  return shown;
+}
+
+/** Presses a prompt of the call-help panel's ask bar: in the bar, or under More…, which the press closes. */
+export async function pressHelpPrompt(panel: Page, name: string): Promise<void> {
+  const inTheBar = panel
+    .getByTestId("ask-bar")
+    .getByTestId("help-prompt")
+    .filter({ hasText: name });
+  if ((await inTheBar.count()) > 0) {
+    await pointAndClick(panel, inTheBar);
+    return;
+  }
+  await pointAndClick(panel, panel.getByTestId("help-more"));
+  await pointAndClick(
+    panel,
+    panel.getByTestId("help-more-list").getByTestId("help-prompt").filter({ hasText: name }),
+  );
+}
+
+/** Presses a call-help prompt and waits for its reply to end: the reply under its heading. */
+export async function pressHelp(panel: Page, name: string): Promise<Locator> {
+  await pressHelpPrompt(panel, name);
+  const suggestion = panel.getByTestId("help-suggestion").last();
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await expect(suggestion.getByTestId("help-heading")).toContainText(name);
+  return suggestion;
+}
+
 export async function expectBarOneRow(bar: Locator): Promise<void> {
   await expect
     .poll(() =>
@@ -2555,7 +2632,7 @@ export async function checkCard(
         window,
         window
           .getByTestId("palette-item")
-          .filter({ hasText: chinese ? "核对" : "Checks" })
+          .filter({ hasText: chinese ? "核对结果" : "Checks" })
           .first(),
       );
     }

@@ -273,6 +273,7 @@ import type { PlanRequest } from "./library/plan";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
+import { keyMarks } from "./markKeys";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -812,6 +813,7 @@ export function createCore(adapters: CoreAdapters): Core {
     {
       unsaved: unsaved.mindUnsaved,
       persisted: (mindId) => rebuildFigureRetention(mindId),
+      upgrade: keyMarks,
     },
   );
   const noteConversations = createNoteConversations({
@@ -2338,6 +2340,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
+    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),

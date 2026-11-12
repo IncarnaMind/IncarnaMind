@@ -406,12 +406,20 @@ export interface CreateMindInput {
  *   a what-if as the workbook's own figure, so it opens these Notes read-only.
  *   Older content is version 55 content as it is: a figure without it is the
  *   workbook's own, or a what-if of the one input it names.
- * - 57: where a figure couldn't be calculated, the text holds a `missingNumber`
+ * - 57: each sentence's check, each comment and each change the assistant
+ *   proposes is kept under a format key of its own, the mark's name, `--` and
+ *   eight characters of its id (#2996), so two side by side don't share the
+ *   marker that ends one and starts the next. An older version reads them
+ *   only under their names, so it opens these Notes read-only and shows their
+ *   checks as not checked. Older content is version 56 content as it is: the
+ *   core moves these marks to their own keys when it opens the Note, or
+ *   restores a Checkpoint of it.
+ * - 58: where a figure couldn't be calculated, the text holds a `missingNumber`
  *   mark (#2577). An older editor would drop the node and leave the sentence
  *   without its number, saying nothing, so it opens these Notes read-only.
- *   Older content is version 56 content as it is: it holds no mark.
+ *   Older content is version 57 content as it is: it holds no mark.
  */
-export const CONTENT_SCHEMA_VERSION = 57;
+export const CONTENT_SCHEMA_VERSION = 58;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -8703,6 +8711,13 @@ export interface MarkedCitation extends Citation {
    * and not the quote check alone (#2313).
    */
   judgedAt?: string;
+  /**
+   * Where in the text its marker sits in a sentence the judgement passed: its place among the
+   * Answer's Citation markers, from 0. Call help draws its ✓ by sentence from these (#2847), so a
+   * marker that another sentence reuses keeps the mark where its own sentence passed. Kept with an
+   * Answer's Citations, not in a Note.
+   */
+  passedAt?: number[];
 }
 
 /**
