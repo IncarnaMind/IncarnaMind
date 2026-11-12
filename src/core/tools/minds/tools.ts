@@ -323,7 +323,7 @@ export interface MindToolsOptions {
     unlinkedSources: number;
     /** Cells beyond its tables' columns, their text kept in the row's last cell. */
     extraCells: number;
-    /** Figure markers no figure was recorded for, kept in the text as written (#2577). */
+    /** Figure markers no figure was recorded for, marked as missing in the text (#2577). */
     figuresLeftOut?: FiguresLeftOut;
     searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */

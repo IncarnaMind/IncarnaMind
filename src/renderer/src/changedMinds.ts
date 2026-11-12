@@ -30,7 +30,7 @@ export interface ChangedMind {
   unlinkedSources: number;
   droppedSources: number;
   extraCells: number;
-  /** Figure markers its text there kept as written, for lack of a figure (#2577). Absent: none. */
+  /** Figure markers its text there marks as missing, for lack of a figure (#2577). Absent: none. */
   figuresLeftOut?: FiguresLeftOut;
   /** The whole paragraphs its removals there took out, when they only removed (#2356). Absent: none. */
   removed?: RemovedParagraphs;

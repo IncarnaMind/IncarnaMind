@@ -143,8 +143,8 @@ export function chartsPlacedIn(
 const LEFT_OUT_NAMED = 3;
 
 /**
- * What a Note's change says of `count` figure markers its text kept because no figure was recorded
- * for them (#2577): the Analyses' figures that got no marker, as IncarnaMind couldn't work them
+ * What a Note's change says of `count` figure markers its text marks as missing because no figure
+ * was recorded for them (#2577): the Analyses' figures that got no marker, as IncarnaMind couldn't work them
  * out again from their rows.
  */
 export function figuresLeftOut(count: number, analyses: readonly AnswerAnalysis[]): FiguresLeftOut {

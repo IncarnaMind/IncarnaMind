@@ -1550,7 +1550,7 @@ export interface RemovedParagraphs {
   start: string;
 }
 
-/** Figure markers a Note's text kept as written, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
+/** Figure markers a Note's text marks as missing, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
 export interface FiguresLeftOut {
   count: number;
   labels: string[];
@@ -1592,7 +1592,7 @@ export interface MindChange {
   droppedSources?: number;
   /** Cells beyond its tables' columns, their text kept in their row's last cell. Absent: none. */
   extraCells?: number;
-  /** Figure markers its text kept as written because no figure was recorded for them (#2577). Absent: none. */
+  /** Figure markers its text marks as missing because no figure was recorded for them (#2577). Absent: none. */
   figuresLeftOut?: FiguresLeftOut;
   /**
    * It revised the assistant's own changes still waiting there: they
