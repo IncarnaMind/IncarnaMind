@@ -583,6 +583,53 @@ describe("Words kept on this computer reach no cloud service (#1031)", { timeout
     core.close();
   });
 
+  // protects=what a cloud service is sent is gathered when the Meeting's transcription first starts and kept for the Meeting until IncarnaMind quits, as docs/privacy.md says: a Meeting paused after a name is typed in its Note and recorded on is sent the first list, and the same Meeting recorded on after IncarnaMind is reopened has the list gathered again, so its streams' setup holds the typed name; fails_when=a stream opened after the pause and resume holds the typed name while IncarnaMind stayed open, or a stream opened after the reopen lacks it; no_claim=a recording cut off by a quit with no pause, whose working state is made again the same way.
+  test("a Meeting paused after a name is typed and recorded on is sent the first list; recorded on after IncarnaMind is reopened, the list gathered again, with the name", async () => {
+    const setups = (cloud: Watched) =>
+      cloud.frames
+        .map(json)
+        .filter((each) => "model" in each)
+        .map((each) => at(each, "context", "terms"));
+    const keychain = createMemoryKeychain();
+    const first = await meetingOn("soniox", { keychain });
+    const list = ["Maren Okafor", "Priya Raman", "Larkfield", "星河科技", "Ilse Brannock"];
+    await vi.waitFor(() => expect(setups(first.cloud)).toEqual([list, list]), { timeout: 20_000 });
+
+    await typed(first.core, first.mind?.id ?? "", [
+      note("Then we ask Dana Whitfield about the renewal."),
+    ]);
+    expect(await first.core.searchMinds("Whitfield")).toHaveLength(1);
+    await first.core.pauseMeeting(first.meeting.id);
+    await first.core.resumeMeeting(first.meeting.id);
+    first.record(3 * SECOND);
+    await vi.waitFor(() => expect(setups(first.cloud)).toEqual([list, list, list, list]), {
+      timeout: 20_000,
+    });
+    await first.core.pauseMeeting(first.meeting.id);
+    first.core.close();
+
+    const cloud = watched();
+    const second = await transcribingCore(first.dataDir, {
+      cloud: cloud.connect,
+      cloudFetch: cloud.cloudFetch,
+      keychain,
+    });
+    await second.core.resumeMeeting(first.meeting.id);
+    await until(second.core, first.meeting.id, (each) => each.cloud === "soniox");
+    second.record(3 * SECOND);
+    const again = [
+      "Maren Okafor",
+      "Priya Raman",
+      "Dana Whitfield",
+      "Larkfield",
+      "星河科技",
+      "Ilse Brannock",
+    ];
+    await vi.waitFor(() => expect(setups(cloud)).toEqual([again, again]), { timeout: 20_000 });
+    await second.core.stopMeeting(first.meeting.id);
+    second.core.close();
+  });
+
   // protects=the record of what a cloud service was sent is true at every level: read again after a name is typed during the call, the words still record as sent from the Note what the first read held, and only this computer's words gain the typed name; fails_when=the Note's part of the record lists as sent a name typed after the first read, or this computer's words miss it, or the whole list sent changes; no_claim=the request, which the test above holds to the first list. The parts are not in the core's interface, so this reads the words as the core does, from the database the core wrote.
   test("read again after a name is typed, the words record as sent from the Note what the first read held; this computer's words gain the name", async () => {
     const dataDir = await createTempDataFolder();
