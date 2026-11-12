@@ -574,6 +574,34 @@ describe("a change from behind the tab writes only the Block it changed", () => 
     expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
   });
 
+  /** The core lands a check of the second paragraph's sentence, Contradicted. */
+  function landContradicted(blocks: Y.XmlFragment) {
+    const landing = markedSentences(blocks).find((each) => each.check.id === "costs");
+    if (!landing) throw new Error("No check on the second paragraph");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...landing.check,
+      state: "contradicted",
+      figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+    });
+  }
+
+  test("Undo of a keep leaves a check result that landed on another Block since", async () => {
+    const { doc, blocks, read } = twoBlocks();
+    const copy = copyOf(doc);
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    const undoable = editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
+    landContradicted(blocks);
+    expect(shown(copy)).toEqual(["contradicted", "kept", "contradicted"]);
+    await undoable?.undo();
+    expect(shown(doc)).toEqual(["contradicted", "supported", "contradicted"]);
+    expect(shown(copy)).toEqual(["contradicted", "supported", "contradicted"]);
+  });
+
   // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
   test.each([
     ["before", 1],
@@ -590,13 +618,7 @@ describe("a change from behind the tab writes only the Block it changed", () => 
       const schedule = read();
       const row = schedule.rows[1];
       if (!row) throw new Error("No figure");
-      const landing = markedSentences(blocks).find((each) => each.check.id === "costs");
-      if (!landing) throw new Error("No check on the second paragraph");
-      markSentence(landing.element, landing.from, landing.to, {
-        ...landing.check,
-        state: "contradicted",
-        figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
-      });
+      landContradicted(blocks);
       editNote("a note behind the schedule", copy, (note) =>
         keepFigureViews(note, schedule, [row.id]),
       );
