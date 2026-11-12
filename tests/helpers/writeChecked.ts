@@ -142,7 +142,7 @@ const SDK_WAIT = "@ai-sdk/provider-utils";
  * limit never comes. Time moves only once all the work that can go on without it has, so the
  * times a run gets don't depend on this computer.
  */
-function virtualClock() {
+export function virtualClock() {
   let now = 0;
   const due: { at: number; fire(): void }[] = [];
   const after = (ms: number) =>
@@ -217,9 +217,15 @@ function virtualClock() {
       const restore = ownTimers();
       try {
         let done = false;
-        const result = work().finally(() => {
-          done = true;
-        });
+        const result = work();
+        result.then(
+          () => {
+            done = true;
+          },
+          () => {
+            done = true;
+          },
+        );
         while (!done) {
           await settle();
           if (done || due.length === 0) continue;
