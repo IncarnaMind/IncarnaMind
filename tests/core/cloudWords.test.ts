@@ -583,6 +583,19 @@ describe("Words kept on this computer reach no cloud service (#1031)", { timeout
     core.close();
   });
 
+  // protects=a name the Note writes with its accents apart (e and U+0301, as text taken from a PDF often is) is sent whole, with each accent in its letter, exactly as the same Note written whole sends it, and this computer's engine is told the same; fails_when=the request holds the name cut at an accent (Jose, Marti), or an accent written apart, or lacks José Martín, or differs from the request of the Note written whole; no_claim=the Folder's Documents, which the same finder reads (tests/core/meetingNames.test.ts holds its table).
+  test("a name the Note writes with its accents apart is sent whole, as the same Note written whole sends it", async () => {
+    const apart = [note("Then we ask Jose\u0301 Marti\u0301n about the renewal.")];
+    const whole = [note("Then we ask Jos\u00e9 Mart\u00edn about the renewal.")];
+
+    const cloud = await reachedWith(apart);
+    expect(cloud.sent).toEqual(["Jos\u00e9 Mart\u00edn"]);
+    expect(cloud.reached).toContain("Jos\u00e9 Mart\u00edn");
+    for (const cut of ["Jose", "Marti", "\u0301"]) expect(cloud.reached).not.toContain(cut);
+    expect(cloud.sent).toEqual((await reachedWith(whole)).sent);
+    expect(await toldHere(apart)).toEqual(["Jos\u00e9 Mart\u00edn"]);
+  });
+
   // protects=what a cloud service is sent is gathered when the Meeting's transcription first starts and kept for the Meeting until IncarnaMind quits, as docs/privacy.md says: a Meeting paused after a name is typed in its Note and recorded on is sent the first list, and the same Meeting recorded on after IncarnaMind is reopened has the list gathered again, so its streams' setup holds the typed name; fails_when=a stream opened after the pause and resume holds the typed name while IncarnaMind stayed open, or a stream opened after the reopen lacks it; no_claim=a recording cut off by a quit with no pause, whose working state is made again the same way.
   test("a Meeting paused after a name is typed and recorded on is sent the first list; recorded on after IncarnaMind is reopened, the list gathered again, with the name", async () => {
     const setups = (cloud: Watched) =>

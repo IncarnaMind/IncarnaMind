@@ -32,8 +32,12 @@ const NOT_NAMES = new Set(
 /** Words that join the parts of a name: Bank of America, Procter & Gamble. */
 const JOINERS = new Set(["of", "&"]);
 
-/** A word in a script with capitals: it ends where Chinese characters begin (跟Priya确认). */
-const LATIN_WORD = /(?:(?!\p{Script=Han})[\p{L}\p{N}])(?:(?!\p{Script=Han})[\p{L}\p{N}'’-])*|&/gu;
+/**
+ * A word in a script with capitals, each letter with its marks: it ends where Chinese characters
+ * begin (跟Priya确认).
+ */
+const LATIN_WORD =
+  /(?:(?!\p{Script=Han})[\p{L}\p{N}])(?:(?!\p{Script=Han})[\p{L}\p{N}\p{M}'’-])*|&/gu;
 /** What comes before a sentence's or a list item's first word. */
 const OPENING = /(?:^|[.!?"“(]|\n[ \t]*(?:[-*•]|\d+[.)])?)[ \t]*$/u;
 /** What a line holds before its first word: nothing, or list markers, numbers and checkboxes. */
@@ -185,10 +189,15 @@ export interface NamesFound {
   itemOpeners: Map<string, number>;
 }
 
+/**
+ * The names in `text`, each with its accents in their letters however the text writes them (a PDF
+ * often gives é as e and U+0301): written either way it is one name, found whole.
+ */
 export function namesIn(text: string): NamesFound {
+  const whole = text.normalize("NFC");
   const found: NamesFound = { names: new Map(), besideChinese: new Map(), itemOpeners: new Map() };
   const add = (kind: Kind, name: string) => found[kind].set(name, (found[kind].get(name) ?? 0) + 1);
-  latinNames(text, add);
-  if (/\p{Script=Han}/u.test(text)) hanNames(text, (name) => add("names", name));
+  latinNames(whole, add);
+  if (/\p{Script=Han}/u.test(whole)) hanNames(whole, (name) => add("names", name));
   return { ...found, names: new Map([...found.names].sort((a, b) => b[1] - a[1])) };
 }

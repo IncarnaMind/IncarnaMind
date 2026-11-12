@@ -113,6 +113,34 @@ describe("Names in a Meeting's Note and its Folder's Documents (#1031)", () => {
     expect(colon.besideChinese.size).toBe(0);
   });
 
+  // protects=a letter and the accent written after it (e and U+0301, as many PDFs give é) are one letter, so a name is found whole however its accents are written, is given with each accent in its letter, and is one name where a text writes it both ways; fails_when=a name is cut at its accent (Jose and Marti for José Martín, Rene for Renée), or the name written both ways is listed twice, or a word of the kinds kept on this computer is cut or lost, or a mark Unicode has no one character for (the grave on the dotted o a Yoruba name ends in) ends the name; no_claim=which words are names, which the tests above hold for text written either way.
+  test("a name is found whole however its accents are written, and written both ways it is one name", () => {
+    const whole = namesIn("Then we ask Jos\u00e9 Mart\u00edn. We met Ren\u00e9e yesterday.");
+    const apart = namesIn("Then we ask Jose\u0301 Marti\u0301n. We met Rene\u0301e yesterday.");
+    expect([...whole.names]).toEqual([
+      ["Jos\u00e9 Mart\u00edn", 1],
+      ["Ren\u00e9e", 1],
+    ]);
+    expect([...apart.names]).toEqual([...whole.names]);
+    const both = namesIn("Then we ask Jose\u0301 Marti\u0301n. We wait for Jos\u00e9 Mart\u00edn.");
+    expect([...both.names]).toEqual([["Jos\u00e9 Mart\u00edn", 2]]);
+    // The kinds kept on this computer are found whole too.
+    const kept = namesIn(["\u8ddfJose\u0301\u786e\u8ba4", "Rene\u0301e: send the deck"].join("\n"));
+    expect([...kept.besideChinese.keys()]).toEqual(["Jos\u00e9"]);
+    expect([...kept.itemOpeners.keys()]).toEqual(["Ren\u00e9e"]);
+    expect(kept.names.size).toBe(0);
+    // A mark that stays a mark however it is written is part of its letter, and of the name.
+    for (const written of ["Ad\u00e9b\u00e1y\u1ecd\u0300", "Ade\u0301ba\u0301yo\u0323\u0300"]) {
+      expect([...namesIn(`Then we ask ${written} Okafor about it.`).names]).toEqual([
+        ["Ad\u00e9b\u00e1y\u1ecd\u0300 Okafor", 1],
+      ]);
+    }
+    // Their twin: a mark does not join what a space or a full stop parts.
+    expect([...namesIn("Then we ask Rene\u0301e. Marcus will call.").names.keys()]).toEqual([
+      "Ren\u00e9e",
+    ]);
+  });
+
   test("one word that opens a line before a colon, or is a list item alone, is kept apart", () => {
     const found = namesIn(
       [
