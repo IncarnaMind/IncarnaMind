@@ -83,6 +83,7 @@ import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
 import { markArrived, nextSequence } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
+import { whileOpen } from "../whileOpen";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
@@ -2536,15 +2537,6 @@ export function createDocuments(options: DocumentsOptions) {
     }
   }
 
-  /**
-   * What a search waited for on a model, or nothing ever once the core closed meanwhile, so the
-   * search reads no closed database (#2930).
-   */
-  async function whileOpen<T>(waited: Promise<T>): Promise<T> {
-    const value = await waited;
-    return closed ? new Promise<T>(() => {}) : value;
-  }
-
   /** SQL for the live, not missing Documents `d` with Passages to search: of all of them, or only of these. */
   function searchable(documentIds: readonly string[] | undefined) {
     return {
@@ -2599,7 +2591,7 @@ export function createDocuments(options: DocumentsOptions) {
     background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
     const scope = searchScope(documentIds);
-    const vector = await whileOpen(queryVector(query, "hybrid", background));
+    const vector = await whileOpen(() => closed, queryVector(query, "hybrid", background));
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
     const lists = distinctPassages(db, [keyword, similar]);
@@ -2716,7 +2708,7 @@ export function createDocuments(options: DocumentsOptions) {
         },
         query,
         rerank
-          ? { ...toolOptions, rerank: (...asked) => whileOpen(rerank(...asked)) }
+          ? { ...toolOptions, rerank: (...asked) => whileOpen(() => closed, rerank(...asked)) }
           : toolOptions,
       );
     },
@@ -3839,7 +3831,7 @@ export function createDocuments(options: DocumentsOptions) {
         const [keyword = []] = distinctPassages(db, [keywordSearch(db, query, asked, scope)]);
         return passagesBySeq(db, keyword.slice(0, limit));
       }
-      const vector = await whileOpen(queryVector(query, mode));
+      const vector = await whileOpen(() => closed, queryVector(query, mode));
       if (mode === "vector") {
         const hits = vector ? vectors.search(vector, asked, scope) : [];
         const [similar = []] = distinctPassages(db, [hits.map((hit) => hit.seq)]);

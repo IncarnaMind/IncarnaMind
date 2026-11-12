@@ -11547,11 +11547,21 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
+ * - "model-removed": the Note's own model, on this computer, was removed, and the default is in the
+ *   cloud: nothing is sent until the User picks a model in the Note or closes the composer's line;
  * - "no-transcript": the Transcript has no lines;
  * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
+  kind:
+    | "model"
+    | "stopped"
+    | "local-mode"
+    | "not-allowed"
+    | "no-model"
+    | "model-removed"
+    | "no-transcript"
+    | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;

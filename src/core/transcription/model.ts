@@ -400,9 +400,9 @@ export function createTranscriptionModel(options: TranscriptionModelOptions) {
       }
       return files().vad;
     },
-    /** Starts the engine with the model. False, with the failure in the status, if it can't. */
+    /** Starts the engine with the model. False, with the failure in the status, if it can't; false once closed. */
     async load(): Promise<boolean> {
-      if (status.state !== "ready") return false;
+      if (status.state !== "ready" || lifetime.signal.aborted) return false;
       try {
         await options.transcriber.load(files());
         return true;

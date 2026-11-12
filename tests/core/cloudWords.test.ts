@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -20,9 +21,10 @@ import {
 import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
+import { SPEAKER_ME } from "../../src/shared/speakers";
 import { createMemoryKeychain, createTempDataFolder, queryDatabase } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
-import { transcribingCore, until } from "../helpers/transcription";
+import { savedCues, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 
@@ -91,6 +93,7 @@ function watched(
   const urls: string[] = [];
   const frames: string[] = [];
   const sessions: unknown[] = [];
+  const reached: { ms: number; bytes: ReturnType<typeof createHash> }[] = [];
   const connect: CloudConnect = (url, key, events, auth) => {
     urls.push(url);
     const refused = refuse?.(url, "");
@@ -100,6 +103,8 @@ function watched(
       return { send() {}, close() {} };
     }
     const inner: CloudSocket = fake(url, key, events, auth);
+    const heard = { ms: 0, bytes: createHash("sha256") };
+    reached.push(heard);
     let turning: { ms: number; answered: boolean } | null = null;
     return {
       send(data) {
@@ -130,6 +135,9 @@ function watched(
             );
             return;
           }
+        } else {
+          heard.ms += frameMs(data);
+          heard.bytes.update(data);
         }
         inner.send(data);
       },
@@ -143,7 +151,13 @@ function watched(
     }
     return fakeFetch(input, init);
   }) as typeof fetch;
-  return { connect, cloudFetch, urls, frames, sessions };
+  /** The audio that reached the pretend service on each connection that got any: how long, and which bytes. */
+  const audio = () =>
+    reached
+      .filter((each) => each.ms > 0)
+      .map((each) => `${each.ms} ms ${each.bytes.copy().digest("hex")}`)
+      .sort();
+  return { connect, cloudFetch, urls, frames, sessions, audio };
 }
 
 type Watched = ReturnType<typeof watched>;
@@ -274,6 +288,8 @@ interface Setup {
   note?: string | null;
   refuse?: Parameters<typeof watched>[0];
   turnAway?: TurnAway;
+  /** The sources that sound, and whether the computer's sound is recorded: both by default. */
+  sources?: ("microphone" | "system")[];
   dataDir?: string;
   keychain?: ReturnType<typeof createMemoryKeychain>;
   chosen?: boolean;
@@ -300,9 +316,12 @@ async function meetingOn(route: Route, setup: Setup = {}) {
   const title = setup.note === undefined ? NOTE : setup.note;
   const mind = title === null ? null : await core.createMind({ title });
   const meeting = await core.createMeeting(mind ? { mindId: mind.id } : {});
-  await core.startMeeting({ meetingId: meeting.id });
+  await core.startMeeting({
+    meetingId: meeting.id,
+    ...(setup.sources && { systemAudio: setup.sources.includes("system") }),
+  });
   await until(core, meeting.id, (each) => each.cloud === route);
-  record(3 * SECOND);
+  record(3 * SECOND, setup.sources);
   await vi.waitFor(
     () => {
       if (route === "gladia") expect(cloud.sessions.length).toBeGreaterThan(0);
@@ -548,33 +567,94 @@ describe("Words a service turns away never cost the recording (#1031)", { timeou
     core.close();
   });
 
-  test("soniox: a context refused after audio went keeps every word and time: what the refused connection was sent goes again", async () => {
-    const cuesOf = async (setup: Setup) => {
-      const { core, record, meeting, cloud } = await meetingOn("soniox", setup);
+  const contextTooLong = (afterMs: number): TurnAway => ({
+    turns: (frame) => frame.includes('"context"'),
+    afterMs,
+    answer: (events) =>
+      events.message(JSON.stringify({ error_code: 400, error_message: "Context is too long." })),
+  });
+
+  // The pretend service words a line by the order in which its connections' lines begin, and a
+  // microphone line worded as the computer's sound at that moment is dropped as its echo (#941):
+  // two Meetings' lines are the same only when one source sounds.
+  test.each([
+    ["before the rest is recorded", 1500, true],
+    ["after the rest is recorded", 6000, false],
+  ])(
+    "soniox: a context refused %s keeps every word and time",
+    async (_when, afterMs, heardFirst) => {
+      const sources: NonNullable<Setup["sources"]> = ["microphone"];
+      const cuesOf = async (turnAway?: TurnAway) => {
+        const { core, record, meeting, cloud } = await meetingOn("soniox", {
+          sources,
+          ...(turnAway && { turnAway }),
+        });
+        if (turnAway && heardFirst) {
+          await vi.waitFor(() => expect(cloud.urls).toHaveLength(2), {
+            timeout: 20_000,
+            interval: 20,
+          });
+        }
+        record(9 * SECOND, sources);
+        await until(core, meeting.id, (each) => each.lines >= 4);
+        await core.stopMeeting(meeting.id);
+        const cues = await savedCues(core, meeting.id);
+        const transcript = (await until(core, meeting.id, () => true)).fellBack;
+        core.close();
+        return {
+          cues: cues.map((cue) => [cue.startMs, cue.endMs, cue.text]),
+          cloud,
+          transcript,
+        };
+      };
+      const plain = await cuesOf();
+      const refused = await cuesOf(contextTooLong(afterMs));
+      const setups = refused.cloud.frames.filter((frame) => frame.includes('"model"'));
+      expect(setups.map((frame) => frame.includes('"context"'))).toEqual([true, false]);
+      expect(refused.cues).toEqual(plain.cues);
+      expect(refused.cues.length).toBeGreaterThanOrEqual(4);
+      expect(refused.transcript).toBeNull();
+    },
+  );
+
+  test("soniox: with both sources refused, each connection made again is sent exactly the audio the refused one was", async () => {
+    const audioOf = async (turnAway?: TurnAway) => {
+      const { core, record, meeting, cloud } = await meetingOn(
+        "soniox",
+        turnAway ? { turnAway } : {},
+      );
       record(9 * SECOND);
       await until(core, meeting.id, (each) => each.lines >= 4);
       await core.stopMeeting(meeting.id);
-      const saved = await until(core, meeting.id, (each) => each.state === "saved");
-      const transcript = (await until(core, meeting.id, () => true)).fellBack;
+      const cues = await savedCues(core, meeting.id);
+      const { fellBack } = await until(core, meeting.id, () => true);
       core.close();
-      const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
-      return { cues: cues.map((cue) => [cue.startMs, cue.text]), cloud, transcript };
+      const startsOf = (mine: boolean) =>
+        cues.filter((cue) => (cue.speaker === SPEAKER_ME) === mine).map((cue) => cue.startMs);
+      return {
+        audio: cloud.audio(),
+        connections: cloud.urls.length,
+        fellBack,
+        mine: startsOf(true),
+        theirs: startsOf(false),
+      };
     };
-    const plain = await cuesOf({});
-    const refused = await cuesOf({
-      turnAway: {
-        turns: (frame) => frame.includes('"context"'),
-        afterMs: 1500,
-        answer: (events) =>
-          events.message(
-            JSON.stringify({ error_code: 400, error_message: "Context is too long." }),
-          ),
-      },
-    });
-    expect(refused.cloud.frames.some((frame) => frame.includes('"context"'))).toBe(true);
-    expect(refused.cues).toEqual(plain.cues);
-    expect(refused.cues.length).toBeGreaterThanOrEqual(4);
-    expect(refused.transcript).toBeNull();
+    const plain = await audioOf();
+    // After the first three seconds the microphone's connection has been sent this much and the
+    // computer's sound's has not, so the one may hear the refusal before the rest and the other after.
+    const refused = await audioOf(contextTooLong(2500));
+    expect(plain.connections).toBe(2);
+    expect(plain.audio).toHaveLength(2);
+    expect(refused.connections).toBe(4);
+    expect(refused.audio).toEqual(plain.audio);
+    expect(refused.fellBack).toBeNull();
+    // Each source's lines stay at its own moments. Which of the microphone's are dropped as an
+    // echo follows their wording, so only where one may begin is the same in both Meetings.
+    for (const each of [plain, refused]) {
+      expect(each.theirs).toEqual([192, 3300, 6412]);
+      expect([0, 2056, 4116, 6192, 8252]).toEqual(expect.arrayContaining(each.mine));
+      expect(each.mine.length).toBeGreaterThanOrEqual(2);
+    }
   });
 
   test("qwen: a task failed for its context before it started is started again without it", async () => {

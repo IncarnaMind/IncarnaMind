@@ -51,4 +51,13 @@ describe("contextual device tips", () => {
     releaseTip("connect-app", "note");
     expect(offerTip("connect-app", "note")).toBe(false);
   });
+
+  // protects=a count a device stored for a tip that no longer exists (#1031 took "transcript-word" away) stays as it is and gets in no other tip's way; fails_when=reading or writing the counts drops, rewrites or trips over a stored key no tip has; no_claim=that the core loads such a key, which "settings survive a restart" in the settings tests covers.
+  test("a count stored for a tip that is gone stays as it is, and the other tips offer as before", () => {
+    state.tips = { "transcript-word": 2 };
+    expect(offerTip("citation-style", "note")).toBe(true);
+    expect(state.tips).toEqual({ "transcript-word": 2, "citation-style": 1 });
+    closeTip("citation-style");
+    expect(state.tips).toEqual({ "transcript-word": 2, "citation-style": 2 });
+  });
 });
