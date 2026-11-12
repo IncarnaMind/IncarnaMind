@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import {
   type CloudTranscriptionRoute,
   type Core,
@@ -11,6 +11,11 @@ import {
 } from "../../src/core";
 import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
+import {
+  type MeetingWordSources,
+  type MeetingWords,
+  meetingWords,
+} from "../../src/core/meetings/words";
 import { openDatabase } from "../../src/core/storage";
 import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/openai";
 import {
@@ -446,20 +451,36 @@ const mixedNote = () => [
 ];
 
 describe("Words kept on this computer reach no cloud service (#1031)", { timeout: 60_000 }, () => {
-  // protects=one English word written against a Chinese character, a list's heading and a list item of one word are a name as often as an ordinary word, so no cloud service is sent them: the request holds only the names of several words; fails_when=Priya, Plan, Risks or Tom is in the request as it reaches the pretend service, or Maya Lindqvist or Lumen Foods is missing from it; no_claim=a word written with spaces around it, or a title-case heading, which the finder takes for a name as before.
-  test("the request holds the names of several words, and none of the single word inside Chinese, the list's heading or its item", async () => {
-    const { core, cloud, meeting } = await meetingOn("soniox", {
-      name: null,
-      words: [],
-      note: "产品周会",
-      blocks: mixedNote(),
-    });
-    expect(sentWords("soniox", cloud)).toEqual(["Maya Lindqvist", "Lumen Foods"]);
-    const reached = [...cloud.urls, ...cloud.frames, JSON.stringify(cloud.sessions)].join("\n");
-    expect(reached).toContain("Maya Lindqvist");
-    for (const kept of ["Priya", "Plan", "Risks", "Tom"]) expect(reached).not.toContain(kept);
-    await core.stopMeeting(meeting.id);
-    core.close();
+  // protects=one English word written against a Chinese character, a list's heading and a list item of one word are a name as often as an ordinary word, so no cloud service is sent a word found only that way: the request holds only the names of several words; and the same word is sent like any other once the Note also writes it inside a sentence; fails_when=Priya, Plan, Risks or Tom is in the request as it reaches the pretend service while Tom is only a list item, or Maya Lindqvist or Lumen Foods is missing from it, or Tom is missing once a sentence of the Note holds it; no_claim=a word written with spaces around it, or a title-case heading, which the finder takes for a name as before.
+  test("the request holds the names of several words, and none of the single word inside Chinese, the list's heading or its item; the item's word written inside a sentence too is sent", async () => {
+    const reachedWith = async (blocks: JSONContent[]) => {
+      const { core, cloud, meeting } = await meetingOn("soniox", {
+        name: null,
+        words: [],
+        note: "产品周会",
+        blocks,
+      });
+      const sent = sentWords("soniox", cloud);
+      const reached = [...cloud.urls, ...cloud.frames, JSON.stringify(cloud.sessions)].join("\n");
+      await core.stopMeeting(meeting.id);
+      core.close();
+      return { sent, reached };
+    };
+
+    const asItem = await reachedWith(mixedNote());
+    expect(asItem.sent).toEqual(["Maya Lindqvist", "Lumen Foods"]);
+    expect(asItem.reached).toContain("Maya Lindqvist");
+    for (const kept of ["Priya", "Plan", "Risks", "Tom"]) {
+      expect(asItem.reached).not.toContain(kept);
+    }
+
+    const inSentence = await reachedWith([
+      ...mixedNote(),
+      note("Then we ask Tom about the vendor contract."),
+    ]);
+    expect(inSentence.sent).toEqual(["Maya Lindqvist", "Lumen Foods", "Tom"]);
+    expect(inSentence.reached).toContain("Tom");
+    for (const kept of ["Priya", "Plan", "Risks"]) expect(inSentence.reached).not.toContain(kept);
   });
 
   test("its twin: the engine on this computer is told all of them, those kept here after the names", async () => {
@@ -530,6 +551,45 @@ describe("Words kept on this computer reach no cloud service (#1031)", { timeout
       { timeout: 20_000 },
     );
     await core.stopMeeting(next.id);
+    core.close();
+  });
+
+  // protects=the record of what a cloud service was sent is true at every level: read again after a name is typed during the call, the words still record as sent from the Note what the first read held, and only this computer's words gain the typed name; fails_when=the Note's part of the record lists as sent a name typed after the first read, or this computer's words miss it, or the whole list sent changes; no_claim=the request, which the test above holds to the first list. The parts are not in the core's interface, so this reads the words as the core does, from the database the core wrote.
+  test("read again after a name is typed, the words record as sent from the Note what the first read held; this computer's words gain the name", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core } = await transcribingCore(dataDir);
+    const mind = await core.createMind({ title: NOTE });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    onTestFinished(() => db.close());
+    const sources: MeetingWordSources = {
+      db,
+      meetingId: meeting.id,
+      userWords: ["Larkfield"],
+      folderName: () => null,
+      folderDocuments: () => [],
+    };
+    const fromNote = (words: MeetingWords) => words.parts.find((part) => part.from === "note");
+
+    const first = meetingWords(sources);
+    expect(fromNote(first)).toEqual({ from: "note", sent: ["Priya Raman"], here: ["Priya Raman"] });
+    expect(first.sent).toEqual(["Priya Raman", "Larkfield"]);
+
+    await typed(core, mind.id, [note("Then we ask Dana Whitfield about the renewal.")]);
+    const again = meetingWords(sources, first);
+    expect(fromNote(again)).toEqual({
+      from: "note",
+      sent: ["Priya Raman"],
+      here: ["Priya Raman", "Dana Whitfield"],
+    });
+    expect(again.sent).toEqual(["Priya Raman", "Larkfield"]);
+    expect(again.here).toEqual(["Priya Raman", "Dana Whitfield", "Larkfield"]);
+    // Its twin: gathered for the first time after the typing, the same name is one the Note sends.
+    expect(fromNote(meetingWords(sources))).toEqual({
+      from: "note",
+      sent: ["Priya Raman", "Dana Whitfield"],
+      here: ["Priya Raman", "Dana Whitfield"],
+    });
     core.close();
   });
 });

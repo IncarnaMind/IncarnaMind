@@ -48,7 +48,10 @@ export interface MeetingWordSources {
   attendees?(mindId: string): readonly CalendarAttendee[];
 }
 
-/** The words from one place: `here` holds those of `sent`, in the order this computer is told them. */
+/**
+ * The words from one place. As first gathered, `here` holds those of `sent`, in the order this
+ * computer is told them; read again, only `here` follows the Note.
+ */
 interface WordsFrom {
   from:
     | "userName"
@@ -159,15 +162,18 @@ function fromDocuments(sources: MeetingWordSources, folderId: string): WordsFrom
 
 /**
  * The Meeting's words. Every word a cloud service may be sent is in a `sent` below, and nowhere
- * else. Given the words `first` gathered, only the Note is read again, and `sent` stays theirs.
+ * else. Given the words `first` gathered, only the Note is read again, for `here`: each `sent`
+ * stays as `first` has it.
  */
 export function meetingWords(sources: MeetingWordSources, first?: MeetingWords): MeetingWords {
   const note = noteOf(sources);
   const [noteNames, noteItems] = fromNote(sources.db, note);
   if (first) {
-    const parts = first.parts.map((part) =>
-      part.from === "note" ? noteNames : part.from === "noteItems" ? noteItems : part,
-    );
+    const readAgain = new Map([noteNames, noteItems].map((part) => [part.from, part.here]));
+    const parts = first.parts.map((part) => ({
+      ...part,
+      here: readAgain.get(part.from) ?? part.here,
+    }));
     return { sent: first.sent, here: listed(parts.flatMap((part) => part.here)), parts };
   }
   const others = note

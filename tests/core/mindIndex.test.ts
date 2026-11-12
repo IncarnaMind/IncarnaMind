@@ -12,7 +12,7 @@ import {
   MIND_CONTENT_FIELD,
   type MindTextMatch,
 } from "../../src/core";
-import { createMindContent } from "../../src/core/mindContent";
+import { createMindContent, type MindContent } from "../../src/core/mindContent";
 import { createMindIndex } from "../../src/core/mindIndex";
 import { createMinds } from "../../src/core/minds";
 import { type Database, migrate, openDatabase, type SqlValue } from "../../src/core/storage";
@@ -413,49 +413,108 @@ describe("each Mind's line under its name, for Home's Recent", () => {
 describe("a Mind read again after it was stored to (#1031)", () => {
   // protects=whoever follows a Note's text as it is typed (a live Meeting's words) is told once the Note is quiet and read, and never by a timer after the index closed: closing reads what is left at once; fails_when=a Mind stored to is read without being reported, or a report comes after close; no_claim=what the listener does with it.
   test("is reported once it is quiet, and closing reports what is left at once and nothing later", async () => {
-    vi.useFakeTimers();
-    onTestFinished(() => void vi.useRealTimers());
-    const dataDir = await createTempDataFolder();
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    onTestFinished(() => db.close());
-    migrate(db);
-    let tick = 0;
-    const now = () => new Date(Date.UTC(2026, 10, 12) + tick++).toISOString();
     const reported: string[] = [];
-    const content = createMindContent(db, now, (mindId) => index.contentStored(mindId));
-    const index = createMindIndex({
-      db,
-      now,
-      content,
+    const { index, type, newMind } = await followedIndex({
       readAgain: (mindId) => reported.push(mindId),
       reportError: (error) => {
         throw error;
       },
     });
-    const { id } = createMinds(db, now).create({ title: "", kind: "mind", folderId: null });
-    const doc = new Y.Doc();
-    const type = (text: string) => {
-      const before = Y.encodeStateVector(doc);
-      const paragraph = new Y.XmlElement("paragraph");
-      paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
-      paragraph.insert(0, [new Y.XmlText(text)]);
-      doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [paragraph]);
-      content.apply(id, Y.encodeStateAsUpdate(doc, before));
-    };
+    const id = newMind();
 
-    type("Ask Dana about the Leeds office.");
+    type(id, "Ask Dana about the Leeds office.");
     expect(reported).toEqual([]);
     vi.advanceTimersByTime(500);
     expect(reported).toEqual([id]);
 
-    type("Priya joins late.");
+    type(id, "Priya joins late.");
     index.close();
     expect(reported).toEqual([id, id]);
-    type("Tom sends the deck.");
+    type(id, "Tom sends the deck.");
     vi.advanceTimersByTime(10_000);
     expect(reported).toEqual([id, id]);
   });
+
+  // protects=a listener that throws for one Note (the Meeting's words could not be read) costs that report alone: the Notes typed in after it are still read and reported, by the timer and at close, the error is reported, and the index still closes; fails_when=the throw leaves the loop, so the next Note is unread or unreported, or reaches the timer or close() uncaught, or the error is dropped; no_claim=what the listener does with a Note. Its twin with no throw is the test above.
+  test("a listener that throws for one Mind leaves the next one read and reported, by the timer and at close, and the error is reported each time", async () => {
+    const told: string[] = [];
+    const errors: unknown[] = [];
+    const unreadable = new Set<string>();
+    const { db, index, type, newMind } = await followedIndex({
+      readAgain: (mindId) => {
+        told.push(mindId);
+        if (unreadable.has(mindId)) throw new Error("The meeting's words could not be read.");
+      },
+      reportError: (error) => errors.push(error),
+    });
+    const first = newMind();
+    const second = newMind();
+    unreadable.add(first);
+    const textOf = (mindId: string) =>
+      db
+        .all<{ text: string }>(
+          "SELECT text FROM mind_blocks WHERE mind_id = ? AND deleted_at IS NULL ORDER BY position",
+          [mindId],
+        )
+        .map((row) => row.text);
+
+    type(first, "Ask Dana about the Leeds office.");
+    type(second, "Priya joins late.");
+    vi.advanceTimersByTime(500);
+    expect(told).toEqual([first, second]);
+    expect(errors.map(String)).toEqual(["Error: The meeting's words could not be read."]);
+    expect(textOf(second)).toEqual(["Priya joins late."]);
+
+    type(first, "Tom sends the deck.");
+    type(second, "Maya books the room.");
+    index.close();
+    expect(told).toEqual([first, second, first, second]);
+    expect(errors).toHaveLength(2);
+    expect(textOf(second)).toEqual(["Maya books the room.", "Priya joins late."]);
+    type(second, "Lumen Foods signs on Friday.");
+    vi.advanceTimersByTime(10_000);
+    expect(told).toHaveLength(4);
+  });
 });
+
+/** Stores typed paragraphs to Minds, each as an open editor's update is. */
+function typing(content: Pick<MindContent, "apply">) {
+  const docs = new Map<string, Y.Doc>();
+  return (mindId: string, text: string) => {
+    const doc = docs.get(mindId) ?? new Y.Doc();
+    docs.set(mindId, doc);
+    const before = Y.encodeStateVector(doc);
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
+    paragraph.insert(0, [new Y.XmlText(text)]);
+    doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [paragraph]);
+    content.apply(mindId, Y.encodeStateAsUpdate(doc, before));
+  };
+}
+
+/** An index on fake timers that tells the test's listeners, with a way to make Minds and type in them. */
+async function followedIndex(listeners: {
+  readAgain(mindId: string): void;
+  reportError(error: unknown): void;
+}) {
+  vi.useFakeTimers();
+  onTestFinished(() => void vi.useRealTimers());
+  const dataDir = await createTempDataFolder();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  onTestFinished(() => db.close());
+  migrate(db);
+  let tick = 0;
+  const now = () => new Date(Date.UTC(2026, 10, 12) + tick++).toISOString();
+  const content = createMindContent(db, now, (mindId) => index.contentStored(mindId));
+  const index = createMindIndex({ db, now, content, ...listeners });
+  const minds = createMinds(db, now);
+  return {
+    db,
+    index,
+    type: typing(content),
+    newMind: () => minds.create({ title: "", kind: "mind", folderId: null }).id,
+  };
+}
 
 /**
  * Asks a Library of `size` Minds for their lines, then again with nothing changed, then once more
@@ -504,17 +563,7 @@ async function workOfOneSave(size: number) {
   });
   onTestFinished(() => index.close());
   const minds = createMinds(db, now);
-  const docs = new Map<string, Y.Doc>();
-  const write = (mindId: string, text: string) => {
-    const doc = docs.get(mindId) ?? new Y.Doc();
-    docs.set(mindId, doc);
-    const before = Y.encodeStateVector(doc);
-    const paragraph = new Y.XmlElement("paragraph");
-    paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
-    paragraph.insert(0, [new Y.XmlText(text)]);
-    doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [paragraph]);
-    content.apply(mindId, Y.encodeStateAsUpdate(doc, before));
-  };
+  const write = typing(content);
   const ids = Array.from({ length: size }, (_, at) => {
     const { id } = minds.create({ title: "", kind: "mind", folderId: null });
     write(id, `Notes ${at + 1}.`);
