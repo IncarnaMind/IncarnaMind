@@ -320,4 +320,48 @@ describe("the call-help marks gate's report", () => {
       "5, presses that failed on the branch where main finished: 1: **fails**.",
     );
   });
+
+  test("the fresh slice is counted by place: W0, main's rule, W1, the ✓ themselves, and by number beside it", () => {
+    const place = (shown: boolean, unbacked: boolean, found = true) => ({
+      id: "p1",
+      number: 1,
+      marker: 1,
+      at: 0,
+      sentence: "A sentence",
+      quotes: [],
+      found,
+      shown,
+      unbacked,
+    });
+    const made: PairedRow[] = [];
+    for (const language of ["en", "zh-CN"] as const) {
+      for (const run of [1, 2]) {
+        for (let press = 0; press < 5; press++) {
+          // Presses 0 to 3 have an unbacked place with a found quote; main shows ✓ on 0 to 2; the branch on 0 only.
+          const unbacked = press < 4;
+          made.push({
+            set: "call-help-marks-4",
+            id: `${language}-${press}`,
+            kind: "answer-newest",
+            language,
+            model: "anthropic/claude-sonnet-5-5",
+            run,
+            first: press % 2 === 0 ? 0 : 1,
+            sameRequest: true,
+            sameSetup: true,
+            messageDifference: null,
+            baseline: arm({ places: [place(press < 3, unbacked)] }),
+            candidate: arm({ places: [place(press === 0, unbacked), place(true, false)] }),
+          });
+        }
+      }
+    }
+
+    const section = marksSection(made) ?? "";
+
+    expect(section).toContain("## The fresh slice by place");
+    expect(section).toContain("20 presses: W0 16, main's rule 12, W1 4, at most 8: bar 3 holds.");
+    expect(section).toContain("of 24 places the new rule shows ✓, the judge finds 4 unbacked.");
+    expect(section).toContain("Chinese W1 2, English W1 2, the branch's flips 0: holds.");
+  });
 });

@@ -140,7 +140,59 @@ export function marksSection(all: readonly PairedRow[]): string | null {
     const rows = all.filter((row) => row.set === set);
     return rows.length === 0 ? [] : [gateSection(rows, gate)];
   });
+  const byPlace = all.filter((row) => row.set === PLACE_SET);
+  if (byPlace.length > 0) sections.push(placesSection(byPlace));
   return sections.length === 0 ? null : sections.join("\n\n");
+}
+
+/** The fresh slice of `gates/check-false-passes.md`, counted by place as ruled on 2026-11-12. */
+const PLACE_SET = "call-help-marks-4";
+
+/** W0: a place whose quote was found and the judge finds unbacked, which a found quote alone marked. */
+const w0Place = (run: ArmRun) =>
+  (run.places ?? []).some((place) => place.found && place.unbacked === true);
+/** W1: such a place showing a ✓. */
+const w1Place = (run: ArmRun) =>
+  (run.places ?? []).some((place) => place.shown && place.unbacked === true);
+
+/**
+ * Bar 3 and the Chinese-against-English rule of `gates/check-false-passes.md`, by place: W0 the
+ * rule #2847 was opened on, worked out on the branch's own presses, W1 the new rule on them, and
+ * main's count between them; the count by Citation number beside it.
+ */
+function placesSection(rows: readonly PairedRow[]): string {
+  const lines = ["## The fresh slice by place (`gates/check-false-passes.md`)", ""];
+  const languages = ["en", "zh-CN"] as const;
+  for (const model of [...new Set(rows.map((row) => row.model))]) {
+    const mine = rows.filter((row) => row.model === model);
+    const before = mine.filter((row) => w0Place(row.candidate)).length;
+    const after = mine.filter((row) => w1Place(row.candidate)).length;
+    const main = mine.filter((row) => w1Place(row.baseline)).length;
+    const limit = before < 4 ? 1 : Math.floor(before / 2);
+    const ticks = mine.flatMap((row) =>
+      (row.candidate.places ?? []).filter((place) => place.shown),
+    );
+    const unbackedTicks = ticks.filter((place) => place.unbacked === true).length;
+    const byNumber = (run: ArmRun) => (run.marks?.listedChecked ?? 0) > 0;
+    const cellW1 = (language: string) =>
+      mine.filter((row) => row.language === language && w1Place(row.candidate)).length;
+    const ownFlips = Math.max(
+      ...languages.map((language) =>
+        flips(
+          mine.filter((row) => row.language === language),
+          "candidate",
+          w1Place,
+        ),
+      ),
+    );
+    lines.push(
+      `- **${model}**, ${mine.length} presses: W0 ${before}, main's rule ${main}, W1 ${after}, at most ${limit}: bar 3 ${verdict(after <= limit)}.`,
+      `  - The ✓ themselves: of ${ticks.length} places the new rule shows ✓, the judge finds ${unbackedTicks} unbacked.`,
+      `  - By Citation number, beside it: W1 ${mine.filter((row) => byNumber(row.candidate)).length}, main's rule ${mine.filter((row) => byNumber(row.baseline)).length}.`,
+      `  - Chinese W1 ${cellW1("zh-CN")}, English W1 ${cellW1("en")}, the branch's flips ${ownFlips}: ${verdict(cellW1("zh-CN") <= cellW1("en") + ownFlips)}.`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function gateSection(rows: readonly PairedRow[], gate: string): string {

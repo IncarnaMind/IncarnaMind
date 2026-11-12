@@ -23,6 +23,7 @@ import {
   sentencePassed,
   shownItems,
 } from "../../src/renderer/src/helpReply";
+import { citedSentences } from "../../src/shared/citedSentences";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
@@ -48,6 +49,7 @@ import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
+import { CALL_HELP_MARKS_4 } from "./callHelpMarks4";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
 import {
   type GroupOptions,
@@ -55,6 +57,7 @@ import {
   NOTHING,
   type OpenedGroup,
   type PairedGroup,
+  type PlaceMark,
   type RequestTiming,
 } from "./paired";
 
@@ -222,17 +225,55 @@ function shownReply(
     .join("\n\n");
 }
 
-const JUDGE = [
+const JUDGE_LINES = [
   "You grade a reply that helps the User during a live call: they pressed a button and read the reply in a second or two while the call goes on.",
   "<expected> says what a right reply gives; <avoid>, when there is one, what it must not give as so. <call> holds the newest lines of the call.",
   "Grade it: right when it gives what <expected> says, in any wording or language (an option to say counts when what it would have the User say carries it); partly when it gives only some of it, or adds something the Documents or the call contradict; wrong when it gives something else, misses it, or gives what <avoid> names.",
   "Then read each sentence that carries a Citation number [n] against the words that Citation quotes, in <citations>: list n when the sentence states as so something its quoted words don't say, such as a figure, a term, a yes, or a claim it calls supported.",
   'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
-].join("\n");
+];
+const JUDGE = JUDGE_LINES.join("\n");
 
 export interface Judged {
   grade: "right" | "partly" | "wrong" | "unread";
   unstated: number[];
+  /** Asked per place: the places whose sentence its quotes don't back. */
+  unbacked?: string[];
+}
+
+/**
+ * The judge asked per place (#2847's yardstick by place): each place's sentence with every quote it
+ * cites, never which places show a ✓.
+ */
+const JUDGE_PLACES = [
+  ...JUDGE_LINES.slice(0, 3),
+  "Then read each place in <places>: a sentence of the reply that carries a Citation number, with every quote that sentence cites. List the place's id when the sentence states as so something those quotes, read together, don't say: a figure, a term, a yes, a conclusion, a negative, a promise or an offer, or a claim it calls supported. A sentence that only says what its quotes say, in other words, another language or by putting two of them together, is not listed.",
+  'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unbacked": ["p1", ...]}',
+].join("\n");
+
+/** The places' lines the per-place judge reads: never the marks the app showed. */
+const placeLines = (places: readonly PlaceMark[]) =>
+  places.map(
+    (place) => `[${place.id}] “${place.sentence}” quotes ${place.quotes.join("; ") || "nothing"}`,
+  );
+
+/** The judge's grade and the places it lists, or null when its reply holds no such JSON. */
+export function readJudgedPlaces(text: string, ids: readonly string[]): Judged | null {
+  const read = readJudged(text);
+  if (!read) return null;
+  try {
+    const value: unknown = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "");
+    const listed =
+      typeof value === "object" &&
+      value !== null &&
+      "unbacked" in value &&
+      Array.isArray(value.unbacked)
+        ? value.unbacked.filter((id): id is string => typeof id === "string" && ids.includes(id))
+        : [];
+    return { ...read, unbacked: listed };
+  } catch {
+    return null;
+  }
 }
 
 /** The judge's grade and the numbers it lists, or null when its reply holds no such JSON. */
@@ -260,7 +301,12 @@ async function judge(
   newest: readonly CallTurn[],
   reply: string,
   cited: readonly string[],
+  /** Asked per place: each place's sentence and quotes instead of the Citations' list. */
+  places?: readonly PlaceMark[],
 ): Promise<Judged> {
+  const instructions = places ? JUDGE_PLACES : JUDGE;
+  const ids = (places ?? []).map((place) => place.id);
+  const readReply = (text: string) => (places ? readJudgedPlaces(text, ids) : readJudged(text));
   const prompt = [
     `<button>${each.kind}</button>`,
     "<call>",
@@ -271,18 +317,18 @@ async function judge(
     "<reply>",
     reply,
     "</reply>",
-    "<citations>",
-    ...cited,
-    "</citations>",
+    ...(places
+      ? ["<places>", ...placeLines(places), "</places>"]
+      : ["<citations>", ...cited, "</citations>"]),
   ].join("\n");
   const first = await generateText({
     model,
-    instructions: JUDGE,
+    instructions,
     prompt,
     maxOutputTokens: 400,
     maxRetries: 1,
   });
-  const judged = readJudged(first.text);
+  const judged = readReply(first.text);
   if (judged) return judged;
   // A judge that answered in prose is asked once more for the JSON alone, its reasons kept. Claude
   // Opus 5.5 can't stop thinking, and its thinking can take all of a 400-token reply: asked again,
@@ -291,14 +337,14 @@ async function judge(
     first.text.trim() === ""
       ? await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           prompt,
           maxOutputTokens: 1_200,
           maxRetries: 1,
         })
       : await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           messages: [
             { role: "user", content: prompt },
             { role: "assistant", content: first.text },
@@ -307,14 +353,14 @@ async function judge(
           maxOutputTokens: 200,
           maxRetries: 1,
         });
-  const read = readJudged(again.text);
+  const read = readReply(again.text);
   if (read) return read;
   console.error(
     again.text.trim() === ""
       ? `The judge's reply was empty twice (${again.finishReason}).`
       : `The judge's reply couldn't be read: ${again.text.slice(0, 200)}`,
   );
-  return { grade: "unread", unstated: [] };
+  return { grade: "unread", unstated: [], ...(places && { unbacked: [] }) };
 }
 
 interface TimingRow {
@@ -561,6 +607,38 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
             );
       const found = citations.filter(quoteFound);
       const reply = shownReply(answer, shown, numbers);
+      // Each place as the app showed it: the check's own sentence and the panel's own mark (#2847).
+      const sentences = citedSentences(answer.text, answer.figures);
+      let placeMarks: PlaceMark[] = shown
+        .flatMap((item) => [item.lead, ...item.notes, item.effect ?? []])
+        .flatMap((line) => {
+          const text = line.map((piece) => (piece.kind === "text" ? piece.text : "")).join("");
+          return line.flatMap((piece) => (piece.kind === "citation" ? [{ piece, text }] : []));
+        })
+        .flatMap(({ piece, text }) => {
+          const citation = answer.citations.find((one) => one.marker === piece.marker);
+          const number = numbers.get(piece.marker);
+          if (!citation || number === undefined) return [];
+          const sentence = sentences.find((one) => one.at.includes(piece.at));
+          const quoted = [...new Set(sentence?.markers ?? [piece.marker])].flatMap((marker) => {
+            const one = answer.citations.find((each) => each.marker === marker);
+            return one ? [`${one.documentName}: “${one.quote}”`] : [];
+          });
+          return [
+            {
+              id: "",
+              number,
+              marker: piece.marker,
+              at: piece.at,
+              sentence: (sentence?.sentence ?? text).trim(),
+              quotes: quoted,
+              found: quoteFound(citation),
+              shown: quoteOnly ? citation.check === "found" : sentencePassed(citation, piece.at),
+              unbacked: null,
+            },
+          ];
+        })
+        .map((place, index) => ({ ...place, id: `p${index + 1}` }));
       let judged: Judged | null = null;
       try {
         judged = done
@@ -577,8 +655,23 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
                     ]
                   : [];
               }),
+              PLACE_SETS.has(set) ? placeMarks : undefined,
             )
           : null;
+        const unbacked = judged?.unbacked;
+        if (judged && unbacked) {
+          placeMarks = placeMarks.map((place) => ({
+            ...place,
+            unbacked: unbacked.includes(place.id),
+          }));
+          // By number, as the earlier yardstick counts: a number any of whose places is unbacked.
+          judged = {
+            ...judged,
+            unstated: [
+              ...new Set(placeMarks.filter((place) => place.unbacked).map((place) => place.number)),
+            ],
+          };
+        }
       } catch (error) {
         return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -627,6 +720,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstWordsMs,
         firstOptionMs,
         requests,
+        places: placeMarks,
         ...(read &&
           judged && {
             marks: {
@@ -708,6 +802,9 @@ export async function openCall(
   }
 }
 
+/** The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12). */
+const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
+
 type CallHelpSet =
   | "call-help"
   | "call-help-held-out"
@@ -715,7 +812,8 @@ type CallHelpSet =
   | "call-help-documents"
   | "call-help-checks"
   | "call-help-marks"
-  | "call-help-marks-3";
+  | "call-help-marks-3"
+  | "call-help-marks-4";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -725,6 +823,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-checks": CALL_HELP_CHECKS,
   "call-help-marks": CALL_HELP_MARKS,
   "call-help-marks-3": CALL_HELP_MARKS_3,
+  "call-help-marks-4": CALL_HELP_MARKS_4,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

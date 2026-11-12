@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
 import { armSwitch, newestStretch } from "../../eval/speed/arms";
-import { callHelpSet } from "../../eval/speed/callHelp";
+import { callHelpSet, readJudgedPlaces } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
@@ -216,6 +216,34 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     ).toHaveLength(2);
     expect(judged[0]).toContain("★ Yes, Enterprise is $45 a seat with single sign-on [1]");
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
+  });
+
+  test("a press records each place: its sentence, every quote that sentence cites, and the mark the panel shows there", async () => {
+    const { run } = await pressed("en-answer-sso", ENTERPRISE, { grade: "right", unstated: [] });
+
+    expect(run.places).toEqual([
+      {
+        id: "p1",
+        number: 1,
+        marker: 1,
+        at: 0,
+        sentence: "★ Yes, Enterprise is $45 a seat with single sign-on",
+        quotes: [`Price sheet 2026: “${ENTERPRISE}”`],
+        found: true,
+        shown: true,
+        unbacked: null,
+      },
+    ]);
+  });
+
+  test("the judge asked per place lists only the places it was shown", () => {
+    expect(
+      readJudgedPlaces('{"grade": "partly", "unstated": [], "unbacked": ["p2", "p9", 3]}', [
+        "p1",
+        "p2",
+      ]),
+    ).toEqual({ grade: "partly", unstated: [], unbacked: ["p2"] });
+    expect(readJudgedPlaces("No JSON here.", ["p1"])).toBeNull();
   });
 
   test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on a quote-only ✓, and the sentence check withholds it", async () => {

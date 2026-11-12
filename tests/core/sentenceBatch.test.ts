@@ -5,6 +5,8 @@
  */
 import { describe, expect, test } from "vitest";
 import { readBatchReply } from "../../src/core/answers/checks/sentenceBatch";
+import { estimateTokens } from "../../src/core/answers/context";
+import { outputTokens } from "../../src/core/providers/outputLimits";
 
 const entry = (number: number, verdict: string) => ({
   number,
@@ -143,4 +145,42 @@ describe("a batch's reply", () => {
       [1, "supported"],
     ]);
   });
+});
+
+describe("a batch's reply with the words it copies fits the room its records are given", () => {
+  // protects=the two copied fields of #3003 don't push a full batch's reply past what the meter sets aside a sentence (300 tokens beside the room for thinking), so a long Answer's check isn't cut short; fails_when=an entry copying long clauses in both fields, in English or Chinese, costs more than 300 tokens; no_claim=what a model writes, which the dev trial measures.
+  test.each([
+    {
+      language: "English",
+      clause:
+        "so the board can expect the whole programme to pay for itself well before the second winter of running both kilns at full load",
+      says: "The deck gives the price of two kilns, installed, and the month they are installed, and nothing about savings, payback or the board's plans for the second winter.",
+    },
+    {
+      language: "Chinese",
+      clause:
+        "因此董事会可以预期整个项目在两台窑炉满负荷运行的第二个冬天之前就能收回全部成本并开始带来额外的利润",
+      says: "演示稿只写了两台窑炉含安装的价格和安装月份，没有写节省的费用、回本时间或董事会在第二个冬天的计划。",
+    },
+  ])(
+    "in $language, eight entries copying long clauses in both fields stay within 300 tokens each",
+    ({ clause, says }) => {
+      const reply = JSON.stringify({
+        sentences: Array.from({ length: 8 }, (_, index) => ({
+          number: index + 1,
+          kind: "fact",
+          unstated: clause,
+          uncited: clause,
+          verdict: "unsupported",
+          roles: "same",
+          time: "same",
+          says,
+        })),
+      });
+
+      expect(outputTokens("sentence-batch", 8)).toBe(7_400);
+      expect(estimateTokens(reply) / 8).toBeLessThan(300);
+      expect(readBatchReply(reply, 8).size).toBe(8);
+    },
+  );
 });

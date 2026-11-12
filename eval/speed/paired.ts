@@ -52,6 +52,7 @@ export const SET_IDS = [
   "call-help-checks",
   "call-help-marks",
   "call-help-marks-3",
+  "call-help-marks-4",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -76,6 +77,20 @@ export interface RequestTiming {
   outputTokens: number | null;
   /** "failed" when refused or failed, "stopped" when timed out or stopped; absent before 2026-11-12. */
   outcome?: TimingOutcome;
+}
+
+/** One place of a call-help reply, as the app showed it and the judge read it. */
+export interface PlaceMark {
+  id: string;
+  number: number;
+  marker: number;
+  at: number;
+  sentence: string;
+  quotes: string[];
+  /** Its quote was found, which alone gave a ✓ before #2847. */
+  found: boolean;
+  shown: boolean;
+  unbacked: boolean | null;
 }
 
 /** What one arm did on one item. */
@@ -118,6 +133,12 @@ export interface ArmRun {
    * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
    * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
    */
+  /**
+   * Each place a Citation number sits in the reply (#2847's yardstick by place): its sentence, the
+   * quotes that sentence cites, and the mark the app showed there; `unbacked` is the judge's answer
+   * where it was asked per place, null where it wasn't.
+   */
+  places?: PlaceMark[];
   marks?: {
     held: number;
     checked: number;
