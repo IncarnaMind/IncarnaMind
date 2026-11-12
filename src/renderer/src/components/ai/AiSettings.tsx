@@ -29,10 +29,16 @@ import { DecisionSortingSetUp, firstModelOf } from "../providers/DecisionKeyForm
 import { JevSortingSetUp } from "../providers/JevSortingSetUp";
 import { LocalModeUnavailable } from "../providers/LocalModeUnavailable";
 import { ProviderLogo } from "../providers/ProviderLogo";
-import { ProviderPage, providerName, type RemovedProvider } from "../providers/ProviderPage";
+import { ProviderPage, type RemovedProvider } from "../providers/ProviderPage";
 import { RerankKeyForm, useRerank } from "../providers/RerankSettings";
 import { useSorting } from "../providers/SortingChoice";
-import { catalogIdOf, MODELS_UNDO_PLACE, regionFor, savedProviderFor } from "../providers/shared";
+import {
+  catalogIdOf,
+  MODELS_UNDO_PLACE,
+  providerName,
+  regionFor,
+  savedProviderFor,
+} from "../providers/shared";
 import { useJevSettings } from "../providers/useJevSettings";
 import { SettingsBackLink } from "../SettingsBackLink";
 import { SettingsGroup } from "../settings/SettingsGroup";

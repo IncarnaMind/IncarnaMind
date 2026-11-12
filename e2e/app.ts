@@ -34,9 +34,10 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
-import { launchEnvironment } from "./launchEnvironment";
+import { APP_ARGS, assertInTemporaryFolder, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { type Engine, launchEnvironment, standIns } from "./launchEnvironment";
 import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
+import { assertTestBuild } from "./testBuild";
 
 const appDir = resolve(__dirname, "..");
 
@@ -211,11 +212,13 @@ export interface LaunchOptions {
    */
   sandboxNotice?: "switch" | "environment" | "on";
   /**
-   * The search, text recognition and speech engines are the real ones instead of the fake ones, on
-   * the models already in the data folder (a test build reaches no model host): for a recording
-   * of the app as the User runs it.
+   * The engines the app runs for real instead of as stand-ins (every other one stays one): for a
+   * check by hand, a nightly run or a recording of the app as the User runs it, never a smoke spec.
+   * The model of a real engine is in the data folder already, or downloads into it from its
+   * own host; a test build reaches no model host otherwise. The search model's reranking model
+   * follows "embedder". "transcriber" leaves audio capture a stand-in (`microphone`, `computerSound`).
    */
-  realEngines?: boolean;
+  real?: readonly Engine[];
   /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
   jev?: string;
   /** A stand-in for every decision model host (#1907), at this base URL. */
@@ -273,8 +276,9 @@ export const WORD_KEY = process.platform === "darwin" ? "Alt" : "Control";
 
 /**
  * Launches the built app (`out/`) on the given data folder, with test hooks on
- * and the fake embedding model, which needs no download, in a window of
- * `WINDOW_SIZE` whatever the screen's.
+ * and the stand-in engines (`LaunchOptions.real` keeps some real), which need no download, in
+ * a window of `WINDOW_SIZE` whatever the screen's. The data folder and the home folder must be
+ * inside the system's temporary folder, or nothing starts.
  */
 export async function launchApp(
   dataDir: string,
@@ -310,7 +314,7 @@ export async function launchApp(
     contradictionWatchDelayMs,
     sandboxed = false,
     sandboxNotice,
-    realEngines = false,
+    real = [],
     jev,
     decisions,
     calendars,
@@ -322,14 +326,15 @@ export async function launchApp(
     systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
+  assertInTemporaryFolder("data folder", dataDir);
+  if (home) assertInTemporaryFolder("home folder", home);
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
   const env = launchEnvironment({
     ...lifecycleHomeEnv(appHome),
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
     INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
-    INCARNAMIND_TEST_EMBEDDER: realEngines ? undefined : "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: realEngines ? undefined : "fake",
+    ...standIns(real),
     INCARNAMIND_TEST_TRANSCRIBER_OPTIONS: transcriber && JSON.stringify(transcriber),
     OLLAMA_HOST: ollama,
     INCARNAMIND_TEST_OLLAMA_APP: ollamaApp,
@@ -371,6 +376,7 @@ export async function launchApp(
   });
 
   const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
+  if (!packaged) assertTestBuild();
   const app = await electron.launch({
     ...(packaged && { executablePath: mainExecutable() }),
     args: [

@@ -4,7 +4,8 @@ import { dirname, join, resolve, sep } from "node:path";
 import { chromium, type ElectronApplication, expect, type Page } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
-import { launchEnvironment } from "./launchEnvironment";
+import { launchEnvironment, standIns } from "./launchEnvironment";
+import { assertTestBuild } from "./testBuild";
 
 export type { LifecycleApps } from "./lifecycleApps";
 export { prepareLifecycleApps } from "./lifecycleApps";
@@ -87,14 +88,14 @@ export function startLifecycleCopy(
     INCARNAMIND_PACKAGED_UPDATED_APP: process.env.INCARNAMIND_PACKAGED_UPDATED_APP,
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
-    INCARNAMIND_TEST_EMBEDDER: "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+    ...standIns(),
     INCARNAMIND_TEST_AUDIO: "fake",
     INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
     ...extraEnv,
   });
   if (env.INCARNAMIND_PACKAGED_APP || env.INCARNAMIND_TEST_APP_DIR)
     env.INCARNAMIND_TEST_MAIN_PRELOADS = JSON.stringify(mainPreloads(args).preloads);
+  if (!env.INCARNAMIND_PACKAGED_APP) assertTestBuild();
   const executable = mainExecutable(env);
   ownedExecutables.add(executable);
   if (env.INCARNAMIND_PACKAGED_UPDATED_APP)

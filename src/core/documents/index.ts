@@ -83,6 +83,7 @@ import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
 import { markArrived, nextSequence } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
+import { whileOpen } from "../whileOpen";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
@@ -120,6 +121,7 @@ import {
   type ProcessingResult,
   SCAN_CURRENT_SINCE,
   type ScanJob,
+  type TextJob,
   type WorkerResult,
 } from "./processing";
 import { createProcessor } from "./processor";
@@ -150,6 +152,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
+import { createTextCopies, type FillTurn } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
@@ -976,6 +979,8 @@ export function createDocuments(options: DocumentsOptions) {
   // Set below, once the library exists.
   let isPaused = (_documentId: string) => false;
 
+  const textCopies = createTextCopies(db, now);
+
   const reading = createReadingMeter({
     ...options.readingSpeed,
     clock: () => performance.now(),
@@ -1357,12 +1362,15 @@ export function createDocuments(options: DocumentsOptions) {
          WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL`,
         [at, at, job.documentId, result.contentHash],
       );
+      const version = { documentId: job.documentId, contentHash: result.contentHash };
+      textCopies.forget(version);
       let status: DocumentStatus;
       if (result.outcome === "ready") {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
         insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
+        textCopies.record(version, result.pages);
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -1487,6 +1495,69 @@ export function createDocuments(options: DocumentsOptions) {
     next();
   }
 
+  /** Text jobs under way, each with what takes its Units, or null for a file that can't be read. */
+  const textReads = new Map<TextJob, (pages: TextUnit[] | null) => void>();
+
+  /**
+   * A file's text as processing reads a Document's, read on a worker and kept nowhere (#2216).
+   * Never settles once the core closes, as `fillTextFingerprints` doesn't.
+   */
+  function readFileText(file: string, kind: DocumentKind): Promise<TextUnit[] | null> {
+    if (closed) return new Promise(() => {});
+    return new Promise((resolve) => {
+      const job: TextJob = { task: "text", file, kind };
+      textReads.set(job, resolve);
+      processor.enqueue(job);
+    });
+  }
+
+  let fingerprintTurn: ReturnType<typeof setTimeout> | null = null;
+  let fingerprintsFilled: { done: Promise<void>; settle(): void } | null = null;
+
+  /**
+   * Fingerprints every live Document whose text has none yet (#2216), one a turn, so nothing
+   * holds this thread for long: settles once none is left. Each call asks again, so a Document
+   * restored, or one an ended fill didn't reach, is fingerprinted before the check that waits on
+   * it goes on. Once the core closes it never settles, so nothing that waits on it reads the
+   * closed database; a check with a stop of its own ends on that (`Evidence.ready`). A host that
+   * closed a core and kept running would leave the checks that can't be stopped waiting for good:
+   * the app closes it only as it quits.
+   */
+  function fillTextFingerprints(): Promise<void> {
+    if (closed) return new Promise<void>(() => {});
+    if (fingerprintsFilled) return fingerprintsFilled.done;
+    try {
+      if (!textCopies.anyMissing()) return Promise.resolve();
+    } catch (error) {
+      reportError(error);
+      return Promise.resolve();
+    }
+    let settle = () => {};
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    fingerprintsFilled = { done, settle };
+    const next = () => {
+      fingerprintTurn = null;
+      let turn: FillTurn = "done";
+      try {
+        if (!closed) turn = textCopies.fillNext();
+      } catch (error) {
+        // Not one Document's failure: the fill ends here, and the next check tries again.
+        reportError(error);
+      }
+      if (typeof turn === "object") reportError(turn.passedOver);
+      if (turn !== "done") {
+        fingerprintTurn = setTimeout(next, 0);
+        return;
+      }
+      fingerprintsFilled = null;
+      settle();
+    };
+    fingerprintTurn = setTimeout(next, 0);
+    return done;
+  }
+
   /** Writes one Document's upgraded keyword rows, or drops a result it is too late for. */
   function writeKeywordUpgrade(job: KeywordsJob, result: WorkerResult): void {
     if (result.outcome !== "keywords" || result.documentId !== job.documentId) return;
@@ -1585,6 +1656,11 @@ export function createDocuments(options: DocumentsOptions) {
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
+    onText(job, result) {
+      const read = textReads.get(job);
+      textReads.delete(job);
+      read?.(result.outcome === "text" ? result.pages : null);
+    },
     onKeywords(job, result) {
       try {
         writeKeywordUpgrade(job, result);
@@ -2515,7 +2591,7 @@ export function createDocuments(options: DocumentsOptions) {
     background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
     const scope = searchScope(documentIds);
-    const vector = await queryVector(query, "hybrid", background);
+    const vector = await whileOpen(() => closed, queryVector(query, "hybrid", background));
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
     const lists = distinctPassages(db, [keyword, similar]);
@@ -2621,6 +2697,7 @@ export function createDocuments(options: DocumentsOptions) {
      */
     searchTool(query: string, toolOptions?: SearchToolOptions): Promise<WindowedPassage[]> {
       const background = toolOptions?.background === true;
+      const rerank = toolOptions?.rerank;
       return searchDocumentsTool(
         {
           candidates: (query, limit, documentIds) =>
@@ -2630,7 +2707,9 @@ export function createDocuments(options: DocumentsOptions) {
           window: (documentId, window) => passagesInWindow(db, documentId, window),
         },
         query,
-        toolOptions,
+        rerank
+          ? { ...toolOptions, rerank: (...asked) => whileOpen(() => closed, rerank(...asked)) }
+          : toolOptions,
       );
     },
 
@@ -3262,6 +3341,9 @@ export function createDocuments(options: DocumentsOptions) {
     ids,
     hasDocumentOutside,
     upgradeKeywordIndex,
+    fillTextFingerprints,
+    readFileText,
+    textCopies,
 
     /** The live Documents (of these, or all of them) that failed, have no text or were read in part: the few `findUnreadDocuments` looks at. */
     unread(documentIds?: readonly string[]): Document[] {
@@ -3749,7 +3831,7 @@ export function createDocuments(options: DocumentsOptions) {
         const [keyword = []] = distinctPassages(db, [keywordSearch(db, query, asked, scope)]);
         return passagesBySeq(db, keyword.slice(0, limit));
       }
-      const vector = await queryVector(query, mode);
+      const vector = await whileOpen(() => closed, queryVector(query, mode));
       if (mode === "vector") {
         const hits = vector ? vectors.search(vector, asked, scope) : [];
         const [similar = []] = distinctPassages(db, [hits.map((hit) => hit.seq)]);
@@ -3809,6 +3891,7 @@ export function createDocuments(options: DocumentsOptions) {
             documentId,
             contentHash,
           ]);
+          if (contentHash !== null) textCopies.forget({ documentId, contentHash });
           db.run(
             `DELETE FROM passages
              WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL`,
@@ -3846,6 +3929,7 @@ export function createDocuments(options: DocumentsOptions) {
           db.run("DELETE FROM document_pages WHERE document_id = ? AND deleted_at IS NOT NULL", [
             id,
           ]);
+          textCopies.forgetDocument(id);
         }
       });
       options.emitKept?.(keptCitationTexts());
@@ -3900,6 +3984,8 @@ export function createDocuments(options: DocumentsOptions) {
 
     close(): void {
       closed = true;
+      if (fingerprintTurn) clearTimeout(fingerprintTurn);
+      fingerprintsFilled = null;
       library.close();
       embedding.close();
       processor.close();

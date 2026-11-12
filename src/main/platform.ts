@@ -37,7 +37,7 @@ import {
 } from "../core/calendars/fakeSystem";
 import { scansAtOnce } from "../core/documents/processor";
 import type { PageFetch } from "../core/documents/web/fetch";
-import type { ModelCopies } from "../core/embedding/modelSources";
+import { isModelHost, type ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
 import type { ModelFactsLayer } from "../core/providers/capabilities";
 import { DECISION_HOSTS } from "../core/providers/catalog/decisions";
@@ -252,17 +252,22 @@ export async function chooseExecutor(
 }
 
 /**
- * Test-only launch flag: the smoke tests run a deterministic fake embedding
- * model in the utility process, so no model is downloaded. Only a test build
- * (`electron-vite build --mode test`) honours it.
+ * Test-only launch flags, one for each engine: the smoke tests run a deterministic fake
+ * embedding model (and reranking model) and a fake text recognition model in the utility
+ * processes, so no model is downloaded. An engine whose flag is left out runs for real (#534).
+ * Only a test build (`electron-vite build --mode test`) honours them.
  */
 const fakeEmbedder =
   import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_EMBEDDER === "fake";
+const fakeRecognizer =
+  import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_OCR === "fake";
 
-/** With the fake models, what the fake text recognition model reads on each scanned page (#397). */
-const fakeScans = fakeEmbedder ? (process.env.INCARNAMIND_TEST_SCANS ?? null) : null;
-/** With the fake models, how many scans are read at once (#1502), whatever the computer. */
-const testScansAtOnce = fakeEmbedder ? Number(process.env.INCARNAMIND_TEST_SCANS_AT_ONCE ?? 0) : 0;
+/** With the fake text recognition model, what it reads on each scanned page (#397). */
+const fakeScans = fakeRecognizer ? (process.env.INCARNAMIND_TEST_SCANS ?? null) : null;
+/** With it, how many scans are read at once (#1502), whatever the computer. */
+const testScansAtOnce = fakeRecognizer
+  ? Number(process.env.INCARNAMIND_TEST_SCANS_AT_ONCE ?? 0)
+  : 0;
 /**
  * With the fake models, the search model's (and the speech model's) files at a stand-in and
  * IncarnaMind's copies at others (#1578), as JSON, so a smoke test can fail a download at every source.
@@ -276,11 +281,17 @@ const testModelDownloads: {
     ? JSON.parse(process.env.INCARNAMIND_TEST_MODEL_DOWNLOADS)
     : null;
 
-// A test build reaches no model source but the stand-ins on this computer: not even the probe's.
+// A test build reaches no model source but the stand-ins on this computer, not even the probe's;
+// a launch that keeps an engine real (#534) also reaches the model hosts, to download its model.
+const modelHostsOpen =
+  import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_MODEL_HOSTS === "1";
 const modelFetch: typeof fetch = (input, init) => {
   const url = input instanceof Request ? input.url : String(input);
-  if (import.meta.env.MODE === "test" && new URL(url).hostname !== "127.0.0.1") {
-    return Promise.reject(new TypeError(`A test build reaches no ${new URL(url).host}.`));
+  if (import.meta.env.MODE === "test") {
+    const { hostname, host } = new URL(url);
+    if (hostname !== "127.0.0.1" && !(modelHostsOpen && isModelHost(hostname))) {
+      return Promise.reject(new TypeError(`A test build reaches no ${host}.`));
+    }
   }
   if (init?.redirect === "manual") return unfollowed(url, init);
   return net.fetch(input instanceof URL ? input.href : input, { ...init, credentials: "omit" });
@@ -1038,7 +1049,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     }),
     crossEncoder: createUtilityProcessCrossEncoder({ fake: fakeEmbedder }),
     textRecognizer: createUtilityProcessTextRecognizer(
-      fakeEmbedder ? { fake: { script: fakeScans } } : {},
+      fakeRecognizer ? { fake: { script: fakeScans } } : {},
     ),
     decodePicture: decodePictureToPng,
     officeConverter: createOfficeConverter({
@@ -1057,6 +1068,8 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
         files: [],
       },
       rerankingModelSource: { baseUrl: "http://localhost/", files: [] },
+    }),
+    ...(fakeRecognizer && {
       textRecognitionModelSource: { baseUrl: "http://localhost/", files: [] },
     }),
   };

@@ -623,6 +623,7 @@ export function checksSet(root: string): PairedGroup[] {
             library.timings?.begin();
             const results = await repeatChecks(library.core, {
               mind: `${set.mind} (${arm})`,
+              bar: "verdict",
               sentences: set.sentences.map((each) => each.text),
               repeats: 1,
               model: choice,

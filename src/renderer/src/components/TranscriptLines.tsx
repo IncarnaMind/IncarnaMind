@@ -1,6 +1,7 @@
 import type { Meeting } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
+import { useStoppedBeforeEndSaid } from "../meetingAudioWords";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
 import { speechModelDownload } from "../speechModelDownload";
@@ -28,6 +29,8 @@ export function TranscriptLines({
   problemsOnly?: boolean;
 }) {
   const t = useT();
+  const language = useLanguage();
+  const stoppedSaid = useStoppedBeforeEndSaid(meeting, t, language);
   const place = useTabPlace();
   const transcript = meeting.transcript;
   const sources = useDownloadSources(
@@ -83,7 +86,7 @@ export function TranscriptLines({
       };
     } else if (problem.kind === "engine") {
       line = {
-        text: t("meetings.transcript.engineStopped"),
+        text: meeting.status === "stopped" ? stoppedSaid : t("meetings.transcript.engineStopped"),
         action: retry("meetings.transcript.retry"),
         role: "alert",
       };

@@ -8,12 +8,20 @@
  */
 import { cp } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import { BUILT_IN_EMBEDDING_MODEL } from "../../src/core";
+import { describe, expect, test, vi } from "vitest";
+import { BUILT_IN_EMBEDDING_MODEL, type Embedder } from "../../src/core";
+import {
+  createChannelEmbedder,
+  type EmbedderChannel,
+  type EmbedderRequest,
+  type EmbedderResponse,
+  serveEmbedder,
+} from "../../src/core/embedding/channel";
+import { downloadModel } from "../../src/core/embedding/download";
 import { createOnnxEmbedder } from "../../src/core/embedding/onnx";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { waitForModel } from "../helpers/embedding";
+import { turnOnEmbeddings, waitForModel } from "../helpers/embedding";
 
 const PASSAGES: Record<string, string> = {
   "Attention.md":
@@ -43,6 +51,7 @@ describe.runIf(process.env.INCARNAMIND_REAL_MODEL === "1")(
         embedder: createOnnxEmbedder(),
         embeddingModelSource: BUILT_IN_EMBEDDING_MODEL.source,
       });
+      await turnOnEmbeddings(core);
       await core.downloadEmbeddingModel();
       await waitForModel(core, (status) => status.state !== "downloading", 14 * 60_000);
       expect(await core.getEmbeddingModel()).toMatchObject({ state: "ready", error: null });
@@ -69,6 +78,73 @@ describe.runIf(process.env.INCARNAMIND_REAL_MODEL === "1")(
       expect(
         (await core.searchPassages("effects of climate change on the oceans"))[0]?.documentId,
       ).toBe(idOf("Climate.md"));
+    });
+
+    // protects=the real model behind the app's channel and serving code: closed with a text out, that text fails, and the next load embeds as before (#2930); fails_when=the text waits for ever, or the model can't load again after a close; no_claim=the utility process's own stop, which needs Electron.
+    test("closed with a text out, it fails that text, then loads again and embeds it", async () => {
+      const folder = join(await createTempDataFolder(), "models", BUILT_IN_EMBEDDING_MODEL.folder);
+      const cached = process.env.INCARNAMIND_MODEL_DIR;
+      if (cached) await cp(cached, folder, { recursive: true });
+      await downloadModel({
+        directory: folder,
+        source: BUILT_IN_EMBEDDING_MODEL.source,
+        signal: new AbortController().signal,
+        onProgress: () => {},
+      });
+      const files = {
+        model: join(folder, BUILT_IN_EMBEDDING_MODEL.files.model),
+        tokenizer: join(folder, BUILT_IN_EMBEDDING_MODEL.files.tokenizer),
+        tokenizerConfig: join(folder, BUILT_IN_EMBEDDING_MODEL.files.tokenizerConfig),
+        maxTokens: BUILT_IN_EMBEDDING_MODEL.maxTokens,
+      };
+      // Served on this thread, not a worker: a worker stopped under onnxruntime's run aborts the
+      // whole process (#2830).
+      const served: { model: Embedder; busy: number }[] = [];
+      const embedder = createChannelEmbedder((): EmbedderChannel => {
+        const each = { model: createOnnxEmbedder(), busy: 0 };
+        served.push(each);
+        let serve: (request: EmbedderRequest) => void = () => {};
+        let deliver: (response: EmbedderResponse) => void = () => {};
+        let stopped = false;
+        serveEmbedder(each.model, {
+          onRequest: (listener) => {
+            serve = listener;
+          },
+          respond: (response) => {
+            each.busy--;
+            if (!stopped) setImmediate(() => deliver(structuredClone(response)));
+          },
+        });
+        return {
+          send: (request) => {
+            each.busy++;
+            setImmediate(() => serve(structuredClone(request)));
+          },
+          onResponse: (listener) => {
+            deliver = listener;
+          },
+          onExit: () => {},
+          stop: () => {
+            stopped = true;
+          },
+        };
+      });
+
+      await embedder.load(files);
+      const answered = await embedder.embed("query: 长城有多长？");
+      const out = embedder.embed("query: How long is the Great Wall?");
+      embedder.close();
+      await expect(out).rejects.toThrow("The embedding model was stopped.");
+
+      await embedder.load(files);
+      const again = await embedder.embed("query: 长城有多长？");
+      const cosine = again.reduce((sum, value, at) => sum + value * (answered[at] ?? 0), 0);
+      expect(again).toHaveLength(BUILT_IN_EMBEDDING_MODEL.dimensions);
+      expect(cosine).toBeGreaterThan(0.9999);
+      expect(served).toHaveLength(2);
+      embedder.close();
+      await vi.waitFor(() => expect(served.map((each) => each.busy)).toEqual([0, 0]));
+      for (const each of served) each.model.close();
     });
   },
 );

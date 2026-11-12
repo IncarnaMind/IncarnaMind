@@ -3,7 +3,7 @@
  * with the built-in model off the main process (see ./scanReader), serving
  * requests one at a time, in order (see `serveTextRecognizer`).
  *
- * Started with --fake by the smoke tests' INCARNAMIND_TEST_EMBEDDER=fake
+ * Started with --fake by the smoke tests' INCARNAMIND_TEST_OCR=fake
  * flag: it then runs the fake model, reading what the JSON file named after
  * it scripts (INCARNAMIND_TEST_SCANS), a little slowly, so a test can see
  * the pages being read.

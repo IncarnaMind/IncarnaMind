@@ -8,6 +8,7 @@ import { getEventListeners } from "node:events";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
+  ChatModelChoice,
   ChatModelFactory,
   CitationLocation,
   Core,
@@ -2078,6 +2079,43 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       problem: { kind: "not-allowed", service: "OpenAI" },
     });
     expect((await core.getSettings()).user.chatModel?.providerId).not.toBe(cloudId);
+    core.close();
+  });
+
+  // protects=a Meeting's Note whose own model on this computer was removed is not filled in on a cloud default the User never chose for it: nothing is sent and the Meeting says why, until a model is picked in the Note or the composer's line is closed, and Try again fills it in (#2853); fails_when=the Transcript goes to the cloud default at once, or the fill stays refused after the line is closed.
+  test("a Note whose model on this computer was removed isn't filled in on a cloud default until the User closes the line", async () => {
+    const calls: ModelCall[] = [];
+    let gone: ChatModelChoice | null = null;
+    const { core, meeting, client } = await recorded(
+      fillingModel(
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+        { 1: MY_LINES[0] as string },
+        {},
+        { seen: (call) => calls.push(call) },
+      ),
+      NOTES,
+      async (core) => {
+        gone = (await core.getSettings()).user.chatModel;
+        await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+        if (gone) await core.deleteChatProvider(gone.providerId);
+      },
+      (client) => setMindModel(client.doc, gone),
+    );
+
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "off",
+      problem: { kind: "model-removed" },
+    });
+    expect(calls.filter(isFill)).toEqual([]);
+
+    setMindModel(client.doc, null);
+    await client.settled();
+    await core.fillMeetingNotes(meeting.id);
+
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled" }),
+    );
+    expect(calls.filter(isFill).length).toBeGreaterThan(0);
     core.close();
   });
 

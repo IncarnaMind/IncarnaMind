@@ -65,6 +65,7 @@ describe("Cost in words", () => {
   test("an estimate under a cent is never About under $0.01, and one of nothing shows no price", () => {
     const run = {
       billing: "per-token" as const,
+      providerId: "provider-1",
       calls: 2,
       tokens: 1_200,
       cost: { amount: 0.004, currency: "USD" as const },
@@ -141,6 +142,7 @@ describe("Cost in words", () => {
       estimateLine(
         {
           billing: "per-token",
+          providerId: "provider-1",
           calls: 2,
           tokens: 1_200,
           cost: { amount: 0.4, currency: "USD" },
@@ -257,6 +259,7 @@ describe("Cost in words", () => {
   test("the estimate shows above a dollar or under a cap, with tokens and the month so far, never model calls; a plan or this computer shows none", () => {
     const estimate = {
       billing: "per-token" as const,
+      providerId: "provider-1",
       calls: 24,
       tokens: 310_000,
       cost: { amount: 1.4, currency: "USD" as const },
@@ -364,6 +367,33 @@ describe("Cost in words", () => {
         /model calls?|模型调用/,
       );
     }
+  });
+
+  test("a line with a price names the provider whose price it is; one with only tokens names none (#1257)", () => {
+    const estimate = {
+      billing: "per-token" as const,
+      providerId: "provider-7",
+      calls: 24,
+      tokens: 310_000,
+      cost: { amount: 1.4, currency: "USD" as const },
+      spentTowardCap: null,
+      setAsideTowardCap: null,
+      cap: null,
+    };
+    expect(estimateLine(estimate, t("en"), "en")?.providerId).toBe("provider-7");
+    expect(estimateLine(estimate, t("zh-CN"), "zh-CN")?.providerId).toBe("provider-7");
+    const tokensOnly = estimateLine(
+      { ...estimate, cost: null, cap: { amount: 20, currency: "USD" } },
+      t("en"),
+      "en",
+    );
+    expect(tokensOnly?.parts).toEqual(["310K tokens"]);
+    expect(tokensOnly).not.toHaveProperty("providerId");
+    expect(
+      estimateLine({ ...estimate, cost: { amount: 0, currency: "USD" } }, t("en"), "en", {
+        always: true,
+      }),
+    ).not.toHaveProperty("providerId");
   });
 });
 

@@ -26,6 +26,7 @@ import type {
   TranscriberListener,
   TranscriptionModelFiles,
 } from "../adapters";
+import { ChannelClosedError, channelRequests } from "../channelRequests";
 import { createAssemblyAiStream } from "./cloud/assemblyai";
 import { createDeepgramStream } from "./cloud/deepgram";
 import { createElevenLabsStream } from "./cloud/elevenlabs";
@@ -78,7 +79,7 @@ export interface TranscriberChannel {
   stop(): void;
 }
 
-type Pending = { resolve(): void; reject(error: Error): void };
+type Answer = Extract<TranscriberResponse, { id: number }>;
 
 /** A request the idle unload ended before the process answered it (#2673). */
 class IdleUnloadError extends Error {}
@@ -101,9 +102,10 @@ const confirmWithin: ConfirmDeadline = (late) => {
 
 /**
  * The core's `Transcriber`, backed by a channel that `start` opens on the
- * first `load`. If the channel stops by itself, pending requests fail, the
- * listeners hear it, and the next `load` opens a new one. A channel that
- * doesn't confirm a `dropCloud` by `deadline` is stopped the same way.
+ * first `load`. If the channel stops by itself, what is still out on it
+ * fails, the listeners hear it, and the next `load` opens a new one. A
+ * channel that doesn't confirm a `dropCloud` by `deadline` is stopped the
+ * same way. Closed, what is still out on it fails as closed on purpose.
  */
 export function createChannelTranscriber(
   start: () => TranscriberChannel,
@@ -114,22 +116,17 @@ export function createChannelTranscriber(
   let loading: { key: string; done: Promise<void> } | undefined;
   /** Streams going to a cloud service: they need no engine loaded. */
   const clouds = new Set<string>();
-  const pending = new Map<number, Pending>();
+  const requests = channelRequests<TranscriberChannel, Answer>();
   const listeners: TranscriberListener[] = [];
-  let nextId = 1;
 
   function open(): TranscriberChannel {
     const started = start();
     started.onResponse((response) => {
       switch (response.type) {
         case "done":
-        case "error": {
-          const waiting = pending.get(response.id);
-          pending.delete(response.id);
-          if (response.type === "done") waiting?.resolve();
-          else waiting?.reject(new Error(response.message));
+        case "error":
+          requests.answer(response.id, response);
           return;
-        }
         case "segment":
           for (const listener of listeners) listener.segment(response.segment);
           return;
@@ -159,26 +156,28 @@ export function createChannelTranscriber(
     return started;
   }
 
-  function gone(started: TranscriberChannel, reason: string): void {
-    if (channel !== started) return;
+  /** Whether `started` is still the channel in use: if so, it is put aside for the next `load` to replace. */
+  function setAside(started: TranscriberChannel): boolean {
+    if (channel !== started) return false;
     channel = undefined;
     loadedKey = undefined;
     clouds.clear();
-    const error = new Error(reason);
-    for (const waiting of pending.values()) waiting.reject(error);
-    pending.clear();
+    return true;
+  }
+
+  function gone(started: TranscriberChannel, reason: string): void {
+    requests.rejectAll(started, new Error(reason));
+    if (!setAside(started)) return;
     for (const listener of listeners) listener.stopped(reason);
   }
 
   /** The process ended its work on purpose: its engine was idle (#2673), which is not a crash. */
   function unloaded(started: TranscriberChannel): void {
-    if (channel !== started) return;
-    channel = undefined;
-    loadedKey = undefined;
-    clouds.clear();
-    const error = new IdleUnloadError("The transcription process unloaded its models while idle.");
-    for (const waiting of pending.values()) waiting.reject(error);
-    pending.clear();
+    requests.rejectAll(
+      started,
+      new IdleUnloadError("The transcription process unloaded its models while idle."),
+    );
+    if (!setAside(started)) return;
     for (const listener of listeners) listener.unloaded();
   }
 
@@ -187,11 +186,11 @@ export function createChannelTranscriber(
   ): Promise<void> {
     channel ??= open();
     const target = channel;
-    const id = nextId++;
-    return new Promise<void>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      target.send({ ...command, id });
-    });
+    return requests
+      .add(target, (id) => target.send({ ...command, id }))
+      .then((answer) => {
+        if (answer.type === "error") throw new Error(answer.message);
+      });
   }
 
   return {
@@ -251,10 +250,8 @@ export function createChannelTranscriber(
       for (const stream of streams) clouds.delete(stream);
       const target = channel;
       if (!target || streams.length === 0) return Promise.resolve();
-      const id = nextId++;
       return new Promise<void>((resolve) => {
         const cancel = deadline(() => {
-          pending.delete(id);
           gone(
             target,
             "The transcription process didn't confirm in time that it dropped its cloud streams, so it was stopped.",
@@ -266,8 +263,9 @@ export function createChannelTranscriber(
           cancel();
           resolve();
         };
-        pending.set(id, { resolve: settle, reject: settle });
-        target.send({ type: "dropCloud", id, streams });
+        requests
+          .add(target, (id) => target.send({ type: "dropCloud", id, streams }))
+          .then(settle, settle);
       });
     },
 
@@ -277,10 +275,11 @@ export function createChannelTranscriber(
 
     close() {
       const stopping = channel;
-      channel = undefined;
-      loadedKey = undefined;
-      clouds.clear();
-      stopping?.stop();
+      loading = undefined;
+      if (!stopping) return;
+      setAside(stopping);
+      requests.rejectAll(stopping, new ChannelClosedError("The transcription model was stopped."));
+      stopping.stop();
     },
   };
 }

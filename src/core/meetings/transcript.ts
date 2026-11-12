@@ -80,6 +80,7 @@ import {
 import type { SnapshotFile } from "../documents/web";
 import type { CloudAudioMeter, CloudTranscription } from "../transcription/cloud/routes";
 import type { TranscriptionModel } from "../transcription/model";
+import { whileOpen } from "../whileOpen";
 import type { AudioPart } from "./audioFiles";
 import { echoedBy, isEcho, repeats } from "./echoLines";
 import type { CaptureHealthRecords } from "./health";
@@ -223,6 +224,8 @@ interface State extends Saved {
   live: Live | null;
   /** The live streams last ended, until their last lines are in. */
   ending: Promise<void> | null;
+  /** The stretches of streams a pause or Stop ended, until their last lines are in. */
+  unfinished: Range[];
   /** Streams reading audio back from disk, and live streams ending. */
   catchUps: Map<string, Reading>;
   restarts: number[];
@@ -360,6 +363,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   const states = new Map<string, State>();
   let streams = 0;
   let closed = false;
+  const isClosed = () => closed;
 
   const vttPath = (meetingId: string) => join(folder, `${meetingId}.vtt`);
   const jsonPath = (meetingId: string) => join(folder, `${meetingId}.json`);
@@ -403,6 +407,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       partials: new Map(),
       live: null,
       ending: null,
+      unfinished: [],
       catchUps: new Map(),
       restarts: [],
       firstVoice: new Set(),
@@ -1094,6 +1099,8 @@ export function createTranscripts(options: TranscriptsOptions) {
       speaker: () => speakerOf("microphone", state.callHeard === true, state.memo),
     };
     state.catchUps.set(own.stream, reading);
+    const stretch = { fromMs: own.baseMs, toMs: atMs };
+    state.unfinished.push(stretch);
     let drop = () => {};
     const dropped = new Promise<void>((resolve) => {
       drop = resolve;
@@ -1101,20 +1108,21 @@ export function createTranscripts(options: TranscriptsOptions) {
     const done: Promise<void> = Promise.race([transcriber.finish(own.stream), dropped])
       .then(
         () => {
-          if (reading.lost)
-            state.pending = addRange(state.pending, { fromMs: own.baseMs, toMs: atMs });
+          if (reading.lost) state.pending = addRange(state.pending, stretch);
         },
         (error: unknown) => {
+          if (closed) return;
           log.warn("transcript.endFailed", {
             meetingId: state.meetingId,
             message: messageOf(error),
           });
-          state.pending = addRange(state.pending, { fromMs: own.baseMs, toMs: atMs });
+          state.pending = addRange(state.pending, stretch);
         },
       )
       .finally(() => {
         state.catchUps.delete(own.stream);
         live.finishing = live.finishing.filter((each) => each.done !== done);
+        state.unfinished = state.unfinished.filter((each) => each !== stretch);
         if (closed) return;
         writeLines(state);
         options.changed();
@@ -1301,7 +1309,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         for (const part of parts) {
           const partEnd = part.offsetMs + part.durationMs;
           if (part.offsetMs >= to || partEnd <= from) continue;
-          const samples = await samplesOf(part);
+          const samples = await whileOpen(isClosed, samplesOf(part));
           const first = Math.max(0, Math.round((from - part.offsetMs) * SAMPLE_RATE_MS));
           const last = Math.min(samples.length, Math.round((to - part.offsetMs) * SAMPLE_RATE_MS));
           if (last > first) {
@@ -1361,6 +1369,9 @@ export function createTranscripts(options: TranscriptsOptions) {
    * Document follows it.
    */
   async function finish(state: State): Promise<void> {
+    // A Stop's last lines can come in after the core closed: what is left is finished at the next
+    // start (#2957).
+    if (closed) return;
     try {
       if (state.pending.length > 0) {
         if (model.status().state !== "ready") {
@@ -1369,10 +1380,12 @@ export function createTranscripts(options: TranscriptsOptions) {
           options.changed();
           return; // goes on when the model is ready (`onReady`)
         }
-        if (!(await model.load())) throw new EngineError(model.status().error?.message ?? "");
+        if (!(await whileOpen(isClosed, model.load()))) {
+          throw new EngineError(model.status().error?.message ?? "");
+        }
         const done: Range[] = [];
         for (const range of [...state.pending]) {
-          await catchUp(state, range);
+          await whileOpen(isClosed, catchUp(state, range));
           done.push(range);
           state.pending = state.pending.filter((each) => each !== range);
           state.gaps = state.gaps.filter((gap) => !filled(gap, done));
@@ -1383,6 +1396,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       }
       await save(state);
     } catch (error) {
+      if (closed) return;
       state.state = "failed";
       state.problem = {
         kind: error instanceof EngineError ? "engine" : "save",
@@ -1546,6 +1560,8 @@ export function createTranscripts(options: TranscriptsOptions) {
       unopened = true;
     }
     if (unopened) state.pending = addRange(state.pending, { fromMs, toMs: endMs });
+    const stretch = { fromMs, toMs: endMs };
+    state.unfinished.push(stretch);
     const ending = SOURCES.flatMap((source) => {
       const own = live.streams[source];
       return own
@@ -1571,20 +1587,22 @@ export function createTranscripts(options: TranscriptsOptions) {
       .then(
         () => {
           if (ending.some(({ reading }) => reading.lost)) {
-            state.pending = addRange(state.pending, { fromMs, toMs: endMs });
+            state.pending = addRange(state.pending, stretch);
           } else state.doneMs = Math.max(state.doneMs, endMs);
         },
         (error: unknown) => {
+          if (closed) return;
           log.warn("transcript.endFailed", {
             meetingId: state.meetingId,
             message: messageOf(error),
           });
-          state.pending = addRange(state.pending, { fromMs, toMs: endMs });
+          state.pending = addRange(state.pending, stretch);
         },
       )
       .finally(() => {
         for (const { stream } of ending) state.catchUps.delete(stream);
         if (state.ending === done) state.ending = null;
+        state.unfinished = state.unfinished.filter((each) => each !== stretch);
         if (closed) return;
         writeLines(state, { now: true });
         persist(state);
@@ -1911,7 +1929,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       for (const state of states.values()) {
         if (state.indexTimer) clearTimeout(state.indexTimer);
         if (state.partialTimer) clearTimeout(state.partialTimer);
-        if (state.live) persist(state);
+        // Streams still finishing lose their last lines with the engine: those stretches are read
+        // from the recording at the next start instead (#2957).
+        for (const stretch of state.unfinished) state.pending = addRange(state.pending, stretch);
+        if (state.live || state.unfinished.length > 0) persist(state);
       }
       model.close();
     },

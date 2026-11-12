@@ -118,6 +118,7 @@ test("the request log reports each sentence's requests on the scripted model", a
 
   await repeatChecks(core, {
     mind: "Figure sentences",
+    bar: "verdict",
     sentences: SENTENCES,
     repeats: CHECKS,
     model: { providerId: provider.id, modelId: "local-model" },
