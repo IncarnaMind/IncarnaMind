@@ -5,7 +5,7 @@
  * counts always agree (#880). What was done counts by paragraph (#1028); what still waits counts
  * changes, as the Mind's bar and its change card do (#1358).
  */
-import type { RemovedParagraphs } from "../../core/api";
+import type { FiguresLeftOut, RemovedParagraphs } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { ChangedMind } from "./changedMinds";
 
@@ -197,6 +197,17 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
     : t("mindChanges.added.tables", { mind: name, paragraphs, tables });
 }
 
+function figuresLeftText(t: Translate, { count, labels }: FiguresLeftOut): string {
+  const figures = labels.map((label) => `“${label}”`).join(t("list.separator"));
+  if (count === 1)
+    return labels.length > 0
+      ? t("mindChanges.figuresLeft.one.named", { figures })
+      : t("mindChanges.figuresLeft.one");
+  return labels.length > 0
+    ? t("mindChanges.figuresLeft.named", { count, figures })
+    : t("mindChanges.figuresLeft", { count });
+}
+
 /**
  * What of its tables was kept as text, what sources were left out, and why a chart asked for
  * wasn't drawn (#1091), after its count; null when nothing was.
@@ -218,6 +229,12 @@ export function keptText(t: Translate, row: ChangedMind): string | null {
       : row.extraCells > 1
         ? [t("mindChanges.extraCells", { count: row.extraCells })]
         : []),
+    ...(row.figuresLeftOut ? [figuresLeftText(t, row.figuresLeftOut)] : []),
+    ...(row.missingNumberRefused === undefined
+      ? []
+      : row.missingNumberRefused === 1
+        ? [t("mindChanges.missingNumberRefused.one")]
+        : [t("mindChanges.missingNumberRefused", { count: row.missingNumberRefused })]),
     ...(row.chartNotDrawn
       ? [t("mindChanges.noChart", { reason: t(`mindChanges.noChart.${row.chartNotDrawn}`) })]
       : []),

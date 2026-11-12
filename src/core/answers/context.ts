@@ -170,19 +170,20 @@ function pieceOf(
   documents: Documents,
   review?: ReviewReading,
   ids?: ContextCitations,
+  missingNumber?: string,
 ): Piece | null {
   if (block.nodeName === QUESTION_BLOCK) {
-    const text = toMarkdown(block, documents, review, ids);
+    const text = toMarkdown(block, documents, review, ids, missingNumber);
     return text ? { role: "user", text } : null;
   }
   if (block.nodeName === ANSWER_BLOCK) {
     if (textAttribute(block, "status") === "failed") return null;
-    const text = contentMarkdown(block, documents, review, ids);
+    const text = contentMarkdown(block, documents, review, ids, missingNumber);
     return text ? { role: "assistant", text } : null;
   }
   // A Note.
   if (attribute(block, INCLUDE_IN_CONTEXT_ATTRIBUTE) === false) return null;
-  const text = toMarkdown(block, documents, review, ids);
+  const text = toMarkdown(block, documents, review, ids, missingNumber);
   return text ? { role: "user", text } : null;
 }
 
@@ -258,6 +259,7 @@ export function buildQuestionContext(
  * `buildQuestionContext`, with where the third-party text in the Blocks it
  * keeps came from, as the Mind's `textOrigins` records it, and its Citations
  * naming their Documents as `documents` names them now, each with its id in `ids`.
+ * `missingNumber`: the words the mark where a figure couldn't be calculated reads as (#2577).
  */
 export function questionContextOf(
   blocks: Y.XmlFragment,
@@ -265,6 +267,7 @@ export function questionContextOf(
   budget = QUESTION_CONTEXT_TOKEN_BUDGET,
   documents: Documents = null,
   ids?: ContextCitations,
+  missingNumber?: string,
 ): QuestionContextWithOrigins {
   const children = blocks.toArray();
   const question = children[index];
@@ -286,7 +289,9 @@ export function questionContextOf(
     for (let at = index - 1; at >= 0; at--) {
       const block = children[at];
       const piece =
-        block instanceof Y.XmlElement ? pieceOf(block, documents, undefined, ids) : null;
+        block instanceof Y.XmlElement
+          ? pieceOf(block, documents, undefined, ids, missingNumber)
+          : null;
       if (!piece) continue;
       yield recorded && block instanceof Y.XmlElement
         ? { ...piece, origins: originsIn(block, recorded) }
@@ -388,6 +393,8 @@ export function readMind(
   readsPictures = true,
   /** The requests whose changes are read as applied at once, as the User asked (#2321). */
   applied: ReadonlySet<string> = new Set(),
+  /** The words the mark where a figure couldn't be calculated reads as (#2577). */
+  missingNumber?: string,
 ): MindReading {
   const recordedOrigins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = recordedOrigins && recordedOrigins.size > 0 ? recordedOrigins : null;
@@ -401,7 +408,7 @@ export function readMind(
   const review = reviewReading(blocks, applied);
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
-    const piece = pieceOf(block, documents, review, ids);
+    const piece = pieceOf(block, documents, review, ids, missingNumber);
     const id = textAttribute(block, BLOCK_ID_ATTRIBUTE);
     if (id) {
       byId.set(id, {

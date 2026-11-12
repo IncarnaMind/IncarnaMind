@@ -414,8 +414,12 @@ export interface CreateMindInput {
  *   checks as not checked. Older content is version 56 content as it is: the
  *   core moves these marks to their own keys when it opens the Note, or
  *   restores a Checkpoint of it.
+ * - 58: where a figure couldn't be calculated, the text holds a `missingNumber`
+ *   mark (#2577). An older editor would drop the node and leave the sentence
+ *   without its number, saying nothing, so it opens these Notes read-only.
+ *   Older content is version 57 content as it is: it holds no mark.
  */
-export const CONTENT_SCHEMA_VERSION = 57;
+export const CONTENT_SCHEMA_VERSION = 58;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1554,6 +1558,12 @@ export interface RemovedParagraphs {
   start: string;
 }
 
+/** Figure markers a Note's text marks as missing, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
+export interface FiguresLeftOut {
+  count: number;
+  labels: string[];
+}
+
 /**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
@@ -1590,6 +1600,8 @@ export interface MindChange {
   droppedSources?: number;
   /** Cells beyond its tables' columns, their text kept in their row's last cell. Absent: none. */
   extraCells?: number;
+  /** Figure markers its text marks as missing because no figure was recorded for them (#2577). Absent: none. */
+  figuresLeftOut?: FiguresLeftOut;
   /**
    * It revised the assistant's own changes still waiting there: they
    * are gone, and its request holds the new text and the rest of them.
@@ -1686,6 +1698,13 @@ export interface SkillScriptRun {
 export const CITATION_NODE = "citation";
 
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
+/**
+ * Where a figure that couldn't be calculated would be (#2577): an inline mark with no attributes,
+ * read as "[number missing]" in the language the figure footnotes use, never as a number or a
+ * figure marker, and with no number in the one series.
+ */
+export const MISSING_NUMBER_NODE = "missingNumber";
 
 /**
  * A table an Analysis gave is one calculated object (#2378): its table Block holds
@@ -7069,6 +7088,8 @@ export interface RegenerateProposalInput {
  *   no words for it, so which paragraph it replaces can't be told (#2356).
  * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
  *   take their words out (#2356).
+ * - "missing-number": it took out the mark where a figure couldn't be calculated, with no
+ *   calculated figure in its place (#2577).
  * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
  * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
  */
@@ -7076,6 +7097,7 @@ export const changeRefusals = [
   "not-placed",
   "misnamed",
   "typed-tag",
+  "missing-number",
   "no-table",
   "unplaced",
 ] as const;
@@ -9598,9 +9620,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   voices included, to the cloud transcription service the User chose in
  *   Settings › Meetings or on the first-meeting sheet (#141), with the
  *   meeting's words to know in that service's own field (#1031): the User's
- *   name, the names in the meeting's Note, calendar event and Folder, and
- *   Words to know. Choosing it allows both; a route chosen before the words
- *   went sends them only once the User allows them. None in local mode.
+ *   name, the names and other capitalised words in the meeting's Note,
+ *   calendar event and Folder, and Words to know. Choosing it allows both; a
+ *   route chosen before the words went sends them only once the User allows
+ *   them. None in local mode.
  * - "scan-images": when Organize or the Library's automatic grouping meets a
  *   PDF with no text after reading and OCR (a scan), up to 3 of its page
  *   images, to the service of the model that reads them (the chosen model's,

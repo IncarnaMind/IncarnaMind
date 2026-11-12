@@ -1776,6 +1776,7 @@ export const zhCN = {
   "edit.problem.unplaced": "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
   "edit.problem.unchanged.said": "没有改动。AI 说：“{said}”",
   "edit.problem.typed-tag": "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
+  "edit.problem.missing-number": "AI 改写时漏掉了[缺少数字]，没有改动。请重试。",
   "edit.problem.not-placed": "AI 的改写会加入或修改引用、脚注或计算结果，没有改动。请重试。",
   "edit.problem.misnamed": "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
@@ -3368,7 +3369,7 @@ export const zhCN = {
   "consent.flow.transcription.purpose": "把会议中说的话转成文字",
   "consent.data.meeting-audio": "录制期间的会议音频，包括其他参会者的声音",
   "consent.data.meeting-words":
-    "你的名字、要识别的词、每场会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字",
+    "你的名字、要识别的词、每场会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词",
   "consent.flow.calendars": "日历",
   "consent.flow.calendars.purpose": "显示日历中即将开始的会议",
   "consent.data.calendar-request":
@@ -3705,10 +3706,10 @@ export const zhCN = {
   "meetings.route.wayRow": "{provider} · 你的密钥",
   "meetings.route.use": "使用{provider}",
   "meetings.route.waysNote":
-    "选择后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。可在“设置 › 会议”中更改。",
+    "选择后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。可在“设置 › 会议”中更改。",
   "meetings.route.cloudOn": "用{provider}转写",
   "meetings.route.cloudLine":
-    "录音期间，音频会发送给{provider}，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "录音期间，音频会发送给{provider}，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   "meetings.route.cloudLineAudio": "录音期间，音频会发送给{provider}。",
   "meetings.route.agreement": "协议",
   "meetings.route.useHere": "改用这台电脑",
@@ -3716,7 +3717,7 @@ export const zhCN = {
   "meetings.route.slowNoKey": "这台电脑上的实时文字可能会落后。",
   "meetings.route.settingsLink": "设置 › AI",
   "meetings.route.consent":
-    "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   "meetings.route.paused": "已暂停：已开启“所有内容都留在这台电脑上”。",
   "meetings.route.chooseAgain":
     "音频现在只留在这台电脑上。重新选择{provider}后，音频会发送到{region}。",
@@ -4421,6 +4422,8 @@ export const zhCN = {
   "uncheckedFigure.heading": "未核对",
   "uncheckedFigure.mark": "未核对：扫描件中可能识别有误的字词",
   "uncheckedFigure.why": "它来自“{word}”，该处文字是从扫描件识别的，可能识别有误。请对照原页核对。",
+  "missingNumber.words": "[缺少数字]",
+  "missingNumber.tip": "IncarnaMind 未能算出这里的数字，所以没有写入。",
   "citation.quote": "引文：",
   "citation.quoted.answer": "回答中",
   "citation.closest.on": "{location}最接近的文字",
@@ -6704,11 +6707,11 @@ export const zhCN = {
   "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。",
   "meetings.words.title": "要识别的词",
   "meetings.words.body":
-    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。用云服务转写时，这些词会随音频一起发送给该服务。",
+    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。用云服务转写时，这些词会随音频一起发送给该服务。",
   "meetings.words.bodyHere":
-    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "转写会按你的写法写出这些人名、公司名、产品名等。每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   "meetings.words.waiting":
-    "{provider}目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，每场会议它还会收到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    "{provider}目前只收到音频，没有收到这些词：你在开始发送这些词之前就选择了它。发送后，每场会议它还会收到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
   "meetings.words.send": "发送给{provider}",
   "meetings.words.field": "添加要识别的词",
   "meetings.words.placeholder": "人名或术语",
@@ -7396,6 +7399,12 @@ export const zhCN = {
   "mindChanges.dropped.one": "· 有 1 处出处无法匹配，已删去",
   "mindChanges.extraCells": "· 多出的 {count} 个单元格已作为文字保留",
   "mindChanges.extraCells.one": "· 多出的 1 个单元格已作为文字保留",
+  "mindChanges.missingNumberRefused.one": "· 有 1 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
+  "mindChanges.missingNumberRefused": "· 有 {count} 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
+  "mindChanges.figuresLeft.one": "· 有 1 个数字未能计算，文中标为[缺少数字]",
+  "mindChanges.figuresLeft.one.named": "· 有 1 个数字未能计算，文中标为[缺少数字]：{figures}",
+  "mindChanges.figuresLeft": "· 有 {count} 个数字未能计算，文中标为[缺少数字]",
+  "mindChanges.figuresLeft.named": "· 有 {count} 个数字未能计算，文中标为[缺少数字]：{figures}",
   "mindCall.failed.localMode": "无法修改“{mind}”：已开启“所有内容都留在这台电脑上”",
   "mindCall.failed.notReady": "无法修改“{mind}”：现在无法使用这个模型",
   "mindCall.failed.model": "无法修改“{mind}”：模型出错",
@@ -7519,6 +7528,8 @@ export const zhCN = {
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
+  "agents.propose.missingNumber":
+    "{name} 的文字漏掉了[缺少数字]，它表示一个未能计算的数字，因此没有写入任何修改。请按原样保留[缺少数字]。",
   "agents.propose.typedTag":
     "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
   "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",
