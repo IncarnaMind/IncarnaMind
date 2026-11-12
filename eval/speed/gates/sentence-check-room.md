@@ -103,10 +103,14 @@ The judge, Claude Opus 5.5, listed as unstated exactly the ten sentences of each
 **Changed after the runs, and why the runs stand.** In every gated Answer, each batch is one batch of 1 to 3 sentences, sent alone, on a model whose own limit is 128,000 or 393,216 tokens, and its set-aside is far under $0.25. So each change below leaves every gated request as it was, and a unit test holds the gated models' rooms at 5,300, 5,600 and 5,900.
 - **At a78051c60 and edb162365, on review:** the room is held within the model's own limit, it is chosen after the old wait, and a run whose check left a sentence unmarked is void. DeepSeek ran on this head. The Haiku and Sonnet reports were rendered again with its code, and they print the same.
 - **On a second review, before merge:**
-  - A batch has the room for thinking only where every batch still to come keeps the room it would have anyway, so no batch waits or is refused because of it. The first of the two differences named under "The change", a later batch waiting for an open larger one, is gone.
+  - A batch has the room for thinking only where every batch still to come keeps the room it would have anyway, so no batch waits or is refused because of it. Within the same check, that ends the first of the two differences named under "The change". Near the monthly cap, a request from elsewhere, set aside after a batch was given the larger room, can still make a later batch wait for the others to settle.
   - Where not every batch can have it, the fewest sentences have it first.
   - The room is held to the model's own room, never under the records' room, rather than dropped to the records' room.
   - "Check the rest" estimates with the same rule as the send.
   - A batch that waited reads nothing once the Answer is stopped or the core has closed.
   - A void run prints its bars as not read.
+  - A model with no price keeps the larger room whatever the cap says, since nothing is set aside for it.
+  - "Check the rest" reads nothing once the core has closed during its wait for the model's shape.
+
+Rendered again with the final code, the three runs' sections print the same bars, and none is void.
 
