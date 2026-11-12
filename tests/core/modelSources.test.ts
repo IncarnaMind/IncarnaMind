@@ -9,6 +9,7 @@ import { BUILT_IN_EMBEDDING_MODEL } from "../../src/core/embedding";
 import { downloadModel, ModelDownloadError } from "../../src/core/embedding/download";
 import {
   createModelSources,
+  isModelHost,
   type ModelCopies,
   PROBE_KEPT_MS,
 } from "../../src/core/embedding/modelSources";
@@ -202,6 +203,15 @@ describe("Where a built-in model's files come from (#1578)", () => {
     const copy = new URL("https://models.example.com/multilingual-e5-small/model.onnx");
     expect(sources.redirectAllowed("r2", copy, copy, to("https://cdn.example.net/a"))).toBe(true);
     expect(sources.redirectAllowed("r2", copy, copy, to("https://us.aws.cdn.hf.co/a"))).toBe(false);
+  });
+
+  test("the model hosts are Hugging Face, its CDN and the mirror, and no look-alike", () => {
+    for (const host of ["huggingface.co", "us.aws.cdn.hf.co", "hf.co", "hf-mirror.com"]) {
+      expect(isModelHost(host), host).toBe(true);
+    }
+    for (const host of ["github.com", "hf.co.example.com", "nothuggingface.co", "127.0.0.1"]) {
+      expect(isModelHost(host), host).toBe(false);
+    }
   });
 });
 

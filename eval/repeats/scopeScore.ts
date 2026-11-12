@@ -10,7 +10,9 @@ import type { Outcome, RepeatResult } from "./repeat";
 import type { WatchedRequest } from "./requests";
 import type { Placement, ScopeLanguage } from "./scopeCases";
 
-export interface ScopeRow extends RepeatResult {
+export interface ScopeRow extends Omit<RepeatResult, "sort"> {
+  /** Its check's sort; none in a result file made before #2964, whose checks reused their run's one sort. */
+  sort?: number;
   caseId: string;
   language: ScopeLanguage;
   placement: Placement;
@@ -39,15 +41,26 @@ export const isFaithful = (row: Pick<ScopeRow, "expected">) => row.expected === 
 export const isWrong = (row: Pick<ScopeRow, "expected" | "outcome">) =>
   isFaithful(row) ? row.outcome !== "supported" : row.outcome === "supported";
 
+/** Wrong checks of a total, and the sorts those checks rest on (#2964). */
 export interface Tally {
   wrong: number;
   total: number;
+  sorts: number;
 }
+
+const sortsIn = (rows: readonly ScopeRow[]) => new Set(rows.map((row) => row.sort ?? 1)).size;
+
+const tallyOf = (rows: readonly ScopeRow[], wrong: (row: ScopeRow) => boolean): Tally => ({
+  wrong: rows.filter(wrong).length,
+  total: rows.length,
+  sorts: sortsIn(rows),
+});
 
 export interface SentenceTally {
   key: string;
   expected: Expected;
   total: number;
+  sorts: number;
   outcomes: Record<Outcome, number>;
   /** In how many checks a Passage handed over held the clause; null for a sentence with none. */
   clauseHanded: number | null;
@@ -60,6 +73,9 @@ export interface ScopeSummary {
   others: number;
   model: string;
   checks: number;
+  sorts: number;
+  /** Made before #2964: its checks reused their run's one sort. */
+  before: boolean;
   falseUnsupported: Tally;
   falseSupported: Tally;
   sentences: SentenceTally[];
@@ -70,7 +86,7 @@ export interface ScopeSummary {
   /** Checks that handed the model no Passage at all (sentences with nothing recorded). */
   nothingHanded: number;
   /** Checks asked to search again before saying the sentence isn't found (#1608). */
-  askedAgain: number;
+  askedAgain: Tally;
   misses: ScopeRow[];
 }
 
@@ -108,14 +124,10 @@ export function summarise(rows: readonly ScopeRow[]): ScopeSummary[] {
       others: first.others,
       model: first.model,
       checks: new Set(group.map((row) => row.repeat)).size,
-      falseUnsupported: {
-        wrong: faithful.filter(isWrong).length,
-        total: faithful.length,
-      },
-      falseSupported: {
-        wrong: controls.filter(isWrong).length,
-        total: controls.length,
-      },
+      sorts: sortsIn(group),
+      before: group.some((row) => row.sort === undefined),
+      falseUnsupported: tallyOf(faithful, isWrong),
+      falseSupported: tallyOf(controls, isWrong),
       sentences: keys.map((key): SentenceTally => {
         const own = group.filter((row) => row.key === key);
         const outcomes = emptyOutcomes();
@@ -125,19 +137,22 @@ export function summarise(rows: readonly ScopeRow[]): ScopeSummary[] {
           key,
           expected: sample.expected,
           total: own.length,
+          sorts: sortsIn(own),
           outcomes,
           clauseHanded:
             sample.clause === null ? null : own.filter((row) => handsClause(row) === true).length,
         };
       }),
-      wrongWithClause: {
-        wrong: wrong.filter((row) => handsClause(row) === true).length,
-        total: wrong.filter((row) => row.clause !== null).length,
-      },
+      wrongWithClause: tallyOf(
+        wrong.filter((row) => row.clause !== null),
+        (row) => handsClause(row) === true,
+      ),
       documentsHanded: { fewest: Math.min(...documents), most: Math.max(...documents) },
       nothingHanded: group.filter((row) => row.handed.length === 0).length,
-      askedAgain: group.filter((row) => row.requests?.some((request) => request.searchAgain))
-        .length,
+      askedAgain: tallyOf(
+        group,
+        (row) => row.requests?.some((request) => request.searchAgain) ?? false,
+      ),
       misses: wrong,
     };
   });
@@ -145,7 +160,8 @@ export function summarise(rows: readonly ScopeRow[]): ScopeSummary[] {
 
 const percent = ({ wrong, total }: Tally) => (total === 0 ? 0 : (100 * wrong) / total);
 
-const tally = (value: Tally) => `${value.wrong} of ${value.total}`;
+const tally = (value: Tally) =>
+  `${value.wrong} of ${value.total} checks, ${value.sorts} ${value.sorts === 1 ? "sort" : "sorts"}`;
 
 const ABBREVIATIONS: Record<Outcome, string> = {
   supported: "S",
@@ -231,6 +247,12 @@ export function report(
     "",
     `Commit ${run.commit}, ${run.repeats} checks a case, $${run.spent.toFixed(2)} at the app's own count.`,
     "",
+    sorted.some((each) => each.before)
+      ? "Made before #2964: every check reused its case's one sort, so each count stands on the sorts it gives, not on one a check."
+      : sorted.some((each) => each.sorts < each.checks)
+        ? "One sort reused by every check of a case: these counts are for a bar about time or cost, not a mark or a verdict (#2964)."
+        : "Each check sorted the sentences afresh, in a Note of its own.",
+    "",
     "| Model | Language | Placement | Others | False Unsupported | False Supported | Wrong checks handed the right Passage | Documents handed to a check |",
     "|---|---|---|---|---|---|---|---|",
     ...sorted.map(
@@ -251,7 +273,7 @@ export function report(
     "",
     "## Each sentence",
     "",
-    "S supported, C contradicted, P partly, D differs, N not found, X not checked. In brackets: checks handed a Passage that holds the clause.",
+    "S supported, C contradicted, P partly, D differs, N not found, X not checked. In brackets: of those checks, how many were handed a Passage that holds the clause.",
     "",
     `| Model | Case | ${keys.join(" | ")} |`,
     `|---|---|${keys.map(() => "---").join("|")}|`,
@@ -262,13 +284,13 @@ export function report(
             const own = each.sentences.find((sentence) => sentence.key === key);
             if (!own) return "";
             const handed =
-              own.clauseHanded === null ? "" : ` (${own.clauseHanded} of ${own.total})`;
-            return `${outcomesText(own.outcomes)}${handed}`;
+              own.clauseHanded === null ? "" : ` (${own.clauseHanded} handed the clause)`;
+            return `${outcomesText(own.outcomes)} of ${own.total} checks, ${own.sorts} ${own.sorts === 1 ? "sort" : "sorts"}${handed}`;
           })
           .join(" | ")} |`,
     ),
     "",
-    `Checks asked to search again before saying a sentence isn't found: ${sorted.map((each) => `${each.caseId} ${each.askedAgain} of ${each.falseUnsupported.total + each.falseSupported.total}`).join("; ")}.`,
+    `Checks asked to search again before saying a sentence isn't found: ${sorted.map((each) => `${each.caseId} ${tally(each.askedAgain)}`).join("; ")}.`,
     "",
     ...(sorted.some((each) => each.nothingHanded > 0)
       ? [
