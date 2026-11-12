@@ -46,6 +46,7 @@ import { CALL_HELP_DOCUMENTS } from "./callHelpDocuments";
 import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
+import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
 const STEP_MS = 500;
@@ -689,7 +690,8 @@ type CallHelpSet =
   | "call-help-fresh"
   | "call-help-documents"
   | "call-help-checks"
-  | "call-help-marks";
+  | "call-help-marks"
+  | "call-help-marks-3";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -698,6 +700,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-documents": CALL_HELP_DOCUMENTS,
   "call-help-checks": CALL_HELP_CHECKS,
   "call-help-marks": CALL_HELP_MARKS,
+  "call-help-marks-3": CALL_HELP_MARKS_3,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

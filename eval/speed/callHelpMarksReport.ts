@@ -1,12 +1,16 @@
 /**
- * The bars of `gates/call-help-checked-marks-2.md` for the call-help-marks set (#2847), computed
- * from a paired run's rows exactly as the file words them, and printed into its report. The
- * baseline is main's path (`help-marks-quote-only`), the candidate the branch (`today`).
+ * The bars of `gates/call-help-checked-marks-2.md`, which `-3.md` keeps on a fresh slice, for the
+ * call-help marks sets (#2847), computed from a paired run's rows exactly as the file words them,
+ * and printed into its report. The baseline is main's path (`help-marks-quote-only`), the
+ * candidate the branch (`today`).
  */
 import type { ArmRun } from "./paired";
 import type { PairedRow } from "./pairedReport";
 
-const SET = "call-help-marks";
+const GATES: Readonly<Record<string, string>> = {
+  "call-help-marks": "call-help-checked-marks-2.md",
+  "call-help-marks-3": "call-help-checked-marks-3.md",
+};
 
 /** Bar 3's allowance (cited, judged right, every Citation found), by model and language. */
 const ALLOWED: Readonly<Record<string, readonly [number, number, number]>> = {
@@ -85,14 +89,17 @@ const share = (part: number, whole: number) =>
 const seconds = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(2)} s`);
 const verdict = (holds: boolean) => (holds ? "holds" : "**fails**");
 
-/** The report's section on the set's bars, or null when the run holds none of the set. */
+/** The report's section on each marks set's bars, or null when the run holds none of them. */
 export function marksSection(all: readonly PairedRow[]): string | null {
-  const rows = all.filter((row) => row.set === SET);
-  if (rows.length === 0) return null;
-  const lines: string[] = [
-    "## The call-help marks gate (`gates/call-help-checked-marks-2.md`)",
-    "",
-  ];
+  const sections = Object.entries(GATES).flatMap(([set, gate]) => {
+    const rows = all.filter((row) => row.set === set);
+    return rows.length === 0 ? [] : [gateSection(rows, gate)];
+  });
+  return sections.length === 0 ? null : sections.join("\n\n");
+}
+
+function gateSection(rows: readonly PairedRow[], gate: string): string {
+  const lines: string[] = [`## The call-help marks gate (\`gates/${gate}\`)`, ""];
   const models = [...new Set(rows.map((row) => row.model))];
   const cell = (model: string, language: string) =>
     rows.filter((row) => row.model === model && row.language === language);
