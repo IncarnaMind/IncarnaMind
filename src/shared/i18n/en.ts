@@ -3811,6 +3811,15 @@ export const en = {
   "composer.scope.backAll": "Back to All Documents",
   "composer.skills.label": "Skills",
   "composer.skills.manage": "Manage Skills…",
+  "composer.plus": "Add files and more",
+  "composer.plus.files": "Add files…",
+  "composer.plus.note": "Add a note or Document…",
+  "composer.files.outsideWall.one":
+    "“{name}” is already in IncarnaMind, outside “{folder}”, so this Question doesn’t search it.",
+  "composer.files.outsideWall":
+    "{names} are already in IncarnaMind, outside “{folder}”, so this Question doesn’t search them.",
+  "composer.files.outsideWall.many":
+    "{names} and {more} more are already in IncarnaMind, outside “{folder}”, so this Question doesn’t search them.",
   "composer.expand": "Expand the composer",
   "composer.collapse": "Shrink the composer (Esc)",
   "composer.paste.name": "Pasted text",
@@ -4082,8 +4091,10 @@ export const en = {
   "scope.picker.empty.hint": "(empty)",
   "scope.chip.empty": "· empty",
   "scope.chip.deleted": "It has been deleted, so the search ignores it.",
-  "scope.chip.own": "Searches this Folder’s {count} Documents. Remove it to search every Document.",
-  "scope.chip.own.one": "Searches this Folder’s 1 Document. Remove it to search every Document.",
+  "scope.chip.own":
+    "“{name}”: searches this Folder’s {count} Documents. Remove it to search every Document.",
+  "scope.chip.own.one":
+    "“{name}”: searches this Folder’s 1 Document. Remove it to search every Document.",
   "scope.chip.own.named":
     "“{path}”: searches its {count} Documents, its sub-Folders too. Remove it to search every Document.",
   "scope.chip.own.named.one":
@@ -4092,6 +4103,10 @@ export const en = {
   "scope.chip.more": "+{count} more",
   "scope.chip.moreLabel": "Show the other {count} Documents in the Search scope",
   "scope.chip.fewer": "Show fewer",
+  "scope.chip.count.files": "{count} files",
+  "scope.chip.count.files.one": "1 file",
+  "scope.chip.count.items": "{count} selected",
+  "scope.chip.count.items.one": "1 selected",
   "scope.empty.line": "{scope} has no Documents",
   "scope.answer.empty": "The Search scope has no Documents. Remove it to search every Document.",
 
@@ -6330,6 +6345,8 @@ export const en = {
   "command.group.close": "Close Group",
   "command.group.equalize": "Make Groups Equal Width",
   "command.composer.focus": "Ask a Question",
+  "command.composer.addFiles": "Add files to the chat…",
+  "command.composer.addFiles.keywords": "attach upload documents PDF plus Question chat",
   "command.sources.find": "Find Sources…",
   "command.sources.find.keywords":
     "papers articles literature research search OpenAlex arXiv PubMed DOI",

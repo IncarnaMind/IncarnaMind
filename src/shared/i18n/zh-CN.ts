@@ -3628,6 +3628,15 @@ export const zhCN = {
   "composer.scope.backAll": "改回全部文档",
   "composer.skills.label": "技能",
   "composer.skills.manage": "管理技能…",
+  "composer.plus": "添加文件等",
+  "composer.plus.files": "添加文件…",
+  "composer.plus.note": "添加笔记或文档…",
+  "composer.files.outsideWall.one":
+    "“{name}”已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它。",
+  "composer.files.outsideWall":
+    "{names}已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它们。",
+  "composer.files.outsideWall.many":
+    "{names}等 {count} 个文件已在 IncarnaMind 中，但不在“{folder}”里，这个问题不会搜索它们。",
   "composer.expand": "展开输入框",
   "composer.collapse": "收起输入框（Esc）",
   "composer.paste.name": "粘贴的文本",
@@ -3883,7 +3892,7 @@ export const zhCN = {
   "scope.picker.empty": "没有匹配的文件夹、标签或文档",
   "scope.picker.none": "还没有文档。添加后即可选择搜索范围。",
   "scope.chip.folder": "文件夹“{name}”，包括其中的子文件夹",
-  "scope.chip.wall": "只在本文件夹内工作",
+  "scope.chip.wall": "“{name}”只在本文件夹内工作",
   "scope.chip.tag": "带有标签“{name}”的文档",
   "scope.chip.document": "文档“{name}”",
   "scope.chip.deleted.folder": "已删除的文件夹",
@@ -3892,8 +3901,8 @@ export const zhCN = {
   "scope.picker.empty.hint": "（空）",
   "scope.chip.empty": "· 空",
   "scope.chip.deleted": "已删除，搜索时会跳过。",
-  "scope.chip.own": "搜索此文件夹的 {count} 个文档。移除后搜索全部文档。",
-  "scope.chip.own.one": "搜索此文件夹的 1 个文档。移除后搜索全部文档。",
+  "scope.chip.own": "“{name}”：搜索此文件夹的 {count} 个文档。移除后搜索全部文档。",
+  "scope.chip.own.one": "“{name}”：搜索此文件夹的 1 个文档。移除后搜索全部文档。",
   "scope.chip.own.named":
     "“{path}”：搜索此文件夹及其子文件夹中的 {count} 个文档。移除后搜索全部文档。",
   "scope.chip.own.named.one":
@@ -3902,6 +3911,10 @@ export const zhCN = {
   "scope.chip.more": "还有 {count} 个",
   "scope.chip.moreLabel": "显示搜索范围中的另外 {count} 个文档",
   "scope.chip.fewer": "收起",
+  "scope.chip.count.files": "{count} 个文件",
+  "scope.chip.count.files.one": "1 个文件",
+  "scope.chip.count.items": "已选 {count} 项",
+  "scope.chip.count.items.one": "已选 1 项",
   "scope.empty.line": "{scope}中没有文档",
   "scope.answer.empty": "搜索范围内没有文档。移除范围即可搜索全部文档。",
 
@@ -6005,6 +6018,8 @@ export const zhCN = {
   "command.group.close": "关闭这一栏",
   "command.group.equalize": "各栏等宽",
   "command.composer.focus": "提问",
+  "command.composer.addFiles": "添加文件到对话…",
+  "command.composer.addFiles.keywords": "附件 上传 文档 PDF 提问 对话",
   "command.sources.find": "查找资料…",
   "command.sources.find.keywords": "论文 文献 文章 研究 搜索 OpenAlex arXiv PubMed DOI",
   "command.citation.open": "打开引用页面",
