@@ -211,7 +211,10 @@ describe("A Note made from a Word file adds nothing to the User's file until ask
     await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
     core.close();
     const restarted = startCore(dataDir);
-    expect(await restarted.getExportMarks(mindId)).toEqual({ pageNumbers: true, watermark: "none" });
+    expect(await restarted.getExportMarks(mindId)).toEqual({
+      pageNumbers: true,
+      watermark: "none",
+    });
     await restarted.setExportMarks(mindId, { pageNumbers: false, watermark: "draft" });
     expect(await restarted.getExportMarks(mindId)).toEqual({
       pageNumbers: false,
@@ -232,15 +235,15 @@ describe("A Note made from a Word file adds nothing to the User's file until ask
     expect(part(files, "word/footer1.xml")).toContain(
       '<w:instrText xml:space="preserve"> PAGE </w:instrText>',
     );
-    expect([...part(files, "word/document.xml").matchAll(/<w:footerReference\b/g)]).toHaveLength(
-      2,
-    );
+    expect([...part(files, "word/document.xml").matchAll(/<w:footerReference\b/g)]).toHaveLength(2);
   });
 
   test("turned on, a file with a footer of its own comes back byte for byte: its footer, its page-number field, and no number added", async () => {
     const { core, bytes, mindId } = await fromWord({
       // The second section has no footer of its own: Word shows it the first's.
-      ...twoSections('<w:footerReference w:type="default" r:id="rIdF1"/><w:type w:val="nextPage"/>'),
+      ...twoSections(
+        '<w:footerReference w:type="default" r:id="rIdF1"/><w:type w:val="nextPage"/>',
+      ),
       footers: { rIdF1: paragraph(field("PAGE", "1")) },
     });
     await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });

@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { paragraph, wordFile } from "../tests/helpers/word";
 import {
   createDataFolder,
   dismissChatSetup,
   exportFromMenu,
+  importWordFile,
   launchApp,
   motionSettled,
   nameMind,
@@ -129,6 +131,50 @@ test("Export options gives a Note page numbers and a watermark, the PDF prints t
   expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(windowWidth);
   await motionSettled(window);
   await screenshot(window, "export-marks-zh-narrow");
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+});
+
+test("a Note made from a Word file starts without page numbers of the app's own and says its file's own stay, in English and Chinese; a Note written here keeps them", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
+  await importWordFile(
+    app,
+    window,
+    out,
+    "Lease brief.docx",
+    wordFile({ body: paragraph("The lease ends in 2030.") }),
+  );
+  await expect(window.getByTestId("mind-editor")).toContainText("The lease ends in 2030.");
+
+  const sheet = window.getByTestId("export-dialog");
+  const pageNumbers = sheet.getByTestId("export-page-numbers");
+  await openOptions(window, "Export options");
+  await expect(pageNumbers).not.toBeChecked();
+  await expect(pageNumbers).toHaveAccessibleDescription(
+    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add a number where a section has no footer.",
+  );
+  await motionSettled(window);
+  await screenshot(window, "export-marks-word-en");
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+
+  await setLanguage(window, "zh-CN");
+  await openOptions(window, "导出选项");
+  await expect(pageNumbers).not.toBeChecked();
+  await expect(pageNumbers).toHaveAccessibleDescription(
+    "文件自带的页眉、页脚和页码保持不变。开启后，会在没有页脚的节添加页码。",
+  );
+  await motionSettled(window);
+  await screenshot(window, "export-marks-word-zh");
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+
+  await newNote(window, "Tides", "Spring tides come twice a month.");
+  await openOptions(window, "导出选项");
+  await expect(pageNumbers).toBeChecked();
+  await expect(pageNumbers).toHaveAccessibleDescription("Word 和 PDF 的每页页脚都会显示页码。");
   await window.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
 });
