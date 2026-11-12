@@ -361,6 +361,7 @@ describe("Use {figure} asks the model for the verdict (#2313)", () => {
       const [span] = claimSpans(readMind({ blocks: stored.getXmlFragment(MIND_CONTENT_FIELD) }));
       if (!span) throw new Error("The reopened Note has no checked sentence.");
       const state = claimCheckShown(span.check, {
+        footing: "not-yet-known",
         text: span.sentence.text,
         versions: null,
         folderId: null,

@@ -56,7 +56,13 @@ function figure(id: string, state: ClaimCheckBasis["state"] = "supported"): Figu
     footing: [],
   };
 }
-const now: ClaimCheckNow = { text: sentence, versions: new Map(), folderId: null, scope: null };
+const now: ClaimCheckNow = {
+  text: sentence,
+  footing: "not-yet-known",
+  versions: new Map(),
+  folderId: null,
+  scope: null,
+};
 const check = (
   figures: FigureCheckAttributes[],
   remainder?: ClaimCheckBasis | null,

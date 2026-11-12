@@ -9,6 +9,7 @@ import {
   recordCiteNote,
 } from "../answers/checks/sentences";
 import type { CitationAttributes, RecordCiteResult, SearchScope } from "../api";
+import { noteFooting } from "../figureSchedule";
 import type { FailedSentence, RecordCiteComment } from "../mindText";
 
 /** What the checks of a Mind's sentences are compared with, and how an export names things. */
@@ -62,6 +63,7 @@ export function failedSentences(
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
   const { figureContexts, figured } = figuresNow(fragment);
+  const footing = noteFooting(fragment, context);
   // A verified document's table row is one claim, marked on its first cell's words (#1368).
   const rowClaims = fragment.doc !== null && verificationOf(fragment.doc) !== null;
   const note = recordCiteNote(fragment);
@@ -70,6 +72,7 @@ export function failedSentences(
     const { id } = check;
     const shown = claimCheckShown(check, {
       text: sentence,
+      footing,
       figureContexts,
       figured: figured(marked),
       versions: context.versions,

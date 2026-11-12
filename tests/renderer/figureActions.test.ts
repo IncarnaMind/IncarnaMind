@@ -35,6 +35,7 @@ import { emptyFigureFinding } from "../../src/shared/figureChecks";
 import { installFigureRuns } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { fingerprintOfMind } from "../../src/shared/mindState";
+import { NO_SOURCE_DOCUMENTS } from "../helpers/documents";
 import { copyInStep } from "../helpers/mindClient";
 
 vi.mock("../../src/renderer/src/store", () => ({
@@ -85,6 +86,7 @@ const scheduleOf = (doc: Y.Doc) =>
     versions: new Map([["source", "hash"]]),
     folderId: null,
     scope: null,
+    documents: NO_SOURCE_DOCUMENTS,
   });
 /** The note shown in an editor of this window, on `doc`. */
 function openEditor(doc: Y.Doc, mindId: string): Editor {

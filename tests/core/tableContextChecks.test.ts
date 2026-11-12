@@ -582,6 +582,7 @@ describe("A verdict stored before figures were checked one by one", () => {
     const row = schedule.rows.find((each) => each.reading.chars === "100");
     expect(row?.shown).toEqual({ state: "needs-recheck", why: "figures" });
     const { claims } = claimsOf(readMind(client), {
+      footing: "not-yet-known",
       versions: null,
       folderId: null,
       scope: null,
@@ -652,6 +653,7 @@ describe("A verdict stored before figures were checked one by one", () => {
 
     const schedule = await core.getFigureSchedule(mindId);
     const { claims } = claimsOf(readMind(client), {
+      footing: "not-yet-known",
       versions: null,
       folderId: null,
       scope: null,
