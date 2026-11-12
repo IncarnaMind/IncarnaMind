@@ -303,7 +303,12 @@ describe("left-out opinions in the Note", () => {
       "we think the deal is risky.",
     );
     expect(opinionSentenceRanges(current, stored)).toEqual([]);
-    const claims = claimsOf(current, { versions: null, folderId: null, scope: null });
+    const claims = claimsOf(current, {
+      footing: "not-yet-known",
+      versions: null,
+      folderId: null,
+      scope: null,
+    });
     const health = noteHealth(current, {
       claims: claims.claims,
       citationCheck: (citation) => citation.check,

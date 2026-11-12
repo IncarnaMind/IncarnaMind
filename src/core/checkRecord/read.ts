@@ -54,6 +54,7 @@ import {
   type SignOffNow,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
+import { noteFooting } from "../figureSchedule";
 import type { Language } from "../language";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
 import { layout } from "../proposals/write";
@@ -262,6 +263,7 @@ export function readRecord(sources: RecordSources): {
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const { figureContexts, figured } = figuresNow(fragment);
+  const footing = noteFooting(fragment, { versions, folderId, scope });
   const note = recordCiteNote(fragment);
 
   const sentences: SentenceItem[] = [];
@@ -274,6 +276,7 @@ export function readRecord(sources: RecordSources): {
     const result = sentenceResultOf(
       claimCheckShown(check, {
         text: sentence,
+        footing,
         versions,
         folderId,
         scope,

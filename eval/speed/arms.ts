@@ -39,6 +39,8 @@ export interface Arm {
   helpFormJudged?: boolean;
   /** Whether found quotes show as the model gave them, as before #2739; unset: their whole sentences. */
   quotesAsGiven?: boolean;
+  /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
+  helpMarksQuoteOnly?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -184,6 +186,11 @@ export const ARMS: readonly Arm[] = [
     quotesAsGiven: true,
   },
   {
+    id: "help-marks-quote-only",
+    label: "call help's ✓ beside every found quote, its sentences not judged",
+    helpMarksQuoteOnly: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -201,16 +208,34 @@ export function armNamed(id: string): Arm {
   return arm;
 }
 
+/** A request as sent, for a run that holds two arms to sending the same one. */
+export interface SentRequest {
+  /** Its whole prompt, the system prompt and every message, as `sameRequestOf` compares it. */
+  prompt: string;
+  /** The model, the system prompt, the Tools and every parameter but the messages. */
+  setup: string;
+  /** Its messages after the system prompt. */
+  messages: string;
+}
+
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
-  /** Each request's prompt as sent, for a run that holds two arms to sending the same one. */
-  const sent: string[] = [];
+  const sent: SentRequest[] = [];
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
-    transformParams: async ({ params }) => {
+    transformParams: async ({ params, model }) => {
       const next = current?.request?.(params) ?? params;
-      sent.push(JSON.stringify(next.prompt));
+      const { prompt, abortSignal: _signal, headers: _headers, ...rest } = next;
+      sent.push({
+        prompt: JSON.stringify(prompt),
+        setup: JSON.stringify({
+          model: `${model.provider}/${model.modelId}`,
+          system: prompt.filter((message) => message.role === "system"),
+          ...rest,
+        }),
+        messages: JSON.stringify(prompt.filter((message) => message.role !== "system")),
+      });
       return next;
     },
   };
@@ -231,8 +256,9 @@ export function armSwitch() {
     notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
-    /** The prompts sent since it was last asked, oldest first. */
-    takeSent: (): string[] => sent.splice(0),
+    helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
+    /** The requests sent since it was last asked, oldest first. */
+    takeSent: (): SentRequest[] => sent.splice(0),
     use(arm: Arm): void {
       current = arm;
     },

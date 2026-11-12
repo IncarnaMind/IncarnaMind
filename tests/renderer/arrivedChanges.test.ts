@@ -607,4 +607,79 @@ describe("Changes the User asked the assistant for", () => {
       ["second", "contradicted"],
     ]);
   });
+
+  // #2996: the two sentences touch, and the change is accepted while the result is on its way.
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "an accepted change in one of two touching sentences while a result lands on the other leaves that result, the change ordered %s it",
+    (_, copyId) => {
+      const first = "五月收入为约10亿元。";
+      const second = "五月成本为8亿元。";
+      const { doc, blocks, schema } = mindWith([
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            text("五月收入为"),
+            text("约", [{ type: "proposalInsert", attrs: ref("a", "asked") }]),
+            text(`10亿元。${second}`),
+          ],
+        },
+      ]);
+      const paragraph = blocks.get(0);
+      if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph");
+      const checked = (id: string, sentence: string, state: ClaimCheckAttributes["state"]) =>
+        ({
+          id,
+          request: "check-note",
+          action: "check-against-documents",
+          state,
+          reason: null,
+          detail: null,
+          providerId: "provider",
+          modelId: "model",
+          text: sentence,
+          evidence: null,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          scope: { folderId: null, widened: true },
+          versions: [],
+          excluded: [],
+          checkedAt: "2026-11-12T09:00:00.000Z",
+        }) satisfies ClaimCheckAttributes;
+      markSentence(paragraph, 0, first.length, checked("first", first, "supported"));
+      markSentence(
+        paragraph,
+        first.length,
+        first.length + second.length,
+        checked("second", second, "supported"),
+      );
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      copy.clientID = copyId;
+      doc.clientID = 2;
+      const landing = markedSentences(blocks).find((each) => each.check.id === "second");
+      if (!landing) throw new Error("The second sentence has no check");
+      markSentence(landing.element, landing.from, landing.to, {
+        ...checked("second", second, "contradicted"),
+        checkedAt: "2026-11-12T09:01:00.000Z",
+      });
+      writeAccepted(copy, new Set(["asked"]), new Aside(), new Asked(), schema);
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      for (const note of [doc, copy]) {
+        const fragment = note.getXmlFragment(MIND_CONTENT_FIELD);
+        expect(textOf(fragment)).toEqual([first + second]);
+        expect(markedSentences(fragment).map((each) => [each.check.id, each.check.state])).toEqual([
+          ["first", "supported"],
+          ["second", "contradicted"],
+        ]);
+      }
+    },
+  );
 });

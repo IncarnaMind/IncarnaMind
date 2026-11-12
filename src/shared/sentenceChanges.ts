@@ -14,6 +14,7 @@ import {
   type SentenceChanges,
 } from "../core/api";
 import { splitWords } from "../core/proposals/diff";
+import { markValueOf } from "./markKeys";
 import { readProposalAttribute, readProposalRef, TEXT_BLOCKS } from "./proposals";
 import { sentenceSpans } from "./sentences";
 
@@ -182,7 +183,7 @@ export function writtenBy(blocks: Y.XmlFragment, requests: ReadonlySet<string>):
         if (!(part instanceof Y.XmlText)) continue;
         for (const run of part.toDelta() as Run[]) {
           if (typeof run.insert !== "string") continue;
-          if (whole || ours(run.attributes?.[PROPOSAL_INSERT_MARK])) text += run.insert;
+          if (whole || ours(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))) text += run.insert;
         }
       }
       if (text !== "") written.push(text);
@@ -219,8 +220,8 @@ export function changedText(
         if (!(part instanceof Y.XmlText)) continue;
         for (const run of part.toDelta() as Run[]) {
           if (typeof run.insert !== "string") continue;
-          const adds = ours(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removes = ours(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const adds = ours(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removes = ours(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           touched ||= adds || removes;
           if (!adds) was += run.insert;
           if (!removes) will += run.insert;

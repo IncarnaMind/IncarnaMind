@@ -43,6 +43,7 @@ import {
 } from "../api";
 import type { RetainVersion, VersionRetention } from "../documents/retention";
 import { InvalidInputError, isRecord, MindReadOnlyError, NotFoundError } from "../errors";
+import { keyMarks } from "../markKeys";
 import type { MindContent } from "../mindContent";
 import { docOf } from "../proposals/merge";
 import type { Database } from "../storage";
@@ -395,6 +396,8 @@ export function createCheckpoints(options: CheckpointsOptions) {
           if (!blocks.doc) throw new Error("The Mind has no content document.");
           installFigureRuns(blocks.doc, runs);
           restoreBlocks(blocks);
+          // A Checkpoint saved before #2996 keeps checks, comments and changes under their old keys.
+          keyMarks(blocks);
         });
         // One that was being written when the Checkpoint was saved comes back stopped.
         options.settleAnswers(mindId);

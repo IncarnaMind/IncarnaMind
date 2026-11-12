@@ -253,6 +253,7 @@ async function shownChecks(
   return claimSpans(readMind(client)).map((span) => ({
     sentence: span.sentence.text.trim(),
     shown: claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId,

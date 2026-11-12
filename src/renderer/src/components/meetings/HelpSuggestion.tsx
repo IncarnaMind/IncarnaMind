@@ -17,8 +17,11 @@ import {
   quoted,
   type ReplyItem,
   type ReplyPiece,
+  sentencePassed,
+  uncheckedReason,
 } from "../../helpReply";
 import { useT } from "../../i18n";
+import { useJudgementLimit } from "../../judgementLimit";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
@@ -53,19 +56,55 @@ export function useHelpAnswer(
   return answer;
 }
 
-function CitationChip({ citation, number }: { citation?: MarkedCitation; number: number }) {
+/**
+ * A Citation's number, with ✓ only where the sentence check passed the sentence it is cited in at
+ * `at` (#2847): a found quote alone earns none. The ✓ keeps its place whether it shows or not, so
+ * nothing moves when it comes after the reply.
+ */
+function CitationChip({
+  citation,
+  number,
+  at,
+}: {
+  citation?: MarkedCitation;
+  number: number;
+  at: number;
+}) {
   const t = useT();
+  const limits = useJudgementLimit();
   const where = citation ? citedLocation(citation, t) : null;
-  const found = citation?.check === "found";
+  const passed = citation !== undefined && sentencePassed(citation, at);
+  const reason = citation ? uncheckedReason(citation) : null;
+  const unchecked =
+    reason === "answer-limit"
+      ? t("citation.reason.answer-limit", { limit: limits.limit })
+      : reason === "monthly-limit"
+        ? t("citation.reason.monthly-limit", { cap: limits.cap })
+        : reason === "small-model"
+          ? t("citation.reason.small-model")
+          : null;
   return (
     <span
       data-testid="help-citation"
       data-check={citation?.check ?? "checking"}
-      title={citation ? [citation.documentName, where].filter(Boolean).join(", ") : undefined}
+      data-marker={citation?.marker}
+      data-passed={passed}
+      data-at={at}
+      title={
+        citation
+          ? [[citation.documentName, where].filter(Boolean).join(", "), unchecked]
+              .filter(Boolean)
+              .join("\n")
+          : undefined
+      }
       className="help-citation"
     >
       {number}
-      {found && <CheckLineIcon aria-hidden="true" className="help-citation-found" />}
+      <CheckLineIcon
+        aria-hidden="true"
+        data-testid="help-citation-check"
+        className="help-citation-found"
+      />
     </span>
   );
 }
@@ -92,7 +131,7 @@ function Pieces({
         const number = numbers.get(piece.marker);
         // A marker with no Citation is left out, as the assistant shows an Answer.
         if (number === undefined) return null;
-        return <CitationChip key={key} citation={citation} number={number} />;
+        return <CitationChip key={key} citation={citation} number={number} at={piece.at} />;
       })}
     </>
   );

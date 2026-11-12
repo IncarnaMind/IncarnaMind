@@ -20,6 +20,7 @@ import {
 } from "../../src/shared/claimParts";
 import { cardRows } from "../../src/shared/claimRows";
 import { translate } from "../../src/shared/i18n";
+import { countingCheckOf } from "../../src/shared/markKeys";
 import {
   citationSignOffBasis,
   namePartCitations,
@@ -184,7 +185,12 @@ for (const example of cases)
       const paragraph = client.blocks.get(0);
       const text = paragraph instanceof Y.XmlElement ? paragraph.get(0) : undefined;
       if (!(text instanceof Y.XmlText)) throw new Error("The sentence isn't one run of text.");
-      client.doc.transact(() => text.format(0, text.length, { claimCheck: null }), "editor");
+      // The sentence's check is under a key of its own (#2996).
+      const key = countingCheckOf(
+        (text.toDelta() as { attributes?: Record<string, unknown> }[])[0]?.attributes,
+      )?.key;
+      if (!key) throw new Error("The sentence has no check.");
+      client.doc.transact(() => text.format(0, text.length, { [key]: null }), "editor");
       await client.settled();
       expect(claimSpans(readMind(client))).toHaveLength(0);
       undo.undo();

@@ -106,7 +106,12 @@ function healthOf(
     kept?: readonly KeptMark[];
   } = {},
 ): NoteHealth {
-  const claims = claimsOf(doc, { versions: null, folderId: null, scope: null });
+  const claims = claimsOf(doc, {
+    footing: "not-yet-known",
+    versions: null,
+    folderId: null,
+    scope: null,
+  });
   return noteHealth(doc, {
     claims: claims.claims,
     citationCheck: (attributes) => attributes.check,

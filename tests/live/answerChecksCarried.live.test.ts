@@ -162,6 +162,7 @@ async function noteFrom(
     fromAnswer: span.check.fromAnswer ?? null,
   }));
   const state = readNoteState({
+    footing: [],
     doc: client.doc,
     cellFigures: [],
     documents: await core.listDocuments(),
