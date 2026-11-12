@@ -302,6 +302,7 @@ describe("The checks pipeline", { timeout: 60_000 }, () => {
     expect(await pipeline.check("The harbour has 40 moorings.")).toEqual({
       verdict: "not-checked",
       reason: "refused",
+      code: "refused",
       evidence: null,
     });
     expect(await pipeline.check("Penguins nest on the harbour wall.")).toEqual({

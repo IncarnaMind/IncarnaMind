@@ -83,6 +83,7 @@ import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
 import { markArrived, nextSequence } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
+import { whileOpen } from "../whileOpen";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
 import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
@@ -2590,7 +2591,7 @@ export function createDocuments(options: DocumentsOptions) {
     background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
     const scope = searchScope(documentIds);
-    const vector = await queryVector(query, "hybrid", background);
+    const vector = await whileOpen(() => closed, queryVector(query, "hybrid", background));
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
     const lists = distinctPassages(db, [keyword, similar]);
@@ -2696,6 +2697,7 @@ export function createDocuments(options: DocumentsOptions) {
      */
     searchTool(query: string, toolOptions?: SearchToolOptions): Promise<WindowedPassage[]> {
       const background = toolOptions?.background === true;
+      const rerank = toolOptions?.rerank;
       return searchDocumentsTool(
         {
           candidates: (query, limit, documentIds) =>
@@ -2705,7 +2707,9 @@ export function createDocuments(options: DocumentsOptions) {
           window: (documentId, window) => passagesInWindow(db, documentId, window),
         },
         query,
-        toolOptions,
+        rerank
+          ? { ...toolOptions, rerank: (...asked) => whileOpen(() => closed, rerank(...asked)) }
+          : toolOptions,
       );
     },
 
@@ -3827,7 +3831,7 @@ export function createDocuments(options: DocumentsOptions) {
         const [keyword = []] = distinctPassages(db, [keywordSearch(db, query, asked, scope)]);
         return passagesBySeq(db, keyword.slice(0, limit));
       }
-      const vector = await queryVector(query, mode);
+      const vector = await whileOpen(() => closed, queryVector(query, mode));
       if (mode === "vector") {
         const hits = vector ? vectors.search(vector, asked, scope) : [];
         const [similar = []] = distinctPassages(db, [hits.map((hit) => hit.seq)]);

@@ -38,6 +38,10 @@ export interface CheckRequest {
   kind: string;
   /** The sentences of the flow its prompt holds: one for a check's own, several for a batch. */
   sentences: number[];
+  /** How many sentences its prompt asks about, whether or not they are the flow's own. */
+  asked: number;
+  /** The output limit it carried to the provider. */
+  maxOutputTokens: number | null;
   /** Which turn of its Run: the assistant turns before it. */
   turn: number;
   /** The note a turn check sent it back with, if it was one. */
@@ -57,7 +61,7 @@ export interface CheckRequest {
   cachedInputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
-  /** Why the reply ended, as the provider said: "length" is a reply its output limit cut off. */
+  /** Why the reply ended, as the provider says it: "length" when it reached its output limit. */
   finishReason: string | null;
   error: string | null;
 }
@@ -182,6 +186,8 @@ export function checkRecorder() {
     const request: CheckRequest = {
       kind: kindOf(params),
       sentences: sentencesIn(rest.map((message) => textOf(message.content)).join("\n"), sentences),
+      asked: inTags(rest.map((message) => textOf(message.content)).join("\n"), "sentence").length,
+      maxOutputTokens: params.maxOutputTokens ?? null,
       turn: rest.filter((message) => message.role === "assistant").length,
       nudge: NUDGES.find(([, start]) => lastText.startsWith(start))?.[0] ?? null,
       startMs: since(),
@@ -334,6 +340,10 @@ export interface FlowTimes {
   model: string;
   language: string;
   run: number;
+  /** For an Answer of fewer sentences than the set's 30, how many it had. */
+  answerSentences?: number;
+  /** The room arm it was checked on, for #2951's gate: `main` or `today`. */
+  arm?: string;
   load: number;
   /** The machine's load over the last 15 minutes as the run began, which a timing run is held to. */
   load15: number;

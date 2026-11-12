@@ -3103,6 +3103,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
@@ -3512,12 +3513,11 @@ export function createCore(adapters: CoreAdapters): Core {
             : options.format === "markdown",
       },
     });
-  const modelInUseIn = (mindId: string) =>
-    chat.modelInUse(
-      content.readSettings(mindId, (mindSettings) =>
-        mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
-      ),
+  const ownModelIn = (mindId: string) =>
+    content.readSettings(mindId, (mindSettings) =>
+      mindSettings.doc ? mindModelOf(mindSettings.doc) : null,
     );
+  const modelInUseIn = (mindId: string) => chat.modelInUse(ownModelIn(mindId));
   // Make this a Skill: the chat model drafts it from the Mind, on the chat flow's consent.
   const skillDrafts = createSkillDrafts({
     mindMarkdown: async (mindId) => {
@@ -3964,8 +3964,6 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
-    consentedAt: (service) =>
-      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -5240,6 +5238,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     async route(mindId) {
       const language = settings.get().language;
+      // Filling in never picks a cloud service for a Note whose own model, on this computer, is gone (#2853).
+      if (chat.waitsForRemovedModel(ownModelIn(mindId))) {
+        return {
+          problem: {
+            kind: "model-removed",
+            message: translate(language, "meetings.fill.problem.modelRemoved"),
+          },
+        };
+      }
       const choice = await chat.answeringModel(modelInUseIn(mindId) ?? undefined);
       const readiness = await chat.readiness(choice);
       if (!readiness.ready) {

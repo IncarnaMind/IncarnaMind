@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CommandDone, CommandItem, ConversationAnswer } from "../../../../core/api";
-import { type Yours, yoursWordsOf } from "../../../../shared/commands";
+import { type Yours, type YoursOpens, yoursWordsOf } from "../../../../shared/commands";
 import { keptWords, undoRun, useCommandRuns } from "../../assistantCommands";
 import {
   checkWaiting,
@@ -19,6 +19,7 @@ import { useT } from "../../i18n";
 import { useMindCheck } from "../../mindCheck";
 import type { Translate } from "../../objects";
 import { openReview } from "../../organizeReview";
+import { settingsPageLabels } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, ShieldLineIcon } from "../lineIcons";
 import { Dot } from "./AskedChangesCard";
@@ -71,7 +72,7 @@ export function CommandsCard({
   // button then shows nothing here.
   const yours = refusalsOf(answer).flatMap((each) => {
     const said = saidInReply(answer.text, each.what, each.folder);
-    return said && yoursWordsOf(each.what, each.folder).open === null ? [] : [{ ...each, said }];
+    return said && yoursWordsOf(each.what, each.folder).opens === null ? [] : [{ ...each, said }];
   });
   const { here, undone, kept } = useCommandRuns();
   const changed = runs.filter(({ done }) => done.some((each) => !each.yours));
@@ -221,25 +222,18 @@ export function CommandsCard({
   );
 }
 
-function openYours(what: Yours): void {
+function openLabel(t: Translate, opens: YoursOpens): string {
+  if (opens === "recentlyDeleted") return t("commands.yours.openDeleted");
+  if (opens === "folderMenu") return t("commands.yours.openFolderMenu");
+  return t("commands.yours.openSettings", { page: t(settingsPageLabels[opens.settings]) });
+}
+
+function openYours(opens: YoursOpens, folder: CommandDone["folder"]): void {
   const app = useAppStore.getState();
-  switch (what) {
-    case "keys":
-      app.openSettings("ai");
-      return;
-    case "privacy":
-      app.openSettings("ai", "local-mode");
-      return;
-    case "approvals":
-      app.openSettings("privacy");
-      return;
-    case "spending":
-      app.openSettings("ai", "spending-cap");
-      return;
-    case "permanent":
-      app.openLibrary(LIBRARY_DELETED);
-      return;
-  }
+  if (opens === "recentlyDeleted") app.openLibrary(LIBRARY_DELETED);
+  else if (opens === "folderMenu") {
+    if (folder) openFolderMenu(folder.id);
+  } else app.openSettings(opens.settings, opens.at);
 }
 
 /**
@@ -257,7 +251,7 @@ function YoursLine({
   inReply: boolean;
 }) {
   const t = useT();
-  const { said, open } = yoursWordsOf(what, folder);
+  const { said, opens } = yoursWordsOf(what, folder);
   return (
     <div data-testid="command-yours" data-yours={what} className="mind-changes-head">
       <ShieldLineIcon aria-hidden="true" className="mind-changes-icon" />
@@ -265,17 +259,17 @@ function YoursLine({
         {!inReply && (
           <span className="mind-changes-title">{t(said, { folder: folder?.name ?? "" })}</span>
         )}
-        {open !== null && (
+        {opens !== null && (
           // The dot goes with its button when the line wraps.
           <span className="whitespace-nowrap">
             {!inReply && <Dot />}
             <button
               type="button"
               data-testid="command-yours-open"
-              onClick={() => (folder ? openFolderMenu(folder.id) : openYours(what))}
+              onClick={() => openYours(opens, folder)}
               className="mind-changes-review"
             >
-              {t(open)}
+              {openLabel(t, opens)}
             </button>
           </span>
         )}

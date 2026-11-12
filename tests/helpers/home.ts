@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const REAL_HOME_VARIABLE = "INCARNAMIND_TEST_REAL_HOME";
@@ -41,6 +42,27 @@ const within = (folder: string, path: string): boolean => {
   const rest = relative(folder, path);
   return rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
 };
+
+/**
+ * Throws, naming `what` and the path, unless `path` is a folder inside the system's temporary
+ * folder, so an app a test starts can never run on the User's data or home. Links are followed,
+ * for a folder not made yet through the closest one that is.
+ */
+export function assertInTemporaryFolder(what: string, path: string): void {
+  const temporary = realFolder(tmpdir());
+  const folder = realFolder(path);
+  if (relative(temporary, folder) !== "" && within(temporary, folder)) return;
+  throw new Error(
+    `Refused to start the app: its ${what} ${path} is not inside the system's temporary folder (${temporary}). A test or a check by hand runs only on folders made there, such as mkdtemp(join(tmpdir(), "incarnamind-")), so it never touches the User's own folders (docs/agents/testing.md).`,
+  );
+}
+
+function realFolder(path: string): string {
+  const wanted = resolve(path);
+  let known = wanted;
+  while (!fs.existsSync(known) && dirname(known) !== known) known = dirname(known);
+  return resolve(fs.realpathSync.native(known), relative(known, wanted));
+}
 
 function pathOf(value: unknown): string | null {
   if (typeof value === "string") return resolve(value);

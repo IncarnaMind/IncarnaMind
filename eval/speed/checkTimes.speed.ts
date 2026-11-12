@@ -8,6 +8,8 @@
  *   them its check reads are checked before they land (src/core/answers/checks/written.ts).
  *   `write-20` writes 20, as the write timed on GPT-6.1 Sol in #2532 did.
  * - `answer`: an Answer of 30 cited sentences, scripted, judged once it ends (#2311).
+ * - `asked`: the gating set's Questions (eval/retrieval), the `run`th of each language, answered
+ *   by the model under test and judged once each ends, for how its check fares on its own Answers.
  *
  * The writing and the Answer are scripted, so only the checks' requests reach the model under test.
  * INCARNAMIND_EVAL_SPEED_THINKING ("summary" or "off") sets how every model thinks, which only an
@@ -17,9 +19,19 @@
  * names OpenAI's reasoning effort for every request where the core names none;
  * INCARNAMIND_EVAL_SPEED_WRITTEN_AT_ONCE sends that many of a write's checked sentences at once in
  * place of the catalog's number, so one run can time today's six and another the step's twelve.
+ * INCARNAMIND_EVAL_SPEED_ANSWER_SENTENCES (as `1,2,3`) has `answer` write Answers of so many
+ * sentences instead, each run the set's next ones, so each is judged in one batch of that size; and
+ * INCARNAMIND_EVAL_SPEED_BATCH_ROOM gives every batch that many output tokens instead of its own
+ * limit, to measure what a whole reply takes. Neither is for a gate's arm of today's path.
+ * INCARNAMIND_EVAL_SPEED_ANSWER_SET=room has `answer` write the short Answers of #2951's gate
+ * (./checkRoomCases) instead, and INCARNAMIND_EVAL_SPEED_ROOM_ARMS (as `main,main,today`) checks
+ * each of them once on each arm, the order turning from Answer to Answer: `main` gives each batch
+ * the room main gave it, 300 tokens a sentence, and `today` the room it has. With
+ * INCARNAMIND_EVAL_SPEED_JUDGE, the judge lists once which of the set's sentences their quotes
+ * don't state (./unstated), into judged.json beside the report.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { loadavg, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
@@ -35,6 +47,7 @@ import {
 } from "../../src/core";
 import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import type { ChatModelSpec } from "../../src/core/providers/models";
+import { outputTokens } from "../../src/core/providers/outputLimits";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
@@ -48,11 +61,13 @@ import { buildPdf } from "../../tests/helpers/pdf";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
-import type { EvalDocument } from "../lib/evaluationSet";
+import { type EvalDocument, loadEvaluationSet } from "../lib/evaluationSet";
 import { type Library, openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { SETS, writeDocuments } from "../repeats/cases";
+import { ROOM_DOCUMENTS, ROOM_ITEMS } from "./checkRoomCases";
+import { roomGateSection } from "./checkRoomGate";
 import {
   checkRecorder,
   checkTimesReport,
@@ -62,7 +77,9 @@ import {
   repeatCounter,
   shownMark,
 } from "./checkTimes";
+import { judgeOf } from "./judge";
 import { env, list, modelsAsked, spentUsd } from "./settings";
+import { unstatedSentences } from "./unstated";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 
 const ROOT = resolve(__dirname, "../..");
@@ -86,12 +103,14 @@ const WRITTEN: Record<string, number> = { write: 30, "write-20": 20, answer: 30 
 
 const isWrite = (flow: string) => flow === "write" || flow === "write-20";
 
-/** The flow's sentences over the membership rules, each with the quote it cites. */
+/** The flow's sentences over the membership rules, each with the quote it cites; or the room gate's. */
 const CITED = (language: Language, flow = "write") =>
-  HELD_OUT_ITEMS.filter((item) => item.language === language && item.library === "terms").slice(
-    0,
-    WRITTEN[flow] ?? 30,
-  );
+  env("ANSWER_SET") === "room"
+    ? ROOM_ITEMS.filter((item) => item.language === language)
+    : HELD_OUT_ITEMS.filter((item) => item.language === language && item.library === "terms").slice(
+        0,
+        WRITTEN[flow] ?? 30,
+      );
 
 const marked = (sentence: string, marker: number) =>
   /[.。!?！？]$/u.test(sentence)
@@ -141,7 +160,7 @@ function scriptedTurn(call: ModelCall, items: ReturnType<typeof CITED>, into: "a
  */
 function scripted(
   recorded: (inner: ChatModelFactory) => ChatModelFactory,
-  current: () => { flow: string; items: ReturnType<typeof CITED> } | null,
+  current: () => { flow: string; items: ReturnType<typeof CITED>; arm?: string } | null,
 ) {
   const answers = scriptedModel((call) => {
     const flow = current();
@@ -179,6 +198,19 @@ function scripted(
   // Every model's thinking as one arm asks for it: only an Answer's batches reach the model with
   // anything but "off" (src/core/answers/checks/index.ts).
   const thinking = env("THINKING") as ChatModelSpec["thinking"] | null;
+  const room = env("BATCH_ROOM");
+  middleware.transformParams = async ({ params }) => {
+    const prompt = params.prompt as { role: string; content: unknown }[];
+    const batch = prompt.some(
+      (message) => message.role === "system" && isSentenceBatch(message.content),
+    );
+    if (!batch) return params;
+    if (current()?.arm?.startsWith("main")) {
+      const asked = JSON.stringify(prompt).match(/<sentence number=/g)?.length ?? 1;
+      return { ...params, maxOutputTokens: outputTokens("sentence-batch-records", asked) };
+    }
+    return room ? { ...params, maxOutputTokens: Number(room) } : params;
+  };
   return (inner: ChatModelFactory): ChatModelFactory =>
     (spec) =>
       wrapLanguageModel({
@@ -419,10 +451,10 @@ function markersIn(text: string, sentences: readonly string[]): Map<number, numb
 async function answerFlow(
   core: Core,
   choice: ChatModelChoice,
-  language: Language,
   recorder: ReturnType<typeof checkRecorder>,
+  items: ReturnType<typeof CITED>,
 ) {
-  const sentences = CITED(language).map((each) => each.sentence);
+  const sentences = items.map((each) => each.sentence);
   recorder.begin(sentences);
   const asked = await core.askInConversation({ text: "What do the rules say?", model: choice });
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -465,6 +497,44 @@ async function loadBelowBar(log: (line: string) => void): Promise<number> {
   return Date.now() - started;
 }
 
+/** An Answer the model under test writes, judged once it ends. */
+async function askedFlow(
+  core: Core,
+  choice: ChatModelChoice,
+  recorder: ReturnType<typeof checkRecorder>,
+  question: string,
+) {
+  recorder.begin([]);
+  const asked = await core.askInConversation({ text: question, model: choice });
+  if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+  let endedMs: number | null = null;
+  await answerEnds(core, asked.conversation.id, asked.answerId, (message) => {
+    if (message.kind === "answer" && message.status !== "streaming") endedMs ??= recorder.since();
+  });
+  const doneMs = recorder.since();
+  return { checkStartMs: endedMs ?? doneMs, doneMs, landed: [] };
+}
+
+/** The set's sentences from the `run`th Answer of `size` on, taking up after the last at the first. */
+const windowOf = (all: ReturnType<typeof CITED>, size: number, run: number) =>
+  Array.from({ length: size }, (_, at) => all[((run - 1) * size + at) % all.length]).filter(
+    (each) => each !== undefined,
+  );
+
+/** The ids the judge listed, this run's or those of the run INCARNAMIND_EVAL_SPEED_JUDGED names. */
+async function unstatedIdsFrom(
+  judged: Record<string, string[] | null>,
+): Promise<Set<string> | null> {
+  const path = env("JUDGED");
+  const read = path
+    ? (JSON.parse(await readFile(path, "utf8")) as { unstated: Record<string, string[] | null> })
+        .unstated
+    : judged;
+  const lists = Object.values(read);
+  if (lists.length === 0 || lists.some((each) => each === null)) return null;
+  return new Set(lists.flatMap((each) => each ?? []));
+}
+
 const wanted = list("CHECK_TIMES");
 const timedChecks = wanted ? test : test.skip;
 
@@ -476,12 +546,35 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const flows = wanted ?? [];
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
+  // `1:24` asks 24 Answers of one sentence; a size alone asks RUNS of them.
+  const answerSizes = (list("ANSWER_SENTENCES") ?? [null]).map((each) => {
+    if (each === null) return { size: null, count: runs };
+    const [size, count] = each.split(":").map(Number);
+    return { size: size ?? null, count: count ?? runs };
+  });
+  // The second of two arms of one name is told apart as `<name>#2`.
+  const arms = (list("ROOM_ARMS") ?? [null]).map((arm, at, all) => {
+    const before = all.slice(0, at).filter((each) => each === arm).length;
+    return arm && before > 0 ? `${arm}#${before + 1}` : arm;
+  });
+  const passesOf = (flow: string) =>
+    (flow === "answer" ? answerSizes : [{ size: null, count: runs }])
+      .flatMap(({ size, count }) =>
+        Array.from({ length: count }, (_, at) => ({ size, run: at + 1, runs: count })),
+      )
+      .flatMap((pass, pair) => {
+        const asked = flow === "answer" ? arms : [null];
+        return asked.map((_, at) => ({ ...pass, arm: asked[(at + pair) % asked.length] ?? null }));
+      });
   const stopUsd = Number(env("STOP_USD") ?? "3");
   // How many of a write's checked sentences go at once, in place of the catalog's: one arm's number.
   const writtenAtOnce = env("WRITTEN_AT_ONCE") === null ? null : Number(env("WRITTEN_AT_ONCE"));
   const recorder = checkRecorder();
-  let current: { flow: string; items: ReturnType<typeof CITED> } | null = null;
+  let current: { flow: string; items: ReturnType<typeof CITED>; arm?: string } | null = null;
   const results: FlowTimes[] = [];
+  const judge = env("ANSWER_SET") === "room" && env("JUDGE") ? judgeOf(models) : null;
+  const judged: Record<string, string[] | null> = {};
+  const unstatedIds = () => unstatedIdsFrom(judged);
   let stopped: string | null = null;
   let spentBefore = 0;
   const out = join(
@@ -511,7 +604,23 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     });
     // The mixed sample set beside them, for searches that rerank as many Passages as a real Library's.
     if (env("LIBRARY") === "mixed") documents.push(...(await reports()));
-    for (const document of HELD_OUT_DOCUMENTS) {
+    const gating = flows.includes("asked") ? loadEvaluationSet(ROOT) : null;
+    if (gating) documents.push(...gating.documents);
+    const questions = (gating?.questions ?? []).filter(
+      (each) => each.language === (language === "en" ? "en" : "zh"),
+    );
+    if (judge) {
+      const items = CITED(language);
+      const listed = await unstatedSentences(
+        judge.model,
+        items.map((item, at) => ({ at, sentence: item.sentence, quote: item.quote, found: true })),
+      );
+      judged[language] =
+        listed?.flatMap(({ sentence }) =>
+          items.filter((item) => item.sentence === sentence).map((item) => item.id),
+        ) ?? null;
+    }
+    for (const document of env("ANSWER_SET") === "room" ? ROOM_DOCUMENTS : HELD_OUT_DOCUMENTS) {
       if (document.language !== language || !document.libraries.includes("terms")) continue;
       const path = join(folder, document.file);
       await writeFile(path, buildPdf(document.pages));
@@ -558,7 +667,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
         for (const flow of flows) {
-          for (let run = 1; run <= runs; run++) {
+          for (const { size, run, runs, arm } of passesOf(flow)) {
             const spent = await spentUsd(core);
             if (spentBefore + spent >= stopUsd) {
               stopped = `Stopped at $${(spentBefore + spent).toFixed(2)}, before ${name} · ${flow} · ${language} · ${run}.`;
@@ -569,9 +678,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             const load = loadavg()[0] ?? 0;
             const load15 = loadavg()[2] ?? 0;
             log(
-              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes${waitedMs > 0 ? `, after ${seconds(waitedMs)} waiting for it` : ""}`,
+              `${name} · ${flow}${size ? ` of ${size}` : ""}${arm ? ` · ${arm}` : ""} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes${waitedMs > 0 ? `, after ${seconds(waitedMs)} waiting for it` : ""}`,
             );
-            current = { flow, items: CITED(language, flow) };
+            const items = size ? windowOf(CITED(language), size, run) : CITED(language, flow);
+            current = { flow, items, ...(arm && { arm }) };
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
@@ -582,7 +692,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 ? await noteFlow(core, choice, language, recorder, run)
                 : isWrite(flow)
                   ? await writeFlow(core, choice, language, recorder, flow)
-                  : await answerFlow(core, choice, language, recorder);
+                  : flow === "asked"
+                    ? await askedFlow(core, choice, recorder, questions[run - 1]?.question ?? "")
+                    : await answerFlow(core, choice, recorder, items);
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
               dataDir,
@@ -599,6 +711,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               model: name,
               language,
               run,
+              ...(size && { answerSentences: size }),
+              ...(arm && { arm }),
               load,
               load15,
               checkStartMs: times.checkStartMs,
@@ -641,7 +755,23 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     }
     if (stopped) break;
   }
-  await save();
-  console.log(written());
+  const report = [
+    written(),
+    ...(arms[0]
+      ? [
+          "",
+          roomGateSection(results, (language) => CITED(language as Language), await unstatedIds()),
+        ]
+      : []),
+  ].join("\n");
+  console.log(report);
+  await writeFile(join(out, "report.md"), report);
+  await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  if (judge) {
+    await writeFile(
+      join(out, "judged.json"),
+      JSON.stringify({ judge: judge.name, spentUsd: judge.spent(), unstated: judged }, null, 2),
+    );
+  }
   log(`Report in ${out}`);
 });
