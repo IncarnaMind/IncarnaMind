@@ -286,3 +286,140 @@ test("the editor's sync formats only the runs whose marks changed", () => {
     ["second", "supported"],
   ]);
 });
+
+// #2996: two checked sentences with nothing between them share one boundary. A write at that
+// boundary in the editor, while the core lands a result on the other sentence, must leave each
+// sentence its own check, in both of Yjs's orders.
+describe.each([
+  { layout: "two checked sentences side by side", words: english },
+  { layout: "两个已核对的句子紧挨着", words: chinese },
+])("$layout, written at their boundary while a result lands", ({ words }) => {
+  const { first, second, gap } = words;
+  const whole = `${first}${gap}${second}`;
+  const start = first.length + gap.length;
+
+  /** The core's Note: the first sentence's check runs up to the second's first character. */
+  function touchingNote() {
+    const core = new Y.Doc();
+    const blocks = core.getXmlFragment(MIND_CONTENT_FIELD);
+    blocks.push([createElement(paragraphOf(words))]);
+    const element = blocks.get(0);
+    if (!(element instanceof Y.XmlElement)) throw new Error("No paragraph");
+    markSentence(element, 0, start, check("first", first, "supported"));
+    markSentence(element, start, whole.length, check("second", second, "supported"));
+    return core;
+  }
+  const textOf = (id: "first" | "second") => (id === "first" ? first : second);
+  /** The core lands Contradicted on a sentence's check. */
+  function land(core: Y.Doc, id: "first" | "second") {
+    const landing = markedSentences(core.getXmlFragment(MIND_CONTENT_FIELD)).find(
+      (each) => each.check.id === id,
+    );
+    if (!landing) throw new Error(`The ${id} sentence has no check`);
+    markSentence(landing.element, landing.from, landing.to, {
+      ...check(id, textOf(id), "contradicted"),
+      checkedAt: "2026-11-12T09:01:00.000Z",
+    });
+  }
+  /** Each check the Note holds, with the words it covers. */
+  const checks = (note: Y.Doc) => {
+    const text = (note.getXmlFragment(MIND_CONTENT_FIELD).get(0) as Y.XmlElement).get(
+      0,
+    ) as Y.XmlText;
+    return (
+      text.toDelta() as { insert: string; attributes?: { claimCheck?: ClaimCheckAttributes } }[]
+    )
+      .filter((run) => run.attributes?.claimCheck)
+      .map((run) => {
+        const value = run.attributes?.claimCheck;
+        return [run.insert.trim(), value?.id, value?.state, value?.kept === true];
+      });
+  };
+  /** The editor on a copy of the core's Note that hasn't had the landing yet, ordered by `copyId`. */
+  function editorBefore(core: Y.Doc, copyId: number) {
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+    copy.clientID = copyId;
+    core.clientID = 2;
+    return { copy, editor: boundEditorTo(copy) };
+  }
+  function exchange(core: Y.Doc, copy: Y.Doc) {
+    Y.applyUpdate(core, Y.encodeStateAsUpdate(copy));
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+  }
+  /** The sentence's place in the editor's document. */
+  function placeOf(editor: Editor, id: "first" | "second") {
+    let at = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (at < 0 && node.isText) at = pos;
+    });
+    const from = id === "first" ? at : at + start;
+    return { from, to: from + (id === "first" ? start : second.length) };
+  }
+  /** Keep as my view on a sentence in the editor, as the check's card writes it. */
+  function keep(editor: Editor, id: "first" | "second") {
+    const type = editor.schema.marks[CLAIM_CHECK_MARK];
+    if (!type) throw new Error("No check mark");
+    const { from, to } = placeOf(editor, id);
+    editor.view.dispatch(
+      editor.state.tr.addMark(
+        from,
+        to,
+        type.create({ ...check(id, textOf(id), "supported"), kept: true }),
+      ),
+    );
+  }
+
+  test.each([
+    ["the first", "the second", "before", "first", 1],
+    ["the first", "the second", "after", "first", 3],
+    ["the second", "the first", "before", "second", 1],
+    ["the second", "the first", "after", "second", 3],
+  ] as const)(
+    "a keep on %s while a result lands on %s leaves each its own check, the keep ordered %s it",
+    (_, _other, _order, kept, copyId) => {
+      const other = kept === "first" ? "second" : "first";
+      const core = touchingNote();
+      const { copy, editor } = editorBefore(core, copyId);
+      land(core, other);
+      keep(editor, kept);
+      exchange(core, copy);
+      const want = [
+        [first.trim(), "first", kept === "first" ? "supported" : "contradicted", kept === "first"],
+        [
+          second.trim(),
+          "second",
+          kept === "second" ? "supported" : "contradicted",
+          kept === "second",
+        ],
+      ];
+      expect(checks(core)).toEqual(want);
+      expect(checks(copy)).toEqual(want);
+    },
+  );
+
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "a character typed between the two while a result lands on the second leaves each its own check, the typing ordered %s it",
+    (_, copyId) => {
+      const core = touchingNote();
+      const { copy, editor } = editorBefore(core, copyId);
+      land(core, "second");
+      editor.commands.setTextSelection(placeOf(editor, "second").from);
+      typeText(editor, "X");
+      exchange(core, copy);
+      const want = [
+        [first.trim(), "first", "supported", false],
+        [second.trim(), "second", "contradicted", false],
+      ];
+      for (const note of [core, copy]) {
+        expect(
+          (note.getXmlFragment(MIND_CONTENT_FIELD).get(0) as Y.XmlElement).toString(),
+        ).toContain("X");
+        expect(checks(note)).toEqual(want);
+      }
+    },
+  );
+});
