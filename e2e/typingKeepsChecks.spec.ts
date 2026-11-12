@@ -130,22 +130,22 @@ for (const [language, first, second, gap, typed] of [
       const secondMark = window.locator('[data-testid="claim-mark"][data-claim="second"]');
       await expect(secondMark).toHaveAttribute("data-check", "supported");
 
-      // The User clicks just before the first sentence's figure and types.
-      const point = await editor.evaluate((root, sentence) => {
+      // The User clicks just before the first sentence's figure, the only "10", and types. The
+      // sentence's text can be split across the editor's elements, so the figure's is found.
+      const point = await editor.evaluate((root) => {
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const at = node.textContent?.indexOf(sentence) ?? -1;
+          const at = node.textContent?.indexOf("10") ?? -1;
           if (at < 0) continue;
           const range = document.createRange();
-          const figure = at + sentence.indexOf("10");
-          range.setStart(node, figure);
-          range.setEnd(node, figure + 1);
+          range.setStart(node, at);
+          range.setEnd(node, at + 1);
           const box = range.getBoundingClientRect();
-          return { x: box.left + 1, y: box.top + box.height / 2 };
+          return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
         }
         return null;
-      }, first);
-      if (!point) throw new Error("The first sentence isn't shown.");
+      });
+      if (!point) throw new Error("The first sentence's figure isn't shown.");
       await window.mouse.move(point.x, point.y, { steps: 6 });
       await window.mouse.click(point.x, point.y);
       await window.keyboard.type(typed);
