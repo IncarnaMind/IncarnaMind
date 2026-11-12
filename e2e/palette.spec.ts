@@ -269,9 +269,10 @@ test("names, commands and the words in Documents, all by keyboard; Esc closes an
   await window.keyboard.type("> settings models");
   await expect(palette(window).getByTestId("palette-group")).toHaveCount(1);
   const action = group(window, "actions").getByTestId("palette-item").first();
-  await expect(action).toContainText("Settings: Models");
+  // Settings › AI holds what Models did (#2835), and that name still finds it.
+  await expect(action).toContainText("Settings: AI");
   await window.keyboard.press("Enter");
-  await expect(window.getByTestId("settings-page-title")).toHaveText("Models");
+  await expect(window.getByTestId("settings-page-title")).toHaveText("AI");
 });
 
 test("an empty Library offers its actions, and with nothing found it says so, in English and in Chinese, at a narrow and a wide window", async () => {

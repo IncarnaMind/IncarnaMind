@@ -5,7 +5,14 @@
 import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
 import { type Outcome, outcomeOf } from "../../eval/repeats/repeat";
-import { meetsExpected, type RepeatRow, report, summarise } from "../../eval/repeats/score";
+import {
+  meetsExpected,
+  type RepeatRow,
+  report,
+  savedRows,
+  sortsBy,
+  summarise,
+} from "../../eval/repeats/score";
 import type { ClaimCheckAttributes } from "../../src/core";
 
 const QUOTE = {
@@ -46,11 +53,19 @@ const mark = (change: Partial<ClaimCheckAttributes>): ClaimCheckAttributes => ({
 
 const RUN = { commit: "abc", spent: 0, repeats: 1 };
 
-const row = (repeat: number, key: string, outcome: Outcome, set = "en"): RepeatRow => {
+/** A check's row; its sort is its own unless one is given, and none when `sort` is null (a result file made before #2964). */
+const row = (
+  repeat: number,
+  key: string,
+  outcome: Outcome,
+  set = "en",
+  sort: number | null = repeat,
+): RepeatRow => {
   const sentence = SETS.find((each) => each.id === set)?.sentences.find((each) => each.key === key);
   if (!sentence) throw new Error(`No sentence ${key}`);
   return {
     repeat,
+    ...(sort !== null && { sort }),
     sentence: sentence.text,
     outcome,
     says: null,
@@ -117,12 +132,13 @@ describe("the repeated checks", () => {
 
     expect(summary).toMatchObject({
       repeats: 3,
-      falseSupported: 1,
-      unsupportedOnStated: 1,
-      partlyOnAbsent: 0,
+      sorts: 3,
+      sorting: "fresh",
+      falseSupported: { count: 1, checks: 3, sorts: 3 },
+      unsupportedOnStated: { count: 1, checks: 3, sorts: 3 },
+      partlyOnAbsent: { count: 0, checks: 3, sorts: 3 },
+      disagreeing: { count: 2, checks: 2, sorts: 2 },
     });
-    expect(summary?.disagreeing).toBe(2);
-    expect(summary?.followed).toBe(2);
     expect(summary?.sentences.find((each) => each.key === "notice")).toMatchObject({
       steady: 2,
       outcomes: { supported: 1, partly: 1, absent: 1 },
@@ -140,7 +156,7 @@ describe("the repeated checks", () => {
       row(2, "notice", "unsupported"),
       row(3, "notice", "partly"),
     ]);
-    expect(summary?.unsupportedOnStated).toBe(2);
+    expect(summary?.unsupportedOnStated).toEqual({ count: 2, checks: 3, sorts: 3 });
     expect(summary?.misses).toHaveLength(3);
   });
 
@@ -150,7 +166,7 @@ describe("the repeated checks", () => {
       row(2, "staff-home", "supported"),
     ]);
     expect(summary?.misses.map((each) => [each.repeat, each.outcome])).toEqual([[2, "supported"]]);
-    expect(summary?.falseSupported).toBe(0);
+    expect(summary?.falseSupported).toEqual({ count: 0, checks: 0, sorts: 0 });
   });
 
   test("expect the not-found card for a figure for a year the agreement doesn't cover", () => {
@@ -165,7 +181,7 @@ describe("the repeated checks", () => {
     const [summary] = summarise(rows);
     expect(summary?.known).toHaveLength(4);
     expect(summary?.misses).toEqual([]);
-    expect(summary?.unsupportedOnStated).toBe(0);
+    expect(summary?.unsupportedOnStated).toEqual({ count: 0, checks: 0, sorts: 0 });
   });
 
   test("count a genuine conflict Supported as a false Supported, and a known miss apart", () => {
@@ -176,8 +192,8 @@ describe("the repeated checks", () => {
       row(1, "term-year-wrong", "differs", "zh-periods"),
     ]);
     expect(summary).toMatchObject({
-      falseSupported: 1,
-      conflicts: { contradicted: 1, checked: 2 },
+      falseSupported: { count: 1, checks: 2, sorts: 2 },
+      conflicts: { count: 1, checks: 2, sorts: 2 },
     });
     expect(summary?.misses.map((each) => [each.key, each.repeat])).toEqual([
       ["prior-year-wrong", 2],
@@ -194,7 +210,7 @@ describe("the repeated checks", () => {
     );
     expect(shown).toContain("### Known misses (#1708), outside the counts above");
     expect(shown).toContain(
-      "- term-year-wrong: 1 of 2 Contradicted, 0 Supported, 0 unsupported, 1 not checked or not named",
+      "- term-year-wrong: 1 of 2 checks, 2 sorts Contradicted, 0 Supported, 0 unsupported, 1 not checked or not named",
     );
     expect(shown).not.toContain("Genuine conflicts Contradicted");
   });
@@ -241,7 +257,73 @@ describe("a sentence that may read either way but never Contradicted (#1708)", (
       { ...row(1, "notice", "supported"), expected },
       { ...row(2, "notice", "contradicted"), expected },
     ]);
-    expect(summary?.falseSupported).toBe(0);
+    expect(summary?.falseSupported).toEqual({ count: 0, checks: 0, sorts: 0 });
     expect(summary?.misses.map((each) => each.outcome)).toEqual(["contradicted"]);
+  });
+});
+
+describe("checks and sorts (#2964)", () => {
+  // protects=every count of a report says how many checks and sorts it is of, per sentence and per set (#2964); fails_when=a count shows no sorts, or the wrong number; no_claim=what a real model says.
+  test("a report of checks that each sorted afresh gives both numbers for every count", () => {
+    const shown = report(
+      summarise([
+        row(1, "notice", "supported"),
+        row(1, "car", "absent"),
+        row(2, "notice", "supported"),
+        row(2, "car", "supported"),
+      ]),
+      RUN,
+    );
+    expect(shown).toContain(
+      "# Repeated checks of the same sentences, each in a Note of its own (a bar about a mark or a verdict)",
+    );
+    expect(shown).toContain("## en · anthropic/claude-haiku-5-5 · 2 checks, 2 sorts");
+    expect(shown).toContain("Each check sorted the sentences afresh, in a Note of its own.");
+    expect(shown).toContain("| 2 of 2 checks, 2 sorts |");
+    expect(shown).toContain("- False Supported: 1 of 2 checks, 2 sorts");
+    expect(shown).toContain(
+      "- Checks whose verdicts differ from the one before: 1 of 1 checks, 1 sort",
+    );
+  });
+
+  // protects=a run whose checks reused one sort says so beside its counts (#2964); fails_when=it reads as fresh sorts; no_claim=what a real model says.
+  test("a report of checks that reused one sort says so", () => {
+    const shown = report(
+      summarise([row(1, "notice", "supported", "en", 1), row(2, "notice", "supported", "en", 1)]),
+      RUN,
+    );
+    expect(shown).toContain("# Repeated checks of one unchanged Note (a bar about time or cost)");
+    expect(shown).toContain("· 2 checks, 1 sort");
+    expect(shown).toContain("One sort reused by every check");
+    expect(shown).toContain("| 2 of 2 checks, 1 sort |");
+  });
+
+  // protects=a result file made before #2964 stays readable, and its report says its sorts were reused (#2964); fails_when=it fails to read, or reads as one sort a check; no_claim=what a real model says.
+  test("a result file made before the sorts were counted reads back as one sort reused", () => {
+    const rows = savedRows({
+      model: "anthropic/claude-haiku-5-5",
+      rows: [
+        row(1, "notice", "supported", "en", null),
+        row(2, "notice", "absent", "en", null),
+        row(3, "notice", "supported", "en", null),
+      ],
+    });
+    const [summary] = summarise(rows);
+    expect(summary).toMatchObject({
+      repeats: 3,
+      sorts: 1,
+      sorting: "before",
+      unsupportedOnStated: { count: 1, checks: 3, sorts: 1 },
+    });
+    const shown = report(summarise(rows), RUN);
+    expect(shown).toContain(
+      "# Repeated checks of one unchanged Note, made before #2964 (one sort reused)",
+    );
+    expect(shown).toContain("Made before #2964: every check reused its run's one sort");
+    expect(() => savedRows({ model: "x" })).toThrow("it has no list of rows");
+    expect(sortsBy(rows, (each) => each.set)).toEqual({ en: 1 });
+    expect(
+      sortsBy([row(1, "notice", "supported"), row(2, "notice", "absent")], (each) => each.set),
+    ).toEqual({ en: 2 });
   });
 });

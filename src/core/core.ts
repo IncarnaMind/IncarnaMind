@@ -3116,6 +3116,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
