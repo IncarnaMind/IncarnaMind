@@ -201,6 +201,7 @@ import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision, TokenUsage } from "../runs/engine";
+import type { RepliesOut } from "../runs/replies";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -675,6 +676,8 @@ export interface AnswersOptions {
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
+  /** Where an Answer marks its provider while it is written (../runs/replies). */
+  repliesOut?: RepliesOut;
   /**
    * The model call help answers on under `answers` (#2526), of the same provider; null:
    * `answers` itself.
@@ -1431,6 +1434,8 @@ export function createAnswers(options: AnswersOptions) {
     let callLanguage: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
+    /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
+    let replyEnded = () => {};
     let support: CitationSupport | null = null;
     /** Markers the engine put in for records the model gave without them. */
     let placedMarkers = 0;
@@ -1926,6 +1931,7 @@ export function createAnswers(options: AnswersOptions) {
       if (finished) return;
       finished = true;
       finishedAt = Date.now();
+      replyEnded();
       if (timer) clearTimeout(timer);
       active.delete(answerId);
       writingChanged();
@@ -2487,6 +2493,7 @@ export function createAnswers(options: AnswersOptions) {
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
+        if (!finished) replyEnded = options.repliesOut?.begin(prepared.provider.id) ?? replyEnded;
         if (helpModel) {
           try {
             const quick = await options.prepareModel(helpModel, thinking);

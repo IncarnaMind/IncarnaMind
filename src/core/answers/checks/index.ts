@@ -125,6 +125,7 @@ import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
 import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
+import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
@@ -256,6 +257,8 @@ export interface ChecksOptions
   >;
   /** Aborts once a write's claims sort has taken too long; a check's time limit unless given. */
   sortTimeLimit?: () => AbortSignal;
+  /** Where an Answer marks its provider while it is written, which a write's check waits behind. */
+  repliesOut?: RepliesOut;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -1682,9 +1685,7 @@ export function createChecks(options: ChecksOptions) {
     withResult: noteResult,
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
-    sortTimeLimit:
-      options.sortTimeLimit ??
-      (() => AbortSignal.timeout(options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS)),
+    ...(options.sortTimeLimit && { sortTimeLimit: options.sortTimeLimit }),
     track,
     settleStopped,
     progress: options.writtenProgress,

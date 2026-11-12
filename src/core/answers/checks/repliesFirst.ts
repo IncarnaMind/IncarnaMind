@@ -1,0 +1,101 @@
+/**
+ * The check of what an Answer wrote sends each new request only while no reply is out on its
+ * provider, its own Answer's included (#2830): the reply goes first on the key's allowance, and
+ * requests already out finish. The time a request waits there is no part of the check's time
+ * limits, nor of its pauses: they count only the time nothing of it waited.
+ */
+import { wrapLanguageModel } from "ai";
+import type { PreparedChatModel } from "../../providers/chat";
+import type { RepliesOut } from "../../runs/replies";
+import type { PaceTimers } from "../../sources/pace";
+
+export interface RepliesFirst {
+  /** `prepared`, whose requests wait while a reply is out on its provider, or until their abort. */
+  model(prepared: PreparedChatModel): PreparedChatModel;
+  /** `base`, whose sleeps leave out the time a request of this check waited behind a reply. */
+  timers: PaceTimers;
+  /** Aborts after `ms` of the check's time, as `timers` counts it, unless `until` aborts first. */
+  timeout(ms: number, until: AbortSignal): AbortSignal;
+}
+
+export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers): RepliesFirst {
+  let waitingNow = 0;
+  let since = 0;
+  let waited = 0;
+  const resumed = new Set<() => void>();
+  const waitedSoFar = () => waited + (waitingNow > 0 ? base.now() - since : 0);
+
+  const free = (signal: AbortSignal) =>
+    waitingNow === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve, reject) => {
+          if (signal.aborted) return reject(signal.reason);
+          const resume = () => {
+            signal.removeEventListener("abort", stop);
+            resolve();
+          };
+          const stop = () => {
+            resumed.delete(resume);
+            reject(signal.reason);
+          };
+          resumed.add(resume);
+          signal.addEventListener("abort", stop, { once: true });
+        });
+
+  const behindReplies = async (provider: string, signal: AbortSignal | undefined) => {
+    if (!replies || !signal) return;
+    if (waitingNow++ === 0) since = base.now();
+    try {
+      await replies.none(provider, signal);
+    } finally {
+      if (--waitingNow === 0) {
+        waited += base.now() - since;
+        for (const resume of [...resumed]) resume();
+        resumed.clear();
+      }
+    }
+    signal.throwIfAborted();
+  };
+
+  const timers: PaceTimers = {
+    now: base.now,
+    async sleep(ms, signal) {
+      let left = ms;
+      while (left > 0) {
+        const from = waitedSoFar();
+        await base.sleep(left, signal);
+        await free(signal);
+        left = waitedSoFar() - from;
+      }
+    },
+  };
+
+  return {
+    model: (prepared) => ({
+      ...prepared,
+      model: wrapLanguageModel({
+        model: prepared.model,
+        middleware: {
+          specificationVersion: "v4",
+          wrapGenerate: async ({ doGenerate, params }) => {
+            await behindReplies(prepared.provider.id, params.abortSignal);
+            return doGenerate();
+          },
+          wrapStream: async ({ doStream, params }) => {
+            await behindReplies(prepared.provider.id, params.abortSignal);
+            return doStream();
+          },
+        },
+      }),
+    }),
+    timers,
+    timeout(ms, until) {
+      const timedOut = new AbortController();
+      timers.sleep(ms, until).then(
+        () => timedOut.abort(new DOMException("The check's time limit passed.", "TimeoutError")),
+        () => undefined,
+      );
+      return timedOut.signal;
+    },
+  };
+}

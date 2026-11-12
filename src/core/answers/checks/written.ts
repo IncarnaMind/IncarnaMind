@@ -75,17 +75,21 @@ import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
+import type { RepliesOut } from "../../runs/replies";
 import { type Slots, slots } from "../../runs/stop";
+import { realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
 import { type NodeJSON, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
+import { repliesFirst } from "./repliesFirst";
 import {
   type CheckOutcome,
   type CheckRuns,
   type CheckTry,
+  CLAIM_TIME_LIMIT_MS,
   checkRunOf,
   recordCheck,
   runClaimChecks,
@@ -141,8 +145,13 @@ export interface WrittenCheckOptions extends CheckRuns {
   /** The quick model that looks first at a write's sentences under the checks' model (./fastPaths); null: none. */
   quickModel(prepared: PreparedChatModel): Promise<PreparedChatModel | null>;
   firstLook(look: FirstLook): Promise<FirstLookResult>;
-  /** Aborts once the claims sort has taken too long: a reply may never come. */
-  sortTimeLimit(): AbortSignal;
+  /**
+   * Aborts once the claims sort has taken too long: a reply may never come. Left out, the check's
+   * own time limit, less any wait behind a reply.
+   */
+  sortTimeLimit?(): AbortSignal;
+  /** Where a reply out on the check's provider holds its next request (./repliesFirst). */
+  repliesOut?: RepliesOut;
   /** Registers a check under its request, so the Note's Stop and quitting reach it (./index `track`). */
   track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
   /** Marks the request's sentences still being checked as stopped (./index `settleStopped`). */
@@ -1000,7 +1009,21 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
-    const run = checkRunOf(options, prepared, signal, mindId);
+    const behind = repliesFirst(options.repliesOut, options.timers ?? realTimers);
+    const sending = behind.model(prepared);
+    const quickSending = quick && behind.model(quick);
+    const ran = checkRunOf(options, prepared, signal, mindId);
+    const run = {
+      ...ran,
+      timers: behind.timers,
+      // A request answered as IncarnaMind quits has no record left to go in.
+      record: ran.record && {
+        ...ran.record,
+        recordAiUse: (inputs: Parameters<NonNullable<typeof ran.record>["recordAiUse"]>[0]) => {
+          if (!closed) ran.record?.recordAiUse(inputs);
+        },
+      },
+    };
     const checks = new Map<Sentence, Checked>();
     const landed = (sentence: Sentence, outcome: CheckOutcome) => {
       // A quick model that said no read the sentence too: a use of AI, whatever its check came to.
@@ -1084,10 +1107,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               paragraph: sentence.context,
               citations: sentence.citations,
               scope: scope.scope,
-              ask: (asked, until) => limit.run(() => quickLook(quick, asked, until)),
+              ask: (asked, until) =>
+                limit.run(() => quickLook(quickSending ?? quick, asked, until)),
               signal: AbortSignal.any([
                 ended,
-                AbortSignal.timeout(run.timeLimitMs * FIRST_LOOK_SHARE),
+                behind.timeout(run.timeLimitMs * FIRST_LOOK_SHARE, ended),
               ]),
             })));
         if (quick && first?.result) {
@@ -1099,7 +1123,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         checks.set(sentence, { by: prepared });
         return attempt(
           options.claimCheck,
-          requestOf(sentence, read, mindId, scope, prepared, limit, ended),
+          requestOf(sentence, read, mindId, scope, sending, limit, ended),
         );
       });
     const checkAll = (items: readonly Sentence[]) =>
@@ -1129,9 +1153,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
      */
     const claimsOf = async (uncited: readonly Sentence[]): Promise<readonly Sentence[]> => {
       if (uncited.length === 0) return [];
-      const timedOut = options.sortTimeLimit();
+      const timedOut =
+        options.sortTimeLimit?.() ??
+        behind.timeout(options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS, signal);
       const found = await claimsAmong(
-        prepared,
+        sending,
         uncited.map((sentence) => ({ text: reads.get(sentence)?.claim ?? sentence.text })),
         "own",
         AbortSignal.any([signal, timedOut]),

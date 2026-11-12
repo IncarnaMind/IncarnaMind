@@ -7,6 +7,7 @@ import {
   MIND_SETTINGS_FIELD,
   type WrittenCheckProgress,
 } from "../../src/core";
+import { CLAIM_TIME_LIMIT_MS } from "../../src/core/answers/checks/runCheck";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
 import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -31,6 +32,7 @@ import {
   startCore,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { checkClock, heldClock } from "../helpers/heldClock";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -223,9 +225,11 @@ async function harbour(
   untitled = false,
   sortTimeLimit?: Writing["sortTimeLimit"],
   keychain?: MemoryKeychain,
+  adapters?: Parameters<typeof startCore>[1],
 ) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
+    ...adapters,
     createChatModel: scriptedModels(model).createChatModel,
     ...(sortTimeLimit && { contradictionWatch: { sortTimeLimit } }),
     ...(keychain && { keychain }),
@@ -2731,5 +2735,259 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       errors.mockRestore();
       warnings.mockRestore();
     }
+  });
+});
+describe("A write's check waits behind a reply on its provider", () => {
+  const CLOUD = { kind: "anthropic", modelId: "claude-haiku-5-5" } as const;
+  const FOLLOW_UP = "When do spring tides come?";
+  const turns = async (count: number) => {
+    for (let turn = 0; turn < count; turn++) await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  /**
+   * Answers that search, cite the moon line and write it into the Mind in focus, and a follow-up
+   * Question answered in a line; checks as `PLANS` say. `reply` holds a reply's last stream until
+   * it settles; `check` gives a check's reply in place of `PLANS`'.
+   */
+  function repliesModel(
+    calls: ModelCall[],
+    hooks: {
+      reply?: (question: string) => Promise<void> | null;
+      check?: (call: ModelCall) => ScriptedReply | null;
+    },
+  ) {
+    const held = (question: string, text: string): ScriptedReply => {
+      const until = hooks.reply?.(question) ?? null;
+      return until ? { text, pause: { after: 0, until } } : { text };
+    };
+    return scriptedModel(
+      (call): ScriptedReply => {
+        calls.push(call);
+        if (isCheckRun(call)) return hooks.check?.(call) ?? checkReply(call, PLANS);
+        if (call.prompt.includes(FOLLOW_UP)) return held(FOLLOW_UP, "At new and full moon.");
+        const { results } = call;
+        const search = results.find((result) => result.tool === "search_documents");
+        if (!search) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        if (!results.some((result) => result.tool === "cite")) {
+          const [passage] = shownPassages(search.text);
+          const citations = [{ marker: 1, passage: passage?.id, quote: MOON }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        if (!results.some((result) => result.tool === "add_to_mind")) {
+          return {
+            calls: [{ tool: "add_to_mind", input: { content: `${MOON.slice(0, -1)} [^1].` } }],
+          };
+        }
+        return held(ASK.into, "Wrote it from your Documents.");
+      },
+      { generate: judgesNothing },
+    );
+  }
+
+  /** A promise and what settles it. */
+  const gate = () => {
+    let open: () => void = () => undefined;
+    const closed = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { closed, open };
+  };
+
+  /**
+   * The moon line written and its check begun; its first request held until `check.open`, and a
+   * follow-up Question then asked, its reply held until `reply.open`, with the check's next request
+   * waiting behind it.
+   */
+  async function heldBehindFollowUp(adapters?: Parameters<typeof startCore>[1]) {
+    const calls: ModelCall[] = [];
+    const check = gate();
+    const reply = gate();
+    let first = true;
+    const model = repliesModel(calls, {
+      check: (call) => {
+        if (!first || call.results.length > 0) return null;
+        first = false;
+        return { ...checkReply(call, PLANS), pause: { after: 0, until: check.closed } };
+      },
+      reply: (question) => (question === FOLLOW_UP ? reply.closed : null),
+    });
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      CLOUD,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      adapters,
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    await core.askInConversation({
+      text: ASK.into,
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    await vi.waitFor(() => expect(calls.filter(isCheckRun)).toHaveLength(1), {
+      timeout: 20_000,
+      interval: 5,
+    });
+    const followUp = await core.askInConversation({ text: FOLLOW_UP });
+    if (!followUp.asked) throw new Error("Not asked.");
+    await vi.waitFor(
+      () => expect(calls.some((call) => call.prompt.includes(FOLLOW_UP))).toBe(true),
+      { timeout: 20_000, interval: 5 },
+    );
+    check.open();
+    await turns(20);
+    return { core, calls, client, mindId, progress, reply, followUp };
+  }
+
+  // protects=the check of a write sends nothing while the Answer that wrote it is still out on the same provider, so the reply has the key's allowance to itself, and every mark lands once it ends (#2830); fails_when=a check request goes out before the reply's end, or the marks never land; no_claim=a provider's real allowance.
+  test("a write's check sends nothing while its own reply is out, then its marks land", async () => {
+    const calls: ModelCall[] = [];
+    const reply = gate();
+    const model = repliesModel(calls, {
+      reply: (question) => (question === ASK.into ? reply.closed : null),
+    });
+    const { core, folderId, mindId, client } = await harbour(model, CLOUD, undefined);
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    await core.askInConversation({
+      text: ASK.into,
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    await vi.waitFor(() => expect(progress.length).toBeGreaterThan(0), {
+      timeout: 20_000,
+      interval: 5,
+    });
+    await turns(20);
+    expect(calls.filter(isCheckRun)).toEqual([]);
+
+    reply.open();
+    expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
+    expect(calls.filter(isCheckRun).length).toBeGreaterThan(0);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
+  });
+
+  // protects=a Question asked while an earlier write's check runs goes first: the check's request already out finishes, and its next one waits until that reply has ended, then the mark lands (#2830); fails_when=the check sends beside the new reply, or never goes on after it; no_claim=two providers, which don't wait on each other.
+  test("a Question asked while a write's check runs: the check sends nothing new until that reply ends", async () => {
+    const { core, calls, client, progress, reply } = await heldBehindFollowUp();
+    expect(calls.filter(isCheckRun)).toHaveLength(1);
+    expect(progress.at(-1)?.running).toBe(true);
+
+    reply.open();
+    expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
+    expect(calls.filter(isCheckRun).length).toBeGreaterThan(1);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
+  });
+
+  // protects=Stop on the Note's badge ends a check waiting behind a reply at once, its sentence Not checked, stopped, and nothing more is sent for it after the reply ends (#2830, #2710); fails_when=the check waits on after Stop, or sends once the reply ends; no_claim=the reply's own end.
+  test("Stop while a write's check waits behind a reply ends it, and nothing more is sent", async () => {
+    const { core, calls, client, progress, reply } = await heldBehindFollowUp();
+    await core.cancelCheck(progress[0]?.request ?? "");
+
+    expect(await checkEnds(progress)).toMatchObject({ running: false });
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "stopped"],
+    ]);
+    reply.open();
+    await turns(20);
+    expect(calls.filter(isCheckRun)).toHaveLength(1);
+  });
+
+  // protects=the core closing while a write's check waits behind a reply ends the check, sends nothing more, and fails nothing (#2830, #2216); fails_when=the wait outlives the core and sends into it, or logs a failure naming the Mind; no_claim=the reply's own end as the core closes.
+  test("the core closing while a write's check waits behind a reply ends it, and nothing more is sent", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { core, calls, mindId, progress, reply } = await heldBehindFollowUp();
+      core.close();
+      reply.open();
+      await turns(20);
+
+      expect(progress.at(-1)?.running).toBe(false);
+      expect(calls.filter(isCheckRun)).toHaveLength(1);
+      const named = [...errors.mock.calls, ...warnings.mock.calls]
+        .map((call) => call.map(String).join(" "))
+        .filter((line) => line.includes(mindId));
+      expect(named).toEqual([]);
+    } finally {
+      errors.mockRestore();
+      warnings.mockRestore();
+    }
+  });
+
+  // protects=the time a check waits behind a reply is no part of its sentence's time limit: past three minutes of waiting, the check still comes to its verdict once the reply ends (#2830); fails_when=the wait counts, and the sentence lands Not checked, timed out; no_claim=a check whose own requests take that long, which still times out.
+  test("a wait behind a reply longer than the time limit leaves the check its time", async () => {
+    const clock = heldClock();
+    const { core, client, progress, reply } = await heldBehindFollowUp({
+      paceTimers: clock.timers,
+    });
+    clock.advance(CLAIM_TIME_LIMIT_MS + 60_000);
+    await turns(20);
+    expect(progress.at(-1)?.running).toBe(true);
+
+    reply.open();
+    expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
+  });
+
+  // protects=a wait behind a reply uses none of a check's tries: a request refused for its rate once the reply has ended gets the first pause, then its verdict (#2830); fails_when=the wait counts as a try, and the sentence runs out of pauses sooner; no_claim=how long a provider asks to wait.
+  test("a request refused for its rate after a wait behind a reply gets the first pause, then its verdict", async () => {
+    const clock = checkClock();
+    let refused = false;
+    const calls: ModelCall[] = [];
+    const check = gate();
+    const reply = gate();
+    let first = true;
+    const model = repliesModel(calls, {
+      check: (call) => {
+        if (first && call.results.length === 0) {
+          first = false;
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: check.closed } };
+        }
+        if (!refused && call.results.length > 0) {
+          refused = true;
+          return { error: { status: 429, message: "Too many requests." } };
+        }
+        return null;
+      },
+      reply: (question) => (question === FOLLOW_UP ? reply.closed : null),
+    });
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      CLOUD,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      { paceTimers: clock.timers },
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    await core.askInConversation({
+      text: ASK.into,
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    await vi.waitFor(() => expect(calls.filter(isCheckRun)).toHaveLength(1), {
+      timeout: 20_000,
+      interval: 5,
+    });
+    await core.askInConversation({ text: FOLLOW_UP });
+    await vi.waitFor(
+      () => expect(calls.some((call) => call.prompt.includes(FOLLOW_UP))).toBe(true),
+      { timeout: 20_000, interval: 5 },
+    );
+    check.open();
+    await turns(20);
+    reply.open();
+
+    expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
+    expect(clock.pauses()).toEqual([1000]);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
   });
 });

@@ -359,6 +359,7 @@ import {
 import { parseReference } from "./references";
 import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
+import { createRepliesOut } from "./runs/replies";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
 import { parseSearchScope, resolveSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
@@ -2309,10 +2310,13 @@ export function createCore(adapters: CoreAdapters): Core {
       ? fastest
       : null;
   };
+  // An Answer marks its provider while it is written, and a write's check waits behind it (#2830).
+  const repliesOut = createRepliesOut();
   const answers = createAnswers({
     content,
     changes,
     events,
+    repliesOut,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     ...(codeRunner && {
@@ -3105,6 +3109,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    repliesOut,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
