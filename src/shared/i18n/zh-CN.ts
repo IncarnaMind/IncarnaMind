@@ -7077,6 +7077,7 @@ export const zhCN = {
   "meetings.help.youSaid": "你说：“{text}”",
   "meetings.help.said": "“{text}”",
   "meetings.help.readFrom": "根据对方说的话推断",
+  "meetings.help.started": "开始于 {time}",
   "meetings.help.pin": "固定",
   "meetings.help.unpin": "取消固定",
   "meetings.help.addToNotes": "加入笔记",

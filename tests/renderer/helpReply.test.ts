@@ -4,7 +4,9 @@
  * and short lines, while it streams too.
  */
 import { describe, expect, test } from "vitest";
+import type { Language } from "../../src/core/language";
 import {
+  callStarts,
   citationNumbers,
   helpItems,
   helpParts,
@@ -13,9 +15,12 @@ import {
   readHelpReply,
   sentencePassed,
   shownItems,
+  startedLabel,
   uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
+import { translate } from "../../src/shared/i18n";
+import type { Translate } from "../../src/shared/locations";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
@@ -360,5 +365,76 @@ describe("A help reply", () => {
     expect(uncheckedReason({ check: "not-checked", checkReason: null })).toBeNull();
     expect(uncheckedReason({ check: "not-found", checkReason: "quote-not-on-pages" })).toBeNull();
     expect(uncheckedReason({ check: "unsupported", checkReason: null })).toBeNull();
+  });
+});
+
+describe("The sources under a help reply (#3005)", () => {
+  const said = { kind: "time" as const, from: 1750, to: 4000, speaker: "Me" };
+  const named = (documentId: string, documentName = "Transcript · Meeting, 6 October") => ({
+    documentId,
+    documentName,
+    location: said,
+  });
+  const meetings = [
+    {
+      kind: "meeting" as const,
+      startedAt: "2026-10-06T12:00:09.000Z",
+      transcript: { documentId: "this-call" },
+    },
+    {
+      kind: "meeting" as const,
+      startedAt: "2026-10-06T09:00:00.000Z",
+      transcript: { documentId: "earlier-call" },
+    },
+    {
+      kind: "memo" as const,
+      startedAt: "2026-10-06T08:00:00.000Z",
+      transcript: { documentId: "memo" },
+    },
+  ];
+
+  test("two cited Transcripts with the same name each show when their call started", () => {
+    expect(callStarts([named("this-call"), named("earlier-call")], meetings, "this-call")).toEqual(
+      new Map([
+        ["this-call", "2026-10-06T12:00:09.000Z"],
+        ["earlier-call", "2026-10-06T09:00:00.000Z"],
+      ]),
+    );
+  });
+
+  test("this call's Transcript alone shows no start; an earlier call's alone shows its own", () => {
+    expect(callStarts([named("this-call")], meetings, "this-call")).toEqual(new Map());
+    expect(
+      callStarts([named("this-call"), named("guide", "Interview guide")], meetings, "this-call"),
+    ).toEqual(new Map());
+    expect(callStarts([named("earlier-call")], meetings, "this-call")).toEqual(
+      new Map([["earlier-call", "2026-10-06T09:00:00.000Z"]]),
+    );
+  });
+
+  test("a Document that isn't a call's Transcript shows none: a page, a voice memo's, one no Meeting made", () => {
+    const page = { ...named("earlier-call"), location: { kind: "page" as const, from: 2, to: 2 } };
+    expect(callStarts([page, named("memo"), named("added.vtt")], meetings, "this-call")).toEqual(
+      new Map(),
+    );
+  });
+
+  test("the start reads in the User's language, as the day's time or with its day", () => {
+    const options = { timeZone: "UTC", twelveHour: false, now: new Date("2026-10-06T15:00:00Z") };
+    const t =
+      (language: Language): Translate =>
+      (key, params) =>
+        translate(language, key, params);
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("en"), "en", options)).toBe("started 09:00");
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("zh-CN"), "zh-CN", options)).toBe(
+      "开始于 09:00",
+    );
+    const nextDay = { ...options, now: new Date("2026-10-07T15:00:00Z") };
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("en"), "en", nextDay)).toBe(
+      "started 6 Oct, 09:00",
+    );
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("zh-CN"), "zh-CN", nextDay)).toBe(
+      "开始于 10月6日 09:00",
+    );
   });
 });

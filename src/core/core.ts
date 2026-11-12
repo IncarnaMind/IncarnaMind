@@ -274,7 +274,13 @@ import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { keyMarks } from "./markKeys";
-import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
+import {
+  callOfTranscript,
+  createMeetings,
+  isMemo,
+  linkTranscript,
+  meetingRecord,
+} from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -2344,6 +2350,7 @@ export function createCore(adapters: CoreAdapters): Core {
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
     helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
+    callsUnmarked: () => adapters.callsUnmarked?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2435,6 +2442,17 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => documents.documentDate(documentId),
       speakers: (documentId) => documents.speakersOf(documentId),
+      callOf: (documentId) => {
+        const call = callOfTranscript(db, documentId);
+        return (
+          call && {
+            note:
+              minds.locate(call.mindId)?.name ||
+              translate(settings.get().language, "mind.untitled"),
+            startedAt: call.startedAt,
+          }
+        );
+      },
     },
     toolProviders: [
       {

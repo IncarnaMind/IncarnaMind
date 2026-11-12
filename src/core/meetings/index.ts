@@ -258,6 +258,21 @@ export function meetingRecord(
 }
 
 /**
+ * The call a Transcript Document records (#3005): its Meeting's Note and when the call started.
+ * Null for any other Document, a voice memo's Transcript and a Transcript the User added among them.
+ */
+export function callOfTranscript(
+  db: Database,
+  documentId: string,
+): { mindId: string; startedAt: string } | null {
+  const row = db.get<Pick<MeetingRow, "mind_id" | "started_at">>(
+    "SELECT mind_id, started_at FROM meetings WHERE transcript_document_id = ? AND kind = 'meeting' AND started_at IS NOT NULL",
+    [documentId],
+  );
+  return row?.started_at ? { mindId: row.mind_id, startedAt: row.started_at } : null;
+}
+
+/**
  * Records which Document is the Meeting's Transcript, in the transaction that makes it, and that
  * it belongs to the Meeting's Note (#2528).
  */

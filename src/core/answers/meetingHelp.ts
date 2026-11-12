@@ -214,6 +214,7 @@ export const LIVE_TEXT_BEHIND_NOTE =
  * What the model is told for a button's Question during a call. `found`: Passages of the User's
  * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
  * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.
+ * `callsUnmarked`: Transcript Passages aren't marked with their call (`CoreAdapters.callsUnmarked`).
  */
 export function meetingHelpInstructions(
   kind: MeetingHelpKind,
@@ -221,7 +222,8 @@ export function meetingHelpInstructions(
     found,
     language,
     callLanguage,
-  }: { found: boolean; language: Language; callLanguage: string | null },
+    callsUnmarked = false,
+  }: { found: boolean; language: Language; callLanguage: string | null; callsUnmarked?: boolean },
 ): string {
   const shape = HELP_SHAPE[kind];
   const task = TASKS[kind];
@@ -241,7 +243,7 @@ export function meetingHelpInstructions(
           "- Use only <live-transcript> for facts, with its Citation markers. Do not use Library Documents or written notes. If there is no call text yet, say there is not enough call content to answer; never substitute other facts.",
         ]
       : [
-          `- Use the User's Documents only to ${documents}. A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving a suggestion, explain its relevance in the → line.`,
+          `- Use the User's Documents only to ${documents}. ${callsUnmarked ? "A Document fact was" : 'A Document fact, or an earlier call\'s line (call="earlier"), was'} not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving a suggestion, explain its relevance in the → line.`,
         ]),
     ...(documents !== null && found
       ? [

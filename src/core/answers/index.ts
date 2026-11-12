@@ -669,6 +669,8 @@ export interface AnswersOptions {
   quotesAsGiven?(): boolean;
   /** See `CoreAdapters.helpMarksQuoteOnly`. */
   helpMarksQuoteOnly?(): boolean;
+  /** See `CoreAdapters.callsUnmarked`. */
+  callsUnmarked?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -932,7 +934,10 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * ids (null: every Document).
  */
 export interface DocumentsForAnswers
-  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> {
+  extends Pick<
+    AnswerDocuments,
+    "citationSource" | "pageTexts" | "documentDate" | "speakers" | "callOf"
+  > {
   searchableCount(documentIds: readonly string[] | null): number;
   /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
@@ -1012,6 +1017,7 @@ function inScope(
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
     speakers: (documentId) => documents.speakers?.(documentId) ?? null,
+    callOf: (documentId) => documents.callOf?.(documentId) ?? null,
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
     passagesCovering: (documentId, from, to, overlapping) =>
@@ -1489,6 +1495,7 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
+    const callsUnmarked = options.callsUnmarked?.() ?? false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     let support: CitationSupport | null = null;
@@ -1677,6 +1684,8 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        thisCall: (documentId) =>
+          heard === null || callsUnmarked ? undefined : transcripts.has(documentId),
       },
       original
         ? {
@@ -2645,6 +2654,8 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        // Known before they are shown, so this call's lines are marked as this call's (#3005).
+        for (const passage of kept) transcripts.add(passage.documentId);
         if (heard) messages = withTranscript(messages, session.show(kept));
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {
@@ -2663,7 +2674,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
@@ -3656,7 +3666,7 @@ export function createAnswers(options: AnswersOptions) {
             analysisInstructions(withAnalysisTools),
             codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
-            meetingInstructions(heard !== null),
+            meetingInstructions(heard !== null, callsUnmarked),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -3672,6 +3682,7 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
+                  callsUnmarked,
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),

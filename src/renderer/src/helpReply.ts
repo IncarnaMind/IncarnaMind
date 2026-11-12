@@ -4,7 +4,10 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { AnswerStatus, MarkedCitation } from "../../core/api";
+import type { AnswerStatus, MarkedCitation, Meeting } from "../../core/api";
+import type { Language } from "../../core/language";
+import { type DateOptions, formatDateTime } from "../../shared/dates";
+import { isTranscriptLocation, type Translate } from "../../shared/locations";
 import {
   EFFECT_MARK,
   HELP_SHAPE,
@@ -199,6 +202,43 @@ export function uncheckedReason(
     ? reason
     : null;
 }
+
+/**
+ * When the call of each cited Transcript started, by Document id, for the ones that show it beside
+ * their name (#3005): an earlier call's, and this call's (`thisCall`, its Transcript's id) only when
+ * another cited Transcript has the same name.
+ */
+export function callStarts(
+  cited: readonly Pick<MarkedCitation, "documentId" | "documentName" | "location">[],
+  meetings: readonly (Pick<Meeting, "kind" | "startedAt"> & {
+    transcript: { documentId: string | null } | null;
+  })[],
+  thisCall: string | null,
+): Map<string, string> {
+  const transcripts = cited.filter((citation) => isTranscriptLocation(citation.location));
+  const starts = new Map<string, string>();
+  for (const citation of transcripts) {
+    const startedAt = meetings.find(
+      (meeting) =>
+        meeting.kind === "meeting" && meeting.transcript?.documentId === citation.documentId,
+    )?.startedAt;
+    if (!startedAt) continue;
+    const sameName = transcripts.some(
+      (other) =>
+        other.documentId !== citation.documentId && other.documentName === citation.documentName,
+    );
+    if (citation.documentId !== thisCall || sameName) starts.set(citation.documentId, startedAt);
+  }
+  return starts;
+}
+
+/** A call's start as a cited Transcript shows it: "started 09:00", "开始于 09:00". */
+export const startedLabel = (
+  startedAt: string,
+  t: Translate,
+  language: Language,
+  options?: DateOptions,
+): string => t("meetings.help.started", { time: formatDateTime(startedAt, language, options) });
 
 const CITATION_MARKER = /\[\^\d+\]/g;
 
