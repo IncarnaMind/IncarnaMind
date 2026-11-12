@@ -174,6 +174,18 @@ const CONSENTS: {
     chosenTagging: true,
   },
   {
+    consent: "Organize's, under Automatic",
+    sendsTo: "cloud",
+    setUp: async (core) => {
+      // The chat model chosen first leaves Organize's consent, as Organize's own model did before
+      // it stopped keeping one (#2835); then Automatic, which tags with the chat model.
+      await chooseCloudModel(core);
+      const classifier: LibraryClassifier = { kind: "automatic" };
+      await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, classifier });
+      return classifier;
+    },
+  },
+  {
     consent: "tagging's, from TypeSafe Jev's key",
     sendsTo: "jev",
     setUp: async (core) => {
