@@ -119,7 +119,48 @@ The second write of each session came out the same as the first in every cell, o
   | 5200 6:2 | 5000 12:1 refused |
   | (ends 5.3 s) | 5100 6:1, 5200 6:2, 6000 9:1, 6000 12:1 refused, 6100 9:2, 7000 12:1, 7100 12:2 (ends 7.2 s) |
 
-- **The so-many-at-once key that takes one, at 0.5 s and 1 s (bar 3, +1.5 s and +2.0 s).** No wait is stated, so both heads use the AI SDK's own retries. Of six requests waiting for one place, a different one wins at each turn, and the last ends later. Every mark lands on both heads.
+- **The so-many-at-once key that takes one, at 0.5 s and 1 s (bar 3, +1.5 s and +2.0 s).** No wait is stated, so both heads use the AI SDK's own retries. They differ in how the run gets its places back.
+  - **What the logs show:** both heads drop to three places at 6 s, when three checks fail whole after the AI SDK's retries.
+    - **The gated head** gets a fourth place back after a calm round: at 10 s at 0.5 s a reply, and at 15 s at 1 s. It gets a fifth at 17.5 s and 26 s.
+    - **This head** stays at three to the end. A check whose request met a limit counts toward no calm round, even when the AI SDK's own retry then got it through (`send` sets `met` and `calm = 0` before it throws the limit on).
+  - **Every mark lands on both heads.**
+  - **The timelines** (ms, sentence:turn, with the places allowed in brackets; the places were logged for this reading and the logging taken out again), from where the heads first differ:
+
+  **0.5 s a reply** (the gated head ends at 21.0 s, this head at 22.5 s):
+
+  | Gated head | This head |
+  |---|---|
+  | 9000 5:1 (3) | 9000 5:1 (3) |
+  | 9500 5:2 (3) | 9500 5:2 (3) |
+  | 10000 8:1 (4) | 10000 8:1 (3) |
+  | 10000 6:1 refused (4) | 10000 6:1 refused (3) |
+  | 10000 4:0 refused (4) | 10000 4:0 refused (3) |
+  | 10000 10:0 refused (4) | 10500 8:2 (3) |
+  | 10500 8:2 (4) | 11000 10:0 (3) |
+  | 11000 11:0 (4) | 11500 10:1 (3) |
+  | 11500 11:1 (4) | 12000 4:0 (3) |
+  | 12000 4:0 (4) | 12000 10:2 refused (3) |
+  | 12000 10:0 refused (4) | 12500 4:1 (3) |
+  | 12000 11:2 refused (4) | 13000 4:2 (3) |
+  | 12500 4:1 (4) | 13500 11:0 (3) |
+  | 13000 4:2 (4) | 14000 6:1 (3) |
+
+  **1 s a reply** (the gated head ends at 37.0 s, this head at 39.0 s):
+
+  | Gated head | This head |
+  |---|---|
+  | 14000 5:1 refused (3) | 14000 5:1 refused (3) |
+  | 14000 6:2 refused (3) | 14000 6:2 refused (3) |
+  | 15000 4:0 (4) | 15000 4:0 (3) |
+  | 15000 8:0 refused (4) | 16000 6:2 (3) |
+  | 16000 6:2 (4) | 16000 4:1 refused (3) |
+  | 16000 4:1 refused (4) | 17000 8:0 (3) |
+  | 17000 8:0 (4) | 18000 5:1 (3) |
+  | 17000 9:0 refused (4) | 18000 4:1 refused (3) |
+  | 18000 5:1 (4) | 18000 8:1 refused (3) |
+  | 18000 4:1 refused (4) | 19000 5:2 (3) |
+  | 18000 8:1 refused (4) | 20000 8:1 (3) |
+  | 19000 9:0 (4) | 20000 9:0 refused (3) |
 
 ## What was built, and the variants measured first
 
@@ -136,7 +177,20 @@ Every variant was measured with the same harness against the same gated-head fil
 | The gated head itself, twelve against six | 8 | 1 | – | – | 1 |
 
 - **Why A failed:** one refusal paused every request of the run, and each refusal moved that pause by its own request's next step. On a key that refuses often, the steps reached 16 s and held every check. Six on the so-many-at-once key that takes one went from 13.3 s to 233.9 s. At 2 s a reply, 7 of 12 sentences ran out of waits and landed Not checked.
-- **Why G:** where the service states a wait, waiting it inside the check is never worse here than the gated head's, and keeps the check's earlier turns. Where it states none, our own steps were worse than the AI SDK's 2 and 4 s retries followed by the run's pauses (C, D, E). So G leaves that path as it is.
+- **Why G:** where the service states a wait, waiting it inside the check is never worse in these 40 cells than the gated head's, and it keeps the check's earlier turns. Where it states none, our own steps were worse than the AI SDK's 2 and 4 s retries followed by the run's pauses (C, D, E).
+  - **So G keeps today's retries and pauses for that path. How the width comes back is not today's:** a check whose request met any limit counts toward no calm round, as the one-at-a-time cells above show.
+
+## Accepted on 2026-11-12
+
+The built design (G) goes ahead with these five cells failed, accepted as misses and not passed. The four bars stay as written for the next change to width, retries or how a run narrows.
+
+| Cell | Bar | Numbers |
+|---|---|---|
+| So-many-at-once, fits six, 0.1 s a reply | 1 | six 0.6 s, twelve 2.3 s (+1.7 s); the same on the gated head |
+| Very small bucket, 0.5 s | 1 | six 18.0 s, twelve 19.5 s (+1.5 s); the gated head 19.0 s and 22.5 s |
+| Very small bucket, 0.1 s | 3 | six 5.3 s on the gated head, 7.2 s here (+1.9 s); refused 18, then 25 |
+| So-many-at-once, takes one, 0.5 s | 3 | six 21.0 s on the gated head, 22.5 s here (+1.5 s); refused 25, then 24 |
+| So-many-at-once, takes one, 1 s | 3 | six 37.0 s on the gated head, 39.0 s here (+2.0 s); refused 43, then 36 |
 
 ## Added 2026-11-12, before its run: a key that counts a refused request
 
@@ -149,3 +203,26 @@ OpenAI's guide says, under "Retrying with exponential backoff": "unsuccessful re
   - **2.** Twelve lands every mark six lands.
   - **3.** Six on this head is never later, and never lands fewer marks, than six on the gated head.
 - **What a miss would mean.** A cell this head misses is the cell that a place taken away below six would be built on.
+
+### Result, 2026-11-12: bar 3 fails in 6 of 8 cells; in 5 of them this head lands no mark at six
+
+| Key · reply | Gated head, six | Gated head, twelve | This head, six | This head, twelve | Bar 2 | Bar 3 |
+|---|---|---|---|---|:-:|:-:|
+| refuses six · 0.1 s | 2.3 s, 12 ✓, 6 refused | 2.3 s, 12 ✓, 6 refused | 2.3 s, 12 ✓, 6 refused | 2.3 s, 12 ✓, 6 refused | ✓ | ✓ |
+| refuses six · 0.5 s | 8.0 s, 12 ✓, 28 refused | 14.0 s, 12 ✓, 40 refused | 8.0 s, 12 ✓, 28 refused | 8.0 s, 12 ✓, 28 refused | ✓ | ✓ |
+| refuses six · 1 s | 21.0 s, 12 ✓, 20 refused | 26.0 s, 12 ✓, 39 refused | 122.0 s, **0 ✓, 12 Not checked** (rate limit), 489 refused | the same | ✓ | **✗** |
+| refuses six · 2 s | 41.0 s, 12 ✓, 20 refused | 43.0 s, 12 ✓, 23 refused | 124.0 s, **0 ✓, 12 Not checked**, 249 refused | the same | ✓ | **✗** |
+| very small · 0.1 s | 26.5 s, 12 ✓, 79 refused | 26.3 s, 12 ✓, 75 refused | 30.6 s, 12 ✓, 165 refused | the same | ✓ | **✗ (+4.1 s)** |
+| very small · 0.5 s | 81.5 s, 12 ✓, 79 refused | 82.0 s, 12 ✓, 80 refused | 120.5 s, **0 ✓, 12 Not checked**, 246 refused | the same | ✓ | **✗** |
+| very small · 1 s | 134.0 s, 12 ✓, 79 refused | 135.0 s, 12 ✓, 80 refused | 121.0 s, **0 ✓, 12 Not checked**, 126 refused | the same | ✓ | **✗** |
+| very small · 2 s | 264.0 s, 12 ✓, 85 refused | 266.0 s, 12 ✓, 86 refused | 122.0 s, **0 ✓, 12 Not checked**, 66 refused | the same | ✓ | **✗** |
+
+- **Bar 2 holds,** but only because six and twelve are the same on this head: in five cells both land nothing.
+- **What the timeline shows** (refuses six, 1 s a reply, six):
+  - Four requests go at 0 s, and two are refused with a stated wait of 1 s. From then on, every request is refused, each at its own stated second, to the 2-minute bound.
+  - Each second the key refills four requests' room, and the four to six refused requests that come back then take it all, since a refusal takes room too. No request gets through again: 489 refusals, and all 12 sentences land Not checked for the rate limit at 122 s.
+- **On the gated head,** the same key is survived. A request is retried twice by the AI SDK, then its check fails whole, the run pauses new checks and gives up a place, and the restarted checks come back spread out.
+- **Measured, not built (the same harness, no paid request):**
+  - **H: a place taken away below six for each limit, and new checks paused for the stated wait.** It doesn't help: the same 5 cells lose all 12 marks, since the checks already running keep sending. Across the 40 cells it also fails bar 3 in 10 (G: 3).
+  - **I: a stated wait is waited inside the check at most twice; a third refusal goes to today's path** (the check fails whole, the run's pause, a place given up, the check restarted). Every mark lands in all 8 counting cells, and bar 3 fails in one (refuses six, 2 s: 47.0 s against 41.0 s). Across the 40 cells it fails bar 1 in 5 (G: 2) and bar 3 in 2 (G: 3).
+- **What a miss here would mean:** this is the cell a place taken away below six would have been built on. H shows that a place taken away doesn't save the marks here; what does is fewer retries of a refused request (I).

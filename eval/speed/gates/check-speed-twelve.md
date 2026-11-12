@@ -219,3 +219,15 @@ The runs were made on the tree the gate measured: the step's code at 8b5f4ffd2, 
 | DeepSeek V4.1 Flash, en | today (6) | 4.5 s | 13.9 s | 7.4 / 11.3 → 7.3 / 11.2 | 0 | 0 | $0.009 |
 
 **Spend:** $0.13 for the 13 runs, by their own counts (about $0.01 a run, against the $0.04–0.05 estimated). The gate's spend is now $5.05 of its $5.80 stop.
+
+### 2026-11-12: what a check sends, this head against the tree the gate measured
+
+The gate measured the step's code at 8b5f4ffd2, on `main` at 36800b60c. This head has since added the request-level wait (#2944) and merged `main` at 38e651e14, #2963 among it. `eval/speed/checkRequests.speed.ts` records every request the scripted model is sent in one session on each tree: its instructions, messages, Tools, output limit, temperature, options and model. Ids, times, folders and the prompt cache's key are written as placeholders. No request is paid for.
+
+- **First, what differs: #2963's output limit, and only that.**
+  - An Answer's own check of 12 cited sentences sends two sentence batches. They asked for 2,400 and 1,200 tokens on the measured tree, and ask for 7,400 and 6,200 on this head.
+  - Their instructions, messages and options are unchanged.
+- **The gate cells are a write's check, and #2963 touches none of them.**
+  - In a write of 12 at six and at twelve, all 53 requests are the same on both trees: the 36 check Runs, the Answer's own requests, and the rest.
+  - None of the 54 gate runs on record sent a sentence batch.
+- **The Answer's own check is touched, Sol's included** (a thinking model). No gate here timed it.

@@ -133,6 +133,41 @@ const slowCheck = {
 (globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
 
 /**
+ * A rate limit on a check Run's requests, which a window test sets through `incarnamindCheckLimit`
+ * (#2944): `once` refuses the next one, saying to wait that many seconds; `everyMs` lets one through
+ * that often, refusing the rest with the whole seconds left until the next.
+ */
+const checkLimit = {
+  once: null as number | null,
+  everyMs: null as number | null,
+  last: 0,
+};
+(globalThis as { incarnamindCheckLimit?: typeof checkLimit }).incarnamindCheckLimit = checkLimit;
+
+/** The rate limit a check Run's request meets now, as the provider sends it; null to let it through. */
+function checkLimited(): APICallError | null {
+  const limited = (seconds: number) =>
+    new APICallError({
+      message: "Rate limit reached for requests",
+      url: "https://fake.invalid/chat",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseHeaders: { "retry-after": String(seconds) },
+      isRetryable: true,
+    });
+  if (checkLimit.once !== null) {
+    const seconds = checkLimit.once;
+    checkLimit.once = null;
+    return limited(seconds);
+  }
+  if (checkLimit.everyMs === null) return null;
+  const left = checkLimit.last + checkLimit.everyMs - Date.now();
+  if (left > 0) return limited(Math.max(1, Math.ceil(left / 1000)));
+  checkLimit.last = Date.now();
+  return null;
+}
+
+/**
  * Every request a model was sent, with where it would have gone and the key it carried, so a
  * window test can see that a key reaches no service before the User chooses one (#2865).
  */
@@ -304,6 +339,8 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
       if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) {
         await new Promise<void>((go) => slowCheck.waiting.push(go));
       }
+      const limited = CHECK_RUN.test(systemOf(prompt)) ? checkLimited() : null;
+      if (limited) throw limited;
       const refused = refusal(spec, {
         ...(tools && { tools }),
         ...(responseFormat && { responseFormat }),

@@ -211,9 +211,9 @@ async function writeRow(core: Core, conversationId: string, language: "en" | "zh
   return { row: mindCallText(t, call, "Harbour notes", language), call };
 }
 
-// protects=a check request refused with a stated wait, 40 s as #2944 names and 90 s past what the AI SDK's own retry takes, is sent again inside its check only once the wait is over, never sooner, and its verdict lands; the check doesn't start over; while it waits the write's row says "Rate limit reached · resumes at {time}" in Tags' words, in English and Chinese, and says it is checking again once the wait is over (#2944); fails_when=the request goes again sooner than the service said, the check is sent from its first turn again, the verdict doesn't land, or the row keeps saying it is checking while it waits; no_claim=what a real service states.
-test.each([40, 90])(
-  "a request refused with a stated wait of %i s goes again once it is over, and the row says when",
+// protects=a check request refused with a stated wait, 40 s as #2944 names and 90 s past what the AI SDK's own retry takes, is sent again inside its check only once the wait is over, never sooner, and its verdict lands; the check doesn't start over; while a wait of 5 s or more lasts the write's row says "Rate limit reached · resumes at {time}" in Tags' words, in English and Chinese, a 1 s wait leaves its checking words, and once the wait is over it says it is checking again (#2944); fails_when=the request goes again sooner than the service said, the check is sent from its first turn again, the verdict doesn't land, the row keeps its checking words through a long wait, or a second's wait changes them; no_claim=what a real service states.
+test.each([1, 5, 40, 90])(
+  "a request refused with a stated wait of %i s goes again once it is over, and the row says when for 5 s or more",
   async (seconds) => {
     const clock = virtualClock();
     let refusedAt: number | null = null;
@@ -245,6 +245,19 @@ test.each([40, 90])(
         if (refusedAt === null || sentAgainAt !== null || to !== refusedAt + seconds * 1000) return;
         const id = conversationId;
         if (id === null) return;
+        if (seconds < 5) {
+          // Past the moment the Answer is stored after it changes (50 ms on the computer's own clock).
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          const en = await writeRow(core, id, "en");
+          const zh = await writeRow(core, id, "zh-CN");
+          expect(en?.call.mindChange?.limitedUntil).toBe(undefined);
+          rows.push(en?.row ?? "", zh?.row ?? "");
+          expect(rows).toEqual([
+            "Checking 6 sentences in “Harbour notes”…",
+            "正在核对“Harbour notes”中的 6 句话…",
+          ]);
+          return;
+        }
         // The Answer is stored a moment after it changes, on the computer's own clock.
         const resumes = await vi.waitFor(
           async () => {
@@ -510,6 +523,44 @@ test("with no rate limit, a write's requests go as at the gated head: as many at
       "3000": "7:2 8:2 9:2 10:2 11:2 12:2",
     },
   });
+});
+
+// protects=a Question asked while a write's check runs twelve wide gets its answer while the twelve checks are still out, and those checks then finish and land every mark (#2532); fails_when=the Question waits for the check to end, fails, or a check's mark is lost to it; no_claim=a key whose limit the Question's request meets, which #2944's items 2 and 3 take up.
+test("a Question asked during a twelve-wide check gets its answer, and the check's marks still land", async () => {
+  const release = gate();
+  const question = "When do spring tides come?";
+  const { core, seen, start, client, folderId } = await writeChecked(
+    12,
+    12,
+    (_, reply) =>
+      isVerdict(reply) ? { ...reply, pause: { after: 0, until: release.until } } : reply,
+    {},
+    (call) =>
+      call.prompt.includes(question) ? { text: "Spring tides come at new and full moon." } : null,
+  );
+  await start();
+  await waitUntil(() => expect(seen.running.size).toBe(12));
+
+  const asked = await core.askInConversation({
+    text: question,
+    scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+  });
+  if (!asked.asked) throw new Error(`The Question wasn't asked: ${JSON.stringify(asked)}`);
+  const ended = await answerEnded(core, asked.answerId);
+  const { messages } = await core.getConversation(asked.conversation.id);
+  const answer = messages.find(
+    (message): message is ConversationAnswer =>
+      message.kind === "answer" && message.id === asked.answerId,
+  );
+
+  expect(ended.event).toBe("finished");
+  expect(answer?.text).toBe("Spring tides come at new and full moon.");
+  // The twelve checks were out the whole time, none ended.
+  expect(seen.running.size).toBe(12);
+  expect(seen.events.some((event) => event.kind === "verdict")).toBe(false);
+  release.open();
+  await waitUntil(() => expect([...marksOf(client).values()]).toEqual(TWELVE_SUPPORTED));
+  expect(seen.most).toBe(12);
 });
 
 // protects=a later sentence waiting its turn is let go at once when the run is stopped, so a Stop never hangs on the stagger, and the first six never wait (#2532); fails_when=a stopped write's later sentences wait for first replies that never come; no_claim=what a stopped check lands, which ./writtenChecks.test.ts holds.

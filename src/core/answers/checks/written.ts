@@ -90,6 +90,7 @@ import { claimsAtOnce, writtenChecksAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import { stagger } from "./stagger";
 import type { CheckScope } from "./verify";
+import { waitLine } from "./waitLine";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -1038,7 +1039,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         ...run,
         concurrency: atOnce,
         limitedAtOnce: claimsAtOnce(prepared),
-        onPause: (until) => input.limited?.(until),
+        onPause: waitLine(run.timers.now, (until) => input.limited?.(until)),
         onLimit: () => order.limited(),
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure; the check fails after the marks that can land have, so none counts
