@@ -22,6 +22,11 @@ export interface SelectionState {
   keys: ReadonlySet<string>;
   /** Where a Shift-click or Shift+arrow extends from: the last one chosen. */
   anchor: ObjectRef | null;
+  /**
+   * The User picked them, with ⌘-click or Ctrl-click, Shift-click, ⌘A or a checkbox. A click that
+   * opens a row, or the sidebar following what is shown, only marks the current row.
+   */
+  picked: boolean;
 }
 
 export const NOTHING_SELECTED: SelectionState = {
@@ -29,22 +34,24 @@ export const NOTHING_SELECTED: SelectionState = {
   items: [],
   keys: new Set(),
   anchor: null,
+  picked: false,
 };
 
 const of = (
   surface: SelectSurface,
   items: readonly ObjectRef[],
   anchor: ObjectRef | null,
+  picked: boolean,
 ): SelectionState =>
   items.length === 0
     ? NOTHING_SELECTED
-    : { surface, items, keys: new Set(items.map(refKey)), anchor };
+    : { surface, items, keys: new Set(items.map(refKey)), anchor, picked };
 
 /** What another surface held is gone: a gesture here starts from nothing. */
 const here = (state: SelectionState, surface: SelectSurface) =>
   state.surface === surface ? state : NOTHING_SELECTED;
 
-/** A click: just this one, which is also where a range starts. */
+/** A click: just this one, the current row, which is also where a range starts. */
 export const choose = (
   state: SelectionState,
   surface: SelectSurface,
@@ -52,10 +59,11 @@ export const choose = (
 ): SelectionState =>
   state.surface === surface &&
   state.items.length === 1 &&
+  !state.picked &&
   state.anchor !== null &&
   refKey(state.anchor) === refKey(ref)
     ? state
-    : of(surface, [ref], ref);
+    : of(surface, [ref], ref, false);
 
 /** ⌘-click or Ctrl-click: adds it, or removes it if it was in. */
 export function toggle(
@@ -68,7 +76,7 @@ export function toggle(
   const items = base.keys.has(key)
     ? base.items.filter((each) => refKey(each) !== key)
     : [...base.items, ref];
-  return of(surface, items, ref);
+  return of(surface, items, ref, true);
 }
 
 /** The refs from one to the other, both included, in the order given. */
@@ -93,7 +101,7 @@ export function extend(
 ): SelectionState {
   const base = here(state, surface);
   const range = base.anchor ? between(order, base.anchor, ref) : null;
-  return range ? of(surface, range, base.anchor) : of(surface, [ref], ref);
+  return range ? of(surface, range, base.anchor, true) : of(surface, [ref], ref, true);
 }
 
 /** ⌘A: everything in view. The anchor stays if it is in view. */
@@ -107,7 +115,7 @@ export function selectAll(
     base.anchor && order.some((each) => refKey(each) === refKey(base.anchor as ObjectRef))
       ? base.anchor
       : (order[0] ?? null);
-  return of(surface, order, anchor);
+  return of(surface, order, anchor, true);
 }
 
 /** Esc, or going to the other surface. */
@@ -123,5 +131,10 @@ export function keepOnly(
   const surface = state.surface;
   if (surface === null) return state;
   const items = state.items.filter(exists);
-  return of(surface, items, state.anchor && exists(state.anchor) ? state.anchor : null);
+  return of(
+    surface,
+    items,
+    state.anchor && exists(state.anchor) ? state.anchor : null,
+    state.picked,
+  );
 }

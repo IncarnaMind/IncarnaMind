@@ -168,9 +168,10 @@ describe("An Answer's stored usage", { timeout: 30_000 }, () => {
     const answer = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
 
     expect(answer.steps?.unbackedClaims).toEqual(["added"]);
-    expect(asked).toEqual(["claimed-changes"]);
+    // Nothing was changed, so the check also asks whether the reply says the request is done.
+    expect(asked).toEqual(["claimed-changes", "request-done"]);
     const requests = model.doStreamCalls.filter((call) => !call.tools?.length).length;
-    expect(await finished).toEqual(stored(...Array(requests).fill(200), 500));
+    expect(await finished).toEqual(stored(...Array(requests).fill(200), 500, 500));
   });
 
   // protects=a local model's retries of its quotes and its figures count where the Answer counts its own requests; fails_when=either retry's tokens are left out, as they were (#2817).

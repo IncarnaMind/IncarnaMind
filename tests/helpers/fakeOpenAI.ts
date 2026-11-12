@@ -178,17 +178,18 @@ export interface FakeOpenAI {
   responses(): ApiRequest[];
 }
 
-/** Responses requests apart from the reply's change-claim judge. */
+/** Responses requests apart from the checks of what the reply says it changed (#2878). */
 export const answerResponses = (fake: FakeOpenAI): ApiRequest[] =>
-  fake
-    .responses()
-    .filter(
-      (request) =>
-        typeof request.body.instructions !== "string" ||
-        !request.body.instructions.startsWith(
-          "You check an AI assistant's reply against IncarnaMind's record",
-        ),
+  fake.responses().filter((request) => {
+    const { instructions } = request.body;
+    return (
+      typeof instructions !== "string" ||
+      ![
+        "You check an AI assistant's reply against IncarnaMind's record",
+        "You read what the User asked the assistant, in <question>, and the assistant's reply",
+      ].some((opening) => instructions.startsWith(opening))
     );
+  });
 
 /** What the User does on OpenAI's page, as the redirect back to the app says it. */
 export type Decision = { approve: Approval } | "decline";

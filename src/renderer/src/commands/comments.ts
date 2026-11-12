@@ -34,6 +34,7 @@ export const commentCommands: readonly Command[] = [
     keywords: ["comments.keywords"],
     shortcut: { keys: "CmdOrCtrl+Alt+M" },
     group: "main",
+    appliesToText: true,
     // From ⌘K the focus is the tab, so this acts on the Mind in front's editor and its selection;
     // in a viewer it is the Document whose words are selected.
     // The comment's own Undo line takes it back, one step.

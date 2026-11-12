@@ -86,6 +86,8 @@ async function answered(
     {
       generate: (call) => {
         if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        if (call.question === "request-done")
+          return { text: '{"asks_change":"no","request":"none"}' };
         // A model on this computer tags the Documents added too.
         if (call.system.startsWith("You tag a User's Documents")) return { text: '{"tagged":[]}' };
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
