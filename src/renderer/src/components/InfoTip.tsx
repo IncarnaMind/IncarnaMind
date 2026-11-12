@@ -1,9 +1,7 @@
 import { useId, useRef } from "react";
-import { createPortal } from "react-dom";
-import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
 import { InfoLineIcon } from "./lineIcons";
-import { useTopModal } from "./useModal";
+import { TipPopover } from "./TipPopover";
 import { useTip } from "./useTip";
 
 /** What would be a helper line under a control, as a tooltip beside its label (DESIGN.md, Words on screen). */
@@ -13,7 +11,6 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
   const descriptionId = id ?? generatedId;
   const button = useRef<HTMLButtonElement>(null);
   const tip = useTip(button);
-  const modal = useTopModal();
 
   return (
     <>
@@ -37,23 +34,11 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
           {text}
         </span>
       )}
-      {tip.shown &&
-        button.current &&
-        createPortal(
-          <Popover
-            anchor={button.current}
-            role="tooltip"
-            id={descriptionId}
-            onDismiss={tip.close}
-            onPointerMove={tip.point}
-            onPointerLeave={tip.leave}
-          >
-            <div className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-[12px] leading-5 font-normal text-ink shadow-popover">
-              {text}
-            </div>
-          </Popover>,
-          modal ?? document.body,
-        )}
+      {tip.shown && button.current && (
+        <TipPopover anchor={button.current} tip={tip} id={descriptionId}>
+          {text}
+        </TipPopover>
+      )}
     </>
   );
 }

@@ -2,7 +2,7 @@ import { Fragment, type Ref, useEffect, useImperativeHandle, useRef, useState } 
 import type { Skill } from "../../../core/api";
 import { menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
-import { skillTitle } from "../skills";
+import { skillsInListOrder, skillTitle } from "../skills";
 import type { ChoiceListHandle } from "./ScopePicker";
 import { matchSlashItems, type SlashItem, skillSlashItems } from "./slashItems";
 
@@ -59,14 +59,15 @@ export function SkillChoiceList({
     : [];
   const items = [
     ...research,
-    ...skillSlashItems(skills, describe, undefined, (skill) => skillTitle(skill.name, t)),
+    ...skillSlashItems(skillsInListOrder(skills), describe, undefined, (skill) =>
+      skillTitle(skill.name, t),
+    ),
   ];
   const isBuiltIn = (item: SlashItem) =>
     skills.some((skill) => `skill-${skill.name}` === item.id && skill.builtIn);
-  // The User's own first, then the built-in ones, as Settings lists them.
   const shown = matchSlashItems(items, query, (item) =>
     typeof item.label === "string" ? t(item.label) : item.label.text,
-  ).sort((a, b) => Number(isBuiltIn(a)) - Number(isBuiltIn(b)));
+  );
   const isSkill = (item: SlashItem | undefined) => item !== undefined && item.id !== RESEARCH_ID;
   const shownSkills = shown.filter(isSkill);
   const grouped = shownSkills.some(isBuiltIn) && shownSkills.some((item) => !isBuiltIn(item));

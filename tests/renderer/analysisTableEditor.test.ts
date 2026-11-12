@@ -23,7 +23,7 @@ import {
 } from "../../src/renderer/src/editor/analysisTableCommands";
 import { chartOfTable } from "../../src/renderer/src/editor/chartCommands";
 import { numberFootnotes } from "../../src/renderer/src/editor/citationNumbers";
-import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
+import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   TABLE_ACTIONS,
@@ -320,10 +320,26 @@ test("the cells and caption are never claims; a table needing a look counts once
   expect(calm.lookClaims).toEqual([]);
   expect(calm.supported).toBe(1);
   expect(shown({ kind: "differs" }).lookClaims).toHaveLength(1);
-  // Each column not recalculated counts as one figure not recalculated.
+  // Each column not recalculated counts as one figure not recalculated, for the badge's line
+  // (#2378); the card counts the table once, in its worst state (#2831): two columns not
+  // recalculated are one table not checked, and one recalculated beside one not is not checked
+  // too, never also supported.
+  const rows = (health: ReturnType<typeof shown>) => {
+    const counted = checkRows(health).filter(({ row }) => row !== "ownNotes");
+    expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
+    return counted.map(({ row, places }) => [row, places.length]);
+  };
   const twoUnearned = shown({ kind: "calculated" }, [null, null]);
   expect(twoUnearned.notRecalculated).toHaveLength(2);
   expect(twoUnearned.supported).toBe(0);
+  expect(rows(twoUnearned)).toEqual([["toCheck", 2]]);
+  const partly = shown({ kind: "calculated" }, ["sum", null]);
+  expect(partly.notRecalculated).toHaveLength(1);
+  expect(rows(partly)).toEqual([["toCheck", 2]]);
+  expect(rows(calm)).toEqual([
+    ["supported", 1],
+    ["toCheck", 1],
+  ]);
 });
 
 test("a sentence typed into the caption line is counted as the core checks it; a caption with “vs.” still names its table", () => {

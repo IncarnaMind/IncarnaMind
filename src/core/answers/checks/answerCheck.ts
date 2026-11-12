@@ -201,7 +201,7 @@ const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
  * that unit, and only the model's own words say which it meant. With nothing widened they are the
  * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
  */
-function pinnedByModel(
+export function pinnedByModel(
   figure: Figure,
   cited: readonly Citation[],
   units: AnswerCheckOptions["units"],

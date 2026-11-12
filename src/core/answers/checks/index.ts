@@ -948,6 +948,9 @@ export function createChecks(options: ChecksOptions) {
 
   /** Marks a request's sentences not checked yet "stopped". */
   function settleStopped(mindId: string, request: string): void {
+    // Quitting settles every running request at once, then closes the Notes: one that unwinds
+    // after that has been settled.
+    if (!running.has(request)) return;
     const ids = content.read(mindId, (blocks) =>
       markedSentences(blocks)
         .filter(({ check }) => check.request === request && check.state === "checking")

@@ -1,13 +1,17 @@
-import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
+import type {
+  CitationAttributes,
+  CitationCheck,
+  CitationCheckReason,
+  CitedOrigin,
+} from "../../core/api";
 import { citationState, citedSpeakers, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { citationPageOpened } from "./assistantYields";
 import { type CitedSource, useComposer } from "./composer";
 import { core } from "./core";
-import type { CitedOrigin } from "./editor/mindContext";
 import { translateNow } from "./i18n";
 import { currentTabOf } from "./layoutSlice";
-import { type AppState, useAppStore } from "./store";
+import { type AppState, useAppStore, type ViewerTarget } from "./store";
 
 /** Whether opening the cited place washes the quote: it is there, unless the check could not find it. */
 export const quoteSaysSo = (check: CitationCheck) =>
@@ -82,6 +86,7 @@ export function openCited(
         : {}),
       citation: {
         check: how.check,
+        origin: how.origin,
         ...(how.checkReason ? { checkReason: how.checkReason } : {}),
         ...(how.number && how.number > 0 ? { number: how.number } : {}),
         ...(how.label ? { label: how.label } : {}),
@@ -179,4 +184,31 @@ export async function openCurrentVersion(
     place: moved.place,
     label: moved.label ?? how.label,
   });
+}
+
+/**
+ * "Open current version" from the page that shows the version a Citation was made from (#2159),
+ * at the place that page was opened at. It keeps the origin the page was opened with (#2270): the
+ * viewer is outside the assistant, so where the page came from can only be read from the page.
+ */
+export function openCurrentVersionOf(target: ViewerTarget): Promise<void> {
+  const cited = target.citation;
+  if (!cited) return Promise.resolve();
+  return openCurrentVersion(
+    {
+      documentId: target.documentId,
+      pageFrom: cited.pageFrom ?? null,
+      pageTo: cited.pageTo ?? null,
+      quote: target.quote ?? null,
+      contentHash: cited.contentHash ?? null,
+      ...(cited.location && { location: cited.location }),
+    },
+    {
+      origin: cited.origin ?? "note",
+      check: cited.check,
+      withQuote: true,
+      ...(cited.number !== undefined && { number: cited.number }),
+      label: cited.label ?? null,
+    },
+  );
 }

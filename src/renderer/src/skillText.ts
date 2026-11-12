@@ -69,3 +69,8 @@ export function skillDescription(
   const key = skill.builtIn ? BUILT_IN_DESCRIPTIONS[skill.name] : undefined;
   return key ? t(key) : skill.description;
 }
+
+/** The User's own Skills first, then the built-in ones, as Settings lists them: the order "/" and the + menu offer them in. */
+export function skillsInListOrder<T extends { builtIn: boolean }>(skills: readonly T[]): T[] {
+  return [...skills].sort((a, b) => Number(a.builtIn) - Number(b.builtIn));
+}

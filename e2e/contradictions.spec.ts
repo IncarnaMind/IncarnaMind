@@ -134,7 +134,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   // A model billed per token: the badge's card opens by itself and asks first; one claim costs
   // less than a dollar, so no price line shows (#1941).
   const ask = window.getByTestId("check-card").getByTestId("contradictions-ask");
-  await expect(ask).toContainText("Check 1 cited claim against this Folder’s other Documents?");
+  await expect(ask).toContainText("Check 1 cited sentence against this Folder’s other Documents?");
   await expect(ask).not.toContainText("About");
   const checks = await checkCard(window);
   await screenshot(window, "contradictions-ask-en");
@@ -144,7 +144,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "contradicted");
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
-  await expect(checks.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
+  await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-found-en");
 
   await pointAndClick(window, mark);
@@ -183,7 +183,7 @@ test("the one Check in a Folder checks the cited sentence and its contradiction 
   // The sentence is checked for support and against the Folder's other Document: the contradiction is what shows.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
   const done = await checkCard(window);
-  await expect(done.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
+  await expect(done.getByTestId("health-look")).toContainText("1 needs a look");
   await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
   await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look");
   await screenshot(window, "one-check-folder-en");
@@ -213,13 +213,16 @@ test("In Chinese and a narrow window: a Mind in no Folder, and a Folder of only 
 
   await bridge(window).folder("潮汐", ["Tides"]);
   await pointAndClick(window, problem.getByTestId("checks-problem-close"));
-  // The Mind's own menu, on its tab.
+  // The Mind's own menu, on its tab, one step further under More ›.
   await window.getByTestId("mind-tab").first().click({ button: "right" });
-  const item = window.getByRole("menuitem", { name: "核对矛盾" });
+  await window.getByRole("menuitem", { name: "更多" }).hover();
+  const item = window
+    .getByRole("menu", { name: "更多" })
+    .getByRole("menuitem", { name: "核对矛盾" });
   await expect(item).toBeVisible();
   await pointAndClick(window, item);
   await expect(window.getByTestId("check-card").getByTestId("checks-problem")).toContainText(
-    "“潮汐”中只有这些说法引用的文档。",
+    "“潮汐”中只有这些句子引用的文档。",
   );
   await screenshot(window, "contradictions-only-cited-zh-narrow");
 });
@@ -251,11 +254,58 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
   ).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
-  await expect(watched).toContainText("After “Office” changed: 1 of 1 cited claims contradicted");
-  await expect(checks.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
+  await expect(watched).toContainText(
+    "After “Office” changed: 1 of 1 cited sentences contradicted",
+  );
+  await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-watched-en");
 
   await pointAndClick(window, watched.getByTestId("contradictions-watched-close"));
   await expect(watched).toHaveCount(0);
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
 });
+
+const ASKED = {
+  en: {
+    query: "contradictions",
+    label: "Check for contradictions",
+    check: "Check",
+    month: "used this month",
+  },
+  "zh-CN": { query: "矛盾", label: "核对矛盾", check: "核对", month: "本月已用" },
+} as const;
+
+for (const [first, then] of [
+  ["en", "zh-CN"],
+  ["zh-CN", "en"],
+] as const) {
+  // protects=the question for contradictions puts its estimate in the language the card shows, also after a switch while it is open, and its button says the check's own word (#2831); fails_when=the estimate keeps the words it was asked in, or the Chinese button says 检查; no_claim=the amounts.
+  test(`the question for contradictions follows the language switched to while it is open (${first} to ${then})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    await writeFile(join(sources, "Office.pdf"), OFFICE);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await bridge(window).cloudModel();
+    // A cap, so a run under a dollar still shows its estimate (#1941).
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
+    });
+    await setWindowSize(app, window, 1440, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf"), join(sources, "Office.pdf")]);
+    await citedClaim(window);
+    await bridge(window).folder("Harbours", ["Tides", "Office"]);
+    await setLanguage(window, first);
+
+    await runFromPalette(window, ASKED[first].query, ASKED[first].label);
+    const ask = window.getByTestId("check-card").getByTestId("contradictions-ask");
+    await expect(ask).toContainText(ASKED[first].month);
+    await expect(ask.getByTestId("contradictions-check")).toHaveText(ASKED[first].check);
+    await setLanguage(window, then);
+    await expect(ask).toContainText(ASKED[then].month);
+    await expect(ask).not.toContainText(ASKED[first].month);
+    await expect(ask.getByTestId("contradictions-check")).toHaveText(ASKED[then].check);
+    await app.close();
+  });
+}

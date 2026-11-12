@@ -60,7 +60,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type(`@${words.folder}`);
-    await expect(window.getByTestId("scope-choice")).toHaveCount(1);
+    // In Chinese a new Library's Contract Tag has the Folder's name too (#2339): the Folder is first.
+    const folder = window.locator('[data-testid="scope-choice"][data-kind="folder"]');
+    await expect(folder).toHaveCount(1);
+    await expect(folder).toHaveAttribute("aria-selected", "true");
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("composer").getByTestId("scope-chip")).toBeVisible();
 

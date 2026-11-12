@@ -51,7 +51,7 @@ import type {
 import { InvalidInputError, NotFoundError } from "../errors";
 import { type Folders, folderIdFor } from "../folders";
 import type { Database } from "../storage";
-import { markArrived, nextSequence } from "../tags/held";
+import { arrivalPlace, markArrived } from "../tags/held";
 import {
   createIgnore,
   type FileIdentity,
@@ -242,6 +242,8 @@ export interface LibraryOptions {
   detectDataless: boolean;
   /** How long reading these files takes on this computer, in seconds (./readingSpeed). */
   readingSeconds(files: readonly FoundFile[]): number | null;
+  /** Local mode: what arrives now never goes to a cloud service by itself (../tags/held). */
+  localOnly(): boolean;
 }
 
 /** What one pass looks at. */
@@ -1376,7 +1378,7 @@ export function createLibrary(options: LibraryOptions) {
       if (!baselineScanned(owner.id)) return { at: owner.created_at, seq: owner.created_seq };
       if (scanned.has(owner.id) || wasPlaceholder.has(file.path)) return null;
       const at = now();
-      return { at, seq: nextSequence(db, at) };
+      return { at, seq: arrivalPlace(db, at, options.localOnly()) };
     };
     announceFolders();
     try {
@@ -1573,7 +1575,7 @@ export function createLibrary(options: LibraryOptions) {
         db.run(
           `INSERT INTO linked_folders (id, path, created_seq, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [id, path, nextSequence(db, at), at, at],
+          [id, path, arrivalPlace(db, at, options.localOnly()), at, at],
         );
         for (const inner of linked.filter((row) => isInside(path, row.path))) {
           stopWatcher(inner.id);
@@ -1891,7 +1893,7 @@ export function createLibrary(options: LibraryOptions) {
           results.push(
             (await addFound(file, [], changes, true, twins, {
               at,
-              seq: nextSequence(db, at),
+              seq: arrivalPlace(db, at, options.localOnly()),
             })) ?? "unreadable",
           );
         }

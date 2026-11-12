@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
 import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
 import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
@@ -16,7 +16,6 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
-import { MetaLine } from "../components/MetaLine";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -37,12 +36,13 @@ import { useKeptInsideOf } from "../turnWall";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
+import type { BadgeMark } from "./badgeState";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
+  type CheckRow,
+  checkRows,
   type NoteHealth as Health,
-  type HealthPart,
-  type HealthSummary,
   healthSummary,
   noteHealth,
 } from "./healthCounts";
@@ -74,13 +74,14 @@ const NO_HEALTH: Health = {
   tableCells: [],
   noCitation: [],
   ownNotes: [],
+  supportedAt: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
   unexamined: [],
 };
 
-/** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
+/** A count's words with the number in bold, as the card's rows show it: "**3** not checked". */
 export function Counted({ text, count }: { text: string; count: string }) {
   const at = text.indexOf(count);
   if (at < 0) return <>{text}</>;
@@ -93,79 +94,41 @@ export function Counted({ text, count }: { text: string; count: string }) {
   );
 }
 
-/** A row of the card: a part of the health, or the supported claims only the User's own notes back. */
-type HealthRowPart = HealthPart | "ownNotes";
-
 /**
- * A part's words, with its count as `shown`. Unsupported sentences "need a look", as Verify counts
- * them, whether their card says not found or unsupported (#1608).
+ * A badge mark's words, with its count as `shown`. Unsupported sentences "need a look", as Verify
+ * counts them, whether their card says not found or unsupported (#1608).
  */
 export function partLabel(
   t: ReturnType<typeof useT>,
-  part: HealthRowPart | "notChecked",
+  part: BadgeMark,
   count: number,
   shown: string,
 ): string {
   const params = { count: shown };
   switch (part) {
-    case "found":
-      return count === 1 ? t("health.found.one") : t("health.found", params);
-    case "ownNotes":
-      return count === 1 ? t("health.ownNotes.one") : t("health.ownNotes", params);
     case "notFound":
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
       return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
     case "contradicted":
       return count === 1 ? t("health.contradicted.one") : t("health.contradicted", params);
-    case "noCitation":
-      return count === 1 ? t("health.noCitation.one") : t("health.noCitation", params);
-    case "toCheck":
-      return t(count === 1 ? "health.toCheck.one" : "health.toCheck", params);
     case "notChecked":
       // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
       return t("verify.notChecked", params);
-    default:
-      return t(`health.${part}`, params);
   }
 }
 
-/**
- * The summary's one part the rows don't name: the claims a check found supported (#2313). What is
- * left — needs a look, not checked yet, no Citation — is each a row a click moves to.
- */
-function summaryParts(
-  summary: HealthSummary,
-  t: ReturnType<typeof useT>,
-  format: (value: number) => string,
-): string[] {
-  return summary.supported > 0
-    ? [
-        t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
-          count: format(summary.supported),
-        }),
-      ]
-    : [];
-}
-
-/** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
-export function PartMark({ part }: { part: HealthRowPart | "notChecked" }) {
+/** Each badge mark's small icon, as the margin draws its state. */
+export function PartMark({ part }: { part: BadgeMark }) {
   switch (part) {
-    case "found":
-      return <CheckMarkIcon check="found" className="mind-health-icon" />;
-    case "ownNotes":
-      return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "notFound":
       return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
     case "unsupported":
       return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
     case "contradicted":
       return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
-    case "toCheck":
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
-    case "noCitation":
-      return null;
   }
 }
 
@@ -218,11 +181,32 @@ export function useHealth(
   return health;
 }
 
-const ROWS: readonly HealthPart[] = ["contradicted", "unsupported", "notFound", "toCheck", "found"];
+const ROW_WORDS = {
+  look: "checks.row.look",
+  supported: "checks.row.supported",
+  ownNotes: "checks.row.ownNotes",
+  checking: "checks.row.checking",
+  toCheck: "checks.row.notChecked",
+} as const;
+
+function RowMark({ row }: { row: CheckRow }) {
+  switch (row) {
+    case "look":
+      return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
+    case "supported":
+      return <ClaimMarkIcon state="supported" className="mind-health-icon" />;
+    case "ownNotes":
+      return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
+    case "checking":
+      return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
+    case "toCheck":
+      return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+  }
+}
 
 /**
- * The check badge's card for a Mind (#96, #909): one row a part of its
- * health, each moving to the next such sentence or Citation, round to the
+ * The check badge's card for a Mind (#96, #909): one row a state of its
+ * sentences (#2831), each moving to the next sentence in it, round to the
  * first; what is running, with Stop, or why a check gave nothing, with the
  * one thing that helps; and the files the checks couldn't read, if any.
  */
@@ -274,31 +258,20 @@ export function HealthCard({
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const signedOff = useSignOffCounts(editor);
 
-  const label = (part: HealthRowPart, count: number) => partLabel(t, part, count, format(count));
-
-  // A sentence the last check couldn't sort is named on that check's line: its row would count
-  // it twice (#2313).
-  const unexamined = new Set(health.unexamined);
-  const toCheck = health.toCheck.filter((pos) => !unexamined.has(pos));
-  const countOf = (part: HealthRowPart | "checking") =>
-    part === "checking"
-      ? health.checking.length
-      : part === "toCheck"
-        ? toCheck.length
-        : health[part].length;
+  const rowText = (row: CheckRow, count: number) =>
+    t(count === 1 ? `${ROW_WORDS[row]}.one` : ROW_WORDS[row], { count: format(count) });
+  const rows = checkRows(health);
+  const placesOf = (row: CheckRow): readonly number[] =>
+    rows.find((each) => each.row === row)?.places ?? [];
 
   /**
-   * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
-   * after its marker, where its state shows, so a key can't take the Citation away. It is
-   * centred by its own position, not its paragraph's, which can be taller than the page, and clear
-   * of the fade and the badge at the page's foot.
+   * Puts the cursor at the next such sentence after it, round to the first. It is centred by its
+   * own position, not its paragraph's, which can be taller than the page, and clear of the fade and
+   * the badge at the page's foot.
    */
-  const goToNext = (part: HealthRowPart | "checking") => {
+  const goToNext = (row: CheckRow) => {
     if (editor.isDestroyed) return;
-    const cited = part === "found" || part === "notFound";
-    const targets = (part === "toCheck" ? toCheck : health[part]).map((pos) =>
-      cited ? pos + 1 : pos,
-    );
+    const targets = placesOf(row);
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
     if (next === undefined) return;
@@ -308,13 +281,13 @@ export function HealthCard({
     editor.view.focus();
     const scroller = editor.view.dom.closest(".mind-scroller");
     if (scroller) {
-      const caret = editor.view.coordsAtPos(cited ? at - 1 : at);
+      const caret = editor.view.coordsAtPos(at);
       const area = scroller.getBoundingClientRect();
       scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
     }
-    const claim = cited
-      ? undefined
-      : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
+    const claim = shownClaims(editor.state).find(
+      (each) => each.sentence.from <= at && at < each.sentence.to,
+    );
     if (!claim) return;
     setCheckCardOpen(place, false);
     if (claim.kind === "chart") {
@@ -324,35 +297,6 @@ export function HealthCard({
     setOpenClaim(place, claim.check.id);
   };
 
-  const rows = ROWS.filter((part) => countOf(part) > 0);
-  // While a run is on, the note line carries only the verdicts that landed since it started: the
-  // rows above already name the Mind's whole counts, and an earlier verdict did not just land.
-  const landedParts = ["contradicted", "unsupported", "notFound", "found"] as const;
-  const beforeRun = useRef<readonly (readonly [HealthRowPart, number])[] | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the counts are kept as the run found them, not refreshed.
-  useLayoutEffect(() => {
-    beforeRun.current =
-      running === undefined
-        ? null
-        : (beforeRun.current ?? landedParts.map((part) => [part, health[part].length] as const));
-  }, [running]);
-  const landed =
-    running === undefined || beforeRun.current === null
-      ? []
-      : landedParts
-          .map(
-            (part) =>
-              [
-                part,
-                Math.max(
-                  health[part].length -
-                    (beforeRun.current?.find(([each]) => each === part)?.[1] ?? 0),
-                  0,
-                ),
-              ] as const,
-          )
-          .filter(([, count]) => count > 0)
-          .map(([part, count]) => label(part, count));
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -363,28 +307,23 @@ export function HealthCard({
     testId: "checks-problem-close",
     onClick: () => dismissCheckProblem(mindId),
   };
-  const row = (part: HealthRowPart | "checking") => {
-    const count = countOf(part);
-    const text =
-      part === "checking"
-        ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
-            count: format(health.checking.length),
-          })
-        : label(part, count);
+  const row = (part: CheckRow) => {
+    const count = placesOf(part).length;
+    const text = rowText(part, count);
     return (
       <button
         key={part}
         type="button"
         data-testid={`health-${part}`}
         data-count={count}
-        data-part={part === "checking" ? "toCheck" : part}
-        className="check-row"
+        data-part={part}
+        className={part === "ownNotes" ? "check-row check-row--under" : "check-row"}
         aria-label={t("health.next", { part: text })}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => goToNext(part)}
       >
         <span className="check-row-mark">
-          <PartMark part={part === "checking" ? "toCheck" : part} />
+          <RowMark row={part} />
         </span>
         <span className="check-row-text">
           <Counted text={text} count={format(count)} />
@@ -396,12 +335,11 @@ export function HealthCard({
     );
   };
 
-  // What the note line says: what has landed so far while a run is on, then when it was checked.
-  // With nothing to say it takes no line, so no empty line is reserved.
+  // What the note line says: when the Note was last checked. While a run is on it says nothing:
+  // the rows show each sentence move as its check ends, and a line of what landed would count
+  // them twice (#2831). With nothing to say it takes no line, so no empty line is reserved.
   const note =
-    running !== undefined ? (
-      landed.length > 0 && <MetaLine parts={landed} />
-    ) : checkedAll != null && health.checking.length === 0 ? (
+    running === undefined && checkedAll != null && health.checking.length === 0 ? (
       // The health is counted a moment after the record lands: until no claim says it is being
       // checked, the line would name a check a row still says is running (#2313).
       <CheckedWhen
@@ -419,21 +357,9 @@ export function HealthCard({
           {t("health.allChecked")}
         </p>
       )}
-      {summary?.kind === "left" && summary.summary.supported > 0 && (
-        <MetaLine
-          data-testid="health-summary"
-          className="mind-health-summary"
-          parts={summaryParts(summary.summary, t, format)}
-        />
-      )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div className="check-rows" data-testid="mind-health">
-        {rows.map(row)}
-        {health.ownNotes.length > 0 && row("ownNotes")}
-        {health.noCitation.length > 0 && row("noCitation")}
-        {/* A claim being checked keeps its row: the card is as tall while a run is on as after
-            it, so nothing under it moves when the run ends (#1312). */}
-        {health.checking.length > 0 && row("checking")}
+        {rows.map(({ row: part }) => row(part))}
       </div>
       {(health.kept.length > 0 || opinionsHere) && (
         <p data-testid="health-kept" className="mind-health-line">
