@@ -10,6 +10,7 @@
  *   INCARNAMIND_LIVE_ANTHROPIC_KEY   Claude (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default)
  *   INCARNAMIND_LIVE_DEEPSEEK_KEY    DeepSeek (INCARNAMIND_LIVE_DEEPSEEK_MODEL, deepseek-flash by default)
  *   INCARNAMIND_LIVE_RUNS            runs of each language and instruction (1)
+ *   INCARNAMIND_LIVE_ONLY            only these, e.g. "en shorter|zh-CN translate"
  *   INCARNAMIND_LIVE_MAX_USD         stops before the next run once the spend reaches it (0.5)
  *   INCARNAMIND_LIVE_REPORT          a file to keep each run's line and the totals
  *
@@ -20,6 +21,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ChatProviderKind, EditAction } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { readFigures } from "../../src/shared/figures";
 import { createTempDataFolder, queryDatabase, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -101,7 +103,7 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
       const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1);
       const cap = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? 0.5);
       const dataDir = await createTempDataFolder();
-      const core = startCore(dataDir);
+      const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
       core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
       await core.saveChatProvider({
         kind: live.kind,
@@ -121,6 +123,8 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
         await core.updateSettings({ user: { language } });
         const paragraph = PARAGRAPHS[language];
         for (const task of TASKS) {
+          const only = process.env.INCARNAMIND_LIVE_ONLY?.split("|");
+          if (only && !only.includes(`${language} ${task.name}`)) continue;
           for (let run = 1; run <= runs; run++) {
             if (spent() >= cap) {
               stopped = true;
@@ -149,12 +153,16 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
               ...(instruction && { instruction }),
             });
             await client.settled();
-            if (result.kind !== "proposed") {
+            if (result.kind === "failed") {
               failed++;
-              report.push(`- ${language} ${task.name} ${run}: ${result.kind} (void)`);
+              report.push(
+                `- ${language} ${task.name} ${run}: failed, ${result.error.kind} ${result.error.status ?? ""} (void)`,
+              );
               continue;
             }
-            await resolveChanges(client, "accept");
+            // A reply that changed nothing, or a change the app refused, leaves the paragraph as it was.
+            const note = result.kind === "proposed" ? "" : ` (${result.kind}: nothing written)`;
+            if (result.kind === "proposed") await resolveChanges(client, "accept");
             await client.settled();
             let marks = 0;
             let words = "";
@@ -167,7 +175,7 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
             const key = `${language} ${task.name}: ${outcome}`;
             counts.set(key, (counts.get(key) ?? 0) + 1);
             report.push(
-              `- ${language} ${task.name} ${run}: ${outcome}; other numbers ${othersKept ? "kept" : "changed"}; ${marks} mark(s) · ${words.replace(/\n/g, " ")}`,
+              `- ${language} ${task.name} ${run}: ${outcome}${note}; other numbers ${othersKept ? "kept" : "changed"}; ${marks} mark(s) · ${words.replace(/\n/g, " ")}`,
             );
           }
         }
@@ -176,7 +184,7 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
       report.push(
         "",
         ...[...counts].map(([key, count]) => `- ${key}: ${count}`),
-        `- failed or refused: ${failed}${stopped ? "; stopped at the spending cap" : ""}`,
+        `- failed: ${failed}${stopped ? "; stopped at the spending cap" : ""}`,
         ...spentBy(dataDir),
       );
       if (process.env.INCARNAMIND_LIVE_REPORT)
