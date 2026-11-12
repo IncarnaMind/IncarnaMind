@@ -168,7 +168,7 @@ describe("The claim check's result rule reaches the judge (#2652 plumbing)", {
     expect(answer.steps?.unbackedClaims).toEqual(["added"]);
     const en: Translate = (key, params) => translate("en", key, params);
     expect(unbackedClaimLine(en, answer)).toBe(
-      "The assistant didn’t make every change this reply describes",
+      "The assistant didn’t do everything this reply says",
     );
   });
 });

@@ -371,6 +371,8 @@ export const checkGenerate =
       // What an Answer asks beside its checks: no claimed change, and no sentence of it judged.
       case "claimed-changes":
         return { text: JSON.stringify({ claims: [] }) };
+      case "request-done":
+        return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
       case "sentence-batch":
         return { text: JSON.stringify({ sentences: [] }) };
       case "restate": {
