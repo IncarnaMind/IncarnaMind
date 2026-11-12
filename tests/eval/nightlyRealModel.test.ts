@@ -95,7 +95,9 @@ describe("the second key", () => {
   test("the core's words, a 402 and the core's kind move the night to the next key", async () => {
     for (const log of [
       "Error: 429 账户已欠费，请充值 (org-1111aaaa2222bbbb3333cccc4444dddd)",
-      "AssertionError: 余额不足",
+      'Error: 400 {"error":{"message":"余额不足"}}',
+      "AI_APICallError: 您的账户已欠费，请充值后重试。",
+      "Organize failed on Document 4d3c.2b1a: out-of-credit (400). This key cannot be used right now.",
       'Error: 402 {"error":"nope"}',
       '{"ok":false,"error":{"kind":"out-of-credit","message":"This key cannot be used right now."}}',
     ]) {
@@ -106,6 +108,32 @@ describe("the second key", () => {
       });
       expect(asked, log).toEqual([...SECRETS.anthropic]);
       expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+    }
+  });
+
+  // protects=credit words on a line of ours (a sentence of a test's Document, an assertion on a text) are not a key out of credit: only a line that also says a provider answered counts them; fails_when=a failed step whose output holds such a sentence on an assertion line spends the key, reruns on the next one, or reads "out of credit" in the summary; no_claim=none.
+  test("credit words in a sentence of ours are a failed step, not a spent key", async () => {
+    const ours = [
+      "AssertionError: expected '没有欠费的会员可以在2027/1/31前分期缴纳冬季会费。' to be 'x' // Object.is equality",
+      "AssertionError: expected 'we are out of credits for coffee' to be 'x'",
+      "expected the note to say 余额不足",
+    ];
+    const asked: string[] = [];
+    const attempts = await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return run(1, `${ours.join("\n")}\n`);
+    });
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+    expect(attempts.map((each) => each.outOfCredit)).toEqual([false]);
+    const [attempt] = attempts;
+    const report = summary(
+      attempt ? [{ ...attempt, cases: [{ name: "a case", passed: false }], usage: [] }] : [],
+      "2026-11-12",
+    ).text;
+    expect(report).not.toContain("out of credit");
+    for (const line of ours) {
+      expect(describeFailure(line)).toBe("failed: an expectation did not hold");
+      expect(logFilter()(line)).toBe(line);
     }
   });
 
@@ -770,8 +798,8 @@ describe("a provider's words stay out of the summary and the log", () => {
         "AI_RetryError: Failed after 3 attempts. Last error: The operation was aborted due to timeout",
       ),
     ).toBe("failed: timed out");
-    expect(describeFailure("AssertionError: 请求被拒绝：账户余额不足，请充值")).toBe(
-      "refused: out of credit",
+    expect(describeFailure("Error: 429 请求被拒绝：账户余额不足，请充值")).toBe(
+      "refused: out of credit (status 429)",
     );
     expect(describeFailure('Error: 402 {"error":"nope"}')).toBe(
       "refused: out of credit (status 402)",
@@ -952,8 +980,8 @@ describe("a provider's words stay out of the summary and the log", () => {
         "failed: status 503",
       ],
       [
-        `+     "message": "Your account ${ORG} <${ACCESS}> is suspended due to insufficient balance",`,
-        "refused: out of credit",
+        `Organize failed on Document 4d3c.2b1a: out-of-credit (400). Account ${ORG} cannot be used.`,
+        "refused: out of credit (status 400)",
       ],
       [`Error: 400 账户 ${ORG} 已暂停`, "refused: status 400"],
     ];

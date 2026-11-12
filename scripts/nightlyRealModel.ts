@@ -129,8 +129,10 @@ const KINDS = Object.keys(PROVIDER_ERROR_KINDS).join("|");
 /** The core's own failure, whose message is the provider's: `"kind":"rate-limit"` in a result, `kind: 'rate-limit'` in an error printed with its fields. */
 const KIND = new RegExp(`\\bkind["']?\\s*:\\s*["'](${KINDS})["']`);
 
-/** The status in the core's own line for a failure, `auth (401)`. */
-const KIND_STATUS = new RegExp(`\\b(?:${KINDS}) \\(([1-5]\\d\\d)\\)`);
+/** The core's own line for a failure, `auth (401)`: its kind, then its status. */
+const KIND_STATUS = new RegExp(`\\b(${KINDS}) \\(([1-5]\\d\\d)\\)`);
+
+const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
 
 const NO_ANSWER = /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i;
 
@@ -149,11 +151,17 @@ const providerSaid = (text: string) =>
 /**
  * What the text says about a provider's answer to a request, in words of ours, or null when it
  * quotes none. The text may hold what the provider answered, with an account or key id in it.
+ * Credit words count only on a line that also says a provider answered (a status of 400 or more,
+ * one of the core's kinds, an AI SDK error, a `responseBody` member): "没有欠费的会员" is a
+ * sentence of a test's Document, and a 402 or the kind `out-of-credit` count alone.
  */
 function answered(text: string): string | null {
-  const status = Number(STATUS.exec(text)?.[1] ?? KIND_STATUS.exec(text)?.[1]);
-  const kind = KIND.exec(text)?.[1];
-  if (status === 402 || kind === OUT_OF_CREDIT_KIND || OUT_OF_CREDIT.test(text)) {
+  const printed = KIND_STATUS.exec(text);
+  const status = Number(STATUS.exec(text)?.[1] ?? printed?.[2]);
+  const kind = KIND.exec(text)?.[1] ?? printed?.[1];
+  const refusal =
+    status >= 400 || kind !== undefined || providerSaid(text) || RESPONSE_BODY.test(text);
+  if (status === 402 || kind === OUT_OF_CREDIT_KIND || (refusal && OUT_OF_CREDIT.test(text))) {
     return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
@@ -195,8 +203,6 @@ function ranOutOfCredit(log: string): boolean {
 /** A line of a printed object, in a diff or not: a key, then a colon. */
 const MEMBER = /^[+-]?\s+(?:"[^"]*"|[\w$]+)\s*:/;
 const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
-const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
-
 /**
  * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
  * provider's answer becomes its status or the core's failure kind and our words, every other line
