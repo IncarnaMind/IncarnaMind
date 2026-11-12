@@ -87,7 +87,10 @@ async function holdChecks(app: ElectronApplication, hold: boolean): Promise<void
 }
 
 async function pressIn(page: Page, name: string): Promise<Locator> {
-  await pointAndClick(page, page.getByTestId("help-button").filter({ hasText: name }));
+  await pointAndClick(
+    page,
+    page.getByTestId("ask-bar").getByTestId("help-prompt").filter({ hasText: name }),
+  );
   const suggestion = page.getByTestId("help-suggestion").last();
   await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   await expect(suggestion.getByTestId("help-heading")).toContainText(name);
