@@ -33,6 +33,7 @@ import {
   showsPartRows,
 } from "../../../shared/claimChecks";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
+import { ySyncOf } from "../../../shared/markKeys";
 import { sameScope } from "../../../shared/searchScope";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 
@@ -95,6 +96,10 @@ export const ClaimCheck = Mark.create({
     ),
   parseHTML: () => [],
   renderHTML: ({ mark }) => ["span", { "data-claim-check": String(mark.attrs.id ?? "") }, 0],
+  // The editor's Yjs sync keeps each check under a key of its own and reads one when two meet on
+  // the same words, by the core's rule (patches/y-tiptap/marks.mjs, #2996).
+  extendMarkSchema: (extension) =>
+    extension.name === CLAIM_CHECK_MARK ? ySyncOf(CLAIM_CHECK_MARK) : {},
 });
 
 /** A paragraph's text as checks read it, and where it is in the document. */

@@ -84,6 +84,11 @@ interface Unsaved {
 export interface MindContentOptions {
   /** Runs inside the content write's transaction; an error rolls the write back. */
   persisted?(mindId: string): void;
+  /**
+   * Brings a Note's content up to date as it is loaded, for an upgrade the User didn't make (#2996):
+   * true when it changed anything. The change is stored, but not reported as an edit.
+   */
+  upgrade?(blocks: Y.XmlFragment): boolean;
   /** Some of the Mind's changes couldn't be stored, or (null) all of them are now. */
   unsaved?(
     mindId: string,
@@ -199,9 +204,10 @@ export function createMindContent(
     if (existing) return existing;
 
     const { doc, rows } = fromStorage(mindId);
+    const upgraded = upgradeLoaded(mindId, doc);
     const mind: LoadedMind = {
       doc,
-      storedRows: rows,
+      storedRows: rows + upgraded,
       outbox: [],
       stored: true,
       cause: undefined,
@@ -218,6 +224,32 @@ export function createMindContent(
     // A Mind a newer version wrote is left exactly as stored.
     if (contentVersionOf(doc) <= CONTENT_SCHEMA_VERSION) compact(mindId, mind);
     return mind;
+  };
+
+  /**
+   * Upgrades a document just read from storage and stores the upgrade, unreported, so the Note
+   * keeps its edited time, its place on Home and its versions. Returns how many rows that took.
+   * A document a newer version wrote is left as stored.
+   */
+  const upgradeLoaded = (mindId: string, doc: Y.Doc): number => {
+    const upgrade = options.upgrade;
+    if (!upgrade || contentVersionOf(doc) > CONTENT_SCHEMA_VERSION) return 0;
+    const updates: Uint8Array[] = [];
+    const take = (update: Uint8Array) => updates.push(update);
+    doc.on("update", take);
+    try {
+      doc.transact(() => {
+        if (upgrade(doc.getXmlFragment(MIND_CONTENT_FIELD))) stampContentVersion(doc);
+      }, CORE_ORIGIN);
+    } finally {
+      doc.off("update", take);
+    }
+    if (updates.length === 0) return 0;
+    const at = now();
+    db.transaction(() => {
+      for (const update of updates) insert(mindId, update, at);
+    });
+    return updates.length;
   };
 
   /** Reports what the document emitted since the last flush, and stores it. */

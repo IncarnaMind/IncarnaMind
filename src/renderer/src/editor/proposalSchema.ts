@@ -8,6 +8,7 @@ import {
   PROPOSAL_INSERT_MARK,
   WORD_CHANGE_ID,
 } from "../../../core/api";
+import { ySyncOf } from "../../../shared/markKeys";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 
 /**
@@ -67,6 +68,9 @@ export const ProposalInsert = Mark.create({
       0,
     ];
   },
+  // Each change under a key of its own in the editor's Yjs sync (patches/y-tiptap/marks.mjs, #2996).
+  extendMarkSchema: (extension) =>
+    extension.name === PROPOSAL_INSERT_MARK ? ySyncOf(PROPOSAL_INSERT_MARK) : {},
 });
 
 /** Words a Proposal removes, kept until it is resolved, drawn struck. */
@@ -84,6 +88,8 @@ export const ProposalDelete = Mark.create({
       0,
     ];
   },
+  extendMarkSchema: (extension) =>
+    extension.name === PROPOSAL_DELETE_MARK ? ySyncOf(PROPOSAL_DELETE_MARK) : {},
 });
 
 /** Blocks that hold others: a Block the User adds inside one keeps it as it is. */

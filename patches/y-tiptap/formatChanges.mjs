@@ -40,6 +40,8 @@ export const formatChanges = (ytext, content) => {
     attributes: d.attributes || {}
   }));
   const ops = [];
+  // The run of `content` the last op formats, and the marks each stretch of it held.
+  let joined = null;
   let run = 0;
   let used = 0;
   for (const c of content) {
@@ -49,12 +51,19 @@ export const formatChanges = (ytext, content) => {
       const take = Math.min(left, here.length - used);
       const last = ops[ops.length - 1];
       const changed = changedMarks(c.attributes, here.attributes);
-      if (changed) {
-        ops.push({ retain: take, attributes: changed });
+      if (changed && joined && joined.content === c && canJoin(c.attributes, [...joined.held, here.attributes], { ...last.attributes, ...changed })) {
+        last.retain += take;
+        Object.assign(last.attributes, changed);
+        joined.held.push(here.attributes);
+      } else if (changed) {
+        ops.push({ retain: take, attributes: { ...changed } });
+        joined = { content: c, held: [here.attributes] };
       } else if (last && last.attributes === undefined) {
         last.retain += take;
+        joined = null;
       } else {
         ops.push({ retain: take });
+        joined = null;
       }
       left -= take;
       used += take;
@@ -66,6 +75,16 @@ export const formatChanges = (ytext, content) => {
   }
   return ops;
 };
+
+/**
+ * Whether one op can set `marks` over stretches that held `held`, for the same wanted marks: only
+ * when no stretch would have a mark it already has written again, as Yjs would where it can't
+ * prove the values equal. Setting null where nothing is held writes nothing.
+ */
+const canJoin = (wanted, held, marks) =>
+  Object.keys(marks).every((key) =>
+    held.every((each) => !sameValue(wanted[key], each[key]) || wanted[key] == null)
+  );
 
 /**
  * The marks of `wanted` whose values differ from those `held`, with null for a held mark `wanted`

@@ -32,6 +32,13 @@
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
 import { looksLikeTable, rowCells, type TableAlign, tableStart } from "../../shared/markdownTables";
+import {
+  hasMarkIn,
+  keyedFormats,
+  keyedMarkOf,
+  markKeyOf,
+  markValueOf,
+} from "../../shared/markKeys";
 import { citesSource, linkSources, type NamedSource } from "../../shared/namedSources";
 import {
   INLINE_NODES,
@@ -327,7 +334,7 @@ const sizeOf = (element: Y.XmlElement) =>
   layout(element).reduce((sum, child) => sum + child.size, 0);
 
 const hasProposal = (attributes: Attributes | undefined) =>
-  !!attributes && (PROPOSAL_INSERT_MARK in attributes || PROPOSAL_DELETE_MARK in attributes);
+  hasMarkIn(PROPOSAL_INSERT_MARK, attributes) || hasMarkIn(PROPOSAL_DELETE_MARK, attributes);
 
 /**
  * How a token is compared: words as they are; an inline node by what it is,
@@ -668,8 +675,10 @@ function viewOf(element: Y.XmlElement, request: string, accepted: boolean): stri
     if (!(node instanceof Y.XmlText)) continue;
     for (const run of node.toDelta() as Run[]) {
       if (typeof run.insert !== "string") continue;
-      const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request;
-      const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK])?.request === request;
+      const adds =
+        readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request === request;
+      const removes =
+        readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes))?.request === request;
       if (accepted ? removes : adds) continue;
       text += run.insert;
     }
@@ -724,7 +733,9 @@ export function leftOutText(
         }
         for (const run of node.toDelta() as Run[]) {
           if (typeof run.insert !== "string") continue;
-          if (readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request)
+          if (
+            readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request === request
+          )
             continue;
           const end = at + run.insert.length;
           text += run.insert.slice(Math.max(0, from - at), Math.max(0, to - at));
@@ -825,7 +836,7 @@ function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFIN
         const words = stringOf(run.insert);
         const from = offset;
         offset += typeof run.insert === "string" ? words.length : 1;
-        if (run.attributes && PROPOSAL_INSERT_MARK in run.attributes) continue;
+        if (hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes)) continue;
         text += words.slice(Math.max(0, start - from), Math.max(0, end - from));
       }
       continue;
@@ -1301,7 +1312,8 @@ const asAiText = (marks: Attributes): Attributes =>
 function withoutProposals(attributes: Attributes | undefined): Attributes {
   const kept: Attributes = {};
   for (const [key, value] of Object.entries(attributes ?? {})) {
-    if (key !== PROPOSAL_INSERT_MARK && key !== PROPOSAL_DELETE_MARK) kept[key] = value;
+    const mark = keyedMarkOf(key);
+    if (mark !== PROPOSAL_INSERT_MARK && mark !== PROPOSAL_DELETE_MARK) kept[key] = value;
   }
   return kept;
 }
@@ -1322,7 +1334,11 @@ function markRemoved(element: Y.XmlElement, from: number, to: number, ref: Propo
     const end = Math.min(to, child.start + child.size);
     if (start >= end) continue;
     if (child.node instanceof Y.XmlText) {
-      child.node.format(start - child.start, end - start, { [PROPOSAL_DELETE_MARK]: refOf(ref) });
+      child.node.format(
+        start - child.start,
+        end - start,
+        keyedFormats(child.node, PROPOSAL_DELETE_MARK, refOf(ref)),
+      );
     } else {
       setProposal(child.node, { ...refOf(ref), kind: "delete" });
     }
@@ -1507,7 +1523,7 @@ function insertTokens(
     if (words === "") return;
     insertText(element, position, words, {
       ...asAiText(wordMarks),
-      [PROPOSAL_INSERT_MARK]: inserted,
+      [markKeyOf(PROPOSAL_INSERT_MARK, inserted.id)]: inserted,
     });
     position += words.length;
     words = "";
@@ -3876,8 +3892,8 @@ export function takeBackForRegenerate(
       if (child.node instanceof Y.XmlText) {
         for (const run of child.node.toDelta() as Run[]) {
           const length = typeof run.insert === "string" ? run.insert.length : 1;
-          const adds = isIt(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removes = isIt(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const adds = isIt(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removes = isIt(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if (adds || removes) from ??= { blockId, offset };
           if (adds) continue;
           offset += length;

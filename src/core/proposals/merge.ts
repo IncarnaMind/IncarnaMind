@@ -8,6 +8,7 @@
  * (`usersBlocks`) must read as they do now, or nothing is merged.
  */
 import * as Y from "yjs";
+import { hasMarkIn } from "../../shared/markKeys";
 import { INLINE_NODES, NODE_CHARACTER, readProposalAttribute } from "../../shared/proposals";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -36,7 +37,7 @@ function readingOf(nodes: readonly Child[]): string {
   for (const child of nodes) {
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as Run[]) {
-        if (run.attributes && PROPOSAL_INSERT_MARK in run.attributes) continue;
+        if (hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes)) continue;
         text += typeof run.insert === "string" ? run.insert : NODE_CHARACTER;
       }
     } else if (child instanceof Y.XmlElement) {

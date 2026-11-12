@@ -12,6 +12,8 @@ import {
 } from "../../src/core/api";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readClaimCheck } from "../../src/shared/claimChecks";
+import { checkKeyOf, countingCheckOf } from "../../src/shared/markKeys";
 import { boundEditorTo, typeText } from "../helpers/editor";
 import { copyInStep } from "../helpers/mindClient";
 
@@ -260,7 +262,7 @@ test("the editor's sync formats only the runs whose marks changed", () => {
     );
   expect(lastWrite(), unpatched).toEqual([
     [start + 6, []],
-    [second.length, [CLAIM_CHECK_MARK]],
+    [second.length, [checkKeyOf("second")]],
   ]);
   expect(markedSentences(blocks).map((each) => [each.check.id, each.check.kept ?? false])).toEqual([
     ["first", false],
@@ -326,14 +328,12 @@ describe.each([
     const text = (note.getXmlFragment(MIND_CONTENT_FIELD).get(0) as Y.XmlElement).get(
       0,
     ) as Y.XmlText;
-    return (
-      text.toDelta() as { insert: string; attributes?: { claimCheck?: ClaimCheckAttributes } }[]
-    )
-      .filter((run) => run.attributes?.claimCheck)
-      .map((run) => {
-        const value = run.attributes?.claimCheck;
-        return [run.insert.trim(), value?.id, value?.state, value?.kept === true];
-      });
+    return (text.toDelta() as { insert: string; attributes?: Record<string, unknown> }[]).flatMap(
+      (run) => {
+        const value = readClaimCheck(countingCheckOf(run.attributes)?.attrs);
+        return value ? [[run.insert.trim(), value.id, value.state, value.kept === true]] : [];
+      },
+    );
   };
   /** The editor on a copy of the core's Note that hasn't had the landing yet, ordered by `copyId`. */
   function editorBefore(core: Y.Doc, copyId: number) {
@@ -420,6 +420,95 @@ describe.each([
         ).toContain("X");
         expect(checks(note)).toEqual(want);
       }
+    },
+  );
+});
+
+// #2996: three checked sentences side by side; the User keeps the first and the third while a
+// result lands on the middle one.
+describe.each([
+  {
+    layout: "three checked sentences side by side",
+    sentences: ["Revenue was 10 in May. ", "Costs were 8 in May. ", "Profit was 2 in May."],
+  },
+  {
+    layout: "三个已核对的句子紧挨着",
+    sentences: ["五月收入为10亿元。", "五月成本为8亿元。", "五月利润为2亿元。"],
+  },
+])("$layout", ({ sentences }) => {
+  const ids = ["one", "two", "three"] as const;
+  const starts = sentences.map((_, at) => sentences.slice(0, at).join("").length);
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "keeps on the first and the third while a result lands on the middle leave each its own check, the keeps ordered %s it",
+    (_, copyId) => {
+      const core = new Y.Doc();
+      const blocks = core.getXmlFragment(MIND_CONTENT_FIELD);
+      blocks.push([
+        createElement({
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [{ type: "text", text: sentences.join("") }],
+        }),
+      ]);
+      const element = blocks.get(0);
+      if (!(element instanceof Y.XmlElement)) throw new Error("No paragraph");
+      sentences.forEach((text, at) => {
+        markSentence(
+          element,
+          starts[at] ?? 0,
+          (starts[at] ?? 0) + text.length,
+          check(ids[at] ?? "", text, "supported"),
+        );
+      });
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      copy.clientID = copyId;
+      core.clientID = 2;
+      const editor = boundEditorTo(copy);
+      const landing = markedSentences(blocks).find((each) => each.check.id === "two");
+      if (!landing) throw new Error("The middle sentence has no check");
+      markSentence(
+        landing.element,
+        landing.from,
+        landing.to,
+        check("two", sentences[1] ?? "", "contradicted"),
+      );
+      const type = editor.schema.marks[CLAIM_CHECK_MARK];
+      if (!type) throw new Error("No check mark");
+      let at = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (at < 0 && node.isText) at = pos;
+      });
+      for (const index of [0, 2]) {
+        const from = at + (starts[index] ?? 0);
+        editor.view.dispatch(
+          editor.state.tr.addMark(
+            from,
+            from + (sentences[index] ?? "").length,
+            type.create({
+              ...check(ids[index] ?? "", sentences[index] ?? "", "supported"),
+              kept: true,
+            }),
+          ),
+        );
+      }
+      Y.applyUpdate(core, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      for (const note of [core, copy])
+        expect(
+          markedSentences(note.getXmlFragment(MIND_CONTENT_FIELD)).map((each) => [
+            each.check.id,
+            each.check.state,
+            each.check.kept === true,
+          ]),
+        ).toEqual([
+          ["one", "supported", true],
+          ["two", "contradicted", false],
+          ["three", "supported", true],
+        ]);
     },
   );
 });
