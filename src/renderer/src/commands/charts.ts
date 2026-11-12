@@ -51,6 +51,7 @@ export const chartCommands: readonly Command[] = [
     label: "chart.fromFigures",
     group: "main",
     appliesTo: ["block"],
+    appliesToText: true,
     reversible: true,
     when: (ctx) => {
       const editor = noteOf(ctx);

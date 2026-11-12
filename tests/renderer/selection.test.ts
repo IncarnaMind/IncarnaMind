@@ -164,6 +164,32 @@ describe("a deleted item", () => {
   });
 });
 
+describe("what the User picked", () => {
+  const current = choose(NOTHING_SELECTED, "sidebar", mind("shown"));
+
+  // protects=⌘K counts as a selection only rows the User picked, not the row a click opened or the sidebar lit for what is shown (#1741); fails_when=a click, or following what is shown, counts as picked; no_claim=what each gesture selects.
+  test("a click, or the row lit for what is shown, is only the current row", () => {
+    expect(current.picked).toBe(false);
+    expect(NOTHING_SELECTED.picked).toBe(false);
+  });
+
+  test("⌘-click, Shift-click and ⌘A pick, even just the current row", () => {
+    expect(toggle(current, "sidebar", mind("other")).picked).toBe(true);
+    expect(extend(current, "sidebar", mind("shown"), [mind("shown")]).picked).toBe(true);
+    expect(ids(extend(current, "sidebar", mind("shown"), [mind("shown")]))).toEqual(["shown"]);
+    expect(selectAll(NOTHING_SELECTED, "library", order).picked).toBe(true);
+  });
+
+  test("stays picked as deleted ones leave, and ends with a click or Esc", () => {
+    const picked = toggle(toggle(NOTHING_SELECTED, "library", doc("a")), "library", doc("b"));
+    expect(keepOnly(picked, (ref) => ref.id !== "a").picked).toBe(true);
+    expect(choose(picked, "library", doc("a")).picked).toBe(false);
+    const one = extend(NOTHING_SELECTED, "library", doc("a"), order);
+    expect(choose(one, "library", doc("a")).picked).toBe(false);
+    expect(clear(picked).picked).toBe(false);
+  });
+});
+
 describe("keys", () => {
   test("round-trip through their text, ids with colons included", () => {
     expect(refOfKey(refKey(doc("a:b")))).toEqual(doc("a:b"));
