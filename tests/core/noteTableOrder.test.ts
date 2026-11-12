@@ -1,23 +1,28 @@
 /**
- * Check this Note and Verify foot a table's marks in the table's order, whatever order their checks
- * end in (#2560): a cell lands only after the cells before it in its table, so a total is footed
- * against its cells' checked readings, and a sentence outside any table lands as its check ends.
- * The model is scripted; a cell's check waits, at its first request, until the others' have ended.
+ * A table's total is footed against its cells as the Note's marks and numbers are now, wherever its
+ * verdict shows, whatever order and whichever run its cells' checks ended in (#2560, #2998): a
+ * total reads Checking while a cell it counts is still being checked, and a cell checked later, a
+ * number typed over or an Undo foots it again with no model asked. The model is scripted; a cell's
+ * check waits, at its first request, until the others' have ended.
  */
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import type { NoteFooting } from "../../src/shared/claimChecks";
+import { footingOfRows } from "../../src/shared/figureSchedule";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createTempDataFolder, nextTurn, startCore } from "../helpers/core";
+import { recordRows } from "../helpers/csv";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { textOf, unzip } from "../helpers/docx";
 import { checkClock } from "../helpers/heldClock";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -104,6 +109,7 @@ interface World {
   core: Core;
   client: MindClient;
   mindId: string;
+  folderId: string;
   requestId: string;
   /** Ends the waiting check's request with its reply. */
   release(): void;
@@ -187,7 +193,7 @@ async function coreOf(
     sent,
     /** Begins the run on the Note the checks read. */
     begin(client: MindClient, mindId: string, requestId: string): World {
-      world.current = { core, client, mindId, requestId, release };
+      world.current = { core, client, mindId, folderId: folder.id, requestId, release };
       return world.current;
     },
   };
@@ -250,47 +256,57 @@ async function checkThisNote(
   return { ...made, client, mindId: mind.id, result };
 }
 
-/** Each mark in the Note, by its words, with its state and its first figure's footings. */
-function marksIn(client: MindClient) {
-  return claimSpans(readMind(client)).map((span) => {
-    const figure = span.check.figures?.[0];
-    return {
-      text: span.sentence.text.replaceAll(INLINE_NODE, "").trim(),
-      state: span.check.state,
-      reason: span.check.reason,
-      footing: figure?.footing ?? [],
-      sourceFooting: figure?.sourceFooting ?? [],
-    };
-  });
+/** What the Note's marks show, as the editor shows them: each read with the Note's footing now. */
+async function shownIn(
+  { core, client, mindId, folderId }: Pick<World, "core" | "client" | "mindId" | "folderId">,
+  footing?: NoteFooting,
+) {
+  const versions = new Map(
+    (await core.listDocuments()).map((document) => [document.id, document.contentHash]),
+  );
+  const live = footing ?? footingOfRows((await core.getFigureSchedule(mindId)).rows);
+  return claimsOf(readMind(client), { footing: live, versions, folderId, scope: null }).claims.map(
+    (claim) => [claim.sentence.text.replaceAll(INLINE_NODE, "").trim(), claim.shown.state],
+  );
 }
 
-const states = (client: MindClient) => marksIn(client).map(({ text, state }) => [text, state]);
+/** The Figures tab's row for the figure written `chars`. */
+async function rowOf(core: Core, mindId: string, chars: string) {
+  const row = (await core.getFigureSchedule(mindId)).rows.find(
+    (each) => each.reading.chars === chars,
+  );
+  if (!row) throw new Error(`The Figures tab has no row for ${chars}.`);
+  return row;
+}
+
+const checkedUses = async (core: Core, mindId: string) =>
+  (await core.listAiUse(mindId)).filter((use) => use.kind === "sentence-checked").length;
 
 describe.each([EN, ZH])("$language: Check this Note foots a table in its order", (example) => {
-  // protects=a total whose check ends before a cell's is footed against that cell's checked reading, so cells that don't add up to it make it Unsupported, its footing says by how much, and the sheet's row the table leaves out is named; meanwhile the cells before the waiting one and the sentence outside the table show their verdicts, and the cells after it keep checking (#2560); fails_when=a mark lands as its check ends, so the total is footed while "(120)" is still unread and stays Supported; no_claim=how a real model reads "(120)".
+  // protects=a total whose check ends before a cell's is footed against that cell's checked reading, so cells that don't add up to it make it Unsupported, its footing says by how much, and the sheet's row the table leaves out is named; meanwhile the total reads Checking, never Supported first, while the cells and the sentence outside the table show their own verdicts as their checks end (#2560, #2998); fails_when=a total is footed while "(120)" is still unread and shows Supported, or turns from Supported to Unsupported inside one run; no_claim=how a real model reads "(120)".
   test("a total whose check ends before a cell's is footed against it: the cells don't add up", async () => {
     let meanwhile: (string | null)[][] = [];
     const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
       last: RETURNS,
-      async meanwhile({ client, release }) {
-        meanwhile = states(client);
-        release();
+      async meanwhile(world) {
+        meanwhile = await shownIn(world);
+        world.release();
       },
     });
 
     expect(await run.result).toMatchObject({ kind: "checked", sentences: 4, checked: 4 });
     await run.client.settled();
 
-    const marks = marksIn(run.client);
-    expect(marks.map(({ text, state }) => [text, state])).toEqual([
+    expect(await shownIn(run)).toEqual([
       ["500", "supported"],
       [RETURNS, "supported"],
       ["400", "unsupported"],
       [example.prose, "supported"],
     ]);
-    const total = marks.find((mark) => mark.text === "400");
-    expect(total?.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
-    expect(total?.sourceFooting).toMatchObject([
+    const total = await rowOf(run.core, run.mindId, "400");
+    expect(total.reason).toBe("doesnt-add-up");
+    expect(total.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
+    expect(total.sourceFooting).toMatchObject([
       {
         axis: "row",
         sum: 400,
@@ -306,7 +322,7 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     ]);
   });
 
-  // protects=a total its cells add up to stays Supported when its check ends first: its footing agrees once "(120)" is read as a minus (#2560); fails_when=holding the table drops or misfoots the total; no_claim=a real model's reading.
+  // protects=a total its cells add up to stays Supported when its check ends first: its footing agrees once "(120)" is read as a minus (#2560); fails_when=the total's footing is left unworked out, or misfoots it; no_claim=a real model's reading.
   test("a total its cells add up to stays Supported when its check ends first", async () => {
     const run = await checkThisNote(example, sheetOf(example, 380), "380", {
       last: RETURNS,
@@ -318,33 +334,32 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     expect(await run.result).toMatchObject({ kind: "checked", checked: 4 });
     await run.client.settled();
 
-    const marks = marksIn(run.client);
-    expect(marks.map(({ text, state }) => [text, state])).toEqual([
+    expect(await shownIn(run)).toEqual([
       ["500", "supported"],
       [RETURNS, "supported"],
       ["380", "supported"],
       [example.prose, "supported"],
     ]);
-    expect(marks.find((mark) => mark.text === "380")?.footing).toMatchObject([
+    expect((await rowOf(run.core, run.mindId, "380")).footing).toMatchObject([
       { axis: "row", sum: 380, agrees: true },
     ]);
   });
 
-  // protects=checks that end in the table's order land as before: the total is footed against its cells and the sheet's left-out row is named (#2560); fails_when=the order the hold keeps differs from the table's; no_claim=timing.
+  // protects=checks that end in the table's order foot it as before: the total is footed against its cells and the sheet's left-out row is named (#2560); fails_when=the live footing differs from the one a landing in order gave; no_claim=timing.
   test("checks that end in the table's order foot it as before", async () => {
     const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", { last: null });
 
     expect(await run.result).toMatchObject({ kind: "checked", checked: 4 });
     await run.client.settled();
 
-    const total = marksIn(run.client).find((mark) => mark.text === "400");
-    expect(total?.state).toBe("unsupported");
-    expect(total?.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
-    expect(total?.sourceFooting).toMatchObject([{ axis: "row", sum: 400, agrees: true }]);
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
+    const total = await rowOf(run.core, run.mindId, "400");
+    expect(total.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
+    expect(total.sourceFooting).toMatchObject([{ axis: "row", sum: 400, agrees: true }]);
   });
 
-  // protects=Stop with a cell's check still out writes no total footed without it: the marks after the waiting cell, the total among them, read Not checked, stopped, and those before it keep their verdicts (#2560); fails_when=the total landed before the stop, footed with "(120)" unread, Supported; no_claim=what a real provider does on a stop.
-  test("Stop with a cell's check still out leaves nothing half-footed", async () => {
+  // protects=Stop with a cell's check still out writes no footing: the total shows its own verdict, footed against the cells as they are, and once the cell is checked later the total follows it (#2560, #2998); fails_when=the total keeps a footing made without the cell; no_claim=what a real provider does on a stop.
+  test("Stop with a cell's check still out, then a check of the cell: the total follows it", async () => {
     const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
       last: RETURNS,
       async meanwhile({ core, requestId }) {
@@ -354,17 +369,26 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
 
     expect(await run.result).toEqual({ kind: "cancelled" });
     await run.client.settled();
-
-    expect(marksIn(run.client).map(({ text, state, reason }) => [text, state, reason])).toEqual([
-      ["500", "supported", null],
-      [RETURNS, "not-checked", "stopped"],
-      ["400", "not-checked", "stopped"],
-      [example.prose, "supported", null],
+    expect(await shownIn(run)).toEqual([
+      ["500", "supported"],
+      [RETURNS, "not-checked"],
+      ["400", "supported"],
+      [example.prose, "supported"],
     ]);
+
+    await run.core.checkSentences({
+      requestId: randomUUID(),
+      mindId: run.mindId,
+      action: "check-against-documents",
+      from: { blockId: RETURNS_CELL, offset: 0 },
+      to: { blockId: RETURNS_CELL, offset: RETURNS.length },
+    });
+    await run.client.settled();
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
   });
 
-  // protects=quitting with a cell's check still out writes nothing after the close and no total footed without it: opened again, the total reads Not checked, stopped (#2560); fails_when=a held mark is written after the Note closed, or the total landed footed with "(120)" unread; no_claim=a crash.
-  test("quitting with a cell's check still out leaves nothing half-footed, and no error", async () => {
+  // protects=quitting with a cell's check still out writes nothing after the close and raises no error: opened again, the cell reads Not checked, stopped, and the total its own verdict (#2560); fails_when=a mark is written after the Note closed, or the run rejects after the close; no_claim=a crash.
+  test("quitting with a cell's check still out writes nothing after the close, and no error", async () => {
     const errors = vi.spyOn(console, "error");
     onTestFinished(() => errors.mockRestore());
     const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
@@ -381,19 +405,21 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     expect(errors).not.toHaveBeenCalled();
 
     const again = startCore(run.dataDir);
+    onTestFinished(() => again.close());
     const client = await connectToMind(again, run.mindId);
-    expect(marksIn(client).map(({ text, state, reason }) => [text, state, reason])).toEqual([
-      ["500", "supported", null],
-      [RETURNS, "not-checked", "stopped"],
-      ["400", "not-checked", "stopped"],
-      [example.prose, "supported", null],
+    expect(
+      await shownIn({ core: again, client, mindId: run.mindId, folderId: run.folderId }),
+    ).toEqual([
+      ["500", "supported"],
+      [RETURNS, "not-checked"],
+      ["400", "supported"],
+      [example.prose, "supported"],
     ]);
-    again.close();
   });
 });
 
 describe("Verify foots a table in its order", () => {
-  // protects=Verify foots a checked document's table as Check this Note does: the total row, whose check ends before the returns row's, is Unsupported, its footing against the rows above it read with "(120)" as a minus (#2560); fails_when=the total row lands before the returns row and stays Supported; no_claim=how a real model finds a row's claim.
+  // protects=Verify foots a checked document's table as Check this Note does: the total row, whose check ends before the returns row's, is Unsupported, its footing against the rows above it read with "(120)" as a minus (#2560); fails_when=the total row reads Supported because its check ended first; no_claim=how a real model finds a row's claim.
   test("a total row whose check ends before another row's is footed against it", async () => {
     // Verify reads a Word table's first row as a row, not its headings, so this one has none, and
     // says each row as "合计 — 400": in English, "Total — 400" is too few words to be a claim.
@@ -436,14 +462,14 @@ describe("Verify foots a table in its order", () => {
     });
     await client.settled();
 
-    const marks = marksIn(client);
-    expect(marks.map(({ text, state }) => [text, state])).toEqual([
+    const note = { core: made.core, client, mindId: verified.mind.id, folderId: made.folderId };
+    expect(await shownIn(note)).toEqual([
       [labels.sales, "supported"],
       [labels.returns, "supported"],
       [labels.total, "unsupported"],
       [example.prose, "supported"],
     ]);
-    expect(marks.find((mark) => mark.text === labels.total)?.footing).toMatchObject([
+    expect((await rowOf(made.core, verified.mind.id, "400")).footing).toMatchObject([
       { axis: "row", sum: 380, agrees: false },
     ]);
   });
@@ -451,60 +477,207 @@ describe("Verify foots a table in its order", () => {
 
 type Again = "Check this Note again" | "a check of the cell";
 
+/**
+ * Check this Note, its "(120)" ending Not checked by `ended`; then that cell checked again by
+ * `again`, which sends only it. The total, Supported after the first run, counts it.
+ */
+async function laterRun(
+  example: Example,
+  ended: "a failed request" | "the monthly cap",
+  again: Again = "Check this Note again",
+) {
+  const capped = ended === "the monthly cap";
+  const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
+    last: capped ? RETURNS : null,
+    ...(!capped && { fails: RETURNS }),
+    async meanwhile({ core, release }) {
+      await core.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
+      release();
+    },
+  });
+  await run.result;
+  await run.client.settled();
+  const first = {
+    shown: await shownIn(run),
+    uses: await checkedUses(run.core, run.mindId),
+    note: readMind(run.client).toJSON(),
+  };
+  if (capped) await run.core.updateSettings({ user: { monthlyCap: null } });
+  run.sent.push([]);
+  const requestId = randomUUID();
+  if (again === "Check this Note again")
+    await run.core.checkMind({ requestId, mindId: run.mindId, mode: "changed" });
+  else
+    await run.core.checkSentences({
+      requestId,
+      mindId: run.mindId,
+      action: "check-against-documents",
+      from: { blockId: RETURNS_CELL, offset: 0 },
+      to: { blockId: RETURNS_CELL, offset: RETURNS.length },
+    });
+  await run.client.settled();
+  return { ...run, first };
+}
+
 describe.each([EN, ZH])(
   "$language: a total is footed again when a cell is checked in a later run",
   (example) => {
-    // protects=a cell whose check couldn't be made in one run, then checked in a later one, has the totals that count it footed against its new mark: cells that don't add up make the total Unsupported with its footing, and the total isn't sent to a model again (#2998); fails_when=the total keeps the footing it got without the cell, "(120)" unread, and stays Supported; no_claim=how a real provider fails or how a real model reads "(120)".
+    // protects=a cell whose check couldn't be made in one run, then checked in a later one, has the totals that count it footed against its new mark: cells that don't add up make the total Unsupported with its footing and the sheet's left-out row, the total isn't sent to a model again, and the AI use record gets the cell's check alone (#2998); fails_when=the total keeps the footing it got without the cell, "(120)" unread, and stays Supported; no_claim=how a real provider fails or how a real model reads "(120)".
     test.each<{ ended: "a failed request" | "the monthly cap"; again: Again }>([
       { ended: "a failed request", again: "Check this Note again" },
       { ended: "a failed request", again: "a check of the cell" },
       { ended: "the monthly cap", again: "Check this Note again" },
       { ended: "the monthly cap", again: "a check of the cell" },
     ])("its cell ended Not checked by $ended, then $again", async ({ ended, again }) => {
-      const capped = ended === "the monthly cap";
-      const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
-        last: capped ? RETURNS : null,
-        ...(!capped && { fails: RETURNS }),
-        async meanwhile({ core, release }) {
-          await core.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
-          release();
-        },
-      });
-      await run.result;
-      await run.client.settled();
-      expect(states(run.client)).toEqual([
+      const run = await laterRun(example, ended, again);
+
+      expect(run.first.shown).toEqual([
         ["500", "supported"],
         [RETURNS, "not-checked"],
         ["400", "supported"],
         [example.prose, "supported"],
       ]);
-
-      if (capped) await run.core.updateSettings({ user: { monthlyCap: null } });
-      run.sent.push([]);
-      const requestId = randomUUID();
-      if (again === "Check this Note again")
-        await run.core.checkMind({ requestId, mindId: run.mindId, mode: "changed" });
-      else
-        await run.core.checkSentences({
-          requestId,
-          mindId: run.mindId,
-          action: "check-against-documents",
-          from: { blockId: RETURNS_CELL, offset: 0 },
-          to: { blockId: RETURNS_CELL, offset: RETURNS.length },
-        });
-      await run.client.settled();
-
       expect(run.sent.at(-1)).toEqual([RETURNS]);
-      const marks = marksIn(run.client);
-      expect(marks.map(({ text, state }) => [text, state])).toEqual([
+      expect(await checkedUses(run.core, run.mindId)).toBe(run.first.uses + 1);
+      expect(await shownIn(run)).toEqual([
         ["500", "supported"],
         [RETURNS, "supported"],
         ["400", "unsupported"],
         [example.prose, "supported"],
       ]);
-      expect(marks.find((mark) => mark.text === "400")?.footing).toMatchObject([
-        { axis: "row", sum: 380, agrees: false },
+      const total = await rowOf(run.core, run.mindId, "400");
+      expect(total.footing).toMatchObject([{ axis: "row", sum: 380, agrees: false }]);
+      expect(total.sourceFooting).toMatchObject([
+        { sum: 400, agrees: true, inputs: [{ label: example.labels.other }] },
       ]);
+    });
+
+    // protects=a number typed over in a cell foots the total against it at once, in the mark and the Figures tab alike, with no model asked and nothing added to the AI use record (#2998); fails_when=the total keeps the footing from before the edit, or the two places disagree; no_claim=what the edited cell's own re-check finds.
+    test("a number typed over in a cell foots the total against it, the mark and the Figures tab alike", async () => {
+      const run = await laterRun(example, "a failed request");
+      const uses = await checkedUses(run.core, run.mindId);
+      const calls = run.sent.flat().length;
+
+      const typed = (node: JSONContent): JSONContent =>
+        node.type === "text" && node.text === "500"
+          ? { ...node, text: "520" }
+          : { ...node, ...(node.content && { content: node.content.map(typed) }) };
+      editMind(run.client, (blocks) => blocks.map(typed));
+      await run.client.settled();
+
+      // 520 - 120 is 400: the total adds up again.
+      expect((await shownIn(run)).slice(0, 3)).toEqual([
+        ["520", "needs-recheck"],
+        [RETURNS, "supported"],
+        ["400", "supported"],
+      ]);
+      const total = await rowOf(run.core, run.mindId, "400");
+      expect(total.shown.state).toBe("supported");
+      expect(total.footing).toMatchObject([{ axis: "row", sum: 400, agrees: true }]);
+      expect(await checkedUses(run.core, run.mindId)).toBe(uses);
+      expect(run.sent.flat()).toHaveLength(calls);
+    });
+
+    // protects=Undo of a cell's landing foots the total against the cell as it was, in the mark and the Figures tab alike (#2998); fails_when=the total keeps the footing the undone mark gave it; no_claim=the editor's own Undo stack.
+    test("Undo of a cell's landing foots the total as before, the mark and the Figures tab alike", async () => {
+      const run = await laterRun(example, "a failed request");
+
+      editMind(run.client, () => run.first.note.content ?? []);
+      await run.client.settled();
+
+      expect((await shownIn(run)).slice(0, 3)).toEqual([
+        ["500", "supported"],
+        [RETURNS, "not-checked"],
+        ["400", "supported"],
+      ]);
+      expect((await rowOf(run.core, run.mindId, "400")).shown.state).toBe("supported");
+    });
+
+    // protects=a Document's new version marks the table's checks for a re-check in the mark and the Figures tab alike (#2998); fails_when=the total's mark reads a footing the Figures tab no longer does; no_claim=what checking against the new version finds.
+    test("a Document's new version: the total's mark and the Figures tab agree", async () => {
+      const run = await laterRun(example, "a failed request");
+
+      await writeSourceFile(
+        run.sources,
+        "Accounts.xlsx",
+        xlsxOf([{ name: "Accounts", rows: sheetOf(example, 410, 30) }]),
+      );
+      await run.core.reconcileDocuments();
+      await waitForProcessing(
+        run.core,
+        (await run.core.listDocuments()).map((document) => document.id),
+      );
+
+      expect((await shownIn(run))[2]).toEqual(["400", "needs-recheck"]);
+      expect((await rowOf(run.core, run.mindId, "400")).shown.state).toBe("needs-recheck");
+    });
+
+    // protects=before the Note's figures are first read the mark shows the footing stored with its check, then the live one, with nothing thrown between (#2998); fails_when=the reader throws or shows nothing without the live footing; no_claim=how long the read takes.
+    test("before its figures are read the total shows its stored footing, then the live one", async () => {
+      const run = await laterRun(example, "a failed request");
+
+      expect((await shownIn(run, "not-yet-known"))[2]).toEqual(["400", "supported"]);
+      expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
     });
   },
 );
+
+describe("every place that shows the total's verdict shows the same one", () => {
+  // protects=after its cell is checked in a later run, the total reads Unsupported everywhere a verdict shows (#2998); fails_when=a place reads the footing stored when the total's own check landed and shows Supported; no_claim=the wording of each place.
+  test("the mark in the Note", async () => {
+    const run = await laterRun(EN, "a failed request");
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
+  });
+
+  test("the Figures tab", async () => {
+    const run = await laterRun(EN, "a failed request");
+    const total = await rowOf(run.core, run.mindId, "400");
+    expect([total.shown.state, total.reason]).toEqual(["unsupported", "doesnt-add-up"]);
+  });
+
+  test("the AI use statement", async () => {
+    const run = await laterRun(EN, "a failed request");
+    const made = await run.core.createAiUseStatement(run.mindId);
+    const client = await connectToMind(run.core, made.id);
+    const rows: string[][] = [];
+    readMind(client).forEach((node) => {
+      if (node.type.name !== "table") return;
+      node.forEach((row) => {
+        const cells: string[] = [];
+        row.forEach((cell) => void cells.push(cell.textContent));
+        rows.push(cells);
+      });
+    });
+    expect(rows.find((cells) => cells[0] === "400")?.[1]).toBe("Unsupported");
+  });
+
+  test("Check this Note's list of what changed", async () => {
+    const run = await laterRun(EN, "a failed request");
+    expect(await run.core.planMindCheck(run.mindId, "changed")).toMatchObject({
+      kind: "unchanged",
+    });
+  });
+
+  test("the check record", async () => {
+    const run = await laterRun(EN, "a failed request");
+    const out = await createTempDataFolder();
+    await run.core.setOutputLocation(out);
+    const saved = await run.core.saveCheckRecord(run.mindId);
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csv = await readFile(join(out, `${saved.file.name.replace(/\.(pdf|csv)$/, "")}.csv`));
+    const rows = recordRows(csv.toString("utf8"));
+    expect(rows.find((row) => row.Kind === "Sentence" && row.Sentence === "400")?.Result).toBe(
+      "Unsupported",
+    );
+  });
+
+  test("the Word export's comments", async () => {
+    const run = await laterRun(EN, "a failed request");
+    const exported = await run.core.exportMind(run.mindId, {
+      format: "docx",
+      commentFailedChecks: true,
+    });
+    const comments = unzip(exported.data).get("word/comments.xml")?.toString("utf8") ?? "";
+    expect(textOf(comments)).toMatch(/^Unsupported/);
+  });
+});

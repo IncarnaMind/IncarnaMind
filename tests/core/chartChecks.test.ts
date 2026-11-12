@@ -22,6 +22,7 @@ import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks"
 import { healthSummary, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { type ChartAttributes, chartCheckText, readChart } from "../../src/shared/charts";
+import { NO_SOURCE_DOCUMENTS } from "../helpers/documents";
 
 const schema = getSchema(noteExtensions());
 function chart(kind: ChartAttributes["kind"] = "bar"): ChartAttributes {
@@ -181,6 +182,7 @@ test("one bad chart child prevents all-good health and counts its owner once", (
   const { figures } = checkedChart(blocks, element);
   const pm = yXmlFragmentToProseMirrorRootNode(blocks, schema);
   const projected = claimsOf(pm, {
+    footing: "not-yet-known",
     versions: null,
     folderId: null,
     scope: null,
@@ -217,6 +219,7 @@ test.each(["title", "row-label", "series-label", "shown", "coordinate"] as const
     expect(claimSpans(pm)[0]?.sentence.text).not.toBe(check.text);
     const current = figuresInMind(blocks);
     const projected = claimsOf(pm, {
+      footing: "not-yet-known",
       versions: null,
       folderId: null,
       scope: null,
@@ -231,6 +234,7 @@ test.each(["title", "row-label", "series-label", "shown", "coordinate"] as const
       versions: null,
       folderId: null,
       scope: null,
+      documents: NO_SOURCE_DOCUMENTS,
     });
     expect(schedule.rows.every((row) => row.sentence === null)).toBe(true);
     expect(schedule.rows.every((row) => row.shown.state === "needs-recheck")).toBe(true);
@@ -258,7 +262,12 @@ test("a Chart's internal Check is never serialized or imported from HTML", () =>
 test("an unchecked Chart contributes one to-check owner rather than disappearing from health", () => {
   const { blocks } = setup();
   const pm = yXmlFragmentToProseMirrorRootNode(blocks, schema);
-  const projected = claimsOf(pm, { versions: null, folderId: null, scope: null });
+  const projected = claimsOf(pm, {
+    footing: "not-yet-known",
+    versions: null,
+    folderId: null,
+    scope: null,
+  });
   const health = noteHealth(pm, { ...projected, citationCheck: (citation) => citation.check });
   expect(health.checkable).toBe(1);
   expect(health.toCheck).toEqual([0]);
