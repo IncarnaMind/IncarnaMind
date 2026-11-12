@@ -1628,7 +1628,7 @@ export const zhCN = {
   "contradictions.command.purpose": "你的文档与这篇笔记的引用不一致的地方",
   "contradictions.ask.one": "要对照这个文件夹中的其他文档，核对有引用的这 1 句吗？",
   "contradictions.ask": "要对照这个文件夹中的其他文档，核对有引用的 {count} 句吗？",
-  "contradictions.check": "检查",
+  "contradictions.check": "核对",
   "contradictions.cancel": "暂不",
   "contradictions.none": "有引用的 {count} 句都没有发现矛盾",
   "contradictions.none.one": "有引用的这 1 句没有发现矛盾",

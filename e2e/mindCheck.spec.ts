@@ -19,6 +19,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  newMind,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -1091,3 +1092,59 @@ test("the line that says nothing changed goes when a Document is edited or delet
   await expect(check).not.toHaveAttribute("title", "Nothing changed");
   await app.close();
 });
+
+const MONTH = { en: "used this month", "zh-CN": "本月已用" } as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=a Check the User starts from ⌘K says how it went once, in the Note's card (#2831); fails_when=a notice says "That didn’t work: Nothing to check" beside the card's line; no_claim=the assistant's own Check, whose reply says it.
+  test(`a Check from ⌘K on a Note with nothing to check says so once, in the card (${language})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await connectLocalChatModel(window);
+      await setLanguage(window, language);
+      await setWindowSize(app, window, 1440, 900);
+      await addDocuments(window, [join(sources, "Tides.pdf")]);
+      await newMind(window);
+      // A heading alone: no sentence a check reads.
+      await window.keyboard.type("# Harbour notes");
+      const editor = window.getByTestId("mind-editor");
+      await expect(editor.getByRole("heading", { name: "Harbour notes" })).toBeVisible();
+      await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+      await expect(window.getByTestId("check-card").getByTestId("checks-problem")).toContainText(
+        language === "en" ? "This note has no sentences to check." : "这篇笔记里没有要核对的句子。",
+      );
+      await motionSettled(window);
+      await expect(window.getByTestId("error-notice")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const [first, then] of [
+  ["en", "zh-CN"],
+  ["zh-CN", "en"],
+] as const) {
+  // protects=the whole-Note question's estimate is put in words in the language the card shows, also after a switch while it is open (#2831); fails_when=it keeps the words of the language it was asked in; no_claim=the amounts.
+  test(`the question's estimate follows the language switched to while it is open (${first} to ${then})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await useCloudChatModel(window);
+    await setLanguage(window, first);
+    await setWindowSize(app, window, 1440, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    await mindWrittenBefore(window, "Harbour notes", [{ note: `${CLAIMS[1]} ${CLAIMS[4]}` }]);
+    await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
+    await runCommand(window, "mind.check", translate(first, "mindCheck.command"));
+    const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
+    await expect(ask).toContainText(MONTH[first]);
+    await setLanguage(window, then);
+    await expect(ask).toContainText(MONTH[then]);
+    await expect(ask).not.toContainText(MONTH[first]);
+    await app.close();
+  });
+}
