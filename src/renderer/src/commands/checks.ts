@@ -76,6 +76,7 @@ const checkAgainstDocuments: Command = {
   label: "editor.ai.checkAgainstDocuments",
   keywords: ["editor.ai.checkAgainstDocuments.keywords"],
   group: "main",
+  appliesToText: true,
   // It changes no words: its marks go with Check again, or when the sentence is edited.
   reversible: true,
   when: () => withSentences() !== null,

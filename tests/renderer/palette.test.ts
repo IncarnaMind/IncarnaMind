@@ -219,6 +219,11 @@ describe("⌘K's names and actions, in the order Enter takes them", () => {
   test("a Note that is the words typed keeps its place above a command that only starts with them", () => {
     expect(first("check", ["Check"], ["Check against Documents"])).toBe("minds");
   });
+
+  // protects=the selection's own action listed first doesn't decide whether actions go above the names: the closest action does, as before; fails_when=a Note that starts with the words goes above an action that is the words.
+  test("the closest action, not the first, decides: the selection's own actions come first whatever their match", () => {
+    expect(first("check", ["Checks due"], ["Check against Documents", "Check"])).toBe("actions");
+  });
 });
 
 describe("⌘K's actions", () => {

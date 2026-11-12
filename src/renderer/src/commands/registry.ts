@@ -88,6 +88,8 @@ export interface CommandContext {
   here?: Partial<Record<CommandId, () => void>>;
   /** The assistant asked for it, whose reply says how it ended rather than a toast. */
   assistant?: true;
+  /** Text was selected in the Note last written in: what `appliesToText` commands act on. */
+  textSelected?: true;
 }
 
 export interface Command {
@@ -118,6 +120,11 @@ export interface Command {
   group: CommandGroup;
   /** The kinds it acts on, as the selection or the focus. Without them, it acts on the window. */
   appliesTo?: readonly ObjectKind[];
+  /**
+   * It acts on the text selected in a Note, as `appliesTo` says which selected objects it acts
+   * on: with text selected, ⌘K lists it among the selection's own actions.
+   */
+  appliesToText?: true;
   /** It deletes or takes something away: the conformance check expects it to change the core with no question. */
   destructive?: true;
   /** Whether it is offered at all. */
