@@ -3964,12 +3964,6 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
-    // Jev's key save records its flows with no turn-on, so a consent to its service says nothing of
-    // the switch (#2623).
-    consentedAt: (service) =>
-      service.id === jev.service()?.id
-        ? null
-        : (consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service)),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);

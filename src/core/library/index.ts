@@ -365,12 +365,6 @@ export function createLibrary(options: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
   }): ExternalService[];
-  /**
-   * When the User turned tagging or Organize on for this service, as a switch saved with no list
-   * of turn-ons knows it: their consent to it (../consent). Null if there is none, or the consent
-   * was recorded with no turn-on.
-   */
-  consentedAt(service: ExternalService): string | null;
   /** Whether the User's consent to tagging sending to this service stands (../consent). */
   taggingAllowed(service: ExternalService): boolean;
   /**
@@ -453,17 +447,12 @@ export function createLibrary(options: {
     options.sendsTo(saved).length > 0;
   const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
   /**
-   * When the switch was turned on for each service. One saved before these were kept holds from
-   * when the User allowed tagging or Organize to send there.
+   * When the switch was turned on for each service. One saved before these were kept names none:
+   * nothing stored tells a turn-on from a consent given elsewhere, so it holds only where tagging
+   * sends nothing out, until the User turns it on again (#2623).
    */
   const sinceOf = (saved: ReturnType<typeof savedSettings>): Record<string, string> =>
-    saved.automaticSince ??
-    Object.fromEntries(
-      options.sendsTo(saved).flatMap((service) => {
-        const at = options.consentedAt(service);
-        return at === null ? [] : [[service.id, at]];
-      }),
-    );
+    saved.automaticSince ?? {};
   /**
    * Whether the switch the User turned on holds where tagging sends now: turned on for one
    * service, it is off for another until they turn it on there (#2308).
@@ -473,16 +462,15 @@ export function createLibrary(options: {
     return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
   };
   /**
-   * The place of the User's turn-on for this service in the database's order; null if none. A
-   * place kept for a switch saved with no list (#2370) counts only while that service's consent
-   * still reads as a turn-on (#2623).
+   * The place of the User's turn-on for this service in the database's order; null if none. The
+   * upgrade kept a place for a switch saved with no list (#2370), which counts for nothing, as
+   * that switch doesn't (#2623).
    */
   const turnedOnSeq = (service: ExternalService): number | null => {
     const saved = savedSettings();
-    const turnedOn = saved.automaticSince
-      ? saved.automaticSince[service.id] !== undefined
-      : options.consentedAt(service) !== null;
-    return turnedOn ? (saved.automaticSinceSeq?.[service.id] ?? null) : null;
+    return sinceOf(saved)[service.id] === undefined
+      ? null
+      : (saved.automaticSinceSeq?.[service.id] ?? null);
   };
   const sinceSeqOf = (saved: ReturnType<typeof savedSettings>): Record<string, number> =>
     saved.automaticSinceSeq ?? {};
