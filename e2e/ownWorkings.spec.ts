@@ -14,6 +14,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
+  tagDocument,
   useLocalChatModel,
 } from "./app";
 
@@ -255,6 +256,8 @@ test("A sentence only the marked file states is Unsupported, and its card says s
   const { window } = await launchApp(dataDir, { fakeChat: true });
   await useLocalChatModel(window);
   await addReportAndWorkings(window);
+  // Tagging's Tags wait in the Review (#2339): the row's dots come from one the User puts on.
+  await tagDocument(window, "Field notes", "Report");
   await openDocumentMenu(sidebarRow(window, "Field notes"));
   await pointAndClick(window, sidebarRow(window, "Field notes").getByTestId("document.dontCite"));
   const notes = sidebarRow(window, "Field notes");

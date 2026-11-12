@@ -384,8 +384,16 @@
   .transcript-empty {
     @apply m-0 font-sans text-[14px] leading-5 text-ink-meta;
   }
+  /* The app's own words over a Transcript (#1031): a selection of the Transcript never takes them. */
+  .transcript-head {
+    @apply m-0 shrink-0 px-4 py-1 font-sans text-[12px] leading-5 text-ink-meta select-none;
+  }
   .transcript-live {
     @apply inline-flex shrink-0 items-center gap-1.5 px-1 text-[12px] leading-5 whitespace-nowrap text-ink-secondary;
+  }
+  /* First in the header of the Meeting's page: on the edge its count and the head line start on. */
+  .transcript-live:first-child {
+    @apply pl-0;
   }
   .transcript-follow {
     @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-[12px] leading-5 font-semibold text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;

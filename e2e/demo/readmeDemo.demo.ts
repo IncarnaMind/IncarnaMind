@@ -28,6 +28,7 @@ import {
   setLanguage,
   setWindowSize,
 } from "../app";
+import { ENGINES } from "../launchEnvironment";
 import { connectCall, speech } from "./call";
 import { assertCaptionsAtScenes } from "./captionGuard";
 import { captureFeature, contactSheet, writeFeatures } from "./features";
@@ -101,7 +102,7 @@ async function record(script: DemoScript): Promise<void> {
   await mkdir(OUT, { recursive: true });
   await seedModels(dataDir);
   // The sandbox runs the Python an Analysis needs; the pictures are cut at 2.5 pixels per CSS pixel.
-  const { app, window } = await launchApp(dataDir, { realEngines: true, sandboxed: true });
+  const { app, window } = await launchApp(dataDir, { real: ENGINES, sandboxed: true });
   let film: Film | undefined;
   let finished = false;
   try {

@@ -13,6 +13,7 @@ import {
 import {
   handsClause,
   placementEffects,
+  report,
   type ScopeRow,
   summarise,
 } from "../../eval/repeats/scopeScore";
@@ -31,12 +32,14 @@ const row = (
   key: string,
   outcome: ScopeRow["outcome"],
   handed: ScopeRow["handed"] = [],
+  sort: number | null = repeat,
 ): ScopeRow => {
   const sentence = ENGLISH.find((each) => each.key === key);
   if (!sentence) throw new Error(`No sentence ${key}`);
   const [placement, others] = caseId.split("-");
   return {
     repeat,
+    ...(sort !== null && { sort }),
     sentence: sentence.text,
     outcome,
     says: null,
@@ -178,9 +181,9 @@ describe("the scope scoring", () => {
       row("unfiled-20", 2, "holiday", "supported", right),
     ]);
 
-    expect(summary?.falseUnsupported).toEqual({ wrong: 2, total: 4 });
-    expect(summary?.falseSupported).toEqual({ wrong: 2, total: 4 });
-    expect(summary?.wrongWithClause).toEqual({ wrong: 1, total: 3 });
+    expect(summary?.falseUnsupported).toEqual({ wrong: 2, total: 4, sorts: 2 });
+    expect(summary?.falseSupported).toEqual({ wrong: 2, total: 4, sorts: 2 });
+    expect(summary?.wrongWithClause).toEqual({ wrong: 1, total: 3, sorts: 2 });
     expect(summary?.misses.map((each) => [each.repeat, each.key])).toEqual([
       [1, "own-words-kept"],
       [2, "notice"],
@@ -197,7 +200,36 @@ describe("the scope scoring", () => {
       row("filed-5", 1, "own-words-kept", "supported"),
     ]);
     expect(placementEffects(summaries)).toMatchObject([
-      { others: 5, unfiled: { wrong: 1, total: 2 }, filed: { wrong: 0, total: 2 }, points: 50 },
+      {
+        others: 5,
+        unfiled: { wrong: 1, total: 2, sorts: 1 },
+        filed: { wrong: 0, total: 2, sorts: 1 },
+        points: 50,
+      },
     ]);
+  });
+});
+
+describe("the scope report's checks and sorts (#2964)", () => {
+  // protects=a scope report gives checks and sorts beside every count, and says when its checks reused one sort or were made before #2964; fails_when=a count shows no sorts, or old rows read as fresh sorts; no_claim=what a real model says.
+  test("gives both numbers, and reads a result file made before the sorts were counted", () => {
+    const fresh = report(
+      summarise([
+        row("unfiled-5", 1, "notice", "supported"),
+        row("unfiled-5", 2, "notice", "absent"),
+      ]),
+      { commit: "abc", spent: 0, repeats: 2 },
+    );
+    expect(fresh).toContain("Each check sorted the sentences afresh, in a Note of its own.");
+    expect(fresh).toContain("1 of 2 checks, 2 sorts (50%)");
+    const before = report(
+      summarise([
+        row("unfiled-5", 1, "notice", "supported", [], null),
+        row("unfiled-5", 2, "notice", "absent", [], null),
+      ]),
+      { commit: "abc", spent: 0, repeats: 2 },
+    );
+    expect(before).toContain("Made before #2964: every check reused its case's one sort");
+    expect(before).toContain("1 of 2 checks, 1 sort (50%)");
   });
 });

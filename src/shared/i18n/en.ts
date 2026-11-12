@@ -528,7 +528,7 @@ export const en = {
   "document.peek": "Peek",
   "object.copy": "Copy",
   "document.tags": "Tags…",
-  "folder.organize": "Organize This Folder",
+  "folder.organize": "Organize this Folder",
   "folder.organize.empty": "The Folder has no Documents to organize.",
   "folder.tagWithAi": "Tag with AI",
   "folder.editDescription": "Edit description…",
@@ -5826,9 +5826,7 @@ export const en = {
     "“Checked by me” is yours to give, not mine. It’s on each Citation’s card.",
   "commands.yours.authorship":
     "Only you can mark text as yours. Select it and choose “Mark as mine”.",
-  "commands.yours.openModels": "Open Models",
-  "commands.yours.openPrivacy": "Open Privacy",
-  "commands.yours.openGeneral": "Open General",
+  "commands.yours.openSettings": "Open {page} settings",
   "commands.yours.openDeleted": "Open Recently deleted",
   "commands.window.notOffered": "“{command}” doesn’t apply here now",
   "commands.window.unanswered": "The window didn’t answer: “{command}” wasn’t done.",
@@ -6865,6 +6863,12 @@ export const en = {
     "Couldn’t download the speech model from any source",
   "meetings.transcript.downloadFailed": "The speech model couldn’t be downloaded: {message}",
   "meetings.transcript.engineStopped": "Transcription stopped.",
+  "meetings.transcript.stoppedBeforeEnd":
+    "Transcription stopped before the end. Your recording is kept.",
+  "meetings.transcript.stoppedBeforeEndToday":
+    "Transcription stopped before the end. Your recording is kept until {time} today.",
+  "meetings.transcript.stoppedBeforeEndTomorrow":
+    "Transcription stopped before the end. Your recording is kept until {time} tomorrow.",
   "meetings.transcript.saveFailed": "The transcript couldn’t be saved: {message}",
   "meetings.transcript.notSaved":
     "The transcript wasn’t saved: no folder was chosen for new files.",
@@ -6974,7 +6978,8 @@ export const en = {
   "transcript.word.split": "Enter splits the line here",
   "transcript.word.playOrSplit": "Play from here · Enter splits the line here",
   "transcript.addToNote.withKey": "Add to note (Enter)",
-  "transcript.word.tip": "Click a word to hear it.",
+  "transcript.head": "Transcribed automatically. Names, numbers and “not” can be misheard.",
+  "transcript.head.play": "Click a word to play from there.",
   "transcript.player": "Meeting audio",
   "transcript.player.play": "Play (Space)",
   "transcript.player.pause": "Pause (Space)",
@@ -6985,6 +6990,7 @@ export const en = {
   "transcript.lines.one": "{count} line",
   "transcript.lines.other": "{count} lines",
   "transcript.waiting": "Lines appear here as people speak.",
+  "transcript.waiting.problem": "Lines appear here when transcription starts.",
   "transcript.none": "Nothing was transcribed.",
   "transcript.gap": "{duration} not transcribed: {reason}",
   "transcript.gap.restarted": "transcription restarted",

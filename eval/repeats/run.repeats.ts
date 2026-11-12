@@ -1,9 +1,10 @@
 /**
- * `npm run eval:repeats` (README.md): Check this Mind on the sets in ./cases,
- * again and again on the same unchanged Minds, with a real chat model and the
- * app's real search, and a report of what came back.
+ * `npm run eval:repeats` (README.md): Check this Mind on the sets in ./cases, again and again on
+ * the same sentences (a Note of their own each time for a bar about a mark or a verdict, one
+ * unchanged Note for a bar about time or cost), with a real chat model and the app's real search,
+ * and a report of what came back.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test, vi } from "vitest";
@@ -16,9 +17,9 @@ import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
-import { repeatChecks } from "./repeat";
+import { barOf, repeatChecks, sortsAsked, sortsOf } from "./repeat";
 import { watchRequests } from "./requests";
-import { type RepeatRow, report, summarise } from "./score";
+import { type RepeatRow, report, savedRows, sortsBy, summarise } from "./score";
 import { VERBATIM_SETS } from "./verbatimCases";
 import { VERDICT_SETS } from "./verdictCases";
 
@@ -41,9 +42,28 @@ const spentOf = async (core: Core) =>
     .filter((each) => each.currency === "USD")
     .reduce((total, each) => total + each.amount, 0);
 
-test("repeated checks of an unchanged Mind", async () => {
+test("repeated checks of the same sentences", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
+  // Refused here, before any request, when its bar can't stand on the sorts asked for (#2964).
+  const bar = barOf(process.env.INCARNAMIND_EVAL_REPEATS_BAR);
+  const sorts = sortsOf(bar, sortsAsked(process.env.INCARNAMIND_EVAL_REPEATS_SORTS));
+  const saved = process.env.INCARNAMIND_EVAL_REPEATS_REPORT?.trim();
+  if (saved) {
+    const rows = savedRows(JSON.parse(await readFile(saved, "utf8")));
+    const out = join(
+      config.resultsDir,
+      `${new Date().toISOString().replace(/[:.]/g, "-")}-repeats`,
+    );
+    await mkdir(out, { recursive: true });
+    const repeats = Math.max(0, ...rows.map((row) => row.repeat));
+    await writeFile(
+      join(out, "report.md"),
+      report(summarise(rows), { commit: `read from ${saved}`, spent: 0, repeats }),
+    );
+    log(`Read ${rows.length} results from ${saved}; report in ${out}`);
+    return;
+  }
   const chat = config.chat;
   if (!chat) {
     log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY (README.md).");
@@ -129,6 +149,8 @@ test("repeated checks of an unchanged Mind", async () => {
         const requests = new Map<string, ReturnType<typeof watch.take>>();
         const results = await repeatChecks(core, {
           mind: set.mind,
+          bar,
+          sorts,
           sentences: set.sentences.map((each) => each.text),
           ...(set.inOneParagraph !== undefined && { inOneParagraph: set.inOneParagraph }),
           repeats,
@@ -184,6 +206,13 @@ test("repeated checks of an unchanged Mind", async () => {
     join(out, "report.md"),
     report(summaries, { commit: commitOf(ROOT), spent: spentBefore, repeats }),
   );
-  await writeFile(join(out, "report.json"), JSON.stringify({ model, usage, rows }, null, 2));
+  await writeFile(
+    join(out, "report.json"),
+    JSON.stringify(
+      { model, bar, sorts, sortsBySet: sortsBy(rows, (row) => row.set), usage, rows },
+      null,
+      2,
+    ),
+  );
   log(`$${spentBefore.toFixed(2)} spent; report in ${out}`);
 });
