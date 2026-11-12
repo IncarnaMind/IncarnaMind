@@ -18,12 +18,16 @@
  */
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ChatProviderKind, EditAction } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { pageBlocks } from "../../src/shared/answerBlocks";
 import { readFigures } from "../../src/shared/figures";
+import { answerEnded, answerJudged } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, spentBy, startCore } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 
@@ -192,6 +196,210 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
       console.log(report.join("\n"));
       expect(failed).toBe(0);
       expect([...counts.keys()].some((key) => key.endsWith("number in its place"))).toBe(false);
+    },
+  );
+});
+
+/**
+ * A later Answer asked to work the missing figure out and put it in (#2577): it may land a
+ * calculated figure where the mark is, or keep the mark, but never a number typed as text. A
+ * change that takes the mark out without a calculated figure is refused, and the model is told so.
+ */
+const TRY_AGAIN = {
+  en: {
+    document: [
+      "# Harbour branch loans",
+      "",
+      "Harbour branch made 1,000 loans in January 2026 and 1,080 loans in February 2026.",
+    ].join("\n"),
+    sentence: "Harbour's loans grew by [=1] last month.",
+    key: "Harbour",
+    question: "Work out the growth this note is missing from the loans document and put it in.",
+  },
+  "zh-CN": {
+    document: [
+      "# 港湾分馆借阅",
+      "",
+      "港湾分馆 2026 年 1 月借阅 1,000 次，2026 年 2 月借阅 1,080 次。",
+    ].join("\n"),
+    sentence: "港湾分馆的借阅量上月增长了 [=1]。",
+    key: "港湾",
+    question: "根据借阅文档算出这篇笔记缺少的增长率，并写进去。",
+  },
+} as const;
+
+type TryOutcome = "calculated figure" | "mark kept" | "number as text" | "other";
+
+describe.each(LIVE)("A later Answer and the mark, live: $name", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: the mark gives way only to a calculated figure`,
+    { timeout: 3_600_000 },
+    async () => {
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1);
+      const cap = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? 0.5);
+      const report: string[] = [`## ${live.name} · ${live.model} (#2577, a later Answer)`];
+      const counts = new Map<string, number>();
+      const requestsFailed: string[] = [];
+      let answersFailed = 0;
+      const afterRefusal = { runs: 0, ended: 0 };
+      let spent = 0;
+      for (const language of ["en", "zh-CN"] as const) {
+        const only = process.env.INCARNAMIND_LIVE_ONLY?.split("|");
+        if (only && !only.includes(`${language} try-again`)) continue;
+        const words = TRY_AGAIN[language];
+        for (let run = 1; run <= runs; run++) {
+          if (spent >= cap) break;
+          const dataDir = await createTempDataFolder();
+          const failing = (part: unknown) => requestsFailed.push(String(part).slice(0, 200));
+          const core = startCore(dataDir, {
+            createChatModel: (spec) =>
+              wrapLanguageModel({
+                model: createAiSdkChatModel(spec),
+                middleware: {
+                  specificationVersion: "v4",
+                  wrapGenerate: async ({ doGenerate }) => {
+                    try {
+                      return await doGenerate();
+                    } catch (error) {
+                      failing(error);
+                      throw error;
+                    }
+                  },
+                  wrapStream: async ({ doStream }) => {
+                    try {
+                      const result = await doStream();
+                      return {
+                        ...result,
+                        stream: result.stream.pipeThrough(
+                          new TransformStream({
+                            transform(part, controller) {
+                              if (part.type === "error") failing(part.error);
+                              controller.enqueue(part);
+                            },
+                          }),
+                        ),
+                      };
+                    } catch (error) {
+                      failing(error);
+                      throw error;
+                    }
+                  },
+                },
+              }),
+          });
+          core.on(
+            "consent.requested",
+            (asked) => void core.respondToConsent(asked.requestId, true),
+          );
+          await core.saveChatProvider({
+            kind: live.kind,
+            ...(live.apiKey && { apiKey: live.apiKey }),
+            modelId: live.model,
+          });
+          await core.updateSettings({ user: { language } });
+          await addAndProcess(core, [
+            await writeSourceFile(await createTempDataFolder(), "Loans.md", words.document),
+          ]);
+          const mind = await core.createMind({ title: language === "en" ? "Growth" : "增长" });
+          await core.addToNote({
+            mindId: mind.id,
+            blocks: pageBlocks(
+              { id: "earlier", text: words.sentence, citations: [], figures: [], status: "done" },
+              "",
+            ),
+            origin: null,
+            model: null,
+          });
+          const asked = await core.askInConversation({ text: words.question, mindId: mind.id });
+          if (!asked.asked) throw new Error("The Question wasn't asked.");
+          const ended = await answerEnded(core, asked.answerId);
+          const answer = await answerJudged(core, asked.conversation.id, asked.answerId);
+          if (ended.event !== "finished") answersFailed++;
+          const client = await connectToMind(core, mind.id);
+          await client.settled();
+          await resolveChanges(client, "accept");
+          await client.settled();
+          /** Each paragraph's marks, calculated figures and words, and the Note as it reads. */
+          const paragraphs: { marks: number; figures: number; said: string }[] = [];
+          let shown = "";
+          readMind(client).descendants((block) => {
+            if (!block.isTextblock) return true;
+            const read = { marks: 0, figures: 0, said: "" };
+            block.forEach((node) => {
+              if (node.type.name === "missingNumber") {
+                read.marks++;
+                shown += "[mark]";
+              } else if (node.type.name === "calculatedFigure") {
+                read.figures++;
+                shown += `{${String((node.attrs.figure as { shown?: string } | null)?.shown ?? "")}}`;
+              } else if (node.isText) {
+                read.said += node.text ?? "";
+                shown += node.text ?? "";
+              }
+            });
+            shown += " / ";
+            paragraphs.push(read);
+            return false;
+          });
+          // The sentence that held the mark, by its words; else the Note as a whole.
+          const kept = paragraphs.find((each) => each.said.includes(words.key));
+          const { marks, figures, said } = kept ?? {
+            marks: paragraphs.reduce((sum, each) => sum + each.marks, 0),
+            figures: paragraphs.reduce((sum, each) => sum + each.figures, 0),
+            said: paragraphs.map((each) => each.said).join(" "),
+          };
+          const refused = answer.toolCalls.filter(
+            (call) => call.mindProblem?.kind === "missing-number",
+          ).length;
+          // Digits beside a figure that landed are the sentence's other numbers, such as the two
+          // the figure was worked out from; only digits with neither figure nor mark took its place.
+          const outcome: TryOutcome =
+            figures > 0 && marks === 0
+              ? "calculated figure"
+              : marks > 0 && figures === 0
+                ? "mark kept"
+                : figures === 0 && marks === 0 && /\d/.test(said)
+                  ? "number as text"
+                  : "other";
+          if (refused > 0) {
+            afterRefusal.runs++;
+            if (outcome === "calculated figure" || outcome === "mark kept") afterRefusal.ended++;
+          }
+          const key = `${language}: ${outcome}`;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+          const calls = answer.toolCalls
+            .filter((call) => call.source === "minds")
+            .map(
+              (call) =>
+                `${call.tool}:${call.status}${call.mindProblem ? `(${call.mindProblem.kind})` : ""}`,
+            )
+            .join(", ");
+          report.push(
+            `- ${language} ${run}: ${outcome}; refused ${refused}; calls ${calls}; answer ${ended.event} · ${shown.replace(/\n/g, " ")}`,
+          );
+          const cost =
+            queryDatabase<{ cost: number | null }>(
+              dataDir,
+              "SELECT SUM(cost) AS cost FROM model_requests WHERE deleted_at IS NULL",
+            )[0]?.cost ?? 0;
+          spent += cost;
+          report.push(`  ${spentBy(dataDir).join("; ")}`);
+          core.close();
+        }
+      }
+      report.push(
+        "",
+        ...[...counts].map(([key, count]) => `- ${key}: ${count}`),
+        `- after a refusal, ended with a calculated figure or the mark: ${afterRefusal.ended} of ${afterRefusal.runs}`,
+        `- failed or refused requests: ${requestsFailed.length}; Answers not finished: ${answersFailed}`,
+        ...requestsFailed.map((each) => `  - ${each}`),
+        `- spent: ${spent.toFixed(4)} USD`,
+      );
+      if (process.env.INCARNAMIND_LIVE_REPORT)
+        await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n\n`);
+      console.log(report.join("\n"));
+      expect(requestsFailed).toEqual([]);
+      expect([...counts.keys()].some((key) => key.endsWith("number as text"))).toBe(false);
     },
   );
 });
