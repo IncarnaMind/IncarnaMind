@@ -98,7 +98,7 @@ export const dismissVerifyOutcome = (mindId: string) => {
   useVerify.setState({ outcomes });
 };
 
-/** Stops the run going in the Mind: the claims not checked yet say "stopped". */
+/** Stops the run going in the Mind: each sentence it hadn't checked says "Stopped before it was checked." */
 export function stopVerify(mindId: string): void {
   const running = useVerify.getState().running;
   if (running?.mindId === mindId) void core.cancelCheck(running.requestId);

@@ -18,6 +18,18 @@ const { noteBusy } = vi.hoisted(() => ({ noteBusy: vi.fn() }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
 const store = vi.hoisted(() => ({ language: "en" as "en" | "zh-CN" }));
+
+/** A question's estimate in the words its card shows, in the language the test runs in. */
+async function estimateWords(estimate: RunEstimate | null | undefined): Promise<string[] | null> {
+  if (!estimate) return null;
+  const { estimateLine } = await import("../../src/renderer/src/cost");
+  const { translate } = await import("../../src/shared/i18n");
+  const language = store.language;
+  return (
+    estimateLine(estimate, (key, params) => translate(language, key, params), language)?.parts ??
+    null
+  );
+}
 vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: {
     getState: () => ({ openMind: async () => {}, settings: { language: store.language } }),
@@ -592,7 +604,9 @@ describe("A Check another window runs or plans", () => {
 
     await expect(startCheck("mind")).resolves.toMatchObject({ kind: "threw" });
     expect(bridge.cancelCheck).toHaveBeenCalled();
-    await expect(checkFromAssistant("mind")).rejects.toThrow("The check couldn’t start.");
+    await expect(checkFromAssistant("mind", false, true)).rejects.toThrow(
+      "The check couldn’t start.",
+    );
   });
 
   test("a question keeps the Note until the User answers: Check runs that request", async () => {
@@ -643,7 +657,9 @@ describe("A Check another window runs or plans", () => {
 
     const declined = checkFromAssistant("mind", true, true);
     await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
-    expect(useMindCheck.getState().asking.mind?.estimate?.parts).toEqual(words.estimate);
+    expect(await estimateWords(useMindCheck.getState().asking.mind?.estimate)).toEqual(
+      words.estimate,
+    );
     expect(bridge.checkMind).not.toHaveBeenCalled();
     dismissMindCheck("mind");
     await expect(declined).rejects.toMatchObject({ wording: { key: "mindCheck.declined" } });
@@ -658,7 +674,9 @@ describe("A Check another window runs or plans", () => {
     const checked = checkFromAssistant("mind", true, true);
     await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
     cardClosed("mind", "outside");
-    expect(useMindCheck.getState().asking.mind?.estimate?.parts).toEqual(words.estimate);
+    expect(await estimateWords(useMindCheck.getState().asking.mind?.estimate)).toEqual(
+      words.estimate,
+    );
     await confirmCheck("mind");
     await expect(checked).resolves.toBeUndefined();
     expect(bridge.checkMind).toHaveBeenCalledOnce();
@@ -720,7 +738,9 @@ describe("A Check another window runs or plans", () => {
     const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
 
     expect(await startCheckAsking("mind")).toMatchObject({ kind: "asked" });
-    expect(useMindCheck.getState().asking.mind?.estimate?.parts[0]).toBe("About $1.50");
+    expect((await estimateWords(useMindCheck.getState().asking.mind?.estimate))?.[0]).toBe(
+      "About $1.50",
+    );
     expect(bridge.checkMind).not.toHaveBeenCalled();
   });
 
@@ -956,7 +976,7 @@ describe("A Check another window runs or plans", () => {
     belowThePrice();
     const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
 
-    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+    await expect(checkFromAssistant("mind", false, true)).rejects.toMatchObject({
       wording: { key: "run.stopped.cancelled" },
     });
   });
@@ -966,9 +986,20 @@ describe("A Check another window runs or plans", () => {
     bridge.planMindCheck.mockResolvedValue({ kind: "nothing" });
     const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
 
-    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+    await expect(checkFromAssistant("mind", false, true)).rejects.toMatchObject({
       wording: { key: "mindCheck.nothingToCheck" },
     });
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  // protects=a Check the User starts from ⌘K or a menu says how it went once, in the Note's card (#2831); fails_when=it also rejects, which the command runner shows again as a notice; no_claim=the card's words, which the spec reads in both languages.
+  test("a Check from ⌘K with nothing to check says so in the Note's card alone", async () => {
+    bridge.planMindCheck.mockResolvedValue({ kind: "nothing" });
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+
+    await expect(checkFromAssistant("mind")).resolves.toBeUndefined();
+    expect(setCheckProblem).toHaveBeenCalledWith("mind", { kind: "no-claims" });
     expect(bridge.checkMind).not.toHaveBeenCalled();
   });
 
@@ -977,7 +1008,7 @@ describe("A Check another window runs or plans", () => {
     running.current.mind = { requestId: "other", action: "whole-mind" };
     const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
 
-    await expect(checkFromAssistant("mind", true)).rejects.toMatchObject({
+    await expect(checkFromAssistant("mind", true, true)).rejects.toMatchObject({
       wording: { key: "mindCheck.alreadyChecking" },
     });
     expect(bridge.holdMindCheck).not.toHaveBeenCalled();
@@ -1039,7 +1070,7 @@ describe("A Check another window runs or plans", () => {
       });
     const { checkFromAssistant, useMindCheck } = await import("../../src/renderer/src/mindCheck");
 
-    const done = checkFromAssistant("mind");
+    const done = checkFromAssistant("mind", false, true);
     // Attached now: the run may throw before the assertions below yield to it.
     const failed = expect(done).rejects.toThrow("The watch couldn’t start.");
     await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalled());
@@ -1059,7 +1090,9 @@ describe("A Check another window runs or plans", () => {
     bridge.planMindCheck.mockRejectedValue(new Error("The plan couldn’t be made."));
     const { checkFromAssistant, useMindCheck } = await import("../../src/renderer/src/mindCheck");
 
-    await expect(checkFromAssistant("mind")).rejects.toThrow("The plan couldn’t be made.");
+    await expect(checkFromAssistant("mind", false, true)).rejects.toThrow(
+      "The plan couldn’t be made.",
+    );
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
     expect(bridge.cancelCheck).toHaveBeenCalled();
   });
@@ -1072,7 +1105,7 @@ describe("A Check another window runs or plans", () => {
     });
     const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
 
-    await expect(checkFromAssistant("mind")).rejects.toThrow("Overloaded");
+    await expect(checkFromAssistant("mind", false, true)).rejects.toThrow("Overloaded");
   });
 
   test("Not now frees the Note its question kept", async () => {
@@ -1093,7 +1126,7 @@ describe("A Check another window runs or plans", () => {
     belowThePrice();
     const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
     bridge.holdMindCheck.mockResolvedValue(false);
-    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+    await expect(checkFromAssistant("mind", false, true)).rejects.toMatchObject({
       wording: { key: "mindCheck.alreadyChecking" },
     });
 
@@ -1105,7 +1138,7 @@ describe("A Check another window runs or plans", () => {
       smallModel: false,
       stop: null,
     });
-    await expect(checkFromAssistant("mind")).resolves.toBeUndefined();
+    await expect(checkFromAssistant("mind", false, true)).resolves.toBeUndefined();
   });
 });
 
@@ -1151,7 +1184,9 @@ describe("The Figure schedule's Check", () => {
         kind: "asked",
       });
       const asking = useMindCheck.getState().asking.mind;
-      expect(asking?.estimate?.parts[0]).toBe(language === "en" ? "About $1.50" : "约 $1.50");
+      expect((await estimateWords(asking?.estimate))?.[0]).toBe(
+        language === "en" ? "About $1.50" : "约 $1.50",
+      );
       expect(asking?.figureIds).toEqual(["f1", "f2"]);
       expect(bridge.planMindCheck).toHaveBeenLastCalledWith("mind", "all", false, ["f1", "f2"]);
       expect(bridge.estimateRun).toHaveBeenCalledWith({ items: 3, each: "check" });

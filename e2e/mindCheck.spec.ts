@@ -20,6 +20,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  newMind,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -221,12 +222,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await mindCheckFinished(window, 2);
       const checked = card.getByTestId("health-checked-all");
       await expect(checked).toContainText(
-        language === "en" ? "Couldn’t tell if 1 sentence is a claim" : "1 句未能判断是否为说法",
+        language === "en"
+          ? "Couldn’t tell whether 1 sentence needs checking"
+          : "1 句未能判断是否需要核对",
       );
-      // A count only: the card's own Check runs the check again, and the count shows once, on
-      // this line, not also as a row of its own (#2313).
+      // Named on this line with no action of its own (#2313), and counted under not checked, so
+      // the rows add up to the sentences (#2831): the card's own Check runs the check again.
       await expect(checked.getByRole("button")).toHaveCount(0);
-      await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
+      await expect(card.getByTestId("health-toCheck")).toContainText(
+        language === "en" ? "1 not checked" : "1 句未核对",
+      );
       for (const width of [900, 1600]) {
         await setWindowSize(app, window, width, 800);
         await expect(checked).toBeVisible();
@@ -334,7 +339,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await mindCheckFinished(window, 15);
 
-  await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
+  await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
   await expect(marks(window)).toHaveCount(15);
   await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
@@ -374,7 +379,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
   );
   const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this note’s claim against your Documents?");
+  await expect(ask).toContainText("Check 1 sentence in this note against your Documents?");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
@@ -389,7 +394,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   );
   // Check every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
   await expect(window.getByTestId("check-card").getByTestId("mind-check-ask")).toContainText(
-    "Check this note’s 15 claims against your Documents?",
+    "Check 15 sentences in this note against your Documents?",
   );
 });
 
@@ -641,11 +646,11 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!ended.card || !ended.foot) throw new Error("The card went at the run's end.");
       expect(ended.card.height).toBeCloseTo(before.card.height, 0);
       expect(ended.foot.height).toBeCloseTo(before.foot.height, 0);
-      // The price stays, and the summary is in view at the top of the body, never under the fade.
+      // The price stays, and the first row is in view at the top of the body, never under the fade.
       await expect(price).toBeVisible();
-      const summary = health.locator(".mind-health-summary");
-      await expect(summary).toHaveCount(1);
-      await expect(summary).toBeInViewport();
+      const first = health.locator(".check-row").first();
+      await expect(first).toHaveCount(1);
+      await expect(first).toBeInViewport();
       await expect(press).toBeVisible();
       await expect(press).toBeFocused();
       await screenshot(window, `card-${language}-${width}-ended`);
@@ -840,7 +845,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   const ask = health.getByTestId("mind-check-ask");
   await expect(ask).toHaveCount(0);
   await expect(health.getByTestId("check-estimate")).toHaveCount(0);
-  await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 条说法，");
+  await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 句，");
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(15);
 
   // Nothing in the Folder says any of it: checked against every Document, the Tides PDF does.
@@ -856,7 +861,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
-  await expect(health.getByTestId("health-unsupported")).toContainText("11 条说法需要留意");
+  await expect(health.getByTestId("health-look")).toContainText("12 句需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
   // A sentence written since: "核对" checks it alone, and the rest stay as they were.
@@ -910,7 +915,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
 
   const card = await checkCard(window);
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  await expect(card.getByTestId("health-checked-all")).toContainText("Checked 15 claims, ");
+  await expect(card.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
   const verdicts = () =>
@@ -947,7 +952,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await window.keyboard.press("Enter");
   const ask = card.getByTestId("mind-check-ask");
   // Every sentence again re-checks the 15 claims; the 5 the first run found make none stay out.
-  await expect(ask).toContainText("Check this note’s 15 claims against your Documents?");
+  await expect(ask).toContainText("Check 15 sentences in this note against your Documents?");
   await expect(unchanged).toHaveCount(0);
   expect(await modelRequests(window)).toBe(sent);
   await pointAndClick(window, ask.getByTestId("mind-check-check"));
@@ -1087,3 +1092,59 @@ test("the line that says nothing changed goes when a Document is edited or delet
   await expect(check).not.toHaveAttribute("title", "Nothing changed");
   await app.close();
 });
+
+const MONTH = { en: "used this month", "zh-CN": "本月已用" } as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=a Check the User starts from ⌘K says how it went once, in the Note's card (#2831); fails_when=a notice says "That didn’t work: Nothing to check" beside the card's line; no_claim=the assistant's own Check, whose reply says it.
+  test(`a Check from ⌘K on a Note with nothing to check says so once, in the card (${language})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await connectLocalChatModel(window);
+      await setLanguage(window, language);
+      await setWindowSize(app, window, 1440, 900);
+      await addDocuments(window, [join(sources, "Tides.pdf")]);
+      await newMind(window);
+      // A heading alone: no sentence a check reads.
+      await window.keyboard.type("# Harbour notes");
+      const editor = window.getByTestId("mind-editor");
+      await expect(editor.getByRole("heading", { name: "Harbour notes" })).toBeVisible();
+      await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+      await expect(window.getByTestId("check-card").getByTestId("checks-problem")).toContainText(
+        language === "en" ? "This note has no sentences to check." : "这篇笔记里没有要核对的句子。",
+      );
+      await motionSettled(window);
+      await expect(window.getByTestId("error-notice")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const [first, then] of [
+  ["en", "zh-CN"],
+  ["zh-CN", "en"],
+] as const) {
+  // protects=the whole-Note question's estimate is put in words in the language the card shows, also after a switch while it is open (#2831); fails_when=it keeps the words of the language it was asked in; no_claim=the amounts.
+  test(`the question's estimate follows the language switched to while it is open (${first} to ${then})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await useCloudChatModel(window);
+    await setLanguage(window, first);
+    await setWindowSize(app, window, 1440, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    await mindWrittenBefore(window, "Harbour notes", [{ note: `${CLAIMS[1]} ${CLAIMS[4]}` }]);
+    await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
+    await runCommand(window, "mind.check", translate(first, "mindCheck.command"));
+    const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
+    await expect(ask).toContainText(MONTH[first]);
+    await setLanguage(window, then);
+    await expect(ask).toContainText(MONTH[then]);
+    await expect(ask).not.toContainText(MONTH[first]);
+    await app.close();
+  });
+}

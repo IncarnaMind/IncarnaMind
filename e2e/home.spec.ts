@@ -581,7 +581,7 @@ test("Home beside a Mind follows it as it is saved, and tabs opened behind Home 
       .locator('[data-testid="mind-tab"][aria-selected="true"] [data-testid="tab-title"]')
       .textContent();
     await expect(recentRow(window, shownTitle ?? "").getByTestId("home-recent-state")).toHaveText(
-      "Claims not checked",
+      "Not checked",
     );
   } finally {
     await app.close();
