@@ -31,6 +31,7 @@ import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { mindName } from "../../src/shared/naming";
 import { resolveProposals } from "../../src/shared/proposals";
+import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
 import { paragraph, wordFile } from "../../tests/helpers/word";
@@ -173,6 +174,13 @@ export interface CaseResult {
   seconds: number;
   /** From the start to the last Answer's end, before it is checked. */
   answeredSeconds: number;
+  /** From the request to its Answer's end, with no wait for any check: null when it was never asked. */
+  repliedSeconds: number | null;
+  /**
+   * From the request to the end of the last request a check of what its Answer wrote sent, the
+   * same on main and on a head that checks after the reply: null when nothing it wrote was checked.
+   */
+  checkEndedSeconds: number | null;
   error: string | null;
   /** The Answers' tokens, its earlier requests' included (not Edit with AI's or the judge's). */
   usage: AnswerUsage;
@@ -205,7 +213,11 @@ export async function ask(
     onScreen?: string[];
     quotes?: AskedQuote[];
   },
-  { choose, stopped }: { choose?: string; stopped?: () => void } = {},
+  {
+    choose,
+    stopped,
+    replied,
+  }: { choose?: string; stopped?: () => void; replied?: (at: number) => void } = {},
 ): Promise<ConversationAnswer> {
   const asked = await core.askInConversation(input);
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -234,7 +246,7 @@ export async function ask(
     });
   });
   try {
-    return await answerOf(core, asked.conversation.id, asked.answerId);
+    return await answerOf(core, asked.conversation.id, asked.answerId, replied);
   } finally {
     answering();
   }
@@ -244,6 +256,7 @@ async function answerOf(
   core: Core,
   conversationId: string,
   answerId: string,
+  replied?: (at: number) => void,
 ): Promise<ConversationAnswer> {
   const ended = await new Promise<boolean>((done) => {
     const timer = setTimeout(() => end(false), ANSWER_TIMEOUT_MS);
@@ -254,6 +267,7 @@ async function answerOf(
     function end(inTime: boolean) {
       clearTimeout(timer);
       for (const stop of stops) stop();
+      if (inTime) replied?.(Date.now());
       done(inTime);
     }
   });
@@ -282,6 +296,21 @@ async function answerOf(
     `  waited ${((Date.now() - waiting) / 1000).toFixed(1)} s for what it wrote to be checked`,
   );
   return checked;
+}
+
+/**
+ * When the last request of a check of what an Answer wrote ended, in seconds after `since`, from
+ * the timings the core keeps (its `written-check` step on both arms); null when there was none.
+ */
+function checkEndedSince(dataDir: string, since: number): number | null {
+  const rows = queryDatabase<{ started_at: string; end_ms: number }>(
+    dataDir,
+    "SELECT started_at, end_ms FROM ai_timings WHERE kind = 'model' AND step = 'written-check' AND started_at >= ?",
+    [new Date(since).toISOString()],
+  );
+  if (rows.length === 0) return null;
+  const last = Math.max(...rows.map((row) => Date.parse(row.started_at) + row.end_ms));
+  return (last - since) / 1000;
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
@@ -554,6 +583,8 @@ export async function runCase(
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();
+  const askedAt = Date.now();
+  let repliedAt: number | null = null;
   const answer = await ask(
     core,
     {
@@ -564,9 +595,20 @@ export async function runCase(
       onScreen,
       ...(quoted && { quotes: [quoted] }),
     },
-    { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
+    {
+      choose: each.answerAsk,
+      stopped: () => (stoppedAtAsk.last = true),
+      replied: (at) => {
+        repliedAt = at;
+      },
+    },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
+  const repliedSeconds = repliedAt === null ? null : (repliedAt - askedAt) / 1000;
+  const checkEndedSeconds = checkEndedSince(library.dataDir, askedAt);
+  console.log(
+    `  replied in ${repliedSeconds?.toFixed(1) ?? "-"} s; what it wrote was checked by ${checkEndedSeconds?.toFixed(1) ?? "-"} s`,
+  );
   const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const forced = deciding ? deciding.forcing.end() : 0;
   const decision = decided.last;
@@ -709,6 +751,8 @@ export async function runCase(
     changes,
     seconds: (Date.now() - started) / 1000,
     answeredSeconds,
+    repliedSeconds,
+    checkEndedSeconds,
     error: answer.status === "failed" ? `${answer.errorKind}: ${answer.errorMessage}` : null,
     usage,
     droppedMarkers,

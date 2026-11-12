@@ -151,6 +151,8 @@ async function runModel(
             changes: [],
             seconds: 0,
             answeredSeconds: 0,
+            repliedSeconds: null,
+            checkEndedSeconds: null,
             error: error instanceof Error ? error.message : String(error),
             usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
             droppedMarkers: 0,
