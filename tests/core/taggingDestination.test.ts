@@ -314,7 +314,7 @@ describe("A Document held off stays off, for every sender", () => {
     },
   );
 
-  test("what Organize waits to file by itself is held when where it sends changes: none goes to the new service", async () => {
+  test("what arrives in Local mode is held at once, and stays held when where it sends changes: none goes to either service (#2982)", async () => {
     const providers = perProvider();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
@@ -324,9 +324,7 @@ describe("A Document held off stays off, for every sender", () => {
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await core.setLocalOnly(true);
     const waiting = await add(core, "Waiting.txt");
-    await vi.waitFor(async () =>
-      expect((await unassigned(core, [waiting.id]))[0]?.status).toBe("waiting"),
-    );
+    await waitForTagging(core, [waiting.id], (each) => each.tagging === "off");
 
     const openai = await core.saveChatProvider(OPENAI);
     await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
@@ -338,6 +336,9 @@ describe("A Document held off stays off, for every sender", () => {
     expect(providers.sent("openai")).toBe(0);
     expect(providers.sent("anthropic")).toBe(0);
 
+    // OpenAI was chosen in Local mode, whose line names no service: Organize asks first.
+    expect(await core.startOrganize()).toMatchObject({ ready: false, needs: "consent" });
+    await core.allowOrganize("https://api.openai.com");
     await core.classifyDocuments([waiting.id]);
     await waitForTagging(core, [waiting.id]);
     expect(providers.sent("openai")).toBe(1);

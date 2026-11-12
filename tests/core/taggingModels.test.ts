@@ -759,7 +759,7 @@ describe("The Answer engine's small calls", () => {
 });
 
 describe("Local mode", () => {
-  test("makes the quick-tasks, image and tagging models local or off, with the existing explanation", async () => {
+  test("makes the quick-tasks, image and tagging models local or off: a Document added then is held, and nothing is sent", async () => {
     const { core, calls } = await start();
     const anthropic = await core.saveChatProvider({
       kind: "anthropic",
@@ -781,16 +781,13 @@ describe("Local mode", () => {
       await writeSourceFile(await createTempDataFolder(), "Notes.md", "Notes on scans."),
     ]);
     if (!text) throw new Error("Not added.");
+    // What arrives in Local mode never goes by itself, then or later (#2982).
     await vi.waitFor(async () =>
-      expect(
-        (await core.getLibrary()).assignments.find((each) => each.documentId === text.id),
-      ).toMatchObject({
-        status: "waiting",
-        error: {
-          message: "Cloud tagging paused: “Keep everything on this computer” is on.",
-        },
-      }),
+      expect((await core.listDocuments()).find((each) => each.id === text.id)?.tagging).toBe("off"),
     );
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === text.id),
+    ).toBeUndefined();
     // Automatic: no model on this computer, so nothing tags, and no small call leaves it.
     await core.saveLibrarySettings({ classifier: { kind: "automatic" }, automatic: true });
     expect(await automaticOf(core)).toBeNull();

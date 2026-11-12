@@ -5,7 +5,7 @@
  * that arrived before then goes by itself. Through the core's public interface, counting what the
  * cloud model's stand-in receives.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, LibraryClassifier } from "../../src/core";
 import {
   createMemoryKeychain,
@@ -228,6 +228,187 @@ describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
 
         expect(tagging.requests).toHaveLength(1);
         expect(turnedOnFor(dataDir)).toEqual([]);
+      } finally {
+        core.close();
+      }
+    });
+  },
+);
+
+/** A cloud model chosen for Tags and turned on with its line on screen, Local mode off. */
+async function turnedOnForCloud(language: string, folder: boolean) {
+  const tagging = taggingModel(["Report"]);
+  const core = startCore(await createTempDataFolder(), {
+    keychain: createMemoryKeychain(),
+    createChatModel: scriptedModels(tagging.model).createChatModel,
+    systemLanguages: () => [language],
+  });
+  const provider = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  await core.saveLibrarySettings({
+    ...(await core.getLibrary()).settings,
+    classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "claude-haiku-5-5" } },
+  });
+  if (folder) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+  await turnOn(core);
+  return { core, tagging };
+}
+
+/** The User tags it by hand: Organize with a Folder there, a re-tag without. */
+async function tagByHand(core: Core, id: string, folder: boolean) {
+  if (folder) await core.classifyDocuments([id]);
+  else await core.retagDocuments([id]);
+}
+
+const DURING = "季度报告：本季度收入增长百分之十。";
+
+describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
+  "What arrives while Local mode is on never goes by itself, then or later, in $language (#2982)",
+  { timeout: 30_000 },
+  ({ language }) => {
+    test.each([{ folder: false }, { folder: true }])(
+      "switched on before Local mode (a Folder there: $folder): what arrives before and after goes, what arrives during reads off until tagged by hand",
+      async ({ folder }) => {
+        const { core, tagging } = await turnedOnForCloud(language, folder);
+        try {
+          const before = await add(core, "Before.txt", "A report added before Local mode.");
+          await tagging.requested(1);
+          await settled(core, [before.id]);
+
+          await core.setLocalOnly(true);
+          const during = await add(core, "季度报告.txt", DURING);
+          // Held at once, as one from before a turn-on: it doesn't wait for Local mode to end.
+          expect((await settled(core, [during.id]))[0]?.tagging).toBe("off");
+          await core.setLocalOnly(false);
+          expect((await core.getLibrary()).settings.automatic).toBe(true);
+          const after = await add(core, "After.txt", "A memo added after Local mode.");
+          await tagging.requested(2);
+          const states = await settled(core, [during.id, after.id]);
+
+          expect(states[0]?.tagging).toBe("off");
+          expect(tagging.requests).toHaveLength(2);
+          expect(tagging.requests[0]?.text).toContain("A report added before Local mode.");
+          expect(tagging.requests[1]?.text).toContain("A memo added after Local mode.");
+          expect(tagging.requests.some((request) => request.text.includes(DURING))).toBe(false);
+
+          await tagByHand(core, during.id, folder);
+          await tagging.requested(3);
+          await settled(core, [during.id]);
+          expect(tagging.requests).toHaveLength(3);
+          expect(tagging.requests[2]?.text).toContain(DURING);
+        } finally {
+          core.close();
+        }
+      },
+    );
+
+    test.each([{ folder: false }, { folder: true }])(
+      "a Document still waiting when Local mode begins goes once it ends (a Folder there: $folder)",
+      async ({ folder }) => {
+        const { core, tagging } = await turnedOnForCloud(language, folder);
+        try {
+          tagging.hold();
+          const first = await add(core, "First.txt", "The first report, on its way.");
+          await tagging.requested(1);
+          const waiting = await add(core, "Waiting.txt", "A report waiting its turn.");
+          await core.setLocalOnly(true);
+          tagging.release();
+          await settled(core, [first.id]);
+          expect(tagging.requests).toHaveLength(1);
+          if (folder) {
+            // It waits with the reason, for Local mode to end.
+            await vi.waitFor(async () =>
+              expect(
+                (await core.getLibrary()).assignments.find(
+                  (each) => each.documentId === waiting.id,
+                ),
+              ).toMatchObject({
+                status: "waiting",
+                error: { wording: { key: "error.tagging.cloudPaused" } },
+              }),
+            );
+          }
+
+          await core.setLocalOnly(false);
+          await tagging.requested(2);
+          await settled(core, [waiting.id]);
+
+          expect(tagging.requests).toHaveLength(2);
+          expect(tagging.requests[1]?.text).toContain("A report waiting its turn.");
+        } finally {
+          core.close();
+        }
+      },
+    );
+
+    test.each([{ folder: false }, { folder: true }])(
+      "Local mode on, off, on and off again: what arrives in either spell stays off, what arrives between and after goes (a Folder there: $folder)",
+      async ({ folder }) => {
+        const { core, tagging } = await turnedOnForCloud(language, folder);
+        try {
+          await core.setLocalOnly(true);
+          const first = await add(core, "First spell.txt", "第一次本地模式期间加入的报告。");
+          await core.setLocalOnly(false);
+          const between = await add(core, "Between.txt", "A memo added between the spells.");
+          await tagging.requested(1);
+          await settled(core, [between.id]);
+          await core.setLocalOnly(true);
+          const second = await add(core, "Second spell.txt", "第二次本地模式期间加入的报告。");
+          await core.setLocalOnly(false);
+          const after = await add(core, "After.txt", "A memo added after both spells.");
+          await tagging.requested(2);
+          const states = await settled(core, [first.id, second.id, after.id]);
+
+          expect(states.slice(0, 2).map((each) => each.tagging)).toEqual(["off", "off"]);
+          expect(tagging.requests).toHaveLength(2);
+          expect(tagging.requests[0]?.text).toContain("A memo added between the spells.");
+          expect(tagging.requests[1]?.text).toContain("A memo added after both spells.");
+          expect(tagging.requests.some((request) => request.text.includes("本地模式期间"))).toBe(
+            false,
+          );
+        } finally {
+          core.close();
+        }
+      },
+    );
+
+    test("a cloud model chosen for Tags in Local mode records no consent: Organize asks at its first use after", async () => {
+      const tagging = taggingModel(["Report"]);
+      const core = startCore(await createTempDataFolder(), {
+        keychain: createMemoryKeychain(),
+        createChatModel: scriptedModels(tagging.model).createChatModel,
+        systemLanguages: () => [language],
+      });
+      try {
+        const provider = await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+        await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+        await core.setLocalOnly(true);
+        await core.saveLibrarySettings({
+          ...(await core.getLibrary()).settings,
+          classifier: {
+            kind: "chat",
+            choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+          },
+        });
+        expect(await decisions(core)).toEqual({
+          tagging: { consent: "not-asked", decidedAt: null },
+          organize: { consent: "not-asked", decidedAt: null },
+        });
+
+        await core.setLocalOnly(false);
+        expect(await core.startOrganize()).toMatchObject({
+          ready: false,
+          needs: "consent",
+          service: { id: ANTHROPIC },
+        });
+        expect(tagging.requests).toEqual([]);
       } finally {
         core.close();
       }
