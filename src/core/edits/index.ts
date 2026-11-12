@@ -85,7 +85,8 @@ import {
   waitingIn,
 } from "../proposals/ownWaiting";
 import {
-  figurePlaces,
+  holdsMissingNumber,
+  paragraphPlaces,
   splitCiting,
   takesMissingNumber,
   type Unplaced,
@@ -856,7 +857,8 @@ export function createEdits(options: EditsOptions) {
     const { blocks } = copy;
     // Explain's words cite nothing: what it writes is checked against the Mind as it was.
     const asItWas = explain ? splitCiting(blocks, request) : null;
-    const placesBefore = figurePlaces(blocks, request);
+    const placesBefore = paragraphPlaces(blocks, request);
+    const holdsMark = holdsMissingNumber(placesBefore);
     const { requestId } = hooks;
     // An edit the User asked for applies at once, here or from the assistant, and what its reply
     // leaves out without quoting it as taken out stays (#880, #2180), made again too (#2796).
@@ -958,9 +960,10 @@ export function createEdits(options: EditsOptions) {
       return {
         ...stream?.written(),
         ...(unplaced && { notPlaced: true }),
-        ...(takesMissingNumber(placesBefore, figurePlaces(blocks, request)) && {
-          takesMissingNumber: true,
-        }),
+        ...(holdsMark &&
+          takesMissingNumber(placesBefore, paragraphPlaces(blocks, request)) && {
+            takesMissingNumber: true,
+          }),
       };
     };
     /** Writes in the copy and, checked, merges it into the Mind: nothing more once the change is refused. */

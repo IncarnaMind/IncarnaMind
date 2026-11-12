@@ -190,4 +190,14 @@ describe.each([
     expect(result.kind).toBe("missing-number");
     expect(lastLine(client)).toBe(`Growth was ${MARK} in 2026 and 9% in 2025.`);
   });
+
+  test("a reply that moves the mark's sentence within its paragraph and keeps the mark lands", async () => {
+    const { client, result } = await noteWithMark(
+      (passage) =>
+        passage.replace(`Growth was ${words}. Sales held.`, `Sales held. Growth was ${words}.`),
+      [text("Growth was "), { type: "missingNumber" }, text(". Sales held.")],
+    );
+    expect(result.kind).toBe("proposed");
+    expect(lastLine(client)).toBe(`Sales held. Growth was ${MARK}.`);
+  });
 });

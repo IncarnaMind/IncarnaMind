@@ -12,6 +12,8 @@
  *   INCARNAMIND_LIVE_RUNS            runs of each language and instruction (1)
  *   INCARNAMIND_LIVE_ONLY            only these, e.g. "en shorter|zh-CN translate"
  *   INCARNAMIND_LIVE_MAX_USD         stops before the next run once the spend reaches it (0.5)
+ *   INCARNAMIND_LIVE_DEAREST_USD     a later Answer's run starts only while the room left under
+ *                                    the stop covers the dearest run so far, this one (0) included
  *   INCARNAMIND_LIVE_REPORT          a file to keep each run's line and the totals
  *
  * Names of their own, so a key a shell has for other tools never starts paid requests here.
@@ -243,12 +245,14 @@ describe.each(LIVE)("A later Answer and the mark, live: $name", (live) => {
       let answersFailed = 0;
       const afterRefusal = { runs: 0, ended: 0 };
       let spent = 0;
+      let dearest = Number(process.env.INCARNAMIND_LIVE_DEAREST_USD ?? 0);
       for (const language of ["en", "zh-CN"] as const) {
         const only = process.env.INCARNAMIND_LIVE_ONLY?.split("|");
         if (only && !only.includes(`${language} try-again`)) continue;
         const words = TRY_AGAIN[language];
         for (let run = 1; run <= runs; run++) {
-          if (spent >= cap) break;
+          // A run starts only while the room left covers the dearest run so far.
+          if (cap - spent < dearest) break;
           const dataDir = await createTempDataFolder();
           const failing = (part: unknown) => requestsFailed.push(String(part).slice(0, 200));
           const core = startCore(dataDir, {
@@ -383,6 +387,7 @@ describe.each(LIVE)("A later Answer and the mark, live: $name", (live) => {
               "SELECT SUM(cost) AS cost FROM model_requests WHERE deleted_at IS NULL",
             )[0]?.cost ?? 0;
           spent += cost;
+          dearest = Math.max(dearest, cost);
           report.push(`  ${spentBy(dataDir).join("; ")}`);
           core.close();
         }

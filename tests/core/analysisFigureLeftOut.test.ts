@@ -35,6 +35,8 @@ const WORDS = {
     again: "Try the growth figure again and put it in the note.",
     put: "Put the calculated growth, 8.0%, where the note says [number missing].",
     plain: "Write the growth into the note as a plain number.",
+    second: (number: string) => `There were ${number} loans in February.`,
+    swap: "Update the growth sentence and the February sentence.",
     label: "Average monthly loan growth",
     title: "Growth",
     sentence: (marker: string) => `Harbour's average monthly loan growth was ${marker}.`,
@@ -49,6 +51,8 @@ const WORDS = {
     again: "再算一次增长率，写进笔记。",
     put: "把算出的增长率 8.0% 写在笔记中[缺少数字]的位置。",
     plain: "把增长率直接写成数字放进笔记。",
+    second: (number: string) => `二月借阅 ${number} 次。`,
+    swap: "更新增长率那句和二月那句。",
     label: "月均借阅增长率",
     title: "增长",
     sentence: (marker: string) => `港湾分馆的月均借阅增长率为 ${marker}。`,
@@ -129,6 +133,10 @@ const triesAgain = (call: ModelCall) =>
 const writesPlain = (call: ModelCall) =>
   call.prompt.includes(WORDS.en.plain) || call.prompt.includes(WORDS["zh-CN"].plain);
 
+/** The Answer's request that rewrites the growth sentence and the one beside it. */
+const swaps = (call: ModelCall) =>
+  call.prompt.includes(WORDS.en.swap) || call.prompt.includes(WORDS["zh-CN"].swap);
+
 /** The sentence of the Note the second Answer read, as it read it: its line that names the growth. */
 const readSentence = (call: ModelCall, language: Language): string =>
   call.prompt
@@ -136,7 +144,13 @@ const readSentence = (call: ModelCall, language: Language): string =>
     .find((line) => line.includes(WORDS[language].part))
     ?.trim() ?? "";
 
-async function written(language: Language, file: Buffer, content: string) {
+async function written(
+  language: Language,
+  file: Buffer,
+  content: string,
+  /** What the Answer asked `swap` writes as its own text's new content. */
+  swapped = "",
+) {
   const words = WORDS[language];
   /** The sentences each Check sent to be sorted into claims, the latest last. */
   const listed: string[][] = [];
@@ -166,13 +180,31 @@ async function written(language: Language, file: Buffer, content: string) {
                 inputs: [{ name: "loans", passage: found?.id ?? "" }],
                 code: rewrites(call)
                   ? "count"
-                  : triesAgain(call) || writesPlain(call)
+                  : triesAgain(call) || writesPlain(call) || swaps(call)
                     ? "again"
                     : "pass",
               },
             },
           ],
         };
+      }
+      if (swaps(call)) {
+        if (!call.results.some((result) => result.tool === "edit_mind"))
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  mind: words.title,
+                  part: words.part,
+                  content: swapped,
+                  times_as_long: 1,
+                  removes_only: false,
+                },
+              },
+            ],
+          };
+        return { text: language === "en" ? "Done." : "已完成。" };
       }
       if (writesPlain(call)) {
         const edits = call.results.filter((result) => result.tool === "edit_mind");
@@ -428,11 +460,16 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
   });
 
   /** Asks the Answer in the Note's conversation, accepts what it wrote, and reads the Note's last line and its figures. */
-  async function askedAgain(language: Language, question: string) {
+  async function askedAgain(
+    language: Language,
+    question: string,
+    { content = WORDS[language].sentence("[=1]"), swapped = "" } = {},
+  ) {
     const { core, mindId, conversationId, told } = await written(
       language,
       FIRST_MONTH_BLANK,
-      WORDS[language].sentence("[=1]"),
+      content,
+      swapped,
     );
     const answer = await askAssistant(core, {
       conversationId,
@@ -483,6 +520,40 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     ]);
     expect(line).toBe(words.sentence(MARK));
     expect(figures).toBe(0);
+  });
+
+  describe("a paragraph with the mark and a second number", () => {
+    const content = `${words.sentence("[=1]")} ${words.second("1,080")}`;
+
+    test("a change that calculates the second number and types digits where the mark was is refused, and the mark stays", async () => {
+      const { edits, line, figures } = await askedAgain(language, words.swap, {
+        content,
+        swapped: `${words.sentence("8.0%")} ${words.second("[=1]")}`,
+      });
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(line).toBe(`${words.sentence(MARK)} ${words.second("1,080")}`);
+      expect(figures).toBe(0);
+    });
+
+    test("a change with the calculated figure where the mark was lands", async () => {
+      const { edits, line, figures } = await askedAgain(language, words.swap, {
+        content,
+        swapped: `${words.sentence("[=1]")} ${words.second("1,080")}`,
+      });
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(line).toBe(`${words.sentence("8.0%")} ${words.second("1,080")}`);
+      expect(figures).toBe(1);
+    });
+
+    test("a change that moves the mark's sentence within its paragraph and keeps the mark lands", async () => {
+      const { edits, line } = await askedAgain(language, words.swap, {
+        content,
+        swapped: `${words.second("1,080")} ${words.sentence(words.mark)}`,
+      });
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(line).toBe(`${words.second("1,080")} ${words.sentence(MARK)}`);
+    });
   });
 
   test("the Markdown and Word exports write the mark's words in the interface language", async () => {

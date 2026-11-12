@@ -7962,7 +7962,7 @@ export const en = {
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.propose.missingNumber":
-    "The text for {name} takes out [number missing], which only a figure IncarnaMind calculated may take the place of, so nothing was written.",
+    "The text for {name} leaves out [number missing], which marks a number that couldn’t be calculated, so nothing was written. Keep [number missing] exactly as the paragraph has it.",
   "agents.propose.typedTag":
     "The text for {name} leaves out a <removed> tag the User typed there, which would take their words out, so nothing was written. Keep each tag as the paragraph has it.",
   "agents.propose.misnamed":

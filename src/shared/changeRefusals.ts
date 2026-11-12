@@ -30,8 +30,7 @@ export const REFUSAL_WORDS = {
     editor: "edit.problem.missing-number",
     card: "mindChanges.missingNumberRefused.one",
     agent: "agents.propose.missingNumber",
-    model:
-      "the change took out [number missing], which only a calculated figure may take the place of",
+    model: "the change left out [number missing] without a calculated figure in its place",
   },
   "no-table": {
     editor: "edit.problem.no-table",

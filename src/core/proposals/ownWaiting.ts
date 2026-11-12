@@ -31,7 +31,6 @@ import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
-  CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
@@ -42,7 +41,13 @@ import {
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
-import { takesMissingNumber } from "./placed";
+import {
+  holdsMissingNumber,
+  type PlaceKeys,
+  paragraphPlaces,
+  placeKeysOf,
+  takesMissingNumber,
+} from "./placed";
 import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
@@ -594,22 +599,29 @@ export function takesMissingNumberOver(
   over: Pick<OwnWaiting, "blockIds" | "fingerprint">,
   revised: readonly NodeJSON[],
 ): boolean {
-  const namesInNote = (node: Y.XmlElement): string[] => [
-    node.nodeName,
-    ...node.toArray().flatMap((child) => (child instanceof Y.XmlElement ? namesInNote(child) : [])),
-  ];
-  const namesInText = (node: NodeJSON): string[] => [
-    node.type,
-    ...(node.content ?? []).flatMap(namesInText),
-  ];
-  const places = (names: readonly string[]) => ({
-    marks: names.filter((name) => name === MISSING_NUMBER_NODE).length,
-    figures: names.filter((name) => name === CALCULATED_FIGURE_NODE).length,
-  });
-  return takesMissingNumber(
-    places((blocksOf(blocks, over) ?? []).flatMap(namesInNote)),
-    places(revised.flatMap(namesInText)),
+  const before = (blocksOf(blocks, over) ?? []).flatMap((element) =>
+    paragraphPlaces(element, null),
   );
+  if (!holdsMissingNumber(before)) return false;
+  const after: PlaceKeys[] = [];
+  const visit = (node: NodeJSON) => {
+    const content = node.content ?? [];
+    if (content.some((child) => child.type === "text")) {
+      after.push(
+        placeKeysOf(
+          content.map((child) =>
+            child.type === "text"
+              ? { text: child.text ?? "" }
+              : { node: child.type, id: child.attrs?.[BLOCK_ID_ATTRIBUTE] },
+          ),
+        ),
+      );
+      return;
+    }
+    content.forEach(visit);
+  };
+  revised.forEach(visit);
+  return takesMissingNumber(before, after);
 }
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */

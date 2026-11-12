@@ -7517,7 +7517,7 @@ export const zhCN = {
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
   "agents.propose.missingNumber":
-    "{name} 的文字去掉了[缺少数字]，只有 IncarnaMind 计算得出的数字才能替代它，因此没有写入任何修改。",
+    "{name} 的文字漏掉了[缺少数字]，它表示一个未能计算的数字，因此没有写入任何修改。请按原样保留[缺少数字]。",
   "agents.propose.typedTag":
     "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
   "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",
