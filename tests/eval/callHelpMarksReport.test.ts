@@ -9,7 +9,7 @@ import {
   median,
   signTestP,
 } from "../../eval/speed/callHelpMarksReport";
-import type { ArmRun } from "../../eval/speed/paired";
+import type { ArmRun, RequestTiming } from "../../eval/speed/paired";
 import { type PairedRow, sentPair } from "../../eval/speed/pairedReport";
 
 type Marks = NonNullable<ArmRun["marks"]>;
@@ -34,6 +34,26 @@ function arm(given: Partial<ArmRun> & { marks?: Marks }): ArmRun {
     duplicate: false,
     failures: [],
     text: "★ An option [1]",
+    requests: [request({})],
+    ...given,
+  };
+}
+
+function request(given: Partial<RequestTiming>): RequestTiming {
+  return {
+    kind: "model",
+    step: null,
+    model: "claude-sonnet-5-5",
+    reasoning: null,
+    startMs: 10,
+    firstByteMs: 500,
+    firstReasoningMs: null,
+    firstTextMs: 500,
+    firstToolMs: null,
+    endMs: 3900,
+    inputTokens: 1000,
+    outputTokens: 100,
+    outcome: "finished",
     ...given,
   };
 }
@@ -247,6 +267,57 @@ describe("the call-help marks gate's report", () => {
     );
     expect(section).toContain(
       "5, presses that failed on the branch where main finished: 0: holds.",
+    );
+  });
+
+  test("a run is void when a request failed or kept no outcome, and a branch failure with its requests finished is bar 5's", () => {
+    const requests = "**Requests, anthropic/claude-sonnet-5-5:**";
+    const clean = marksSection(rows()) ?? "";
+    expect(clean).toContain(
+      `${requests} 80 model requests in the record, 0 of them ended other than finished.`,
+    );
+    expect(clean).not.toContain("**Void");
+
+    const firstOnBranch = (candidate: Partial<ArmRun>) =>
+      rows().map((row, index) =>
+        index === 0 ? { ...row, candidate: { ...row.candidate, ...candidate } } : row,
+      );
+    const refused = marksSection(
+      firstOnBranch({ requests: [request({ step: "answer-check", outcome: "failed" })] }),
+    );
+    expect(refused).toContain(
+      `${requests} 80 model requests in the record, 1 of them ended other than finished.`,
+    );
+    expect(refused).toContain(
+      "**Void, anthropic/claude-sonnet-5-5: its bars are not read, and it isn't run again before its reasons are read.** the branch, en-0 run 1: a request (answer-check) failed.",
+    );
+
+    const unrecorded = marksSection(firstOnBranch({ requests: [request({ outcome: undefined })] }));
+    expect(unrecorded).toContain("1 of them ended other than finished.");
+    expect(unrecorded).toContain(
+      "the branch, en-0 run 1: a request (the reply) with no outcome recorded.",
+    );
+
+    const judge = marksSection(
+      firstOnBranch({ status: "failed", error: "The judge's request failed: Overloaded" }),
+    );
+    expect(judge).toContain(
+      "**Void, anthropic/claude-sonnet-5-5: its bars are not read, and it isn't run again before its reasons are read.** the branch, en-0 run 1: The judge's request failed: Overloaded.",
+    );
+
+    const unsettled = marksSection(
+      firstOnBranch({
+        status: "failed",
+        error: "Its marks hadn't settled 60 s after the reply ended.",
+      }),
+    );
+    expect(unsettled).toContain("0 of them ended other than finished.");
+    expect(unsettled).not.toContain("**Void");
+    expect(unsettled).toContain(
+      "Failed with every request finished, so bar 5's and not a void: the branch, en-0 run 1: failed: Its marks hadn't settled 60 s after the reply ended.",
+    );
+    expect(unsettled).toContain(
+      "5, presses that failed on the branch where main finished: 1: **fails**.",
     );
   });
 });

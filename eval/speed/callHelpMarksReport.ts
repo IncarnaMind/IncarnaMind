@@ -12,31 +12,49 @@ const GATES: Readonly<Record<string, string>> = {
   "call-help-marks-3": "call-help-checked-marks-3.md",
 };
 
-/** How a press's error starts when its marks hadn't settled in time: bar 5 counts it. */
-export const MARKS_UNSETTLED = "Its marks hadn't settled";
+/** How a press's error starts when the judge's request threw: refused or failed, after its retry. */
+export const JUDGE_FAILED = "The judge's request failed";
 
-/**
- * Why a model's run is void (shared-key rule 3): each model request that was refused, failed or
- * timed out, and each press that failed for another reason than its marks' wait.
- */
-function voidOf(rows: readonly PairedRow[]): string[] {
-  const runs = rows.flatMap((row) => [row.baseline, row.candidate]);
-  const ended = runs.flatMap((run) =>
-    (run.requests ?? []).filter(
-      (request) =>
-        request.kind === "model" && request.outcome !== undefined && request.outcome !== "finished",
-    ),
-  );
-  const failed = runs.filter(
-    (run) => run.status === "failed" && !run.error?.startsWith(MARKS_UNSETTLED),
-  );
-  return [
-    ...ended.map(
-      (request) =>
-        `a request (${request.step ?? "the reply"}, ${request.model}) ${request.outcome}`,
-    ),
-    ...failed.map((run) => `a press failed: ${run.error ?? "no error"}`),
-  ];
+interface RunRecord {
+  /** The model requests the record holds, and those of them that ended other than finished. */
+  requests: number;
+  unfinished: number;
+  /** Why the run is void (shared-key rule 3): empty when it counts. */
+  voids: string[];
+  /** Presses that failed with every request of them finished: bar 5's, never a void. */
+  failures: string[];
+}
+
+function recordOf(rows: readonly PairedRow[]): RunRecord {
+  const record: RunRecord = { requests: 0, unfinished: 0, voids: [], failures: [] };
+  for (const row of rows) {
+    for (const [arm, run] of [
+      ["main", row.baseline],
+      ["the branch", row.candidate],
+    ] as const) {
+      const press = `${arm}, ${row.id} run ${row.run}`;
+      const why = `${run.status}${run.error ? `: ${run.error}` : ""}`;
+      if (run.requests === undefined) {
+        record.voids.push(`${press} kept none of its requests, so the record can't tell (${why})`);
+        continue;
+      }
+      const models = run.requests.filter((request) => request.kind === "model");
+      const unfinished = models.filter((request) => request.outcome !== "finished");
+      record.requests += models.length;
+      record.unfinished += unfinished.length;
+      for (const request of unfinished) {
+        record.voids.push(
+          `${press}: a request (${request.step ?? "the reply"}) ${request.outcome ?? "with no outcome recorded"}`,
+        );
+      }
+      if (run.status === "done" && models.length === 0)
+        record.voids.push(`${press} finished with no model request in the record`);
+      if (run.status !== "failed") continue;
+      if (run.error?.startsWith(JUDGE_FAILED)) record.voids.push(`${press}: ${run.error}`);
+      else if (unfinished.length === 0) record.failures.push(`${press}: ${why}`);
+    }
+  }
+  return record;
 }
 
 /** Bar 3's allowance (cited, judged right, every Citation found), by model and language. */
@@ -133,13 +151,21 @@ function gateSection(rows: readonly PairedRow[], gate: string): string {
   const languages = ["en", "zh-CN"] as const;
 
   for (const model of models) {
-    const why = voidOf(rows.filter((row) => row.model === model));
-    if (why.length > 0) {
+    const record = recordOf(rows.filter((row) => row.model === model));
+    lines.push(
+      `**Requests, ${model}:** ${record.requests} model requests in the record, ${record.unfinished} of them ended other than finished.`,
+    );
+    if (record.voids.length > 0) {
       lines.push(
-        `**Void, ${model}: its bars are not read, and the run is taken again.** ${why.join("; ")}.`,
-        "",
+        `**Void, ${model}: its bars are not read, and it isn't run again before its reasons are read.** ${record.voids.join("; ")}.`,
       );
     }
+    if (record.failures.length > 0) {
+      lines.push(
+        `Failed with every request finished, so bar 5's and not a void: ${record.failures.join("; ")}.`,
+      );
+    }
+    lines.push("");
   }
 
   lines.push("### Bar 1: the check clears wrong ✓ from the branch's own replies", "");

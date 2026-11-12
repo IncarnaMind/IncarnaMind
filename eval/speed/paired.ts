@@ -222,7 +222,7 @@ export async function openForArms(
 const languageOf = (language: "en" | "zh" | "zh-CN"): Language =>
   language === "en" ? "en" : "zh-CN";
 
-const NOTHING: Measured = {
+export const NOTHING: Measured = {
   status: "done",
   error: null,
   searches: null,

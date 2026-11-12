@@ -48,8 +48,15 @@ import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
-import { MARKS_UNSETTLED } from "./callHelpMarksReport";
-import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
+import { JUDGE_FAILED } from "./callHelpMarksReport";
+import {
+  type GroupOptions,
+  type Measured,
+  NOTHING,
+  type OpenedGroup,
+  type PairedGroup,
+  type RequestTiming,
+} from "./paired";
 
 const STEP_MS = 500;
 /**
@@ -80,7 +87,7 @@ function replyEnded(
       if (answer?.kind === "answer" && !answer.citations.some((each) => each.check === "checking"))
         return;
       if (performance.now() > deadline)
-        throw new Error(`${MARKS_UNSETTLED} ${MARKS_MS / 1000} s after the reply ended.`);
+        throw new Error(`Its marks hadn't settled ${MARKS_MS / 1000} s after the reply ended.`);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   };
@@ -512,12 +519,20 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();
-      const { answer, firstWordsMs, firstOptionMs, settledMs } = await press(
-        library.core,
-        each,
-        meeting.id,
-        () => library.timings?.begin(),
-      );
+      // A press that fails keeps its requests, so its record shows whether one of them failed.
+      const failed = (message: string): Measured => ({
+        ...NOTHING,
+        status: "failed",
+        error: message,
+        requests: requestsSince(library.dataDir, since),
+      });
+      let pressed: Awaited<ReturnType<typeof press>>;
+      try {
+        pressed = await press(library.core, each, meeting.id, () => library.timings?.begin());
+      } catch (error) {
+        return failed(error instanceof Error ? error.message : String(error));
+      }
+      const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -546,22 +561,27 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
             );
       const found = citations.filter(quoteFound);
       const reply = shownReply(answer, shown, numbers);
-      const judged = done
-        ? await judge(
-            claimsJudge,
-            each,
-            [...(each.before ?? []), ...each.turns],
-            reply,
-            [...numbers].flatMap(([marker, number]) => {
-              const citation = answer.citations.find((each) => each.marker === marker);
-              return citation
-                ? [
-                    `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
-                  ]
-                : [];
-            }),
-          )
-        : null;
+      let judged: Judged | null = null;
+      try {
+        judged = done
+          ? await judge(
+              claimsJudge,
+              each,
+              [...(each.before ?? []), ...each.turns],
+              reply,
+              [...numbers].flatMap(([marker, number]) => {
+                const citation = answer.citations.find((each) => each.marker === marker);
+                return citation
+                  ? [
+                      `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
+                    ]
+                  : [];
+              }),
+            )
+          : null;
+      } catch (error) {
+        return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
+      }
       const shownAs = (number: number) => {
         const marker = [...numbers].find(([, shown]) => shown === number)?.[0];
         return answer.citations.find((citation) => citation.marker === marker);
