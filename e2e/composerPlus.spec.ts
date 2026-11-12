@@ -667,7 +667,12 @@ const rowState = (composer: Locator): Promise<RowState> =>
         // Its first six characters, with the ellipsis a longer name is cut with; all of a short one.
         const kept = letters.length <= 6 ? text : `${letters.slice(0, 6).join("")}…`;
         const hint = item.querySelector<HTMLElement>(".scope-chip-empty");
-        const nameCut = name ? name.scrollWidth > name.clientWidth + 1 : false;
+        // Whether the ellipsis shows, which whole-pixel scroll widths can miss by a fraction.
+        const written = document.createRange();
+        if (name) written.selectNodeContents(name);
+        const nameCut = name
+          ? written.getBoundingClientRect().width > name.getBoundingClientRect().width + 0.05
+          : false;
         return {
           text,
           width: item.getBoundingClientRect().width,

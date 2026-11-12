@@ -18,6 +18,16 @@ interface State extends RowGivesWay {
 }
 
 /**
+ * Whether a name's box is narrower than its text, by any part of a pixel: the ellipsis shows then,
+ * though `scrollWidth` and `clientWidth`, which are whole pixels, can still read the same.
+ */
+function shortOfItsText(box: HTMLElement): boolean {
+  const text = document.createRange();
+  text.selectNodeContents(box);
+  return text.getBoundingClientRect().width > box.getBoundingClientRect().width + 0.05;
+}
+
+/**
  * The order the row gives way in, when its controls don't fit, always the same: the "· empty" on a
  * Folder's chip goes whole; then each chip's name shortens (its floor, `useChipFloors`); then the
  * chips that can't keep that fold into the count; only then is the model's name cut, and a lone
@@ -64,7 +74,7 @@ export function useRowGivesWay({
     const tight = cut(element) || (list !== null && cut(list));
     const hinted = element.querySelector(".scope-chip-empty") !== null;
     const nameCut = Array.from(element.querySelectorAll<HTMLElement>(".scope-chip .truncate")).some(
-      cut,
+      shortOfItsText,
     );
     if (now.hints && hinted && (tight || nameCut)) setState({ ...now, hints: false });
     else if (!tight) return;
