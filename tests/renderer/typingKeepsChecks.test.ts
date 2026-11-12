@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
@@ -8,9 +9,10 @@ import { boundEditorTo, typeText } from "../helpers/editor";
 import { copyInStep } from "../helpers/mindClient";
 
 /*
- * ⌘Z takes back what the User typed, never a check's result that landed since (#2988). Two checked
- * sentences share a paragraph; the User types in the first while Check this note runs, a newer
- * result lands on the second, and ⌘Z takes the typing back: the second keeps the newer result.
+ * What the User types never writes a check's result it didn't change (#2988). Two checked sentences
+ * share a paragraph; the User types in the first while Check this note runs and a newer result
+ * lands on the second: the second keeps the newer result, whether the typing and the result cross
+ * on the way or ⌘Z takes the typing back after.
  * The note is the window's copy, kept in step with the core's by encoded updates, in the editor
  * with the app's schema and its Yjs sync.
  */
@@ -70,7 +72,8 @@ describe.each([
     marks: touching,
   },
 ])("$layout", ({ block, marks }) => {
-  test("⌘Z after typing in the first leaves a result that landed on the second since", () => {
+  /** The core's Note with both sentences checked Supported, and the check of the second. */
+  function checkedNote() {
     const core = new Y.Doc();
     const blocks = core.getXmlFragment(MIND_CONTENT_FIELD);
     blocks.push([createElement(block)]);
@@ -78,13 +81,14 @@ describe.each([
     while (element instanceof Y.XmlElement && element.nodeName !== "paragraph")
       element = element.get(0);
     if (!(element instanceof Y.XmlElement)) throw new Error("No paragraph");
-    const [from1, to1] = marks.first;
-    const [from2, to2] = marks.second;
-    markSentence(element, from1 ?? 0, to1 ?? 0, check("first", first, "supported"));
-    markSentence(element, from2 ?? 0, to2 ?? 0, check("second", second, "supported"));
-
-    const copy = copyInStep(core);
-    const editor = boundEditorTo(copy);
+    const [from1 = 0, to1 = 0] = marks.first;
+    const [from2 = 0, to2 = 0] = marks.second;
+    markSentence(element, from1, to1, check("first", first, "supported"));
+    markSentence(element, from2, to2, check("second", second, "supported"));
+    return core;
+  }
+  /** Types "about " in the first sentence, as the User does in the editor. */
+  function typeInFirst(editor: Editor) {
     let at = -1;
     editor.state.doc.descendants((node, pos) => {
       if (at < 0 && node.isText) at = pos + (node.text ?? "").indexOf("10");
@@ -92,29 +96,69 @@ describe.each([
     editor.commands.setTextSelection(at);
     typeText(editor, "about ");
     expect(editor.state.doc.textContent).toContain("Revenue was about 10 in May.");
-
-    const landing = markedSentences(blocks).find((each) => each.check.id === "second");
+  }
+  /** The core lands a newer result on the second sentence: Contradicted. */
+  function landContradicted(core: Y.Doc) {
+    const landing = markedSentences(core.getXmlFragment(MIND_CONTENT_FIELD)).find(
+      (each) => each.check.id === "second",
+    );
     if (!landing) throw new Error("The second sentence has no check");
     markSentence(landing.element, landing.from, landing.to, {
       ...check("second", second, "contradicted"),
       checkedAt: "2026-11-12T09:01:00.000Z",
     });
+  }
+  const results = (note: Y.Doc) =>
+    markedSentences(note.getXmlFragment(MIND_CONTENT_FIELD)).map((each) => [
+      each.check.id,
+      each.check.state,
+    ]);
 
-    const landed = markedSentences(copy.getXmlFragment(MIND_CONTENT_FIELD)).find(
-      (each) => each.check.id === "second",
-    );
-    expect(landed?.check.state).toBe("contradicted");
+  test("⌘Z after typing in the first leaves a result that landed on the second since", () => {
+    const core = checkedNote();
+    const copy = copyInStep(core);
+    const editor = boundEditorTo(copy);
+    typeInFirst(editor);
+    landContradicted(core);
+    expect(results(copy)).toEqual([
+      ["first", "supported"],
+      ["second", "contradicted"],
+    ]);
     expect(editor.commands.undo()).toBe(true);
     expect(editor.state.doc.textContent).toBe(words);
-    for (const note of [core, copy]) {
-      const states = markedSentences(note.getXmlFragment(MIND_CONTENT_FIELD)).map((each) => [
-        each.check.id,
-        each.check.state,
-      ]);
-      expect(states).toEqual([
+    for (const note of [core, copy])
+      expect(results(note)).toEqual([
         ["first", "supported"],
         ["second", "contradicted"],
       ]);
-    }
   });
+
+  // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "typing in the first while a result lands on the second leaves that result, the typing ordered %s it",
+    (_, copyId) => {
+      const core = checkedNote();
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      copy.clientID = copyId;
+      core.clientID = 2;
+      const editor = boundEditorTo(copy);
+      landContradicted(core);
+      typeInFirst(editor);
+      Y.applyUpdate(core, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+      for (const note of [core, copy]) {
+        expect(note.getXmlFragment(MIND_CONTENT_FIELD).toString()).toContain(
+          "Revenue was about 10",
+        );
+        expect(results(note)).toEqual([
+          ["first", "supported"],
+          ["second", "contradicted"],
+        ]);
+      }
+    },
+  );
 });
