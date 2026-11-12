@@ -10,8 +10,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
+import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { readNoteState } from "../../src/renderer/src/noteState";
 import type { NoteFooting } from "../../src/shared/claimChecks";
 import { footingOfRows } from "../../src/shared/figureSchedule";
 import { INLINE_NODE } from "../../src/shared/sentences";
@@ -627,6 +629,24 @@ describe("every place that shows the total's verdict shows the same one", () => 
   test("the mark in the Note", async () => {
     const run = await laterRun(EN, "a failed request");
     expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
+  });
+
+  test("Home's row for the Note", async () => {
+    const run = await laterRun(EN, "a failed request");
+    const [snapshot] = await run.core.readMindContents([run.mindId]);
+    if (!snapshot) throw new Error("Home read no Note.");
+    const doc = new Y.Doc();
+    onTestFinished(() => doc.destroy());
+    Y.applyUpdate(doc, snapshot.state);
+    const { health } = readNoteState({
+      doc,
+      cellFigures: snapshot.cellFigures,
+      footing: snapshot.footing,
+      documents: null,
+      keptCitationTexts: [],
+      folderId: run.folderId,
+    });
+    expect(health.unsupported).toHaveLength(1);
   });
 
   test("the Figures tab", async () => {
