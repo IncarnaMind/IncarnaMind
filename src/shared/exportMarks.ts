@@ -1,13 +1,15 @@
 /**
  * The page numbers and watermark a Note's Word file and PDF carry (#1258). Like its font and
  * citation style they live in the Note's Yjs settings (`MIND_SETTINGS_FIELD`), not in its
- * Blocks, so they go wherever the Note goes; a Note that never chose any has page numbers and
- * no watermark.
+ * Blocks, so they go wherever the Note goes. A Note that never chose any has no watermark, and
+ * page numbers unless it was made from a Word file: the User's own file gains nothing they
+ * didn't ask for (#1741).
  */
 import type * as Y from "yjs";
 import type { Language } from "../core/language";
 import { translate } from "./i18n";
 import { isRecord } from "./record";
+import { wordFileOf } from "./wordFiles";
 
 export const WATERMARK_CHOICES = ["none", "draft", "confidential", "words"] as const;
 
@@ -25,6 +27,8 @@ export interface ExportMarks {
 export const MAX_WATERMARK_WORDS = 40;
 
 export const DEFAULT_EXPORT_MARKS: ExportMarks = { pageNumbers: true, watermark: "none" };
+
+const WORD_FILE_MARKS: ExportMarks = { pageNumbers: false, watermark: "none" };
 
 const MARKS_KEY = "exportMarks";
 
@@ -51,24 +55,27 @@ export function isExportMarks(value: unknown): value is ExportMarks {
   return Object.keys(value).every((key) => known.has(key));
 }
 
-/** The marks a Note carries; anything malformed counts as none of its own. */
+const defaultMarksOf = (settings: Y.Map<unknown>): ExportMarks =>
+  settings.doc && wordFileOf(settings.doc) ? WORD_FILE_MARKS : DEFAULT_EXPORT_MARKS;
+
+/**
+ * The marks a Note carries; anything malformed counts as none of its own. `settings` must be the
+ * Note's own Y.Doc's, which says whether it came from a Word file.
+ */
 export function exportMarksOf(settings: Y.Map<unknown>): ExportMarks {
   const saved = settings.get(MARKS_KEY);
-  return isExportMarks(saved) ? saved : DEFAULT_EXPORT_MARKS;
+  return isExportMarks(saved) ? saved : defaultMarksOf(settings);
 }
 
-const isDefault = (marks: ExportMarks): boolean =>
-  marks.pageNumbers === DEFAULT_EXPORT_MARKS.pageNumbers &&
-  marks.watermark === DEFAULT_EXPORT_MARKS.watermark;
-
-/** Sets the Note's marks; the default is forgotten, so another Note's default applies again. */
+/** Sets the Note's marks; its default is forgotten, so a change to the defaults reaches it. */
 export function writeExportMarks(settings: Y.Map<unknown>, marks: ExportMarks): void {
   const saved: ExportMarks = {
     pageNumbers: marks.pageNumbers,
     watermark: marks.watermark,
     ...(marks.words !== undefined && { words: marks.words }),
   };
-  if (isDefault(marks)) {
+  const byDefault = defaultMarksOf(settings);
+  if (marks.pageNumbers === byDefault.pageNumbers && marks.watermark === byDefault.watermark) {
     if (settings.has(MARKS_KEY)) settings.delete(MARKS_KEY);
   } else if (JSON.stringify(settings.get(MARKS_KEY)) !== JSON.stringify(saved)) {
     settings.set(MARKS_KEY, saved);

@@ -11,6 +11,8 @@ import { checkWellFormed, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
+import { field, paragraph, type WordFileInput, wordFile } from "../helpers/word";
+import { importWordBytes } from "../helpers/wordMinds";
 
 const DRAFT: ExportMarks = { pageNumbers: false, watermark: "draft" };
 
@@ -157,5 +159,93 @@ describe("Page numbers and the watermark in PDF", () => {
     await core.exportMind(mind.id, { format: "pdf" });
     expect(printed.at(-1)).toMatchObject({ pageNumbers: true });
     expect(printed.at(-1)?.watermark).toBeUndefined();
+  });
+});
+
+describe("A Note made from a Word file adds nothing to the User's file until asked", () => {
+  async function fromWord(input: WordFileInput) {
+    const dataDir = await createTempDataFolder();
+    const { printer, printed } = fakePrinter();
+    const core = startCore(dataDir, { printer });
+    const bytes = wordFile(input);
+    const { mindId } = await importWordBytes(core, await createTempDataFolder(), bytes, {
+      origin: "own",
+    });
+    return { dataDir, core, bytes, mindId, printed };
+  }
+
+  /** The entries an export changed, added or left out. */
+  function changed(before: Map<string, Buffer>, after: Map<string, Buffer>): string[] {
+    const names = new Set([...before.keys(), ...after.keys()]);
+    return [...names]
+      .filter((name) => !before.get(name)?.equals(after.get(name) ?? Buffer.alloc(0)))
+      .sort();
+  }
+
+  /** Two sections, the first ending at its heading; `first` goes inside its w:sectPr. */
+  const twoSections = (first: string): WordFileInput => ({
+    body: [
+      paragraph("Heads of terms", { sectPr: `<w:sectPr>${first}</w:sectPr>` }),
+      paragraph("Schedule of fittings"),
+    ].join(""),
+  });
+
+  test("it starts with page numbers off, and a Note written here still starts with them on", async () => {
+    const { core, mindId } = await fromWord({ body: paragraph("Lease brief") });
+    const written = await core.createMind({ title: "Tides" });
+    expect(await core.getExportMarks(mindId)).toEqual({ pageNumbers: false, watermark: "none" });
+    expect(await core.getExportMarks(written.id)).toEqual({ pageNumbers: true, watermark: "none" });
+  });
+
+  test("its PDF follows the same choice: no number until the User turns them on", async () => {
+    const { core, mindId, printed } = await fromWord({ body: paragraph("Lease brief") });
+    await core.exportMind(mindId, { format: "pdf" });
+    expect(printed.at(-1)).toMatchObject({ pageNumbers: false });
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    await core.exportMind(mindId, { format: "pdf" });
+    expect(printed.at(-1)).toMatchObject({ pageNumbers: true });
+  });
+
+  test("a choice it saved stays as it is when the app starts again", async () => {
+    const { dataDir, core, mindId } = await fromWord({ body: paragraph("Lease brief") });
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    core.close();
+    const restarted = startCore(dataDir);
+    expect(await restarted.getExportMarks(mindId)).toEqual({ pageNumbers: true, watermark: "none" });
+    await restarted.setExportMarks(mindId, { pageNumbers: false, watermark: "draft" });
+    expect(await restarted.getExportMarks(mindId)).toEqual({
+      pageNumbers: false,
+      watermark: "draft",
+    });
+  });
+
+  test("turned on, a file whose sections have no footer gets Word's own page number in each, and nothing else of it changes", async () => {
+    const { core, bytes, mindId } = await fromWord(twoSections('<w:type w:val="nextPage"/>'));
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    expect(changed(unzip(bytes), files)).toEqual([
+      "[Content_Types].xml",
+      "word/_rels/document.xml.rels",
+      "word/document.xml",
+      "word/footer1.xml",
+    ]);
+    expect(part(files, "word/footer1.xml")).toContain(
+      '<w:instrText xml:space="preserve"> PAGE </w:instrText>',
+    );
+    expect([...part(files, "word/document.xml").matchAll(/<w:footerReference\b/g)]).toHaveLength(
+      2,
+    );
+  });
+
+  test("turned on, a file with a footer of its own comes back byte for byte: its footer, its page-number field, and no number added", async () => {
+    const { core, bytes, mindId } = await fromWord({
+      // The second section has no footer of its own: Word shows it the first's.
+      ...twoSections('<w:footerReference w:type="default" r:id="rIdF1"/><w:type w:val="nextPage"/>'),
+      footers: { rIdF1: paragraph(field("PAGE", "1")) },
+    });
+    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    expect(changed(unzip(bytes), files)).toEqual([]);
+    expect(files.has("word/footer2.xml")).toBe(false);
   });
 });

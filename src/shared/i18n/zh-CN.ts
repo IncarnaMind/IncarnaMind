@@ -4736,6 +4736,7 @@ export const zhCN = {
   "export.includeQuestions": "包含问题",
   "export.pageNumbers": "页码",
   "export.pageNumbers.hint": "Word 和 PDF 的每页页脚都会显示页码。",
+  "export.pageNumbers.wordHint": "文件自带的页眉、页脚和页码保持不变。开启后，会在没有页脚的节添加页码。",
   "export.watermark": "水印",
   "export.watermark.hint": "以 Word 自带的水印写入，可在 Word 中修改或删除。",
   "export.watermark.none": "无",

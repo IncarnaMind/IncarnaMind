@@ -212,9 +212,18 @@ const WATERMARK_LABELS: Readonly<Record<WatermarkChoice, MessageKey>> = {
 
 /**
  * What the pages of a Word file or a PDF carry (#1258): page numbers, and a watermark of its own,
- * a preset word or the User's; a Note that hasn't chosen has page numbers and no watermark.
+ * a preset word or the User's. A Note made from a Word file says that its file's own numbers
+ * stay, so the switch off isn't read as no numbers (#1741).
  */
-function MarksRows({ marks, onChange }: { marks: ExportMarks; onChange(next: ExportMarks): void }) {
+function MarksRows({
+  marks,
+  fromWord,
+  onChange,
+}: {
+  marks: ExportMarks;
+  fromWord: boolean;
+  onChange(next: ExportMarks): void;
+}) {
   const t = useT();
   const id = useId();
   const words = useRef<HTMLInputElement>(null);
@@ -228,7 +237,7 @@ function MarksRows({ marks, onChange }: { marks: ExportMarks; onChange(next: Exp
     <>
       <SwitchRow
         label={t("export.pageNumbers")}
-        hint={t("export.pageNumbers.hint")}
+        hint={t(fromWord ? "export.pageNumbers.wordHint" : "export.pageNumbers.hint")}
         checked={marks.pageNumbers}
         onChange={(pageNumbers) => onChange({ ...marks, pageNumbers })}
         testId="export-page-numbers"
@@ -643,8 +652,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
-        {marks && (format === "docx" || format === "pdf") && (
-          <MarksRows marks={marks} onChange={setMarks} />
+        {marks && counts && (format === "docx" || format === "pdf") && (
+          <MarksRows marks={marks} fromWord={counts.fromWord} onChange={setMarks} />
         )}
 
         {hasCitationPlace(format) && citationStyle && (
