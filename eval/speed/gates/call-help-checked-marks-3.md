@@ -35,8 +35,21 @@ On main, call help's ✓ beside a Citation means only that its quote was found. 
   1. Each run holds a machine-wide lock on its key for its whole length, one lock a run, so no other run shares the key's per-minute limit. The Haiku run and the Sonnet run each hold it on their own, and it is released between them.
   2. Before each run, one smallest request reads the key's allowance left from its rate-limit headers. The run starts only above 90%, and the figure is recorded with the run.
   3. A run counts only if none of its requests was refused, failed or timed out. Otherwise the run is void: it is kept, struck with the reason, and run again, and its numbers are not read. This is read from the run's own record: the gate's section of `report.md` prints "Void" at the top of a model's part when any model request of the press ended other than finished, or any press failed for a reason other than its marks' 60 s wait. That wait is bar 5's.
+     The rulings below tighten this rule.
   4. The runs go strictly one after another. No run sends more than four requests at once. A run starts only at a 15-minute load of 24 or less, and its record keeps the one-minute load at its start and end.
 - **Spend:** about $3. Haiku costs about $0.75: the second file's Haiku run cost $0.73, the judge $0.66 of it. Sonnet costs about $2.20. #2847's cap is $8, and $1.31 was spent before this file's first run. The cap is held by one ledger (`INCARNAMIND_EVAL_SPEED_LEDGER`, which holds the pilot) and `INCARNAMIND_EVAL_SPEED_STOP_USD=6.74`.
+
+## Rulings of 2026-11-12, before any run
+
+Each is tighter than what it replaces, none looser.
+
+1. **A void can't hide a failure of the branch.** A press can fail on the branch while main finished its pair. If every request of it finished (the product's by their recorded outcome) and the judge's call isn't what threw, that is bar 5's failure. It is not a void, and it is never taken again. The report tells the two apart where the record can. A failed press keeps its requests in the record, and a judge's call that threw is named as such. Where the record can't tell, the report prints the reason and says so. No void run is taken again before its reasons are read.
+2. **The count, zero included.** For each model, the section prints how many model requests the record holds and how many ended other than finished. A model request with no outcome recorded voids the run too, and so does a finished press with no model request in the record. `tests/eval/callHelpMarksReport.test.ts` holds this with literal rows:
+   - a failed request prints Void;
+   - a request with no outcome prints Void;
+   - a press that failed on the branch alone with its requests finished prints bar 5's failure and no Void;
+   - a clean run prints its count and no Void.
+3. **What the record can't see.** The judge's calls carry one retry in the runner, so a judge request refused once and answered on its retry is not in the record. The run still stands on it: the judge grades a finished reply and can't change what the product did, and its model's per-minute limit is its own. On the product's side, the reply's request has no retry. A batch of the check has one, which the SDK makes around the model call. Each attempt passes through the timing record, which wraps the model alone, so a refused first attempt is in the record and voids the run.
 
 ## What is read, per press, from `report.json`
 
