@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { Core } from "../../src/core";
+import type { Core, MeetingTranscript } from "../../src/core";
 import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { FakeSpeechOptions } from "../../src/core/transcription/fake";
@@ -17,13 +16,19 @@ const SECOND = 1000;
 /** The other side's lines say "Dana is joining us from the Leeds office.", which the engine mishears. */
 const MISHEARING: FakeSpeechOptions = { mishears: { Dana: "Donna", Leeds: "Leads" } };
 
+/** The Transcript's Document is listed from its first line, so this reads its lines while the Meeting records too. */
+async function transcriptLines(core: Core, transcript: MeetingTranscript) {
+  const document = (await core.listDocuments()).find((each) => each.id === transcript.documentId);
+  const path = document?.path ?? "";
+  return () => readVtt(readFileSync(path, "utf8")).cues.map((cue) => cue.text);
+}
+
 async function linesOf(core: Core, meetingId: string, record: (ms: number) => void) {
   record(12 * SECOND);
   const transcript = await until(core, meetingId, (each) => each.lines >= 6);
   await core.stopMeeting(meetingId);
   await until(core, meetingId, (each) => each.state === "saved");
-  const document = (await core.listDocuments()).find((each) => each.id === transcript.documentId);
-  return readVtt(readFileSync(document?.path ?? "", "utf8")).cues.map((cue) => cue.text);
+  return (await transcriptLines(core, transcript))();
 }
 
 describe("The transcriber on this computer knows the names in the call (#1031)", {
@@ -191,17 +196,17 @@ describe("A name is written as the meeting's Note writes it (#1031)", { timeout:
 
   // protects=a name typed in the meeting's Note during the call is told to the engine on this computer, so the lines after it spell it the Note's way, and the lines written before stay as they were; fails_when=the later line still reads Donna, or the earlier line is rewritten; no_claim=how soon after typing (the Note is read once it is quiet), a cloud service's own spelling, or the lines before the name was typed.
   test("a name typed in the Note during the call is in the lines that follow; the lines before it stay", async () => {
-    const dataDir = await createTempDataFolder();
-    const { core, record } = await transcribingCore(dataDir, { engine: MISHEARING });
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
     const mind = await core.createMind({ title: "Weekly call" });
     const meeting = await core.createMeeting({ mindId: mind.id });
     await core.startMeeting({ meetingId: meeting.id });
-    const live = () =>
-      readVtt(readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8")).cues.map(
-        (cue) => cue.text,
-      );
     record(12 * SECOND);
-    await until(core, meeting.id, (each) => each.lines >= 6);
+    const live = await transcriptLines(
+      core,
+      await until(core, meeting.id, (each) => each.lines >= 6),
+    );
     expect(live()).toContain("Donna is joining us from the Leads office.");
     expect(live().join(" ")).not.toContain("Dana");
 
@@ -222,17 +227,17 @@ describe("A name is written as the meeting's Note writes it (#1031)", { timeout:
 
   // protects=the Note's title is part of what a Meeting's words are gathered from, so a name put in it by renaming the Note during the call is told to the engine on this computer, and the lines after it spell it the Note's way, while the lines written before stay as they were; fails_when=the later line still reads Donna and Leads, or the earlier line is rewritten; no_claim=what a cloud service is sent, which the renaming does not change (tests/core/cloudWords.test.ts).
   test("a name put in the Note's title during the call is in the lines that follow; the lines before it stay", async () => {
-    const dataDir = await createTempDataFolder();
-    const { core, record } = await transcribingCore(dataDir, { engine: MISHEARING });
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: MISHEARING,
+    });
     const mind = await core.createMind({ title: "Weekly call" });
     const meeting = await core.createMeeting({ mindId: mind.id });
     await core.startMeeting({ meetingId: meeting.id });
-    const live = () =>
-      readVtt(readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8")).cues.map(
-        (cue) => cue.text,
-      );
     record(12 * SECOND);
-    await until(core, meeting.id, (each) => each.lines >= 6);
+    const live = await transcriptLines(
+      core,
+      await until(core, meeting.id, (each) => each.lines >= 6),
+    );
     expect(live()).toContain("Donna is joining us from the Leads office.");
     expect(live().join(" ")).not.toContain("Dana");
 
