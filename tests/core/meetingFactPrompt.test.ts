@@ -72,15 +72,16 @@ test.each([
   },
 );
 
-// protects=a decision is a final choice actually agreed, which takes in a term one side gave and the other accepted aloud and never one a side only stated; a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where the call shows who speaks it, and is the other side's where it doesn't, so what an unnamed colleague said is not put in the named person's mouth (#2306); fails_when=any of these rules is missing from the prompt; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where the call shows who speaks it, and is the other side's where it doesn't, so what an unnamed colleague said is not put in the named person's mouth; and what a decision is stays one clause, with no rule on a term one side gave, which waits for its own measurement (#2306); fails_when=a naming rule is missing from the prompt, or the decision clause grows; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
-] as const)("with %s, the prompt says what a decision is and who is named", (_, lines) => {
+] as const)("with %s, the prompt says who is named and what a decision is", (_, lines) => {
   const prompt = JSON.stringify(notesContext(lines, "Write the notes").messages);
   expect(prompt).toContain(
-    "for final choices actually agreed, including a figure, price or term one side gave and the other accepted aloud, never one a side only stated, even when nobody objected;",
+    '\\"decisions\\" for final choices actually agreed, \\"actions\\" for actual commitments',
   );
+  expect(prompt).not.toContain("accepted aloud");
   expect(prompt).toContain(
     "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where the call makes clear who speaks that line, on the line itself or in what is said to them just before or after it; where it does not, the speaker is the other side (对方), never a named person.",
   );
