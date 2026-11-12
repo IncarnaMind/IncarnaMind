@@ -359,8 +359,7 @@ export function createLibrary(options: {
   readsPages(classifier: TaggingClassifier): boolean;
   /**
    * The services tagging and organizing by themselves would send to, none for models on this
-   * computer and none in Local mode: the switch for doing it by itself is off for one until the
-   * User turns it on there, and turning it on names these and no others (#2982).
+   * computer: the switch for doing it by itself is off for one until the User turns it on there.
    */
   sendsTo(settings: {
     classifier: LibraryClassifier;
@@ -448,6 +447,12 @@ export function createLibrary(options: {
     options.sendsTo(saved).length > 0;
   const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
   /**
+   * Where tagging and organizing by themselves send now, and so what a turn-on names: nowhere
+   * outside this computer in Local mode, whose line names no service (#2982).
+   */
+  const sendsNow = (saved: Parameters<typeof options.sendsTo>[0]) =>
+    options.localOnly?.() ? [] : options.sendsTo(saved);
+  /**
    * When the switch was turned on for each service. One saved before these were kept names none:
    * nothing stored tells a turn-on from a consent given elsewhere, so it holds only where tagging
    * sends nothing out, until the User turns it on again (#2623).
@@ -460,7 +465,7 @@ export function createLibrary(options: {
    */
   const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
     const since = sinceOf(saved);
-    return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
+    return sendsNow(saved).every((service) => since[service.id] !== undefined);
   };
   /**
    * The place of the User's turn-on for this service in the database's order; null if none. The
@@ -1957,14 +1962,13 @@ export function createLibrary(options: {
       const turnOff = !turnOn && input.automatic === false && showing;
       const automatic = turnOn ? true : turnOff ? false : before.automatic;
       const at = now();
-      const named = turnOn ? options.sendsTo(next) : [];
+      const named = turnOn ? sendsNow(next) : [];
       // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
       // its place: what came in while it was on stays new. Where the User took the consent back,
       // turning it on is a new consent.
       const onFor = new Set(
         showing
-          ? options
-              .sendsTo(before)
+          ? sendsNow(before)
               .filter((service) => options.taggingAllowed(service))
               .map((service) => service.id)
           : [],

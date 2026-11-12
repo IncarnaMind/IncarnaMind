@@ -3944,8 +3944,6 @@ export function createCore(adapters: CoreAdapters): Core {
       const add = (service: ExternalService | null | undefined) => {
         if (service) services.set(service.id, service);
       };
-      // Local mode keeps everything on this computer, and the row's line there names no service.
-      if (embedding.localOnly()) return [];
       if (classifier.kind !== "automatic") {
         add(tagging.service(classifier));
         return [...services.values()];
