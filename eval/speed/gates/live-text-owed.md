@@ -87,3 +87,46 @@ Exception, 2026-11-09: bar 2's line "both sides talking densely at once: never a
 - **The stated contrast didn't appear.** Main's rule held at 0.84 with both tracks (27.8 s at worst). It falls behind from 0.98, on both tracks, one track and the Chinese call.
 - **Why the replays favour main's rule.** The replay's detector ends each line exactly where it was, so each line is queued at its end. The app queues a part cut from longer speech only at the cut, up to 4 s after the part's end, and a stretch the detector ends 0.5 s after its last speech. So in the replays decodes start earlier, which lowers main's measure (counted from a line's start) and raises the change's (counted from the queueing).
 - **Checked at no cost:** at every moment of every replay above (95,880 moments, a tenth of a second apart, over 20 replays), the change's measure is no larger than main's. It can't be, since `heardMs` is never short of `doneMs`. The replay asserts this, and so does a unit test: over three turns and six held decodes, no progress report has `heardMs` below `doneMs`. The bench and replay scripts aren't in this repository; their input is the quiet runs' line timings.
+
+## Result of bar 4, 2026-11-12
+
+The built app, on the real engine (Qwen3-ASR 0.6B with its streaming model), in Local mode.
+- **Recording:** the recording played as the computer's sound, and the microphone's for both tracks; Stop 3 s after it ended.
+- **Branch arm:** the test build at 7fbd9c5c0.
+- **Main arm:** the test build of the branch's merge base, d57bb7d07, with only the test build's microphone recording added, so the two-track call can be played. Nothing else of this change is in it.
+- **Loads** (1-minute / 15-minute) are read at the start and at Stop; no run fell behind, so no load at a fall exists.
+- **Counting:** a run counts when both limits (18 and 24) hold at each of those points.
+- **Scheduling:** the runs went one at a time, each waiting for three readings a minute apart of at most 14 and 22. A run that didn't count was taken again, up to four tries.
+
+| Call | Arm | Try | Load at start (1 / 15 min) | Load at Stop (1 / 15 min) | Fell behind | Stop to saved | Live lines | Lag median / p90 | Lines over 20 s / 30 s | Counts |
+|---|---|---|---|---|---|---|---|---|---|---|
+| EN2002a 1650–2130 s | branch | by hand | 14.80 / 20.90 | 24.68 / 20.67 | no | 0.008 s | 86 | 1.34 / 3.06 s | 0 / 0 | no (limits crossed) |
+| EN2002a 1650–2130 s | branch | 1 | 10.61 / 18.07 | 9.34 / 13.68 | no | 0.009 s | 83 | 1.33 / 2.37 s | 0 / 0 | **yes** |
+| EN2002a 1650–2130 s | main | 1 | 7.10 / 12.54 | 19.86 / 11.72 | no | 0.009 s | 83 | 1.35 / 2.55 s | 0 / 0 | no (limits crossed) |
+| EN2002a 1650–2130 s | main | 2 | 10.31 / 11.37 | 7.63 / 10.74 | no | 0.010 s | 84 | 1.36 / 2.59 s | 0 / 0 | **yes** |
+| EN2002a 0–900 s | branch | 1 | 8.28 / 10.36 | 90.93 / 34.37 | no | 0.009 s | 124 | 1.33 / 2.62 s | 0 / 0 | no (limits crossed) |
+| EN2002a 0–900 s | branch | 2 | 10.62 / 16.23 | 10.06 / 12.27 | no | 0.008 s | 125 | 1.51 / 3.44 s | 0 / 0 | **yes** |
+| EN2002a 0–900 s | main | 1 | 8.56 / 14.41 | 7.54 / 10.27 | no | 0.008 s | 125 | 1.37 / 2.7 s | 0 / 0 | **yes** |
+| R8007_M8011 0–480 s | branch | 1 | 8.67 / 10.03 | 8.11 / 9.63 | no | 0.007 s | 57 | 1.42 / 3.68 s | 0 / 0 | **yes** |
+| R8007_M8011 0–480 s | main | 1 | 4.95 / 8.98 | 3.80 / 6.79 | no | 0.005 s | 57 | 1.31 / 3.13 s | 0 / 0 | **yes** |
+| EN2002a 1650–2130 s, both tracks | branch | 1 | 3.72 / 6.40 | 4.34 / 5.78 | no | 0.021 s | 151 | 1.25 / 2.07 s | 0 / 0 | **yes** |
+| EN2002a 1650–2130 s, both tracks | main | 1 | 3.74 / 5.48 | 3.86 / 5.01 | no | 0.007 s | 155 | 1.23 / 2.06 s | 0 / 0 | **yes** |
+| EN2002a 1650–2130 s, retake at the merged head | branch | 1 | 7.97 / 6.07 | 6.41 / 6.23 | no | 0.006 s | 86 | 1.33 / 2.38 s | 0 / 0 | **yes** |
+
+**Bar 4 holds.** Every counted branch run kept up: it never fell behind, no line came more than 20 s after its speech, and the Transcript was saved 0.006–0.021 s after Stop. Main's arm kept up on every call too, as expected: since #2908 these calls keep up on main, and this change is the margin beyond them.
+
+**The runs that didn't count:**
+- the branch's 8-minute call taken by hand, with a 1-minute load of 24.68 at Stop;
+- main's first 8-minute try, at 19.86 at Stop;
+- the branch's first 15-minute try, at 90.93 at Stop.
+
+All three kept up all the same: they are reported, not counted.
+
+**The retake after #2960.** The eight runs were taken before #2960, which changed what happens when the transcription process is closed and after Stop. The branch was then merged with main (at caaa9a985, merge commit dd922b419), and the 8-minute call was taken again on a fresh test build of the merged head. It counted at the first try: it never fell behind, and the Transcript was saved 0.006 s after Stop. That run ended at 02:01:05 UTC.
+
+**Why the earlier runs' live numbers stand.** Between 7fbd9c5c0 and the merged head, main changed:
+- in `adapters.ts`, comment lines only;
+- in `transcript.ts`, `channel.ts` and `model.ts`, only what happens at close and after Stop: a stretch still being finished is kept for the next start, and what is still asked of a closed process fails;
+- in `spokenNumbers.ts`, how a number in a line's text is written.
+
+Nothing changed in what is sent to the engine during a call, in its queue, or in the progress it reports, which is all that the live numbers depend on.
