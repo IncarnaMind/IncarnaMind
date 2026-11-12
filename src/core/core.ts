@@ -3977,8 +3977,6 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
-    consentedAt: (service) =>
-      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);

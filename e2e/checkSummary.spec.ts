@@ -19,11 +19,11 @@ import {
 } from "./app";
 
 /*
- * The card's summary (#1941): the supported claims its rows don't count, from the same counts the
- * rows show, under the one noun for a claim; what is left is each a row a click moves to (#2313).
- * "Everything checked" shows only when nothing is left; a sentence with no Citation among what is
- * left. A claim not checked yet has no mark on the page and opens from the badge's row for it or
- * from ⇧⌘K. The checks are written into the page, so no model is involved.
+ * The card counts sentences, each once, by its one state (#2831): what needs a look, what is
+ * supported, what is being checked and what isn't checked, each a row a click moves to (#2313),
+ * and no row of Citations. "Everything checked" shows only when nothing is left. A sentence not
+ * checked yet has no mark on the page and opens from the card's row for it or from ⇧⌘K. The
+ * checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -32,15 +32,14 @@ const TIDES = buildPdf([
 
 const WORDS = {
   en: {
-    label: "Claims and Citations",
+    label: "Checks",
     allChecked: "Everything checked",
-    citedOnly: "4 claims supported",
-    look: "5 claims supported",
-    lookAndToCheck: "5 claims supported",
-    lookOnly: "2 claims supported",
-    noCitationRow: "3 claims with no Citation",
-    needLookRow: "1 claim needs a look",
-    toCheck: "1 claim not checked yet",
+    supported: "4 supported",
+    allSupported: "2 supported",
+    lookOnly: "2 supported",
+    twoLook: "2 need a look",
+    needLookRow: "1 needs a look",
+    toCheck: "1 not checked",
     sentences: {
       cited: "Harbours publish the times of high water every 12 months.",
       uncited: [
@@ -56,15 +55,14 @@ const WORDS = {
     },
   },
   "zh-CN": {
-    label: "说法和引用",
+    label: "核对",
     allChecked: "已全部核对",
-    citedOnly: "4 条说法有依据",
-    look: "5 条说法有依据",
-    lookAndToCheck: "5 条说法有依据",
-    lookOnly: "2 条说法有依据",
-    noCitationRow: "3 条说法没有引用",
-    needLookRow: "1 条说法需要留意",
-    toCheck: "1 条说法待核对",
+    supported: "4 句有依据",
+    allSupported: "2 句有依据",
+    lookOnly: "2 句有依据",
+    twoLook: "2 句需要留意",
+    needLookRow: "1 句需要留意",
+    toCheck: "1 句未核对",
     sentences: {
       cited: "港口每 12 个月公布一次高潮时间。",
       uncited: ["春潮每天涨两次。", "海鸥天亮时飞往内陆。", "码头六点开门。"],
@@ -164,13 +162,15 @@ for (const language of ["en", "zh-CN"] as const) {
       paragraph(checked("check-4", "supported", sentences.uncited[2] ?? "", { evidence: passage })),
     ]);
     const card = await checkCard(window);
-    // One noun for a claim, from the title through the rows to the summary.
+    // One noun, sentence, from the title through the rows: four supported, cited or not, in one row,
+    // and a supported sentence with no Citation counts as done (#2831).
     await expect(card.locator(".check-card-title")).toHaveText(words.label);
-    await expect(card.getByTestId("health-noCitation")).toContainText(words.noCitationRow);
-    await expect(card.getByTestId("health-summary")).toHaveText(words.citedOnly);
-    await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
+    await expect(card.getByTestId("health-found")).toHaveCount(0);
+    await expect(card.getByTestId("health-all-checked")).toHaveText(words.allChecked);
 
-    // A Needs-a-look and a Citation not found join the summary, with their reasons.
+    // A contradicted sentence and one whose Citation isn't found each need a look, in one row.
     await insert([
       paragraph(
         checked("check-5", "contradicted", sentences.contradicted, {
@@ -183,15 +183,16 @@ for (const language of ["en", "zh-CN"] as const) {
         citation({ check: "not-found", checkReason: "quote-not-on-pages" }),
       ),
     ]);
-    await expect(card.getByTestId("health-summary")).toHaveText(words.look);
+    await expect(card.getByTestId("health-look")).toContainText(words.twoLook);
+    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
 
     // A claim no check covers yet is named too, and has no mark on the page.
     await insert([
       paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "refused" })),
     ]);
-    await expect(card.getByTestId("health-summary")).toHaveText(words.lookAndToCheck);
-    // Each count shows once in the card: the row names the one not checked yet, the summary does not repeat it (#2313).
+    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    // Each count shows once in the card: the row names the one not checked yet (#2313).
     await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
     await expect(card.getByText(words.toCheck, { exact: true })).toHaveCount(1);
     const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
@@ -216,10 +217,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(claimCard).toHaveCount(0);
 
-    // The summary holds at the widest window too.
+    // The rows hold at the widest window too.
     await setWindowSize(app, window, 1600, 900);
     const wide = await checkCard(window);
-    await expect(wide.getByTestId("health-summary")).toHaveText(words.lookAndToCheck);
+    await expect(wide.getByTestId("health-supported")).toContainText(words.supported);
     const box = await wide.boundingBox();
     expect(box).not.toBeNull();
     if (box) {
@@ -249,11 +250,11 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const allCard = await checkCard(window);
     await expect(allCard.getByTestId("health-all-checked")).toHaveText(words.allChecked);
-    await expect(allCard.getByTestId("health-summary")).toHaveCount(0);
+    await expect(allCard.getByTestId("health-supported")).toContainText(words.allSupported);
     await window.keyboard.press("Escape");
     await expect(allCard).toHaveCount(0);
 
-    // A Needs a look with everything else checked: the summary says only what needs it.
+    // A Needs a look with everything else checked: one row each.
     await newMind(window);
     const looking = window.getByTestId("mind-editor");
     await looking.evaluate(
@@ -273,8 +274,8 @@ for (const language of ["en", "zh-CN"] as const) {
       ],
     );
     const looked = await checkCard(window);
-    await expect(looked.getByTestId("health-summary")).toHaveText(words.lookOnly);
-    await expect(looked.getByTestId("health-unsupported")).toContainText(words.needLookRow);
+    await expect(looked.getByTestId("health-supported")).toContainText(words.lookOnly);
+    await expect(looked.getByTestId("health-look")).toContainText(words.needLookRow);
     await expect(looked.getByTestId("health-all-checked")).toHaveCount(0);
     await app.close();
   });
@@ -321,7 +322,7 @@ test("the card keeps one height as a result lands, its body taking what it needs
   // The result lands in the same card: the card keeps the height it opened with, so it does not
   // jump; its body holds what the result needs and scrolls if that is more (#2313).
   await expect(card.locator(".mind-health-summary")).toHaveCount(0);
-  await expect(card.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
+  await expect(card.getByTestId("health-look")).toContainText("1 needs a look");
   const done = await card.boundingBox();
   expect(running).not.toBeNull();
   expect(done).not.toBeNull();

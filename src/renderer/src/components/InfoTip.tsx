@@ -1,7 +1,7 @@
 import { useId, useRef } from "react";
 import { useT } from "../i18n";
 import { InfoLineIcon } from "./lineIcons";
-import { TipBubble } from "./TipBubble";
+import { TipPopover } from "./TipPopover";
 import { useTip } from "./useTip";
 
 /** What would be a helper line under a control, as a tooltip beside its label (DESIGN.md, Words on screen). */
@@ -29,7 +29,16 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
       >
         <InfoLineIcon className="size-3.5" />
       </button>
-      <TipBubble anchor={button.current} id={descriptionId} text={text} tip={tip} />
+      {!tip.shown && (
+        <span id={descriptionId} role="tooltip" hidden>
+          {text}
+        </span>
+      )}
+      {tip.shown && button.current && (
+        <TipPopover anchor={button.current} tip={tip} id={descriptionId}>
+          {text}
+        </TipPopover>
+      )}
     </>
   );
 }

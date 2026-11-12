@@ -41,6 +41,7 @@ import { lowlight } from "./codeLanguages";
 import { Comment } from "./commentSchema";
 import { ComparisonCell, ComparisonRow, ComparisonTable } from "./comparisonSchema";
 import { ComparisonStructureLock } from "./comparisonStructureLock";
+import { CopiedBlocks } from "./copiedBlocks";
 import { DocumentChip } from "./documentChipSchema";
 import { Footnote } from "./footnoteSchema";
 import {
@@ -285,5 +286,6 @@ export function noteExtensions({
       attributeName: BLOCK_ID_ATTRIBUTE,
       types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE, ANALYSIS_TABLE_NODE],
     }),
+    CopiedBlocks.configure({ types: BLOCK_TYPES }),
   ];
 }

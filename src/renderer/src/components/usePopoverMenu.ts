@@ -69,7 +69,8 @@ function sourceOf(button: HTMLElement | null): Element | Box | null {
 }
 
 /**
- * Below the button, or above it if the window is too short. A popover that
+ * Below the button, or above it if the window is too short; with `side` "above", above it, or
+ * below if the window is too short for that. A popover that
  * isn't showing yet isn't laid out (it has no size), so it is laid out for a
  * moment to measure it as it will show. Returns where it put it.
  */
@@ -78,6 +79,7 @@ function place(
   menu: HTMLElement | null,
   around: HTMLElement | null,
   align: "start" | "end",
+  side: "below" | "above",
 ): Box | null {
   const point = pointOf(button);
   const atPoint = point !== null;
@@ -128,7 +130,9 @@ function place(
     top = downward ? below : floor;
     room = downward ? roomBelow : roomAbove;
   } else {
-    const wanted = height > roomBelow ? Math.max(EDGE_PX, anchor.top - gap - height) : below;
+    const above = Math.max(EDGE_PX, anchor.top - gap - height);
+    const wanted =
+      side === "above" && height <= roomAbove ? above : height > roomBelow ? above : below;
     // Neither below nor above fits: the menu sits as high as the window lets all of it show.
     top = Math.max(floor, Math.min(wanted, window.innerHeight - EDGE_PX - height));
     room = window.innerHeight - EDGE_PX - top;
@@ -317,7 +321,8 @@ export function openMenuFromRightClick(
  * `focus: "first"` focuses the first item even when one is checked: for a
  * menu of actions with a switch among them, rather than a choice of options.
  * `align: "end"` lines its right edge up with the button's, for a button at
- * the right of what it sits in.
+ * the right of what it sits in. `side: "above"` opens it above the button, for one at the foot
+ * of what it sits in, falling back below it only when the window has no room above.
  * `whenFocusGone` is the last place to send the focus Esc wanted back: for a
  * menu whose button went while it was open, such as a chip no Task shows once
  * the last one stops.
@@ -328,11 +333,13 @@ export function usePopoverMenu({
   around,
   focus = "checked",
   align = "start",
+  side = "below",
   whenFocusGone,
 }: {
   around?: (button: HTMLElement) => HTMLElement | null;
   focus?: "checked" | "first";
   align?: "start" | "end";
+  side?: "below" | "above";
   whenFocusGone?: () => void;
 } = {}) {
   const id = useId();
@@ -389,6 +396,7 @@ export function usePopoverMenu({
       menu.current,
       anchor && outer.current ? outer.current(anchor) : null,
       align,
+      side,
     );
     // Once each time it opens: a menu that stays open is never animated again.
     if (menu.current && box && !entered.current) enterFrom(menu.current, sourceOf(anchor), box);
@@ -396,7 +404,7 @@ export function usePopoverMenu({
     if (quiet.current) return;
     if (menu.current?.matches(":popover-open")) focusFirst(menu.current, first);
     else autofocusFirst(menu.current, first);
-  }, [open, first, align]);
+  }, [open, first, align, side]);
 
   useEffect(() => {
     if (open) return;
@@ -445,13 +453,13 @@ export function usePopoverMenu({
       if (element.matches(":popover-open")) fitHeight(element);
       else {
         const anchor = button.current;
-        place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align);
+        place(anchor, element, anchor && outer.current ? outer.current(anchor) : null, align, side);
       }
       if (!touched.current && element.matches(":popover-open")) focusFirst(element, first);
     });
     observer.observe(element, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [open, first, align]);
+  }, [open, first, align, side]);
 
   /** The letters typed since the last pause, to jump to an item by its name. */
   const typed = useRef({ text: "", at: 0 });

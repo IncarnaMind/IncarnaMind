@@ -355,16 +355,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge).toBeVisible({ timeout: 30_000 });
       await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
       // The Note holds only the table, which its run vouches for: Check sends none of its cells,
-      // says so in the Note's language, and the badge rests on ✓ with nothing washed.
-      await expect(window.getByTestId("error-notice-message")).toHaveText(
-        translate(language, "error.action", {
-          message: translate(language, "mindCheck.nothingToCheck"),
-        }),
+      // says so once, in the card, in the Note's language (#2831), and the badge rests on ✓ with
+      // nothing washed.
+      const checks = window.getByTestId("check-card");
+      await expect(checks.getByTestId("checks-problem")).toContainText(
+        translate(language, "checks.problem.no-claims"),
       );
+      await expect(window.getByTestId("error-notice")).toHaveCount(0);
       await expect(badge).toHaveAttribute("data-state", "checked");
       await expect(editor.locator(".claim-wash")).toHaveCount(0);
       await expect(marker).toHaveAttribute("data-state", "supported");
-      await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
+      await pointAndClick(window, checks.getByTestId("checks-problem-close"));
 
       // Its card says how each column was worked out, in the figure card's words.
       await pointAndClick(window, marker.getByTestId("analysis-table-marker-open"));

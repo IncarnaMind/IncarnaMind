@@ -3806,9 +3806,17 @@ export type TabItem =
   | { kind: "home" }
   | { kind: "document"; documentId: string };
 
+/**
+ * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
+ * or the Note and what acts beside it (its Citations, cards, tabs and commands).
+ */
+export type CitedOrigin = "note" | "assistant";
+
 /** What the viewer knows of the Citation a Document was opened from. */
 export interface TabCitation {
   check: CitationCheck;
+  /** Where the page was opened from; the current version opened from it keeps that. Absent: the Note. */
+  origin?: CitedOrigin;
   /** Why it can't be checked, when `check` is "cant-check": a scan's unsure word marks the quote's page (#535). */
   checkReason?: CitationCheckReason;
   /** The number the Citation shows in its Answer, from 1. */

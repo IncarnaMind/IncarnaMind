@@ -215,7 +215,7 @@ test("a small pack, two Chinese Markdown Documents cited seven times in two sect
       timeout: 30_000,
     },
   );
-  await expect(done.getByTestId("export-unchecked")).toHaveText("说法未核对");
+  await expect(done.getByTestId("export-unchecked")).toHaveText("未核对");
   await expect(result.getByTestId("export-problem")).toHaveCount(0);
   await expectSmallPack((await done.getAttribute("title")) ?? "", "文档和位置");
 

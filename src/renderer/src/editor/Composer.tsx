@@ -6,6 +6,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -23,10 +24,12 @@ import {
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
 import { queueAsk } from "../askQueue";
+import { composerHandle, useHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { SearchIcon, StopIcon } from "../components/icons";
 import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { ProblemLine } from "../components/ProblemLine";
+import { SkippedFilesLine } from "../components/SkippedFilesLine";
 import { answerAskFrom } from "../components/TaskTray";
 import { TypingTextarea } from "../components/TypingTextarea";
 import {
@@ -47,20 +50,18 @@ import {
   useAnswerBeingWritten,
   useConversations,
   useHasMessage,
-  useOpenConversation,
 } from "../conversations";
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
 import { describeError, errorMessage } from "../errors";
 import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
-import { folderWallOf } from "../folders";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
-import { currentTabOf } from "../layoutSlice";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
 import { useCitedSource } from "../openCited";
+import { outsideWallLine } from "../outsideWallLine";
 import {
   cancelResearch,
   changePlan,
@@ -70,19 +71,19 @@ import {
   useWebMissing,
   useWebReach,
 } from "../research";
-import { type ScopeChoice, scopeWithin } from "../scope";
-import { useFolderHoldsDocuments } from "../scopeDocuments";
+import type { ScopeChoice } from "../scope";
 import { skillDescription } from "../skills";
 import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
-import { useTurnWall } from "../turnWall";
+import { useResolvedScope } from "../useResolvedScope";
 import { scopeOutsideWalls, wallsOf } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { AskQueued } from "./AskQueued";
+import { ComposerPlus } from "./ComposerPlus";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
 import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
@@ -98,7 +99,9 @@ import { type ChoiceListHandle, ScopeChoiceList } from "./ScopePicker";
 import { SkillChoiceList } from "./SkillChoiceList";
 import { SuggestionOffer } from "./SuggestionOffer";
 import { TaskTargetChip } from "./TaskTargetChip";
+import { useAddFilesToChat } from "./useAddFilesToChat";
 import { useQueuedAsk } from "./useQueuedAsk";
+import { useRowGivesWay } from "./useRowGivesWay";
 
 /** In the composer, a long Search scope shows this many chips, then "+N more". */
 const CHIPS_SHOWN = 3;
@@ -159,24 +162,27 @@ export function Composer({
   mind: { editor: Editor; doc: Y.Doc; mindId: string } | null;
 }) {
   const t = useT();
+  const language = useLanguage();
   const mindId = mind?.mindId ?? null;
-  const libraryFolderId = useAppStore((state) =>
-    currentTabOf(state.layout)?.item.kind === "library" ? state.libraryFolderId : null,
-  );
   const key = mindId ?? NO_MIND;
   const citedSource = useCitedSource();
   const source = mind === null ? citedSource : null;
   const scopeKey = source?.mindId ?? key;
   const { doc: scopeDoc, setScope } = useCitedScopeDocument(source, mind?.doc ?? null);
   const draft = useComposer((state) => state.drafts[key]) ?? EMPTY;
-  const scopeDraft = useComposer((state) => state.drafts[scopeKey]) ?? EMPTY;
-  // The Mind's Folder: its own Search scope while it holds a Document, and where its new notes go.
-  const folderId = useAppStore(
-    (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
-  );
-  const folderHolds = useFolderHoldsDocuments(folderId);
-  const conversationId = useOpenConversation()?.id ?? null;
-  const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
+  // What the chips show: what the core will search (#1359), the line above the conversation too
+  // (#2948). Asking sends `composerScope`.
+  const {
+    draft: scopeDraft,
+    scope,
+    resolved: resolvedScope,
+    folderId,
+    folderHolds,
+    conversationId,
+    wallId,
+    libraryFolderId,
+    libraryWalled,
+  } = useResolvedScope(mindId);
   const walled = typeof wallId === "string";
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
@@ -191,26 +197,6 @@ export function Composer({
       : t(leftOutCount === 1 ? "composer.scope.leftOut.one" : "composer.scope.leftOut", {
           count: leftOutCount,
         });
-  // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = scopeWithin(
-    wallId ?? null,
-    mindSearchScope(scopeDraft.scope, folderId, folderHolds),
-  );
-  const libraryGroups = useAppStore((state) => state.library?.groups);
-  const libraryWall =
-    libraryFolderId === null ? null : folderWallOf(libraryGroups ?? [], libraryFolderId);
-  // With no Note, the Folder the Library shows is the Folder in front, and the chip and the
-  // Question take one resolved scope: that Folder as a picked one, alone inside its wall (#2529).
-  const libraryWalled = libraryFolderId !== null && libraryWall !== null;
-  const resolvedScope =
-    libraryFolderId === null
-      ? scope
-      : libraryWalled
-        ? folderScope(libraryFolderId)
-        : {
-            ...scope,
-            folderIds: [libraryFolderId, ...scope.folderIds.filter((id) => id !== libraryFolderId)],
-          };
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -324,15 +310,21 @@ export function Composer({
       (width, chip) => width + chip.offsetWidth + gap,
       0,
     );
+    const plus = rowElement.querySelector<HTMLElement>(".composer-plus");
     const room =
       rowElement.clientWidth -
       Number.parseFloat(style.paddingLeft) -
       Number.parseFloat(style.paddingRight) -
       chips -
+      (plus ? plus.offsetWidth + gap : 0) -
       (controls.current?.offsetWidth ?? 0) -
       gap -
       Number.parseFloat(fieldStyle.paddingLeft);
-    const runsPast = draft.text.includes("\n") || widthOf(draft.text, element) > room - 2;
+    // The controls wrap under a field with less room than its own least width, so + goes with them.
+    const runsPast =
+      draft.text.includes("\n") ||
+      widthOf(draft.text, element) > room - 2 ||
+      room < Number.parseFloat(fieldStyle.minWidth) + 2;
     const lineHeight = Number.parseFloat(fieldStyle.lineHeight) || 20;
     const padding =
       Number.parseFloat(fieldStyle.paddingTop) + Number.parseFloat(fieldStyle.paddingBottom);
@@ -343,6 +335,21 @@ export function Composer({
   measure.current = measureLayout;
   // After every drawing: the text, a Skill or the controls may have changed its width.
   useLayoutEffect(measureLayout);
+  // What the controls give up, in order, so they stay inside the row and Ask is never pushed out.
+  const gives = useRowGivesWay({
+    controls,
+    row,
+    key: [
+      ...resolvedScope.folderIds,
+      ...resolvedScope.tagIds,
+      ...resolvedScope.documentIds,
+      language,
+      chosenModel?.providerId,
+      chosenModel?.modelId,
+    ].join("\n"),
+    most: CHIPS_SHOWN,
+    stacked: stacked || expanded,
+  });
   useEffect(() => {
     const element = row.current;
     if (!element) return;
@@ -456,6 +463,24 @@ export function Composer({
     },
   });
 
+  // With no Note open, the Library's walled Folder is the one the Question is asked of, ahead of the
+  // wall of the conversation it joins (the core's order).
+  const insideFolderId = libraryWalled
+    ? libraryFolderId
+    : typeof wallId === "string"
+      ? wallId
+      : null;
+  const { addFiles, skipped, notSearched, dismissNotSearched } = useAddFilesToChat({
+    insideFolderId,
+    place: `${key}|${conversationId ?? ""}|${insideFolderId ?? ""}`,
+    join(ids) {
+      const have = scopeIds(scope, "document");
+      addDocuments([...new Set(ids)].filter((id) => !have.includes(id)));
+    },
+  });
+  const composerAbilities = useMemo(() => ({ addFiles: () => void addFiles() }), [addFiles]);
+  useHandle(composerHandle, composerAbilities);
+
   /** Research…: what is typed next is a topic (#130). */
   const chooseResearch = () => {
     update({
@@ -468,6 +493,8 @@ export function Composer({
     setPicking(null);
     field.current?.focus();
   };
+
+  const manageSkills = () => useAppStore.getState().openSettings("skills");
 
   const chooseSkill = (name: string) => {
     update({ skill: name, research: false, ...(picking && { text: withoutTyped(picking) }) });
@@ -644,6 +671,7 @@ export function Composer({
       });
       return;
     }
+    dismissNotSearched();
     useAnswers.getState().dismiss(composerKey(mindId));
     // Words asked from ⌘K go alone: the draft, its chips too, stays for the User.
     const quotes = said === undefined ? (current.quotes ?? []) : [];
@@ -893,6 +921,22 @@ export function Composer({
           {tellProblem}
         </ProblemLine>
       )}
+      {skipped.length > 0 && (
+        <SkippedFilesLine
+          files={skipped}
+          testId="composer-skipped-files"
+          className="composer-problem"
+        />
+      )}
+      {notSearched && (
+        <ProblemLine
+          testId="composer-outside-wall"
+          className="composer-problem"
+          action={{ label: t("composer.paste.close"), onClick: dismissNotSearched }}
+        >
+          {outsideWallLine(t, language, notSearched)}
+        </ProblemLine>
+      )}
       {saveProblem && (
         <ProblemLine
           testId="composer-paste-save-failed"
@@ -1091,7 +1135,21 @@ export function Composer({
           }}
           className="composer-input"
         />
-        <div ref={controls} className="composer-controls">
+        <ComposerPlus
+          skills={enabledSkills}
+          researchHint={researchHint}
+          onFiles={() => void addFiles()}
+          onNote={openScopePicker}
+          onResearch={chooseResearch}
+          onSkill={chooseSkill}
+          onManageSkills={manageSkills}
+          onOpen={() => setPicking(null)}
+        />
+        <div
+          ref={controls}
+          data-model-shrinks={gives.model || undefined}
+          className="composer-controls"
+        >
           <ModelChip
             doc={mind?.doc ?? null}
             onChosen={() => field.current?.focus()}
@@ -1113,10 +1171,13 @@ export function Composer({
               scope={resolvedScope}
               ownFolderId={folderId}
               onRemove={removeFromScope}
-              {...(scopeDraft.scope !== null &&
-                hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
+              {...(scopeDraft !== null &&
+                hasSearchScope(scopeDraft) && { back: { label: backLabel, onBack: goBack } })}
               onChange={walled || libraryWalled ? undefined : openScopePicker}
-              shown={CHIPS_SHOWN}
+              shown={gives.most}
+              hideBackChip={gives.most < CHIPS_SHOWN}
+              hints={gives.hints}
+              inRow
               className="composer-scope"
               testId="composer-scope"
             />
@@ -1230,7 +1291,7 @@ export function Composer({
               describe={(each) => skillDescription(each, t)}
               query={picking.query}
               onChoose={chooseSkill}
-              onManage={() => useAppStore.getState().openSettings("skills")}
+              onManage={manageSkills}
               onSelect={setOption}
             />
           )}

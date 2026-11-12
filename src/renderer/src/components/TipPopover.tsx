@@ -1,31 +1,25 @@
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Popover } from "../editor/Popover";
 import { useTopModal } from "./useModal";
 import type { useTip } from "./useTip";
 
 /**
- * The app's one tip, beside `anchor` while `tip` is shown, and otherwise the same words hidden, so
- * `id` still describes its trigger to a screen reader.
+ * The shared tip's bubble (`useTip`) beside `anchor`. It is drawn inside the modal dialog on top
+ * when one is open, since everything outside a modal is inert.
  */
-export function TipBubble({
+export function TipPopover({
   anchor,
-  id,
-  text,
   tip,
+  id,
+  children,
 }: {
-  anchor: HTMLElement | null;
-  id: string;
-  text: string;
-  tip: ReturnType<typeof useTip>;
+  anchor: HTMLElement;
+  tip: Pick<ReturnType<typeof useTip>, "close" | "point" | "leave">;
+  id?: string;
+  children: ReactNode;
 }) {
   const modal = useTopModal();
-  if (!tip.shown || !anchor) {
-    return (
-      <span id={id} role="tooltip" hidden>
-        {text}
-      </span>
-    );
-  }
   return createPortal(
     <Popover
       anchor={anchor}
@@ -36,7 +30,7 @@ export function TipBubble({
       onPointerLeave={tip.leave}
     >
       <div className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-[12px] leading-5 font-normal text-ink shadow-popover">
-        {text}
+        {children}
       </div>
     </Popover>,
     modal ?? document.body,

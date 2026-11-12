@@ -186,7 +186,7 @@ for (const widened of [false, true]) {
     await pointAndClick(window, window.getByRole("menuitem", { name: "Check", exact: true }));
     // A spending cap is set, so a Check from the tab menu asks in the card first.
     const firstAsk = window.getByTestId("check-card").getByTestId("mind-check-ask");
-    await expect(firstAsk).toContainText("Check this note’s 2 claims against");
+    await expect(firstAsk).toContainText("Check 2 sentences in this note against");
     await pointAndClick(window, firstAsk.getByTestId("mind-check-check"));
     await expect(
       window.getByTestId("claim-mark").and(window.locator('[data-check="unsupported"]')),
@@ -241,8 +241,8 @@ for (const widened of [false, true]) {
     const ask = window.getByTestId("check-card").getByTestId("mind-check-ask");
     await expect(ask).toContainText(
       widened
-        ? "Check this note’s claim against your Documents?"
-        : "Check this note’s claim against this Folder’s Documents?",
+        ? "Check 1 sentence in this note against your Documents?"
+        : "Check 1 sentence in this note against this Folder’s Documents?",
     );
     // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
     await expect(ask).toContainText(/(?<![\d.,])0 tokens/);
@@ -250,7 +250,7 @@ for (const widened of [false, true]) {
     await screenshot(window, widened ? "ask-all-en" : "ask-folder-en");
     if (widened) {
       await setLanguage(window, "zh-CN");
-      await expect(ask).toContainText("要对照你的文档，核对这篇笔记中的这条说法吗？");
+      await expect(ask).toContainText("要对照你的文档，核对这篇笔记中的 1 句吗？");
       await motionSettled(window);
       await screenshot(window, "ask-all-zh");
       await setLanguage(window, "en");

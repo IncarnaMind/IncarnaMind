@@ -12,7 +12,7 @@ import {
   dismissContradictions,
   useContradictionLine,
 } from "../contradictions";
-import { formatMoney } from "../cost";
+import { estimateLine, formatMoney } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { saidInLine } from "../lineNames";
 import { contradictionOutcomeParts } from "./contradictionOutcome";
@@ -90,7 +90,7 @@ export function ContradictionAsk({ doc, mindId }: { doc: Y.Doc; mindId: string }
       question={t(shown.claims === 1 ? "contradictions.ask.one" : "contradictions.ask", {
         count: new Intl.NumberFormat(language).format(shown.claims),
       })}
-      estimate={shown.estimate}
+      estimate={estimateLine(shown.estimate, t, language)}
       check={{
         label: t("contradictions.check"),
         testId: "contradictions-check",

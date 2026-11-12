@@ -1,6 +1,6 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { useEffect, useId, useRef } from "react";
-import { TipBubble } from "../components/TipBubble";
+import { TipPopover } from "../components/TipPopover";
 import { useTip } from "../components/useTip";
 import { translateNow, useT } from "../i18n";
 
@@ -33,7 +33,15 @@ export function MissingNumberView({ selected }: ReactNodeViewProps) {
       >
         {t("missingNumber.words")}
       </span>
-      <TipBubble anchor={mark.current} id={id} text={t("missingNumber.tip")} tip={tip} />
+      {tip.shown && mark.current ? (
+        <TipPopover anchor={mark.current} tip={tip} id={id}>
+          {t("missingNumber.tip")}
+        </TipPopover>
+      ) : (
+        <span id={id} role="tooltip" hidden>
+          {t("missingNumber.tip")}
+        </span>
+      )}
     </NodeViewWrapper>
   );
 }

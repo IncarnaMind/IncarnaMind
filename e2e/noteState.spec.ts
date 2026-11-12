@@ -24,7 +24,7 @@ import {
 
 /*
  * A note says when it is done (D266, #1915): the corner badge, the note's row in Home and
- * the Export menu say the same state — "Claims not checked", "1 needs a look", "Checked 14:25" —
+ * the Export menu say the same state — "Not checked", "1 needs a look", "Checked 14:25" —
  * in English and Chinese. The scripted model finds a sentence contradicted when it shares
  * three words with a Document line and has a number the line doesn't (#96). Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save the screenshots.
@@ -45,22 +45,22 @@ const SUPPORTED = "Spring tides happened 12 times in 2026.";
 
 const WORDS = {
   en: {
-    notChecked: "Claims not checked",
+    notChecked: "Not checked",
     look: "1 needs a look",
     checked: "Checked ",
-    checkFirst: "1 claim not checked yet · Check first",
+    checkFirst: "1 sentence not checked yet · Check first",
     see: "Show",
     running: "A check is running",
-    checking: /claims? being checked/,
+    checking: /\d+ being checked/,
   },
   "zh-CN": {
-    notChecked: "说法未核对",
+    notChecked: "未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
-    checkFirst: "1 条说法待核对 · 先核对",
+    checkFirst: "1 句待核对 · 先核对",
     see: "查看",
     running: "正在核对",
-    checking: /正在核对 \d+ 条说法/,
+    checking: /\d+ 句正在核对/,
   },
 } as const;
 
@@ -176,7 +176,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, stateLine);
     const marks = window.getByTestId("check-card");
     await expect(marks).toBeVisible();
-    await expect(marks.getByTestId("health-contradicted")).toBeVisible();
+    await expect(marks.getByTestId("health-look")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(marks).toHaveCount(0);
 
@@ -279,8 +279,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, runningLine);
     const cardAgain = window.getByTestId("check-card");
     await expect(cardAgain.getByTestId("card-progress")).toBeVisible();
-    // The claim being checked keeps its row, in the card's own words for a claim.
-    await expect(cardAgain.getByTestId("health-checking")).toHaveText(words.checking);
+    // The sentence being checked has its row, in the card's one noun, the sentence (#2831).
+    await expect(cardAgain.getByTestId("health-checking")).toContainText(words.checking);
 
     // Every sentence holds when the run ends, so the line is gone.
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
@@ -381,16 +381,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge(window)).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      // Its card's summary counts what its rows show (#1941): the claim holds but still has no
-      // Citation, so nothing says everything is checked.
+      // Its card counts the sentence once, supported (#2831): with no Citation yet it is done, so
+      // the card says everything is checked, the files still named.
       const done = await checkCard(window);
-      await expect(done.getByTestId("health-summary")).toHaveText(
-        language === "en" ? "1 claim supported" : "1 条说法有依据",
+      await expect(done.getByTestId("health-supported")).toContainText(
+        language === "en" ? "1 supported" : "1 句有依据",
       );
-      await expect(done.getByTestId("health-noCitation")).toContainText(
-        language === "en" ? "1 claim with no Citation" : "1 条说法没有引用",
-      );
-      await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(done.getByTestId("health-noCitation")).toHaveCount(0);
+      await expect(done.getByTestId("health-all-checked")).toBeVisible();
       await expect(done.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
@@ -403,7 +401,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(allDone.getByTestId("health-all-checked")).toHaveText(
         language === "en" ? "Everything checked" : "已全部核对",
       );
-      await expect(allDone.getByTestId("health-summary")).toHaveCount(0);
+      await expect(allDone.getByTestId("health-supported")).toContainText(
+        language === "en" ? "1 supported" : "1 句有依据",
+      );
       await expect(allDone.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
@@ -478,14 +478,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(stateWords(window)).toHaveText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      // The card names what is left under its rows: the claim holds but still has no Citation.
+      // The card counts the sentence once, supported, though it still has no Citation.
       const narrow = await checkCard(window);
-      await expect(narrow.getByTestId("health-summary")).toHaveText(
-        language === "en" ? "1 claim supported" : "1 条说法有依据",
+      await expect(narrow.getByTestId("health-supported")).toContainText(
+        language === "en" ? "1 supported" : "1 句有依据",
       );
-      await expect(narrow.getByTestId("health-noCitation")).toContainText(
-        language === "en" ? "1 claim with no Citation" : "1 条说法没有引用",
-      );
+      await expect(narrow.getByTestId("health-noCitation")).toHaveCount(0);
       await expect(narrow.getByTestId("health-all-checked")).toHaveCount(0);
 
       // With the Citation added nothing is left; the narrower check still keeps the Note amber,
@@ -493,7 +491,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const still = await checkCard(window);
-      await expect(still.getByTestId("health-summary")).toHaveCount(0);
+      await expect(still.getByTestId("health-supported")).toContainText(
+        language === "en" ? "1 supported" : "1 句有依据",
+      );
       await expect(still.getByTestId("health-all-checked")).toHaveCount(0);
       await expect(still.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
