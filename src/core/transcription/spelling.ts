@@ -10,16 +10,32 @@ import { wordPlaces } from "../../shared/wordTimes";
 import { fold, namesAndParts, toldKeys } from "./context";
 import { latinSound } from "./sounds";
 
-const HAN = /\p{Script=Han}/u;
-const WORD = /(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu;
-/** What stands between the words of one name as it was heard: "Mary-Ann", "O'Neil", "J. Marsh". */
-const BETWEEN = /^[\s.'’-]*$/u;
+const WORD_PART = /[\p{Script=Latin}\p{N}]/u;
+/**
+ * A word in Latin letters and digits: what stands against it in another script is no part of it
+ * and stays (Katherineさん).
+ */
+const WORD = /[\p{Script=Latin}\p{N}]+/gu;
+/**
+ * What stands between the words of one name as it was heard: "Mary-Ann", "De Shawn". Never a
+ * full stop, which ends a sentence as often as an abbreviation, a line break, or more than one
+ * mark.
+ */
+const BETWEEN = /^[ '’-]$/u;
+const APOSTROPHE = /^['’]$/u;
 /** What a sentence's first word comes after: its capital says nothing ("Fill in the form", told Phil). */
 const OPENS = /(?:^|[.!?…。！？:："“(（\n])\s*$/u;
 /** A name may be heard as this many more words than it is written in. */
 const MORE_WORDS = 2;
 
 const writtenAsName = (word: string) => /^\p{Lu}/u.test(word) && /\p{Ll}/u.test(word);
+
+/**
+ * Whether the rough sound reads every letter and digit of the text. One it leaves out (ø, a
+ * digit) says nothing of what was said, and would be lost with the spelling it stands in.
+ */
+const soundedWhole = (text: string) =>
+  !/(?![a-z])[\p{L}\p{N}]/iu.test(text.normalize("NFKD").replace(/\p{M}/gu, ""));
 
 interface ToldName {
   name: string;
@@ -45,7 +61,7 @@ function toldOf(words: readonly string[]): Told {
   const all = [...new Set(namesAndParts(words).map((each) => each.word))]
     .filter((name) => name !== "")
     .sort((a, b) => b.length - a.length);
-  const soundOf = (name: string) => (HAN.test(name) ? "" : latinSound(name));
+  const soundOf = (name: string) => (soundedWhole(name) ? latinSound(name) : "");
   const spellings = new Map<string, Set<string>>();
   for (const name of all) {
     const sound = soundOf(name);
@@ -87,12 +103,21 @@ function spansOf(text: string, told: Told): Map<string, Span[]> {
     const heard: string[] = [];
     const starts: number[] = [];
     let until = first.at;
-    for (const each of found.slice(start, start + told.longest)) {
-      if (!writtenAsName(each.word)) break;
+    for (const [more, each] of found.slice(start, start + told.longest).entries()) {
+      const next = found[start + more + 1];
+      // A capital alone is a name's only where an apostrophe joins it to the rest (the O of
+      // O'Neill), and is never a name by itself.
+      const joined =
+        /^\p{Lu}$/u.test(each.word) &&
+        next !== undefined &&
+        APOSTROPHE.test(text.slice(each.at + each.word.length, next.at)) &&
+        writtenAsName(next.word);
+      if (!(joined || writtenAsName(each.word)) || !soundedWhole(each.word)) break;
       if (heard.length > 0 && !BETWEEN.test(text.slice(until, each.at))) break;
       heard.push(each.word);
       starts.push(each.at);
       until = each.at + each.word.length;
+      if (joined) continue;
       const sound = latinSound(heard.join(" "));
       if (!told.sounds.has(sound)) continue;
       const span = { from: first.at, until, heard: [...heard], starts: [...starts] };
@@ -117,10 +142,13 @@ function swapsIn(text: string, words: readonly string[]): Swap[] {
   const swaps: Swap[] = [];
   for (const { name, sound, parts, longest } of told.names) {
     const key = fold(name);
-    // A told name already written keeps its place, whatever its case.
+    // A told name already written keeps its place, whatever its case: as whole words, never as
+    // the start of a longer one (Ann in Anni).
     if (key.length === name.length && lower.length === text.length) {
       for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
-        if (free(at, at + key.length)) taken.fill(1, at, at + key.length);
+        const until = at + key.length;
+        const whole = !WORD_PART.test(text.charAt(at - 1)) && !WORD_PART.test(text.charAt(until));
+        if (whole && free(at, until)) taken.fill(1, at, until);
       }
     }
     for (const { from, until, heard, starts } of spans.get(sound) ?? []) {
