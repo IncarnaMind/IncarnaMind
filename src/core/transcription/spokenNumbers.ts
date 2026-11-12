@@ -84,10 +84,17 @@ const RANGE = new RegExp(`${RUN}(?: (?:${JOINED}) ${RUN})*`, "gi");
 const LIST = new RegExp(`${RUN}(?:(?:,| (?:${JOINED})) ${RUN})*`, "gi");
 const PERCENT_END = new RegExp(` (?:${PERCENT})$`, "i");
 // A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
-// of the reasons", "fifteen percent or two points higher", "twenty percent and fifty to sixty
-// thousand users". "between" and "from" lead both ends of a range in: "from fifteen percent to nine",
-// "between about five percent and nine".
-const AFTER_PERCENT = new RegExp(`(?<= (?:${PERCENT}))((?:,| (?:${JOINED})) )`, "i");
+// of the reasons", "twenty percent and fifty to sixty thousand users". After "or" or "to" the words
+// can't tell a pair ("about five percent to six") from two things unless the numbers after it count
+// something named right after them: "fifteen percent or two points higher". "between" and "from"
+// lead both ends of a range in: "from fifteen percent to nine", "between about five percent and nine".
+const AFTER_PERCENT = new RegExp(`(?<= (?:${PERCENT}))(?:,| (?:${JOINED})) `, "gi");
+const COUNTED =
+  "points|people|users|customers|clients|members|staff|employees|units|items|products|orders|deals|accounts|sites|stores|plants|cases|days|weeks|months|years|hours|minutes|times";
+const COUNTED_NEXT = new RegExp(
+  `^${RUN}(?: (?:${JOINED}) ${RUN})* (?:${COUNTED})(?![A-Za-z-])`,
+  "i",
+);
 const LEADS_BOTH_ENDS = /\b(?:between|from)(?: [a-z]+)? $/i;
 
 const TENS_WORD = [...TENS.keys()].join("|");
@@ -270,6 +277,22 @@ function staysAsSaid(row: string): boolean {
   });
 }
 
+/** The rows of a list of `text` that starts at `at`, with the joiners between them as rows too. */
+function rowsOf(text: string, list: string, at: number): string[] {
+  if (LEADS_BOTH_ENDS.test(text.slice(Math.max(0, at - NEAR), at))) return [list];
+  const rows: string[] = [];
+  let from = 0;
+  for (const joiner of list.matchAll(AFTER_PERCENT)) {
+    const end = joiner.index + joiner[0].length;
+    const next = text.slice(at + end, at + end + NEAR);
+    if (/^ (?:or|to) $/i.test(joiner[0]) && !COUNTED_NEXT.test(next)) continue;
+    rows.push(list.slice(from, joiner.index), joiner[0]);
+    from = end;
+  }
+  rows.push(list.slice(from));
+  return rows;
+}
+
 /** A range of `text`, which starts at `at`, as digits at every end, or as said. */
 function writtenRange(text: string, range: string, at: number): string {
   const before = text.slice(Math.max(0, at - NEAR), at);
@@ -297,11 +320,8 @@ function englishNumbers(text: string): string {
         : ordinal,
     );
   return dated.replace(LIST, (list: string, at: number) => {
-    const rows = LEADS_BOTH_ENDS.test(dated.slice(Math.max(0, at - NEAR), at))
-      ? [list]
-      : list.split(AFTER_PERCENT);
     let from = at;
-    return rows
+    return rowsOf(dated, list, at)
       .map((row) => {
         const start = from;
         from += row.length;

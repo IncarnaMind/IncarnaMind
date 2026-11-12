@@ -143,15 +143,30 @@ describe("English numbers in a transcript", () => {
     expect(writtenNumbers(said)).toBe(said);
   });
 
-  // protects=a percent ends its number, so it is written though a number said after it stays as said, unless "between" or "from" leads both ends in, with or without a word such as "about" (#1031); fails_when=it was fifteen percent or two points higher stays as said, twenty percent and a hundred percent becomes twenty percent and 100%, or it fell from fifteen percent to nine becomes it fell from 15% to nine, or between about five percent and nine between about 5% and nine; no_claim=what the number after the percent is.
-  test("a percent is written though the number said after it stays as said, but not a range's near end", () => {
+  // protects=a percent ends its number, so it is written though a number said after it stays as said, but after "or" or "to" only when that number counts something named right after it, and never when "between" or "from" leads both ends in, with or without a word such as "about" (#1031); fails_when=it was fifteen percent or two points higher stays as said, it's about five percent to six becomes it's about 5% to six, it fell fifteen percent to nine last year becomes it fell 15% to nine last year, twenty percent and a hundred percent becomes twenty percent and 100%, or it fell from fifteen percent to nine becomes it fell from 15% to nine; no_claim=whether the speaker meant a pair or two things where the words leave both readings.
+  test("a percent is written though the number said after it stays as said, but not a pair's near end", () => {
     expect(writtenNumbers("it was fifteen percent or two points higher")).toBe(
       "it was 15% or two points higher",
     );
-    expect(writtenNumbers("it fell fifteen percent to nine")).toBe("it fell 15% to nine");
+    expect(writtenNumbers("fifteen percent or two points")).toBe("15% or two points");
+    expect(writtenNumbers("ten percent to five people")).toBe("10% to five people");
     expect(writtenNumbers("fifty to sixty percent or two points higher")).toBe(
       "50 to 60% or two points higher",
     );
+    expect(writtenNumbers("it fell fifteen percent to nine")).toBe(
+      "it fell fifteen percent to nine",
+    );
+    expect(writtenNumbers("it's five percent or six")).toBe("it's five percent or six");
+    expect(writtenNumbers("it's about five percent to six")).toBe("it's about five percent to six");
+    expect(writtenNumbers("fifteen percent or two")).toBe("fifteen percent or two");
+    expect(writtenNumbers("it's five percent or six this year")).toBe(
+      "it's five percent or six this year",
+    );
+    expect(writtenNumbers("it fell fifteen percent to nine last year")).toBe(
+      "it fell fifteen percent to nine last year",
+    );
+    expect(writtenNumbers("five percent or six of them")).toBe("five percent or six of them");
+    expect(writtenNumbers("the rate is twenty percent or thirty")).toBe("the rate is 20% or 30");
     expect(writtenNumbers("twenty percent and a hundred percent")).toBe("20% and 100%");
     expect(writtenNumbers("it fell from fifteen percent to nine")).toBe(
       "it fell from fifteen percent to nine",
