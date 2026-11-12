@@ -1657,10 +1657,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     },
 
     /**
-     * The Meeting's Note was read again after the User typed in it (#1031). While the Meeting is
-     * transcribed live, the words for this computer are gathered from it again and each stream
-     * open on this computer is told them, from its next stretch on: a name typed during the call
-     * is in the lines that follow. A cloud stream keeps the words it was opened with.
+     * The Meeting's Note was read again after it changed (#1031). While the Meeting is transcribed
+     * live, the words for this computer are gathered from it again and each stream open on this
+     * computer is told them, from its next stretch on: a name written there during the call is in
+     * the lines that follow. A cloud stream keeps the words it was opened with.
      */
     noteRead(meetingId: string): void {
       const state = states.get(meetingId);
