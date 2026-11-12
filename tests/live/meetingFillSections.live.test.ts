@@ -78,7 +78,10 @@ interface Fact {
   underLine?: string;
   /** A figure only one side said, which the other never answered: never a decision (#2306). */
   stated?: boolean;
-  /** A term one side gave and the other accepted aloud: a decision, as its Decisions line states it (#2306). */
+  /**
+   * A term one side gave and the other accepted aloud, as a Decisions line would state it. Counted
+   * and reported, never asserted: the prompt does not say where such a term goes (#2306).
+   */
   accepted?: RegExp;
   /**
    * A term one side raised and the other answered with a yes or by saying it back: a decision too,
@@ -1973,11 +1976,11 @@ const termsUnderDecisions = (facts: readonly Fact[], decisions: readonly { text:
   };
 };
 
-/** A Decisions section belongs when the call decided something, or when it holds a confirmed term. */
+/** A Decisions section belongs when the call decided something, or when it holds an accepted or confirmed term. */
 const decisionsSectionExpected = (
   decisions: number,
-  terms: Pick<ReturnType<typeof termsUnderDecisions>, "accepted" | "confirmedInSection">,
-) => decisions + terms.accepted > 0 || terms.confirmedInSection > 0;
+  terms: Pick<ReturnType<typeof termsUnderDecisions>, "acceptedInSection" | "confirmedInSection">,
+) => decisions > 0 || terms.acceptedInSection > 0 || terms.confirmedInSection > 0;
 
 const namesSubject = (fact: Fact, text: string) => {
   const subject = fact.subject ?? fact.pattern;
@@ -3406,12 +3409,12 @@ test("meeting scores count a term nobody answered apart from one accepted or con
 });
 
 test.each([
-  { decisions: 0, accepted: 0, confirmedInSection: 0, expected: false },
-  { decisions: 1, accepted: 0, confirmedInSection: 0, expected: true },
-  { decisions: 0, accepted: 1, confirmedInSection: 0, expected: true },
-  { decisions: 0, accepted: 0, confirmedInSection: 1, expected: true },
+  { decisions: 0, acceptedInSection: 0, confirmedInSection: 0, expected: false },
+  { decisions: 1, acceptedInSection: 0, confirmedInSection: 0, expected: true },
+  { decisions: 0, acceptedInSection: 1, confirmedInSection: 0, expected: true },
+  { decisions: 0, acceptedInSection: 0, confirmedInSection: 1, expected: true },
 ])(
-  "meeting scores expect a Decisions section for $decisions decisions, $accepted accepted and $confirmedInSection confirmed terms there: $expected",
+  "meeting scores expect a Decisions section for $decisions decisions, $acceptedInSection accepted and $confirmedInSection confirmed terms there: $expected",
   ({ decisions, expected, ...terms }) => {
     expect(decisionsSectionExpected(decisions, terms)).toBe(expected);
   },
@@ -4066,9 +4069,6 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
               decisionsSectionExpected(expected, slips),
             );
             expect(counts.decisionsInSection).toBe(expected);
-            expect(slips.acceptedInSection, "A term accepted aloud is a decision").toBe(
-              slips.accepted,
-            );
             expect(counts.invented).toBe(0);
           });
           const expectedActions = call.facts.filter((fact) => fact.kind === "action").length;
