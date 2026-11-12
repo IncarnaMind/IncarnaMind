@@ -22,6 +22,7 @@ import {
 } from "../../helpReply";
 import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
+import { limitReason } from "../../limitWords";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
@@ -75,18 +76,14 @@ function CitationChip({
   at: number;
 }) {
   const t = useT();
-  const limits = useJudgementLimit();
+  const limit = useJudgementLimit();
   const where = citation ? citedLocation(citation, t) : null;
   const passed = citation !== undefined && sentencePassed(citation, at);
   const reason = citation ? uncheckedReason(citation) : null;
   const unchecked =
-    reason === "answer-limit"
-      ? t("citation.reason.answer-limit", { limit: limits.limit })
-      : reason === "monthly-limit"
-        ? t("citation.reason.monthly-limit", { cap: limits.cap })
-        : reason === "small-model"
-          ? t("citation.reason.small-model")
-          : null;
+    reason === "small-model"
+      ? t("citation.reason.small-model")
+      : limitReason(t, reason, limit, null);
   return (
     <span
       data-testid="help-citation"
