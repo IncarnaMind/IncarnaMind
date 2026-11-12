@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { CLAIM_CHECK_MARK, type LinkedFolder, type Mind } from "../../src/core/api";
+import type { LinkedFolder, Mind } from "../../src/core/api";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import { createExamples } from "../../src/core/examples";
+import { countingCheckOf } from "../../src/shared/markKeys";
 
 /** The example Documents the app ships. */
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -87,7 +88,7 @@ function checksIn(blocks: Y.XmlFragment): { text: string; check: Record<string, 
         insert: unknown;
         attributes?: Record<string, unknown>;
       }[]) {
-        const check = run.attributes?.[CLAIM_CHECK_MARK] as Record<string, unknown> | undefined;
+        const check = countingCheckOf(run.attributes)?.attrs as Record<string, unknown> | undefined;
         if (typeof run.insert !== "string" || !check) continue;
         found.push({ text: run.insert, check });
       }

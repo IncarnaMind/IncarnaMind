@@ -28,6 +28,7 @@ import {
   type RecordAiUseInput,
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
+import { keyedMarkOf, markValueOf } from "./markKeys";
 import { setTextOrigin } from "./textOrigins";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
@@ -122,8 +123,8 @@ export function outOfDateProposals(blocks: Y.XmlFragment): Set<string> {
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
         for (const run of child.toDelta() as Run[]) {
-          const removed = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
-          const added = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+          const removed = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
+          const added = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
           if (removed) note(removed, typeof run.insert === "string" ? run.insert : NODE_CHARACTER);
           if (added) note(added, null);
           atom++;
@@ -226,24 +227,30 @@ export function resolveProposals(
   };
 
   const resolveText = (text: Y.XmlText, owner: string | null, top: string | null) => {
-    const edits: { at: number; length: number; mark: string; keep: boolean }[] = [];
+    const edits: { at: number; length: number; cleared: Record<string, null>; gone: boolean }[] =
+      [];
     let at = 0;
     for (const run of text.toDelta() as Run[]) {
       const length = typeof run.insert === "string" ? run.insert.length : 1;
-      for (const mark of [PROPOSAL_INSERT_MARK, PROPOSAL_DELETE_MARK]) {
-        const ref = readProposalRef(run.attributes?.[mark]);
+      const edit = { at, length, cleared: {} as Record<string, null>, gone: false };
+      for (const [key, value] of Object.entries(run.attributes ?? {})) {
+        const mark = keyedMarkOf(key);
+        if (mark !== PROPOSAL_INSERT_MARK && mark !== PROPOSAL_DELETE_MARK) continue;
+        const ref = readProposalRef(value);
         if (!ref || !wanted(ref)) continue;
         const keep = (mark === PROPOSAL_INSERT_MARK) === (outcome === "accept");
-        edits.push({ at, length, mark, keep });
+        if (keep) edit.cleared[key] = null;
+        else edit.gone = true;
         note(ref, keep && mark === PROPOSAL_INSERT_MARK ? length : 0, owner);
         rejected(ref.request, top);
       }
+      if (edit.gone || Object.keys(edit.cleared).length > 0) edits.push(edit);
       at += length;
     }
     // From the end, so each edit's place is still where it was read.
     for (const edit of edits.reverse()) {
-      if (edit.keep) text.format(edit.at, edit.length, { [edit.mark]: null });
-      else text.delete(edit.at, edit.length);
+      if (edit.gone) text.delete(edit.at, edit.length);
+      else text.format(edit.at, edit.length, edit.cleared);
     }
   };
 
@@ -451,8 +458,8 @@ export function pendingProposals(blocks: Y.XmlFragment | Y.XmlElement): Proposal
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
         for (const run of child.toDelta() as Run[]) {
-          add(readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]));
-          add(readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]));
+          add(readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes)));
+          add(readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes)));
         }
       } else if (child instanceof Y.XmlElement) {
         add(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE)));
@@ -584,8 +591,8 @@ export function changeKinds(
         child instanceof Y.XmlText
           ? (child.toDelta() as Run[]).some(
               (run) =>
-                ours(readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])) ||
-                ours(readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK])),
+                ours(readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))) ||
+                ours(readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes))),
             )
           : child instanceof Y.XmlElement &&
             ours(readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))),
