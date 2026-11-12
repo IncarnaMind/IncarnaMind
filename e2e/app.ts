@@ -2555,7 +2555,7 @@ export async function checkCard(
         window,
         window
           .getByTestId("palette-item")
-          .filter({ hasText: chinese ? "核对" : "Checks" })
+          .filter({ hasText: chinese ? "核对结果" : "Checks" })
           .first(),
       );
     }
