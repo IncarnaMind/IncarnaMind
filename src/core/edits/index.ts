@@ -961,7 +961,9 @@ export function createEdits(options: EditsOptions) {
         ...stream?.written(),
         ...(unplaced && { notPlaced: true }),
         ...(holdsMark &&
-          takesMissingNumber(placesBefore, paragraphPlaces(blocks, request)) && {
+          takesMissingNumber(placesBefore, paragraphPlaces(blocks, request), {
+            removesOnly: ask.removesOnly === true,
+          }) && {
             takesMissingNumber: true,
           }),
       };

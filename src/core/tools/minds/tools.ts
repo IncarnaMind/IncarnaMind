@@ -2432,7 +2432,9 @@ export function mindTools(options: MindToolsOptions): {
     if (uncited) throw uncited;
     const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
     if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
-    if (minds.read(mind.id, (note) => takesMissingNumberOver(note, over, blocks))) {
+    if (
+      minds.read(mind.id, (note) => takesMissingNumberOver(note, over, blocks, { removesOnly }))
+    ) {
       throw new Refusal({ kind: "missing-number", mindId: mind.id }, options.missingNumberRefused);
     }
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));

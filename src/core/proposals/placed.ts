@@ -94,6 +94,9 @@ export function tallyCiting(
 export type PlaceKeys = readonly string[];
 
 const MARK_KEY = "\u0000mark";
+
+/** The Blocks that hold a line of text and inline nodes. */
+export const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 const FIGURE_KEY = "\u0000figure:";
 
 /** A paragraph's keys from its words and nodes: a mark, a calculated figure by its id, else its words. */
@@ -127,7 +130,11 @@ export function paragraphPlaces(
       (proposal?.kind === "delete" && proposal.request === request));
   const visit = (node: Y.XmlFragment | Y.XmlElement) => {
     const children = node.toArray();
-    if (children.some((child) => child instanceof Y.XmlText)) {
+    // A table cell's paragraph may hold the mark alone, with no text beside it.
+    const textBlock =
+      (node instanceof Y.XmlElement && TEXT_BLOCKS.has(node.nodeName)) ||
+      children.some((child) => child instanceof Y.XmlText);
+    if (textBlock) {
       const parts: ({ text: string } | { node: string; id?: unknown })[] = [];
       for (const child of children) {
         if (child instanceof Y.XmlText) {
@@ -160,60 +167,50 @@ export function paragraphPlaces(
 export const holdsMissingNumber = (paragraphs: readonly PlaceKeys[]): boolean =>
   paragraphs.some((paragraph) => paragraph.includes(MARK_KEY));
 
-/** How many words two paragraphs share, each counted as often as both have it. */
-function shared(one: PlaceKeys, other: PlaceKeys): number {
-  const left = new Map<string, number>();
-  for (const key of one) left.set(key, (left.get(key) ?? 0) + 1);
-  let count = 0;
-  for (const key of other) {
-    const n = left.get(key) ?? 0;
-    if (n > 0 && key.trim() !== "") {
-      count++;
-      left.set(key, n - 1);
-    }
-  }
-  return count;
-}
+const BREAK_KEY = "\u0000¶";
+
+/** Paragraphs as one run of words, a break between each two, so no paragraph answers for another. */
+const oneRun = (paragraphs: readonly PlaceKeys[]): string[] =>
+  paragraphs.flatMap((paragraph, index) =>
+    index === 0 ? [...paragraph] : [BREAK_KEY, ...paragraph],
+  );
 
 /**
- * Whether going from the paragraphs `before` to `after` takes out a mark where a figure couldn't
- * be calculated with no calculated figure in its place (#2577). Each paragraph that held a mark is
- * compared word by word with the paragraph it is most like now: a mark a changed place takes out is
- * replaced only by a calculated figure new in that same place, never by digits; a mark the
- * paragraph gained in another place (its sentence moved) keeps it. What it can't tell: a mark's
- * place in a paragraph rewritten past knowing, or split in two, which is compared with the one
- * part most like it; and a sentence the User asked to take out from one that dropped its mark, so
- * a change that takes out the whole sentence holding a mark is refused too.
+ * Whether going from the paragraphs `before` to `after`, in order, takes out a mark where a figure
+ * couldn't be calculated with no calculated figure in its place (#2577). Both are read as one run
+ * of words and compared once: a mark a changed place takes out is replaced only by a calculated
+ * figure new in that same place, never by digits; a mark written in another place, as when its
+ * sentence moves, keeps it. With `removesOnly`, the User asked only for text to go, and a change
+ * that writes nothing may take a mark out with its words. What it can't tell: a change that types
+ * digits where the mark was and writes the mark where another number stood lands, as the mark it
+ * writes keeps one.
  */
 export function takesMissingNumber(
   before: readonly PlaceKeys[],
   after: readonly PlaceKeys[],
+  { removesOnly = false }: { removesOnly?: boolean } = {},
 ): boolean {
-  const figuresBefore = new Set(before.flat().filter((key) => key.startsWith(FIGURE_KEY)));
+  if (!holdsMissingNumber(before)) return false;
+  const old = oneRun(before);
+  const now = oneRun(after);
+  const figuresBefore = new Set(old.filter((key) => key.startsWith(FIGURE_KEY)));
   const isNewFigure = (key: string) => key.startsWith(FIGURE_KEY) && !figuresBefore.has(key);
-  return before.some((old) => {
-    if (!old.includes(MARK_KEY)) return false;
-    let now: PlaceKeys = [];
-    let most = -1;
-    for (const candidate of after) {
-      const count = shared(old, candidate);
-      if (count > most) {
-        most = count;
-        now = candidate;
-      }
-    }
-    let uncovered = 0;
-    let elsewhere = 0;
-    for (const hunk of hunksOf(diffSteps(old, now), () => false)) {
-      const out = old.slice(hunk.oldFrom, hunk.oldTo).filter((key) => key === MARK_KEY).length;
-      const added = now.slice(hunk.newFrom, hunk.newTo);
-      const marks = added.filter((key) => key === MARK_KEY).length;
-      const figures = added.filter(isNewFigure).length;
-      uncovered += Math.max(0, out - marks - figures);
-      elsewhere += Math.max(0, marks - out);
-    }
-    return uncovered > elsewhere;
-  });
+  const hunks = hunksOf(diffSteps(old, now), () => false);
+  const writesNothing = hunks.every((hunk) =>
+    now.slice(hunk.newFrom, hunk.newTo).every((key) => key === BREAK_KEY || key.trim() === ""),
+  );
+  if (removesOnly && writesNothing) return false;
+  let uncovered = 0;
+  let elsewhere = 0;
+  for (const hunk of hunks) {
+    const out = old.slice(hunk.oldFrom, hunk.oldTo).filter((key) => key === MARK_KEY).length;
+    const added = now.slice(hunk.newFrom, hunk.newTo);
+    const marks = added.filter((key) => key === MARK_KEY).length;
+    const figures = added.filter(isNewFigure).length;
+    uncovered += Math.max(0, out - marks - figures);
+    elsewhere += Math.max(0, marks - out);
+  }
+  return uncovered > elsewhere;
 }
 
 const same = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) =>

@@ -200,4 +200,30 @@ describe.each([
     expect(result.kind).toBe("proposed");
     expect(lastLine(client)).toBe(`Sales held. Growth was ${MARK}.`);
   });
+
+  test("in a list of three like items, digits typed in one where the mark was are refused, and every mark stays", async () => {
+    const calls: EditCall[] = [];
+    const set = await setUpWithDocuments(
+      editingModel((call) => call.passage.replace(words, "8.0%"), calls),
+      [],
+    );
+    onTestFinished(() => set.core.close());
+    if (language === "zh-CN") await set.core.updateSettings({ user: { language } });
+    const item = (n: number) => ({
+      type: "paragraph",
+      attrs: { id: `q${n}` },
+      content: [text(`Q${n} growth was `), { type: "missingNumber" }, text(".")],
+    });
+    writeMind(set.client, [item(1), item(2), item(3)]);
+    await set.client.settled();
+    const result = await set.core.editWithAi(
+      wholeParagraph(set.client, set.mind.id, "q2", "shorten"),
+    );
+    await set.client.settled();
+    expect(result.kind).toBe("missing-number");
+    const marks = set.client.blocks
+      .toArray()
+      .map((block) => (block instanceof Y.XmlElement ? shownStored(block) : ""));
+    expect(marks).toEqual([1, 2, 3].map((n) => `Q${n} growth was ${MARK}.`));
+  });
 });

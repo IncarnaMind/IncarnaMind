@@ -16,7 +16,7 @@ import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { keptText } from "../../src/renderer/src/changeFacts";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { translate } from "../../src/shared/i18n";
-import { askAssistant } from "../helpers/assistant";
+import { askAssistant, changesIn } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
 import { listedSentences } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -37,6 +37,18 @@ const WORDS = {
     plain: "Write the growth into the note as a plain number.",
     second: (number: string) => `There were ${number} loans in February.`,
     swap: "Update the growth sentence and the February sentence.",
+    quarter: (n: number, said: string) => `Q${n} growth ${said}.`,
+    was: (marker: string) => `was ${marker}`,
+    cameTo: (number: string) => `came to ${number}`,
+    cells: ["Quarter", "Growth", "Q"],
+    split: (marker: string) => [
+      `Branch loans grew by ${marker}.`,
+      "Sales held steady all year across every branch in the region.",
+    ],
+    splitPart: "Branch loans grew by",
+    joined: (marker: string) => `Q1 growth was ${marker}, and Q2 growth was ${marker}.`,
+    salesWithNumber:
+      "Sales held steady all year across every branch in the region, at 1,080 loans.",
     label: "Average monthly loan growth",
     title: "Growth",
     sentence: (marker: string) => `Harbour's average monthly loan growth was ${marker}.`,
@@ -53,6 +65,17 @@ const WORDS = {
     plain: "把增长率直接写成数字放进笔记。",
     second: (number: string) => `二月借阅 ${number} 次。`,
     swap: "更新增长率那句和二月那句。",
+    quarter: (n: number, said: string) => `${["一", "二", "三"][n - 1]}季度增长率${said}。`,
+    was: (marker: string) => `为 ${marker}`,
+    cameTo: (number: string) => `达到 ${number}`,
+    cells: ["季度", "增长率", "第"],
+    split: (marker: string) => [
+      `港湾分馆借阅量上升了 ${marker}。`,
+      "全年各分馆的销量在整个地区都保持稳定。",
+    ],
+    splitPart: "港湾分馆借阅量",
+    joined: (marker: string) => `一季度增长率为 ${marker}，二季度增长率为 ${marker}。`,
+    salesWithNumber: "全年各分馆的销量在整个地区都保持稳定，共 1,080 次。",
     label: "月均借阅增长率",
     title: "增长",
     sentence: (marker: string) => `港湾分馆的月均借阅增长率为 ${marker}。`,
@@ -148,8 +171,8 @@ async function written(
   language: Language,
   file: Buffer,
   content: string,
-  /** What the Answer asked `swap` writes as its own text's new content. */
-  swapped = "",
+  /** What the Answer asked `swap` writes as its own text's new content, over `part`, or the whole Note. */
+  swap: { content: string; part?: string; removesOnly?: boolean } = { content: "" },
 ) {
   const words = WORDS[language];
   /** The sentences each Check sent to be sorted into claims, the latest last. */
@@ -196,10 +219,10 @@ async function written(
                 tool: "edit_mind",
                 input: {
                   mind: words.title,
-                  part: words.part,
-                  content: swapped,
+                  ...(swap.part !== undefined && { part: swap.part }),
+                  content: swap.content,
                   times_as_long: 1,
-                  removes_only: false,
+                  removes_only: swap.removesOnly === true,
                 },
               },
             ],
@@ -459,17 +482,29 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     expect(read).not.toMatch(/\d/);
   });
 
-  /** Asks the Answer in the Note's conversation, accepts what it wrote, and reads the Note's last line and its figures. */
+  /**
+   * Asks the Answer in the Note's conversation, accepts what it wrote, and reads the Note's last line,
+   * its paragraphs and its figures; `undo`: applies the Answer's changes as the window does, reads
+   * them, and takes them back with Undo.
+   */
   async function askedAgain(
     language: Language,
     question: string,
-    { content = WORDS[language].sentence("[=1]"), swapped = "" } = {},
+    {
+      content = WORDS[language].sentence("[=1]"),
+      swap = { content: "" },
+      undo = false,
+    }: {
+      content?: string;
+      swap?: { content: string; part?: string; removesOnly?: boolean };
+      undo?: boolean;
+    } = {},
   ) {
     const { core, mindId, conversationId, told } = await written(
       language,
       FIRST_MONTH_BLANK,
       content,
-      swapped,
+      swap,
     );
     const answer = await askAssistant(core, {
       conversationId,
@@ -479,7 +514,26 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     });
     const client = await connectToMind(core, mindId);
     await client.settled();
-    await resolveChanges(client, "accept");
+    const paragraphs = () => {
+      const found: string[] = [];
+      const visit = (node: Y.XmlElement) => {
+        if (node.nodeName === "paragraph") found.push(shown(node));
+        else for (const child of node.toArray()) if (child instanceof Y.XmlElement) visit(child);
+      };
+      for (const block of client.blocks.toArray()) if (block instanceof Y.XmlElement) visit(block);
+      return found;
+    };
+    let undone: string[] | null = null;
+    let applied: string[] | null = null;
+    if (undo) {
+      const requests = changesIn(answer).map((change) => change.request);
+      const application = await core.applyAskedChanges({ answerId: answer.id, mindId, requests });
+      await client.settled();
+      applied = paragraphs();
+      if (application) await core.undoAskedChanges(application.undoId);
+      await client.settled();
+      undone = paragraphs();
+    } else await resolveChanges(client, "accept");
     await client.settled();
     const edits = answer.toolCalls.filter((call) => call.tool === "edit_mind");
     const last = client.blocks.toArray().at(-1);
@@ -492,8 +546,17 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
       }
     };
     if (last instanceof Y.XmlElement) count(last);
+    const now = paragraphs();
     core.close();
-    return { edits, line: last instanceof Y.XmlElement ? shown(last) : null, figures, told };
+    return {
+      edits,
+      line: last instanceof Y.XmlElement ? shown(last) : null,
+      figures,
+      told,
+      paragraphs: now,
+      applied,
+      undone,
+    };
   }
 
   test("an Answer that records its own figure 1 and rewrites its own sentence keeps the mark a mark", async () => {
@@ -528,7 +591,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     test("a change that calculates the second number and types digits where the mark was is refused, and the mark stays", async () => {
       const { edits, line, figures } = await askedAgain(language, words.swap, {
         content,
-        swapped: `${words.sentence("8.0%")} ${words.second("[=1]")}`,
+        swap: { content: `${words.sentence("8.0%")} ${words.second("[=1]")}`, part: words.part },
       });
       expect(edits.map((call) => call.status)).toEqual(["failed"]);
       expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
@@ -539,7 +602,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     test("a change with the calculated figure where the mark was lands", async () => {
       const { edits, line, figures } = await askedAgain(language, words.swap, {
         content,
-        swapped: `${words.sentence("[=1]")} ${words.second("1,080")}`,
+        swap: { content: `${words.sentence("[=1]")} ${words.second("1,080")}`, part: words.part },
       });
       expect(edits.map((call) => call.status)).toEqual(["done"]);
       expect(line).toBe(`${words.sentence("8.0%")} ${words.second("1,080")}`);
@@ -549,10 +612,104 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     test("a change that moves the mark's sentence within its paragraph and keeps the mark lands", async () => {
       const { edits, line } = await askedAgain(language, words.swap, {
         content,
-        swapped: `${words.second("1,080")} ${words.sentence(words.mark)}`,
+        swap: {
+          content: `${words.second("1,080")} ${words.sentence(words.mark)}`,
+          part: words.part,
+        },
       });
       expect(edits.map((call) => call.status)).toEqual(["done"]);
       expect(line).toBe(`${words.second("1,080")} ${words.sentence(MARK)}`);
+    });
+  });
+
+  describe("no paragraph of a change answers for another", () => {
+    const list = (said: (n: number) => string) =>
+      [1, 2, 3].map((n) => `- ${words.quarter(n, said(n))}`).join("\n");
+
+    test("a list of three like items, digits typed in one where the mark was: refused, and every mark stays", async () => {
+      const { edits, paragraphs } = await askedAgain(language, words.swap, {
+        content: list((n) => words.was(`[=${n}]`)),
+        swap: {
+          content: list((n) => (n === 2 ? words.cameTo("8.0%") : words.was(words.mark))),
+        },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(paragraphs.slice(-3)).toEqual([1, 2, 3].map((n) => words.quarter(n, words.was(MARK))));
+    });
+
+    test("a table with the mark alone in two cells, digits typed in one: refused", async () => {
+      const [quarter, growth, row] = words.cells;
+      const table = (second: string) =>
+        [
+          `| ${quarter} | ${growth} |`,
+          "| --- | --- |",
+          `| ${row}1 | [=1] |`,
+          `| ${row}2 | ${second} |`,
+        ].join("\n");
+      const { edits, paragraphs } = await askedAgain(language, words.swap, {
+        content: table("[=2]"),
+        swap: { content: table("8.0%").replace("[=1]", words.mark) },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(paragraphs.filter((each) => each === MARK)).toHaveLength(2);
+    });
+
+    test("a paragraph split in two that keeps its mark lands", async () => {
+      const [first, second] = words.split("[=1]");
+      const { edits, paragraphs } = await askedAgain(language, words.swap, {
+        content: `${first} ${second}`,
+        swap: { content: words.split(words.mark).join("\n\n"), part: words.splitPart },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(paragraphs.slice(-2)).toEqual(words.split(MARK));
+    });
+
+    test("two like items joined into one that keeps both marks lands", async () => {
+      const { edits, paragraphs } = await askedAgain(language, words.swap, {
+        content: [1, 2].map((n) => `- ${words.quarter(n, words.was(`[=${n}]`))}`).join("\n"),
+        swap: { content: `- ${words.joined(words.mark)}` },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(paragraphs.at(-1)).toBe(words.joined(MARK));
+    });
+  });
+
+  describe("taking the mark's sentence out", () => {
+    const [growthSentence, sales] = words.split("[=1]");
+    const content = `${growthSentence} ${sales}`;
+    const part = words.splitPart;
+
+    test("asked only to take text out, a change that only takes the sentence out lands with its mark, and Undo brings both back", async () => {
+      const { edits, applied, undone } = await askedAgain(language, words.swap, {
+        content,
+        swap: { content: sales, part, removesOnly: true },
+        undo: true,
+      });
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(applied?.at(-1)).toBe(sales);
+      expect(undone?.at(-1)).toBe(`${words.split(MARK)[0]} ${sales}`);
+    });
+
+    test("asked only to take text out, a change that also writes a number is refused", async () => {
+      const { edits, line } = await askedAgain(language, words.swap, {
+        content,
+        swap: { content: words.salesWithNumber, part, removesOnly: true },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(line).toBe(`${words.split(MARK)[0]} ${sales}`);
+    });
+
+    test("not asked only to take text out, a change that drops the mark's sentence is refused", async () => {
+      const { edits, line } = await askedAgain(language, words.swap, {
+        content,
+        swap: { content: sales, part },
+      });
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(line).toBe(`${words.split(MARK)[0]} ${sales}`);
     });
   });
 

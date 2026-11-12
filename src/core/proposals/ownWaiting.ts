@@ -46,6 +46,7 @@ import {
   type PlaceKeys,
   paragraphPlaces,
   placeKeysOf,
+  TEXT_BLOCKS,
   takesMissingNumber,
 } from "./placed";
 import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
@@ -598,6 +599,7 @@ export function takesMissingNumberOver(
   blocks: Y.XmlFragment,
   over: Pick<OwnWaiting, "blockIds" | "fingerprint">,
   revised: readonly NodeJSON[],
+  options: { removesOnly?: boolean } = {},
 ): boolean {
   const before = (blocksOf(blocks, over) ?? []).flatMap((element) =>
     paragraphPlaces(element, null),
@@ -606,7 +608,7 @@ export function takesMissingNumberOver(
   const after: PlaceKeys[] = [];
   const visit = (node: NodeJSON) => {
     const content = node.content ?? [];
-    if (content.some((child) => child.type === "text")) {
+    if (TEXT_BLOCKS.has(node.type) || content.some((child) => child.type === "text")) {
       after.push(
         placeKeysOf(
           content.map((child) =>
@@ -621,7 +623,7 @@ export function takesMissingNumberOver(
     content.forEach(visit);
   };
   revised.forEach(visit);
-  return takesMissingNumber(before, after);
+  return takesMissingNumber(before, after, options);
 }
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */
