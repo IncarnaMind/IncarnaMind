@@ -41,7 +41,7 @@ const WORDS = {
     was: (marker: string) => `was ${marker}`,
     cameTo: (number: string) => `came to ${number}`,
     cells: ["Quarter", "Growth", "Q"],
-    split: (marker: string) => [
+    split: (marker: string): [string, string] => [
       `Branch loans grew by ${marker}.`,
       "Sales held steady all year across every branch in the region.",
     ],
@@ -69,7 +69,7 @@ const WORDS = {
     was: (marker: string) => `为 ${marker}`,
     cameTo: (number: string) => `达到 ${number}`,
     cells: ["季度", "增长率", "第"],
-    split: (marker: string) => [
+    split: (marker: string): [string, string] => [
       `港湾分馆借阅量上升了 ${marker}。`,
       "全年各分馆的销量在整个地区都保持稳定。",
     ],
