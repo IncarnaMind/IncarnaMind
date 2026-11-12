@@ -209,6 +209,8 @@ export function earlyChecks(
     read: string;
     readNow(): string;
     replied(): boolean;
+    /** Tells the run that took the check that a model replied to it. */
+    taken: (() => void) | null;
   }
   const started = new Map<string, Early[]>();
   // One the run takes is its claim's own check, recorded by the run; one it doesn't is a claim of
@@ -228,7 +230,7 @@ export function earlyChecks(
     start(claim: QueuedClaim, readNow: () => string): boolean {
       if (limit.free() === 0) return false;
       const stop = new AbortController();
-      const heard = heardFrom(run.prepared);
+      const heard = heardFrom(run.prepared, () => early.taken?.());
       const request = checkRequestOf(
         claim,
         { ...run, prepared: heard.prepared },
@@ -242,6 +244,7 @@ export function earlyChecks(
         read: readNow(),
         readNow,
         replied: heard.replied,
+        taken: null,
       };
       early.result.catch((error: unknown) => {
         // A check the run takes fails there, as any other does.
@@ -275,19 +278,11 @@ export function earlyChecks(
       if (!early) return claimCheck(request);
       // The run's time limit stops it as it would the check the run sends.
       request.signal.addEventListener("abort", () => early.stop.abort(), { once: true });
-      const ended = () => {
-        if (early.replied()) heardThrough(request.model);
-      };
-      return early.result.then(
-        (result) => {
-          ended();
-          return result;
-        },
-        (error: unknown) => {
-          ended();
-          throw error;
-        },
-      );
+      // A reply is the run's as it comes, not as the check settles: a run stopped or timed out
+      // meanwhile has already recorded the claim (#2909).
+      early.taken = () => heardThrough(request.model);
+      if (early.replied()) early.taken();
+      return early.result;
     },
     /** Stops every early check the run didn't take. */
     drop(): void {

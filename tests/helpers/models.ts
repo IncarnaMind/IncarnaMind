@@ -393,9 +393,9 @@ export type ScriptedReply =
       calls?: { tool: string; input: unknown; streamInput?: boolean; raw?: string }[];
       /**
        * Stops streaming once `after` characters of the text, or of a streamed
-       * input, are out, until `until` resolves.
+       * input, are out, until `until` resolves; `reached` hears when it has.
        */
-      pause?: { after: number; until: Promise<void> };
+      pause?: { after: number; until: Promise<void>; reached?: () => void };
       /** The reply reached the request's output limit: it ends there, cut off. */
       cutOff?: boolean;
       /** The tokens this reply reports instead of the model's. */
@@ -458,7 +458,11 @@ const providerError = ({ status, message }: { status: number; message: string })
  * A chat model whose every reply comes from `script`, given the request: text
  * (streamed in chunks of `chunkSize`), Tool calls, or a provider error. For
  * scripting the Tool-calling loop: search, cite, then answer. Requests that
- * aren't streamed get `generate`'s reply; without it, they fail. `modelId`:
+ * aren't streamed get `generate`'s reply; without it, they fail. A judge's
+ * question that streams (the retries of an Answer's quotes and figures) fails
+ * the test unless `script` reads its `question` or `json`, as it must to
+ * answer it; the one for the Citations an Answer left out finds none then.
+ * `modelId`:
  * the id the model reports; `usage`: the tokens each request reports.
  */
 export function scriptedModel(
@@ -549,17 +553,32 @@ export function scriptedModel(
           }),
         };
       }
+      const question = questionOf(options);
+      let told = false;
       const call: ModelCall = {
         index: index++,
-        question: questionOf(options),
+        get question() {
+          told = true;
+          return question;
+        },
         tools: (options.tools ?? []).map((each) => each.name),
-        json: options.responseFormat?.type === "json",
+        get json() {
+          told = true;
+          return options.responseFormat?.type === "json";
+        },
         system: systemOf(options.prompt),
         prompt: promptText(options.prompt),
         results: resultsOf(options),
         options,
       };
-      const reply = script(call);
+      const scripted = script(call);
+      // A script that never looks at which question a request asks, or whether it wants JSON, has
+      // no reply for a judge's question that streams: what it answers is not scripted (#2895). The
+      // Citations an Answer left out are asked after most Answers, so a model with no script finds
+      // none, as it claims no change and sorts every sentence as one fact.
+      const blind = question !== undefined && !told;
+      if (blind && question !== "unmarked-quotes") unscripted(question, call.system);
+      const reply: ScriptedReply = blind ? { text: '{"citations":[]}' } : scripted;
       if ("error" in reply) throw providerError(reply.error);
       const parts: StreamPart[] = [{ type: "stream-start", warnings: [] }];
       if (reply.reasoning) {
@@ -607,6 +626,7 @@ export function scriptedModel(
       });
       const { pause } = reply;
       let streamed = 0;
+      let paused = false;
       const stream = new ReadableStream<StreamPart>({
         async pull(controller) {
           const part = parts.shift();
@@ -615,6 +635,8 @@ export function scriptedModel(
             return;
           }
           if (pause && streamed >= pause.after && part.type !== "stream-start") {
+            if (!paused) pause.reached?.();
+            paused = true;
             await pause.until;
           }
           if (part.type === "text-delta" || part.type === "tool-input-delta") {

@@ -519,9 +519,13 @@ async function generated<T>(ask: JudgeAsk<T>, call: Call): Promise<Replied> {
   }
 }
 
+const parsedOnce = (parsed: { value: unknown }, text: string): unknown =>
+  changesAKey(replyText(text)) ? undefined : parsed.value;
+
 function readOf<T>(reply: JudgeReply<T>, replied: Replied): T | null {
   if (reply.kind === "lines") return reply.read(replyText(replied.text));
-  const value = replied.parsed ? replied.parsed.value : replyJson(replied.text);
+  // The provider's own parse keeps the last of a key given twice, so its text is held to the rule.
+  const value = replied.parsed ? parsedOnce(replied.parsed, replied.text) : replyJson(replied.text);
   return value === undefined ? null : reply.read(value);
 }
 

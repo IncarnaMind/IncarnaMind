@@ -109,16 +109,29 @@ describe("The claims the model names", () => {
     ],
     ['{"1": "claim", "2": "maybe", "9": "claim"}', [1, 2, 3], [[1, true]]],
     ['{"1": "claim", "2": true}', [1, 2], [[1, true]]],
+    [
+      '{"1": "claim", "1": "claim", "2": "no"}',
+      [1, 2],
+      [
+        [1, true],
+        [2, false],
+      ],
+    ],
   ])("reads %j", (reply, numbers, decisions) => {
     expect(readClaimDecisions(reply, numbers)).toEqual(new Map(decisions as [number, boolean][]));
   });
 
-  test.each(["No claims.", '{"claims": [1, 2]}', '{"7": "claim"}', "[1, 2]", "{not json}"])(
-    "reads nothing from %j",
-    (reply) => {
-      expect(readClaimDecisions(reply, [1, 2])).toBeNull();
-    },
-  );
+  // protects=a reply that gives a sentence two different decisions decides none, as every reply read through the judge module does (#2895); fails_when=the last of the two is read; no_claim=how the evaluation scores a call.
+  test.each([
+    "No claims.",
+    '{"claims": [1, 2]}',
+    '{"7": "claim"}',
+    "[1, 2]",
+    "{not json}",
+    '{"1": "claim", "1": "no"}',
+  ])("reads nothing from %j", (reply) => {
+    expect(readClaimDecisions(reply, [1, 2])).toBeNull();
+  });
 });
 
 describe("The literal parts of numbered JSON input", () => {
