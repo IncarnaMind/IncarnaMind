@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { CitedOrigin, FigureScheduleRow } from "../../../core/api";
+import type { ChatModelChoice, CitedOrigin, FigureScheduleRow } from "../../../core/api";
 import type { SignOffRecord } from "../../../shared/signOffs";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
@@ -17,10 +17,17 @@ export const ConversationIdContext = createContext<string | null>(null);
  */
 export const RegenerateAnswerContext = createContext<(() => void) | null>(null);
 
-/** The Answer in the assistant whose sentences its Citations are judged by (#2311); null in a Mind. */
-export const JudgedAnswerContext = createContext<{ id: string; conversationId: string } | null>(
-  null,
-);
+/**
+ * The Answer in the assistant whose sentences its Citations are judged by (#2311), with the model
+ * that judged them; null in a Mind.
+ */
+export const JudgedAnswerContext = createContext<JudgedAnswer | null>(null);
+
+export interface JudgedAnswer {
+  id: string;
+  conversationId: string;
+  model: ChatModelChoice | null;
+}
 
 /**
  * Whether the assistant this is drawn in is folded (#2270): its Citations keep

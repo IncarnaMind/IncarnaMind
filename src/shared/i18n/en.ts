@@ -4605,7 +4605,15 @@ export const en = {
   "citation.reason.answer-limit":
     "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
   "citation.reason.monthly-limit":
-    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+    "Not checked: your monthly limit was reached before this sentence.",
+  "citation.reason.answer-limit-unfinished":
+    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+  "citation.reason.monthly-limit-unfinished":
+    "Not checked: your monthly limit was reached before {model} finished checking this sentence.",
+  "citation.reason.monthly-limit-unfinished.unnamed":
+    "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
@@ -7618,8 +7626,7 @@ export const en = {
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":
     "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
-  "steps.check.monthlyLimit":
-    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.monthlyLimit": "{checked} of {total} sentences checked · Your monthly limit reached",
   "steps.check.checkTheRest": "Check the rest",
   "steps.check.checkTheRest.go": "Check",
   "steps.check.checkTheRest.cancel": "Cancel",

@@ -324,22 +324,29 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     expect(answer.citations.every((citation) => citation.checkReason == null)).toBe(true);
   });
 
-  test("on a model whose room for thinking would pass the Answer's $0.25, every batch still goes, with the room for its records alone", async () => {
-    // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone.
+  test("on a model whose rooms for thinking would pass the Answer's $0.25, its batches share what the limit leaves in equal parts (#2962)", async () => {
+    // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone. Beside
+    // both records' rooms, the $0.25 leaves 1,720 tokens: 860 each.
     const { answer, batches } = await answered(9, { modelId: "claude-fable-5" });
 
-    expect(roomsOf(batches)).toEqual([2_400, 300]);
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 3_260],
+        [1, 1_160],
+      ]),
+    );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
   });
 
   test("a model whose own most is under the room, as GPT-4 Turbo's 4,096 tokens, is held to it, never to less than its records' room", async () => {
-    // At $10 in and $30 out, both batches at 4,096 would pass $0.25: the batch of one has it.
+    // At $10 in and $30 out, both batches at 4,096 would pass $0.25: the batch of eight takes its
+    // part up to its own 4,096, and the batch of one the rest.
     const { answer, batches } = await answered(9, { kind: "openai", modelId: "gpt-4-turbo" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_400],
-        [1, 4_096],
+        [8, 4_096],
+        [1, 3_464],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -460,36 +467,35 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     );
   });
 
-  test("where not every batch can have the room, the fewest sentences have it first: nine on Opus 5.5", async () => {
+  test("where not every batch can have the room, each has the same part of what the limit leaves: nine on Opus 5.5 (#2962)", async () => {
     // At $4 in and $20 out: 5,300 tokens for the one and 7,400 for the eight would pass $0.25.
     const { answer, batches } = await answered(9, { modelId: "claude-opus-5-5" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_400],
-        [1, 5_300],
+        [8, 7_010],
+        [1, 4_910],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
   });
 
   test.each([
-    // At $10 out, one batch of eight at 7,400 fits beside five at 2,400; a second wouldn't.
+    // At $10 out, six batches of eight at 7,400 would pass $0.25: each has the same part.
     {
       model: "Claude Sonnet 5.5",
       modelId: "claude-sonnet-5-5",
       count: 48,
-      rooms: [7_400, 2_400, 2_400, 2_400, 2_400, 2_400],
+      rooms: [3_754, 3_754, 3_754, 3_754, 3_754, 3_753],
     },
-    // At $20 out, 7,400 beside two at 2,400 passes $0.25: every batch keeps main's room.
     {
       model: "Claude Opus 5.5",
       modelId: "claude-opus-5-5",
       count: 24,
-      rooms: [2_400, 2_400, 2_400],
+      rooms: [3_808, 3_808, 3_808],
     },
   ])(
-    "$count sentences on $model: every batch is out before the first settles, as on main",
+    "$count sentences on $model: every batch is out before the first settles, as on main, each with an equal part",
     async ({ modelId, count, rooms }) => {
       const { core, answer, judging, batches } = await answered(count, { failing: true, modelId });
       let release = () => {};
@@ -542,15 +548,15 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     { model: "Claude Sonnet 5.5", kind: "anthropic" as const, modelId: "claude-sonnet-5-5" },
     { model: "DeepSeek V4.1 Flash", kind: "deepseek" as const, modelId: "deepseek-flash" },
   ])(
-    "the gated runs' requests: $model's batch of 1, 2 and 3 sentences has 5,300, 5,600 and 5,900",
+    "where the room for thinking fits, requests are main's: $model's Answers of 1 to 8 sentences carry 5,300 to 7,400 (#2962)",
     async ({ kind, modelId }) => {
       const rooms = [];
-      for (const count of [1, 2, 3]) {
+      for (const count of [1, 2, 3, 4, 5, 6, 7, 8]) {
         const { batches } = await answered(count, { kind, modelId });
         rooms.push(...roomsOf(batches));
       }
 
-      expect(rooms).toEqual([5_300, 5_600, 5_900]);
+      expect(rooms).toEqual([5_300, 5_600, 5_900, 6_200, 6_500, 6_800, 7_100, 7_400]);
     },
   );
 
@@ -571,7 +577,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.14);
   });
 
-  test("near the monthly cap, a batch the room for thinking would take past it goes with the room for its records, as before", async () => {
+  test("near the monthly cap, a batch the room for thinking would take past it has what the cap leaves beyond its records' room (#2962)", async () => {
     const { core, answer, judging, batches } = await answered(1, {
       failing: true,
       modelId: "claude-sonnet-5-5",
@@ -579,7 +585,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     const spent = (await core.getCostSummary()).spent
       .filter((each) => each.currency === "USD")
       .reduce((total, each) => total + each.amount, 0);
-    // $0.02 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003.
+    // $0.02 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003. The cap counts
+    // a batch out twice, so half of what it leaves, less the records' room, is 461 tokens more.
     await core.updateSettings({
       user: { monthlyCap: { amount: spent + 0.02, currency: "USD" } },
     });
@@ -588,7 +595,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
     const again = await answerJudged(core, answer.conversationId, answer.id);
 
-    expect(roomsOf(batches)).toEqual([300]);
+    expect(roomsOf(batches)).toEqual([761]);
     expect(checksOf(again.citations)).toEqual(["found"]);
   });
 });
@@ -625,4 +632,113 @@ test("a batch of eight sends the same request with either room, its limit the on
   } = records?.options ?? {};
   expect([roomyLimit, recordsLimit]).toEqual([7_400, 2_400]);
   expect(recordsRest).toEqual(roomyRest);
+});
+
+describe("a batch a limit kept below its room for thinking, cut short there (#2962)", {
+  timeout: 120_000,
+}, () => {
+  const roomsBySize = (batches: readonly GenerateCall[]) =>
+    new Map(
+      batches.map((batch) => [
+        [...batch.prompt.matchAll(/<sentence number="\d+">/g)].length,
+        batch.options.maxOutputTokens,
+      ]),
+    );
+  const reasonsOf = (citations: readonly MarkedCitation[]) =>
+    [...citations].sort((a, b) => a.marker - b.marker).map((citation) => citation.checkReason);
+
+  test("the Answer's limit held it: Not checked, naming that limit, never ✓ or asked again, and the next batch still goes", async () => {
+    // Claude Fable 5: the batch of eight has 3,260 tokens, under the 3,500 its model writes.
+    const { answer, batches } = await answered(9, {
+      modelId: "claude-fable-5",
+      writes: (sentences) => (sentences === 8 ? 3_500 : 200),
+    });
+
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 3_260],
+        [1, 1_160],
+      ]),
+    );
+    expect(checksOf(answer.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);
+    expect(reasonsOf(answer.citations)).toEqual([
+      ...Array(8).fill("answer-limit-unfinished"),
+      null,
+    ]);
+  });
+
+  test("Check the rest sends them with the whole room for thinking; cut short again there, they are Not checked with no limit named", async () => {
+    const { core, answer, batches } = await answered(9, {
+      modelId: "claude-fable-5",
+      writes: (sentences) => (sentences === 8 ? 9_000 : 200),
+    });
+    const ids = { conversationId: answer.conversationId, answerId: answer.id };
+    const sent = batches.length;
+
+    const estimate = await core.estimateAnswerCheck(ids);
+    if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) {
+      throw new Error(`No estimate: ${JSON.stringify(estimate)}`);
+    }
+    await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
+    const again = await answerJudged(core, answer.conversationId, answer.id);
+
+    expect(reasonsOf(answer.citations).slice(0, 8)).toEqual(
+      Array(8).fill("answer-limit-unfinished"),
+    );
+    expect(roomsBySize(batches.slice(sent))).toEqual(new Map([[8, 7_400]]));
+    expect(checksOf(again.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);
+    expect(reasonsOf(again.citations)).toEqual(Array(9).fill(null));
+  });
+
+  test("the monthly cap held it: Not checked, naming the cap", async () => {
+    const { core, answer, judging, batches } = await answered(1, {
+      failing: true,
+      modelId: "claude-sonnet-5-5",
+      writes: () => 900,
+    });
+    const spent = (await core.getCostSummary()).spent
+      .filter((each) => each.currency === "USD")
+      .reduce((total, each) => total + each.amount, 0);
+    await core.updateSettings({
+      user: { monthlyCap: { amount: spent + 0.02, currency: "USD" } },
+    });
+    judging.failing = false;
+
+    await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+    const again = await answerJudged(core, answer.conversationId, answer.id);
+
+    expect(roomsBySize(batches)).toEqual(new Map([[1, 761]]));
+    expect(checksOf(again.citations)).toEqual(["not-checked"]);
+    expect(reasonsOf(again.citations)).toEqual(["monthly-limit-unfinished"]);
+  });
+
+  test("both limits short at once: the one that held the batch is named", async () => {
+    const { core, answer, judging, batches } = await answered(9, {
+      failing: true,
+      modelId: "claude-fable-5",
+      writes: (sentences) => (sentences === 8 ? 3_500 : 200),
+    });
+    const spent = (await core.getCostSummary()).spent
+      .filter((each) => each.currency === "USD")
+      .reduce((total, each) => total + each.amount, 0);
+    // The cap leaves less beyond the records' rooms than the Answer's $0.25 does.
+    await core.updateSettings({
+      user: { monthlyCap: { amount: spent + 0.3, currency: "USD" } },
+    });
+    judging.failing = false;
+
+    await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+    const again = await answerJudged(core, answer.conversationId, answer.id);
+
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 2_400],
+        [1, 300],
+      ]),
+    );
+    expect(reasonsOf(again.citations)).toEqual([
+      ...Array(8).fill("monthly-limit-unfinished"),
+      null,
+    ]);
+  });
 });

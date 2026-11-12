@@ -4403,7 +4403,13 @@ export const zhCN = {
   "citation.reason.quoted-words-not-on-pages": "所引位置没有引号里的文字。",
   "citation.reason.checking": "正在核对引文，以及它是否支持这句话。",
   "citation.reason.answer-limit": "未核对：核对到这句之前，已达本回答 {limit} 的核对上限。",
-  "citation.reason.monthly-limit": "未核对：核对到这句之前，已达每月上限 {cap}。",
+  "citation.reason.monthly-limit": "未核对：核对到这句之前，已达每月上限。",
+  "citation.reason.answer-limit-unfinished":
+    "未核对：{model} 还没核对完这句，就已达本回答 {limit} 的核对上限。",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "未核对：这句还没核对完，就已达本回答 {limit} 的核对上限。",
+  "citation.reason.monthly-limit-unfinished": "未核对：{model} 还没核对完这句，就已达每月上限。",
+  "citation.reason.monthly-limit-unfinished.unnamed": "未核对：这句还没核对完，就已达每月上限。",
   "citation.reason.notChecked": "未能核对引文是否支持这句话。",
   "citation.reason.small-model": "这台电脑上的模型太小，无法核对引文是否支持这句话。",
   "citation.where": "{document}，{location}",
@@ -7219,7 +7225,7 @@ export const zhCN = {
   "steps.check.needALook": "{count} 处需要留意",
   "steps.check.needALook.one": "1 处需要留意",
   "steps.check.answerLimit": "已核对 {total} 句中的 {checked} 句 · 已达本回答 {limit} 的核对上限",
-  "steps.check.monthlyLimit": "已核对 {total} 句中的 {checked} 句 · 已达每月上限 {cap}",
+  "steps.check.monthlyLimit": "已核对 {total} 句中的 {checked} 句 · 已达每月上限",
   "steps.check.checkTheRest": "核对其余",
   "steps.check.checkTheRest.go": "核对",
   "steps.check.checkTheRest.cancel": "取消",
