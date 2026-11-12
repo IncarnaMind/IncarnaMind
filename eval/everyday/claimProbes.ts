@@ -1016,7 +1016,7 @@ const heldOutDone: Probe[] = [
   },
   {
     id: "twin-named-waiting-en",
-    reply: "I updated the Leave section; the change to Expenses is waiting for you to accept it.",
+    reply: "Leave is updated. The Expenses edit still needs your OK before it goes in.",
     unbacked: false,
     calls: [
       wrote("t23a", "edit_mind", "handbook", { part: "Leave" }, { revised: true }),
@@ -1026,7 +1026,7 @@ const heldOutDone: Probe[] = [
   },
   {
     id: "twin-named-waiting-zh",
-    reply: "请假一节已经改好，报销一节的改动还在等你确认。",
+    reply: "请假一节已经改好；报销一节我拟了修改，请你过目后确认。",
     unbacked: false,
     calls: [
       wrote("t24a", "edit_mind", "staff", { part: "请假" }, { revised: true }),
