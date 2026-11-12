@@ -11,6 +11,7 @@ import {
   comparisonLabelOf,
   comparisonQuestionsOf,
   comparisonTitleOf,
+  renewedQuestions,
 } from "../../shared/comparisons";
 import type { ComparisonTableHandle } from "./comparisonStructure";
 import { expandComparisonTable } from "./comparisons";
@@ -95,12 +96,7 @@ export function duplicateComparisonTable(handle: ComparisonTableHandle): void {
   if (!found) return;
   const source = found.table;
   const name = nameOf(source);
-  const ids = new Map<string, string>();
-  const questions = comparisonQuestionsOf(source.attrs).map((question) => {
-    const id = crypto.randomUUID();
-    ids.set(question.id, id);
-    return { ...question, id };
-  });
+  const { questions, ids } = renewedQuestions(source.attrs);
   const rows: ProseMirrorNode[] = [];
   source.forEach((row) => {
     const cells: ProseMirrorNode[] = [];

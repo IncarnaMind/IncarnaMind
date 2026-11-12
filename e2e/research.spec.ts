@@ -12,7 +12,9 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  expectEstimateTip,
   forceQuit,
+  interceptOpenExternal,
   launchApp,
   motionSettled,
   nameMind,
@@ -24,6 +26,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  urlsOpened,
 } from "./app";
 
 /*
@@ -172,6 +175,46 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await expect(card.getByTestId("research-plan-estimate")).toHaveText(
     new RegExp(`^About \\$\\d+\\.\\d+ · 4–8 min · ${MODEL_NAME}$`),
   );
+  // The cost says whose price it is worked out from and when that was checked, in the app's tip
+  // that Tab shows at once, and Pricing ↗ opens the provider's own page (#1257).
+  await screenshot(window, "research-estimate-en-1600");
+  await setWindowSize(app, window, 900, 760);
+  await screenshot(window, "research-estimate-en-900");
+  await setWindowSize(app, window, 1600, 900);
+  const estimate = card.getByTestId("research-plan-estimate");
+  const pricing = card.getByTestId("research-plan-pricing");
+  await expectEstimateTip(
+    window,
+    estimate,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+    pricing,
+  );
+  await expect(estimate).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
+  await window.keyboard.press("Tab");
+  await expect(pricing).toBeFocused();
+  await expect(pricing).toHaveText("Pricing ↗");
+  await interceptOpenExternal(app);
+  await window.keyboard.press("Enter");
+  await expect
+    .poll(() => urlsOpened(app))
+    .toEqual(["https://platform.claude.com/docs/en/about-claude/pricing"]);
+  // At 900 px, in Chinese too, the cost and its link stay inside the card.
+  await setWindowSize(app, window, 900, 760);
+  await setLanguage(window, "zh-CN");
+  await expect(pricing).toHaveText("价格 ↗");
+  await screenshot(window, "research-estimate-zh-900");
+  const [cardBox, pricingBox] = [await card.boundingBox(), await pricing.boundingBox()];
+  if (!cardBox || !pricingBox) throw new Error("The card or its Pricing link isn't on screen.");
+  expect(pricingBox.x + pricingBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+  await setWindowSize(app, window, 1600, 900);
+  await screenshot(window, "research-estimate-zh-1600");
+  await expectEstimateTip(
+    window,
+    estimate,
+    /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
+    pricing,
+  );
+  await setLanguage(window, "en");
   await expect(window.getByTestId("composer-input")).toHaveAttribute(
     "placeholder",
     "Change the plan…",
@@ -473,6 +516,9 @@ test("the plan card follows the composer's model chip, says when the web can't b
     const card = await research(window, `${TOPIC}, slowly`);
     // A model on this computer can't search the web: the card says so, with Web off.
     await expect(card.getByTestId("research-plan-estimate")).toHaveText("4–8 分钟 · fake-model");
+    // A model on this computer has no price to be an estimate from: no tip and no link (#1257).
+    await expect(card.getByTestId("research-plan-estimate")).not.toHaveAttribute("title", /.+/);
+    await expect(card.getByTestId("research-plan-pricing")).toHaveCount(0);
     await expect(card.getByTestId("research-plan-web")).toBeDisabled();
     await expect(card.getByTestId("research-plan-web")).toHaveAttribute("aria-pressed", "false");
     await expect(card.getByTestId("research-plan-web-unavailable")).toHaveText(

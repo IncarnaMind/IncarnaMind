@@ -28,6 +28,7 @@ import type {
   MetadataResult,
   ProcessingJob,
   ProcessingResult,
+  TextJob,
   WorkerJob,
   WorkerRequest,
   WorkerResponse,
@@ -78,7 +79,9 @@ export interface ProcessorHandlers {
   /** Whether an error from `read` means no page can be read now. */
   isUnavailable(error: unknown): boolean;
   /** The password that opens a job's PDF, when it is locked and one is kept (#763). */
-  password?(job: WorkerJob): Promise<string | undefined>;
+  password?(job: ProcessingJob): Promise<string | undefined>;
+  /** A text job finished, or its worker crashed. */
+  onText(job: TextJob, result: WorkerResult): void;
 }
 
 export interface Processor {
@@ -173,6 +176,7 @@ export function createProcessor(
     // The worker answers each job with a result of its kind (see `runJob`); a crash is any's.
     if (job.task === "process") call(() => handlers.onResult(job, result as ProcessingResult));
     else if (job.task === "keywords") call(() => handlers.onKeywords(job, result));
+    else if (job.task === "text") call(() => handlers.onText(job, result));
     else call(() => handlers.onMetadata(job, result as MetadataResult));
     schedulePump();
   }
@@ -310,14 +314,15 @@ export function createProcessor(
   }
 
   /**
-   * The queue's next job: a web page's first, a small snapshot an Answer may be
-   * waiting to read (#128), then the first in line; while held, a web page's
-   * or the first Transcript's only.
+   * The queue's next job: a text job or a web page's first, which a check (#2216) or an Answer
+   * (#128) may be waiting for, then the first in line; while held, those or the first
+   * Transcript's only.
    */
   function take(): WorkerJob | undefined {
     const index = queue.findIndex(
       (job) =>
-        job.task === "process" && (job.kind === "web" || (held && job.kind === "transcript")),
+        job.task === "text" ||
+        (job.task === "process" && (job.kind === "web" || (held && job.kind === "transcript"))),
     );
     if (index !== -1) return queue.splice(index, 1)[0];
     return held ? undefined : queue.shift();

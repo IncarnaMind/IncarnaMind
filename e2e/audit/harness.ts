@@ -18,7 +18,7 @@ import {
 // Vite's own source-map reader (the audit adds no dependency of its own).
 import { SourceMapConsumer } from "source-map-js";
 import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../../tests/helpers/home";
-import { launchEnvironment } from "../launchEnvironment";
+import { launchEnvironment, standIns } from "../launchEnvironment";
 import { assertTestBuild } from "../testBuild";
 
 const appDir = resolve(__dirname, "..", "..");
@@ -95,8 +95,7 @@ export async function launch(
     INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
-    INCARNAMIND_TEST_EMBEDDER: "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: "fake",
+    ...standIns(),
     INCARNAMIND_TEST_AUDIO: "fake",
     ...homeEnv(home),
     ...extraEnv,
@@ -138,6 +137,19 @@ export async function close(launched: Launched): Promise<void> {
  * as a person does before clicking.
  */
 export async function glide(window: Page, target: Locator, at?: { x?: number; y?: number }) {
+  // A row or a header drawn again while the window is busy (indexing, an Undo line leaving)
+  // detaches the element under the pointer: a person looks again and goes on.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await glideOnto(window, target, at);
+    } catch (error) {
+      if (attempt >= 3 || !String(error).includes("not attached")) throw error;
+      await window.waitForTimeout(250);
+    }
+  }
+}
+
+async function glideOnto(window: Page, target: Locator, at?: { x?: number; y?: number }) {
   await target.scrollIntoViewIfNeeded();
   await expect(target).toBeVisible();
   const box = await target.boundingBox();
@@ -172,6 +184,16 @@ export async function typeLike(window: Page, text: string, delay = 70) {
     await window.keyboard.type(char);
     await window.waitForTimeout(delay * (0.6 + Math.random() * 0.8));
   }
+}
+
+/** The sidebar lists a few Documents and a "Show more" for the rest: clicks until it lists them all. */
+export async function showAllDocuments(window: Page) {
+  const more = window.getByTestId("show-more-documents");
+  for (let clicks = 0; clicks < 20 && (await more.count()) > 0; clicks++) {
+    await click(window, more.first());
+    await window.waitForTimeout(150);
+  }
+  await expect(more).toHaveCount(0);
 }
 
 export async function shot(target: Page | Locator, name: string, fullPage = false) {

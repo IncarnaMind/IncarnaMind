@@ -19,9 +19,12 @@ import {
   sameNumber,
   showResult,
 } from "../../../shared/formula";
-import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
+import { wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
+import { PERIOD_DEMONSTRATIVE, periodCounts } from "./periodCounts";
+
+export { periodCounts };
 
 function printedFigures(text: string, context: FigureContext): Figure[] {
   const references = citedCases(text).map((reference, index, citations) => {
@@ -46,93 +49,6 @@ export function figuresInClaim(text: string, context: FigureContext): Figure[] {
     ),
     ...counts,
   ].sort((a, b) => a.start - b.start);
-}
-
-/**
- * Whether a text before a single period makes it say which one, not how many: "这一年", "那一年",
- * "每一年", "同一年", "另一年", "哪一年" and "当一年" are this, that, every, the same, another,
- * which and a year. A 当 that ends a word ("应当") is no prefix; 前 and 后 stay out because
- * "前后一年" counts a year or so (#2215).
- */
-const PERIOD_DEMONSTRATIVE = /(?:[这那每同另哪]|(?<!\p{Script=Han})当)\s*$/u;
-
-export function periodCounts(text: string, context: FigureContext): Figure[] {
-  const counts: Figure[] = [];
-  const count = (start: number, end: number, value: number, unit: string): Figure => ({
-    start,
-    end,
-    chars: text.slice(start, end),
-    value,
-    scale: 1,
-    scaleWord: null,
-    unit: { kind: "other", word: unit },
-    decimals: 0,
-    currency: null,
-    approximate: false,
-    rangeTo: null,
-    footnote: null,
-    ambiguous: [],
-  });
-  const english = new RegExp(
-    `\\b(${INTEGER_WORDS}|\\d+)(?:[ -]+(?:consecutive|successive))?[ -]+(years?|months?|weeks?|days?|quarters?)\\b`,
-    "gi",
-  );
-  for (const match of text.matchAll(english)) {
-    const named = match[1] ?? "";
-    const value = wholeNumberWords(named) ?? (/^\d+$/.test(named) ? Number(named) : null);
-    const unit = match[2]?.toLowerCase().replace(/s$/, "");
-    if (value === null || !Number.isSafeInteger(value) || !unit) continue;
-    counts.push(count(match.index, match.index + match[0].length, value, unit));
-  }
-  const units: Readonly<Record<string, string>> = {
-    年: "year",
-    个月: "month",
-    月: "month",
-    周: "week",
-    天: "day",
-    日: "day",
-    季度: "quarter",
-  };
-  for (const match of text.matchAll(/年|个月|月|周|天|日|季度/gu)) {
-    const unitAt = match.index;
-    const from = Math.max(0, unitAt - 40);
-    const local = text.slice(from, unitAt + match[0].length);
-    const figure = readFigures(local, {
-      ...context,
-      dates: true,
-      midLine: true,
-      header: null,
-    }).findLast(
-      (figure) =>
-        figure.end === unitAt - from ||
-        (figure.start < unitAt - from && figure.end === local.length),
-    );
-    if (
-      !figure ||
-      figure.ambiguous.length ||
-      !Number.isSafeInteger(figure.value) ||
-      figure.value < 0
-    )
-      continue;
-    const start = from + figure.start;
-    const before = text.slice(0, start);
-    // "这一年", "那一年", "每一年" and "当一年" say which year, not how many: one period behind a
-    // demonstrative is no count (#2215).
-    if (figure.value === 1 && PERIOD_DEMONSTRATIVE.test(before)) continue;
-    const consecutive = /(?:连续|接连|相继)\s*$/u.test(before);
-    if (/第\s*$/u.test(before)) continue;
-    if (match[0] === "年" && figure.value >= 1000 && !consecutive) continue;
-    if (
-      (match[0] === "月" || match[0] === "日" || match[0] === "季度") &&
-      !consecutive &&
-      !/个\s*$/u.test(before)
-    )
-      continue;
-    if (/(?:公元|民国)\s*$/u.test(before)) continue;
-    const unit = units[match[0]];
-    if (unit) counts.push(count(start, unitAt + match[0].length, figure.value, unit));
-  }
-  return counts;
 }
 
 /**
@@ -165,7 +81,8 @@ function namedCount(sentence: string, stated: string, context: FigureContext): F
   const start = sentence.indexOf(stated);
   if (start < 0 || sentence.indexOf(stated, start + stated.length) >= 0) return null;
   const period = periodCounts(sentence, context).find(
-    (figure) => figure.start === start && figure.end >= start + stated.length,
+    (figure) =>
+      figure.start === start && figure.end >= start + stated.length && !Number.isNaN(figure.value),
   );
   if (period) return period;
   const value = wholeNumberWords(stated);

@@ -34,8 +34,8 @@ import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
-import { launchEnvironment } from "./launchEnvironment";
+import { APP_ARGS, assertInTemporaryFolder, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { type Engine, launchEnvironment, standIns } from "./launchEnvironment";
 import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 import { assertTestBuild } from "./testBuild";
 
@@ -212,11 +212,13 @@ export interface LaunchOptions {
    */
   sandboxNotice?: "switch" | "environment" | "on";
   /**
-   * The search, text recognition and speech engines are the real ones instead of the fake ones, on
-   * the models already in the data folder (a test build reaches no model host): for a recording
-   * of the app as the User runs it.
+   * The engines the app runs for real instead of as stand-ins (every other one stays one): for a
+   * check by hand, a nightly run or a recording of the app as the User runs it, never a smoke spec.
+   * The model of a real engine is in the data folder already, or downloads into it from its
+   * own host; a test build reaches no model host otherwise. The search model's reranking model
+   * follows "embedder". "transcriber" leaves audio capture a stand-in (`microphone`, `computerSound`).
    */
-  realEngines?: boolean;
+  real?: readonly Engine[];
   /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
   jev?: string;
   /** A stand-in for every decision model host (#1907), at this base URL. */
@@ -274,8 +276,9 @@ export const WORD_KEY = process.platform === "darwin" ? "Alt" : "Control";
 
 /**
  * Launches the built app (`out/`) on the given data folder, with test hooks on
- * and the fake embedding model, which needs no download, in a window of
- * `WINDOW_SIZE` whatever the screen's.
+ * and the stand-in engines (`LaunchOptions.real` keeps some real), which need no download, in
+ * a window of `WINDOW_SIZE` whatever the screen's. The data folder and the home folder must be
+ * inside the system's temporary folder, or nothing starts.
  */
 export async function launchApp(
   dataDir: string,
@@ -311,7 +314,7 @@ export async function launchApp(
     contradictionWatchDelayMs,
     sandboxed = false,
     sandboxNotice,
-    realEngines = false,
+    real = [],
     jev,
     decisions,
     calendars,
@@ -323,14 +326,15 @@ export async function launchApp(
     systemColours = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
+  assertInTemporaryFolder("data folder", dataDir);
+  if (home) assertInTemporaryFolder("home folder", home);
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
   const env = launchEnvironment({
     ...lifecycleHomeEnv(appHome),
     INCARNAMIND_DATA_DIR: dataDir,
     INCARNAMIND_TEST_HOOKS: "1",
     INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
-    INCARNAMIND_TEST_EMBEDDER: realEngines ? undefined : "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: realEngines ? undefined : "fake",
+    ...standIns(real),
     INCARNAMIND_TEST_TRANSCRIBER_OPTIONS: transcriber && JSON.stringify(transcriber),
     OLLAMA_HOST: ollama,
     INCARNAMIND_TEST_OLLAMA_APP: ollamaApp,
@@ -1493,15 +1497,19 @@ export async function pasteText(app: ElectronApplication, window: Page, text: st
 
 /**
  * Test hook for the system's open dialog: from now on the main process
- * answers it with `path` instead of showing it, e.g. the folder to link.
+ * answers it with `path` instead of showing it, e.g. the folder to link; with several paths, as
+ * if all were chosen.
  */
-export async function interceptOpenDialog(app: ElectronApplication, path: string) {
-  await app.evaluate(({ dialog }, picked) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: [picked],
-    })) as unknown as typeof dialog.showOpenDialog;
-  }, path);
+export async function interceptOpenDialog(app: ElectronApplication, path: string | string[]) {
+  await app.evaluate(
+    ({ dialog }, picked) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: picked,
+      })) as unknown as typeof dialog.showOpenDialog;
+    },
+    Array.isArray(path) ? path : [path],
+  );
 }
 
 /** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
@@ -2539,13 +2547,16 @@ export async function checkCard(
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "说法和引用" : "Claims and Citations";
+      // The card's old name still finds its command, now named Checks (#2831).
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
-      await window.keyboard.type(command);
+      await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
       await pointAndClick(
         window,
-        window.getByTestId("palette-item").filter({ hasText: command }).first(),
+        window
+          .getByTestId("palette-item")
+          .filter({ hasText: chinese ? "核对" : "Checks" })
+          .first(),
       );
     }
   }
@@ -2974,6 +2985,44 @@ export async function tabTo(window: Page, target: Locator, max = 40): Promise<vo
     await window.keyboard.press(key);
   }
   await expect(target).toBeFocused();
+}
+
+/**
+ * An estimate's price says where it comes from through the app's shared tip (#1257). Tab reaches the
+ * price, backwards from `next`, the control after it, and the tip shows `words` at once, drawn above
+ * whatever it opens over, a sheet or a card; Esc puts away only the tip, so the focus stays on the
+ * price. Where nothing focusable follows the price, pass no `next` and the price takes the focus
+ * directly. The price has no native title, which would be a second tip.
+ */
+export async function expectEstimateTip(
+  window: Page,
+  price: Locator,
+  words: RegExp,
+  next?: Locator,
+): Promise<void> {
+  await expect(price).not.toHaveAttribute("title", /.+/);
+  if (next) {
+    await next.focus();
+    await window.keyboard.press("Shift+Tab");
+  } else {
+    await price.focus();
+  }
+  await expect(price).toBeFocused();
+  const tip = window.getByRole("tooltip");
+  await expect(tip).toHaveText(words);
+  await motionSettled(window);
+  await expect
+    .poll(() =>
+      tip.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return top !== null && element.contains(top);
+      }),
+    )
+    .toBe(true);
+  await window.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  await expect(price).toBeFocused();
 }
 
 /**

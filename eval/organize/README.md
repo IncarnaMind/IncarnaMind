@@ -102,7 +102,7 @@ A Document is readable when processing found its text. The two image-only scans 
 | Smallest Folder | Documents in each Folder there is | every Folder ≥ 3 |
 | Same-label pairs | Of the readable Documents with a labelled Folder, the pairs with the same label that are together. A label split by area counts as together: its filed Documents lie in exactly two Folders, each holding at least 3 readable Documents of which at least 90% carry the label, and the split isn't by kind. It is by kind when the kinds at least 80% of each part's Documents carry (by their labels) make two sets, neither empty, that differ (`splitByArea` in `lib/newUser.ts`). The report gives the count without the allowance too | ≥ 90% |
 | Different-label pairs | The pairs with different labels that share a Folder | ≤ 10% |
-| Pairs of a two-Folder Document (#2737) | Both pair bars score a Document labelled with two Folders (`alsoFolder`) by one of them. It takes its second label when that is the one the Folder it was filed in holds most, counting the first labels of that Folder's other readable Documents. Left out, or in a Folder that holds neither most, it keeps its first (`withAlsoFolder` in `lib/newUser.ts`). A two-Folder Document filed with either label's Documents is then right once, not wrong twice, and filed with a third label's it is wrong once. Every run reports both pair bars with the labels as written beside them; the gate reads these | as above |
+| Pairs of a two-Folder Document (#2737) | Both pair bars score a Document labelled with two Folders (`alsoFolder`) by one of them. It takes its second label when that is the one the Folder it was filed in holds most, counting the first labels of that Folder's other readable Documents. Left out, or in a Folder that holds neither most, it keeps its first (`withAlsoFolder` in `lib/newUser.ts`). A two-Folder Document filed with either label's Documents is then right once, not wrong twice, and filed with a third label's it is wrong once. Two-Folder Documents count each other by their first labels: one meeting record filed with two of the project papers labelled reports, also meetings, is a tie, so both stay reports and the Folder reads as mixed. That errs strict, and alike for every arm. Every run reports both pair bars with the labels as written beside them; the gate reads these | as above |
 | Kind Tag F1 | Each proposed Tag's name mapped to a kind (`kindOf` in `lib/newUser.ts`: the app's kinds by their English and Chinese names and plurals, `src/core/tags/kinds.ts`, Meeting notes standing for the labels' notes, and `main`'s Notes preset), micro-averaged on the readable Documents. **Scored with one kind a Document (settled on 2026-11-08, before the held-out round of #2339):** the app gives each Document at most one kind, from a list without Notes. A Document whose labelled kinds include one in the list (its notes count only on a meeting's Document) is one pair: a hit when its kind Tag is any of them, else one miss, never two pairs. A Document labelled only kinds outside the list (the notes-only ones that aren't meetings) has no pair: no kind Tag adds nothing, and any kind Tag on it is a false positive. Every other kind Tag is a false positive, and every other Document with no kind Tag a miss. Every run reports beside it the F1 against the labels as written, every labelled kind a pair, and how many Documents got no kind Tag against how many the labels expect, so holding back shows. `INCARNAMIND_ORGANIZE_KIND_SCORE=as-written` gates on the labels as written instead | ≥ 0.80 |
 | Topic Tags off-topic | Every other applied Tag on a readable Document is a topic Tag. The judge model is asked once for each, with the Document's excerpt as Organize reads it (`organizeExcerpt`): "Is this Document about '{tag}'? Answer yes or no." The share answered no | ≤ 5% |
 | Distinct Tag names | Names among the Tags applied to the Documents | ≤ the kinds in the readable Documents' labels + 3 |
@@ -124,3 +124,55 @@ npm run eval:organize
 ```
 
 Without `INCARNAMIND_EVAL_JUDGE_*` the chat model judges. Setting the chat variables is the consent to send the Documents' names and excerpts to that model, as "Use {company}" is in the app; the judge gets the excerpts of the Documents that carry topic Tags.
+
+### Reading a plan (#2737)
+
+A plan names its own Folders, so its runs are also read by what a person would look for where. The labels above stay for the pair bars.
+
+**Areas.** Each Document has an area:
+- the five starter Folders', in the words the app shows for them, and personal (a person's own papers outside work);
+- a second area only where one file is two things;
+- no area when nobody could place it.
+
+A person writes them, in `tests/fixtures/organize/areas.json` for the tuning half (`lib/areas.ts`). A reader model, Claude Opus 5.5 at effort low, reads each Folder alone, from its name and description: for each area yes, part or no, and what the Folder is arranged by when it isn't an area (`lib/folderReader.ts`). The name decides; the description only narrows it. A name that says nothing ("Other") covers no area.
+
+**Outcomes.** For each readable Document (`lib/planReading.ts`):
+
+| Outcome | When |
+|---|---|
+| Right | filed in a Folder that covers its area or its second |
+| Wrong | filed anywhere else; always, for a Document with no area |
+| Missed | left out though a Folder covers its area, or though two or more other readable Documents in the Library share it |
+| Rightly left out | left out, no Folder covers its area, and fewer than two other readable Documents share it; always, for a Document with no area |
+| Waiting | in, or left out beside, a Folder arranged by something else or covering part of its area, until a per-Document answer says whether a person would look for it there |
+
+Scans are counted apart: how many, and how many the plan filed.
+
+**Blindness.** The model and the person read the same blind items, each Folder alone by an opaque number, in a seeded order; the map from number to run and arm goes to a file apart, which the repository refuses to keep. `readPlans.ts join` refuses until the areas, the person's readings and the model's are each committed. It prints:
+- agreement by Folder, in each half, as soon as both Folder readings are committed: no Document is in them;
+- agreement by Document and on the wrong ones, in each language;
+- agreement on the per-Document answers;
+- each run's counts.
+
+The last three wait while a Document waits in either reading, since waiting is neither agreement nor disagreement. The join then says how many wait in each reading, and ends as a refusal when it was given answers.
+
+**The order.** Each step runs only after the one before it:
+
+| Step | Command (each `node --import ./scripts/tsResolve.mjs …`) |
+|---|---|
+| 1. Blind items and the key | `eval/organize/readPlans.ts items --runs <saved runs> --match v- --seed 2737 --out <dir> --key <file>` |
+| 2. The person's Folder sheet, read and committed first | `eval/organize/folderSheet.ts folders --items <dir>/folders.json --out <sheet.md>`, read back with `read-folders` |
+| 3. The Documents' names and opening text | `INCARNAMIND_ORGANIZE_MODE=documents INCARNAMIND_ORGANIZE_OUT=<dir> npm run eval:organize`, listed with `folderSheet.ts documents` |
+| 4. The model's Folder reading, committed | a run with its own approval |
+| 5. The join's Folder lines | `eval/organize/readPlans.ts join …` without answers |
+| 6. Per-Document questions, only once the Folder bar has held on the first half, or on the second half after the question's one allowed change: a changed question changes which Folders read "part" | `eval/organize/readPlans.ts asks …`: whatever either reading leaves waiting, asked once, with their count and estimated cost for the issue before any is sent; the person's sheet with `folderSheet.ts answers` (all of them up to 60, else a seeded 60) and `read-answers` |
+| 7. The model's areas against the person's, or written for a set with its scans' | `eval/organize/readPlans.ts areas --model <file> --documents <dir>/documents.json [--out <file>]` |
+| 8. The join, with answers | `eval/organize/readPlans.ts join …` |
+
+**The bars against the person's reading:**
+- the same areas for at least 90% of the Folders;
+- in each language, the same outcome for at least 95% of the Documents, and for at least 90% of those either reading calls wrong;
+- at least 90% of the per-Document answers the same;
+- the model's areas differing from the person's on at most 2 of the 37 tuning Documents with text. A scan has no text, so its area is its label's, in the check and in the areas `readPlans.ts areas --out` writes for a set.
+
+No request is sent by these tools; the reader's requests (`ask` in `lib/folderReader.ts`) are made by a run with its own approval.

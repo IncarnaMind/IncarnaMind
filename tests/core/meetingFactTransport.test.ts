@@ -180,7 +180,7 @@ test.each([
     const { session, shown } = transcriptSession();
     const frames = FRAMES.replaceAll("[99]", `[${marker}]`).replaceAll("[^99]", `[^${marker}]`);
     const model = scriptedModel((call) => {
-      if (call.index === 1 && !meetingFacts) return { text: '{"quotes":[]}' };
+      if (call.question === "quote-retry" && !meetingFacts) return { text: '{"quotes":[]}' };
       if (call.index > 0) throw new Error("Unexpected post-final structured recovery request.");
       return {
         text: JSON.stringify({

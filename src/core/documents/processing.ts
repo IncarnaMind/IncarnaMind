@@ -301,7 +301,17 @@ export interface KeywordsJob {
   passages: { seq: number; text: string }[];
 }
 
-export type WorkerJob = ProcessingJob | MetadataJob | KeywordsJob;
+/**
+ * A job that reads a file's text as processing reads a Document's, and keeps nothing: the file a
+ * Note was imported from, kept with it, compared when the original isn't in the Library (#2216).
+ */
+export interface TextJob {
+  task: "text";
+  file: string;
+  kind: DocumentKind;
+}
+
+export type WorkerJob = ProcessingJob | MetadataJob | KeywordsJob | TextJob;
 
 /** A Passage as the worker hands it over. */
 export interface ProcessedPassage extends BuiltPassage {
@@ -394,7 +404,10 @@ export interface KeywordsResult {
   passages: { seq: number; keywords: string }[];
 }
 
-export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
+/** A text job's Units, or that the file couldn't be read. */
+export type TextResult = { outcome: "text"; pages: TextUnit[] } | { outcome: "unread" };
+
+export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult | TextResult;
 
 /**
  * How a job reads scanned pages: the text recognition model, which the core
@@ -462,7 +475,18 @@ export function runJob(
       passages: job.passages.map(({ seq, text }) => ({ seq, keywords: keywordText(text) })),
     } satisfies KeywordsResult);
   }
+  if (job.task === "text") return readText(job);
   return job.task === "process" ? processFile(job, channel, password) : readMetadata(job, password);
+}
+
+async function readText(job: TextJob): Promise<TextResult> {
+  const read = await processFile({
+    task: "process",
+    documentId: job.file,
+    kind: job.kind,
+    file: job.file,
+  });
+  return read.outcome === "ready" ? { outcome: "text", pages: read.pages } : { outcome: "unread" };
 }
 
 /** Why the file couldn't be read: it is gone, or can't be read now. */

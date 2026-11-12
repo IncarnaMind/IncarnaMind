@@ -22,8 +22,16 @@ import { requestEditField } from "../editor/selectionCommands";
 import { startEditing } from "../editWithAi";
 import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefusals";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
+import { removedModelNow } from "../modelInUse";
+import { requestModelMenu } from "../modelMenu";
 import { exampleMindIds, useAppStore } from "../store";
-import { assistantHandle, noteHandle, viewerHandleInUse } from "./handles";
+import {
+  assistantHandle,
+  composerHandle,
+  noteHandle,
+  readMindHandle,
+  viewerHandleInUse,
+} from "./handles";
 import type { Command } from "./registry";
 
 /*
@@ -209,6 +217,21 @@ export const assistantCommands: readonly Command[] = [
     run: askOrEdit,
   },
   {
+    id: "composer.addFiles",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
+    label: "command.composer.addFiles",
+    keywords: ["command.composer.addFiles.keywords"],
+    group: "main",
+    // The Documents it adds come with an Undo, as Library › Add's do.
+    reversible: true,
+    when: () => composerHandle.current !== null,
+    run: () => {
+      focusComposer();
+      composerHandle.current?.addFiles();
+    },
+  },
+  {
     // The conversation it leaves stays in History (#258).
     id: "assistant.newChat",
     assistant: false,
@@ -355,6 +378,17 @@ export const assistantCommands: readonly Command[] = [
     when: isThere,
     enabled: conversationEmpty,
     run: () => clearConversation().catch(store().reportError),
+  },
+  {
+    // Where the composer's line says the Note's model was removed (#2853): the line's Change.
+    id: "model.changeRemoved",
+    assistant: false,
+    label: "command.model.changeRemoved",
+    group: "main",
+    reversible: true,
+    when: () =>
+      isThere() && !folded() && removedModelNow(readMindHandle.current?.doc ?? null) !== null,
+    run: requestModelMenu,
   },
   {
     // No shortcut: ⌘Y, the browsers' History key on a Mac, is Redo on Windows.

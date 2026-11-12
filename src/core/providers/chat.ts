@@ -58,8 +58,8 @@ import {
   type Price,
   withRolesFirst,
 } from "./catalog";
-import { billingOf, OLLAMA_CLOUD_PRICES_CHECKED, ollamaCloudPrice } from "./catalog/billing";
-import { endpointOf, fieldAccepts, fieldUrl, pricingUrlOf } from "./catalog/providers";
+import { billingOf, ollamaCloudPrice } from "./catalog/billing";
+import { endpointOf, fieldAccepts, fieldUrl, pricesOfProvider } from "./catalog/providers";
 import type { ChatGptPlan } from "./chatgpt/plan";
 import type { ClaudeSignIn } from "./claudeAccount/account";
 import type { CopilotSignIn } from "./copilot/account";
@@ -523,6 +523,12 @@ export function createChat(options: {
       [id],
     );
 
+  const removedRowById = (id: string) =>
+    db.get<ProviderRow>(
+      `SELECT ${ROW_COLUMNS} FROM chat_providers WHERE id = ? AND deleted_at IS NOT NULL`,
+      [id],
+    );
+
   const rowByServer = ({ kind, baseUrl, endpoint, catalogId }: ParsedServer) =>
     db.get<ProviderRow>(
       `SELECT ${ROW_COLUMNS} FROM chat_providers
@@ -726,17 +732,6 @@ export function createChat(options: {
       context: facts.context ?? null,
       cost: costOf(row, cloud ? ollamaCloudPrice(modelId) : facts.price, cloud),
     };
-  };
-
-  const pricesOf = (row: ProviderRow, provider: ChatProvider): ChatModelGroup["prices"] => {
-    const catalog = catalogProviderOf(provider.kind, row.catalog_id);
-    if (provider.kind === "ollama") {
-      const url = catalog?.pricingUrl;
-      return url ? { url, checked: OLLAMA_CLOUD_PRICES_CHECKED } : null;
-    }
-    if (billingOf(provider.kind, provider.service) !== "per-token" || !catalog) return null;
-    const url = pricingUrlOf(catalog, row.endpoint);
-    return url ? { url, checked: catalog.checked } : null;
   };
 
   const answersModelOf = async (row: ProviderRow): Promise<string | undefined> => {
@@ -966,6 +961,23 @@ export function createChat(options: {
       return modelInUse(
         { own, fallback: settings.get().user.chatModel },
         (id) => rowById(id) !== undefined,
+      );
+    },
+
+    /**
+     * Whether background work in a Note whose own pick is `own` waits for the User (#2853): the
+     * pick's provider was removed, its model ran on this computer, and the default the Note falls
+     * back to is a cloud service the User never chose for this Note. Picking a model in the Note,
+     * or closing the composer's line that says the model is gone, leaves it no pick to lose.
+     */
+    waitsForRemovedModel(own: ChatModelChoice | null): boolean {
+      if (!own || rowById(own.providerId)) return false;
+      const gone = removedRowById(own.providerId);
+      const fallback = settings.get().user.chatModel;
+      const now = fallback && rowById(fallback.providerId);
+      if (!gone || !isKnownRow(gone) || !fallback || !now || !isKnownRow(now)) return false;
+      return (
+        knownService(gone, own.modelId) === null && knownService(now, fallback.modelId) !== null
       );
     },
 
@@ -1204,7 +1216,7 @@ export function createChat(options: {
             offered,
             hidden,
             about,
-            prices: pricesOf(row, provider),
+            prices: pricesOfProvider(provider),
             unknown,
             cloud,
           };

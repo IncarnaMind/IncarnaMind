@@ -663,7 +663,7 @@ export interface AnswersOptions {
    */
   checkAnswer?(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null>;
   /** What judging an Answer's sentences would cost, sending nothing; null when nothing is left. */
-  estimateAnswerCheck?(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null;
+  estimateAnswerCheck?(input: Omit<AnswerCheckInput, "signal">): Promise<RunEstimate | null>;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
   /** Whether this model reads pictures: one that can't is sent none, even one the User selected (#1937). */
@@ -4876,7 +4876,7 @@ export function createAnswers(options: AnswersOptions) {
       );
       if (waiting.size === 0) return null;
       const estimate =
-        options.estimateAnswerCheck?.({
+        (await options.estimateAnswerCheck?.({
           text: answer.text,
           citations: answer.citations,
           figures: answer.figures,
@@ -4884,7 +4884,7 @@ export function createAnswers(options: AnswersOptions) {
           mindId: judgedMind(question),
           documentIds: judgedScope(question),
           model: answer.model,
-        }) ?? null;
+        })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
       const most = estimate.upTo.cost;
       // Up to the next cent: the limit it is checked within is never below a request's sum.

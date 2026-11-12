@@ -10,6 +10,8 @@ import {
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  expectEstimateTip,
+  interceptOpenExternal,
   launchApp,
   motionSettled,
   newMind,
@@ -20,6 +22,7 @@ import {
   setLanguage,
   setWindowSize,
   stubClipboard,
+  urlsOpened,
   useLocalChatModel,
   useOutputLocation,
   WORD_KEY,
@@ -212,6 +215,22 @@ test("Compare Documents from “/”: 3 Documents × 2 Questions fill as a chang
     /^Under \$0\.01 · [\d.,]+[KMB]? tokens · \$[\d.,]+ of \$20\.00 used this month$/,
   );
   await expect(estimateLine).not.toContainText("model calls");
+  // It says whose price it is worked out from and when that was checked, in the app's tip that Tab
+  // shows at once, and Pricing ↗ opens the provider's own page (#1257).
+  const pricing = sheet.getByTestId("compare-sheet-pricing");
+  await expectEstimateTip(
+    window,
+    estimateLine,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+    pricing,
+  );
+  await expect(estimateLine).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
+  await expect(pricing).toHaveText("Pricing ↗");
+  await interceptOpenExternal(app);
+  await pointAndClick(window, pricing);
+  await expect
+    .poll(() => urlsOpened(app))
+    .toEqual(["https://platform.claude.com/docs/en/about-claude/pricing"]);
   await screenshot(window, "compare-sheet-en-1440");
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
 
@@ -672,6 +691,16 @@ for (const { language, width } of SCOPE_VARIANTS) {
     expect(estimateBox.x + estimateBox.width).toBeLessThanOrEqual(sheetBox.x + sheetBox.width);
     await expect(estimate).toBeInViewport();
     await screenshot(window, `compare-scope-estimate-${language}-${width}`);
+    const pricing = sheet.getByTestId("compare-sheet-pricing");
+    await expectEstimateTip(
+      window,
+      estimate,
+      language === "zh-CN"
+        ? /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/
+        : /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+      pricing,
+    );
+    await expect(pricing).toHaveText(language === "zh-CN" ? "价格 ↗" : "Pricing ↗");
 
     await expect(selectAll).toHaveAccessibleName(words.selectNone);
     await pointAndClick(window, selectAll);
@@ -705,6 +734,9 @@ for (const { language, width } of SCOPE_VARIANTS) {
     await expect(sheet.getByTestId("compare-sheet-ask-make")).toBeFocused();
     await expect(window.getByTestId("comparison-table")).toHaveCount(0);
     await screenshot(window, `compare-scope-ask-${language}-${width}`);
+    await expect(ask.getByTestId("estimate-pricing")).toHaveText(
+      language === "zh-CN" ? "价格 ↗" : "Pricing ↗",
+    );
 
     await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-choose"));
     await expect(ask).toHaveCount(0);

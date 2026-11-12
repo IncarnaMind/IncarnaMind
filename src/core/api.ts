@@ -92,7 +92,7 @@ import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/ci
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
-import type { ExportMarks } from "../shared/exportMarks";
+import type { ExportMarks, ExportMarksChoice, MarkedFormat } from "../shared/exportMarks";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -3787,9 +3787,17 @@ export type TabItem =
   | { kind: "home" }
   | { kind: "document"; documentId: string };
 
+/**
+ * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
+ * or the Note and what acts beside it (its Citations, cards, tabs and commands).
+ */
+export type CitedOrigin = "note" | "assistant";
+
 /** What the viewer knows of the Citation a Document was opened from. */
 export interface TabCitation {
   check: CitationCheck;
+  /** Where the page was opened from; the current version opened from it keeps that. Absent: the Note. */
+  origin?: CitedOrigin;
   /** Why it can't be checked, when `check` is "cant-check": a scan's unsure word marks the quote's page (#535). */
   checkReason?: CitationCheckReason;
   /** The number the Citation shows in its Answer, from 1. */
@@ -6028,6 +6036,32 @@ export type ProviderErrorKind =
   | "cut-short"
   | "unknown";
 
+// Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
+export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
+  auth: true,
+  "api-key-unreadable": true,
+  model: true,
+  "rate-limit": true,
+  network: true,
+  provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
+  "consent-declined": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "ollama-not-running": true,
+  "data-retention": true,
+  "not-signed-in": true,
+  "plan-limit": true,
+  blocked: true,
+  "too-long": true,
+  "cost-cap": true,
+  "no-answer": true,
+  "cut-short": true,
+  unknown: true,
+};
+
 export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
@@ -6616,6 +6650,8 @@ export interface RunEstimateInput {
 export type RunEstimate =
   | {
       billing: "per-token";
+      /** The saved provider whose price the cost is worked out from (`ChatProvider.id`). */
+      providerId: string;
       calls: number;
       tokens: number;
       /** Null for a model with no known price. */
@@ -11545,11 +11581,21 @@ export interface MeetingFill {
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
+ * - "model-removed": the Note's own model, on this computer, was removed, and the default is in the
+ *   cloud: nothing is sent until the User picks a model in the Note or closes the composer's line;
  * - "no-transcript": the Transcript has no lines;
  * - "added": a voice memo's tidied note had words that weren't said.
  */
 export interface MeetingFillProblem {
-  kind: "model" | "stopped" | "local-mode" | "not-allowed" | "no-model" | "no-transcript" | "added";
+  kind:
+    | "model"
+    | "stopped"
+    | "local-mode"
+    | "not-allowed"
+    | "no-model"
+    | "model-removed"
+    | "no-transcript"
+    | "added";
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
@@ -14200,10 +14246,16 @@ export interface CoreApi {
   getMindStyle(mindId: string): Promise<MindStyle>;
   /** Sets the Mind's font and text size together, so Undo can put both back. */
   setMindStyle(mindId: string, style: MindStyle): Promise<MindStyle>;
-  /** The page numbers and watermark a Mind's Word file and PDF carry (#1258): its own choice, saved with the Mind. */
-  getExportMarks(mindId: string): Promise<ExportMarks>;
-  /** Sets the Mind's page numbers and watermark, together. */
-  setExportMarks(mindId: string, marks: ExportMarks): Promise<ExportMarks>;
+  /**
+   * The page numbers and watermark a Mind's Word file or PDF carries (#1258): its own choice, saved
+   * with the Mind, else what that format starts with (#1741).
+   */
+  getExportMarks(mindId: string, format: MarkedFormat): Promise<ExportMarks>;
+  /**
+   * Sets the Mind's page numbers and watermark: one choice for every format. Without page numbers,
+   * the Mind keeps the ones it chose before, else each format's own; returns the choice as saved.
+   */
+  setExportMarks(mindId: string, marks: ExportMarksChoice): Promise<ExportMarksChoice>;
   /**
    * The pages of a Mind, for Page view (#803): each section's size, orientation and margins, and its
    * headers and footers with their page fields, as the Word file it was imported from has them; for

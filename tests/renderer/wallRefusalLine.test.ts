@@ -3,11 +3,14 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AnswerToolCall, CommandDone } from "../../src/core/api";
+import { YOURS, yoursWordsOf } from "../../src/shared/commands";
+import { translate } from "../../src/shared/i18n";
 
 /*
- * The assistant asked to turn a Folder's wall on or off (#1934): the line under the reply says it
- * is the User's to change, names the Folder, and its one button shows the sidebar if it is hidden
- * and opens that Folder's ⋯ menu there. With no Folder to name, it says where, with no button.
+ * The line under a reply that refuses what is the User's alone. For the wall of a Folder (#1934),
+ * it says so, names the Folder, and its one button shows the sidebar if it is hidden and opens
+ * that Folder's ⋯ menu there; with no Folder to name, it says where, with no button. For the
+ * rest, its button is named after the page its click opens (#1741).
  */
 
 let root: Root | null = null;
@@ -123,5 +126,55 @@ describe("the refusal to turn a Folder's wall on or off", () => {
       "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
     );
     expect(container.querySelector('[data-testid="command-yours-open"]')).toBeNull();
+  });
+});
+
+describe("a refusal's button names the page its click opens (#1741)", () => {
+  const BUTTONS = [
+    { what: "keys", en: "Open AI settings", zh: "打开 AI 设置", page: "ai", at: null },
+    { what: "privacy", en: "Open AI settings", zh: "打开 AI 设置", page: "ai", at: "local-mode" },
+    {
+      what: "approvals",
+      en: "Open Privacy settings",
+      zh: "打开隐私设置",
+      page: "privacy",
+      at: null,
+    },
+    {
+      what: "spending",
+      en: "Open AI settings",
+      zh: "打开 AI 设置",
+      page: "ai",
+      at: "spending-cap",
+    },
+  ] as const;
+
+  // protects=every refusal whose button opens a Settings page says that page's name, in both languages, and the click lands on it; fails_when=a label names one page and the click opens another, or a new kind with a Settings button has no row here; no_claim=the button of Recently deleted or a Folder's menu.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const withPage = YOURS.filter((what) => {
+      const opens = yoursWordsOf(what).opens;
+      return opens !== null && typeof opens === "object";
+    });
+    expect(withPage).toEqual(BUTTONS.map((each) => each.what));
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { settingsPageLabels } = await import("../../src/renderer/src/settingsPages");
+    for (const expected of BUTTONS) {
+      useAppStore.setState({ settings: { language } } as never);
+      useAppStore.getState().closeSettings();
+      await show({ yours: expected.what });
+      const open = container.querySelector('[data-testid="command-yours-open"]');
+      expect(open?.textContent).toBe(language === "en" ? expected.en : expected.zh);
+      await act(() => {
+        open?.dispatchEvent(new window.Event("click", { bubbles: true }));
+      });
+      const state = useAppStore.getState();
+      expect(state.settingsOpen).toBe(true);
+      expect(state.settingsPage).toBe(expected.page);
+      expect(state.settingsAt).toBe(expected.at);
+      expect(open?.textContent).toContain(
+        translate(language, settingsPageLabels[state.settingsPage]),
+      );
+    }
+    useAppStore.setState({ settings: null } as never);
   });
 });

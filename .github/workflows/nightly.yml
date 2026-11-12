@@ -2,7 +2,8 @@ name: Nightly
 
 # Every night on main, and by hand: CI's checks (ci.yml) on whatever merged that day, and the
 # checks that need the app packaged as the User installs it, which no pull request runs. A red
-# night is fixed before new work, like a red main.
+# night is fixed before new work, like a red main, and its last job keeps an issue open until
+# the nights are green again.
 on:
   schedule:
     - cron: "23 2 * * *"
@@ -186,3 +187,32 @@ jobs:
       - run: npx vitest run tests/main/runLeftovers.test.ts tests/main/runCodeLeftBehind.test.ts tests/main/sandbox.test.ts tests/main/runCode.test.ts
         env:
           INCARNAMIND_TEST_OS_SANDBOX: required
+
+  # Keeps one issue, "Nightly is red", true to this night (scripts/nightlyIssue.ts), and closes it
+  # when every nightly is green again. Only a night the schedule started on main reports.
+  red-night:
+    name: A red night shows itself
+    needs: [ci, packaged-macos, packaged-windows, packaged-linux, lifecycle-windows, run-code-linux, run-code-macos]
+    if: ${{ always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.repository == 'IncarnaMind/IncarnaMind' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The two nightlies write the same issue, one after the other.
+    concurrency:
+      group: nightly-red-issue
+      cancel-in-progress: false
+    # The one job that may write an issue; it reads the run's jobs and logs to name what failed.
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/nightlyIssue.ts nightly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}

@@ -481,6 +481,34 @@ describe("the module", () => {
     expect(replyJson('```json\n{"a":1,"a":2}\n```')).toBeUndefined();
   });
 
+  // protects=a structured reply the provider parses itself is held to the rule a reply read from text is: a key given twice alike is read, one that changes its mind can't be (#2895); fails_when=the provider's parse keeps the last of the two values and the reply is read; no_claim=which provider parses its own replies.
+  test.each([
+    ["claimed-changes", []],
+    ["working-text", ["working", "answer"]],
+  ] as const)(
+    "%s: a structured reply the provider parses itself is read once, as a reply read from text is",
+    async (question, other) => {
+      const { right, read } = QUESTIONS[question];
+      const [key, value] = Object.entries(JSON.parse(right) as Record<string, unknown>)[0] ?? [];
+      const twice = (second: unknown) =>
+        `${right.slice(0, -1)},${JSON.stringify(key)}:${JSON.stringify(second)}}`;
+
+      expect(await (await ask(question, { text: right })).judged).toMatchObject({
+        ok: true,
+        value: read,
+      });
+      expect(await (await ask(question, { text: twice(value) })).judged).toMatchObject({
+        ok: true,
+        value: read,
+      });
+      expect(await (await ask(question, { text: twice(other) })).judged).toEqual({
+        ok: false,
+        reason: "unreadable",
+        usage: COUNTED,
+      });
+    },
+  );
+
   test("entries are read by their key once: a key two entries give is left out", () => {
     const entries = [
       { marker: 1, quote: "A" },

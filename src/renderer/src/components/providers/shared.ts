@@ -79,6 +79,22 @@ export function keyProviderName(id: string, t: Translate, language: Language): s
   return t(`providers.kind.${kindOfCatalogId(id)}`);
 }
 
+export function providerName(provider: ChatProvider, t: Translate, language: Language): string {
+  if (provider.kind === "chatgpt") return t("chatgpt.title");
+  if (provider.kind === "claude-account" || provider.kind === "copilot") {
+    return t(`providers.kind.${provider.kind}`);
+  }
+  const catalog = catalogProviderOf(provider.kind, provider.catalogId);
+  if (provider.kind === "openai-compatible" && !isPreset(catalog) && provider.baseUrl) {
+    try {
+      return new URL(provider.baseUrl).host;
+    } catch {
+      return provider.baseUrl;
+    }
+  }
+  return keyProviderName(provider.catalogId ?? provider.kind, t, language);
+}
+
 /** A provider's name where room is short: a chip, a form's title, the key field's question. */
 export function shortProviderName(id: string, t: Translate, language: Language): string {
   return id === "qwen" || id === "deepseek" || id === "kimi"

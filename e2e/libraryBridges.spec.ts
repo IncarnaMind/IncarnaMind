@@ -17,6 +17,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  sizeAssistant,
 } from "./app";
 
 /*
@@ -126,6 +127,8 @@ test("filters by year, format, status and Folder with counts, and asks about the
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // Room for a chip for each Document chosen; a narrower panel folds them into a count.
+    await sizeAssistant(window, 480);
     // A Mind written in already: the most recent one, where the Questions go.
     await newMind(window);
     await window.keyboard.type("Tide notes");
@@ -336,6 +339,8 @@ test("with no Mind yet, asking about many Documents chosen makes one, and their 
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // Room for two chips beside "+8 more"; a narrower panel folds further (`composerPlus.spec.ts`).
+    await sizeAssistant(window, 480);
     await linkFolderFromSidebar(app, window, sources);
     await expectReadyDocuments(window, 15);
     await window.getByTestId("open-library").click();

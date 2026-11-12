@@ -51,3 +51,30 @@ export function launchEnvironment(
   }
   return env;
 }
+
+/**
+ * The engines a test build runs as stand-ins, with a flag each: the search model (and the
+ * reranking model beside it), text recognition and speech-to-text.
+ */
+export const ENGINES = ["embedder", "ocr", "transcriber"] as const;
+export type Engine = (typeof ENGINES)[number];
+
+const STAND_IN_FLAGS: Record<Engine, string> = {
+  embedder: "INCARNAMIND_TEST_EMBEDDER",
+  ocr: "INCARNAMIND_TEST_OCR",
+  transcriber: "INCARNAMIND_TEST_TRANSCRIBER",
+};
+
+/**
+ * The flags that make every engine a stand-in but those in `real`, which the app runs as the
+ * User's copy does. With any, the test build may also reach the model hosts, so that engine's
+ * model downloads into the launch's data folder.
+ */
+export function standIns(real: readonly Engine[] = []): Record<string, string | undefined> {
+  return {
+    ...Object.fromEntries(
+      ENGINES.map((engine) => [STAND_IN_FLAGS[engine], real.includes(engine) ? undefined : "fake"]),
+    ),
+    INCARNAMIND_TEST_MODEL_HOSTS: real.length > 0 ? "1" : undefined,
+  };
+}
