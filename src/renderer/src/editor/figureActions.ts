@@ -1,10 +1,6 @@
 import { getSchema } from "@tiptap/core";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
-import {
-  updateYFragment,
-  ySyncPluginKey,
-  yXmlFragmentToProseMirrorRootNode,
-} from "@tiptap/y-tiptap";
+import { initProseMirrorDoc, updateYFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 import {
   CITATION_NODE,
@@ -68,17 +64,18 @@ export function editNote(
     return null;
   }
   const blocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
-  const state = EditorState.create({
-    schema: noteSchema,
-    doc: yXmlFragmentToProseMirrorRootNode(blocks, noteSchema),
-  });
+  // Read with the map of each Block to its node, as the editor's sync reads it, so the change
+  // writes only the Blocks it changed: written again, another Block's check would go back to what
+  // this copy last had, over a result the core is writing now.
+  const read = initProseMirrorDoc(blocks, noteSchema);
+  const state = EditorState.create({ schema: noteSchema, doc: read.doc });
   const made = change({ state, doc: copy });
   if (!made?.tr.docChanged) return null;
   const origin = { figureSchedule: mindId };
   // No edit removes a record: a change's Undo in another window may bring the figure back (#2378).
   const steps = new Y.UndoManager([blocks], { trackedOrigins: new Set([origin]) });
   copy.transact(() => {
-    updateYFragment(copy, blocks, made.tr.doc, { mapping: new Map(), isOMark: new Map() });
+    updateYFragment(copy, blocks, made.tr.doc, read.meta);
   }, origin);
   const undoable: Undoable = {
     said: made.said,
