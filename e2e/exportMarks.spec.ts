@@ -135,7 +135,7 @@ test("Export options gives a Note page numbers and a watermark, the PDF prints t
   await expect(sheet).toBeHidden();
 });
 
-test("a Note made from a Word file starts without page numbers in Word, with them in PDF, and says its file's own stay, in English and Chinese; a Note written here starts with them", async () => {
+test("a Note made from a Word file starts without page numbers in Word, with them in PDF, and says its file's own stay, in English and Chinese; a watermark set alone keeps both; a Note written here starts with them", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
@@ -182,14 +182,39 @@ test("a Note made from a Word file starts without page numbers in Word, with the
   await expect(pageNumbers).not.toBeChecked();
   await sheet.getByTestId("export-save").click();
   await expect(sheet).toBeHidden();
-  const pdfMarks = () =>
-    window.evaluate(async () => {
+  const marksIn = (wanted: "docx" | "pdf") =>
+    window.evaluate(async (each) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const [mind] = await core.listMinds();
       if (!mind) throw new Error("There is no Note.");
-      return core.getExportMarks(mind.id, "pdf");
-    });
-  expect(await pdfMarks()).toEqual({ pageNumbers: true, watermark: "none" });
+      return core.getExportMarks(mind.id, each);
+    }, wanted);
+  expect(await marksIn("pdf")).toEqual({ pageNumbers: true, watermark: "none" });
+
+  // A watermark set alone, with PDF or with Word showing, leaves each format's page numbers as
+  // they start: off in Word, on in PDF, also when the format is changed in the open sheet.
+  const watermark = sheet.getByTestId("export-watermark");
+  for (const [showing, chosen] of [
+    ["pdf", "draft"],
+    ["docx", "confidential"],
+  ] as const) {
+    await openOptions(window, "导出选项");
+    await format.selectOption(showing);
+    await watermark.selectOption(chosen);
+    await sheet.getByTestId("export-save").click();
+    await expect(sheet).toBeHidden();
+    expect(await marksIn("docx")).toEqual({ pageNumbers: false, watermark: chosen });
+    expect(await marksIn("pdf")).toEqual({ pageNumbers: true, watermark: chosen });
+    await openOptions(window, "导出选项");
+    await format.selectOption("docx");
+    await expect(watermark).toHaveValue(chosen);
+    await expect(pageNumbers).not.toBeChecked();
+    await format.selectOption("pdf");
+    await expect(watermark).toHaveValue(chosen);
+    await expect(pageNumbers).toBeChecked();
+    await window.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  }
 
   await newNote(window, "Tides", "Spring tides come twice a month.");
   await openOptions(window, "导出选项");

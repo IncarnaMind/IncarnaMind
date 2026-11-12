@@ -10,9 +10,8 @@ import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import {
   chosenExportMarks,
-  DEFAULT_EXPORT_MARKS,
   exportMarksOf,
-  isExportMarks,
+  isExportMarksChoice,
   isMarkedFormat,
   writeExportMarks,
 } from "../shared/exportMarks";
@@ -7514,12 +7513,14 @@ export function createCore(adapters: CoreAdapters): Core {
       );
     },
     setExportMarks: async (mindId, marks) => {
-      if (!isExportMarks(marks)) throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      if (!isExportMarksChoice(marks)) {
+        throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      }
       const mind = writableMind(mindId);
       content.editSettings(mind.id, (mindSettings) => writeExportMarks(mindSettings, marks));
       return content.readSettings(
         mind.id,
-        (settings) => chosenExportMarks(settings) ?? DEFAULT_EXPORT_MARKS,
+        (settings) => chosenExportMarks(settings) ?? { watermark: "none" },
       );
     },
     getPageSetup: async (mindId) => {

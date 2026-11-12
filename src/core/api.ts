@@ -92,7 +92,7 @@ import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/ci
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
-import type { ExportMarks, MarkedFormat } from "../shared/exportMarks";
+import type { ExportMarks, ExportMarksChoice, MarkedFormat } from "../shared/exportMarks";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -14217,8 +14217,11 @@ export interface CoreApi {
    * with the Mind, else what that format starts with (#1741).
    */
   getExportMarks(mindId: string, format: MarkedFormat): Promise<ExportMarks>;
-  /** Sets the Mind's page numbers and watermark, together: one choice for every format. */
-  setExportMarks(mindId: string, marks: ExportMarks): Promise<ExportMarks>;
+  /**
+   * Sets the Mind's page numbers and watermark: one choice for every format. Without page numbers,
+   * the Mind keeps the ones it chose before, else each format's own; returns the choice as saved.
+   */
+  setExportMarks(mindId: string, marks: ExportMarksChoice): Promise<ExportMarksChoice>;
   /**
    * The pages of a Mind, for Page view (#803): each section's size, orientation and margins, and its
    * headers and footers with their page fields, as the Word file it was imported from has them; for
