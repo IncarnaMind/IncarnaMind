@@ -95,7 +95,7 @@ const keysFree = async (keys: string) =>
   electron.handlers.get(FILES_CHANNELS.globalKeysFree)?.({}, keys);
 
 describe("The shortcuts held over the meeting app while a meeting records", () => {
-  test("macOS holds its ⌃⌥ defaults: the seven buttons, Call help and Pause my mic", async () => {
+  test("macOS holds its ⌃⌥ defaults: the seven buttons, Call help, Quick note and Pause my mic", async () => {
     const { record } = await serve(true);
     await record();
     await vi.waitFor(() =>
@@ -109,6 +109,7 @@ describe("The shortcuts held over the meeting app while a meeting records", () =
         "Ctrl+Alt+7",
         "Ctrl+Alt+H",
         "Ctrl+Alt+M",
+        "Ctrl+Alt+N",
       ]),
     );
   });
@@ -143,12 +144,12 @@ describe("The shortcuts held over the meeting app while a meeting records", () =
     const { record } = await serve(true);
     windowBinds(true, "CmdOrCtrl+B", "Cmd+Shift+9");
     await record();
-    await vi.waitFor(() => expect(held()).toHaveLength(9));
+    await vi.waitFor(() => expect(held()).toHaveLength(10));
     mainInFront(true);
-    expect(held()).toHaveLength(9);
+    expect(held()).toHaveLength(10);
     expect(held()).toContain("Ctrl+Alt+M");
     mainInFront(false);
-    expect(held()).toHaveLength(9);
+    expect(held()).toHaveLength(10);
   });
 
   test.each([

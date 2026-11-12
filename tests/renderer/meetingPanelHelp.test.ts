@@ -29,6 +29,8 @@ const fake = vi.hoisted(() => {
     holdAdding: false,
     reported: [] as unknown[],
     command: null as null | ((command: string) => void),
+    /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
+    keyboard: [] as boolean[],
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
     },
@@ -62,7 +64,7 @@ vi.mock("../../src/renderer/src/core", () => ({
     },
     undoAddToNote: () => Promise.resolve(),
   },
-  files: {},
+  files: { onMenuCommand: () => () => undefined, setEditMenu: () => undefined },
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useT: () => (key: MessageKey, params?: MessageParams) => translate("en", key, params),
@@ -117,6 +119,7 @@ const panelBridge = {
   state: () => undefined,
   close: () => undefined,
   setUp: () => undefined,
+  keyboard: (take: boolean) => fake.keyboard.push(take),
 };
 
 const WANT =
@@ -209,6 +212,7 @@ beforeEach(async () => {
   fake.adding = null;
   fake.holdAdding = false;
   fake.reported.length = 0;
+  fake.keyboard.length = 0;
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -505,5 +509,55 @@ describe("a help's Answer, as the panel reads it", () => {
     expect(shownText).toBe("- Their audit is in June");
     await run(() => sumLoad?.(older));
     expect(shownText).toBe("- Their audit is in June");
+  });
+});
+
+describe("the keyboard (#2925)", () => {
+  /** A key that reaches the panel's window, as a browser sends one nothing in the page used. */
+  const key = (name: string) =>
+    run(() =>
+      window.dispatchEvent(
+        Object.assign(new window.Event("keydown", { cancelable: true }), { key: name }),
+      ),
+    );
+
+  test("the panel never asks for it by itself: not as it appears, nor as help is asked and its answer arrives, nor on a click on a prompt, More… or a button", async () => {
+    await changed(null);
+    await press("say");
+    await replied(0, "answer-say");
+    await changed(helpOf("say", "answer-say"));
+    await loaded([answerOf("answer-say", WANT, "done")]);
+    expect(shown().pin).toBe(true);
+    await click(all("help-pin")[0]);
+    await press("sum");
+    await click(all("quick-note-send")[0]);
+    expect(fake.keyboard).toEqual([]);
+  });
+
+  test("⌃⌥N or ⌘K's Quick note on a collapsed panel opens it and asks for it once; Esc and collapsing give it back", async () => {
+    await changed(null);
+    await click(all("panel-collapse")[0]);
+    expect(all("panel-pill")).toHaveLength(1);
+    // Collapsing gives the keyboard back whether or not the field had it: the main process ignores a panel that hasn't it.
+    expect(fake.keyboard).toEqual([false]);
+
+    await run(() => fake.command?.("note"));
+    expect(all("quick-note-field")).toHaveLength(1);
+    expect(fake.keyboard).toEqual([false, true]);
+
+    await key("Escape");
+    expect(fake.keyboard).toEqual([false, true, false]);
+    await click(all("panel-collapse")[0]);
+    expect(fake.keyboard).toEqual([false, true, false, false]);
+  });
+
+  test("an Esc something in the panel already used, such as closing a list, gives nothing back", async () => {
+    await changed(null);
+    const used = Object.assign(new window.Event("keydown", { cancelable: true }), {
+      key: "Escape",
+    });
+    used.preventDefault();
+    await run(() => window.dispatchEvent(used));
+    expect(fake.keyboard).toEqual([]);
   });
 });

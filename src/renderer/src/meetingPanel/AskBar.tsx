@@ -347,7 +347,7 @@ function Prompt({
         data-testid="help-prompt"
         data-kind={kind}
         title={title}
-        onMouseEnter={option.onPoint}
+        onMouseMove={option.onPoint}
         onClick={() => onChoose(kind)}
         className="editor-menu-item"
       >

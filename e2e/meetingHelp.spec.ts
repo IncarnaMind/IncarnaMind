@@ -167,7 +167,7 @@ test("help during the call: the floating panel above the meeting gives one or tw
     /^What do they want\?/,
   ]);
   await expect(bar.first().getByTestId("help-prompt-keys")).toHaveText(mac ? "⌃⌥1" : "Ctrl+Alt+1");
-  await expect(more).toHaveText("More…");
+  await expect(more).toHaveText("More…/");
   await pointAndClick(panel, more);
   await expect(moreList).toHaveText([
     /^Sum up so far/,

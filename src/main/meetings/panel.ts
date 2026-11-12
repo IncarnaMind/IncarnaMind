@@ -162,6 +162,8 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       window.once("show", () => takeKeyboard(window));
       return;
     }
+    // Off macOS, making it focusable moves the foreground first: not again while it has the keys.
+    if (window.isFocusable() && window.isFocused()) return;
     window.setFocusable(true);
     // Windows puts a focusable window on the taskbar.
     window.setSkipTaskbar(true);
@@ -176,8 +178,9 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
    */
   function giveKeyboardBack(window: BrowserWindow): void {
     if (!window.isFocusable()) return;
-    if (mac && window.isFocused()) window.blur();
+    const focused = window.isFocused();
     window.setFocusable(false);
+    if (mac && focused) window.blur();
   }
 
   function press(kind: HelpShortcut): void {
@@ -415,18 +418,21 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   app.on("browser-window-focus", () => holdKeys(keysWanted()));
   app.on("browser-window-blur", () => holdKeys(keysWanted()));
 
+  let heardMeetings = false;
   core.on("meetings.changed", (listed) => {
     meetings = listed;
+    heardMeetings = true;
     sync();
   });
   core.on("settings.changed", (changed) => {
     settings = changed;
     sync();
   });
+  // The first read can come back after a change was heard: it never takes the newer state back.
   Promise.all([core.listMeetings(), core.getSettings()]).then(
     ([listed, read]) => {
-      meetings = listed;
-      settings = read;
+      if (!heardMeetings) meetings = listed;
+      settings ??= read;
       sync();
     },
     (error: unknown) =>

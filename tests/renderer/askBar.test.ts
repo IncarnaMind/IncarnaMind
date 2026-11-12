@@ -142,7 +142,10 @@ const KEYS: Keys = { say: "⌃⌥1", answer: "⌃⌥2", want: "⌃⌥3", sum: "�
 async function show(
   template: MeetingHelpTemplate | null = null,
   keys: Keys = KEYS,
-  { meeting = meetingOf(template), noteWanted = false }: { meeting?: Meeting; noteWanted?: boolean } = {},
+  {
+    meeting = meetingOf(template),
+    noteWanted = false,
+  }: { meeting?: Meeting; noteWanted?: boolean } = {},
 ) {
   await act(async () =>
     root?.render(
@@ -220,9 +223,12 @@ async function press(key: string, { shift = false, composing = false } = {}): Pr
   return event;
 }
 
-const slashRows = () => all("help-slash-list").flatMap((list) => promptsIn(list).map(([kind]) => kind));
+const slashRows = () =>
+  all("help-slash-list").flatMap((list) => promptsIn(list).map(([kind]) => kind));
 const chosenRow = () =>
-  all("help-prompt").find((each) => each.getAttribute("aria-selected") === "true")?.getAttribute("data-kind");
+  all("help-prompt")
+    .find((each) => each.getAttribute("aria-selected") === "true")
+    ?.getAttribute("data-kind");
 
 describe("the ask bar", () => {
   test('shows three prompts with their keys, then More… with "/", the field, and no list', async () => {
@@ -549,14 +555,9 @@ describe('the "/" list (#2925)', () => {
     expect(chosenRow()).toBe("check");
     await press("ArrowDown");
     expect(chosenRow()).toBe("say");
-    const want = all("help-prompt").find((each) => each.getAttribute("data-kind") === "want");
+    const want = one("help-slash-list").querySelector('[data-kind="want"]');
     if (!want) throw new Error("The list has no What do they want?");
-    // The pointer moves from the field onto the row, as a browser reports it.
-    await act(async () => {
-      const moved = new window.Event("mouseout", { bubbles: true });
-      Object.assign(moved, { relatedTarget: want });
-      field().dispatchEvent(moved);
-    });
+    await fire(want, "mousemove");
     expect(chosenRow()).toBe("want");
     await press("Enter");
     expect(onAsk.mock.calls).toEqual([["want"]]);
@@ -573,8 +574,8 @@ describe('the "/" list (#2925)', () => {
   test('Esc closes the list and clears the "/", and goes no further', async () => {
     await show();
     await type("/su");
-    const escape = await press("Escape");
-    expect(escape.defaultPrevented).toBe(true);
+    const escaped = await press("Escape");
+    expect(escaped.defaultPrevented).toBe(true);
     expect(field().value).toBe("");
     expect(all("help-slash-list")).toHaveLength(0);
   });
@@ -612,16 +613,16 @@ describe('the "/" list (#2925)', () => {
   test("Esc closes an open More… first, the innermost thing", async () => {
     await show();
     await fire(one("help-more"), "click");
-    const escape = await press("Escape");
-    expect(escape.defaultPrevented).toBe(true);
+    const escaped = await press("Escape");
+    expect(escaped.defaultPrevented).toBe(true);
     expect(all("help-more-list")).toHaveLength(0);
   });
 
   test("Esc with no list open is left for the panel, which gives the keyboard back, and the text stays", async () => {
     await show();
     await type("Unsent line");
-    const escape = await press("Escape");
-    expect(escape.defaultPrevented).toBe(false);
+    const escaped = await press("Escape");
+    expect(escaped.defaultPrevented).toBe(false);
     expect(field().value).toBe("Unsent line");
   });
 });

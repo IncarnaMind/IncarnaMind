@@ -70,18 +70,21 @@ async function pressPrompt(panel: Page, name: string): Promise<void> {
 
 const windowHeight = (panel: Page) => panel.evaluate(() => window.innerHeight);
 
-test("ask bar: from the first frame to a panel holding three answers the prompts and More… keep their place, and the list lies over the answers without pushing them", async () => {
+test("ask bar: from the first frame to a panel holding three answers the prompts, More… and the field keep their place, and the list lies over the answers without pushing them", async () => {
   test.setTimeout(90_000);
   const { app, panel } = await openPanel();
   const bar = panel.getByTestId("ask-bar");
   const firstPrompt = bar.getByTestId("help-prompt").first();
   const more = panel.getByTestId("help-more");
+  const field = panel.getByTestId("quick-note-field");
   const firstTop = await below(panel, firstPrompt);
   const moreTop = await below(panel, more);
+  const fieldTop = await below(panel, field);
   const startHeight = await windowHeight(panel);
   const stays = async () => {
     sameAs(await below(panel, firstPrompt), firstTop);
     sameAs(await below(panel, more), moreTop);
+    sameAs(await below(panel, field), fieldTop);
   };
 
   for (const [name, pins] of [
@@ -231,7 +234,7 @@ test("ask bar: the shortcuts run their prompts while the list is open, and a tem
   await expect(panel.locator("[data-testid=help-prompt][title]")).toHaveCount(0);
 
   await setLanguage(window, "zh-CN");
-  await expect(more).toHaveText("更多…");
+  await expect(more).toHaveText("更多…/");
   await expect(rows.first()).toHaveText("追问一个问题");
   for (const each of await fits())
     expect(each, each.text ?? "").toMatchObject({ cut: false, outside: false });
