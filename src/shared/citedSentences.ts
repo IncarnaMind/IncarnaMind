@@ -13,6 +13,11 @@ export interface CitedSentence {
   context: string;
   /** The Citation markers it holds, in order. */
   markers: number[];
+  /**
+   * Where each of them is in the text: its place among all the text's Citation markers, from 0,
+   * so a marker that two sentences reuse is told apart in each (#2847).
+   */
+  at: number[];
   /** It shows a Calculated figure, whose own check is the Calculation check (ADR-0021). */
   calculated: boolean;
   /** It is a table's row: its cells, read as one line. */
@@ -39,7 +44,10 @@ export function citedSentences(
   figures: readonly Pick<MarkedFigure, "marker" | "shown">[] = [],
 ): CitedSentence[] {
   const found: CitedSentence[] = [];
+  let seen = 0;
   for (const line of text.split("\n")) {
+    const first = seen;
+    seen += line.match(MARKER)?.length ?? 0;
     if (FOOTNOTE_LINE.test(line)) continue;
     const inTable = line.trimStart().startsWith("|");
     const markers: number[] = [];
@@ -59,11 +67,13 @@ export function citedSentences(
     const context = withoutMarkers(marked);
     for (const { from, to } of sentenceSpans(marked)) {
       const before = inlineNodes(marked.slice(0, from));
-      const inside = markers.slice(before, before + inlineNodes(marked.slice(from, to)));
+      const count = inlineNodes(marked.slice(from, to));
+      const inside = markers.slice(before, before + count);
       const sentence = withoutMarkers(marked.slice(from, to));
       if (inside.length > 0 && isClaim(sentence)) {
         const calculated = marked.slice(from, to).includes(FIGURE_START);
-        found.push({ sentence, context, markers: inside, calculated, inTable });
+        const at = inside.map((_, index) => first + before + index);
+        found.push({ sentence, context, markers: inside, at, calculated, inTable });
       }
     }
   }

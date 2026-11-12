@@ -8681,6 +8681,13 @@ export interface MarkedCitation extends Citation {
    * and not the quote check alone (#2313).
    */
   judgedAt?: string;
+  /**
+   * Where in the text its marker sits in a sentence the judgement passed: its place among the
+   * Answer's Citation markers, from 0. Call help draws its ✓ by sentence from these (#2847), so a
+   * marker that another sentence reuses keeps the mark where its own sentence passed. Kept with an
+   * Answer's Citations, not in a Note.
+   */
+  passedAt?: number[];
 }
 
 /**

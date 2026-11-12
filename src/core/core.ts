@@ -2337,6 +2337,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
+    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
