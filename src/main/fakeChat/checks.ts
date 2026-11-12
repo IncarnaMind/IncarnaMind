@@ -105,10 +105,11 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
       return {
         number: Number(number),
         kind: "fact",
+        unstated: null,
+        uncited: null,
         verdict: beyond ? "unsupported" : "supported",
         roles: "same",
         time: beyond ? "differs" : "same",
-        quoted: "states",
         says: beyond
           ? chinese
             ? "文档写的是什么时候发生，没有说已经完成。"

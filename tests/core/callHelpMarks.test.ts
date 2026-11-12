@@ -40,7 +40,9 @@ const block = (text: string, tag: string) =>
 interface Verdict {
   verdict: "supported" | "unsupported" | "contradicted";
   kind?: "fact" | "opinion";
-  quoted?: "states" | "other";
+  /** The words the model copies as stated by no Passage, or as not said by the cited words. */
+  unstated?: string;
+  uncited?: string;
 }
 
 /** A batch's reply: each sentence as the first of `verdicts` whose words it holds says, else supported. */
@@ -57,10 +59,11 @@ function batchOf(call: GenerateCall, verdicts: readonly [string, Verdict][]): { 
         return {
           number: Number(number),
           kind: plan.kind ?? "fact",
+          unstated: plan.unstated ?? null,
+          uncited: plan.uncited ?? null,
           verdict: plan.verdict,
           roles: "same",
           time: "same",
-          quoted: plan.quoted ?? "states",
           says: plan.verdict === "supported" ? null : "The price sheet says something else.",
         };
       }),
@@ -252,7 +255,8 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         [{ verdict: "unsupported" }, "unsupported"],
         [{ verdict: "contradicted" }, "contradicted"],
         [{ verdict: "supported", kind: "opinion" }, "not-checked"],
-        [{ verdict: "supported", quoted: "other" }, "not-checked"],
+        [{ verdict: "supported", uncited: "with single sign-on" }, "not-checked"],
+        [{ verdict: "supported", unstated: "with single sign-on" }, "unsupported"],
       ];
       for (const [verdict, check] of cases) {
         const { core, meeting } = await setUp({ reply, verdicts: [[words, verdict]] });
@@ -398,6 +402,21 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
       ]);
     },
   );
+
+  // protects=a number cited on two lines, one restating its quote and one adding a figure from an uncited line, shows ✓ only on the restating line, so a gate that counts a wrong ✓ by place reads that line's mark from the app (#2847); fails_when=the line with the added figure takes the ✓ its number earned on the other line; no_claim=what a model answers for either line.
+  test("a number cited on two lines shows ✓ on the line that restates its quote, not on the line adding a figure no quote states", async () => {
+    const reply =
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nEnterprise is $45 a seat, and the Team plan is $25 a seat [^1]\n→ gives both prices";
+    const { core, meeting } = await setUp({ reply });
+
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(after.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+    expect(chips(after)).toEqual([
+      { marker: 1, passed: true },
+      { marker: 1, passed: false },
+    ]);
+  });
 
   test("while Check again judges, a ✓ the first check gave shows no more, and it doesn't come back", async () => {
     let round = 0;
@@ -592,7 +611,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     { answer: "unsupported", verdict: { verdict: "unsupported" }, check: "unsupported" },
     {
       answer: "supported, its quoted words not stating it",
-      verdict: { verdict: "supported", quoted: "other" },
+      verdict: { verdict: "supported", uncited: "in writing today" },
       check: "not-checked",
     },
     {

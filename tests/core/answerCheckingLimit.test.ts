@@ -98,7 +98,8 @@ async function answered(
           verdict: "supported",
           roles: "same",
           time: "same",
-          quoted: "states",
+          unstated: null,
+          uncited: null,
           says: "The schedule says so.",
         }));
         if (!writes) {
@@ -449,7 +450,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
 
     // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts.
-    expect(estimate.upTo.cost.amount).toBe(0.27);
+    expect(estimate.upTo.cost.amount).toBe(0.28);
     expect(roomsBySize(batches)).toEqual(
       new Map([
         [8, 4_096],

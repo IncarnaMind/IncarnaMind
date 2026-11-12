@@ -89,10 +89,10 @@ describe("A parts reply that gives a phrase twice", () => {
 
 describe("A JSON reply that gives a key, a marker or a number twice", () => {
   const entry = (verdict: string) =>
-    `{"number":1,"kind":"fact","verdict":"${verdict}","roles":"same","time":"same","quoted":"states","says":"It says so."}`;
+    `{"number":1,"kind":"fact","verdict":"${verdict}","roles":"same","time":"same","unstated":null,"uncited":null,"says":"It says so."}`;
 
   test("a batch's entry with its verdict given twice can't be read", () => {
-    const twice = `{"sentences":[{"number":1,"kind":"fact","verdict":"contradicted","roles":"same","time":"same","quoted":"states","says":"It says so.","verdict":"supported"}]}`;
+    const twice = `{"sentences":[{"number":1,"kind":"fact","verdict":"contradicted","roles":"same","time":"same","unstated":null,"uncited":null,"says":"It says so.","verdict":"supported"}]}`;
     expect(readBatchReply(`{"sentences":[${entry("supported")}]}`, 1).get(1)).toMatchObject({
       verdict: "supported",
     });

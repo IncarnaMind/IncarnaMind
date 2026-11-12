@@ -96,7 +96,8 @@ function batchReply(
         verdict: plans[sentence]?.verdict ?? "unsupported",
         roles: "same",
         time: "same",
-        quoted: "states",
+        unstated: plans[sentence]?.unstated ?? null,
+        uncited: plans[sentence]?.uncited ?? null,
         says: plans[sentence]?.says ?? null,
       })),
     }),
@@ -263,6 +264,55 @@ describe("a sentence its quote doesn't support loses its green check", () => {
   });
 });
 
+describe("words the check copies as unstated, or as not in the cited words, take the green check away", () => {
+  test.each([
+    {
+      language: "English",
+      question: "What does the kiln upgrade cost?",
+      concluded: "Two K9 kilns cost £185,000 installed, so the upgrade needs no further budget.",
+      added: "so the upgrade needs no further budget",
+      elsewhere: "Hartwell Kilns supplies two K9 kilns for £185,000, installed.",
+      uncited: "Hartwell Kilns supplies",
+      restated: "Two K9 kilns cost £185,000, installed.",
+    },
+    {
+      language: "Chinese",
+      question: "窑炉升级要花多少钱？",
+      concluded: "两台 K9 窑炉含安装费用为 £185,000，因此升级无需再追加预算。",
+      added: "因此升级无需再追加预算",
+      elsewhere: "Hartwell Kilns 供应两台 K9 窑炉，含安装 £185,000。",
+      uncited: "Hartwell Kilns 供应",
+      restated: "两台 K9 窑炉含安装费用为 £185,000。",
+    },
+  ])(
+    "in $language, a conclusion added to a quoted fact is unsupported, a detail from another line goes unchecked, and a restatement keeps its check (#3003, #2739)",
+    async (each) => {
+      const marked = (sentence: string, marker: number) =>
+        `${sentence.slice(0, -1)}[^${marker}]${sentence.slice(-1)}`;
+      const answer = [
+        marked(each.concluded, 1),
+        marked(each.elsewhere, 2),
+        marked(each.restated, 3),
+      ].join(" ");
+      const plans: Record<string, Plan> = {
+        [each.concluded]: { verdict: "supported", unstated: each.added, says: each.restated },
+        [each.elsewhere]: { verdict: "supported", uncited: each.uncited, says: each.restated },
+        [each.restated]: { verdict: "supported", says: each.restated },
+      };
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns cost", answer, [COST, COST, COST], plans),
+        [KILN_DECK],
+      );
+
+      const citations = await citationsOfAnswer(core, each.question);
+
+      expect(checkOf(citations, 1)).toMatchObject({ quote: COST, check: "unsupported" });
+      expect(checkOf(citations, 2)).toMatchObject({ quote: COST, check: "not-checked" });
+      expect(checkOf(citations, 3)).toMatchObject({ quote: COST, check: "found" });
+    },
+  );
+});
+
 describe("an Answer works at once, and its Citations wait for their sentences' judgement", () => {
   const ANSWER = "Installation is planned for February 2027[^1].";
   const ANSWER_ZH = "窑炉计划在 2027 年 2 月安装[^1]。";
@@ -350,7 +400,7 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       ).toMatchObject([{ marker: 1, check: "not-checked" }]);
       expect(
         await judged(
-          '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The slide says so."}]}',
+          '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","unstated":null,"uncited":null,"says":"The slide says so."}]}',
         ),
       ).toMatchObject([{ marker: 1, check: "found" }]);
     },

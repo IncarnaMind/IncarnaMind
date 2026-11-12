@@ -50,10 +50,15 @@ export interface BatchVerdict {
   /** Whether it has happened or is still to happen, as the Passages say it. */
   time: "same" | "differs";
   /**
-   * Whether the words it cites say what it says, or stop before it or are about another claim
-   * though a Passage may say it elsewhere (#2739): a Citation shows those words beside its check.
+   * Its words, as the model copied them, that no Passage states: an inference, a negative or a
+   * promise added to a Passage's fact (#3003). Null when a Passage states every part of it.
    */
-  quoted: "states" | "other";
+  unstated: string | null;
+  /**
+   * Its words, as the model copied them, that the words it cites don't say though another part of
+   * a Passage does (#2739): a Citation shows those words beside its check. Null when they say it all.
+   */
+  uncited: string | null;
   says: string | null;
 }
 
@@ -69,17 +74,18 @@ export const sentenceBatchInstructions = (language: Language): string =>
     "For each numbered sentence, decide one verdict from the Passages given:",
     "- supported: the Passages establish what the sentence says: each figure, date, name and outcome in it, who does it for or to whom, and must where it says must, may where it says may. Read a table's numbers by its column headings.",
     "- contradicted: a Passage gives another value for the very thing the sentence states: the same subject and the same detail, so the Document and the sentence can't both be true.",
-    "- unsupported: the Passages don't state it either way. A vaguer or partial match isn't support, nor is a Passage about another item, period, site or person, one that says something else happened, or one the sentence adds a detail to. A price that includes something isn't the price of that thing alone.",
+    "- unsupported: the Passages don't state it either way. A vaguer or partial match isn't support, nor is a Passage about another item, period, site or person, one that says something else happened, or one the sentence adds a detail to. A price that includes something isn't the price of that thing alone. A sentence with unstated words is unsupported.",
     "A prediction is not a certain future event, and two events the Passages state don't establish a cause the sentence asserts between them: both are unsupported.",
     "",
     'kind: "fact" when the sentence asserts something the Documents could support or contradict, a statement attributed to someone included; "opinion" only when all of it is the writer\'s own opinion, advice or interpretation.',
     'roles: "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may; otherwise "same".',
     'time: "differs" only when one says it has already happened and the other that it is still to happen (already installed, installation in February); otherwise "same", a date only one of them gives included.',
-    'quoted: "states" when the words the sentence cites, read in their Passage, say what it says, in other words or another language included; "other" when they don\'t: they stop before its figure, date or clause, or are about another claim, even where another part of a Passage says it.',
+    "unstated: the sentence's own words, copied as written, that no Passage states: a conclusion drawn from a Passage's fact, a negative or a limit the Passage doesn't give, or a promise, offer or plan added to it. Copy only those words, and null when a Passage states every part of the sentence. Words that say what a Passage says, in other words or another language, are stated, and so is what two Passages say together.",
+    "uncited: the sentence's own words, copied as written, that the words it cites don't say, read in their Passage, though another part of a Passage does: the cited words stop before its figure, date or clause, or are about another claim. Copy only those words, and null when the words it cites, all its quotes together, say every part of it, in other words or another language included.",
     `says: one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Passages say about the sentence's own detail, whatever language the sentence and the Passages are in. Never mention the Passages, the Citations or how you read them.`,
     "",
     "Reply with JSON only, one entry for each sentence, in their order:",
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"…"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","unstated":null,"uncited":null,"verdict":"supported","roles":"same","time":"same","says":"…"}]}',
   ].join("\n");
 
 /** Whether a request's instructions are a batch's, in any interface language. */
@@ -127,10 +133,11 @@ export const batchPrompt = (sentences: readonly BatchSentence[]): string =>
 /** Every field of a sentence's entry, each one of its words: none is filled in when it's left out. */
 const ENTRY = {
   kind: word("fact", "opinion"),
+  unstated: textOrNull,
+  uncited: textOrNull,
   verdict: word("supported", "unsupported", "contradicted"),
   roles: word("same", "differs"),
   time: word("same", "differs"),
-  quoted: word("states", "other"),
   says: textOrNull,
 };
 
@@ -150,7 +157,12 @@ export function readBatch(value: unknown, count: number): Map<number, BatchVerdi
   for (const [number, entry] of byKey(entries, (each) => whole(each.number))) {
     const fields = fieldsOf(entry, ENTRY);
     if (number < 1 || number > count || !fields) continue;
-    read.set(number, { ...fields, says: fields.says?.trim() || null });
+    read.set(number, {
+      ...fields,
+      unstated: fields.unstated?.trim() || null,
+      uncited: fields.uncited?.trim() || null,
+      says: fields.says?.trim() || null,
+    });
   }
   return read;
 }

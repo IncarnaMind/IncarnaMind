@@ -685,10 +685,11 @@ function allSupported(prompt: string): string {
     sentences: numbers.map((number) => ({
       number,
       kind: "fact",
+      unstated: null,
+      uncited: null,
       verdict: "supported",
       roles: "same",
       time: "same",
-      quoted: "states",
       says: "The Document says so.",
     })),
   });

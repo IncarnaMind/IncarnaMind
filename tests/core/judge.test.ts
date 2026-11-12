@@ -81,7 +81,7 @@ const QUESTIONS: Record<
   "sentence-batch": {
     reply: json((value) => readBatch(value, 1)),
     right:
-      '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The lease says so."}]}',
+      '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","unstated":null,"uncited":null,"says":"The lease says so."}]}',
     read: new Map([
       [
         1,
@@ -90,7 +90,8 @@ const QUESTIONS: Record<
           verdict: "supported",
           roles: "same",
           time: "same",
-          quoted: "states",
+          unstated: null,
+          uncited: null,
           says: "The lease says so.",
         },
       ],

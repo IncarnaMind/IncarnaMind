@@ -30,6 +30,9 @@ export const SAME_DETAIL = "Duty: none / none, same\nCondition: none / none, sam
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
+  /** The words a batch copies as stated by no Passage (#3003), or as not said by the cited words (#2739). */
+  unstated?: string;
+  uncited?: string;
   /** What else the sentence asserts beside its Analysis's figures, as a model gives it, and its verdict. */
   remainder?: { text: string; verdict: "supported" | "unsupported" } | "left out";
   /** Whether the sentence names each Analysis figure as its label and rule say: same when absent; null leaves it out. */

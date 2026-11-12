@@ -32,17 +32,18 @@ function batchSentences(prompt: string): { number: number; quoted: string }[] {
   ].map(([, number, cites = ""]) => ({ number: Number(number), quoted: cites }));
 }
 
-/** The judge as a careful reader: supported as `each` says, its quoted words stating it only when they hold its claim's words. */
+/** The judge as a careful reader: supported as `each` says, copying the claim's words its quoted words don't hold. */
 function judge(each: Case) {
   return (call: GenerateCall): GeneratedReply => ({
     text: JSON.stringify({
       sentences: batchSentences(call.prompt).map(({ number, quoted }) => ({
         number,
         kind: "fact",
+        unstated: null,
+        uncited: each.states.filter((words) => !holds(quoted, words)).join(" ") || null,
         verdict: each.verdict ?? "supported",
         roles: "same",
         time: "same",
-        quoted: each.states.every((words) => holds(quoted, words)) ? "states" : "other",
         says: "The Document says so.",
       })),
     }),

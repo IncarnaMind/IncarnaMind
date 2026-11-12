@@ -12,7 +12,8 @@ const entry = (number: number, verdict: string) => ({
   verdict,
   roles: "same",
   time: "same",
-  quoted: "states",
+  unstated: null,
+  uncited: null,
   says: "The schedule says so.",
 });
 
@@ -71,32 +72,53 @@ describe("a batch's reply", () => {
 
   test.each([
     '{"sentences":[{"number":1,"verdict":"supported"}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"different","time":"same","says":"The slide says so."}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","says":"幻灯片这样写。"}]}',
-    '{"sentences":[{"number":1,"kind":"Fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"幻灯片这样写。"}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"yes","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","unstated":null,"uncited":null,"verdict":"supported","roles":"different","time":"same","says":"The slide says so."}]}',
+    '{"sentences":[{"number":1,"kind":"fact","unstated":null,"uncited":null,"verdict":"supported","roles":"same","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"Fact","unstated":null,"uncited":null,"verdict":"supported","roles":"same","time":"same","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","uncited":null,"verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+    '{"sentences":[{"number":1,"kind":"fact","unstated":null,"verdict":"supported","roles":"same","time":"same","says":"幻灯片这样写。"}]}',
+    '{"sentences":[{"number":1,"kind":"fact","unstated":false,"uncited":null,"verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
   ])(
-    "an entry whose kind, roles, time or quoted is missing or not one of its words is left unjudged, never same (#2816, #2739): %s",
+    "an entry whose kind, roles, time, unstated or uncited is missing or not one of its words is left unjudged, never same (#2816, #2739, #3003): %s",
     async (reply) => {
       expect((await readBatchReply(reply, 1)).has(1)).toBe(false);
     },
   );
 
   test.each([
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The slide says so."}]}',
-    '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"other","says":"幻灯片这样写。"}]}',
-  ])("an entry with every field is judged (#2816): %s", async (reply) => {
-    const entry = JSON.parse(reply).sentences[0];
-    expect((await readBatchReply(reply, 1)).get(1)).toEqual({
-      kind: "fact",
-      verdict: "supported",
-      roles: "same",
-      time: "same",
-      quoted: entry.quoted,
-      says: entry.says,
-    });
-  });
+    {
+      reply:
+        '{"sentences":[{"number":1,"kind":"fact","unstated":null,"uncited":null,"verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+      unstated: null,
+      uncited: null,
+    },
+    {
+      reply:
+        '{"sentences":[{"number":1,"kind":"fact","unstated":"因此周末不营业","uncited":" ","verdict":"supported","roles":"same","time":"same","says":"幻灯片这样写。"}]}',
+      unstated: "因此周末不营业",
+      uncited: null,
+    },
+    {
+      reply:
+        '{"sentences":[{"number":1,"kind":"fact","unstated":"","uncited":"as the board decided","verdict":"supported","roles":"same","time":"same","says":"The slide says so."}]}',
+      unstated: null,
+      uncited: "as the board decided",
+    },
+  ])(
+    "an entry with every field is judged, the words it copies kept and an empty copy read as none (#2816, #3003): $reply",
+    async ({ reply, unstated, uncited }) => {
+      const entry = JSON.parse(reply).sentences[0];
+      expect((await readBatchReply(reply, 1)).get(1)).toEqual({
+        kind: "fact",
+        verdict: "supported",
+        roles: "same",
+        time: "same",
+        unstated,
+        uncited,
+        says: entry.says,
+      });
+    },
+  );
 
   test("a clean batch's entries are each judged", async () => {
     const reply = JSON.stringify({

@@ -165,8 +165,11 @@ async function supportOf(
   if (!verdict || verdict.kind === "opinion") return null;
   if (verdict.verdict === "contradicted") return { check: "contradicted", verdict: verdict.says };
   // Who does it, and whether it has happened, as Roles and Time do in a sentence's own check (#1668).
+  // Words no Passage states make it unsupported whatever verdict came with them: the verdict alone
+  // passed a conclusion or a promise added to a quoted fact (#3003).
   if (
     verdict.verdict === "unsupported" ||
+    verdict.unstated !== null ||
     verdict.roles === "differs" ||
     verdict.time === "differs"
   ) {
@@ -174,7 +177,7 @@ async function supportOf(
   }
   // A Citation shows its words beside the check: a sentence they don't state is never green,
   // whatever another part of the Passage says (#2739).
-  if (verdict.quoted === "other") return null;
+  if (verdict.uncited !== null) return null;
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
