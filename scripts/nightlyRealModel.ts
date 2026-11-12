@@ -118,7 +118,9 @@ const STATUS =
 /** The status in the core's own line for a failure, `invalid-key (401)`. */
 const KIND_STATUS = /[a-z] \(([1-5]\d\d)\)/;
 
-/** The AI SDK's errors whose message is what a provider answered. */
+const NO_ANSWER = /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i;
+
+/** The AI SDK's errors whose message is what a provider answered, a refused connection excepted. */
 const PROVIDER_ERROR =
   /\b(?:AI_)?(?:APICall|Retry|JSONParse|TypeValidation|InvalidResponseData)Error\b/;
 
@@ -133,7 +135,9 @@ function answered(text: string): string | null {
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
   if (status >= 500) return `failed: status ${status}`;
-  if (PROVIDER_ERROR.test(text)) return "failed: the provider answered with an error";
+  if (PROVIDER_ERROR.test(text) && !NO_ANSWER.test(text)) {
+    return "failed: the provider answered with an error";
+  }
   return null;
 }
 
@@ -146,9 +150,7 @@ function classify(text: string): string | null {
   const answer = answered(text);
   if (answer) return answer;
   if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
-  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) {
-    return "failed: no answer from the provider";
-  }
+  if (NO_ANSWER.test(text)) return "failed: no answer from the provider";
   if (/^\s*(?:AssertionError|expected )/.test(text)) return "failed: an expectation did not hold";
   return null;
 }
@@ -157,12 +159,16 @@ function classify(text: string): string | null {
 export const describeFailure = (text: string): string =>
   classify(text) ?? "failed: see the job's log";
 
+/** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
+const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
+
 /**
  * A line of a step's output as the job's log shows it: a line that quotes a provider's answer
  * becomes its status and our words, every other line stays as it is.
  */
 export function inTheLog(line: string): string {
-  const answer = answered(stripVTControlCharacters(line));
+  const plain = stripVTControlCharacters(line);
+  const answer = TEST_LINE.test(plain) ? null : answered(plain);
   return answer ? `(a provider's words left out) ${answer}` : line;
 }
 

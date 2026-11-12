@@ -721,6 +721,11 @@ describe("a provider's words stay out of the summary and the log", () => {
       "refused: status 401",
       "failed: the provider answered with an error",
     ]);
+    expect(
+      describeFailure(
+        "AI_APICallError: Cannot connect to API: connect ECONNREFUSED example.test:443",
+      ),
+    ).toBe("failed: no answer from the provider");
     expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
       "refused: out of credit (status 402)",
     );
@@ -909,6 +914,10 @@ describe("a provider's words stay out of the summary and the log", () => {
       "Error: Tagging didn't settle within 120000 ms.",
       "Error: Request to the provider timed out after 30000 ms",
       "TypeError: fetch failed",
+      "AI_APICallError: Cannot connect to API: connect ECONNREFUSED example.test:443",
+      " ✓ tests/live/providers.live.test.ts > refuses with HTTP 429 and says so 10ms",
+      " \u001b[31m×\u001b[39m tests/live/providers.live.test.ts > an HTTP 503 is retried",
+      " FAIL  tests/live/providers.live.test.ts > kimi, live > an out of credit key is refused",
       "      Tests  1 failed | 7 skipped (8)",
       "The first request to Kimi got status 200.",
       '{"set":"walk","language":"zh","model":"claude-haiku-5-5","run":1,"result":"failed","error":"not-checked"}',
