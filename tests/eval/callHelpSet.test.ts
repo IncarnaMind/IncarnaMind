@@ -94,7 +94,7 @@ function judging(
 
 /**
  * Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says,
- * on `arm`: the branch's path, or main's, whose ✓ needs only a found quote.
+ * on `arm`: the judged marks, or the quote-only ones, whose ✓ needs only a found quote.
  */
 async function pressed(
   id: string,
@@ -218,7 +218,7 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
   });
 
-  test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on main's ✓, and the branch's check withholds it", async () => {
+  test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on a quote-only ✓, and the sentence check withholds it", async () => {
     const judge = { grade: "wrong", unstated: [1] };
     const main = (await pressed("en-answer-sso", TEAM, judge, "help-marks-quote-only")).run;
     const branch = (await pressed("en-answer-sso", TEAM, judge)).run;

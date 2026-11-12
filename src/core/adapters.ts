@@ -1386,7 +1386,7 @@ export interface CoreAdapters {
   quotesAsGiven?: () => boolean | undefined;
   /**
    * Whether call help's Citations take their ✓ from their found quotes alone, its sentences not
-   * judged, as before #2847; unset, they are judged as an Answer's are. Only tests and the
+   * judged; unset, they are judged as an Answer's are (#2847). Only tests and the
    * evaluation pass one.
    */
   helpMarksQuoteOnly?: () => boolean | undefined;

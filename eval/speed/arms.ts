@@ -39,7 +39,7 @@ export interface Arm {
   helpFormJudged?: boolean;
   /** Whether found quotes show as the model gave them, as before #2739; unset: their whole sentences. */
   quotesAsGiven?: boolean;
-  /** Whether call help's ✓ comes from a found quote alone, its sentences not judged, as before #2847; unset: judged. */
+  /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
   helpMarksQuoteOnly?: boolean;
 }
 
@@ -187,7 +187,7 @@ export const ARMS: readonly Arm[] = [
   },
   {
     id: "help-marks-quote-only",
-    label: "call help's ✓ beside every found quote, its sentences not judged, as before #2847",
+    label: "call help's ✓ beside every found quote, its sentences not judged",
     helpMarksQuoteOnly: true,
   },
   {
