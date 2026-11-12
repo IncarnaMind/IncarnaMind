@@ -481,7 +481,8 @@ const writeCall: AnswerToolCall = {
   input: {},
   status: "done",
   resultCount: null,
-  mindChange: { mindId: "q3", created: false, request: "r1", proposals: 2 },
+  // The app records the paragraphs an add wrote: with none, the record read as nothing written (#2970).
+  mindChange: { mindId: "q3", created: false, request: "r1", proposals: 2, paragraphs: 2 },
 };
 
 const renameCommand: AnswerToolCall = {

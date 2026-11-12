@@ -267,7 +267,7 @@ describe("A reply that says it changed what only the User changes (#2407)", {
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("没有, 未, 没能, 无法 or 尚未 before a verb");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("「已在笔记中标出」");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
-      "never flag a sentence saying sentences in that Note were marked, flagged, noted",
+      "such as sentences in that Note marked, flagged, noted, not supported",
     );
   });
 });
