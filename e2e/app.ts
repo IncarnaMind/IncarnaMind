@@ -2977,6 +2977,44 @@ export async function tabTo(window: Page, target: Locator, max = 40): Promise<vo
 }
 
 /**
+ * An estimate's price says where it comes from through the app's shared tip (#1257). Tab reaches the
+ * price, backwards from `next`, the control after it, and the tip shows `words` at once, drawn above
+ * whatever it opens over, a sheet or a card; Esc puts away only the tip, so the focus stays on the
+ * price. Where nothing focusable follows the price, pass no `next` and the price takes the focus
+ * directly. The price has no native title, which would be a second tip.
+ */
+export async function expectEstimateTip(
+  window: Page,
+  price: Locator,
+  words: RegExp,
+  next?: Locator,
+): Promise<void> {
+  await expect(price).not.toHaveAttribute("title", /.+/);
+  if (next) {
+    await next.focus();
+    await window.keyboard.press("Shift+Tab");
+  } else {
+    await price.focus();
+  }
+  await expect(price).toBeFocused();
+  const tip = window.getByRole("tooltip");
+  await expect(tip).toHaveText(words);
+  await motionSettled(window);
+  await expect
+    .poll(() =>
+      tip.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return top !== null && element.contains(top);
+      }),
+    )
+    .toBe(true);
+  await window.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  await expect(price).toBeFocused();
+}
+
+/**
  * Whether the focused control shows DESIGN.md's ring: a solid 2px accent outline, its own or,
  * for the main button of a sidebar row, its row's.
  */
