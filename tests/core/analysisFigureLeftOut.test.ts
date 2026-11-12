@@ -37,6 +37,9 @@ const WORDS = {
     plain: "Write the growth into the note as a plain number.",
     second: (number: string) => `There were ${number} loans in February.`,
     swap: "Update the growth sentence and the February sentence.",
+    waiting: "Put the number into the growth sentence you wrote.",
+    takeOut: "Take out the branch loans sentence you wrote.",
+    cut: "Delete the sentence about how much branch loans grew.",
     quarter: (n: number, said: string) => `Q${n} growth ${said}.`,
     was: (marker: string) => `was ${marker}`,
     cameTo: (number: string) => `came to ${number}`,
@@ -65,6 +68,9 @@ const WORDS = {
     plain: "把增长率直接写成数字放进笔记。",
     second: (number: string) => `二月借阅 ${number} 次。`,
     swap: "更新增长率那句和二月那句。",
+    waiting: "把数字写进你刚写的增长率那句。",
+    takeOut: "把你刚写的分馆借阅量那句删掉。",
+    cut: "删掉说分馆借阅量上升多少的那句。",
     quarter: (n: number, said: string) => `${["一", "二", "三"][n - 1]}季度增长率${said}。`,
     was: (marker: string) => `为 ${marker}`,
     cameTo: (number: string) => `达到 ${number}`,
@@ -173,6 +179,8 @@ async function written(
   content: string,
   /** What the Answer asked `swap` writes as its own text's new content, over `part`, or the whole Note. */
   swap: { content: string; part?: string; removesOnly?: boolean } = { content: "" },
+  /** Whether the Note's text is accepted; else it waits for the User, the Answer's own change. */
+  accept = true,
 ) {
   const words = WORDS[language];
   /** The sentences each Check sent to be sorted into claims, the latest last. */
@@ -188,6 +196,8 @@ async function written(
       // Asked to put the number in, it writes the number where the words were.
       if (passage !== undefined && call.prompt.includes(words.put))
         return { text: passage.replace(words.mark, "8.0%") };
+      if (passage !== undefined && call.prompt.includes(words.cut))
+        return { text: passage.replace(words.split(words.mark)[0], "").trim() };
       if (passage !== undefined) return { text: tidy(passage) };
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -245,6 +255,23 @@ async function written(
                   times_as_long: 1,
                   removes_only: false,
                 },
+              },
+            ],
+          };
+        return { text: language === "en" ? "Done." : "已完成。" };
+      }
+      const overWaiting = call.prompt.includes(words.waiting)
+        ? { part: words.part, instruction: words.put, removes_only: false }
+        : call.prompt.includes(words.takeOut)
+          ? { part: words.splitPart, instruction: words.cut, removes_only: true }
+          : null;
+      if (overWaiting) {
+        if (!call.results.some((result) => result.tool === "edit_mind"))
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: { mind: words.title, ...overWaiting, times_as_long: 1 },
               },
             ],
           };
@@ -378,7 +405,7 @@ async function written(
   if (!change) throw new Error("The Answer made no Note.");
   const client = await connectToMind(core, change.mindId);
   await client.settled();
-  await resolveChanges(client, "accept");
+  if (accept) await resolveChanges(client, "accept");
   const lines = () =>
     client.blocks
       .toArray()
@@ -673,6 +700,42 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
       });
       expect(edits.map((call) => call.status)).toEqual(["done"]);
       expect(paragraphs.at(-1)).toBe(words.joined(MARK));
+    });
+  });
+
+  describe("Edit with AI over the Answer's own text still waiting", () => {
+    /** Asks `question` over the Note `content` writes, left waiting, then accepts what it comes to. */
+    async function overWaiting(content: string, question: string) {
+      const { core, mindId, conversationId } = await written(
+        language,
+        FIRST_MONTH_BLANK,
+        content,
+        { content: "" },
+        false,
+      );
+      const answer = await askAssistant(core, { conversationId, text: question, mindId, analyse: true });
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      await resolveChanges(client, "accept");
+      await client.settled();
+      const edits = answer.toolCalls.filter((call) => call.tool === "edit_mind");
+      const last = client.blocks.toArray().at(-1);
+      core.close();
+      return { edits, line: last instanceof Y.XmlElement ? shown(last) : null };
+    }
+
+    test("a change that types digits where the mark was is refused, and the text keeps its mark", async () => {
+      const { edits, line } = await overWaiting(words.sentence("[=1]"), words.waiting);
+      expect(edits.map((call) => call.status)).toEqual(["failed"]);
+      expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+      expect(line).toBe(words.sentence(MARK));
+    });
+
+    test("asked only to take text out, a change that takes the mark's sentence out lands", async () => {
+      const [growthSentence, sales] = words.split("[=1]");
+      const { edits, line } = await overWaiting(`${growthSentence} ${sales}`, words.takeOut);
+      expect(edits.map((call) => call.status)).toEqual(["done"]);
+      expect(line).toBe(sales);
     });
   });
 

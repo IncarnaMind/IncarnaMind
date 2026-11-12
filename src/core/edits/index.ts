@@ -1265,6 +1265,7 @@ export function createEdits(options: EditsOptions) {
           const doc = mind.doc;
           return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
         });
+      const placesBefore = paragraphPlaces(blocks, request);
       const written = reading.doc.transact(() => {
         const fresh = freshCitations(selection, options.recheck, input.mindId)(reply);
         // Only the call's own word sets a reply aside: an inherited one only holds it (#2356).
@@ -1276,7 +1277,10 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       const after = acceptedText(stretch(), request);
-      const refused = refusalOf(written);
+      const takesMark = takesMissingNumber(placesBefore, paragraphPlaces(blocks, request), {
+        removesOnly: input.removesOnly === true,
+      });
+      const refused = refusalOf(takesMark ? { ...written, takesMissingNumber: true } : written);
       if (refused) return nothing(refusedAs(refused, textOf(reply, named)));
       if (written.proposals.length === 0 || written.onlyAside)
         return nothing({
