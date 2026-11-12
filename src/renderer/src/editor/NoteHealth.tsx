@@ -81,7 +81,7 @@ const NO_HEALTH: Health = {
   unexamined: [],
 };
 
-/** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
+/** A count's words with the number in bold, as the card's rows show it: "**3** not checked". */
 export function Counted({ text, count }: { text: string; count: string }) {
   const at = text.indexOf(count);
   if (at < 0) return <>{text}</>;
