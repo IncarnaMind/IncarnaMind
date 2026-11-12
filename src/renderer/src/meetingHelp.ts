@@ -45,7 +45,18 @@ export const useMeetingHelp = create<HelpState>()(() => ({
   panel: { shown: false, folded: false, pinned: false },
 }));
 
+/**
+ * A press asked, by Meeting: the Answer of the help its Meeting had before it. A call's reply can
+ * arrive before the event with the Meeting's new help (#3005), so the press keeps its outline until
+ * the help changes rather than showing the one before again.
+ */
+const answered = new Map<string, string | null>();
+
+const helpAnswerOf = (meetingId: string): string | null =>
+  useMeetings.getState().meetings.find((each) => each.id === meetingId)?.help?.answerId ?? null;
+
 function settle(meetingId: string, blocked?: HelpState["blocked"][string]): void {
+  answered.delete(meetingId);
   useMeetingHelp.setState((state) => {
     const { [meetingId]: _pending, ...pending } = state.pending;
     const { [meetingId]: _blocked, ...rest } = state.blocked;
@@ -63,14 +74,22 @@ core.on("chatReadiness.changed", (readiness) => {
   }));
 });
 
-// A press on a Meeting that has since stopped leaves no outline behind.
-useMeetings.subscribe((state) => {
+/** A press's outline goes once its Meeting has the help it asked for, and with a Meeting that stopped. */
+function settleAsked(meetings: readonly Meeting[]): void {
   const { pending } = useMeetingHelp.getState();
   for (const meetingId of Object.keys(pending)) {
-    const meeting = state.meetings.find((each) => each.id === meetingId);
+    const meeting = meetings.find((each) => each.id === meetingId);
     if (!isLive(meeting)) settle(meetingId);
+    else if (
+      answered.has(meetingId) &&
+      (meeting.help?.answerId ?? null) !== answered.get(meetingId)
+    ) {
+      settle(meetingId);
+    }
   }
-});
+}
+
+useMeetings.subscribe((state) => settleAsked(state.meetings));
 
 /**
  * Asks for a button's help (`AskMeetingHelpInput`); resolves to the conversation and Answer, or
@@ -81,6 +100,8 @@ export async function askHelp(
   kind: MeetingHelpKind,
   conversationId?: string | null,
 ): Promise<{ conversationId: string; answerId: string } | null> {
+  const before = helpAnswerOf(meeting.id);
+  answered.delete(meeting.id);
   useMeetingHelp.setState((state) => ({
     pending: { ...state.pending, [meeting.id]: kind },
     blocked: Object.fromEntries(
@@ -102,7 +123,8 @@ export async function askHelp(
       );
       return null;
     }
-    settle(meeting.id);
+    answered.set(meeting.id, before);
+    settleAsked(useMeetings.getState().meetings);
     return { conversationId: result.conversation.id, answerId: result.answerId };
   } catch (error) {
     settle(meeting.id, { message: errorMessage(error, translateNow) });

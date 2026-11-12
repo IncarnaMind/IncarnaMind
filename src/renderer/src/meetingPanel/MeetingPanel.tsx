@@ -417,7 +417,17 @@ function Latest({
     );
   }
   if (!meeting.help) return null;
-  return <Suggestion meeting={meeting} help={meeting.help} pinned={pinned} onPin={onPin} />;
+  // A help asked in the app's window replaces this one with no press here: what was added to the
+  // note, and its Undo, stay with the suggestion they were for.
+  return (
+    <Suggestion
+      key={meeting.help.answerId}
+      meeting={meeting}
+      help={meeting.help}
+      pinned={pinned}
+      onPin={onPin}
+    />
+  );
 }
 
 function Suggestion({
