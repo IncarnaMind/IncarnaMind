@@ -8,7 +8,7 @@ import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
 import { buttonStyle } from "../components/ui";
-import { type EstimateLine, runStopParts } from "../cost";
+import { type EstimateLine, estimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { useWrittenInNote } from "../writtenChecks";
@@ -76,8 +76,11 @@ export function MindCheckAsk({ mindId }: { mindId: string }) {
         count,
       })}
       estimate={
-        asking.estimate ??
-        (asking.unestimated ? { parts: [unestimated], title: unestimated } : null)
+        asking.estimate
+          ? estimateLine(asking.estimate, t, language)
+          : asking.unestimated
+            ? { parts: [unestimated], title: unestimated }
+            : null
       }
       check={{
         label: t("mindCheck.check"),

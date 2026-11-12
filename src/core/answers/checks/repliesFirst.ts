@@ -14,16 +14,36 @@ export interface RepliesFirst {
   model(prepared: PreparedChatModel): PreparedChatModel;
   /** `base`, whose sleeps leave out the time a request of this check waited behind a reply. */
   timers: PaceTimers;
-  /** Aborts after `ms` of the check's time, as `timers` counts it, unless `until` aborts first. */
+  /** Aborts after `ms` of time nothing of the check waited behind a reply, unless `until` aborts first. */
   timeout(ms: number, until: AbortSignal): AbortSignal;
 }
+
+/** Settles after `ms` on the computer's clock, or rejects once `signal` aborts; never keeps the host up. */
+const sleepHere = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", stop);
+      resolve();
+    }, ms);
+    timer.unref?.();
+    const stop = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", stop, { once: true });
+  });
 
 export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers): RepliesFirst {
   let waitingNow = 0;
   let since = 0;
   let waited = 0;
+  // The same on the computer's own clock, for the limits a check keeps apart from `base`.
+  let sinceHere = 0;
+  let waitedHere = 0;
   const resumed = new Set<() => void>();
   const waitedSoFar = () => waited + (waitingNow > 0 ? base.now() - since : 0);
+  const waitedHereSoFar = () => waitedHere + (waitingNow > 0 ? Date.now() - sinceHere : 0);
 
   const free = (signal: AbortSignal) =>
     waitingNow === 0
@@ -43,13 +63,18 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
         });
 
   const behindReplies = async (provider: string, signal: AbortSignal | undefined) => {
-    if (!replies || !signal) return;
-    if (waitingNow++ === 0) since = base.now();
+    // Only a request that waits counts: one sent at once leaves the check's clocks as they run.
+    if (!replies || !signal || !replies.out(provider)) return;
+    if (waitingNow++ === 0) {
+      since = base.now();
+      sinceHere = Date.now();
+    }
     try {
       await replies.none(provider, signal);
     } finally {
       if (--waitingNow === 0) {
         waited += base.now() - since;
+        waitedHere += Date.now() - sinceHere;
         for (const resume of [...resumed]) resume();
         resumed.clear();
       }
@@ -91,10 +116,17 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
     timers,
     timeout(ms, until) {
       const timedOut = new AbortController();
-      timers.sleep(ms, until).then(
-        () => timedOut.abort(new DOMException("The check's time limit passed.", "TimeoutError")),
-        () => undefined,
-      );
+      const run = async () => {
+        let left = ms;
+        while (left > 0) {
+          const from = waitedHereSoFar();
+          await sleepHere(left, until);
+          await free(until);
+          left = waitedHereSoFar() - from;
+        }
+        timedOut.abort(new DOMException("The check's time limit passed.", "TimeoutError"));
+      };
+      run().catch(() => undefined);
       return timedOut.signal;
     },
   };

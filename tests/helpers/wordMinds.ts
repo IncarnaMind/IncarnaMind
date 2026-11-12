@@ -22,9 +22,6 @@ export async function importWordMind(
     client.doc.on("update", check);
     check();
   });
-  // Page numbers and a watermark are the Note's own choice (#1258), off here so a file nothing
-  // changed is byte for byte the one it was; the marks tests turn them on.
-  await core.setExportMarks(result.mind.id, { pageNumbers: false, watermark: "none" });
   return { mindId: result.mind.id, client };
 }
 

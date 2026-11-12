@@ -7,6 +7,8 @@
 export interface RepliesOut {
   /** Marks a reply out on `provider` until the returned function is called; a second call does nothing. */
   begin(provider: string): () => void;
+  /** Whether a reply is out on `provider` now. */
+  out(provider: string): boolean;
   /** Settles once no reply is out on `provider`, or once `stop` aborts. */
   none(provider: string, stop: AbortSignal): Promise<void>;
 }
@@ -32,6 +34,7 @@ export function createRepliesOut(): RepliesOut {
         for (const release of waiters ?? []) release();
       };
     },
+    out: (provider) => out.has(provider),
     none(provider, stop) {
       if (!out.has(provider) || stop.aborted) return Promise.resolve();
       return new Promise((resolve) => {

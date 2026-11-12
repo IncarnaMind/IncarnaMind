@@ -1,3 +1,4 @@
+import { onTestFinished } from "vitest";
 import * as Y from "yjs";
 import { type CoreBridge, MIND_CONTENT_FIELD } from "../../src/core";
 
@@ -76,4 +77,21 @@ export function typeInto(client: MindClient, index: number, offset: number, text
   const content = paragraph instanceof Y.XmlElement ? paragraph.get(0) : undefined;
   if (!(content instanceof Y.XmlText)) throw new Error(`Block ${index} isn't a paragraph.`);
   content.insert(offset, text);
+}
+
+/**
+ * A window's copy of the Mind in `doc`, kept in step as the core keeps a window's copy: each gets
+ * the other's changes only as encoded updates, so each holds only what an update carries.
+ */
+export function copyInStep(doc: Y.Doc): Y.Doc {
+  const copy = new Y.Doc();
+  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc), doc);
+  copy.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== doc) Y.applyUpdate(doc, update, copy);
+  });
+  doc.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== copy) Y.applyUpdate(copy, update, doc);
+  });
+  onTestFinished(() => copy.destroy());
+  return copy;
 }

@@ -23,6 +23,7 @@ npm run eval:speed
 - `INCARNAMIND_EVAL_SPEED_FLOWS` runs only the flows named, `_LANGUAGES` only `en` or `zh-CN`, and `_RUNS` sets how many times each runs per model and language (3 by default).
 - The ChatGPT plan signs in through a browser, which a run can't do: time it by hand in the app.
 - Run it on a quiet computer and say the load: the log gives each run's load average.
+- **Keys that refuse, with no paid request:** `INCARNAMIND_EVAL_SPEED_KEY_CELLS=<file> npm run eval:speed -- eval/speed/keyCells.speed.ts` checks a write on 48 scripted keys shaped as a rate limit, on the test's own clock (`gates/key-cells.md`). The paid gate for twelve checks at once, which these cells dropped, is `gates/check-speed-twelve.md`.
 
 ## Paired runs
 

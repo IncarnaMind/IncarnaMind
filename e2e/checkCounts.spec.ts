@@ -51,28 +51,28 @@ const WORDS = {
   en: {
     request: "Add a revenue table for checking",
     line: "Checked 22 sentences",
-    badgeWords: "Claims not checked",
-    badgeName: "Claims not checked",
+    badgeWords: "Not checked",
+    badgeName: "Not checked",
     afterBadgeWords: "1 needs a look",
     afterBadgeName: "1 needs a look",
-    toCheck: "1 claim not checked yet",
-    found: "22 Citations found",
-    unsupported: "1 claim needs a look",
-    uncited: "1 claim supported",
-    noCitation: "1 claim with no Citation",
+    toCheck: "1 not checked",
+    supported: "22 supported",
+    supportedAfter: "22 supported",
+    look: "1 needs a look",
+    uncited: "1 supported",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
     line: "已核对 22 句",
-    badgeWords: "说法未核对",
-    badgeName: "说法未核对",
+    badgeWords: "未核对",
+    badgeName: "未核对",
     afterBadgeWords: "需要留意 1 处",
     afterBadgeName: "需要留意 1 处",
-    toCheck: "1 条说法待核对",
-    found: "22 处引用已找到",
-    unsupported: "1 条说法需要留意",
-    uncited: "1 条说法有依据",
-    noCitation: "1 条说法没有引用",
+    toCheck: "1 句未核对",
+    supported: "22 句有依据",
+    supportedAfter: "22 句有依据",
+    look: "1 句需要留意",
+    uncited: "1 句有依据",
   },
 } as const;
 
@@ -136,16 +136,22 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(badge.locator(".check-badge-words")).toHaveText(words.badgeWords);
     await screenshot(window, `check-counts-line-${language}`);
 
-    // Its card counts what is left: the Note's old text alone, none of the write's table cells.
+    // Its card counts each sentence once (#2831): the 22 the write checked supported, none of its
+    // table cells left, the Note's old text alone not checked, and no row of Citations.
     const card = await checkCard(window);
-    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await expect(card.getByTestId("health-toCheck")).toContainText(
+      new RegExp(`(?:^|\\D)${words.toCheck}`),
+    );
     await expect(card.getByTestId("health-table-cells")).toHaveCount(0);
-    await expect(card.getByTestId("health-found")).toContainText(words.found);
+    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    await expect(card.getByTestId("health-found")).toHaveCount(0);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
     await screenshot(window, `check-counts-card-${language}`);
     // The card holds at a narrow window too.
     await setWindowSize(app, window, 900, 720);
-    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await expect(card.getByTestId("health-toCheck")).toContainText(
+      new RegExp(`(?:^|\\D)${words.toCheck}`),
+    );
     await screenshot(window, `check-counts-card-${language}-narrow`);
     await setWindowSize(app, window, 1440, 900);
     await expect(card).toBeVisible();
@@ -161,7 +167,8 @@ for (const language of ["en", "zh-CN"] as const) {
     // What needs a look still shows, so the card never says everything is checked (#1909): every
     // cell is Supported, each figure bound to the row its label names, after the write as after
     // the Check (#1459), and the Note's old sentence with no Citation needs a look.
-    await expect(done.getByTestId("health-unsupported")).toContainText(words.unsupported);
+    await expect(done.getByTestId("health-look")).toContainText(words.look);
+    await expect(done.getByTestId("health-supported")).toContainText(words.supportedAfter);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
       new RegExp(words.afterBadgeName),
@@ -171,7 +178,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(done).toHaveCount(0);
 
-    // A clean check: one sentence the Documents support, still to cite, so the card names that (#1941).
+    // A clean check: one sentence the Documents support, still to cite: supported, and done.
     await newMind(window);
     const clean = window.getByTestId("mind-editor");
     await clean.click();
@@ -183,10 +190,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-unsupported")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-all-checked")).toHaveCount(0);
-    await expect(allDone.getByTestId("health-summary")).toHaveText(words.uncited);
-    await expect(allDone.getByTestId("health-noCitation")).toContainText(words.noCitation);
+    await expect(allDone.getByTestId("health-look")).toHaveCount(0);
+    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831).
+    await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
+    await expect(allDone.getByTestId("health-supported")).toContainText(words.uncited);
+    await expect(allDone.getByTestId("health-noCitation")).toHaveCount(0);
     await screenshot(window, `check-counts-all-${language}`);
     await app.close();
   });

@@ -608,7 +608,7 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
   );
 });
 
-describe("a count of periods in a sentence the Answer check judges (#2943)", () => {
+describe("a count of periods in a sentence the Answer check judges (#2943, #2953)", () => {
   const citing = (quote: string): Citation => ({
     passageId: "passage-1",
     documentId: "document-1",
@@ -681,7 +681,6 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
   test.each([
     ["Revenue grew 5% in the FY24 year-end results.", "FY24 revenue grew 5%."],
     ["Revenue grew 5% in the FY2024 year.", "FY2024 revenue grew 5%."],
-    ["It ran for 1e3 days.", "It ran for 7 days."],
   ])("a number that starts inside a word is no count: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
@@ -691,8 +690,440 @@ describe("a count of periods in a sentence the Answer check judges (#2943)", () 
     ["It ran for 9007199254740993 days.", "It ran for 9007199254740993 days."],
     ["It ran for four five days.", "It ran for 45 days."],
     ["It slipped by -3 days.", "It slipped by 3 days."],
+    ["It ran for 1e3 days.", "It ran for 7 days."],
+    ["It ran for 1e3 days.", "It ran for 1e3 days."],
+    ["It ran for 1.5E+3 days.", "It ran for 1500 days."],
     ["它运行了9007199254740993天。", "它运行了12天。"],
   ])("a count that cannot be read is never a pass: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(true);
   });
+
+  test.each([
+    ["It ran for 3-5 days.", "It ran for 2-5 days."],
+    ["It ran for 3-5 days.", "It ran for 3-6 days."],
+    ["It ran for 3 to 5 days.", "It ran for 2 to 5 days."],
+    ["It ran for between 3 and 5 days.", "It ran for between 2 and 5 days."],
+    ["It ran for three to five days.", "It ran for two to five days."],
+    ["It ran for between three and five days.", "It ran for between two and five days."],
+    ["It ran for 4 days.", "It ran for 3-5 days."],
+    ["它运行了3-5天。", "它运行了2-5天。"],
+    ["它运行了3至5天。", "它运行了2至5天。"],
+    ["它运行了三到五天。", "它运行了二到五天。"],
+    ["它运行了4天。", "它运行了3-5天。"],
+    ["年龄22至59周岁的员工自动加入。", "年龄22至50周岁的员工自动加入。"],
+    ["公司成立5周年。", "公司成立10周年。"],
+    ["It ran for between three hundred and four hundred days.", "It ran for 200 to 400 days."],
+    ["It ran for between one thousand and two thousand days.", "It ran for 1,000 to 3,000 days."],
+    ["It ran for between one and two years.", "It ran for between one and three years."],
+    ["It ran for between 1 and 2 years.", "It ran for between 1 and 3 years."],
+    ["它持续了一到两年。", "它持续了一到三年。"],
+    ["它持续了1到2年。", "它持续了1到3年。"],
+    ["它持续了一至两年。", "它持续了二至两年。"],
+  ])("a range is held to both ends: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 3-5 days.", "It ran for 3-5 days."],
+    ["It ran for 3-5 days.", "It ran for 3 to 5 days."],
+    ["It ran for 3 to 5 days.", "It ran for 3 to 5 days."],
+    ["It ran for between 3 and 5 days.", "It ran for between 3 and 5 days."],
+    ["It ran for three to five days.", "It ran for three to five days."],
+    ["It ran for between three and five days.", "It ran for between three and five days."],
+    ["它运行了3-5天。", "它运行了3-5天。"],
+    ["它运行了3至5天。", "它运行了3-5天。"],
+    ["它运行了三到五天。", "它运行了三到五天。"],
+    ["年龄22至59周岁的员工自动加入。", "年龄22至59周岁的员工自动加入。"],
+    ["公司成立5周年。", "公司成立5年。"],
+    ["项目历时3周。", "项目历时3周。"],
+    ["It ran for between three hundred and four hundred days.", "It ran for 300 to 400 days."],
+    [
+      "It ran for between three hundred and four hundred days.",
+      "It ran for between three hundred and four hundred days.",
+    ],
+    ["It ran for between one thousand and two thousand days.", "It ran for 1,000 to 2,000 days."],
+    ["It ran for between one and two years.", "It ran for between one and two years."],
+    ["It ran for between 1 and 2 years.", "It ran for between 1 and 2 years."],
+    ["It ran for between one and two years.", "It ran for between 1 and 2 years."],
+    ["它持续了一到两年。", "它持续了一到两年。"],
+    ["它持续了1到2年。", "它持续了1到2年。"],
+    ["它持续了一至两年。", "它持续了一至两年。"],
+  ])("the same range is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["You must reply within ten (10) days.", "You must reply within twenty (20) days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within 60 (sixty) days."],
+    ["You must reply within ten (20) days.", "You must reply within ten (20) days."],
+    ["You must reply within 10 (twenty) days.", "You must reply within 10 (twenty) days."],
+    ["你须在三十（20）天内答复。", "你须在三十（20）天内答复。"],
+    ["你须在30（三十）天内答复。", "你须在60（六十）天内答复。"],
+  ])("words and figures that differ are not judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["You must reply within ten (10) days.", "You must reply within ten (10) days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within 30 (thirty) days."],
+    ["You must reply within ten (10) days.", "You must reply within 10 days."],
+    ["You must reply within 30 (thirty) days.", "You must reply within thirty days."],
+    ["你须在三十（30）天内答复。", "你须在三十（30）天内答复。"],
+    ["你须在30（三十）天内答复。", "你须在30（三十）天内答复。"],
+    ["你须在三十（30）天内答复。", "你须在30天内答复。"],
+  ])("words and figures that agree are still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 2 000 days.", "It ran for 2 000 000 days."],
+    ["Reply within 5 working days or 10 days.", "Reply within 5 working days or 20 days."],
+  ])("a plain-space group is held to the Passage: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for 2 000 days.", "It ran for 2 000 days."],
+    ["It ran for 2 000 days.", "It ran for 2,000 days."],
+    ["It ran for 2 000 000 days.", "It ran for 2 000 000 days."],
+    ["Reply within 5 working days or 10 days.", "Reply within 5 working days or 10 days."],
+  ])("the same plain-space group is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It lasted 1½ years.", "It lasted 2½ years."],
+    ["It lasted 1½ years.", "It lasted 11 years."],
+    ["It lasted 1/2 year.", "It lasted 1/3 year."],
+    ["It lasted 1/2 year.", "It lasted 2 years."],
+    ["It lasted two and a half years.", "It lasted three and a half years."],
+    ["它持续了一年半。", "它持续了一年。"],
+    ["它持续了一年半。", "它持续了两年半。"],
+    ["它持续了三个半月。", "它持续了三个月。"],
+    ["他有5年半导体行业经验。", "他有10年半导体行业经验。"],
+  ])("a fraction is read as its value: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It lasted 1½ years.", "It lasted 1½ years."],
+    ["It lasted 1½ years.", "It lasted 1.5 years."],
+    ["It lasted 1½ years.", "It lasted one and a half years."],
+    ["It lasted 1 1/2 years.", "It lasted 1½ years."],
+    ["It lasted 1/2 year.", "It lasted 1/2 year."],
+    ["It lasted two and a half years.", "It lasted two and a half years."],
+    ["It lasted two and a half years.", "It lasted 2.5 years."],
+    ["它持续了一年半。", "它持续了一年半。"],
+    ["它持续了一年半。", "它持续了1.5年。"],
+    ["它持续了三个半月。", "它持续了三个半月。"],
+    ["他有5年半导体行业经验。", "他有5年半导体行业经验。"],
+    ["他有5年半导体行业经验。", "他有5年经验。"],
+  ])("the same fraction is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for 2,024 years.", "It ran for 1,024 years."],
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 4%."],
+    ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 4%."],
+    ["Revenue grew 5% at the twenty twenty-four year end.", "In 2024 revenue grew 4%."],
+    ["It is a 2000 year old tree.", "It is a 3000 year old tree."],
+  ])(
+    "a count is held to the Passage beside a year that names a period: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year end.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year-end results.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the Q3 2024 quarter.", "In Q3 2024 revenue grew 5%."],
+    ["Revenue grew 5% after a 2019 month-end close.", "In 2019 revenue grew 5%."],
+    ["Revenue grew 5% at the twenty twenty-four year end.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% at the two thousand and twenty-four year end.", "In 2024 revenue grew 5%."],
+    ["It ran for 2,024 years.", "It ran for 2,024 years."],
+    ["It is a 2000 year old tree.", "It is a 2000 year old tree."],
+  ])("a year that names a period is no count: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["It ran for a hundred days.", "It ran for two hundred days."],
+    ["It ran for a thousand years.", "It ran for two thousand years."],
+    ["It ran for a dozen years.", "It ran for twenty years."],
+  ])("a round number in words is read: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It ran for a hundred days.", "It ran for a hundred days."],
+    ["It ran for a hundred days.", "It ran for 100 days."],
+    ["It ran for a hundred days.", "It ran for one hundred days."],
+    ["It ran for a thousand years.", "It ran for 1,000 years."],
+    ["It ran for a dozen years.", "It ran for 12 years."],
+    ["It ran for several hundred years.", "It ran for several hundred years."],
+    ["It followed the Hundred Days.", "It followed the Hundred Days."],
+  ])("the same round number is still judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    [
+      "Days sales outstanding rose 20% to 45 days.",
+      "Days sales outstanding were 45 days, up 20% on the year.",
+    ],
+    [
+      "Days sales outstanding were 45 days, up 20% on the year.",
+      "Days sales outstanding rose 20% to 45 days.",
+    ],
+    ["Days sales outstanding rose 20% to 45 days.", "Days sales outstanding rose 20% to 45 days."],
+    [
+      "The notice period was reduced in 2023 to 30 days.",
+      "In 2023 the notice period was reduced to 30 days.",
+    ],
+    ["应收账款周转天数增加5%至60天。", "应收账款周转天数为60天，同比增加5%。"],
+  ])(
+    'a percentage or a year before a range\'s "to" is not its near end: %s citing %s',
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["Days sales outstanding rose 30% to 45 days.", "Days sales outstanding rose 20% to 45 days."],
+    ["Days sales outstanding rose 20% to 45 days.", "Days sales outstanding rose 20% to 60 days."],
+    [
+      "The notice period was reduced in 2023 to 60 days.",
+      "In 2023 the notice period was reduced to 30 days.",
+    ],
+    ["应收账款周转天数增加8%至60天。", "应收账款周转天数增加5%至60天。"],
+    ["应收账款周转天数增加5%至90天。", "应收账款周转天数为60天，同比增加5%。"],
+  ])(
+    "and a different percentage or count there is still not judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["It lasted two years and a half.", "It lasted two years."],
+    ["It lasted 2 years and a half.", "It lasted 2 years."],
+    ["It lasted one year and a half.", "It lasted one year."],
+    ["It lasted a year and a half.", "It lasted a year."],
+    ["It lasted a day and a half.", "It lasted a day."],
+  ])('"and a half" after the unit is part of the count: %s citing %s', async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["It lasted two years and a half.", "It lasted two and a half years."],
+    ["It lasted 2 years and a half.", "It lasted 2.5 years."],
+    ["It lasted one year and a half.", "It lasted 1.5 years."],
+    ["It lasted a year and a half.", "It lasted one and a half years."],
+    ["It lasted a day and a half.", "It lasted a day and a half."],
+  ])(
+    "and the same fraction said another way is still judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["它持续了3/4个月。", "它持续了1/2个月。"],
+    ["连续3季度增长。", "连续4季度增长。"],
+  ])(
+    "a slash between months or quarters is a name, a slash before 个月 a fraction, 连续 a count: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["5/6月销售额增长。", "5月和6月销售额增长。"],
+    ["3/4季度业绩好转。", "3季度和4季度业绩好转。"],
+    ["它持续了3/4个月。", "它持续了3/4个月。"],
+    ["连续3季度增长。", "连续3季度增长。"],
+  ])(
+    "and the same months, quarters and fractions are judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["近三年半数以上的收入来自海外。", "近五年，半数以上的收入来自海外。"],
+    ["公司有3年半成品生产经验。", "公司有5年的半成品生产经验。"],
+  ])(
+    "a 半 that starts 半数 or 半成品 is no half, and the count is held: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["近三年半数以上的收入来自海外。", "近三年，半数以上的收入来自海外。"],
+    ["公司有3年半成品生产经验。", "公司有3年的半成品生产经验。"],
+  ])("and the same count beside them is judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["乙方应在30日内付款。", "乙方应在60日内付款。"],
+    ["乙方应在30日以内付款。", "乙方应在60日以内付款。"],
+    ["乙方应在30日之内付款。", "乙方应在60日之内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在六十日内付款。"],
+    ["乙方应在30天内付款。", "乙方应在60天内付款。"],
+    ["乙方逾期超过30日的，甲方有权解除合同。", "乙方逾期超过60日的，甲方有权解除合同。"],
+    ["通知期不少于30日。", "通知期不少于60日。"],
+    ["期限为30日以上。", "期限为60日以上。"],
+    ["前两个季度收入增长。", "前三个季度收入增长。"],
+  ])("a number and 日 before 内 is a count of days: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(true);
+  });
+
+  test.each([
+    ["乙方应在30日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30日以内付款。", "乙方应在30日以内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在三十日内付款。"],
+    ["乙方应在三十日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30天内付款。", "乙方应在30天内付款。"],
+    ["乙方逾期超过30日的，甲方有权解除合同。", "乙方逾期超过30日的，甲方有权解除合同。"],
+    ["通知期不少于30日。", "通知期不少于30日。"],
+    ["期限为30日以上。", "期限为30日以上。"],
+    ["前两个季度收入增长。", "前两个季度收入增长。"],
+    ["乙方应在5月30日内付款。", "乙方应在5月30日内付款。"],
+  ])(
+    "and the same days are judged, as is a date, which is no count of days: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["The city has a 2000 year history.", "The city has a 3000 year history."],
+    ["The city has a two thousand year history.", "The city has a three thousand year history."],
+    ["The dynasty had a 2000-year reign.", "The dynasty had a 3000-year reign."],
+    ["It is a 2000 year old tree.", "It is a 3000 year old tree."],
+    ["Revenue grew 5% in the 2024 year results.", "In 2024 revenue grew 5%."],
+    ["这座城市连续2000年没有失守。", "这座城市连续3000年没有失守。"],
+  ])(
+    'a year before "year" that describes what follows is a count: %s citing %s',
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["The city has a 2000 year history.", "The city has a 2000 year history."],
+    ["The city has a two thousand year history.", "The city has a two thousand year history."],
+    ["The dynasty had a 2000-year reign.", "The dynasty had a 2000-year reign."],
+    ["It is a 2000 year old tree.", "It is a 2000 year old tree."],
+    ["Revenue grew 5% in the 2024 year results.", "Revenue grew 5% in the 2024 year results."],
+    ["Revenue grew 5% in the 2024 year.", "In 2024 revenue grew 5%."],
+    ["Revenue grew 5% in the 2024 year, then fell.", "In 2024 revenue grew 5%."],
+    ["这座城市连续2000年没有失守。", "这座城市连续2000年没有失守。"],
+  ])(
+    "and the same words, or a year that ends what it names, are judged: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    ["It ran for 3 days.", "It ran for 3-5 days."],
+    ["It ran for 3-5 days.", "It ran for 5 days."],
+    ["它运行了3天。", "它运行了3-5天。"],
+    ["它持续了二至两年。", "它持续了二至三年。"],
+    [
+      "Antibodies fell from Dose 1 to 1 Month after each dose.",
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+    ],
+  ])(
+    "a range's first number is held only against another range's first: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["It ran for 5 days.", "It ran for 3-5 days."],
+    ["它运行了5天。", "它运行了3-5天。"],
+    [
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+      "Antibodies fell from Dose 1 to 2 Month after each dose.",
+    ],
+  ])(
+    "and a single count is still held to a range's last number, as before: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
+
+  test.each([
+    [
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+      "金额单位为人民币千元，买方须在31日内支付每张发票。",
+    ],
+    [
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+      "Amounts are in thousands of pounds. Payment is due within 31 days.",
+    ],
+    ["单位：万元。按这两个季度数据计算。", "单位：万元。按这三个季度数据计算。"],
+  ])(
+    "a unit the sentence states for its amounts does not make a count unreadable, and the count is held: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    [
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+      "金额单位为人民币千元，买方须在30日内支付每张发票。",
+    ],
+    [
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+      "Amounts are in thousands of pounds. Payment is due within 30 days.",
+    ],
+    ["单位：万元。按这两个季度数据计算。", "单位：万元。按这两个季度数据计算。"],
+  ])("and the same words are judged: %s citing %s", async (claim, quote) => {
+    expect(await leftNotJudged(claim, quote)).toBe(false);
+  });
+
+  test.each([
+    ["乙方应在30个工作日内付款。", "乙方应在60个工作日内付款。"],
+    ["乙方应在30个工作日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30个工作日内付款。", "乙方应在30天内付款。"],
+    ["乙方应在30日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在30个营业日内付款。", "乙方应在30个工作日内付款。"],
+    ["股票停牌不得超过10个交易日。", "股票停牌不得超过20个交易日。"],
+    ["银行应在3个营业日内处理。", "银行应在5个营业日内处理。"],
+    ["乙方应在3至5个工作日内付款。", "乙方应在2至5个工作日内付款。"],
+    ["乙方应在三十（30）个工作日内付款。", "乙方应在六十（60）个工作日内付款。"],
+    ["乙方应在三十（20）个工作日内付款。", "乙方应在三十（20）个工作日内付款。"],
+    ["Payment is due within 30 working days.", "Payment is due within 60 working days."],
+  ])(
+    "working, business and trading days are periods of their own, held and not calendar days: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["乙方应在30个工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在30工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["股票停牌不得超过10个交易日。", "股票停牌不得超过10个交易日。"],
+    ["银行应在三个营业日内处理。", "银行应在3个营业日内处理。"],
+    ["乙方应在3至5个工作日内付款。", "乙方应在3至5个工作日内付款。"],
+    ["乙方应在三十（30）个工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在第3个工作日付款。", "乙方应在第3个工作日付款。"],
+    ["Payment is due within 30 working days.", "Payment is due within 30 working days."],
+  ])(
+    "and the same working, business and trading days are judged, a position is no count: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
 });

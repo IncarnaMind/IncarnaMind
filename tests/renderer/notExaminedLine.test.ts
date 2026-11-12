@@ -86,8 +86,12 @@ async function lineOf(language: "en" | "zh-CN", unexamined: number) {
 }
 
 describe.each([
-  ["en", "Couldn’t tell if 1 sentence is a claim", "Couldn’t tell if 3 sentences are claims"],
-  ["zh-CN", "1 句未能判断是否为说法", "3 句未能判断是否为说法"],
+  [
+    "en",
+    "Couldn’t tell whether 1 sentence needs checking",
+    "Couldn’t tell whether 3 sentences need checking",
+  ],
+  ["zh-CN", "1 句未能判断是否需要核对", "3 句未能判断是否需要核对"],
 ] as const)("the line under the check in %s", (language, one, three) => {
   test("counts one sentence and several it couldn't tell are claims, with no action of its own", async () => {
     const single = await lineOf(language, 1);
@@ -101,7 +105,7 @@ describe.each([
 
   test("says nothing of sentences it couldn't tell when there are none", async () => {
     const line = await lineOf(language, 0);
-    expect(line.textContent).toContain(language === "en" ? "Checked 2 claims" : "已核对 2 条说法");
+    expect(line.textContent).toContain(language === "en" ? "Checked 2 sentences" : "已核对 2 句");
     expect(line.textContent).not.toContain(one);
   });
 });

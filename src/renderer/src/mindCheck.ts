@@ -20,6 +20,7 @@ import type {
   CheckMindResult,
   MindCheckPlan,
   MindCheckRun,
+  RunEstimate,
   TextStretch,
 } from "../../core/api";
 import { TranslatableError } from "../../core/errors";
@@ -69,8 +70,11 @@ interface Asking {
   inFolder: boolean;
   /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
   watch: { claims: number } | null;
-  /** Null for a plan or a model on this computer, or when `estimateRun` failed. */
-  estimate: EstimateLine | null;
+  /**
+   * Null for a plan or a model on this computer, or when `estimateRun` failed. Put in words where
+   * the question is shown, so they follow the interface's language while it is open (#2831).
+   */
+  estimate: RunEstimate | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
   unestimated: boolean;
   /** A run of the Figure schedule's chosen figures: the OK checks those figures, never the whole Note. */
@@ -558,8 +562,9 @@ export const startChangedCheckAsking = (mindId: string): Promise<CheckOutcome> =
 /**
  * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
  * again. It never answers its own question: with `reply`, an asked run ends as a reply that says
- * the check waits for the User's OK on the Note; from ⌘K the card's question is the answer. A Note
- * another window checks, or is planning to, starts none, and its card says so.
+ * the check waits for the User's OK on the Note. From ⌘K or a menu the Note's card is the answer:
+ * it says how the Check went, so nothing is said again as a notice (#2831). A Note another window
+ * checks, or is planning to, starts none, and its card says so.
  */
 export async function checkFromAssistant(
   mindId: string,
@@ -569,16 +574,13 @@ export async function checkFromAssistant(
   const outcome = everySentence
     ? await startMindCheck(mindId, "all")
     : await startCheckAsking(mindId);
+  if (!reply) return;
   if (outcome?.kind === "asked") {
-    if (!reply) return;
     endAs(await answerOf(outcome.requestId));
     return;
   }
   // The Note already says it is busy; the assistant is told in the same words.
-  if (outcome?.kind === "busy") {
-    if (reply) throw new TranslatableError({ key: "edit.problem.busy" });
-    return;
-  }
+  if (outcome?.kind === "busy") throw new TranslatableError({ key: "edit.problem.busy" });
   endAs(outcome ?? null);
 }
 
@@ -780,8 +782,7 @@ async function askOrCheck(
     });
   // Nor one that started while the run was estimated.
   if (useChecks.getState().running[mindId]) return { kind: "running" };
-  const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
-  if (estimated !== null && estimate === null) {
+  if (estimated !== null && estimateLine(estimated, translateNow, languageNow()) === null) {
     started();
     return runCheck(mindId, requestId, run);
   }
@@ -796,7 +797,7 @@ async function askOrCheck(
         count: plan.sentences,
         inFolder: plan.inFolder,
         watch: run.watch,
-        estimate,
+        estimate: estimated,
         unestimated: estimated === null,
         ...(run.figureIds && { figureIds: run.figureIds }),
       },

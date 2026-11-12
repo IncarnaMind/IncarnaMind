@@ -158,6 +158,8 @@ export interface WrittenCheckOptions extends CheckRuns {
   track(requestId: string, mindId: string): { signal: AbortSignal; done(): void };
   /** Marks the request's sentences still being checked as stopped (./index `settleStopped`). */
   settleStopped(mindId: string, request: string): void;
+  /** The same for the check of a write a Redo brought back, which runs no more. */
+  settleBroughtBack(mindId: string, request: string): void;
   /** How far a check is, as its marks land, and once more as it ends. */
   progress(event: WrittenCheckProgress): void;
 }
@@ -924,7 +926,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       done.undone = undone;
       ending.abort();
       live.delete(request);
-      tracked.done();
       // A table's verdicts that ended before a Stop or quitting are its cells' still; an Undo
       // took the cells away, and brings back the marks of the words it brings back.
       try {
@@ -944,6 +945,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           error,
         );
       }
+      // Settled while it still runs: a request no longer running is one quitting settled already.
+      tracked.done();
       // What never landed couldn't be checked: Stop, an Undo or quitting ended it first.
       done.checkable = sentences.length - left.size;
       done.sent = done.checkable;
@@ -1263,7 +1266,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const back = ended.filter((each) => !writeGone(mindId, each.shape));
         for (const each of back) {
           try {
-            options.settleStopped(mindId, each.request);
+            options.settleBroughtBack(mindId, each.request);
           } catch (error) {
             console.error(`A check undone in Mind ${mindId} couldn't be marked stopped:`, error);
           }

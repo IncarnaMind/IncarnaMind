@@ -1497,15 +1497,19 @@ export async function pasteText(app: ElectronApplication, window: Page, text: st
 
 /**
  * Test hook for the system's open dialog: from now on the main process
- * answers it with `path` instead of showing it, e.g. the folder to link.
+ * answers it with `path` instead of showing it, e.g. the folder to link; with several paths, as
+ * if all were chosen.
  */
-export async function interceptOpenDialog(app: ElectronApplication, path: string) {
-  await app.evaluate(({ dialog }, picked) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: [picked],
-    })) as unknown as typeof dialog.showOpenDialog;
-  }, path);
+export async function interceptOpenDialog(app: ElectronApplication, path: string | string[]) {
+  await app.evaluate(
+    ({ dialog }, picked) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: picked,
+      })) as unknown as typeof dialog.showOpenDialog;
+    },
+    Array.isArray(path) ? path : [path],
+  );
 }
 
 /** Test hook for the system's save dialog: from now on it answers `path` at once, as if chosen. */
@@ -2543,13 +2547,16 @@ export async function checkCard(
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "说法和引用" : "Claims and Citations";
+      // The card's old name still finds its command, now named Checks (#2831).
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
-      await window.keyboard.type(command);
+      await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
       await pointAndClick(
         window,
-        window.getByTestId("palette-item").filter({ hasText: command }).first(),
+        window
+          .getByTestId("palette-item")
+          .filter({ hasText: chinese ? "核对" : "Checks" })
+          .first(),
       );
     }
   }
@@ -2978,6 +2985,44 @@ export async function tabTo(window: Page, target: Locator, max = 40): Promise<vo
     await window.keyboard.press(key);
   }
   await expect(target).toBeFocused();
+}
+
+/**
+ * An estimate's price says where it comes from through the app's shared tip (#1257). Tab reaches the
+ * price, backwards from `next`, the control after it, and the tip shows `words` at once, drawn above
+ * whatever it opens over, a sheet or a card; Esc puts away only the tip, so the focus stays on the
+ * price. Where nothing focusable follows the price, pass no `next` and the price takes the focus
+ * directly. The price has no native title, which would be a second tip.
+ */
+export async function expectEstimateTip(
+  window: Page,
+  price: Locator,
+  words: RegExp,
+  next?: Locator,
+): Promise<void> {
+  await expect(price).not.toHaveAttribute("title", /.+/);
+  if (next) {
+    await next.focus();
+    await window.keyboard.press("Shift+Tab");
+  } else {
+    await price.focus();
+  }
+  await expect(price).toBeFocused();
+  const tip = window.getByRole("tooltip");
+  await expect(tip).toHaveText(words);
+  await motionSettled(window);
+  await expect
+    .poll(() =>
+      tip.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return top !== null && element.contains(top);
+      }),
+    )
+    .toBe(true);
+  await window.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  await expect(price).toBeFocused();
 }
 
 /**

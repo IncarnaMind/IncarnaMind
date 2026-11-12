@@ -953,6 +953,14 @@ export function createChecks(options: ChecksOptions) {
 
   /** Marks a request's sentences not checked yet "stopped". */
   function settleStopped(mindId: string, request: string): void {
+    // Quitting settles every running request at once, then closes the Notes: one that unwinds
+    // after that has been settled.
+    if (!running.has(request)) return;
+    settleChecking(mindId, request);
+  }
+
+  /** Marks a request's sentences still shown as being checked "stopped", whether or not it runs. */
+  function settleChecking(mindId: string, request: string): void {
     const ids = content.read(mindId, (blocks) =>
       markedSentences(blocks)
         .filter(({ check }) => check.request === request && check.state === "checking")
@@ -1693,6 +1701,10 @@ export function createChecks(options: ChecksOptions) {
     ...(options.sortTimeLimit && { sortTimeLimit: options.sortTimeLimit }),
     track,
     settleStopped,
+    // A write a Redo brings back was ended by its Undo: its check runs no more.
+    settleBroughtBack: (mindId, request) => {
+      if (!options.closed.aborted) settleChecking(mindId, request);
+    },
     progress: options.writtenProgress,
   });
 

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import type { Language } from "../../../core/language";
 import { pricesOfProvider } from "../../../core/providers/catalog/providers";
 import { formatDate } from "../../../shared/dates";
@@ -8,6 +8,8 @@ import { useLanguage, useT } from "../i18n";
 import { loadSavedProviders, useSavedProviders } from "../savedProviders";
 import { MetaLine } from "./MetaLine";
 import { providerName } from "./providers/shared";
+import { TipPopover } from "./TipPopover";
+import { useTip } from "./useTip";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -17,10 +19,9 @@ export function estimateTip(
   provider: string,
   checked: string,
 ): string {
-  return t("models.provider.cost.tip", {
-    provider,
-    date: formatDate(checked, language, { timeZone: "UTC" }),
-  });
+  // Its spaces don't break, so a wrapped tip breaks before the date and never leaves the year alone.
+  const date = formatDate(checked, language, { timeZone: "UTC" }).replace(/ /g, "\u00a0");
+  return t("models.provider.cost.tip", { provider, date });
 }
 
 export interface EstimateSource {
@@ -48,8 +49,9 @@ export function useEstimateSource(providerId: string | undefined): EstimateSourc
 }
 
 /**
- * An estimate that says where it comes from: the tip shows on hover, and the Tab key reaches it,
- * where a screen reader reads the tip as its description.
+ * An estimate that says where it comes from: the shared tip (`useTip`) opens on the keyboard's
+ * focus and on a click, and after the pointer rests on it. A screen reader reads the tip as the
+ * price's description.
  */
 export function EstimateTip({
   tip,
@@ -60,16 +62,49 @@ export function EstimateTip({
   testId?: string;
   children: ReactNode;
 }) {
+  if (!tip) return <span data-testid={testId}>{children}</span>;
   return (
-    <span
-      data-testid={testId}
-      title={tip}
-      aria-description={tip}
-      tabIndex={tip ? 0 : undefined}
-      className="rounded-sm"
-    >
+    <TippedEstimate tip={tip} testId={testId}>
       {children}
-    </span>
+    </TippedEstimate>
+  );
+}
+
+function TippedEstimate({
+  tip,
+  testId,
+  children,
+}: {
+  tip: string;
+  testId: string | undefined;
+  children: ReactNode;
+}) {
+  const trigger = useRef<HTMLSpanElement>(null);
+  const opened = useTip(trigger);
+  return (
+    <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: the events only open the tip. The keyboard opens it on the focus, and a click is for a price that already has the focus (#1257). */}
+      <span
+        ref={trigger}
+        data-testid={testId}
+        aria-description={tip}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: Tab must reach the price to show its tip (#1257).
+        tabIndex={0}
+        onFocus={opened.show}
+        onBlur={opened.blur}
+        onClick={opened.show}
+        onPointerMove={opened.point}
+        onPointerLeave={opened.leave}
+        className="rounded-sm"
+      >
+        {children}
+      </span>
+      {opened.shown && trigger.current && (
+        <TipPopover anchor={trigger.current} tip={opened}>
+          {tip}
+        </TipPopover>
+      )}
+    </>
   );
 }
 

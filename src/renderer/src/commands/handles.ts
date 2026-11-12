@@ -13,6 +13,9 @@ export interface Handle<T> {
 /** The window's one assistant (#253): what only it can do, such as open its History. */
 export const assistantHandle: Handle<{ openHistory(): void }> = { current: null };
 
+/** The window's one composer, while it is drawn (not while the model's setup card is): what only it can do. */
+export const composerHandle: Handle<{ addFiles(): void }> = { current: null };
+
 /** The Citation whose card is open: what "Open cited page" opens, and its needs re-check choices (#99). */
 export const citationHandle: Handle<{
   open(): void;
