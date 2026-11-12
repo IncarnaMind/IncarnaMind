@@ -117,6 +117,8 @@ describe("the second key", () => {
       "  statusCode: 400,\n  data: { error: { message: 'Your credit balance is too low' } },\n",
       "  statusCode: 400,\n  data: {\n    error: {\n      details: {\n        field: 'x'\n      },\n      message: 'Your credit balance is too low'\n    }\n  }\n",
       '+     "status": 429,\n+     "message": "账户已欠费，请充值",\n',
+      '+     "kind": "provider",\n+     "message": "You have reached your specified API usage limits. You will regain access on 2026-12-01.",\n',
+      "    kind: 'rate-limit',\n    message: 'You have reached your specified API usage limits. You will regain access on 2026-12-01.'\n",
     ];
     for (const log of answered) {
       const asked: string[] = [];
@@ -127,12 +129,24 @@ describe("the second key", () => {
       expect(asked, log).toEqual([...SECRETS.anthropic]);
       expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
     }
-    const asked: string[] = [];
-    await runSteps([live], async (_step, secret) => {
-      asked.push(secret);
-      return run(1, "  data: { error: { message: 'we are out of credits for coffee' } },\n");
-    });
-    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+    for (const log of [
+      "  data: { error: { message: 'we are out of credits for coffee' } },\n",
+      "  title: 'Dues',\n  message: '没有欠费的会员可以在2027/1/31前分期缴纳冬季会费。'\n",
+    ]) {
+      const asked: string[] = [];
+      await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return run(1, log);
+      });
+      expect(asked, log).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+    }
+    const filter = logFilter();
+    const [status, message] = [
+      "    kind: 'rate-limit',",
+      "    message: 'You have reached your specified API usage limits.'",
+    ].map(filter);
+    expect(status).toBe("(a provider's words left out) failed: rate-limit");
+    expect(message).toBe("(a provider's words left out) refused: out of credit");
   });
 
   // protects=credit words on a line of ours (a sentence of a test's Document, an assertion on a text) are not a key out of credit: only a line that also says a provider answered counts them; fails_when=a failed step whose output holds such a sentence on an assertion line spends the key, reruns on the next one, or reads "out of credit" in the summary; no_claim=none.
@@ -1135,6 +1149,37 @@ describe("a provider's words stay out of the summary and the log", () => {
     expect(shown[4]).toBe("        field: 'authorization'");
     expect(shown[6]).toMatch(/^\(a provider's words left out\) /);
     expect(shown.slice(7)).toEqual(printed.slice(7));
+
+    const others = [
+      [
+        "  statusCode: 401,",
+        "  details: [",
+        "    'authorization',",
+        "  ],",
+        `  message: 'Bad key ${key}'`,
+      ],
+      [
+        "  statusCode: 401,",
+        "  'content-type': 'application/json',",
+        "  headers: {",
+        "    'x-request-id': 'req-demo'",
+        "  },",
+        `  message: 'Bad key ${key}'`,
+      ],
+    ];
+    for (const lines of others) {
+      const told = lines.map(logFilter());
+      expect(told.join("\n"), lines.join("\n")).not.toContain(key);
+      expect(told.slice(1, -1)).toEqual(lines.slice(1, -1));
+    }
+
+    const next = ["  statusCode: 401,", "}", "{", "  message: 'ours'"];
+    expect(next.map(logFilter())).toEqual([
+      "(a provider's words left out) refused: status 401",
+      ...next.slice(1),
+    ]);
+    const none = ["  title: 'Dues',", "  details: [", "  ],", "  message: 'ours'"];
+    expect(none.map(logFilter())).toEqual(none);
   });
 
   /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */

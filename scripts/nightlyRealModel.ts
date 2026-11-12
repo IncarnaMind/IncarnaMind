@@ -196,9 +196,8 @@ export const describeFailure = (text: string): string =>
 const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
 
 /** A line of a printed object, in a diff or not: a key, then a colon. */
-const MEMBER = /^[+-]?\s+(?:"[^"]*"|[\w$]+)\s*:/;
+const MEMBER = /^[+-]?\s+(?:"[^"]*"|'[^']*'|[\w$]+)\s*:/;
 const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
-const CLOSING = /^[+-]?\s*[\]})]+[,;]?\s*$/;
 
 /** How far a line is indented, after a diff's marker; -1 for a blank line. */
 const indentOf = (line: string): number =>
@@ -208,9 +207,10 @@ const indentOf = (line: string): number =>
  * Reads a step's output a line at a time and says what each line quotes of a provider's answer,
  * in words of ours, or null when it quotes none. A message member of a printed object is the
  * provider's when a member line of the same object before it has said so (`"kind": "rate-limit"`,
- * `statusCode: 401`), so the reader remembers that until the object ends, which is a line
- * indented less than that member (or a blank one); a nested object's closing brace does not end
- * it. A message of ours follows no such line and stays. A member line that holds a message
+ * `statusCode: 401`), so the reader remembers that for every later line indented at least as
+ * deep as the one that said it, and forgets it at the first line indented less, at a blank line
+ * or at a test's own line: braces are not counted, so a nested object or a list that closes
+ * before the message does not end it. A message of ours follows no such line and stays. A member line that holds a message
  * anywhere in it is told the same way, as Node prints a short parsed body on one line:
  * `data: { error: { message: … } }`. A test's own line says nothing.
  */
@@ -224,12 +224,7 @@ function answerReader(): (line: string) => string | null {
     }
     const indent = indentOf(plain);
     const member = MEMBER.test(plain);
-    if (
-      said &&
-      !(indent > said.indent || (indent === said.indent && (member || CLOSING.test(plain))))
-    ) {
-      said = null;
-    }
+    if (said && indent < said.indent) said = null;
     const after = said !== null && member && HOLDS_MESSAGE.test(plain);
     const quoted =
       answered(plain, after) ??
