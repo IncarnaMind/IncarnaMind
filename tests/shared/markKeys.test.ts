@@ -21,7 +21,7 @@ import {
 } from "../../src/core/api";
 import { keyMarks } from "../../src/core/markKeys";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { claimCheckShown } from "../../src/shared/claimChecks";
+import { type ClaimCheckNow, claimCheckShown } from "../../src/shared/claimChecks";
 import { checkKeyOf, markKeyOf } from "../../src/shared/markKeys";
 
 /*
@@ -150,7 +150,13 @@ test("a keep whose words have changed since counts but isn't in force, and the n
   expect(counting?.check.id).toBe("kept");
   expect(editorReads(blocks)).toEqual(["kept"]);
   if (!counting) throw new Error("The sentence has no check.");
-  const now = { text: sentence, versions: new Map(), folderId: null, scope: null };
+  const now: ClaimCheckNow = {
+    footing: new Map(),
+    text: sentence,
+    versions: new Map(),
+    folderId: null,
+    scope: null,
+  };
   expect(claimCheckShown(counting.check, now).state).toBe("needs-recheck");
   expect(claimCheckShown({ ...counting.check, text: sentence }, now).state).toBe("kept");
 
