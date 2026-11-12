@@ -92,8 +92,9 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
   const rowItems = await menuItemIds(row.getByTestId("mind-actions"));
   await window.keyboard.press("Escape");
   expect(pageItems.length).toBeGreaterThan(5);
-  // Minus what only the row offers (opening a Mind that is open), with Style and Citation style
-  // before Delete, which is last. The More row is the page's own.
+  // Minus what only the row offers (opening a Mind that is open), with Style, Citation style and,
+  // for a Note alone in its pane, its group's items (#2868) before Delete, which is last. The
+  // More row is the page's own.
   const shared = rowItems
     .filter((id) => !["mind.open", "mind.openTab"].includes(id))
     .map((id) => (id === "mind-more" ? "page-more" : id));
@@ -101,6 +102,11 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
     ...shared.slice(0, -1),
     "page-style",
     "mind.citationStyle",
+    "tab-menu-split",
+    "tab-menu-equal",
+    "tab-menu-reopen",
+    "tab-menu-close-others",
+    "tab-menu-close-group",
     "mind.delete",
   ]);
 
