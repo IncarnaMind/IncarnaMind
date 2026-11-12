@@ -11,6 +11,7 @@ import type {
 import {
   type ExportMarks,
   MAX_WATERMARK_WORDS,
+  type MarkedFormat,
   settledMarks,
   WATERMARK_CHOICES,
   type WatermarkChoice,
@@ -212,16 +213,16 @@ const WATERMARK_LABELS: Readonly<Record<WatermarkChoice, MessageKey>> = {
 
 /**
  * What the pages of a Word file or a PDF carry (#1258): page numbers, and a watermark of its own,
- * a preset word or the User's. A Note made from a Word file says that its file's own numbers
- * stay, so the switch off isn't read as no numbers (#1741).
+ * a preset word or the User's. Written into the User's own Word file, it says that the file's own
+ * numbers stay, so the switch off isn't read as no numbers (#1741).
  */
 function MarksRows({
   marks,
-  fromWord,
+  intoWordFile,
   onChange,
 }: {
   marks: ExportMarks;
-  fromWord: boolean;
+  intoWordFile: boolean;
   onChange(next: ExportMarks): void;
 }) {
   const t = useT();
@@ -237,7 +238,7 @@ function MarksRows({
     <>
       <SwitchRow
         label={t("export.pageNumbers")}
-        hint={t(fromWord ? "export.pageNumbers.wordHint" : "export.pageNumbers.hint")}
+        hint={t(intoWordFile ? "export.pageNumbers.wordHint" : "export.pageNumbers.hint")}
         checked={marks.pageNumbers}
         onChange={(pageNumbers) => onChange({ ...marks, pageNumbers })}
         testId="export-page-numbers"
@@ -453,8 +454,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   } | null>(null);
   /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
   const [othersComments, setOthersComments] = useState<boolean | null>(null);
-  /** This Note's page numbers and watermark (#1258); null until the core has said. */
-  const [marks, setMarks] = useState<ExportMarks | null>(null);
+  /** The page numbers and watermark each format starts with (#1258, #1741); null until the core has said. */
+  const [startingMarks, setStartingMarks] = useState<Record<MarkedFormat, ExportMarks> | null>(
+    null,
+  );
+  /** The marks the User chose here, one choice for every format; null until they change one. */
+  const [chosenMarks, setChosenMarks] = useState<ExportMarks | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
@@ -488,9 +493,9 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
 
   useEffect(() => {
     let current = true;
-    core.getExportMarks(mind.id).then(
-      (found) => {
-        if (current) setMarks(found);
+    Promise.all([core.getExportMarks(mind.id, "docx"), core.getExportMarks(mind.id, "pdf")]).then(
+      ([docx, pdf]) => {
+        if (current) setStartingMarks({ docx, pdf });
       },
       (error: unknown) => useAppStore.getState().reportError(error),
     );
@@ -506,7 +511,9 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
-      if (marks) await core.setExportMarks(mind.id, settledMarks(marks));
+      // Only a change is saved: a Note from a Word file starts differently in Word and in a PDF,
+      // and saving what one format showed would set the other too (#1741).
+      if (chosenMarks) await core.setExportMarks(mind.id, settledMarks(chosenMarks));
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
       }
@@ -521,7 +528,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
   const leftOut =
     hasQuestionsOption(format) && !draft[format].includeQuestions ? (counts?.questions ?? 0) : 0;
   const emptyPack = format === "source-pack" && counts?.packCitations === 0;
-  const wordsMissing = marks?.watermark === "words" && (marks.words ?? "").trim() === "";
+  const wordsMissing =
+    chosenMarks?.watermark === "words" && (chosenMarks.words ?? "").trim() === "";
 
   return (
     <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-col">
@@ -652,8 +660,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           />
         )}
 
-        {marks && counts && (format === "docx" || format === "pdf") && (
-          <MarksRows marks={marks} fromWord={counts.fromWord} onChange={setMarks} />
+        {startingMarks && counts && (format === "docx" || format === "pdf") && (
+          <MarksRows
+            marks={chosenMarks ?? startingMarks[format]}
+            intoWordFile={counts.fromWord && format === "docx"}
+            onChange={setChosenMarks}
+          />
         )}
 
         {hasCitationPlace(format) && citationStyle && (

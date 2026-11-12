@@ -4954,7 +4954,7 @@ export const en = {
   "export.pageNumbers": "Page numbers",
   "export.pageNumbers.hint": "At the foot of every Word and PDF page.",
   "export.pageNumbers.wordHint":
-    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add a number where a section has no footer.",
+    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add page numbers if the file has no footer of its own.",
   "export.watermark": "Watermark",
   "export.watermark.hint": "Written as Word’s own watermark, so Word can change or remove it.",
   "export.watermark.none": "None",

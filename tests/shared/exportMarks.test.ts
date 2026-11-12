@@ -43,17 +43,19 @@ describe("Export mark choices", () => {
     );
   });
 
-  test("a Note with no marks saved has page numbers and no watermark", () => {
+  test("a Note with no marks saved has page numbers and no watermark, in Word and in PDF", () => {
     const settings = new Y.Doc().getMap<unknown>("settings");
-    expect(exportMarksOf(settings)).toEqual(DEFAULT_EXPORT_MARKS);
+    expect(exportMarksOf(settings, "docx")).toEqual(DEFAULT_EXPORT_MARKS);
+    expect(exportMarksOf(settings, "pdf")).toEqual(DEFAULT_EXPORT_MARKS);
     settings.set("exportMarks", { pageNumbers: "yes", watermark: "draft" });
-    expect(exportMarksOf(settings)).toEqual(DEFAULT_EXPORT_MARKS);
+    expect(exportMarksOf(settings, "docx")).toEqual(DEFAULT_EXPORT_MARKS);
   });
 
-  test("a choice is kept, and the default is forgotten", () => {
+  test("a choice is kept for every format, and the default is forgotten", () => {
     const settings = new Y.Doc().getMap<unknown>("settings");
     writeExportMarks(settings, { pageNumbers: false, watermark: "draft" });
-    expect(exportMarksOf(settings)).toEqual({ pageNumbers: false, watermark: "draft" });
+    expect(exportMarksOf(settings, "docx")).toEqual({ pageNumbers: false, watermark: "draft" });
+    expect(exportMarksOf(settings, "pdf")).toEqual({ pageNumbers: false, watermark: "draft" });
     writeExportMarks(settings, { pageNumbers: true, watermark: "none" });
     expect(settings.has("exportMarks")).toBe(false);
   });

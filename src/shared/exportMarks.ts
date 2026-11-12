@@ -1,9 +1,9 @@
 /**
  * The page numbers and watermark a Note's Word file and PDF carry (#1258). Like its font and
  * citation style they live in the Note's Yjs settings (`MIND_SETTINGS_FIELD`), not in its
- * Blocks, so they go wherever the Note goes. A Note that never chose any has no watermark, and
- * page numbers unless it was made from a Word file: the User's own file gains nothing they
- * didn't ask for (#1741).
+ * Blocks, so they go wherever the Note goes. A choice is one choice for every format. A Note that
+ * never chose any has no watermark, and page numbers, except in the Word file of a Note made from
+ * one: the User's own file gains nothing they didn't ask for, and its PDF loses nothing (#1741).
  */
 import type * as Y from "yjs";
 import type { Language } from "../core/language";
@@ -30,6 +30,12 @@ export const DEFAULT_EXPORT_MARKS: ExportMarks = { pageNumbers: true, watermark:
 
 const WORD_FILE_MARKS: ExportMarks = { pageNumbers: false, watermark: "none" };
 
+/** The formats whose pages carry the marks: a Word file, and a PDF, printed or saved. */
+export type MarkedFormat = "docx" | "pdf";
+
+export const isMarkedFormat = (value: unknown): value is MarkedFormat =>
+  value === "docx" || value === "pdf";
+
 const MARKS_KEY = "exportMarks";
 
 const hasControlCharacter = (text: string) =>
@@ -55,27 +61,40 @@ export function isExportMarks(value: unknown): value is ExportMarks {
   return Object.keys(value).every((key) => known.has(key));
 }
 
-const defaultMarksOf = (settings: Y.Map<unknown>): ExportMarks =>
-  settings.doc && wordFileOf(settings.doc) ? WORD_FILE_MARKS : DEFAULT_EXPORT_MARKS;
+const fromWordFile = (settings: Y.Map<unknown>): boolean =>
+  settings.doc !== null && wordFileOf(settings.doc) !== null;
 
-/**
- * The marks a Note carries; anything malformed counts as none of its own. `settings` must be the
- * Note's own Y.Doc's, which says whether it came from a Word file.
- */
-export function exportMarksOf(settings: Y.Map<unknown>): ExportMarks {
+/** The Note's own choice; anything malformed counts as none. */
+export function chosenExportMarks(settings: Y.Map<unknown>): ExportMarks | null {
   const saved = settings.get(MARKS_KEY);
-  return isExportMarks(saved) ? saved : defaultMarksOf(settings);
+  return isExportMarks(saved) ? saved : null;
 }
 
-/** Sets the Note's marks; its default is forgotten, so a change to the defaults reaches it. */
+/**
+ * The marks a Note's file in `format` carries. `settings` must be the Note's own Y.Doc's, which
+ * says whether it came from a Word file.
+ */
+export function exportMarksOf(settings: Y.Map<unknown>, format: MarkedFormat): ExportMarks {
+  const byDefault =
+    format === "docx" && fromWordFile(settings) ? WORD_FILE_MARKS : DEFAULT_EXPORT_MARKS;
+  return chosenExportMarks(settings) ?? byDefault;
+}
+
+/**
+ * Sets the Note's marks. A choice that is every format's default is forgotten, so a change to the
+ * defaults reaches it; a Note made from a Word file starts differently in each, so it keeps any.
+ */
 export function writeExportMarks(settings: Y.Map<unknown>, marks: ExportMarks): void {
   const saved: ExportMarks = {
     pageNumbers: marks.pageNumbers,
     watermark: marks.watermark,
     ...(marks.words !== undefined && { words: marks.words }),
   };
-  const byDefault = defaultMarksOf(settings);
-  if (marks.pageNumbers === byDefault.pageNumbers && marks.watermark === byDefault.watermark) {
+  if (
+    !fromWordFile(settings) &&
+    marks.pageNumbers === DEFAULT_EXPORT_MARKS.pageNumbers &&
+    marks.watermark === DEFAULT_EXPORT_MARKS.watermark
+  ) {
     if (settings.has(MARKS_KEY)) settings.delete(MARKS_KEY);
   } else if (JSON.stringify(settings.get(MARKS_KEY)) !== JSON.stringify(saved)) {
     settings.set(MARKS_KEY, saved);

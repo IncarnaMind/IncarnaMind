@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { type Core, InvalidInputError, type Mind } from "../../src/core";
-import type { ExportMarks } from "../../src/shared/exportMarks";
+import type { ExportMarks, MarkedFormat } from "../../src/shared/exportMarks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { checkWellFormed, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
@@ -15,6 +15,8 @@ import { field, paragraph, type WordFileInput, wordFile } from "../helpers/word"
 import { importWordBytes } from "../helpers/wordMinds";
 
 const DRAFT: ExportMarks = { pageNumbers: false, watermark: "draft" };
+const NUMBERED: ExportMarks = { pageNumbers: true, watermark: "none" };
+const UNNUMBERED: ExportMarks = { pageNumbers: false, watermark: "none" };
 
 async function setUp(languages: readonly string[] = ["en-US"]) {
   const dataDir = await createTempDataFolder();
@@ -41,17 +43,18 @@ const relationships = (files: Map<string, Buffer>): string =>
   part(files, "word/_rels/document.xml.rels");
 
 describe("Export marks kept with the Note", () => {
-  test("a Note with no choice has page numbers and no watermark", async () => {
+  test("a Note with no choice has page numbers and no watermark, in Word and in PDF", async () => {
     const { core, mind } = await setUp();
-    expect(await core.getExportMarks(mind.id)).toEqual({ pageNumbers: true, watermark: "none" });
+    expect(await core.getExportMarks(mind.id, "docx")).toEqual(NUMBERED);
+    expect(await core.getExportMarks(mind.id, "pdf")).toEqual(NUMBERED);
   });
 
   test("the choices are the Note's own: another Note keeps the defaults", async () => {
     const { core, mind } = await setUp();
     const other = await core.createMind({ title: "Neap tides" });
     await core.setExportMarks(mind.id, DRAFT);
-    expect(await core.getExportMarks(mind.id)).toEqual(DRAFT);
-    expect(await core.getExportMarks(other.id)).toEqual({ pageNumbers: true, watermark: "none" });
+    expect(await core.getExportMarks(mind.id, "docx")).toEqual(DRAFT);
+    expect(await core.getExportMarks(other.id, "docx")).toEqual(NUMBERED);
   });
 
   test("the choices are kept when the app quits and starts again", async () => {
@@ -60,11 +63,14 @@ describe("Export marks kept with the Note", () => {
     await core.setExportMarks(mind.id, chosen);
     core.close();
     const restarted = startCore(dataDir);
-    expect(await restarted.getExportMarks(mind.id)).toEqual(chosen);
+    expect(await restarted.getExportMarks(mind.id, "pdf")).toEqual(chosen);
   });
 
-  test("a choice the app can't read is refused", async () => {
+  test("a choice the app can't read is refused, and so is a format with no marks", async () => {
     const { core, mind } = await setUp();
+    await expect(
+      core.getExportMarks(mind.id, "markdown" as unknown as MarkedFormat),
+    ).rejects.toBeInstanceOf(InvalidInputError);
     await expect(
       core.setExportMarks(mind.id, { watermark: "draft" } as unknown as ExportMarks),
     ).rejects.toBeInstanceOf(InvalidInputError);
@@ -165,13 +171,13 @@ describe("Page numbers and the watermark in PDF", () => {
 describe("A Note made from a Word file adds nothing to the User's file until asked", () => {
   async function fromWord(input: WordFileInput) {
     const dataDir = await createTempDataFolder();
-    const { printer, printed } = fakePrinter();
+    const { printer, printed, printedOnPrinter } = fakePrinter();
     const core = startCore(dataDir, { printer });
     const bytes = wordFile(input);
     const { mindId } = await importWordBytes(core, await createTempDataFolder(), bytes, {
       origin: "own",
     });
-    return { dataDir, core, bytes, mindId, printed };
+    return { dataDir, core, bytes, mindId, printed, printedOnPrinter };
   }
 
   /** The entries an export changed, added or left out. */
@@ -190,41 +196,65 @@ describe("A Note made from a Word file adds nothing to the User's file until ask
     ].join(""),
   });
 
-  test("it starts with page numbers off, and a Note written here still starts with them on", async () => {
+  test("with no choice, its Word file starts without page numbers and its PDF with them; a Note written here starts with them in both", async () => {
     const { core, mindId } = await fromWord({ body: paragraph("Lease brief") });
     const written = await core.createMind({ title: "Tides" });
-    expect(await core.getExportMarks(mindId)).toEqual({ pageNumbers: false, watermark: "none" });
-    expect(await core.getExportMarks(written.id)).toEqual({ pageNumbers: true, watermark: "none" });
+    expect(await core.getExportMarks(mindId, "docx")).toEqual(UNNUMBERED);
+    expect(await core.getExportMarks(mindId, "pdf")).toEqual(NUMBERED);
+    expect(await core.getExportMarks(written.id, "docx")).toEqual(NUMBERED);
+    expect(await core.getExportMarks(written.id, "pdf")).toEqual(NUMBERED);
   });
 
-  test("its PDF follows the same choice: no number until the User turns them on", async () => {
-    const { core, mindId, printed } = await fromWord({ body: paragraph("Lease brief") });
-    await core.exportMind(mindId, { format: "pdf" });
-    expect(printed.at(-1)).toMatchObject({ pageNumbers: false });
-    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+  test("with no choice, its PDF and its printed copy have page numbers, and its Word file gains none", async () => {
+    const { core, bytes, mindId, printed, printedOnPrinter } = await fromWord({
+      body: paragraph("Lease brief"),
+    });
     await core.exportMind(mindId, { format: "pdf" });
     expect(printed.at(-1)).toMatchObject({ pageNumbers: true });
+    await core.printMind(mindId);
+    expect(printedOnPrinter.at(-1)).toMatchObject({ pageNumbers: true });
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    expect(changed(unzip(bytes), files)).toEqual([]);
   });
 
-  test("a choice it saved stays as it is when the app starts again", async () => {
+  test("a choice is one choice for every format: on, the Word file has them too; off, the PDF and its printed copy have none", async () => {
+    const { core, mindId, printed, printedOnPrinter } = await fromWord({
+      body: paragraph("Lease brief"),
+    });
+    await core.setExportMarks(mindId, NUMBERED);
+    expect(await core.getExportMarks(mindId, "docx")).toEqual(NUMBERED);
+    expect(await core.getExportMarks(mindId, "pdf")).toEqual(NUMBERED);
+    const footer = unzip((await core.exportMind(mindId, { format: "docx" })).data).get(
+      "word/footer1.xml",
+    );
+    expect(footer?.toString("utf8")).toContain(" PAGE ");
+
+    await core.setExportMarks(mindId, UNNUMBERED);
+    expect(await core.getExportMarks(mindId, "docx")).toEqual(UNNUMBERED);
+    expect(await core.getExportMarks(mindId, "pdf")).toEqual(UNNUMBERED);
+    await core.exportMind(mindId, { format: "pdf" });
+    expect(printed.at(-1)).toMatchObject({ pageNumbers: false });
+    await core.printMind(mindId);
+    expect(printedOnPrinter.at(-1)).toMatchObject({ pageNumbers: false });
+  });
+
+  test("a choice it saved stays as it is when the app starts again, in each format", async () => {
     const { dataDir, core, mindId } = await fromWord({ body: paragraph("Lease brief") });
-    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    await core.setExportMarks(mindId, NUMBERED);
     core.close();
     const restarted = startCore(dataDir);
-    expect(await restarted.getExportMarks(mindId)).toEqual({
-      pageNumbers: true,
-      watermark: "none",
-    });
-    await restarted.setExportMarks(mindId, { pageNumbers: false, watermark: "draft" });
-    expect(await restarted.getExportMarks(mindId)).toEqual({
-      pageNumbers: false,
-      watermark: "draft",
-    });
+    expect(await restarted.getExportMarks(mindId, "docx")).toEqual(NUMBERED);
+    expect(await restarted.getExportMarks(mindId, "pdf")).toEqual(NUMBERED);
+    await restarted.setExportMarks(mindId, UNNUMBERED);
+    restarted.close();
+    const again = startCore(dataDir);
+    expect(await again.getExportMarks(mindId, "docx")).toEqual(UNNUMBERED);
+    expect(await again.getExportMarks(mindId, "pdf")).toEqual(UNNUMBERED);
   });
 
   test("turned on, a file whose sections have no footer gets Word's own page number in each, and nothing else of it changes", async () => {
     const { core, bytes, mindId } = await fromWord(twoSections('<w:type w:val="nextPage"/>'));
-    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    await core.setExportMarks(mindId, NUMBERED);
     const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
     expect(changed(unzip(bytes), files)).toEqual([
       "[Content_Types].xml",
@@ -246,7 +276,7 @@ describe("A Note made from a Word file adds nothing to the User's file until ask
       ),
       footers: { rIdF1: paragraph(field("PAGE", "1")) },
     });
-    await core.setExportMarks(mindId, { pageNumbers: true, watermark: "none" });
+    await core.setExportMarks(mindId, NUMBERED);
     const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
     expect(changed(unzip(bytes), files)).toEqual([]);
     expect(files.has("word/footer2.xml")).toBe(false);

@@ -135,7 +135,7 @@ test("Export options gives a Note page numbers and a watermark, the PDF prints t
   await expect(sheet).toBeHidden();
 });
 
-test("a Note made from a Word file starts without page numbers of the app's own and says its file's own stay, in English and Chinese; a Note written here keeps them", async () => {
+test("a Note made from a Word file starts without page numbers in Word, with them in PDF, and says its file's own stay, in English and Chinese; a Note written here starts with them", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
@@ -149,32 +149,52 @@ test("a Note made from a Word file starts without page numbers of the app's own 
   await expect(window.getByTestId("mind-editor")).toContainText("The lease ends in 2030.");
 
   const sheet = window.getByTestId("export-dialog");
+  const format = sheet.getByTestId("export-format");
   const pageNumbers = sheet.getByTestId("export-page-numbers");
-  await openOptions(window, "Export options");
-  await expect(pageNumbers).not.toBeChecked();
-  await expect(pageNumbers).toHaveAccessibleDescription(
-    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add a number where a section has no footer.",
-  );
-  await motionSettled(window);
-  await screenshot(window, "export-marks-word-en");
-  await window.keyboard.press("Escape");
-  await expect(sheet).toBeHidden();
+  const usual = {
+    en: "At the foot of every Word and PDF page.",
+    "zh-CN": "Word 和 PDF 的每页页脚都会显示页码。",
+  };
+  const wordHint = {
+    en: "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add page numbers if the file has no footer of its own.",
+    "zh-CN": "文件自带的页眉、页脚和页码保持不变。开启后，仅当文件没有自带页脚时才添加页码。",
+  };
+  const title = { en: "Export options", "zh-CN": "导出选项" };
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    await openOptions(window, title[language]);
+    await expect(format).toHaveValue("docx");
+    await expect(pageNumbers).not.toBeChecked();
+    await expect(pageNumbers).toHaveAccessibleDescription(wordHint[language]);
+    await motionSettled(window);
+    await screenshot(window, `export-marks-word-docx-${language}`);
+    await format.selectOption("pdf");
+    await expect(pageNumbers).toBeChecked();
+    await expect(pageNumbers).toHaveAccessibleDescription(usual[language]);
+    await motionSettled(window);
+    await screenshot(window, `export-marks-word-pdf-${language}`);
+    await window.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  }
 
-  await setLanguage(window, "zh-CN");
+  // Saving the sheet with the marks untouched saves no choice: the PDF keeps its page numbers.
   await openOptions(window, "导出选项");
   await expect(pageNumbers).not.toBeChecked();
-  await expect(pageNumbers).toHaveAccessibleDescription(
-    "文件自带的页眉、页脚和页码保持不变。开启后，会在没有页脚的节添加页码。",
-  );
-  await motionSettled(window);
-  await screenshot(window, "export-marks-word-zh");
-  await window.keyboard.press("Escape");
+  await sheet.getByTestId("export-save").click();
   await expect(sheet).toBeHidden();
+  const pdfMarks = () =>
+    window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [mind] = await core.listMinds();
+      if (!mind) throw new Error("There is no Note.");
+      return core.getExportMarks(mind.id, "pdf");
+    });
+  expect(await pdfMarks()).toEqual({ pageNumbers: true, watermark: "none" });
 
   await newNote(window, "Tides", "Spring tides come twice a month.");
   await openOptions(window, "导出选项");
   await expect(pageNumbers).toBeChecked();
-  await expect(pageNumbers).toHaveAccessibleDescription("Word 和 PDF 的每页页脚都会显示页码。");
+  await expect(pageNumbers).toHaveAccessibleDescription(usual["zh-CN"]);
   await window.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
 });
