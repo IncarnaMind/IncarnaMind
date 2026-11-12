@@ -16,6 +16,12 @@ export interface QuickNotes {
   undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
 }
 
+/** A quick note the field says went in, with the time it took. */
+interface Added {
+  note: AddedToNote;
+  atMs: number | null;
+}
+
 /** What the "/" list over the field tells it: where it is, and the row chosen. */
 export interface FieldList {
   id: string;
@@ -52,7 +58,7 @@ export function NoteField({
   const t = useT();
   // When typing began, in the Meeting's time: null once a line has begun while it wasn't recording.
   const began = useRef<{ ms: number | null } | null>(null);
-  const [added, setAdded] = useState<{ note: AddedToNote; atMs: number | null } | null>(null);
+  const [added, setAdded] = useState<Added | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,24 +84,27 @@ export function NoteField({
       (note) => setAdded({ note, atMs }),
       (error: unknown) => {
         setProblem(errorMessage(error, t));
-        // Back in the field, unless the User has started another line meanwhile.
-        if (field.current?.value === "") {
-          began.current = { ms: atMs };
-          onText(typed);
-        }
+        // Back in the field, before any line the User has started meanwhile: neither is lost.
+        const since = field.current?.value ?? "";
+        began.current = { ms: atMs };
+        onText(since ? `${typed}\n${since}` : typed);
       },
     );
   };
 
-  const undo = (note: AddedToNote) => {
+  const undo = (shown: Added) => {
     setAdded(null);
     setProblem(null);
-    notes.undo(note).then(
+    notes.undo(shown.note).then(
       ({ kept }) => {
         if (kept > 0)
           setProblem(t(kept === 1 ? "answer.undoKept.one" : "answer.undoKept", { count: kept }));
       },
-      (error: unknown) => setProblem(errorMessage(error, t)),
+      (error: unknown) => {
+        setProblem(errorMessage(error, t));
+        // The note is still in the Note: its Undo stays offered, to try again.
+        setAdded(shown);
+      },
     );
   };
 
@@ -138,7 +147,7 @@ export function NoteField({
           <button
             type="button"
             data-testid="quick-note-undo"
-            onClick={() => undo(added.note)}
+            onClick={() => undo(added)}
             className="panel-ghost ask-field-undo"
           >
             {t("move.undo")}

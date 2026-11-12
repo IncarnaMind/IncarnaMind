@@ -102,8 +102,8 @@ export function AskBar({
   };
 
   useEffect(() => {
-    if (asking) closeMore();
-  }, [asking, closeMore]);
+    if (asking) closeLists();
+  }, [asking, closeLists]);
 
   const listOpen = moreOpen || typed !== null;
   useEffect(() => {

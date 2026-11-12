@@ -118,6 +118,8 @@ const meetingOf = (
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  notes.add.mockReset().mockResolvedValue(ADDED);
+  notes.undo.mockReset().mockResolvedValue({ kept: 0 });
   state.language.current = "en";
   const document = newPage();
   container = document.createElement("div", {});
@@ -375,6 +377,14 @@ describe("the ask bar", () => {
     expect(all("help-more-list")).toHaveLength(0);
   });
 
+  test('a prompt asked by its shortcut closes the "/" list too, and clears the "/"', async () => {
+    await show();
+    await type("/su");
+    await act(async () => usePending.setState({ pending: { "meeting-1": "check" } }));
+    expect(all("help-slash-list")).toHaveLength(0);
+    expect(field().value).toBe("");
+  });
+
   test("tells the panel how far the list reaches only while it is open", async () => {
     await show();
     expect(onReach).toHaveBeenLastCalledWith(0);
@@ -390,8 +400,6 @@ describe("the field, for quick notes (#2925)", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     vi.setSystemTime(Date.parse("2026-11-12T12:00:10.000Z"));
-    notes.add.mockResolvedValue(ADDED);
-    notes.undo.mockResolvedValue({ kept: 0 });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -501,6 +509,31 @@ describe("the field, for quick notes (#2925)", () => {
     expect(all("quick-note-undo")).toHaveLength(0);
   });
 
+  test("a note that couldn't go in after the User began the next line comes back before it: neither is lost", async () => {
+    const refused = Promise.withResolvers<AddedToNote>();
+    notes.add.mockReturnValueOnce(refused.promise);
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await type("Owner is Dana");
+    await act(async () => refused.reject(new Error("The note is read-only.")));
+    expect(field().value).toBe("Budget 40k\nOwner is Dana");
+    expect(one("quick-note-problem").textContent).toBe("The note is read-only.");
+  });
+
+  test("an Undo that couldn't be done says why and offers Undo again", async () => {
+    notes.undo.mockRejectedValueOnce(new Error("The note is read-only."));
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await fire(one("quick-note-undo"), "click");
+    expect(one("quick-note-problem").textContent).toBe("The note is read-only.");
+    expect(field().getAttribute("placeholder")).toBe("Added to notes at 4:17");
+    await fire(one("quick-note-undo"), "click");
+    expect(notes.undo.mock.calls).toEqual([[ADDED], [ADDED]]);
+    expect(all("quick-note-undo")).toHaveLength(0);
+  });
+
   test("an Enter that ends a Chinese input method's composition neither sends nor chooses; the next one does", async () => {
     await show();
     await type("记一笔");
@@ -595,6 +628,7 @@ describe('the "/" list (#2925)', () => {
     expect(all("help-slash-list")).toHaveLength(0);
     await press("Enter");
     expect(notes.add.mock.calls.map(([text]) => text)).toEqual(["Price / seat is 45"]);
+    expect(field().getAttribute("placeholder")).toMatch(/^Added to notes at (\d+:)?\d+:\d{2}$/);
   });
 
   test("nothing that matches says so, and Enter then does nothing", async () => {
