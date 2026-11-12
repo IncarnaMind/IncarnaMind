@@ -123,6 +123,7 @@ import {
   sameText,
   unclearTypedTags,
   unnameRemovals,
+  withMissingNumber,
   withoutNames,
 } from "./prompt";
 
@@ -441,6 +442,7 @@ function editCall(
   selection: Pick<Selection, "text" | "context" | "before" | "after" | "characters"> & {
     named?: string;
     quotes?: readonly string[];
+    marks?: number;
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
@@ -448,11 +450,12 @@ function editCall(
     selection.named === undefined
       ? selection.text
       : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const edit = passage === selection.text ? EDIT_INSTRUCTIONS : EDIT_INSTRUCTIONS_NAMED;
   const instructions = explain
     ? EXPLAIN_INSTRUCTIONS
-    : passage === selection.text
-      ? EDIT_INSTRUCTIONS
-      : EDIT_INSTRUCTIONS_NAMED;
+    : (selection.marks ?? 0) > 0
+      ? withMissingNumber(edit)
+      : edit;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,

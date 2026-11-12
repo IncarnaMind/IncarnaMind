@@ -270,10 +270,16 @@ export interface Selection {
   /** How many characters it holds, for the model's window. */
   characters: number;
   /**
-   * The words the mark where a figure couldn't be calculated reads as, which the new text's words
-   * of that mark, in either language, are the mark again (#2577); null: the mark reads as nothing.
+   * The words the mark where a figure couldn't be calculated reads as (#2577); null: the mark
+   * reads as nothing.
    */
   missingNumber: string | null;
+  /**
+   * How many of those marks it holds: the new text's words of the mark, in either language, are
+   * the mark again that many times at most, counted from its start, so words the User typed in a
+   * passage with none stay words.
+   */
+  marks: number;
 }
 
 export type ReadResult =
@@ -382,6 +388,7 @@ export function readSelection(
   const text: string[] = [];
   const context: string[] = [];
   let characters = 0;
+  let marks = 0;
   /** An inline node of the selection, as the model reads it: a numbered marker, a formula. */
   const nodeToken = (node: Y.XmlElement, attributes: Attributes, index: number): NodeKey => {
     const name = node.nodeName;
@@ -405,8 +412,10 @@ export function readSelection(
       return { key: keyOf.math(latex), shown: `$${latex}$` };
     }
     if (name === BREAK) return { key: keyOf.break(), shown: "\n" };
-    if (name === MISSING_NUMBER_NODE && missingNumber !== null)
+    if (name === MISSING_NUMBER_NODE && missingNumber !== null) {
+      marks++;
       return { key: keyOf.missing(), shown: missingNumber };
+    }
     // Nothing the model can keep: it comes back without it, for the User to review.
     return { key: keyOf.node(name, index), shown: "" };
   };
@@ -475,6 +484,7 @@ export function readSelection(
       after: lastBlock ? nearWords(blockText(lastBlock, missingNumber, to.offset), "after") : "",
       characters,
       missingNumber,
+      marks,
     },
   };
 }
@@ -1059,9 +1069,10 @@ function newParagraphs(
     };
   };
   const markers =
-    selection.missingNumber === null
+    selection.marks === 0
       ? MARKER
       : new RegExp(`${MARKER.source}|(${MISSING_NUMBER_WORDS.source})`, "g");
+  let marksLeft = selection.marks;
   const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
     const emphasis = emphasisOf(written);
@@ -1088,8 +1099,11 @@ function newParagraphs(
       const [, footnote, citation, formula, missing] = match;
       if (match[0] === "\n") {
         tokens.push({ key: keyOf.break(), node: { name: BREAK, attributes: {} } });
-      } else if (missing !== undefined) {
+      } else if (missing !== undefined && marksLeft > 0) {
+        marksLeft--;
         tokens.push({ key: keyOf.missing(), node: { name: MISSING_NUMBER_NODE, attributes: {} } });
+      } else if (missing !== undefined) {
+        words(match[0], match.index);
       } else if (footnote !== undefined || citation !== undefined) {
         const n = Number(footnote ?? citation);
         const node = footnote !== undefined ? footnoteNode(n) : citationNode(n);

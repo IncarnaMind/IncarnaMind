@@ -32,6 +32,8 @@ const WORDS = {
   en: {
     question: "What was Harbour's average monthly loan growth?",
     rewrite: "Tidy the growth sentence in that note.",
+    again: "Try the growth figure again and put it in the note.",
+    put: "Put the calculated growth, 8.0%, where the note says [number missing].",
     label: "Average monthly loan growth",
     title: "Growth",
     sentence: (marker: string) => `Harbour's average monthly loan growth was ${marker}.`,
@@ -43,6 +45,8 @@ const WORDS = {
   "zh-CN": {
     question: "港湾分馆的月均借阅增长率是多少？",
     rewrite: "整理一下那篇笔记里的增长率这句话。",
+    again: "再算一次增长率，写进笔记。",
+    put: "把算出的增长率 8.0% 写在笔记中[缺少数字]的位置。",
     label: "月均借阅增长率",
     title: "增长",
     sentence: (marker: string) => `港湾分馆的月均借阅增长率为 ${marker}。`,
@@ -81,6 +85,12 @@ const growth = (label: string): Extract<AnalysisValue, { kind: "figure" }> => ({
   of: { input: "loans", columns: ["growth"], rows: [[2, 13]], count: 12, how: "mean" },
 });
 
+/** The same figure given without naming its rows: it is recorded, and its marker is "[=1]". */
+function recorded(label: string): Extract<AnalysisValue, { kind: "figure" }> {
+  const { of: _rows, ...figure } = growth(label);
+  return figure;
+}
+
 /** A figure the code gives without naming its rows: it is recorded, and its marker is "[=1]". */
 const BRANCHES: Extract<AnalysisValue, { kind: "figure" }> = {
   kind: "figure",
@@ -109,6 +119,10 @@ function shown(node: Y.XmlElement | Y.XmlText): string {
 const rewrites = (call: ModelCall) =>
   call.prompt.includes(WORDS.en.rewrite) || call.prompt.includes(WORDS["zh-CN"].rewrite);
 
+/** The Answer's request that works the figure out again: the try-again Question's. */
+const triesAgain = (call: ModelCall) =>
+  call.prompt.includes(WORDS.en.again) || call.prompt.includes(WORDS["zh-CN"].again);
+
 /** The sentence of the Note the second Answer read, as it read it: its line that names the growth. */
 const readSentence = (call: ModelCall, language: Language): string =>
   call.prompt
@@ -126,6 +140,9 @@ async function written(language: Language, file: Buffer, content: string) {
     (call) => {
       // Edit with AI's rewrite of the passage it was given.
       const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+      // Asked to put the number in, it writes the number where the words were.
+      if (passage !== undefined && call.prompt.includes(words.put))
+        return { text: passage.replace(words.mark, "8.0%") };
       if (passage !== undefined) return { text: tidy(passage) };
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -139,11 +156,47 @@ async function written(language: Language, file: Buffer, content: string) {
               input: {
                 title: rewrites(call) ? BRANCHES.label : words.label,
                 inputs: [{ name: "loans", passage: found?.id ?? "" }],
-                code: rewrites(call) ? "count" : "pass",
+                code: rewrites(call) ? "count" : triesAgain(call) ? "again" : "pass",
               },
             },
           ],
         };
+      }
+      if (triesAgain(call)) {
+        const edits = call.results.filter((result) => result.tool === "edit_mind");
+        // Its sentence again with the figure it calculated this time, then, once told that text
+        // isn't its own to replace, the number by Edit with AI.
+        if (edits.length === 0)
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  mind: words.title,
+                  part: words.part,
+                  content: words.sentence("[=1]"),
+                  times_as_long: 1,
+                  removes_only: false,
+                },
+              },
+            ],
+          };
+        if (edits.length === 1 && edits[0]?.text.includes("give instruction instead"))
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  mind: words.title,
+                  part: words.part,
+                  instruction: words.put,
+                  times_as_long: 1,
+                  removes_only: false,
+                },
+              },
+            ],
+          };
+        return { text: language === "en" ? "Done." : "已完成。" };
       }
       if (rewrites(call)) {
         const edits = call.results.filter((result) => result.tool === "edit_mind");
@@ -207,7 +260,13 @@ async function written(language: Language, file: Buffer, content: string) {
       answer: (job) => ({
         output: {
           ...noAnalysisOutput(),
-          results: [job.code === "count" ? BRANCHES : growth(words.label)],
+          results: [
+            job.code === "count"
+              ? BRANCHES
+              : job.code === "again"
+                ? recorded(words.label)
+                : growth(words.label),
+          ],
         },
       }),
     }),
@@ -358,6 +417,40 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     expect(edited?.status).toBe("done");
     expect(after.at(-1)).toBe(words.tidied(MARK));
     expect(after.join("\n")).not.toContain("12");
+  });
+
+  test("a later Answer that calculates the figure can't yet write it over the mark: its new text is refused as not its own, and Edit with AI puts the number in as text (What is left)", async () => {
+    const { core, mindId, conversationId } = await written(
+      language,
+      FIRST_MONTH_BLANK,
+      words.sentence("[=1]"),
+    );
+    const answer = await askAssistant(core, {
+      conversationId,
+      text: words.again,
+      mindId,
+      analyse: true,
+    });
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    await resolveChanges(client, "accept");
+    await client.settled();
+    const edits = answer.toolCalls.filter((call) => call.tool === "edit_mind");
+    const after = client.blocks.toArray().at(-1);
+    let figures = 0;
+    const count = (node: Y.XmlElement) => {
+      for (const child of node.toArray()) {
+        if (!(child instanceof Y.XmlElement)) continue;
+        if (child.nodeName === "calculatedFigure") figures++;
+        count(child);
+      }
+    };
+    if (after instanceof Y.XmlElement) count(after);
+    core.close();
+    expect(edits.map((call) => call.status)).toEqual(["failed", "done"]);
+    expect(edits[0]?.mindProblem?.kind).toBe("content-not-own");
+    expect(after instanceof Y.XmlElement ? shown(after) : null).toBe(words.sentence("8.0%"));
+    expect(figures).toBe(0);
   });
 
   test("the Markdown and Word exports write the mark's words in the interface language", async () => {

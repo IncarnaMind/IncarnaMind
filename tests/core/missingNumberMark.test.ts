@@ -8,6 +8,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import type { ConversationAnswer } from "../../src/core";
+import { EDIT_INSTRUCTIONS, withMissingNumber } from "../../src/core/edits/prompt";
 import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { setUpWithDocuments } from "../helpers/citations";
@@ -96,7 +97,14 @@ describe.each([
   ["en", "[number missing]", "[缺少数字]"],
   ["zh-CN", "[缺少数字]", "[number missing]"],
 ] as const)("Edit with AI with the interface in %s", (language, words, otherWords) => {
-  async function noteWithMark(reply: (passage: string) => string) {
+  async function noteWithMark(
+    reply: (passage: string) => string,
+    content: JSONContent[] = [
+      text("Growth was "),
+      { type: "missingNumber" },
+      text(" in 2026 and 9% in 2025."),
+    ],
+  ) {
     const calls: EditCall[] = [];
     const set = await setUpWithDocuments(
       editingModel((call) => reply(call.passage), calls),
@@ -104,11 +112,7 @@ describe.each([
     );
     onTestFinished(() => set.core.close());
     if (language === "zh-CN") await set.core.updateSettings({ user: { language } });
-    const note = {
-      type: "paragraph",
-      attrs: { id: "growth" },
-      content: [text("Growth was "), { type: "missingNumber" }, text(" in 2026 and 9% in 2025.")],
-    };
+    const note = { type: "paragraph", attrs: { id: "growth" }, content };
     writeMind(set.client, [note]);
     await set.client.settled();
     const result = await set.core.editWithAi(
@@ -134,5 +138,37 @@ describe.each([
       passage.replace(words, otherWords).replace(" in 2026 and", ";"),
     );
     expect(lastLine(client)).toBe(`Growth was ${MARK}; 9% in 2025.`);
+  });
+
+  test("the model is told to keep the mark's words only when the passage holds the mark: any other request is as it was, byte for byte", async () => {
+    const marked = await noteWithMark((passage) => passage.replace(" in 2026 and", ";"));
+    const plain = await noteWithMark(
+      (passage) => passage.replace(" in 2026 and", ";"),
+      [text("Growth was 7% in 2026 and 9% in 2025.")],
+    );
+    expect(plain.calls[0]?.system).toBe(EDIT_INSTRUCTIONS);
+    expect(marked.calls[0]?.system).toBe(withMissingNumber(EDIT_INSTRUCTIONS));
+    expect(marked.calls[0]?.system.split("\n")).toEqual([
+      ...EDIT_INSTRUCTIONS.split("\n").slice(0, 7),
+      EDIT_INSTRUCTIONS.split("\n")[7],
+      '- The bracketed words "[number missing]" and "[缺少数字]" stand for a number that is missing: keep them exactly as written, in their place, also when translating.',
+      ...EDIT_INSTRUCTIONS.split("\n").slice(8),
+    ]);
+    expect(EDIT_INSTRUCTIONS.split("\n")[7]).toMatch(/^- Keep every Citation marker/);
+  });
+
+  test("words the User typed in a passage with no mark stay words, though the reply writes them back", async () => {
+    const { client } = await noteWithMark(
+      (passage) => passage.replace(" in 2026 and", ";"),
+      [text(`Growth was ${words} in 2026 and 9% in 2025.`)],
+    );
+    expect(lastLine(client)).toBe(`Growth was ${words}; 9% in 2025.`);
+  });
+
+  test("the reply's words are the mark only as often as the passage held it, counted from the start", async () => {
+    const { client } = await noteWithMark((passage) =>
+      passage.replace(" in 2026 and 9% in 2025.", `; 2025 was ${otherWords} too.`),
+    );
+    expect(lastLine(client)).toBe(`Growth was ${MARK}; 2025 was ${otherWords} too.`);
   });
 });
