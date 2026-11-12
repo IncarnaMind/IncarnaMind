@@ -3106,6 +3106,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
     // What a check reads of the Documents as it runs: their words, names and whether it may use
@@ -3966,8 +3967,6 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
-    consentedAt: (service) =>
-      consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);

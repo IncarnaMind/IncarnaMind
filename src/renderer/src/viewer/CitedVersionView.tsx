@@ -8,9 +8,8 @@ import { citedVersionHandles } from "../commands/handles";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { core } from "../core";
-import { useCitedOrigin } from "../editor/mindContext";
 import { useLanguage, useT } from "../i18n";
-import { openCurrentVersion } from "../openCited";
+import { openCurrentVersionOf } from "../openCited";
 import { useAppStore, type ViewerTarget } from "../store";
 import { DocumentView } from "./DocumentView";
 import { HighlightedText } from "./highlightedText";
@@ -61,7 +60,7 @@ export function CitedVersionView({
   const pageTo = cited?.pageTo ?? target.pageTo ?? pageFrom;
   const location = cited?.location ?? null;
   const { tabId } = useContext(ViewerFrameContext);
-  const openCurrent = useOpenCurrent(document, target);
+  const openCurrent = useOpenCurrent(target);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again at Try again, or when the Document changes again.
   useEffect(() => {
@@ -163,31 +162,12 @@ export function CitedVersionView({
 }
 
 /** The Document's current version at the Citation's place, from the bar or the line that says the text failed. */
-function useOpenCurrent(document: Document, target: ViewerTarget): () => void {
-  const origin = useCitedOrigin();
-  const cited = target.citation;
+function useOpenCurrent(target: ViewerTarget): () => void {
   return useMemo(
     () => () => {
-      if (!cited) return;
-      openCurrentVersion(
-        {
-          documentId: document.id,
-          pageFrom: cited.pageFrom ?? null,
-          pageTo: cited.pageTo ?? null,
-          quote: target.quote ?? null,
-          contentHash: cited.contentHash ?? null,
-          ...(cited.location && { location: cited.location }),
-        },
-        {
-          origin,
-          check: cited.check,
-          withQuote: true,
-          ...(cited.number !== undefined && { number: cited.number }),
-          label: cited.label ?? null,
-        },
-      ).catch(useAppStore.getState().reportError);
+      openCurrentVersionOf(target).catch(useAppStore.getState().reportError);
     },
-    [cited, document.id, target.quote, origin],
+    [target],
   );
 }
 
