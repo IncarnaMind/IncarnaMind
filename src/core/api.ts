@@ -6055,6 +6055,32 @@ export type ProviderErrorKind =
   | "cut-short"
   | "unknown";
 
+// Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
+export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
+  auth: true,
+  "api-key-unreadable": true,
+  model: true,
+  "rate-limit": true,
+  network: true,
+  provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
+  "consent-declined": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "ollama-not-running": true,
+  "data-retention": true,
+  "not-signed-in": true,
+  "plan-limit": true,
+  blocked: true,
+  "too-long": true,
+  "cost-cap": true,
+  "no-answer": true,
+  "cut-short": true,
+  unknown: true,
+};
+
 export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
