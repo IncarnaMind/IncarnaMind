@@ -85,7 +85,7 @@ const UNIT = /\p{Script=Han}|(?:(?!\p{Script=Han})[\p{L}\p{N}])+|[\s\S]/gu;
 const WORDLIKE = /^[\p{L}\p{N}]/u;
 
 const unitsOf = (text: string) => text.match(UNIT) ?? [];
-const fold = (unit: string) => unit.normalize("NFKC").toLowerCase();
+export const fold = (unit: string) => unit.normalize("NFKC").toLowerCase();
 
 type Step = "same" | "changed" | "plainOnly" | "toldOnly";
 
@@ -212,7 +212,7 @@ function writtenAt(
  * often as "Priya Raman". A part counts only where the model wrote it capitalised too: "harbor"
  * alone is a place for ships, not Harbor Logistics.
  */
-function namesAndParts(words: readonly string[]): { word: string; capitalised: boolean }[] {
+export function namesAndParts(words: readonly string[]): { word: string; capitalised: boolean }[] {
   const parts = words.flatMap((word) => {
     const each = word.split(/\s+/u);
     return each.length > 1 ? each.filter((part) => /^\p{Lu}\p{L}{2,}$/u.test(part)) : [];
@@ -226,7 +226,7 @@ function namesAndParts(words: readonly string[]): { word: string; capitalised: b
 const partsOf = (word: string) => word.split(/\s+/u).map(fold);
 
 /** The told words and every part of each, case folded: words that are already a told name. */
-function toldKeys(words: readonly string[]): Set<string> {
+export function toldKeys(words: readonly string[]): Set<string> {
   return new Set(words.flatMap((word) => [fold(word), ...partsOf(word)]));
 }
 

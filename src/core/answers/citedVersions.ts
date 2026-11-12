@@ -13,6 +13,7 @@ import { citedInputs } from "../../shared/calculatedFigures";
 import { readChartData, valueCitations } from "../../shared/charts";
 import { readClaimCheck, restsOn } from "../../shared/claimChecks";
 import { boundTablesIn, calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
+import { countingCheckOf } from "../../shared/markKeys";
 import { perBlock } from "../../shared/memo";
 import {
   CHART_NODE,
@@ -85,7 +86,7 @@ function figureCheckCitations(
   const visit = (parent: Y.XmlFragment | Y.XmlElement | Y.XmlText) => {
     if (parent instanceof Y.XmlText) {
       for (const run of parent.toDelta() as { attributes?: Record<string, unknown> }[])
-        add(run.attributes?.[CLAIM_CHECK_MARK]);
+        add(countingCheckOf(run.attributes)?.attrs);
       return;
     }
     if (parent instanceof Y.XmlElement) add(parent.getAttribute(CLAIM_CHECK_MARK));

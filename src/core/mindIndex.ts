@@ -121,6 +121,8 @@ export function createMindIndex(options: {
   db: Database;
   now: () => string;
   content: Pick<MindContent, "peek">;
+  /** A Mind stored to was read again: its Blocks' text is the Mind's as typed a moment ago. */
+  readAgain?(mindId: string): void;
   reportError(error: unknown): void;
 }) {
   const { db, now, content } = options;
@@ -219,9 +221,9 @@ export function createMindIndex(options: {
     });
   };
 
-  const readSafely = (mindId: string) => {
+  const safely = (work: () => void) => {
     try {
-      read(mindId);
+      work();
     } catch (error) {
       options.reportError(error);
     }
@@ -235,7 +237,8 @@ export function createMindIndex(options: {
     longest = undefined;
     for (const mindId of [...dirty]) {
       dirty.delete(mindId);
-      readSafely(mindId);
+      safely(() => read(mindId));
+      safely(() => options.readAgain?.(mindId));
     }
   };
 
@@ -246,7 +249,7 @@ export function createMindIndex(options: {
     const until = performance.now() + WALK_SLICE_MS;
     do {
       const mindId = left.shift();
-      if (mindId !== undefined) readSafely(mindId);
+      if (mindId !== undefined) safely(() => read(mindId));
     } while (left.length > 0 && performance.now() < until);
     if (left.length > 0) {
       walking = setTimeout(walk, 0);

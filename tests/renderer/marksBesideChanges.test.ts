@@ -3,6 +3,7 @@ import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { markKeyOf } from "../../src/shared/markKeys";
 
 const schema = getSchema(noteExtensions());
 const CHANGES = ["proposalDelete", "proposalInsert"];
@@ -41,6 +42,9 @@ describe("Marks beside a change (#2362)", () => {
   test("code is stored under its own name", () => {
     const fragment = new Y.Doc().getXmlFragment("content");
     prosemirrorToYXmlFragment(paragraphOf("code", "proposalDelete"), fragment);
-    expect(fragment.toString()).toMatch(/^<paragraph><code><proposalDelete [^>]*>npm test</);
+    // The change beside it is under a key of its own (#2996).
+    expect(fragment.toString()).toMatch(
+      new RegExp(`^<paragraph><code><${markKeyOf("proposalDelete", "p1")} [^>]*>npm test<`),
+    );
   });
 });

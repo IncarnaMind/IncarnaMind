@@ -2,7 +2,12 @@
  * The Minds an Answer in the assistant changed or made (#202), from its Tool
  * calls: what its card lists (`MindChangesCard`). Only data.
  */
-import type { ChartProblem, ConversationAnswer, RemovedParagraphs } from "../../core/api";
+import type {
+  ChartProblem,
+  ConversationAnswer,
+  FiguresLeftOut,
+  RemovedParagraphs,
+} from "../../core/api";
 
 /**
  * A Mind an Answer changed or made, the requests its changes there belong to,
@@ -25,6 +30,13 @@ export interface ChangedMind {
   unlinkedSources: number;
   droppedSources: number;
   extraCells: number;
+  /** Figure markers its text there marks as missing, for lack of a figure (#2577). Absent: none. */
+  figuresLeftOut?: FiguresLeftOut;
+  /**
+   * Its calls there refused for taking out that mark with no calculated figure in its place, and
+   * not followed by a call that changed the Note after all (#2577). Absent: none.
+   */
+  missingNumberRefused?: number;
   /** The whole paragraphs its removals there took out, when they only removed (#2356). Absent: none. */
   removed?: RemovedParagraphs;
 }
@@ -77,7 +89,24 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     row.unlinkedSources += change.unlinkedSources ?? 0;
     row.droppedSources += change.droppedSources ?? 0;
     row.extraCells += change.extraCells ?? 0;
+    if (change.figuresLeftOut) {
+      row.figuresLeftOut = {
+        count: (row.figuresLeftOut?.count ?? 0) + change.figuresLeftOut.count,
+        labels: [
+          ...new Set([...(row.figuresLeftOut?.labels ?? []), ...change.figuresLeftOut.labels]),
+        ],
+      };
+    }
     rows.set(change.mindId, row);
   }
+  answer.toolCalls.forEach((call, at) => {
+    const problem = call.mindProblem;
+    if (problem?.kind !== "missing-number") return;
+    const row = rows.get(problem.mindId);
+    const tried = answer.toolCalls
+      .slice(at + 1)
+      .some((later) => later.mindChange?.mindId === problem.mindId);
+    if (row && !tried) row.missingNumberRefused = (row.missingNumberRefused ?? 0) + 1;
+  });
   return [...rows].map(([mindId, row]) => ({ mindId, ...row }));
 }

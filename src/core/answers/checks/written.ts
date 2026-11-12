@@ -44,6 +44,7 @@ import {
   projectedContent,
   sliceInlineText,
 } from "../../../shared/inlineText";
+import { markValueOf } from "../../../shared/markKeys";
 import {
   INLINE_NODES,
   NODE_CHARACTER,
@@ -79,7 +80,7 @@ import type { RepliesOut } from "../../runs/replies";
 import { type Slots, slots } from "../../runs/stop";
 import { realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
-import { type NodeJSON, topLevelBlocks } from "../blocks";
+import { marksOfRun, type NodeJSON, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
@@ -374,9 +375,9 @@ function inlineOf(parent: Y.XmlElement): NodeJSON[] {
       const runs = child.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[];
       return runs.flatMap((run) => {
         if (typeof run.insert !== "string") return [];
-        const marks = Object.entries(run.attributes ?? {}).map(([type, attrs]) => ({
-          type,
-          attrs: (attrs ?? {}) as Record<string, unknown>,
+        const marks = marksOfRun(run.attributes).map((mark) => ({
+          ...mark,
+          attrs: mark.attrs ?? {},
         }));
         return [{ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) }];
       });
@@ -458,7 +459,10 @@ interface Run {
 function textBefore(node: Y.XmlElement | Y.XmlText, write: string): string {
   if (node instanceof Y.XmlText) {
     return (node.toDelta() as Run[])
-      .filter((run) => readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request !== write)
+      .filter(
+        (run) =>
+          readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request !== write,
+      )
       .map((run) => (typeof run.insert === "string" ? run.insert : NODE_CHARACTER))
       .join("");
   }

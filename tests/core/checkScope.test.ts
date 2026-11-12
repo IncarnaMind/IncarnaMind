@@ -130,6 +130,7 @@ describe.each(["en", "zh-CN"] as const)("A check from a Mind (%s)", (language) =
     // Its check was made in its own scope, which the move didn't change.
     expect(
       claimCheckShown(unfiled.check, {
+        footing: "not-yet-known",
         text: unfiled.sentence.text,
         versions: null,
         folderId: folder.id,
@@ -262,6 +263,7 @@ describe.each(["en", "zh-CN"] as const)("A check from a Mind (%s)", (language) =
     const span = await checkOf(client);
     expect(
       claimCheckShown(span.check, {
+        footing: "not-yet-known",
         text: span.sentence.text,
         versions: null,
         folderId: folder.id,

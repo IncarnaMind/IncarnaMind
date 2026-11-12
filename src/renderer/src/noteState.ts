@@ -13,6 +13,7 @@ import * as Y from "yjs";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   type CellFigurePlace,
+  type FigureFootingNow,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
   type MindContentSnapshot,
@@ -310,6 +311,7 @@ let schema: ReturnType<typeof getSchema> | undefined;
 export function readNoteState({
   doc,
   cellFigures,
+  footing,
   documents,
   keptCitationTexts,
   folderId,
@@ -318,6 +320,8 @@ export function readNoteState({
   doc: Y.Doc;
   /** Where its table cells hold figures, as the core reads them (`MindContentSnapshot`). */
   cellFigures: readonly CellFigurePlace[];
+  /** Each total's footing as the core reads it (`MindContentSnapshot`). */
+  footing: readonly FigureFootingNow[];
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
@@ -327,6 +331,7 @@ export function readNoteState({
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
   const { claims, kept } = claimsOf(root, {
+    footing: new Map(footing.map(({ id, ...live }) => [id, live])),
     versions:
       documents === null
         ? null
@@ -425,7 +430,7 @@ export const nothingLeft = (state: NoteState | null): boolean =>
  * Note is outside, what a Document inside it backs counts for nothing (#2378).
  */
 export function homeReading(
-  snapshot: Pick<MindContentSnapshot, "state" | "cellFigures">,
+  snapshot: Pick<MindContentSnapshot, "state" | "cellFigures" | "footing">,
   {
     documents,
     keptCitationTexts,
@@ -444,6 +449,7 @@ export function homeReading(
     return readNoteState({
       doc,
       cellFigures: snapshot.cellFigures,
+      footing: snapshot.footing,
       documents,
       keptCitationTexts,
       folderId,

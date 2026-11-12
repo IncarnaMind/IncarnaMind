@@ -13,7 +13,7 @@ import type {
   Settings,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
-import { pageBlocks } from "../../shared/answerBlocks";
+import { pageBlocks, withAnswerChecks } from "../../shared/answerBlocks";
 import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
@@ -45,7 +45,21 @@ export const useMeetingHelp = create<HelpState>()(() => ({
   panel: { shown: false, folded: false, pinned: false },
 }));
 
+/**
+ * A Meeting's latest press: its Answer once asked, and the helps this window has had for the
+ * Meeting since. A call's reply can arrive before the event with the Meeting's new help (#3005), so
+ * the press keeps its outline until its own Answer has been the Meeting's help, rather than showing
+ * the one before again. A later press replaces it, and the earlier one's reply then changes nothing.
+ */
+interface Press {
+  answerId: string | null;
+  helped: Set<string>;
+}
+
+const presses = new Map<string, Press>();
+
 function settle(meetingId: string, blocked?: HelpState["blocked"][string]): void {
+  presses.delete(meetingId);
   useMeetingHelp.setState((state) => {
     const { [meetingId]: _pending, ...pending } = state.pending;
     const { [meetingId]: _blocked, ...rest } = state.blocked;
@@ -63,14 +77,23 @@ core.on("chatReadiness.changed", (readiness) => {
   }));
 });
 
-// A press on a Meeting that has since stopped leaves no outline behind.
-useMeetings.subscribe((state) => {
+/** A press's outline goes once its own Answer has been its Meeting's help, and with a Meeting that stopped. */
+function settleAsked(meetings: readonly Meeting[]): void {
   const { pending } = useMeetingHelp.getState();
   for (const meetingId of Object.keys(pending)) {
-    const meeting = state.meetings.find((each) => each.id === meetingId);
-    if (!isLive(meeting)) settle(meetingId);
+    const meeting = meetings.find((each) => each.id === meetingId);
+    if (!isLive(meeting)) {
+      settle(meetingId);
+      continue;
+    }
+    const press = presses.get(meetingId);
+    if (!press) continue;
+    if (meeting.help) press.helped.add(meeting.help.answerId);
+    if (press.answerId !== null && press.helped.has(press.answerId)) settle(meetingId);
   }
-});
+}
+
+useMeetings.subscribe((state) => settleAsked(state.meetings));
 
 /**
  * Asks for a button's help (`AskMeetingHelpInput`); resolves to the conversation and Answer, or
@@ -81,6 +104,9 @@ export async function askHelp(
   kind: MeetingHelpKind,
   conversationId?: string | null,
 ): Promise<{ conversationId: string; answerId: string } | null> {
+  const press: Press = { answerId: null, helped: new Set() };
+  presses.set(meeting.id, press);
+  const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
     pending: { ...state.pending, [meeting.id]: kind },
     blocked: Object.fromEntries(
@@ -94,18 +120,24 @@ export async function askHelp(
       ...(conversationId !== undefined && { conversationId }),
     });
     if (!result.asked) {
-      settle(
-        meeting.id,
-        result.reason === "not-ready"
-          ? { readiness: result.readiness }
-          : { message: translateNow("meetings.help.failed", { message: result.skill }) },
-      );
+      if (latest()) {
+        settle(
+          meeting.id,
+          result.reason === "not-ready"
+            ? { readiness: result.readiness }
+            : { message: translateNow("meetings.help.failed", { message: result.skill }) },
+        );
+      }
       return null;
     }
-    settle(meeting.id);
+    if (latest()) {
+      press.answerId = result.answerId;
+      settleAsked(useMeetings.getState().meetings);
+    }
     return { conversationId: result.conversation.id, answerId: result.answerId };
   } catch (error) {
-    settle(meeting.id, { message: errorMessage(error, translateNow) });
+    if (latest()) settle(meeting.id, { message: errorMessage(error, translateNow) });
+    else useAppStore.getState().reportError(error);
     return null;
   }
 }
@@ -145,22 +177,24 @@ export async function helpToKeepOf(help: MeetingHelp) {
       translateNow(answer.status === "stopped" ? "answer.status.stopped" : "meetings.help.nothing"),
     );
   }
-  return answer;
+  const asked = messages.find((message) => message.id === answer.questionId);
+  return { answer, scope: asked?.kind === "question" ? asked.scope : null };
 }
 
 /**
- * Puts a help Answer into its meeting's notes, at their end, with a link back to it; resolves to
- * the Blocks added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
+ * Puts a help Answer into its meeting's notes, at their end, with a link back to it and what its
+ * sentences' check settled, as Add to note from the assistant does (#2313); resolves to the Blocks
+ * added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
  */
 export async function addHelpToNotes(
   meeting: Meeting,
   help: MeetingHelp,
 ): Promise<{ mindId: string; blockIds: string[] }> {
-  const answer = await helpToKeepOf(help);
+  const { answer, scope } = await helpToKeepOf(help);
   const question = translateNow(helpLabel(help.kind));
   const { blockIds } = await core.addToNote({
     mindId: meeting.mindId,
-    blocks: pageBlocks(answer, question),
+    blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
     origin: { from: messageReference(answer.conversationId, answer.id), question },
     model: answer.model,
   });

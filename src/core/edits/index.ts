@@ -84,7 +84,14 @@ import {
   replaceOwn,
   waitingIn,
 } from "../proposals/ownWaiting";
-import { splitCiting, type Unplaced, unplacedSince } from "../proposals/placed";
+import {
+  holdsMissingNumber,
+  paragraphPlaces,
+  splitCiting,
+  takesMissingNumber,
+  type Unplaced,
+  unplacedSince,
+} from "../proposals/placed";
 import {
   acceptedText,
   addNotes,
@@ -123,6 +130,7 @@ import {
   sameText,
   unclearTypedTags,
   unnameRemovals,
+  withMissingNumber,
   withoutNames,
 } from "./prompt";
 
@@ -186,6 +194,8 @@ export interface EditsOptions {
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
+  /** The words the mark where a figure couldn't be calculated reads as, for the model (#2577). */
+  missingNumber(): string;
   /**
    * A Citation's attributes checked again now: its new attributes, or null when its check comes
    * out the same, or the Note may not read its Document (#2746).
@@ -439,6 +449,7 @@ function editCall(
   selection: Pick<Selection, "text" | "context" | "before" | "after" | "characters"> & {
     named?: string;
     quotes?: readonly string[];
+    marks?: number;
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
@@ -446,11 +457,12 @@ function editCall(
     selection.named === undefined
       ? selection.text
       : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const edit = passage === selection.text ? EDIT_INSTRUCTIONS : EDIT_INSTRUCTIONS_NAMED;
   const instructions = explain
     ? EXPLAIN_INSTRUCTIONS
-    : passage === selection.text
-      ? EDIT_INSTRUCTIONS
-      : EDIT_INSTRUCTIONS_NAMED;
+    : (selection.marks ?? 0) > 0
+      ? withMissingNumber(edit)
+      : edit;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
@@ -816,6 +828,8 @@ export function createEdits(options: EditsOptions) {
     const { blocks } = copy;
     // Explain's words cite nothing: what it writes is checked against the Mind as it was.
     const asItWas = explain ? splitCiting(blocks, request) : null;
+    const placesBefore = paragraphPlaces(blocks, request);
+    const holdsMark = holdsMissingNumber(placesBefore);
     const { requestId } = hooks;
     // An edit the User asked for applies at once, here or from the assistant, and what its reply
     // leaves out without quoting it as taken out stays (#880, #2180), made again too (#2796).
@@ -914,7 +928,16 @@ export function createEdits(options: EditsOptions) {
       unplaced = stream
         ? stream.unplaced()
         : asItWas && unplacedSince(asItWas, blocks, request, new Map());
-      return { ...stream?.written(), ...(unplaced && { notPlaced: true }) };
+      return {
+        ...stream?.written(),
+        ...(unplaced && { notPlaced: true }),
+        ...(holdsMark &&
+          takesMissingNumber(placesBefore, paragraphPlaces(blocks, request), {
+            removesOnly: ask.removesOnly === true,
+          }) && {
+            takesMissingNumber: true,
+          }),
+      };
     };
     /** Writes in the copy and, checked, merges it into the Mind: nothing more once the change is refused. */
     const step = (write: () => boolean): void => {
@@ -947,11 +970,15 @@ export function createEdits(options: EditsOptions) {
     };
     /**
      * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed,
-     * or hold a Citation it didn't place: none of it goes in, and the reply isn't read further.
+     * hold a Citation it didn't place, or take out the mark where a figure couldn't be calculated:
+     * none of it goes in, and the reply isn't read further.
      */
     const untrusted = (): EditWithAiResult | null => {
       const why = refusedNow();
-      return why === "not-placed" || why === "misnamed" || why === "typed-tag"
+      return why === "not-placed" ||
+        why === "misnamed" ||
+        why === "typed-tag" ||
+        why === "missing-number"
         ? { kind: why }
         : null;
     };
@@ -1068,7 +1095,7 @@ export function createEdits(options: EditsOptions) {
     to: TextPlace,
   ): { ok: true; draft: Draft } | Extract<ReadResult, { ok: false }> {
     const copy = copyOf(content.state(mindId));
-    const read = readSelection(copy.blocks, from, to);
+    const read = readSelection(copy.blocks, from, to, options.missingNumber());
     if (!read.ok) {
       copy.doc.destroy();
       return read;
@@ -1109,7 +1136,7 @@ export function createEdits(options: EditsOptions) {
       const region = takeBack(copy.doc, blocks, input.proposalId);
       if (!region) return { kind: "changed" };
       const { from, to } = region;
-      const read = readSelection(blocks, from, to);
+      const read = readSelection(blocks, from, to, options.missingNumber());
       if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
       /** The change goes: there is no change to make now. */
       const withdraw = () => {
@@ -1169,7 +1196,7 @@ export function createEdits(options: EditsOptions) {
             offset: layout(end.element).reduce((sum, child) => sum + child.size, 0),
           }
         : input.to;
-      const read = readSelection(blocks, input.from, to);
+      const read = readSelection(blocks, input.from, to, options.missingNumber());
       const bounds = boundsOf(blocks, own);
       if (!read.ok || !bounds) return nothing({ kind: "changed" });
       const { selection } = read;
@@ -1209,6 +1236,7 @@ export function createEdits(options: EditsOptions) {
           const doc = mind.doc;
           return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
         });
+      const placesBefore = paragraphPlaces(blocks, request);
       const written = reading.doc.transact(() => {
         const fresh = freshCitations(selection, options.recheck, input.mindId)(reply);
         // Only the call's own word sets a reply aside: an inherited one only holds it (#2356).
@@ -1220,7 +1248,10 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       const after = acceptedText(stretch(), request);
-      const refused = refusalOf(written);
+      const takesMark = takesMissingNumber(placesBefore, paragraphPlaces(blocks, request), {
+        removesOnly: input.removesOnly === true,
+      });
+      const refused = refusalOf(takesMark ? { ...written, takesMissingNumber: true } : written);
       if (refused) return nothing(refusedAs(refused, textOf(reply, named)));
       if (written.proposals.length === 0 || written.onlyAside)
         return nothing({

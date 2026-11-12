@@ -593,6 +593,7 @@ async function shown(world: World, flow: Flow): Promise<string[]> {
     const span = spans.find((each) => each.sentence.text.replace(/￼/gu, "").trim() === claim);
     if (!span) return "none";
     const seen = claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId: world.folderId,

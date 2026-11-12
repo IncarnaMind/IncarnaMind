@@ -588,6 +588,7 @@ async function marksIn(core: Core, client: MindClient) {
     sentence: span.sentence.text.replaceAll(INLINE_NODE, "").trim(),
     check: span.check,
     shown: claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId: span.check.scope.folderId,

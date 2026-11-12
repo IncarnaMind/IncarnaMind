@@ -54,6 +54,96 @@ function onlyRecordCites(text: string, from: number, to: number, cites: readonly
   return !hasWords(rest.replace(CITATION_SIGNAL, ""));
 }
 
+const CHINESE = /\p{Script=Han}/u;
+const LETTER = /\p{L}/u;
+const FULL_STOP = /[.!?。！？]/u;
+const CHINESE_FULL_STOP = /[。！？]/u;
+const ENGLISH_STOP_AT_END = /[.!?][^\p{L}\p{N}\n。！？]*$/u;
+const PAIRED_MARKS = new Map([
+  ["“", "”"],
+  ['"', '"'],
+  ["‘", "’"],
+  ["「", "」"],
+  ["『", "』"],
+  ["（", "）"],
+  ["(", ")"],
+  ["《", "》"],
+]);
+const CHINESE_MARKS = new Set(["「", "『", "（", "《"]);
+// Chinese puts a sentence's own full stop outside the brackets or title marks inside it.
+const NEVER_END_A_SENTENCE = new Set(["（", "(", "《"]);
+
+interface Enclosed extends SentenceSpan {
+  lastStopEndsSentence: boolean;
+}
+
+function inChineseSentence(text: string, open: number, close: number | null): boolean {
+  if (CHINESE_MARKS.has(text.charAt(open))) return true;
+  for (let at = open - 1; at >= 0; at--) {
+    const char = text.charAt(at);
+    if (LETTER.test(char)) return CHINESE.test(char);
+    if (FULL_STOP.test(char)) break;
+  }
+  // A quotation that starts its sentence ("“…”是原话。") is in the language of what follows it.
+  for (let at = (close ?? text.length) + 1; at < text.length; at++) {
+    const char = text.charAt(at);
+    if (LETTER.test(char)) return CHINESE.test(char);
+    if (FULL_STOP.test(char)) return CHINESE_FULL_STOP.test(char);
+  }
+  return false;
+}
+
+function spaceBeforeNextWord(text: string, at: number): boolean {
+  let spaced = false;
+  for (let next = at; next < text.length; next++) {
+    const char = text.charAt(next);
+    if (isSpace(char)) spaced = true;
+    else if (char !== INLINE_NODE) return spaced && hasWords(char);
+  }
+  return false;
+}
+
+function closingMark(text: string, at: number, close: string, end: number): number | null {
+  const open = text.charAt(at);
+  let depth = 0;
+  for (let next = at + 1; next < end; next++) {
+    const char = text.charAt(next);
+    if (char === close) {
+      if (depth === 0) return next;
+      depth--;
+    } else if (char === open) depth++;
+  }
+  return null;
+}
+
+function enclosedInChinese(text: string): Enclosed[] {
+  if (!CHINESE.test(text)) return [];
+  const sentenceEnds = /[。！？\n]/gu;
+  const found: Enclosed[] = [];
+  let sentenceEnd = -1;
+  for (let at = 0; at < text.length; at++) {
+    const open = text.charAt(at);
+    const mark = PAIRED_MARKS.get(open);
+    if (mark === undefined) continue;
+    if (sentenceEnd <= at) {
+      sentenceEnds.lastIndex = at + 1;
+      sentenceEnd = sentenceEnds.exec(text)?.index ?? text.length;
+    }
+    // A mark not closed before its sentence's own full stop or line break quotes up to it: a
+    // straight mark would otherwise pair with the next sentence's.
+    const close = closingMark(text, at, mark, sentenceEnd);
+    if (inChineseSentence(text, at, close)) {
+      // "…six weeks.” 我们同意…": Chinese leaves no space inside a sentence, so one after a
+      // quoted sentence starts the next.
+      const lastStopEndsSentence =
+        close !== null && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
+      found.push({ from: at, to: close ?? sentenceEnd, lastStopEndsSentence });
+      at = close ?? sentenceEnd;
+    } else if (close !== null) at = close;
+  }
+  return found;
+}
+
 /**
  * The sentences of a paragraph's text, in order. A Citation's marker right
  * after a sentence's full stop ("…quarter.[1] Next") belongs to that
@@ -61,7 +151,10 @@ function onlyRecordCites(text: string, from: number, to: number, cites: readonly
  * decision's citation stays in one sentence: the segmenter ends one at the
  * "v." and at the "(Tex." inside it. So does a record cite, which the
  * segmenter ends at "Dep." or "Compl."; and a sentence of record cites alone
- * belongs to the sentence before it, the one it supports (#1709).
+ * belongs to the sentence before it, the one it supports (#1709). A Chinese
+ * sentence that quotes English, in quotation marks, brackets or a title, ends
+ * at its own 。, not at a full stop inside them; a quoted sentence that a
+ * space follows ends it, as “…six weeks.” 我们同意… does (#3009).
  */
 export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
   if (figures.length > 0) {
@@ -84,6 +177,15 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const citation = unbrokenCitations[citationAt];
     return citation !== undefined && citation.from < previousTo;
   };
+  const enclosures = enclosedInChinese(text);
+  let enclosedAt = 0;
+  const goesOnPast = (stop: number): boolean => {
+    while ((enclosures[enclosedAt]?.to ?? Number.POSITIVE_INFINITY) <= stop) enclosedAt++;
+    const enclosed = enclosures[enclosedAt];
+    if (enclosed === undefined || enclosed.from >= stop) return false;
+    return !enclosed.lastStopEndsSentence || hasWords(text.slice(stop, enclosed.to));
+  };
+  let englishStop: number | null = null;
   for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
     let to = index + segment.length;
@@ -98,12 +200,15 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const joined =
       before !== undefined &&
       ((ABBREVIATION.test(before) && !(startsDecision && COMPANY_ABBREVIATION.test(before))) ||
-        (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))));
+        (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))) ||
+        (englishStop !== null && goesOnPast(englishStop)));
     if (previous && joined && from < to) previous.to = to;
     else if (previous && overlapsCitation(previous.to, from)) {
       previous.to = to;
     } else if (from < to && hasWords(text.slice(from, to))) spans.push({ from, to });
     else if (previous && from < to) previous.to = to;
+    const stop = ENGLISH_STOP_AT_END.exec(segment);
+    englishStop = stop ? index + stop.index : null;
   }
   const kept: SentenceSpan[] = [];
   let recordAt = 0;

@@ -478,6 +478,7 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     await client.settled();
     const state = async () =>
       readNoteState({
+        footing: [],
         doc: client.doc,
         cellFigures: [],
         documents: await core.listDocuments(),
@@ -616,6 +617,7 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     expect(new Set(slope.map((mark) => mark.state))).toEqual(new Set(["not-checked"]));
     // No check can change it, so the Note reads Checked, naming the figure not recalculated.
     const { state } = readNoteState({
+      footing: [],
       doc: client.doc,
       cellFigures: [],
       documents: await core.listDocuments(),
@@ -1001,6 +1003,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     marks(client).find((mark) => mark.text.trim().length > 1 && said.startsWith(mark.text));
   const reading = async (core: Core, client: MindClient) =>
     readNoteState({
+      footing: [],
       doc: client.doc,
       cellFigures: [],
       documents: await core.listDocuments(),

@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import type { JSONContent } from "@tiptap/core";
+import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import {
   type CloudTranscriptionRoute,
   type Core,
@@ -10,6 +11,11 @@ import {
 } from "../../src/core";
 import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { readVtt } from "../../src/core/documents/formats/vtt";
+import {
+  type MeetingWordSources,
+  type MeetingWords,
+  meetingWords,
+} from "../../src/core/meetings/words";
 import { openDatabase } from "../../src/core/storage";
 import { OPENAI_TRANSCRIPTION_URL } from "../../src/core/transcription/cloud/openai";
 import {
@@ -18,12 +24,15 @@ import {
   type CloudSocketEvents,
   HANDSHAKE_BAD_REQUEST,
 } from "../../src/core/transcription/cloud/socket";
+import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
 import { createFakeCloud, createFakeCloudFetch } from "../../src/core/transcription/fakeCloud";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
 import { SPEAKER_ME } from "../../src/shared/speakers";
 import { createMemoryKeychain, createTempDataFolder, queryDatabase } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { heading, note, writeMind } from "../helpers/minds";
 import { savedCues, transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -262,6 +271,23 @@ function sentWords(route: Route, cloud: Watched): string[] | null {
   }
 }
 
+/** Writes the Note's text as the editor does, and has the core read it as a search does. */
+async function typed(core: Core, mindId: string, blocks: JSONContent[]) {
+  const client = await connectToMind(core, mindId);
+  writeMind(client, blocks);
+  await client.settled();
+  await core.searchMinds("read");
+}
+
+const bulletList = (...items: string[]): JSONContent => ({
+  type: "bulletList",
+  attrs: { id: randomUUID() },
+  content: items.map((text) => ({
+    type: "listItem",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  })),
+});
+
 /** Every line the core logged, as one text. */
 function logged() {
   const lines: string[] = [];
@@ -286,6 +312,8 @@ interface Setup {
   name?: string | null;
   words?: string[];
   note?: string | null;
+  /** The Note's text, as typed before the Meeting starts. */
+  blocks?: JSONContent[];
   refuse?: Parameters<typeof watched>[0];
   turnAway?: TurnAway;
   /** The sources that sound, and whether the computer's sound is recorded: both by default. */
@@ -315,6 +343,7 @@ async function meetingOn(route: Route, setup: Setup = {}) {
   }
   const title = setup.note === undefined ? NOTE : setup.note;
   const mind = title === null ? null : await core.createMind({ title });
+  if (mind && setup.blocks) await typed(core, mind.id, setup.blocks);
   const meeting = await core.createMeeting(mind ? { mindId: mind.id } : {});
   await core.startMeeting({
     meetingId: meeting.id,
@@ -332,7 +361,7 @@ async function meetingOn(route: Route, setup: Setup = {}) {
     },
     { timeout: 20_000, interval: 20 },
   );
-  return { core, record, meeting, cloud, logs, dataDir };
+  return { core, record, meeting, cloud, logs, dataDir, mind };
 }
 
 const errors = vi.spyOn(console, "error");
@@ -412,6 +441,291 @@ describe("Each cloud route is sent the meeting's words to know in its own field 
       core.close();
     });
   }
+});
+
+/** A Note with an English word and names inside Chinese, and a list under its heading. */
+const mixedNote = () => [
+  note("跟Priya确认预算，这个Plan先不动，请Maya Lindqvist跟进。"),
+  note("Risks:"),
+  bulletList("Tom", "和Lumen Foods签合同"),
+];
+
+/** The words the first stream was sent for a Note of these blocks, and all that reached the pretend service. */
+async function reachedWith(blocks: JSONContent[]) {
+  const { core, cloud, meeting } = await meetingOn("soniox", {
+    name: null,
+    words: [],
+    note: "产品周会",
+    blocks,
+  });
+  const sent = sentWords("soniox", cloud);
+  const reached = [...cloud.urls, ...cloud.frames, JSON.stringify(cloud.sessions)].join("\n");
+  await core.stopMeeting(meeting.id);
+  core.close();
+  return { sent, reached };
+}
+
+/** The words the engine on this computer was last told for a Note of these blocks. */
+async function toldHere(blocks: JSONContent[]) {
+  const told: string[][] = [];
+  const { core, record } = await transcribingCore(await createTempDataFolder(), {
+    engineFactory: async () => {
+      const engine = createFakeSpeechEngine();
+      return {
+        ...engine,
+        recognizer: {
+          decode(samples, stream, words) {
+            told.push([...words]);
+            return engine.recognizer.decode(samples, stream, words);
+          },
+        },
+      };
+    },
+  });
+  const mind = await core.createMind({ title: "产品周会" });
+  await typed(core, mind.id, blocks);
+  const meeting = await core.createMeeting({ mindId: mind.id });
+  await core.startMeeting({ meetingId: meeting.id });
+  record(6 * SECOND);
+  await until(core, meeting.id, (each) => each.lines >= 2);
+  await core.stopMeeting(meeting.id);
+  core.close();
+  return told.at(-1);
+}
+
+describe("Words kept on this computer reach no cloud service (#1031)", { timeout: 60_000 }, () => {
+  // protects=one English word written against a Chinese character, a list's heading and a list item of one word are a name as often as an ordinary word, so no cloud service is sent a word found only that way: the request holds only the names of several words; and the same word is sent like any other once the Note also writes it inside a sentence; fails_when=Priya, Plan, Risks or Tom is in the request as it reaches the pretend service while Tom is only a list item, or Maya Lindqvist or Lumen Foods is missing from it, or Tom is missing once a sentence of the Note holds it; no_claim=a word written with spaces around it, or a title-case heading, which the finder takes for a name as before.
+  test("the request holds the names of several words, and none of the single word inside Chinese, the list's heading or its item; the item's word written inside a sentence too is sent", async () => {
+    const asItem = await reachedWith(mixedNote());
+    expect(asItem.sent).toEqual(["Maya Lindqvist", "Lumen Foods"]);
+    expect(asItem.reached).toContain("Maya Lindqvist");
+    for (const kept of ["Priya", "Plan", "Risks", "Tom"]) {
+      expect(asItem.reached).not.toContain(kept);
+    }
+
+    const inSentence = await reachedWith([
+      ...mixedNote(),
+      note("Then we ask Tom about the vendor contract."),
+    ]);
+    expect(inSentence.sent).toEqual(["Maya Lindqvist", "Lumen Foods", "Tom"]);
+    expect(inSentence.reached).toContain("Tom");
+    for (const kept of ["Priya", "Plan", "Risks"]) expect(inSentence.reached).not.toContain(kept);
+  });
+
+  test("its twin: the engine on this computer is told all of them, those kept here after the names", async () => {
+    expect(await toldHere(mixedNote())).toEqual([
+      "Maya Lindqvist",
+      "Lumen Foods",
+      "Priya",
+      "Plan",
+      "Risks",
+      "Tom",
+    ]);
+  });
+
+  // protects=a line of the Note that opens with an English word against a Chinese character (Priya跟进预算) has its word told to this computer's transcriber, and to no one else: what a cloud service is sent is what it is sent without that line; fails_when=Priya or Budget is in anything that reaches the pretend service, or the words sent differ from those of the Note without the two lines, or this computer's engine isn't told Priya and Budget; no_claim=the same word written inside an English sentence of the Note, which is a name and is sent (the test above, with Tom).
+  test("a line that opens with an English word against Chinese: no request holds the word, the words sent are those sent without the line, and the engine on this computer is told it", async () => {
+    const without = [note("请Maya Lindqvist跟进，和Lumen Foods签合同。")];
+    const opening = [note("Priya跟进预算"), ...without, bulletList("Budget下周定")];
+
+    const cloud = await reachedWith(opening);
+    expect(cloud.sent).toEqual(["Maya Lindqvist", "Lumen Foods"]);
+    expect(cloud.sent).toEqual((await reachedWith(without)).sent);
+    expect(cloud.reached).toContain("Maya Lindqvist");
+    for (const kept of ["Priya", "Budget"]) expect(cloud.reached).not.toContain(kept);
+
+    expect(await toldHere(opening)).toEqual(["Maya Lindqvist", "Lumen Foods", "Priya", "Budget"]);
+    // Its twin: without the two lines, this computer's engine is told the names alone.
+    expect(await toldHere(without)).toEqual(["Maya Lindqvist", "Lumen Foods"]);
+  });
+
+  // protects=a name typed in the Note while a cloud service transcribes changes nothing in what is sent or when: a stream opened after it is set up with the words the first was, while the same words typed before a Meeting starts are sent; fails_when=a later stream's setup holds the typed name, or drops a word the first held, or a Meeting started after the typing isn't sent it; no_claim=the line's spelling on this computer, which the typed name does change (tests/core/meetingWords.test.ts).
+  test("a name typed in the Note during the call is in no later request of that call; typed before a meeting starts, it is sent", async () => {
+    const { core, cloud, meeting, record, mind } = await meetingOn("soniox");
+    const setups = () =>
+      cloud.frames
+        .map(json)
+        .filter((each) => "model" in each)
+        .map((each) => at(each, "context", "terms"));
+    const first = ["Maren Okafor", "Priya Raman", "Larkfield", "星河科技", "Ilse Brannock"];
+    await vi.waitFor(() => expect(setups()).toEqual([first, first]), { timeout: 20_000 });
+
+    await typed(core, mind?.id ?? "", [note("Then we ask Dana Whitfield about the renewal.")]);
+    expect(await core.searchMinds("Whitfield")).toHaveLength(1);
+    // The microphone is paused and goes on: its next stretch is a stream of its own.
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    record(2 * SECOND);
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: false });
+    record(2 * SECOND);
+    await vi.waitFor(() => expect(setups()).toEqual([first, first, first]), { timeout: 20_000 });
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (each) => each.state === "saved");
+
+    const other = await core.createMind({ title: NOTE });
+    await typed(core, other.id, [note("Then we ask Dana Whitfield about the renewal.")]);
+    const next = await core.createMeeting({ mindId: other.id });
+    await core.startMeeting({ meetingId: next.id });
+    await until(core, next.id, (each) => each.cloud === "soniox");
+    record(3 * SECOND);
+    await vi.waitFor(
+      () =>
+        expect(setups().at(-1)).toEqual([
+          "Maren Okafor",
+          "Priya Raman",
+          "Dana Whitfield",
+          "Larkfield",
+          "星河科技",
+          "Ilse Brannock",
+        ]),
+      { timeout: 20_000 },
+    );
+    await core.stopMeeting(next.id);
+    core.close();
+  });
+
+  // protects=a Note renamed while a cloud service transcribes changes nothing in what is sent: the Meeting paused and recorded on after it has its streams set up with the words the first ones were, while a Meeting started on a Note of that title is sent the name; fails_when=a stream opened after the renaming holds the name from the new title, or drops a word the first held, or a Meeting started after the renaming isn't sent it; no_claim=the line's spelling on this computer, which the new title does change (tests/core/meetingWords.test.ts).
+  test("a name put in the Note's title during the call is in no later request of that call; in the title before a meeting starts, it is sent", async () => {
+    const { core, cloud, meeting, record, mind } = await meetingOn("soniox");
+    const setups = () =>
+      cloud.frames
+        .map(json)
+        .filter((each) => "model" in each)
+        .map((each) => at(each, "context", "terms"));
+    const first = ["Maren Okafor", "Priya Raman", "Larkfield", "星河科技", "Ilse Brannock"];
+    await vi.waitFor(() => expect(setups()).toEqual([first, first]), { timeout: 20_000 });
+
+    const renamed = "Renewal call with Priya Raman and Dana Whitfield";
+    expect((await core.renameMind(mind?.id ?? "", renamed)).title).toBe(renamed);
+    // Recorded on, the Meeting opens new streams with the words it keeps.
+    await core.pauseMeeting(meeting.id);
+    await core.resumeMeeting(meeting.id);
+    record(3 * SECOND);
+    await vi.waitFor(() => expect(setups()).toEqual([first, first, first, first]), {
+      timeout: 20_000,
+    });
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (each) => each.state === "saved");
+
+    const other = await core.createMind({ title: NOTE });
+    await core.renameMind(other.id, renamed);
+    const next = await core.createMeeting({ mindId: other.id });
+    await core.startMeeting({ meetingId: next.id });
+    await until(core, next.id, (each) => each.cloud === "soniox");
+    record(3 * SECOND);
+    await vi.waitFor(
+      () =>
+        expect(setups().at(-1)).toEqual([
+          "Maren Okafor",
+          "Priya Raman",
+          "Dana Whitfield",
+          "Larkfield",
+          "星河科技",
+          "Ilse Brannock",
+        ]),
+      { timeout: 20_000 },
+    );
+    await core.stopMeeting(next.id);
+    core.close();
+  });
+
+  // protects=a name the Note writes with its accents apart (e and U+0301, as text taken from a PDF often is) is sent whole, with each accent in its letter, exactly as the same Note written whole sends it, and this computer's engine is told the same; fails_when=the request holds the name cut at an accent (Jose, Marti), or an accent written apart, or lacks José Martín, or differs from the request of the Note written whole; no_claim=the Folder's Documents, which the same finder reads (tests/core/meetingNames.test.ts holds its table).
+  test("a name the Note writes with its accents apart is sent whole, as the same Note written whole sends it", async () => {
+    const apart = [note("Then we ask Jose\u0301 Marti\u0301n about the renewal.")];
+    const whole = [note("Then we ask Jos\u00e9 Mart\u00edn about the renewal.")];
+
+    const cloud = await reachedWith(apart);
+    expect(cloud.sent).toEqual(["Jos\u00e9 Mart\u00edn"]);
+    expect(cloud.reached).toContain("Jos\u00e9 Mart\u00edn");
+    for (const cut of ["Jose", "Marti", "\u0301"]) expect(cloud.reached).not.toContain(cut);
+    expect(cloud.sent).toEqual((await reachedWith(whole)).sent);
+    expect(await toldHere(apart)).toEqual(["Jos\u00e9 Mart\u00edn"]);
+  });
+
+  // protects=what a cloud service is sent is gathered when the Meeting's transcription first starts and kept for the Meeting until IncarnaMind quits, as docs/privacy.md says: a Meeting paused after a name is typed in its Note and recorded on is sent the first list, and the same Meeting recorded on after IncarnaMind is reopened has the list gathered again, so its streams' setup holds the typed name; fails_when=a stream opened after the pause and resume holds the typed name while IncarnaMind stayed open, or a stream opened after the reopen lacks it; no_claim=a recording cut off by a quit with no pause, whose working state is made again the same way.
+  test("a Meeting paused after a name is typed and recorded on is sent the first list; recorded on after IncarnaMind is reopened, the list gathered again, with the name", async () => {
+    const setups = (cloud: Watched) =>
+      cloud.frames
+        .map(json)
+        .filter((each) => "model" in each)
+        .map((each) => at(each, "context", "terms"));
+    const keychain = createMemoryKeychain();
+    const first = await meetingOn("soniox", { keychain });
+    const list = ["Maren Okafor", "Priya Raman", "Larkfield", "星河科技", "Ilse Brannock"];
+    await vi.waitFor(() => expect(setups(first.cloud)).toEqual([list, list]), { timeout: 20_000 });
+
+    await typed(first.core, first.mind?.id ?? "", [
+      note("Then we ask Dana Whitfield about the renewal."),
+    ]);
+    expect(await first.core.searchMinds("Whitfield")).toHaveLength(1);
+    await first.core.pauseMeeting(first.meeting.id);
+    await first.core.resumeMeeting(first.meeting.id);
+    first.record(3 * SECOND);
+    await vi.waitFor(() => expect(setups(first.cloud)).toEqual([list, list, list, list]), {
+      timeout: 20_000,
+    });
+    await first.core.pauseMeeting(first.meeting.id);
+    first.core.close();
+
+    const cloud = watched();
+    const second = await transcribingCore(first.dataDir, {
+      cloud: cloud.connect,
+      cloudFetch: cloud.cloudFetch,
+      keychain,
+    });
+    await second.core.resumeMeeting(first.meeting.id);
+    await until(second.core, first.meeting.id, (each) => each.cloud === "soniox");
+    second.record(3 * SECOND);
+    const again = [
+      "Maren Okafor",
+      "Priya Raman",
+      "Dana Whitfield",
+      "Larkfield",
+      "星河科技",
+      "Ilse Brannock",
+    ];
+    await vi.waitFor(() => expect(setups(cloud)).toEqual([again, again]), { timeout: 20_000 });
+    await second.core.stopMeeting(first.meeting.id);
+    second.core.close();
+  });
+
+  // protects=the record of what a cloud service was sent is true at every level: read again after a name is typed during the call, the words still record as sent from the Note what the first read held, and only this computer's words gain the typed name; fails_when=the Note's part of the record lists as sent a name typed after the first read, or this computer's words miss it, or the whole list sent changes; no_claim=the request, which the test above holds to the first list. The parts are not in the core's interface, so this reads the words as the core does, from the database the core wrote.
+  test("read again after a name is typed, the words record as sent from the Note what the first read held; this computer's words gain the name", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core } = await transcribingCore(dataDir);
+    const mind = await core.createMind({ title: NOTE });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    onTestFinished(() => db.close());
+    const sources: MeetingWordSources = {
+      db,
+      meetingId: meeting.id,
+      userWords: ["Larkfield"],
+      folderName: () => null,
+      folderDocuments: () => [],
+    };
+    const fromNote = (words: MeetingWords) => words.parts.find((part) => part.from === "note");
+
+    const first = meetingWords(sources);
+    expect(fromNote(first)).toEqual({ from: "note", sent: ["Priya Raman"], here: ["Priya Raman"] });
+    expect(first.sent).toEqual(["Priya Raman", "Larkfield"]);
+
+    await typed(core, mind.id, [note("Then we ask Dana Whitfield about the renewal.")]);
+    const again = meetingWords(sources, first);
+    expect(fromNote(again)).toEqual({
+      from: "note",
+      sent: ["Priya Raman"],
+      here: ["Priya Raman", "Dana Whitfield"],
+    });
+    expect(again.sent).toEqual(["Priya Raman", "Larkfield"]);
+    expect(again.here).toEqual(["Priya Raman", "Dana Whitfield", "Larkfield"]);
+    // Its twin: gathered for the first time after the typing, the same name is one the Note sends.
+    expect(fromNote(meetingWords(sources))).toEqual({
+      from: "note",
+      sent: ["Priya Raman", "Dana Whitfield"],
+      here: ["Priya Raman", "Dana Whitfield"],
+    });
+    core.close();
+  });
 });
 
 /** The route chosen, then the profile as one made before the words were sent: its consent names the audio alone. */
@@ -836,77 +1150,122 @@ describe("The lines name every source the words come from, and each is sent (#10
   });
 
   test("a word from each source reaches the route's field", async () => {
-    const cloud = watched();
-    const { core, record } = await transcribingCore(await createTempDataFolder(), {
-      cloud: cloud.connect,
-      cloudFetch: cloud.cloudFetch,
-      keychain: createMemoryKeychain(),
-      systemCalendar: createFakeSystemCalendar({
-        access: "allowed",
-        calendars: [{ id: "work", title: "Work", source: "Exchange", kind: "exchange" }],
-        events: [
-          {
-            calendarId: "work",
-            id: "renewal",
-            externalId: "renewal@example",
-            occurrence: null,
-            title: "Renewal call with Priya Raman",
-            start: "2026-10-06T09:30:00Z",
-            end: "2026-10-06T10:00:00Z",
-            allDay: false,
-            status: "confirmed",
-            attendees: [
-              { name: "Maren", email: "maren@example.com", self: true, status: "accepted" },
-              {
-                name: "Dana Whitfield",
-                email: "dana@northwind.co.uk",
-                self: false,
-                status: "accepted",
-              },
-            ],
-            organizer: null,
-            url: null,
-            location: null,
-            notes: null,
-          },
-        ],
-      }),
-    });
-    await core.updateSettings({
-      user: { authorName: "Maren Okafor", meetingWords: ["Larkfield"] },
-    });
-    await choose(core, "soniox");
-    const folder = await core.createLibraryGroup({ name: "Harbor Logistics", description: "" });
-    const file = await writeSourceFile(
-      await createSourceFolder(),
-      "Capacity plan.md",
-      "# Capacity plan\n\nThe plan is due from Sofia Lindqvist. Sofia Lindqvist leads operations.",
-    );
-    const { documents } = await core.addDocuments([file]);
-    await waitForProcessing(
-      core,
-      documents.map((each) => each.id),
-    );
-    await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
-    await core.connectCalendar("mac");
-    const [event] = await core.listCalendarEvents({
-      from: "2026-10-06T00:00:00Z",
-      to: "2026-10-07T00:00:00Z",
-    });
-    const { mindId } = await core.takeEventNotes(event?.id ?? "");
-    await core.moveToFolder({ mindIds: [mindId], folderId: folder.id });
-    const meeting = await core.createMeeting({ mindId });
-    await core.startMeeting({ meetingId: meeting.id });
-    await until(core, meeting.id, (each) => each.cloud === "soniox");
-    record(3 * SECOND);
-    await vi.waitFor(() => expect(cloud.frames.length).toBeGreaterThan(0), {
-      timeout: 20_000,
-      interval: 20,
-    });
+    const { core, cloud, meeting } = await meetingWithEverySource("Capacity plan");
     const sent = sentWords("soniox", cloud) ?? [];
     for (const { source, word } of SOURCES) expect(sent, source).toContain(word);
     expect(sent).toContain("Northwind");
     await core.stopMeeting(meeting.id);
     core.close();
   });
+
+  // protects=what a cloud service is sent is what the line says and no more: on a Note with a title-case heading, a capitalised ordinary word, a name, a list with its heading and an English word inside Chinese, in a Folder whose Document repeats a heading, every word of the request is under the clause of the line that names where it comes from; fails_when=a word comes from anywhere the line doesn't name (the words kept on this computer, a new source), or a source the line names stops being sent; no_claim=that each word is a name: a heading and a capitalised ordinary word are among them, as the line says.
+  test("every word a cloud service is sent is under a clause of the line, and nothing else is sent", async () => {
+    const { core, cloud, meeting } = await meetingWithEverySource("Open Questions", [
+      heading(1, "Budget Review"),
+      note("We keep a Backup of the plan with Priya Raman."),
+      note("Risks:"),
+      bulletList("Tom", "跟Maya确认预算"),
+    ]);
+    const byClause = [
+      { en: "your name", zh: "你的名字", words: ["Maren Okafor"] },
+      { en: "calendar event", zh: "日历事件", words: ["Dana Whitfield", "Northwind"] },
+      { en: "note", zh: "会议笔记", words: ["Priya Raman", "Budget Review", "Backup"] },
+      { en: "Words to know", zh: "要识别的词", words: ["Larkfield"] },
+      { en: "folder name", zh: "文件夹的名称", words: ["Harbor Logistics"] },
+      { en: "folder’s documents", zh: "文件夹文档", words: ["Open Questions", "Sofia Lindqvist"] },
+    ];
+    expect(sentWords("soniox", cloud)).toEqual(byClause.flatMap((each) => each.words));
+    for (const key of LINES) {
+      expect(en[key], key).toContain("the names and other capitalised words in its note");
+      expect(zhCN[key], key).toContain("文档里的名字和首字母大写的词");
+      for (const clause of byClause) {
+        expect(en[key].toLowerCase(), key).toContain(clause.en.toLowerCase());
+        expect(zhCN[key], key).toContain(clause.zh);
+      }
+    }
+    await core.stopMeeting(meeting.id);
+    core.close();
+  });
 });
+
+/**
+ * A Meeting on Soniox that has sent its first stream's setup, with a word from every source the
+ * lines name: the User's name, a Word to know, a Folder with a Document whose `heading` stands
+ * over two of its parts, and a Note made for a calendar event, holding `blocks` when given.
+ */
+async function meetingWithEverySource(documentHeading: string, blocks?: JSONContent[]) {
+  const cloud = watched();
+  const { core, record } = await transcribingCore(await createTempDataFolder(), {
+    cloud: cloud.connect,
+    cloudFetch: cloud.cloudFetch,
+    keychain: createMemoryKeychain(),
+    systemCalendar: createFakeSystemCalendar({
+      access: "allowed",
+      calendars: [{ id: "work", title: "Work", source: "Exchange", kind: "exchange" }],
+      events: [
+        {
+          calendarId: "work",
+          id: "renewal",
+          externalId: "renewal@example",
+          occurrence: null,
+          title: "Renewal call with Priya Raman",
+          start: "2026-10-06T09:30:00Z",
+          end: "2026-10-06T10:00:00Z",
+          allDay: false,
+          status: "confirmed",
+          attendees: [
+            { name: "Maren", email: "maren@example.com", self: true, status: "accepted" },
+            {
+              name: "Dana Whitfield",
+              email: "dana@northwind.co.uk",
+              self: false,
+              status: "accepted",
+            },
+          ],
+          organizer: null,
+          url: null,
+          location: null,
+          notes: null,
+        },
+      ],
+    }),
+  });
+  await core.updateSettings({
+    user: { authorName: "Maren Okafor", meetingWords: ["Larkfield"] },
+  });
+  await choose(core, "soniox");
+  const folder = await core.createLibraryGroup({ name: "Harbor Logistics", description: "" });
+  const file = await writeSourceFile(
+    await createSourceFolder(),
+    "Capacity plan.md",
+    [
+      `# ${documentHeading}`,
+      "The plan is due from Sofia Lindqvist. Sofia Lindqvist leads operations.",
+      `## ${documentHeading}`,
+      "Nothing is open yet.",
+    ].join("\n\n"),
+  );
+  const { documents } = await core.addDocuments([file]);
+  await waitForProcessing(
+    core,
+    documents.map((each) => each.id),
+  );
+  await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+  await core.connectCalendar("mac");
+  const [event] = await core.listCalendarEvents({
+    from: "2026-10-06T00:00:00Z",
+    to: "2026-10-07T00:00:00Z",
+  });
+  const { mindId } = await core.takeEventNotes(event?.id ?? "");
+  await core.moveToFolder({ mindIds: [mindId], folderId: folder.id });
+  if (blocks) await typed(core, mindId, blocks);
+  const meeting = await core.createMeeting({ mindId });
+  await core.startMeeting({ meetingId: meeting.id });
+  await until(core, meeting.id, (each) => each.cloud === "soniox");
+  record(3 * SECOND);
+  await vi.waitFor(() => expect(cloud.frames.length).toBeGreaterThan(0), {
+    timeout: 20_000,
+    interval: 20,
+  });
+  return { core, cloud, meeting, record, mindId };
+}
