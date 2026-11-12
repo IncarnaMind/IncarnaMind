@@ -3,8 +3,11 @@ import { expect, test } from "vitest";
 import type { TranscriptSpeakers } from "../../src/core";
 import { recheckKept } from "../../src/core/answers/citations";
 import { readVtt, transcriptUnits, writeVtt } from "../../src/core/documents/formats/vtt";
+import { writtenNumbers } from "../../src/core/transcription/spokenNumbers";
 import { type TranscriptLine, withLineSplit, withSpeakerChosen } from "../../src/shared/speakers";
 import {
+  answerEnded,
+  answerJudged,
   askAndFinish,
   checkedResult,
   citationsIn,
@@ -876,3 +879,58 @@ for (const language of ["en", "zh-CN"] as const) {
     ).toMatchObject({ check: "found", location: cited });
   });
 }
+
+// protects=a sentence citing a Meeting's Transcript is checked, through the core's answer check, against the figures its line writes whole: a percent before "or two points" is written, a number before "percentage points" and a pair said as "about five percent to six" are not, so their percent sentences are never checked green (#1031); fails_when=the line writes "6% points" and "It rose 6%." shows found, the pair's near end is written and "The rate is 5%." shows found, or "It was 15% higher." stays unchecked; no_claim=how the engine's adapter calls the rewriting, which sherpaEngine.test.ts holds (each cue here is writtenNumbers of the words said, the one call sherpa.ts makes on a line).
+test("a sentence citing a Transcript line is checked against the figures the line writes whole", async () => {
+  const rows = [
+    { said: "it rose six percentage points", sentence: "It rose 6%.", at: "0:00" },
+    {
+      said: "it was fifteen percent or two points higher",
+      sentence: "It was 15% higher.",
+      at: "0:04",
+    },
+    { said: "it's about five percent to six", sentence: "The rate is 5%.", at: "0:08" },
+    { said: "it rose six percent", sentence: "It rose 6%.", at: "0:12" },
+  ];
+  const lines = rows.map(({ said }) => writtenNumbers(said));
+  const meeting = {
+    name: "Rates.vtt",
+    contents: writeVtt({
+      cues: lines.map((text, at) => ({
+        startMs: at * 4000,
+        endMs: at * 4000 + 3000,
+        text,
+        speaker: "Alex",
+      })),
+      gaps: [],
+    }),
+  };
+  const { core } = await setUpWithDocuments(
+    citingModel({
+      query: "Rates",
+      records: (passages) =>
+        rows.map(({ at }, index) => ({
+          marker: index + 1,
+          passage: passages.find((each) => each.text.includes(lines[index] ?? ""))?.id,
+          location: `${at} Alex`,
+          quote: lines[index],
+        })),
+      answer: rows
+        .map(({ sentence }, index) => `${sentence.slice(0, -1)}[^${index + 1}].`)
+        .join(" "),
+    }),
+    [meeting],
+  );
+  const asked = await core.askInConversation({ text: "What did Alex say about the rates?" });
+  if (!asked.asked) throw new Error("Not asked.");
+  await answerEnded(core, asked.answerId);
+  await core.checkAnswerAgain({ conversationId: asked.conversation.id, answerId: asked.answerId });
+  const { citations } = await answerJudged(core, asked.conversation.id, asked.answerId);
+
+  expect(citations.map(({ marker, check }) => ({ marker, check }))).toEqual([
+    { marker: 1, check: "not-checked" },
+    { marker: 2, check: "found" },
+    { marker: 3, check: "not-checked" },
+    { marker: 4, check: "found" },
+  ]);
+});

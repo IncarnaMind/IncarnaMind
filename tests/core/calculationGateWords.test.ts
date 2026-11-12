@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
+import { pinnedByModel } from "../../src/core/answers/checks/answerCheck";
 import { needsCalculation } from "../../src/core/answers/checks/calculationGate";
 import type { Citation } from "../../src/core/api";
+import { writtenNumbers } from "../../src/core/transcription/spokenNumbers";
 
 /** The gate as the answer check calls it once a model says a sentence is supported (#1031). */
 const notJudged = (claim: string, quote: string): Promise<boolean> => {
+  const units = [{ text: quote }];
   const citation: Citation = {
     passageId: "passage-build",
     documentId: "build",
@@ -22,9 +25,9 @@ const notJudged = (claim: string, quote: string): Promise<boolean> => {
     attempted: false,
     computed: [],
     inputs: [],
-    citations: [{ citation, units: [{ text: quote }] }],
+    citations: [{ citation, units }],
     quotedWords: [],
-    confirm: async () => true,
+    confirm: async (figure) => pinnedByModel(figure, [citation], () => units),
   });
 };
 
@@ -68,5 +71,28 @@ describe("a count said in words is read by the calculation gate", () => {
     ["The budget is £30,000.", "The budget is thirty thousand pounds."],
   ])("%s keeps its check on %s", async (claim, quote) => {
     expect(await notJudged(claim, quote)).toBe(false);
+  });
+
+  // protects=a sentence that cites a Meeting's Transcript is checked against the figures its line writes whole, and none that line left as said (#1031); fails_when=a percent before "or two points" stays in words, so "It was 15% higher." loses its check, or half of "about five percent to six", of 两块五五块 or of "between about five percent and nine" is written, so "The rate is 5%." or "第一样是2块。" keeps one, or "six percentage points" is written 6%, so "It rose 6%." keeps one; no_claim=that the sentence is right, which the model's verdict says.
+  test("a sentence citing a Transcript line is held to the figures the line writes whole", async () => {
+    const percent = writtenNumbers("It was fifteen percent or two points higher.");
+    expect(await notJudged("It was 15% higher.", percent)).toBe(false);
+    expect(await notJudged("It was 51% higher.", percent)).toBe(true);
+    expect(await notJudged("It rose 6%.", writtenNumbers("it rose six percentage points"))).toBe(
+      true,
+    );
+    expect(
+      await notJudged("There was a 20% rise.", writtenNumbers("a twenty percentage-point rise")),
+    ).toBe(true);
+    expect(
+      await notJudged("The rate is 5%.", writtenNumbers("it's about five percent to six")),
+    ).toBe(true);
+    expect(await notJudged("第一样是2块。", writtenNumbers("这两样分别是两块五五块。"))).toBe(true);
+    expect(
+      await notJudged(
+        "The rate is 5%.",
+        writtenNumbers("The rate is between about five percent and nine."),
+      ),
+    ).toBe(true);
   });
 });
