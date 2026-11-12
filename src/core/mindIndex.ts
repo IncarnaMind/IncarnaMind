@@ -121,6 +121,8 @@ export function createMindIndex(options: {
   db: Database;
   now: () => string;
   content: Pick<MindContent, "peek">;
+  /** A Mind stored to was read again: its Blocks' text is the Mind's as typed a moment ago. */
+  readAgain?(mindId: string): void;
   reportError(error: unknown): void;
 }) {
   const { db, now, content } = options;
@@ -236,6 +238,7 @@ export function createMindIndex(options: {
     for (const mindId of [...dirty]) {
       dirty.delete(mindId);
       readSafely(mindId);
+      options.readAgain?.(mindId);
     }
   };
 

@@ -5,6 +5,11 @@
  * sentence or a line; in Chinese, a surname and a given name the word splitter had no word for
  * and cut into single characters (王|丽), a surname before a title (王总, 陈经理), and a company
  * before what it is (星河科技).
+ *
+ * Two kinds of capitalised word are a name as often as an ordinary word, and are given apart from
+ * the names: one English word written against a Chinese character (跟Priya确认, 这个Plan), and
+ * one word that opens a line before a colon or is a list item alone ("Priya: send the deck",
+ * "- Risks").
  */
 
 const segmenter = new Intl.Segmenter("zh", { granularity: "word" });
@@ -27,45 +32,77 @@ const NOT_NAMES = new Set(
 /** Words that join the parts of a name: Bank of America, Procter & Gamble. */
 const JOINERS = new Set(["of", "&"]);
 
-const LATIN_WORD = /[\p{L}\p{N}][\p{L}\p{N}'’-]*|&/gu;
+/** A word in a script with capitals: it ends where Chinese characters begin (跟Priya确认). */
+const LATIN_WORD = /(?:(?!\p{Script=Han})[\p{L}\p{N}])(?:(?!\p{Script=Han})[\p{L}\p{N}'’-])*|&/gu;
 /** What comes before a sentence's or a list item's first word. */
 const OPENING = /(?:^|[.!?"“(]|\n[ \t]*(?:[-*•]|\d+[.)])?)[ \t]*$/u;
+/** What a line holds before its first word: nothing, or list markers, numbers and checkboxes. */
+const ITEM_START = /^[ \t]*((?:(?:[-*•]|\d+[.)]|\[[ xX]?\])[ \t]*)*)$/u;
+const POSSESSIVE = /['’]s$/u;
 
 const isCapitalised = (word: string) => /^\p{Lu}/u.test(word) && /\p{Ll}/u.test(word);
 const isNotName = (word: string) => NOT_NAMES.has(word.toLowerCase());
 
-function latinNames(text: string, add: (name: string) => void): void {
-  let run: string[] = [];
+interface Word {
+  text: string;
+  at: number;
+  end: number;
+}
+
+const besideChinese = (text: string, word: Word) =>
+  /\p{Script=Han}$/u.test(text.slice(Math.max(0, word.at - 2), word.at)) ||
+  /^\p{Script=Han}/u.test(text.slice(word.end, word.end + 2));
+
+/** Whether the word, a line's first, stands before a colon or is a list item alone. */
+function opensItem(text: string, word: Word): boolean {
+  const markers = ITEM_START.exec(text.slice(text.lastIndexOf("\n", word.at - 1) + 1, word.at));
+  if (!markers) return false;
+  if (/^[:：]/u.test(text.slice(word.end, word.end + 1))) return true;
+  const lineEnd = text.indexOf("\n", word.end);
+  const rest = text.slice(word.end, lineEnd < 0 ? text.length : lineEnd);
+  return markers[1] !== "" && rest.trim() === "";
+}
+
+type Kind = keyof NamesFound;
+
+function latinNames(text: string, add: (kind: Kind, name: string) => void): void {
+  let run: Word[] = [];
   let opens = false;
   let lastEnd = 0;
   const end = () => {
-    while (run.length > 0 && isNotName(run[0] as string)) {
+    while (run[0] && isNotName(run[0].text)) {
       run.shift();
       opens = false;
     }
-    while (
-      run.length > 0 &&
-      (isNotName(run.at(-1) as string) || JOINERS.has(run.at(-1) as string))
+    for (
+      let last = run.at(-1);
+      last && (isNotName(last.text) || JOINERS.has(last.text));
+      last = run.at(-1)
     ) {
       run.pop();
     }
-    if (run.length > 1 || (run.length === 1 && !opens)) add(run.join(" "));
+    const [only] = run;
+    if (run.length > 1) add("names", run.map((each) => each.text).join(" "));
+    else if (only && !opens) add(besideChinese(text, only) ? "besideChinese" : "names", only.text);
+    else if (only && opensItem(text, only)) add("itemOpeners", only.text);
     run = [];
   };
   for (const match of text.matchAll(LATIN_WORD)) {
-    const word = match[0];
     const at = match.index;
+    const owned = POSSESSIVE.test(match[0]);
+    // "Tom's" is Tom, and what Tom has is not part of the name.
+    const word = { text: owned ? match[0].slice(0, -2) : match[0], at, end: at + match[0].length };
     const joined = run.length > 0 && /^[ \t]$/u.test(text.slice(lastEnd, at));
-    lastEnd = at + word.length;
-    if (joined && (isCapitalised(word) || JOINERS.has(word.toLowerCase()))) {
+    lastEnd = word.end;
+    if (joined && (isCapitalised(word.text) || JOINERS.has(word.text.toLowerCase()))) {
       run.push(word);
-      continue;
-    }
-    end();
-    if (isCapitalised(word)) {
+    } else {
+      end();
+      if (!isCapitalised(word.text)) continue;
       opens = OPENING.test(text.slice(Math.max(0, at - 8), at));
       run.push(word);
     }
+    if (owned) end();
   }
   end();
 }
@@ -95,7 +132,19 @@ const COMMON_HAN = new Set(
   ),
 );
 
+/** Words that join two names: the splitter reads 总和 ("sum") as one word in 王总和李总. */
+const NAME_JOINERS = new Set("和与及跟或".split(""));
+
 const HAN_WORD = /^\p{Script=Han}+$/u;
+
+/** The title a word starts with when all that follows it joins names: 总 of 总和. */
+const titleJoined = (word: string) =>
+  [...TITLES].find(
+    (title) =>
+      word.startsWith(title) &&
+      word.length > title.length &&
+      [...word.slice(title.length)].every((character) => NAME_JOINERS.has(character)),
+  );
 
 function hanNames(text: string, add: (name: string) => void): void {
   const words = [...segmenter.segment(text)].map((each) => each.segment);
@@ -107,6 +156,8 @@ function hanNames(text: string, add: (name: string) => void): void {
   for (const [at, word] of words.entries()) {
     const before = words[at - 1] ?? "";
     if (TITLES.has(word) && SURNAMES.has(before)) add(before + word);
+    const title = SURNAMES.has(before) ? titleJoined(word) : undefined;
+    if (title) add(before + title);
     if (
       COMPANY_ENDS.has(word) &&
       before.length >= 2 &&
@@ -123,11 +174,19 @@ function hanNames(text: string, add: (name: string) => void): void {
   endSingle();
 }
 
-/** The names in `text`, each with how often it is there, the most frequent first. */
-export function namesIn(text: string): Map<string, number> {
-  const counts = new Map<string, number>();
-  const add = (name: string) => counts.set(name, (counts.get(name) ?? 0) + 1);
+export interface NamesFound {
+  /** The names, each with how often it is there, the most frequent first. */
+  names: Map<string, number>;
+  /** One English word written against a Chinese character, with how often it is. */
+  besideChinese: Map<string, number>;
+  /** One word that opens a line before a colon, or is a list item alone, with how often it is. */
+  itemOpeners: Map<string, number>;
+}
+
+export function namesIn(text: string): NamesFound {
+  const found: NamesFound = { names: new Map(), besideChinese: new Map(), itemOpeners: new Map() };
+  const add = (kind: Kind, name: string) => found[kind].set(name, (found[kind].get(name) ?? 0) + 1);
   latinNames(text, add);
-  if (/\p{Script=Han}/u.test(text)) hanNames(text, add);
-  return new Map([...counts].sort((a, b) => b[1] - a[1]));
+  if (/\p{Script=Han}/u.test(text)) hanNames(text, (name) => add("names", name));
+  return { ...found, names: new Map([...found.names].sort((a, b) => b[1] - a[1])) };
 }

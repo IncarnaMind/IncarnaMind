@@ -403,6 +403,7 @@ import {
 } from "./transcription/model";
 import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
+import { inToldSpelling } from "./transcription/spelling";
 import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
@@ -826,10 +827,12 @@ export function createCore(adapters: CoreAdapters): Core {
       else content.peekDeleted(mind.id, look);
     }
   };
+  let noteReadAgain: ((mindId: string) => void) | undefined;
   const mindIndex = createMindIndex({
     db,
     now,
     content,
+    readAgain: (mindId) => noteReadAgain?.(mindId),
     reportError: (error) => console.error(error),
   });
   // The record of AI use stays on this computer: it takes nothing from the network or the usage-data catalog.
@@ -5014,18 +5017,22 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
-      wordsOf: (meetingId) =>
-        meetingWords({
-          db,
-          meetingId,
-          userName: settings.get().user.authorName,
-          userWords: settings.get().user.meetingWords,
-          folderName: (folderId) =>
-            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
-          folderDocuments: (folderId) => library.treeDocumentIds(folderId),
-          attendees: (mindId) => calendars.attendeesOf(mindId),
-        }),
-      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
+      wordsOf: (meetingId, first) =>
+        meetingWords(
+          {
+            db,
+            meetingId,
+            userName: settings.get().user.authorName,
+            userWords: settings.get().user.meetingWords,
+            folderName: (folderId) =>
+              library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+            folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+            attendees: (mindId) => calendars.attendeesOf(mindId),
+          },
+          first,
+        ),
+      lineText: (text, words) =>
+        inScript(inToldSpelling(text, words), settings.get().chineseScript, words),
       purgedPaths: () =>
         db
           .all<{ path: string }>(
@@ -5077,6 +5084,11 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  noteReadAgain = (mindId) => {
+    if (!transcripts || lifetime.signal.aborted) return;
+    const meeting = meetings.liveOf(mindId);
+    if (meeting) transcripts.noteRead(meeting.id);
+  };
   // Calendars (#190): Meetings coming up, and a Note started for one.
   const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
   if (googleCalendarSecret) rememberSecret(googleCalendarSecret);

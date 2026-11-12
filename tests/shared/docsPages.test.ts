@@ -112,6 +112,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "data", key: "skills.make.command" },
   { page: "data", key: "privacy.skills.body" },
   { page: "data", key: "approvals.card.alwaysAllow" },
+  { page: "data", key: "meetings.words.title" },
 ];
 
 const rendered = (quote: DocQuote, language: Language): string =>
@@ -198,6 +199,36 @@ describe("the data pages name what tagging and Organize send", () => {
         ],
       }[language];
       for (const line of wanted) expect(PAGES.data[language]).toContain(line);
+    },
+  );
+});
+
+// What a cloud route is sent with a Meeting's audio is named as the line where the User chooses
+// the route names it, with the most that goes (#1031).
+describe("the data pages name the words a cloud transcription route is sent", () => {
+  test.each([
+    {
+      language: "en",
+      row: "| Meeting transcription |",
+      clause:
+        "the names and other capitalised words in its Note, calendar event and Folder's Documents",
+      most: "at most 40 in all, a name of several words counting as one",
+    },
+    {
+      language: "zh-CN",
+      row: "| 会议转写 |",
+      clause: "会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词",
+      most: "总共最多 40 个，由几个词组成的名字算一个",
+    },
+  ] as const)(
+    "the $language row says what the consent line says",
+    ({ language, row, clause, most }) => {
+      const line = PAGES.data[language].split("\n").find((each) => each.startsWith(row)) ?? "";
+      expect(line).toContain(clause);
+      expect(line).toContain(most);
+      expect(
+        translate(language, "consent.data.meeting-words").toLowerCase().replace(/’/g, "'"),
+      ).toContain(clause.toLowerCase());
     },
   );
 });

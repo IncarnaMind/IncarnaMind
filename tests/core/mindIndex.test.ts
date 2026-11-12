@@ -410,6 +410,53 @@ describe("each Mind's line under its name, for Home's Recent", () => {
   });
 });
 
+describe("a Mind read again after it was stored to (#1031)", () => {
+  // protects=whoever follows a Note's text as it is typed (a live Meeting's words) is told once the Note is quiet and read, and never by a timer after the index closed: closing reads what is left at once; fails_when=a Mind stored to is read without being reported, or a report comes after close; no_claim=what the listener does with it.
+  test("is reported once it is quiet, and closing reports what is left at once and nothing later", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => void vi.useRealTimers());
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    onTestFinished(() => db.close());
+    migrate(db);
+    let tick = 0;
+    const now = () => new Date(Date.UTC(2026, 10, 12) + tick++).toISOString();
+    const reported: string[] = [];
+    const content = createMindContent(db, now, (mindId) => index.contentStored(mindId));
+    const index = createMindIndex({
+      db,
+      now,
+      content,
+      readAgain: (mindId) => reported.push(mindId),
+      reportError: (error) => {
+        throw error;
+      },
+    });
+    const { id } = createMinds(db, now).create({ title: "", kind: "mind", folderId: null });
+    const doc = new Y.Doc();
+    const type = (text: string) => {
+      const before = Y.encodeStateVector(doc);
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
+      paragraph.insert(0, [new Y.XmlText(text)]);
+      doc.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [paragraph]);
+      content.apply(id, Y.encodeStateAsUpdate(doc, before));
+    };
+
+    type("Ask Dana about the Leeds office.");
+    expect(reported).toEqual([]);
+    vi.advanceTimersByTime(500);
+    expect(reported).toEqual([id]);
+
+    type("Priya joins late.");
+    index.close();
+    expect(reported).toEqual([id, id]);
+    type("Tom sends the deck.");
+    vi.advanceTimersByTime(10_000);
+    expect(reported).toEqual([id, id]);
+  });
+});
+
 /**
  * Asks a Library of `size` Minds for their lines, then again with nothing changed, then once more
  * after one Mind was saved, counting the Minds read and the index rows read each time.

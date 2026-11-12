@@ -349,7 +349,7 @@ A person in a Transcript who is told apart from the others. A Speaker is named b
 _Avoid_: voice, participant, user
 
 **Words to know**:
-Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber is told them, with the User's name, the Meeting's Folder name, and the names in its Note, its calendar event and its Folder's Documents: the one on this computer, or the cloud route chosen, in that service's own field.
+Names and terms the User lists in Settings › Meetings so that a Meeting's Transcript writes them as the User does. At a Meeting's start the transcriber is told them, with the User's name, the Meeting's Folder name, and the names and other capitalised words in its Note, its calendar event and its Folder's Documents: the one on this computer, or the cloud route chosen, in that service's own field. They are two lists, because what leaves the computer and what is used on it differ. A cloud route is sent one, gathered once. This computer's holds, besides, the single capitalised words that are a name as often as an ordinary word, and is gathered from the Note again as the User types during the call, so a name typed then is told to this computer's transcriber for the lines that follow. A line writes an English name as this computer's list spells it where the words heard sound the same (Katherine for Catherine), and keeps no record of what the transcriber wrote there.
 _Avoid_: hotwords, vocabulary, dictionary
 
 ### Files

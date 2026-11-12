@@ -148,7 +148,7 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
     "Saving it first checks it with Soniox, by a request that reads nothing of yours.",
   );
   await expect(form.getByTestId("transcription-set-up-consent")).toContainText(
-    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(form.getByTestId("transcription-key-save")).toHaveText("Use this");
   await shot(window, "after-models-set-up-soniox-en-1440");
@@ -200,7 +200,7 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   const meetings = (await showSettingsPage(window, "meetings")).getByTestId("meetings-settings");
   await expect(meetings.getByTestId("meetings-route")).toHaveCount(0);
   await expect(meetings.getByTestId("meetings-route-line")).toContainText(
-    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(meetings.getByTestId("transcription-key-row")).toHaveCount(0);
   await closeSettings(window);
@@ -225,7 +225,7 @@ test("Deepgram set up from Meeting transcription's picker takes Cloudflare's add
   await expect(form).toContainText("Leave it empty for Deepgram.");
   const consent = form.getByTestId("transcription-set-up-consent");
   await expect(consent).toContainText(
-    "Audio goes to Deepgram while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Deepgram while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(form.getByTestId("transcription-key-kept")).toContainText(
     "Saving it first checks it with Deepgram",
@@ -237,7 +237,7 @@ test("Deepgram set up from Meeting transcription's picker takes Cloudflare's add
     "Saving it first checks it",
   );
   await expect(consent).toContainText(
-    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   await expect(consent).toContainText(
     "Cloudflare doesn’t train AI models on what Workers AI transcribes",
@@ -250,7 +250,7 @@ test("Deepgram set up from Meeting transcription's picker takes Cloudflare's add
   await expect(picker).toHaveValue("deepgram");
   const line = (await showSettingsPage(window, "meetings")).getByTestId("meetings-route-line");
   await expect(line).toContainText(
-    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    "Audio goes to Cloudflare while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
   expect((await bridge(window)).flows).toContainEqual({
     id: "transcription",

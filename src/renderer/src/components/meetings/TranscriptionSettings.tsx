@@ -10,12 +10,14 @@ import { LanguagesLine } from "./LanguagesLine";
  * Under "Transcribe on" in Settings › Meetings (#141): the line describes the route chosen — this
  * computer, whatever cloud keys exist (#2661), or the cloud service, where its audio goes and what
  * it costs, or that Local mode holds it back. A cloud route the list can't name yet says what
- * choosing one sends, so the choice is the consent (ADR-0022).
+ * choosing one sends, so the choice is the consent (ADR-0022); in Local mode, where nothing is
+ * sent and none can be chosen, it says the route is paused (#1031).
  */
 export function TranscriptionRouteLine({ id, read }: { id?: string; read: ServicesView }) {
   const t = useT();
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
+  const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   // A list that couldn't be read says nothing of where the audio goes: the saved route stands.
   if (read.state === "failed") {
     return (
@@ -31,10 +33,11 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
   const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service) {
+    const unnamed = localMode ? "meetings.route.paused" : "meetings.route.consent";
     return (
       <p id={id} data-testid="meetings-route-line">
         {chooseAgainLine(services, t, language) ??
-          t(route === "local" ? "meetings.route.hereLine" : "meetings.route.consent")}
+          t(route === "local" ? "meetings.route.hereLine" : unnamed)}
       </p>
     );
   }

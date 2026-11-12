@@ -86,6 +86,7 @@ import { echoedBy, isEcho, repeats } from "./echoLines";
 import type { CaptureHealthRecords } from "./health";
 import { isCall, type SpeakerPass, sourceToSeparate } from "./speakerPass";
 import { createTracks, type TrackedAudio, type Tracks } from "./tracks";
+import type { MeetingWords } from "./words";
 
 /** Live text this far behind the audio has fallen behind. */
 export const BEHIND_MS = 30_000;
@@ -244,7 +245,7 @@ interface State extends Saved {
   /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
   memo: boolean;
   /** The words its speech may hold, once gathered (`TranscriptsOptions.wordsOf`). */
-  words: readonly string[] | null;
+  words: MeetingWords | null;
   /** Where the capture began waiting for the system's permission, in the Meeting's time; null otherwise. */
   waitingFrom: number | null;
 }
@@ -299,13 +300,15 @@ export interface TranscriptsOptions {
    */
   written?(meetingId: string): void;
   /**
-   * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, and
-   * told to the engine on this computer for each of its streams.
+   * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, those
+   * for this computer told to its engine for each stream, and those for a cloud service given to
+   * the one chosen. With the words `first` gathered, those for this computer as the Meeting's
+   * Note now reads; what a cloud service is sent stays as it was.
    */
-  wordsOf?(meetingId: string): readonly string[];
+  wordsOf?(meetingId: string, first?: MeetingWords): MeetingWords;
   /**
-   * A line's text as the Transcript keeps it: Chinese in the User's script, but for the Meeting's
-   * words, kept as the User writes them (#1031).
+   * A line's text as the Transcript keeps it: a name the Meeting's words spell another way as
+   * they spell it, and Chinese in the User's script, but for those words (#1031).
    */
   lineText?(text: string, words: readonly string[]): string;
   /** The cloud service the User chose for meeting audio (#141). Absent: always this computer. */
@@ -315,6 +318,8 @@ export interface TranscriptsOptions {
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+const NO_WORDS: MeetingWords = { sent: [], here: [], parts: [] };
 
 const SOURCES: readonly AudioSource[] = ["microphone", "system"];
 
@@ -644,7 +649,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         : found.speaker;
     const startMs = baseMs + segment.startMs;
     const text = options.lineText
-      ? options.lineText(segment.text, meetingWords(state))
+      ? options.lineText(segment.text, meetingWords(state).here)
       : segment.text;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
@@ -659,7 +664,9 @@ export function createTranscripts(options: TranscriptsOptions) {
       ? alignWords(
           text,
           segment.words.map((word) => ({
-            text: options.lineText ? options.lineText(word.text, meetingWords(state)) : word.text,
+            text: options.lineText
+              ? options.lineText(word.text, meetingWords(state).here)
+              : word.text,
             ms: baseMs + word.ms,
           })),
         )
@@ -950,23 +957,23 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   // ---- Live ----
 
-  function meetingWords(state: State): readonly string[] {
+  function meetingWords(state: State): MeetingWords {
     if (state.words === null) {
       try {
-        state.words = options.wordsOf?.(state.meetingId) ?? [];
+        state.words = options.wordsOf?.(state.meetingId) ?? NO_WORDS;
       } catch (error) {
         log.warn("transcript.wordsUnread", {
           meetingId: state.meetingId,
           message: messageOf(error),
         });
-        state.words = [];
+        state.words = NO_WORDS;
       }
     }
     return state.words;
   }
 
   function tellWords(state: State, stream: string): void {
-    const words = meetingWords(state);
+    const words = meetingWords(state).here;
     if (words.length > 0) transcriber.words(stream, words);
   }
 
@@ -1167,7 +1174,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   function choose(state: State, live: Live, cloud: NonNullable<TranscriptsOptions["cloud"]>): void {
-    cloud.start(meetingWords(state)).then(
+    cloud.start(meetingWords(state).sent).then(
       (start) => {
         if (closed || state.live !== live) return;
         live.choosing = false;
@@ -1643,6 +1650,28 @@ export function createTranscripts(options: TranscriptsOptions) {
       state.indexTimer = null;
       state.lastIndexed = Date.now();
       await documents.check(vttPath(meetingId));
+    },
+
+    /**
+     * The Meeting's Note was read again after the User typed in it (#1031). While the Meeting is
+     * transcribed live, the words for this computer are gathered from it again and each stream
+     * open on this computer is told them, from its next stretch on: a name typed during the call
+     * is in the lines that follow. A cloud stream keeps the words it was opened with.
+     */
+    noteRead(meetingId: string): void {
+      const state = states.get(meetingId);
+      if (closed || !state?.live || state.words === null) return;
+      const told = state.words.here;
+      try {
+        state.words = options.wordsOf?.(meetingId, state.words) ?? state.words;
+      } catch (error) {
+        log.warn("transcript.wordsUnread", { meetingId, message: messageOf(error) });
+        return;
+      }
+      const { here } = state.words;
+      if (here.length === told.length && here.every((word, at) => word === told[at])) return;
+      if (state.live.engine !== "local") return;
+      for (const own of Object.values(state.live.streams)) transcriber.words(own.stream, here);
     },
 
     /**
