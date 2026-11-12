@@ -115,8 +115,11 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
   );
 }
 
-/** A meeting recording, with the price sheet in its Library, its help answered by `given`. */
-async function setUp(given: Marking, quoteOnly?: () => boolean) {
+/**
+ * A meeting recording, with the price sheet in its Library, its help answered by `given`, on a
+ * model in Ollama unless `cloud` names an Anthropic one.
+ */
+async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) {
   const calls: ModelCall[] = [];
   const batches: GenerateCall[] = [];
   const dataDir = await createTempDataFolder();
@@ -125,7 +128,15 @@ async function setUp(given: Marking, quoteOnly?: () => boolean) {
     createChatModel: models.createChatModel,
     ...(quoteOnly && { helpMarksQuoteOnly: quoteOnly }),
   });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const saved = await core.saveChatProvider(
+    cloud
+      ? { kind: "anthropic", apiKey: "sk-ant-test", modelId: cloud }
+      : { kind: "ollama", modelId: "local-model" },
+  );
+  if (saved.service) {
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.allowDataFlow("chat", saved.service.id);
+  }
   const sources = await createSourceFolder();
   const added = await core.addDocuments([await writeSourceFile(sources, "Price sheet.txt", SHEET)]);
   await waitForProcessing(
@@ -270,6 +281,22 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         const after = await (await pressed(core, meeting, "answer")).judged();
         expect(marks(after)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
       }
+    },
+  );
+
+  test.each([
+    { model: "a model in Ollama, with no price", cloud: undefined },
+    { model: "Claude Haiku 5.5", cloud: "claude-haiku-5-5" },
+    { model: "Claude Sonnet 5.5", cloud: "claude-sonnet-5-5" },
+  ])(
+    "on $model, a reply's sentence goes to the check with room for thinking: 5,300 tokens (#2951)",
+    async ({ cloud }) => {
+      const { core, meeting, batches } = await setUp({ reply: ENGLISH }, undefined, cloud);
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(batches.map((batch) => batch.options.maxOutputTokens)).toEqual([5_300]);
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
     },
   );
 
