@@ -276,6 +276,8 @@ export interface ChecksOptions
   defaultModel(): ChatModelChoice | null;
   /** The model a Mind whose own pick is `own` is checked with: see `modelInUse`. */
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
+  /** The core's lifetime: once it ends, the database is closed and nothing more is read. */
+  closed: AbortSignal;
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
     prepareModel(
@@ -946,6 +948,9 @@ export function createChecks(options: ChecksOptions) {
 
   /** Marks a request's sentences not checked yet "stopped". */
   function settleStopped(mindId: string, request: string): void {
+    // Quitting settles every running request at once, then closes the Notes: one that unwinds
+    // after that has been settled.
+    if (!running.has(request)) return;
     const ids = content.read(mindId, (blocks) =>
       markedSentences(blocks)
         .filter(({ check }) => check.request === request && check.state === "checking")
@@ -1763,8 +1768,15 @@ export function createChecks(options: ChecksOptions) {
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
     /** What judging an Answer's sentences would cost (#2311); null when nothing is left to judge. */
-    estimateAnswerCheck(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null {
-      const read = answerCheck.requests(input);
+    async estimateAnswerCheck(
+      input: Omit<AnswerCheckInput, "signal">,
+    ): Promise<RunEstimate | null> {
+      const shape = await chat.modelShape(input.model);
+      if (options.closed.aborted) return null;
+      const read = answerCheck.requests(input, {
+        most: shape?.capabilities.facts.maxOutput,
+        window: shape?.window?.outputTokens,
+      });
       return read && options.estimateRead(input.model, read);
     },
 

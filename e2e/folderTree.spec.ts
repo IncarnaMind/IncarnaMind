@@ -143,7 +143,7 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     await expect(chip).toHaveAttribute("data-own", "true");
     await expect(chip).toHaveAttribute(
       "title",
-      "Searches this Folder’s 1 Document. Remove it to search every Document.",
+      "“Ocean research”: searches this Folder’s 1 Document. Remove it to search every Document.",
     );
     await window.keyboard.type("When do spring tides happen?");
     await window.keyboard.press("Enter");

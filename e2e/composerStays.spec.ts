@@ -204,6 +204,24 @@ async function openCitation(window: Page, answer: Locator, keyboard = false) {
   await expect(window.getByTestId("viewer")).toBeVisible();
 }
 
+/** The items in the chat box's Search scope: its chips, or the count they are folded into on a narrow panel. */
+async function itemsInScope(composer: Locator): Promise<number> {
+  const folded = composer.getByTestId("scope-chips-more");
+  if ((await folded.count()) === 0) return composer.getByTestId("scope-chip").count();
+  return Number(/\d+/.exec((await folded.textContent()) ?? "")?.[0]);
+}
+
+/** Takes the first item out of the Search scope with its ×, in its chip or in the list the count opens. */
+async function removeFirstFromScope(window: Page, composer: Locator): Promise<void> {
+  const chip = composer.getByTestId("scope-chip").first();
+  if ((await chip.count()) > 0) {
+    await pointAndClick(window, chip.getByTestId("scope-chip-remove"));
+    return;
+  }
+  await pointAndClick(window, composer.getByTestId("scope-chips-more"));
+  await pointAndClick(window, window.getByTestId("scope-chips-menu-remove").first());
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`an explicit Document scope survives checking a Citation and a follow-up (${language})`, async () => {
     const cedarFinal = join(sources, "Cedar final.txt");
@@ -242,8 +260,7 @@ for (const language of ["en", "zh-CN"] as const) {
         library.getByTestId("library-selection").locator('[data-command="document.ask"]'),
       );
       const composer = window.getByTestId("composer");
-      const chips = composer.getByTestId("scope-chip");
-      await expect(chips).toHaveCount(2);
+      await expect.poll(() => itemsInScope(composer)).toBe(2);
       const restricted = { folderIds: [], tagIds: [], documentIds: expectedIds };
       const everywhere = { folderIds: [], tagIds: [], documentIds: [] };
 
@@ -264,9 +281,9 @@ for (const language of ["en", "zh-CN"] as const) {
         .getAttribute("data-document-id");
       if (!citedId) throw new Error("The cited Document tab has no id.");
       await screenshot(window, `citation-scope-${language}`);
-      await expect(chips).toHaveCount(2);
+      await expect.poll(() => itemsInScope(composer)).toBe(2);
       await openCitation(window, first, true);
-      await expect(chips).toHaveCount(2);
+      await expect.poll(() => itemsInScope(composer)).toBe(2);
       const second = await ask(window, "And when are neap tides?");
       await expect(second.getByTestId("answer-steps")).toContainText(
         language === "en" ? "Searched 2 files" : "已搜索所选的 2 个文件",
@@ -329,13 +346,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await tideTab.click();
       await expect(tideTab).toHaveAttribute("aria-selected", "true");
       await expect(window.getByTestId("mind-editor")).toBeVisible();
-      await expect(chips).toHaveCount(2);
+      await expect.poll(() => itemsInScope(composer)).toBe(2);
       await openCitation(window, first, true);
-      await expect(chips).toHaveCount(2);
+      await expect.poll(() => itemsInScope(composer)).toBe(2);
 
-      for (let index = 0; index < 2; index++) {
-        await pointAndClick(window, chips.first().getByTestId("scope-chip-remove"));
-      }
+      for (let index = 0; index < 2; index++) await removeFirstFromScope(window, composer);
       await expect(composer.getByTestId("composer-scope-all")).toHaveText(
         language === "en" ? "All Documents" : "全部文档",
       );

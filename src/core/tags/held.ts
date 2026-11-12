@@ -19,6 +19,15 @@ export function nextSequence(db: Database, at: string): number {
 }
 
 /**
+ * The place a Document or a Linked folder arriving now takes in that order. In Local mode it takes
+ * none (0), as one synced from another device does: what arrives while everything is kept on this
+ * computer never goes by itself, then or after Local mode ends, but waits for the User (#2982).
+ */
+export function arrivalPlace(db: Database, at: string, localOnly: boolean): number {
+  return localOnly ? 0 : nextSequence(db, at);
+}
+
+/**
  * Whether automatic tagging or Organize may send this Document by itself to these services, the
  * ones the request it is about to make resolved to (#2308). Each one must have been turned on
  * for itself (`turnedOnSeq`, null if it wasn't); then the Document must have arrived new after

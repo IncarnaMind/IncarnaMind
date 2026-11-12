@@ -54,6 +54,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   tableCells: [],
   noCitation: [],
   ownNotes: [],
+  supportedAt: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -189,7 +190,7 @@ describe("A note's state (D266)", () => {
     const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
     expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
     expect(words(unchecked)).toBe("2 files couldn’t be read");
-    expect(parts(unchecked)).toEqual(["Claims not checked"]);
+    expect(parts(unchecked)).toEqual(["Not checked"]);
   });
 
   test("a figure an Analysis gave that couldn't be worked out again leaves the Note Checked, naming it (#2378)", () => {
@@ -250,8 +251,8 @@ describe("A note's state (D266)", () => {
     const two =
       noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
-    expect(en(fresh)).toBe("Claims not checked");
-    expect(zh(fresh)).toBe("说法未核对");
+    expect(en(fresh)).toBe("Not checked");
+    expect(zh(fresh)).toBe("未核对");
     expect(en(one)).toBe("1 needs a look");
     expect(zh(one)).toBe("需要留意 1 处");
     expect(en(two)).toBe("2 need a look");

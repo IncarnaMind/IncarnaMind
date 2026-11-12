@@ -1,16 +1,24 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { inspect } from "node:util";
+import { APICallError } from "ai";
+import { describe, expect, test, vi } from "vitest";
+import { readStatus } from "../../scripts/nightlyIssue";
 import {
   type Attempt,
   casesOf,
+  describeFailure,
   executeIn,
+  logFilter,
   missingMessage,
   missingSecrets,
   OUT_OF_CREDIT,
+  type Probe,
+  probeKey,
   RATES,
   type Result,
+  runNight,
   runSteps,
   SECRETS,
   STEPS,
@@ -83,6 +91,103 @@ describe("the second key", () => {
     expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false, false, false]);
   });
 
+  // protects=a key with no credit is told by the core's words (Chinese ones included), by any 402 and by the core's own out-of-credit kind, so the night moves to the next key and does not call it a failed night; fails_when=a Kimi key that answers in Chinese, a bare 402 or a message with no credit word in it runs once and fails; no_claim=how the providers word the error.
+  test("the core's words, a 402 and the core's kind move the night to the next key", async () => {
+    for (const log of [
+      "Error: 429 账户已欠费，请充值 (org-1111aaaa2222bbbb3333cccc4444dddd)",
+      'Error: 400 {"error":{"message":"余额不足"}}',
+      "AI_APICallError: 您的账户已欠费，请充值后重试。",
+      "Organize failed on Document 4d3c.2b1a: out-of-credit (400). This key cannot be used right now.",
+      'Error: 402 {"error":"nope"}',
+      '{"ok":false,"error":{"kind":"out-of-credit","message":"This key cannot be used right now."}}',
+    ]) {
+      const asked: string[] = [];
+      const attempts = await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return secret === SECRETS.anthropic[0] ? run(1, `${log}\n`) : run(0);
+      });
+      expect(asked, log).toEqual([...SECRETS.anthropic]);
+      expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+    }
+  });
+
+  // protects=credit words on a line after one that said a provider answered, in the same printed object (a status, then the message that holds the words, even past a nested closing brace), move the night to the next key; a member line of ours with the same words and no such line before it does not; fails_when=the night fails where the key was merely empty, or a member line of ours spends the key; no_claim=none.
+  test("credit words after a status in the same object move the night to the next key", async () => {
+    const answered = [
+      "  statusCode: 400,\n  data: { error: { message: 'Your credit balance is too low' } },\n",
+      "  statusCode: 400,\n  data: {\n    error: {\n      details: {\n        field: 'x'\n      },\n      message: 'Your credit balance is too low'\n    }\n  }\n",
+      '+     "status": 429,\n+     "message": "账户已欠费，请充值",\n',
+      '+     "kind": "provider",\n+     "message": "You have reached your specified API usage limits. You will regain access on 2026-12-01.",\n',
+      "    kind: 'rate-limit',\n    message: 'You have reached your specified API usage limits. You will regain access on 2026-12-01.'\n",
+    ];
+    for (const log of answered) {
+      const asked: string[] = [];
+      const attempts = await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return secret === SECRETS.anthropic[0] ? run(1, log) : run(0);
+      });
+      expect(asked, log).toEqual([...SECRETS.anthropic]);
+      expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+    }
+    for (const log of [
+      "  data: { error: { message: 'we are out of credits for coffee' } },\n",
+      "  title: 'Dues',\n  message: '没有欠费的会员可以在2027/1/31前分期缴纳冬季会费。'\n",
+    ]) {
+      const asked: string[] = [];
+      await runSteps([live], async (_step, secret) => {
+        asked.push(secret);
+        return run(1, log);
+      });
+      expect(asked, log).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+    }
+    const filter = logFilter();
+    const [status, message] = [
+      "    kind: 'rate-limit',",
+      "    message: 'You have reached your specified API usage limits.'",
+    ].map(filter);
+    expect(status).toBe("(a provider's words left out) failed: rate-limit");
+    expect(message).toBe("(a provider's words left out) refused: out of credit");
+  });
+
+  // protects=credit words on a line of ours (a sentence of a test's Document, an assertion on a text) are not a key out of credit: only a line that also says a provider answered counts them; fails_when=a failed step whose output holds such a sentence on an assertion line spends the key, reruns on the next one, or reads "out of credit" in the summary; no_claim=none.
+  test("credit words in a sentence of ours are a failed step, not a spent key", async () => {
+    const ours = [
+      "AssertionError: expected '没有欠费的会员可以在2027/1/31前分期缴纳冬季会费。' to be 'x' // Object.is equality",
+      "AssertionError: expected 'we are out of credits for coffee' to be 'x'",
+      "expected the note to say 余额不足",
+    ];
+    const asked: string[] = [];
+    const attempts = await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return run(1, `${ours.join("\n")}\n`);
+    });
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+    expect(attempts.map((each) => each.outOfCredit)).toEqual([false]);
+    const [attempt] = attempts;
+    const report = summary(
+      attempt ? [{ ...attempt, cases: [{ name: "a case", passed: false }], usage: [] }] : [],
+      "2026-11-12",
+    ).text;
+    expect(report).not.toContain("out of credit");
+    for (const line of ours) {
+      expect(describeFailure(line)).toBe("failed: an expectation did not hold");
+      expect(logFilter()(line)).toBe(line);
+    }
+  });
+
+  // protects=a test's own line that says out of credit, in a run that failed for another reason, does not move the night to the next key; fails_when=a failing run whose log holds a reporter's line for a test titled with those words is called out of credit; no_claim=none.
+  test("a test's title that says out of credit is not a key out of credit", async () => {
+    const asked: string[] = [];
+    await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return run(
+        1,
+        " ✓ tests/live/x.live.test.ts > a key that is out of credit is refused 12ms\n FAIL  tests/live/y.live.test.ts > a case\n",
+      );
+    });
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1"]);
+  });
+
   // protects=any other failure is a failure, not a reason to spend again on the second key; fails_when=a failing case runs twice; no_claim=none.
   test("a failure that isn't about credit runs once", async () => {
     const asked: string[] = [];
@@ -94,7 +199,7 @@ describe("the second key", () => {
   });
 
   // protects=when both keys are out of credit the night says so and does not ask a third time; fails_when=a step runs with a key already known to be empty; no_claim=none.
-  test("a step with no key left is reported as not run", async () => {
+  test("a step with no key left is not measured", async () => {
     const asked: string[] = [];
     const attempts = await runSteps([live, everyday], async (step, secret) => {
       asked.push(`${step.id} ${secret}`);
@@ -196,9 +301,14 @@ describe("a night that goes wrong", () => {
     const report = await readFile(join(out, "summary.md"), "utf8");
     expect(report).toContain("**Unfinished: cancelled during A step that never ends.**");
     expect(report).toContain("| A step that never ends | NIGHTLY_KIMI_KEY | **cancelled** |");
-    expect(report).toContain("| A step after it | – | **not run** |");
+    expect(report).toContain("| A step after it | – | **not measured** |");
     expect(report).not.toContain("Every step passed");
     expect(report).not.toContain("a-key");
+    const status = readStatus(await readFile(join(out, "status.json"), "utf8"));
+    expect(status?.gaps.map((each) => each.why)).toEqual([
+      "the night was cancelled during this step",
+      "the night ended before this step ran",
+    ]);
     // The step's process is gone, though the night was told to stop only once.
     await expect
       .poll(() => {
@@ -249,7 +359,7 @@ describe("a night that goes wrong", () => {
     expect(skipped.text).toContain("1 of 1 (43 skipped)");
   });
 
-  // protects=a step that failed with every case passed says why (the Everyday target for Supported sentences), and a step that did not run is named as not run; fails_when=the summary says only failed; no_claim=none beyond protects.
+  // protects=a step that failed with every case passed says why (the Everyday target for Supported sentences), and a step that did not run is named as not measured; fails_when=the summary says only failed; no_claim=none beyond protects.
   test("the reason for a failure no case shows, and a step that did not run", () => {
     const night = summary(
       [
@@ -269,8 +379,8 @@ describe("a night that goes wrong", () => {
     expect(night.text).toContain(
       "every case passed: Error: 90% of the cited sentences are Supported",
     );
-    expect(night.text).toContain("**not run**");
-    expect(night.text).toContain("Not run: the night has spent $11.00");
+    expect(night.text).toContain("**not measured**");
+    expect(night.text).toContain("Not measured: the night has spent $11.00");
   });
 });
 
@@ -415,5 +525,761 @@ describe("a claim-probes step", () => {
       { name: "unmade-note-en", passed: false, detail: "1 of 2 runs passed" },
       { name: "backed write", passed: true, detail: "left alone" },
     ]);
+  });
+});
+
+describe("a key asked for its first request", () => {
+  const refusal = () =>
+    new Response(
+      JSON.stringify({
+        error: { message: `Your credit balance is too low to access the API (key ${KEY_1})` },
+      }),
+      { status: 400 },
+    );
+
+  // protects=the probe asks the provider the smallest request, with the key in the provider's own header, and reads the status only; fails_when=the probe's answer is read or kept, the request asks for more than one token, or the key is sent anywhere but its header; no_claim=how the providers word a refusal.
+  test("sends one token's request and reads only the status", async () => {
+    const response = refusal();
+    const text = vi.spyOn(response, "text");
+    const json = vi.spyOn(response, "json");
+    const sent: { url: string; init: RequestInit | undefined }[] = [];
+    const answer = await probeKey("anthropic", KEY_1, async (url, init) => {
+      sent.push({ url: String(url), init });
+      return response;
+    });
+    expect(answer).toEqual({ ok: false, why: "status 400" });
+    expect(text).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    expect(JSON.stringify(answer)).not.toContain(KEY_1);
+    expect(JSON.stringify(answer)).not.toContain("credit");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(sent[0]?.init?.method).toBe("POST");
+    expect(sent[0]?.init?.headers).toMatchObject({ "x-api-key": KEY_1 });
+    expect(JSON.parse(String(sent[0]?.init?.body))).toMatchObject({ max_tokens: 1 });
+    expect(String(sent[0]?.init?.body)).not.toContain(KEY_1);
+  });
+
+  // protects=a key the provider accepts passes, and Kimi's key goes in the bearer header to Kimi's international host; fails_when=a 2xx counts as refused, or Kimi's probe goes to another host; no_claim=none.
+  test("accepts any success, and asks Kimi on its own host", async () => {
+    const urls: string[] = [];
+    const headers: unknown[] = [];
+    const answer = await probeKey("kimi", "kimi-key-0000", async (url, init) => {
+      urls.push(String(url));
+      headers.push(init?.headers);
+      return new Response("{}", { status: 200 });
+    });
+    expect(answer).toEqual({ ok: true });
+    expect(urls).toEqual(["https://api.moonshot.ai/v1/chat/completions"]);
+    expect(headers[0]).toMatchObject({ authorization: "Bearer kimi-key-0000" });
+  });
+
+  // protects=a provider that cannot be reached is a key not measured, not a thrown error that ends the night; fails_when=the probe rejects; no_claim=none.
+  test("a request that gets no answer is a refusal in words", async () => {
+    const spoken = vi.spyOn(console, "error").mockImplementation(() => {});
+    const answer = await probeKey("anthropic", KEY_1, async () => {
+      throw new TypeError("fetch failed");
+    });
+    spoken.mockRestore();
+    expect(answer).toEqual({ ok: false, why: "no answer" });
+  });
+
+  const run = (exitCode: number, log = "") => ({ exitCode, log, seconds: 1 });
+
+  // protects=a refused key is left out like a key with no credit: the next key runs the steps, and each key is asked once; fails_when=the steps run on a refused key, or a key is asked for every step; no_claim=none.
+  test("the steps go to the key that was accepted, and each key is asked once", async () => {
+    const asked: string[] = [];
+    const ran: string[] = [];
+    const attempts = await runSteps(
+      [live, everyday],
+      async (step, secret) => {
+        ran.push(`${step.id} ${secret}`);
+        return run(0);
+      },
+      {
+        probe: async (secret): Promise<Probe> => {
+          asked.push(secret);
+          return secret === SECRETS.anthropic[0] ? { ok: false, why: "status 400" } : { ok: true };
+        },
+      },
+    );
+    expect(asked).toEqual(["NIGHTLY_ANTHROPIC_KEY_1", "NIGHTLY_ANTHROPIC_KEY_2"]);
+    expect(ran).toEqual(["live NIGHTLY_ANTHROPIC_KEY_2", "everyday NIGHTLY_ANTHROPIC_KEY_2"]);
+    expect(attempts.every((each) => each.skipped === undefined)).toBe(true);
+  });
+
+  // protects=when every key of a provider is refused its steps do not run, and the reason is said in the night's own words; fails_when=a step runs with a key that was refused, or the reason carries what the provider answered; no_claim=none.
+  test("steps with no accepted key are not run, and say why", async () => {
+    const ran: string[] = [];
+    const attempts = await runSteps(
+      [live, everyday, kimiLive],
+      async (step) => {
+        ran.push(step.id);
+        return run(0);
+      },
+      {
+        probe: async (secret) =>
+          secret === SECRETS.kimi[0] ? { ok: true } : { ok: false, why: "status 400" },
+      },
+    );
+    expect(ran).toEqual(["kimi-live"]);
+    expect(attempts.map((each) => each.skipped)).toEqual([
+      "no key was accepted: the first request got status 400",
+      "no key was accepted: the first request got status 400",
+      undefined,
+    ]);
+  });
+});
+
+describe("the three states of a night", () => {
+  const attempt = (step: Step, over: Partial<Result>): Result => ({
+    step,
+    secret: "NIGHTLY_ANTHROPIC_KEY_1",
+    exitCode: 0,
+    log: "",
+    seconds: 60,
+    outOfCredit: false,
+    cases: [{ name: "an Answer cites", passed: true }],
+    usage: [],
+    ...over,
+  });
+  const noCredit = "no key was accepted: the first request got status 400";
+
+  // protects=a night where everything ran and passed is green: nothing red, nothing not measured; fails_when=a passing night reports a gap or a failure; no_claim=none.
+  test("green: every step ran and passed", () => {
+    const night = summary([attempt(live, {})], "2026-11-12");
+    expect(night.passed).toBe(true);
+    expect(night.status).toEqual({ red: [], gaps: [], measured: true });
+    expect(night.text).toContain("Every step passed.");
+  });
+
+  // protects=a failing case is red and named with its step, and what the provider said about it stays out of the status; fails_when=the status carries a case's failure text; no_claim=none.
+  test("red: a failing case is named, without its error", () => {
+    const night = summary(
+      [
+        attempt(live, {
+          exitCode: 1,
+          cases: [
+            { name: "an Answer cites", passed: false, detail: `rate limited for key ${KEY_1}` },
+            { name: "an Edit says what changed", passed: true },
+          ],
+        }),
+      ],
+      "2026-11-12",
+    );
+    expect(night.status.red).toEqual(["Live tests on Claude: an Answer cites"]);
+    expect(JSON.stringify(night.status)).not.toContain(KEY_1);
+    expect(night.text).toContain("A step failed.");
+  });
+
+  // protects=steps skipped because no key was accepted are not measured: not failed, never green, and named with their provider; fails_when=a night that measured nothing reads as passed or as a failure; no_claim=none.
+  test("not measured: steps that could not run are gaps, not failures", () => {
+    const skipped = (step: Step) =>
+      attempt(step, {
+        exitCode: 1,
+        cases: [],
+        skipped: noCredit,
+        secret: "NIGHTLY_ANTHROPIC_KEY_2",
+      });
+    const night = summary([skipped(live), skipped(everyday)], "2026-11-12");
+    expect(night.passed).toBe(false);
+    expect(night.status.red).toEqual([]);
+    expect(night.status.measured).toBe(false);
+    expect(night.status.gaps).toEqual([
+      { what: "Live tests on Claude (Anthropic)", why: noCredit, keeps: "Live tests on Claude: " },
+      {
+        what: "Everyday requests on Claude Haiku 5.5 (Anthropic)",
+        why: noCredit,
+        keeps: "Everyday requests on Claude Haiku 5.5: ",
+      },
+    ]);
+    expect(night.text).toContain(
+      "| Live tests on Claude | NIGHTLY_ANTHROPIC_KEY_2 | **not measured** |",
+    );
+    expect(night.text).not.toContain("**failed**");
+    expect(night.text).toContain("No step failed, but not every step was measured.");
+  });
+
+  // protects=a step whose last key ran out of credit part way is not measured, and its half-done cases are not counted red; fails_when=the cases that failed for want of credit open a red night; no_claim=none.
+  test("not measured: a key that ran out part way", () => {
+    const night = summary(
+      [
+        attempt(live, {
+          exitCode: 1,
+          outOfCredit: true,
+          cases: [{ name: "an Answer cites", passed: false, detail: "credit balance is too low" }],
+        }),
+      ],
+      "2026-11-12",
+    );
+    expect(night.status.red).toEqual([]);
+    expect(night.status.gaps).toMatchObject([
+      {
+        what: "Live tests on Claude (Anthropic)",
+        why: "the key ran out of credit during the step",
+      },
+    ]);
+    expect(night.text).toContain("**not measured**");
+  });
+
+  // protects=a night with hundreds of failing cases hands the report a bounded list, in order; fails_when=the status grows with the failures until it no longer fits a job's output; no_claim=none.
+  test("red: hundreds of failing cases are cut to the first ones", () => {
+    const cases = Array.from({ length: 400 }, (_, index) => ({
+      name: `case ${index}`,
+      passed: false,
+    }));
+    const night = summary([attempt(live, { exitCode: 1, cases })], "2026-11-12");
+    expect(night.status.red).toHaveLength(150);
+    expect(night.status.red[0]).toBe("Live tests on Claude: case 0");
+  });
+
+  // protects=a step that failed with every case passing, or that ran no case, is red in plain words, not a gap; fails_when=a step that broke before its first case reads as not measured; no_claim=none.
+  test("red: a step that reported no case", () => {
+    const night = summary([attempt(live, { exitCode: 1, cases: [] })], "2026-11-12");
+    expect(night.status.red).toEqual(["Live tests on Claude: no case reported a result"]);
+    expect(night.status.gaps).toEqual([]);
+  });
+
+  // protects=a night that ran only some of its steps lists the others as not measured; fails_when=the steps that never ran vanish from the status; no_claim=none.
+  test("the steps a night never reached are gaps", () => {
+    const night = summary([attempt(live, {})], "2026-11-12", {
+      planned: [live, everyday, kimiLive],
+    });
+    expect(night.passed).toBe(false);
+    expect(night.status.gaps.map((each) => each.what)).toEqual([
+      "Everyday requests on Claude Haiku 5.5 (Anthropic)",
+      "Kimi International answers (Kimi)",
+    ]);
+    expect(night.status.measured).toBe(true);
+  });
+
+  // protects=a whole night with no credit writes status.json and the job output (one line, no key), exits not-passed and does not run a step; fails_when=a refused night runs its steps, the output carries a key or spans lines, or the status is not readable by the report; no_claim=none.
+  test("a night whose keys are all refused hands the report its status", async () => {
+    const out = await createTempDataFolder();
+    const output = join(out, "github-output");
+    await writeFile(output, "");
+    const hanging: Step = {
+      id: "never",
+      name: "A step that must not run",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: () => ["node", "-e", "process.exit(0)"],
+      env: () => ({}),
+    };
+    const night = await runNight({
+      steps: [hanging],
+      env: { PATH: process.env.PATH, NIGHTLY_KIMI_KEY: "kimi-key-9999", GITHUB_OUTPUT: output },
+      out,
+      probe: async () => ({ ok: false, why: "status 429" }),
+    });
+    expect(night.passed).toBe(false);
+    const line = (await readFile(output, "utf8")).trimEnd();
+    expect(line).toMatch(/^status=\{.*\}$/);
+    expect(line).not.toContain("kimi-key-9999");
+    const status = readStatus(line.slice("status=".length));
+    expect(status).toEqual(night.status);
+    expect(status?.gaps).toEqual([
+      {
+        what: "A step that must not run (Kimi)",
+        why: "no key was accepted: the first request got status 429",
+        keeps: "A step that must not run: ",
+      },
+    ]);
+    expect(JSON.parse(await readFile(join(out, "status.json"), "utf8"))).toEqual(night.status);
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain("**not measured**");
+  });
+});
+
+describe("a provider's words stay out of the summary and the log", () => {
+  const ORG = "org-1111aaaa2222bbbb3333cccc4444dddd";
+  const ACCESS = "ak-test1234test5678abcd";
+  const SUSPENDED = `{"ok":false,"error":{"kind":"out-of-credit","message":"Your account ${ORG} <${ACCESS}> is suspended due to insufficient balance, please recharge"}}`;
+  const raw = [
+    `AssertionError: ${SUSPENDED}`,
+    `APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG} in project proj_9f8e7d6c"}}`,
+    "AssertionError: expected 'workspace-id-7777 said hello' to contain 'cites'",
+    `Error: Request to ${ACCESS} timed out after 30000 ms`,
+    "TypeError: fetch failed",
+    `Error: 503 upstream ${ORG} is down`,
+    "Error: something we never classified, with org-0000 in it",
+    `Organize failed on Document 4d3c.2b1a: auth (401). Invalid Authentication for ${ACCESS}`,
+    `AI_APICallError: This request would exceed the rate limit for your organization (${ORG}).`,
+  ];
+
+  // protects=a failure's words become status and words of ours (refused, failed, timed out), whatever the provider said; fails_when=any part of the text, an id in it included, comes out, or a refusal is called a failure; no_claim=how the providers word their errors.
+  test("a failure is told by its status and our own words", () => {
+    expect(raw.map(describeFailure)).toEqual([
+      "refused: out of credit",
+      "refused: status 429",
+      "failed: an expectation did not hold",
+      "failed: timed out",
+      "failed: no answer from the provider",
+      "failed: status 503",
+      "failed: see the job's log",
+      "refused: status 401",
+      "failed: the provider answered with an error",
+    ]);
+    expect(
+      describeFailure(
+        "AI_APICallError: Cannot connect to API: connect ECONNREFUSED example.test:443",
+      ),
+    ).toBe("failed: no answer from the provider");
+    expect(describeFailure("AI_APICallError: Cannot connect to API: read ETIMEDOUT")).toBe(
+      "failed: timed out",
+    );
+    expect(describeFailure("AI_APICallError: Cannot connect to API: other side closed")).toBe(
+      "failed: see the job's log",
+    );
+    expect(
+      describeFailure(
+        "AI_RetryError: Failed after 3 attempts. Last error: The operation was aborted due to timeout",
+      ),
+    ).toBe("failed: timed out");
+    expect(describeFailure("Error: 429 请求被拒绝：账户余额不足，请充值")).toBe(
+      "refused: out of credit (status 429)",
+    );
+    expect(describeFailure('Error: 402 {"error":"nope"}')).toBe(
+      "refused: out of credit (status 402)",
+    );
+    expect(
+      describeFailure(
+        '{"ok":false,"error":{"kind":"out-of-credit","message":"This key cannot be used right now."}}',
+      ),
+    ).toBe("refused: out of credit");
+    expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
+      "refused: out of credit (status 402)",
+    );
+    for (const text of raw) {
+      expect(describeFailure(text)).not.toMatch(/org-|ak-|proj_|workspace-id|upstream|suspended/);
+    }
+  });
+
+  // protects=a raw body with an account id and a key id, in a step's results and in its log, never reaches summary.md or status.json, which anyone can download; fails_when=the first line of a failure message is copied again; no_claim=the step's own report files, which are the raw record.
+  test("summary.md carries no raw message, only the status and our words", async () => {
+    const out = await createTempDataFolder();
+    const writer = [
+      "const fs = require('node:fs');",
+      "const failure = (title, message) => ({ fullName: title, status: 'failed', failureMessages: [message + '\\n    at /work/test.ts:1:1'] });",
+      `fs.writeFileSync(process.argv[1] + '/vitest.json', JSON.stringify({ testResults: [{ assertionResults: [`,
+      `  failure('a key connects', ${JSON.stringify(`AssertionError: ${SUSPENDED}`)}),`,
+      `  failure('an answer cites', ${JSON.stringify(`APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG}"}}`)}),`,
+      `  failure('an edit says what changed', ${JSON.stringify("AssertionError: expected 'workspace-id-7777 said hello' to contain 'cites'")}),`,
+      `  { fullName: 'a plain pass', status: 'passed', failureMessages: [] },`,
+      "] }] }));",
+      `console.error(${JSON.stringify(`Error: 400 ${SUSPENDED}`)});`,
+      "process.exit(1);",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: (folder) => ["node", "-e", writer, folder],
+      env: () => ({}),
+    };
+    const night = await runNight({
+      steps: [scripted],
+      env: { PATH: process.env.PATH, NIGHTLY_KIMI_KEY: "a-key" },
+      out,
+    });
+    const report = await readFile(join(out, "summary.md"), "utf8");
+    const status = await readFile(join(out, "status.json"), "utf8");
+    for (const text of [report, status, night.text]) {
+      expect(text).not.toContain(ORG);
+      expect(text).not.toContain(ACCESS);
+      expect(text).not.toContain("suspended");
+      expect(text).not.toContain("workspace-id-7777");
+      expect(text).not.toContain("Rate limit reached");
+    }
+    expect(report).toContain("| a key connects | **failed**: refused: out of credit |");
+    expect(report).toContain("| an answer cites | **failed**: refused: status 429 |");
+    expect(report).toContain(
+      "| an edit says what changed | **failed**: failed: an expectation did not hold |",
+    );
+    expect(report).toContain("| a plain pass | passed |");
+  });
+
+  /** The files the workflow uploads from a night's folder: only the shapes its upload step names. */
+  const uploadedFrom = async (out: string): Promise<string[]> => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/nightly-real-model.yml", import.meta.url),
+      "utf8",
+    );
+    const upload = workflow.slice(workflow.indexOf("actions/upload-artifact"));
+    const lines = /path: \|\n((?: +\S+\n)+)/.exec(upload)?.[1]?.split("\n").filter(Boolean) ?? [];
+    const patterns = lines.map((line) =>
+      line.trim().replace("eval/results/nightly-real-model/", ""),
+    );
+    expect(patterns).toEqual(["summary.md", "status.json", "**/usage.jsonl"]);
+    const every = (await readdir(out, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(out, join(entry.parentPath, entry.name)));
+    return every.filter(
+      (file) =>
+        file === "summary.md" || file === "status.json" || file.split("/").at(-1) === "usage.jsonl",
+    );
+  };
+
+  // protects=nothing a provider answered is in what the job uploads: the artifact is the summary, the status and the token counts, and a step's own reports with the raw bodies stay behind; fails_when=the upload names the whole folder again, or a file it names comes to hold an id from a raw body; no_claim=the Actions log, which holds the steps' output.
+  test("the files the job uploads hold no raw message, whatever else a step wrote", async () => {
+    const out = await createTempDataFolder();
+    const writer = [
+      "const fs = require('node:fs');",
+      "const dir = process.argv[1];",
+      "fs.mkdirSync(dir + '/everyday', { recursive: true });",
+      `const raw = ${JSON.stringify(SUSPENDED)};`,
+      "fs.writeFileSync(dir + '/vitest.json', JSON.stringify({ testResults: [{ message: raw, assertionResults: [{ fullName: 'a key connects', status: 'failed', failureMessages: [raw] }] }] }));",
+      "fs.writeFileSync(dir + '/everyday/report.json', JSON.stringify({ results: [{ id: 'owner-1', error: raw }] }));",
+      "fs.writeFileSync(dir + '/everyday/report.md', '| owner-1 | ' + raw + ' |');",
+      "fs.appendFileSync(process.env.NIGHTLY_USAGE_FILE, JSON.stringify({ model: 'kimi-k2.6', inputTokens: 1, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1 }) + '\\n');",
+      "console.error(raw);",
+      "process.exit(1);",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: (folder) => ["node", "-e", writer, folder],
+      env: () => ({}),
+    };
+    await runNight({
+      steps: [scripted],
+      env: { PATH: process.env.PATH, NIGHTLY_KIMI_KEY: "a-key" },
+      out,
+    });
+    const uploaded = await uploadedFrom(out);
+    expect(uploaded.sort()).toEqual([
+      "raw/NIGHTLY_KIMI_KEY/usage.jsonl",
+      "status.json",
+      "summary.md",
+    ]);
+    for (const file of uploaded) {
+      const text = await readFile(join(out, file), "utf8");
+      expect(text, file).not.toContain(ORG);
+      expect(text, file).not.toContain(ACCESS);
+      expect(text, file).not.toContain("suspended");
+    }
+    // The raw record is still in the folder, so the check above is looking at a real difference.
+    const reports = await readFile(join(out, "raw", "NIGHTLY_KIMI_KEY", "vitest.json"), "utf8");
+    expect(reports).toContain(ORG);
+  });
+
+  // protects=a step that failed with every case passing is told by its log's last error in our words, and our own eval's target line is kept because it holds only numbers; fails_when=the log's line is copied, or the target line is lost; no_claim=none.
+  test("a log's error line is described, not copied", () => {
+    const failed = (log: string) =>
+      summary(
+        [
+          {
+            step: live,
+            secret: "NIGHTLY_ANTHROPIC_KEY_1",
+            exitCode: 1,
+            log,
+            seconds: 1,
+            outOfCredit: false,
+            cases: [{ name: "owner-1 (en)", passed: true }],
+            usage: [],
+          },
+        ],
+        "2026-11-12",
+      ).text;
+    const copied = failed(`x\nError: 400 ${SUSPENDED}\n`);
+    expect(copied).toContain("every case passed: refused: out of credit (status 400)");
+    expect(copied).not.toContain(ORG);
+    expect(
+      failed("Error: 90% of the cited sentences are Supported, under the target of 95%."),
+    ).toContain(
+      "every case passed: Error: 90% of the cited sentences are Supported, under the target of 95%.",
+    );
+    expect(failed(`Error: ${ORG} said no\n`)).not.toContain("every case passed");
+  });
+
+  // protects=a line of a step's output that quotes a provider's answer is printed as its status and words of ours, and every other line is printed as it is; fails_when=an id from a body stays in a printed line, or a test name, a count, a progress line, a timeout of ours or a Chinese line is changed; no_claim=a body that none of the classifier's signatures names.
+  test("a log line that quotes a provider is told by its status and our words", () => {
+    const quoting: [string, string][] = [
+      [`AssertionError: ${SUSPENDED}`, "refused: out of credit"],
+      [
+        `APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG} in project proj_9f8e7d6c"}}`,
+        "refused: status 429",
+      ],
+      [
+        `AI_APICallError: This request would exceed the rate limit for your organization (${ORG}).`,
+        "failed: the provider answered with an error",
+      ],
+      [
+        `Organize failed on Document 4d3c.2b1a: auth (401). Invalid Authentication for ${ACCESS}`,
+        "refused: status 401",
+      ],
+      [
+        `\u001b[31mError: \u001b[1m503\u001b[22m upstream ${ORG} is down\u001b[39m`,
+        "failed: status 503",
+      ],
+      [
+        `Organize failed on Document 4d3c.2b1a: out-of-credit (400). Account ${ORG} cannot be used.`,
+        "refused: out of credit (status 400)",
+      ],
+      [`Error: 400 账户 ${ORG} 已暂停`, "refused: status 400"],
+    ];
+    for (const [line, words] of quoting) {
+      const printed = logFilter()(line);
+      expect(printed).toBe(`(a provider's words left out) ${words}`);
+      expect(printed).not.toMatch(/org-|ak-|proj_|upstream|suspended/);
+    }
+    const ours = [
+      " ✓ tests/live/providers.live.test.ts > kimi, live > a key connects, the models list 3615ms",
+      " FAIL  tests/live/providers.live.test.ts > kimi, live > a small call answers",
+      "AssertionError: expected 3 to be 4 // Object.is equality",
+      "Error: Tagging didn't settle within 120000 ms.",
+      "Error: Request to the provider timed out after 30000 ms",
+      "TypeError: fetch failed",
+      "AI_APICallError: Cannot connect to API: connect ECONNREFUSED example.test:443",
+      " ✓ tests/live/providers.live.test.ts > refuses with HTTP 429 and says so 10ms",
+      " \u001b[31m×\u001b[39m tests/live/providers.live.test.ts > an HTTP 503 is retried",
+      " FAIL  tests/live/providers.live.test.ts > kimi, live > an out of credit key is refused",
+      "      Tests  1 failed | 7 skipped (8)",
+      "The first request to Kimi got status 200.",
+      '{"set":"walk","language":"zh","model":"claude-haiku-5-5","run":1,"result":"failed","error":"not-checked"}',
+      "保存了 3 份文件，共 500 字。",
+      "",
+      "ab-".repeat(300_000),
+      " Test Files  2 failed | 448 passed (450)",
+      "      Tests  3 failed | 497 passed (500)",
+      "indexed the passages (512)",
+      '    "message": "expected 0 to be greater than 0",',
+      '    "kind": "heading",',
+      '    "message": "a heading of ours",',
+    ];
+    const filter = logFilter();
+    expect(ours.map(filter)).toEqual(ours);
+  });
+
+  // protects=a provider's words inside the core's own failure (its result printed on one line, as a pretty-printed object in a diff, or with its fields) are replaced by the failure's kind and our words, whatever the sentence says; fails_when=a rate-limit, invalid-key or overloaded sentence prints with its ids, or a message of ours that follows no failure kind of the core is replaced; no_claim=a message printed before its kind, or one that follows no kind line.
+  test("a failure of the core is told by its kind, in every shape it is printed in", () => {
+    const failures: [kind: string, sentence: string][] = [
+      ["rate-limit", `Rate limit reached for ${ORG} in project proj_9f8e7d6c`],
+      ["auth", `Invalid Authentication for ${ACCESS}`],
+      ["provider", `Overloaded, retry later (request ${ORG}, key ${ACCESS})`],
+    ];
+    const left = (kind: string) => `(a provider's words left out) failed: ${kind}`;
+    for (const [kind, sentence] of failures) {
+      const oneLine = `AssertionError: ${JSON.stringify({ ok: false, error: { kind, message: sentence } })}`;
+      expect(logFilter()(oneLine)).toBe(left(kind));
+
+      const diff = [
+        "- Expected",
+        "+ Received",
+        "",
+        "  {",
+        '-   "ok": true,',
+        '+   "error": {',
+        `+     "kind": "${kind}",`,
+        `+     "message": ${JSON.stringify(sentence)},`,
+        "+   },",
+        '+   "ok": false,',
+        "  }",
+      ];
+      const filter = logFilter();
+      expect(diff.map(filter)).toEqual([
+        ...diff.slice(0, 6),
+        left(kind),
+        left(kind),
+        ...diff.slice(8),
+      ]);
+
+      const printed = ["  {", `    kind: '${kind}',`, `    message: '${sentence}',`, "  }"];
+      const inspect = logFilter();
+      expect(printed.map(inspect)).toEqual([printed[0], left(kind), left(kind), printed[3]]);
+    }
+    const body = `  responseBody: '{"error":{"message":"Rate limit reached for ${ORG}","type":"rate_limit_error"}}',`;
+    expect(logFilter()(body)).toBe(
+      "(a provider's words left out) failed: the provider answered with an error",
+    );
+    for (const [kind, sentence] of failures) {
+      expect(describeFailure(`AssertionError: {"kind":"${kind}","message":"${sentence}"}`)).toBe(
+        `failed: ${kind}`,
+      );
+    }
+  });
+
+  // protects=an AI SDK error printed by Node with a short body, which Node puts on one line (data: { error: { message: ... } }), is told from the line before it that a provider answered, and a data member of ours in an object where no line said so stays; fails_when=the key id in a short body is printed, or a data member of ours is replaced; no_claim=a body that is not an AI SDK error.
+  test("an AI SDK error with a short body is printed with no id from its body", () => {
+    const key = "ak-demo9876";
+    const body = { error: { message: `Bad key ${key}`, type: "auth" } };
+    const error = new APICallError({
+      message: `Bad key ${key}`,
+      url: "https://api.example.test/v1/messages",
+      requestBodyValues: { model: "demo" },
+      statusCode: 401,
+      responseHeaders: { "x-request-id": "req-demo" },
+      responseBody: JSON.stringify(body),
+      isRetryable: false,
+      data: body,
+    });
+    const printed = inspect(error).split("\n");
+    expect(printed.some((line) => /^\s+data: \{ error: \{ message:/.test(line))).toBe(true);
+    const shown = printed.map(logFilter());
+    expect(shown.join("\n")).not.toContain(key);
+    expect(shown).toContain("  url: 'https://api.example.test/v1/messages',");
+
+    const ours = ["  url: 'https://ours.example.test',", "  data: { message: 'ours' },"];
+    expect(ours.map(logFilter())).toEqual(ours);
+  });
+
+  // protects=a message deeper in an object that a provider answered is told past a nested closing brace, and ends with the object; fails_when=the key id in a message after a nested object is printed, or a message of ours after the object is replaced; no_claim=none.
+  test("a message after a nested object of a provider's error is told, and not one after the error", () => {
+    const key = "ak-demo9876";
+    const printed = [
+      "  statusCode: 401,",
+      "  data: {",
+      "    error: {",
+      "      details: {",
+      "        field: 'authorization'",
+      "      },",
+      `      message: 'Bad key ${key}'`,
+      "    }",
+      "  }",
+      "}",
+      "  message: 'ours'",
+    ];
+    const shown = printed.map(logFilter());
+    expect(shown.join("\n")).not.toContain(key);
+    expect(shown[4]).toBe("        field: 'authorization'");
+    expect(shown[6]).toMatch(/^\(a provider's words left out\) /);
+    expect(shown.slice(7)).toEqual(printed.slice(7));
+
+    const others = [
+      [
+        "  statusCode: 401,",
+        "  details: [",
+        "    'authorization',",
+        "  ],",
+        `  message: 'Bad key ${key}'`,
+      ],
+      [
+        "  statusCode: 401,",
+        "  'content-type': 'application/json',",
+        "  headers: {",
+        "    'x-request-id': 'req-demo'",
+        "  },",
+        `  message: 'Bad key ${key}'`,
+      ],
+    ];
+    for (const lines of others) {
+      const told = lines.map(logFilter());
+      expect(told.join("\n"), lines.join("\n")).not.toContain(key);
+      expect(told.slice(1, -1)).toEqual(lines.slice(1, -1));
+    }
+
+    const next = ["  statusCode: 401,", "}", "{", "  message: 'ours'"];
+    expect(next.map(logFilter())).toEqual([
+      "(a provider's words left out) refused: status 401",
+      ...next.slice(1),
+    ]);
+    const none = ["  title: 'Dues',", "  details: [", "  ],", "  message: 'ours'"];
+    expect(none.map(logFilter())).toEqual(none);
+  });
+
+  // protects=in a test's diff, where the marker stands in the column an unchanged line has a space, a changed message under an unchanged failure kind is the provider's: its ids are not printed and its credit words, or the cap's sentence, move the night to the next key; a changed message of ours one level out, after the object closed, prints as it is; fails_when=the marker is left out of the indentation, so the changed line reads as one column shallower and ends the object; no_claim=none.
+  test("a changed message under an unchanged kind in a diff is the provider's", async () => {
+    const diff = [
+      '      "kind": "rate-limit",',
+      `-     "message": "Rate limit reached for ${ORG}",`,
+      `+     "message": "Too many requests from ${ACCESS}",`,
+    ];
+    const shown = diff.map(logFilter());
+    expect(shown.join("\n")).not.toMatch(/org-|ak-/);
+    expect(shown.every((line) => line.startsWith("(a provider's words left out) "))).toBe(true);
+
+    const capped = [
+      '      "kind": "rate-limit",',
+      '-     "message": "Too many requests",',
+      '+     "message": "You have reached your specified API usage limits. You will regain access on 2026-12-01.",',
+    ].join("\n");
+    const asked: string[] = [];
+    const attempts = await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return secret === SECRETS.anthropic[0]
+        ? { exitCode: 1, log: `${capped}\n`, seconds: 1 }
+        : { exitCode: 0, log: "", seconds: 1 };
+    });
+    expect(asked).toEqual([...SECRETS.anthropic]);
+    expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+
+    const ours = [
+      '    "error": Object {',
+      '      "kind": "rate-limit",',
+      "    },",
+      '-   "message": "ours a",',
+      '+   "message": "ours b",',
+    ];
+    const told = ours.map(logFilter());
+    expect(told.slice(2)).toEqual(ours.slice(2));
+  });
+
+  /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */
+  const heardOn = (stream: NodeJS.WriteStream) => {
+    const chunks: string[] = [];
+    const spy = vi.spyOn(stream, "write").mockImplementation(((chunk: string | Uint8Array) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof stream.write);
+    return { text: () => chunks.join(""), stop: () => spy.mockRestore() };
+  };
+
+  // protects=what a step prints reaches the job's log with a provider's body replaced by its status and our words, whatever the chunks cut (a line, an id, a Chinese character), while the log the night reads for a key out of credit stays whole; fails_when=an id from a body is printed, a line of ours changes or is lost at a cut or at the end, or the night's own log loses the body; no_claim=a body that none of the classifier's signatures names.
+  test("a step's output is printed without a provider's body, and kept whole for the night", async () => {
+    const folder = await createTempDataFolder();
+    const writer = [
+      "const wait = () => new Promise((go) => setTimeout(go, 30));",
+      `const org = ${JSON.stringify(ORG)};`,
+      "(async () => {",
+      "  process.stdout.write('step: 3 of 7 cases\\n');",
+      "  process.stderr.write('Error: 429 Rate limit reached for ' + org.slice(0, 10));",
+      "  await wait();",
+      "  process.stderr.write(org.slice(10) + ' in project\\n');",
+      "  const saved = Buffer.from('保存了笔记\\n');",
+      "  process.stdout.write(saved.subarray(0, 4));",
+      "  await wait();",
+      "  process.stdout.write(saved.subarray(4));",
+      `  process.stdout.write(${JSON.stringify(`AssertionError: ${SUSPENDED}`)} + '\\n');`,
+      "  process.stdout.write('the last line, with no newline');",
+      "})();",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: () => ["node", "-e", writer],
+      env: () => ({ NODE_NO_WARNINGS: "1" }),
+    };
+    const out = heardOn(process.stdout);
+    const err = heardOn(process.stderr);
+    let result: Awaited<ReturnType<ReturnType<typeof executeIn>>>;
+    try {
+      result = await executeIn(folder, { PATH: process.env.PATH })(scripted, "NIGHTLY_KIMI_KEY");
+    } finally {
+      out.stop();
+      err.stop();
+    }
+    expect(out.text()).toBe(
+      [
+        "step: 3 of 7 cases",
+        "保存了笔记",
+        "(a provider's words left out) refused: out of credit",
+        "the last line, with no newline",
+      ].join("\n"),
+    );
+    expect(err.text()).toBe("(a provider's words left out) refused: status 429\n");
+    for (const text of [out.text(), err.text()]) {
+      expect(text).not.toContain(ORG);
+      expect(text).not.toContain(ACCESS);
+    }
+    expect(result.log).toContain(ORG);
+    expect(OUT_OF_CREDIT.test(result.log)).toBe(true);
   });
 });

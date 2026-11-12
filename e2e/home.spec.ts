@@ -562,7 +562,9 @@ test("Home beside a Mind follows it as it is saved, and tabs opened behind Home 
     ]);
     await expectHomeInFront(window);
 
-    await window.getByTestId("split-group").click();
+    // The strip's Split button is a Note's (#2868): with Home shown, Split is in the strip's ⋯.
+    await window.getByTestId("group-menu").click();
+    await window.getByTestId("tab-menu-split").click();
     await expect(window.getByTestId("tab-group")).toHaveCount(2);
     await expect(window.getByTestId("home")).toBeVisible();
     const editor = window.locator('[data-testid="mind-pane"]:visible .mind-editor');
@@ -579,7 +581,7 @@ test("Home beside a Mind follows it as it is saved, and tabs opened behind Home 
       .locator('[data-testid="mind-tab"][aria-selected="true"] [data-testid="tab-title"]')
       .textContent();
     await expect(recentRow(window, shownTitle ?? "").getByTestId("home-recent-state")).toHaveText(
-      "Claims not checked",
+      "Not checked",
     );
   } finally {
     await app.close();

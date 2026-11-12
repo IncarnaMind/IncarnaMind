@@ -71,14 +71,16 @@ function blockOf(node: Node): Element | null {
 /**
  * The text nodes a Citation's quote is looked for in: the section it cites,
  * within the drawn article or notes of the Units it names, or the whole
- * Document when the section can't be placed (#2810). A quote that is there is
- * always found.
+ * Document when the section can't be placed though those Units are in the
+ * file (#2810). `place` is empty when none of them is: there is nothing to
+ * look in, and a match elsewhere would pass for the cited place.
  */
 export function quoteNodesIn(
   body: Element,
   section: { range: Range } | null,
   place: string,
 ): Text[] {
+  if (place === "") return [];
   if (section === null) return textNodes(body);
   return textNodes(body, section.range).filter((node) =>
     Boolean(node.parentElement?.closest(place)),

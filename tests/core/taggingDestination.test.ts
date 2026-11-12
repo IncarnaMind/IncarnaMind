@@ -314,7 +314,7 @@ describe("A Document held off stays off, for every sender", () => {
     },
   );
 
-  test("what Organize waits to file by itself is held when where it sends changes: none goes to the new service", async () => {
+  test("what arrives in Local mode is held at once, and stays held when where it sends changes: none goes to either service (#2982)", async () => {
     const providers = perProvider();
     const core = startCore(await createTempDataFolder(), {
       createChatModel: providers.createChatModel,
@@ -324,9 +324,7 @@ describe("A Document held off stays off, for every sender", () => {
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await core.setLocalOnly(true);
     const waiting = await add(core, "Waiting.txt");
-    await vi.waitFor(async () =>
-      expect((await unassigned(core, [waiting.id]))[0]?.status).toBe("waiting"),
-    );
+    await waitForTagging(core, [waiting.id], (each) => each.tagging === "off");
 
     const openai = await core.saveChatProvider(OPENAI);
     await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
@@ -338,6 +336,9 @@ describe("A Document held off stays off, for every sender", () => {
     expect(providers.sent("openai")).toBe(0);
     expect(providers.sent("anthropic")).toBe(0);
 
+    // OpenAI was chosen in Local mode, whose line names no service: Organize asks first.
+    expect(await core.startOrganize()).toMatchObject({ ready: false, needs: "consent" });
+    await core.allowOrganize("https://api.openai.com");
     await core.classifyDocuments([waiting.id]);
     await waitForTagging(core, [waiting.id]);
     expect(providers.sent("openai")).toBe(1);
@@ -635,7 +636,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     expect(providers.sent("anthropic")).toBe(1);
   });
 
-  test("a save from a window with an older view never turns the switch on, and never moves when it was turned on", async () => {
+  test("a save from a window with an older view never turns the switch on, nor brings back the turn-on that turning it off ended", async () => {
     const dataDir = await createTempDataFolder();
     const providers = perProvider();
     const core = startCore(dataDir, { createChatModel: providers.createChatModel });
@@ -645,8 +646,8 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
       queryDatabase<{ value: string }>(
         dataDir,
         "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
-      ).map((row) => JSON.parse(row.value).automaticSince);
-    const since = stored();
+      ).map((row) => Object.keys(JSON.parse(row.value).automaticSince));
+    expect(stored()).toEqual([["https://api.anthropic.com"]]);
     const older = (await core.getLibrary()).settings;
     await core.saveLibrarySettings({ ...older, automatic: false });
 
@@ -655,7 +656,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
 
     expect(older.automatic).toBe(true);
     expect((await core.getLibrary()).settings.automatic).toBe(false);
-    expect(stored()).toEqual(since);
+    expect(stored()).toEqual([[]]);
     expect(held.tagging).toBe("off");
     expect(providers.sent("anthropic")).toBe(0);
   });

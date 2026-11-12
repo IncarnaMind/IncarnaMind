@@ -35,6 +35,8 @@ concurrency:
 jobs:
   real-models:
     name: Real-model checks
+    outputs:
+      status: ${{ steps.checks.outputs.status }}
     # A run by hand from another branch would give that branch's files the keys.
     if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -46,12 +48,17 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The Analysis live tests run the Python the app's build puts in resources/python
+      # (tests/helpers/pyodideAnalysis.ts).
+      - name: Build the app's Python
+        run: npm run build
       - name: Restore the models and the fetched Documents
         uses: actions/cache/restore@v5
         with:
           path: ~/.cache/incarnamind-eval
           key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
       - name: Run the checks
+        id: checks
         run: npm run nightly:real-model
         env:
           NIGHTLY_ANTHROPIC_KEY_1: ${{ secrets.NIGHTLY_ANTHROPIC_KEY_1 }}
@@ -64,11 +71,45 @@ jobs:
         with:
           path: ~/.cache/incarnamind-eval
           key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
-      - name: Upload the summary and the reports
+      # Not the steps' own reports (vitest.json, everyday/): they hold what the providers answered,
+      # with account and key ids in it, and anyone can download an artifact of a public run.
+      - name: Upload the summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: nightly-real-model
-          path: eval/results/nightly-real-model/
+          path: |
+            eval/results/nightly-real-model/summary.md
+            eval/results/nightly-real-model/status.json
+            eval/results/nightly-real-model/**/usage.jsonl
           if-no-files-found: ignore
           retention-days: 30
+
+  # Keeps one issue, "Nightly is red", true to this night (scripts/nightlyIssue.ts), and closes it
+  # when every nightly is green again. Only a night the schedule started on main reports.
+  red-night:
+    name: A red night shows itself
+    needs: [real-models]
+    if: ${{ always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.repository == 'IncarnaMind/IncarnaMind' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The two nightlies write the same issue, one after the other.
+    concurrency:
+      group: nightly-red-issue
+      cancel-in-progress: false
+    # The one job that may write an issue; it reads the run's jobs and logs to name what failed.
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/nightlyIssue.ts real-models
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}

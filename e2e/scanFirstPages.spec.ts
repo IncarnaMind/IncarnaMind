@@ -140,8 +140,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(waiting).toContainText(translate(language, "organizeReview.waiting.one"));
       await expect(status).toHaveText(words.reading);
 
-      // Read whole: the progress goes, and Finance still only waits to be confirmed.
-      await expect(status).not.toHaveText(words.reading, { timeout: 120_000 });
+      // Read whole: the progress goes, as a ready Document's row says nothing (#2870), and Finance
+      // still only waits to be confirmed.
+      await expect(status).toHaveCount(0, { timeout: 120_000 });
       await expect
         .poll(() =>
           window.evaluate(async () => {

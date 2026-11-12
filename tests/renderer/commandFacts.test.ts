@@ -106,8 +106,8 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(doneText(zh, mine)).toContain(`“${zh("editor.ai.markAsMine")}”`);
     expect(doneText(en, signOff)).toContain(`“${en("signOff.action")}”`);
     expect(doneText(zh, signOff)).toContain(`“${zh("signOff.action")}”`);
-    expect(yoursWordsOf("signOff").open).toBeNull();
-    expect(yoursWordsOf("authorship").open).toBeNull();
+    expect(yoursWordsOf("signOff").opens).toBeNull();
+    expect(yoursWordsOf("authorship").opens).toBeNull();
   });
 
   // protects=a window command the window never answered says so as a whole line, naming the command as the interface does; fails_when=it reads as "Didn't run:" with the raw id; no_claim=when the window is gone.
@@ -370,7 +370,7 @@ describe("What the assistant's commands did, in words (#1421)", () => {
       "未保存任何文件：你没有允许新的文件列表。",
     );
     expect(commandCallText(en, ended({ key: "checks.problem.no-claims", values: {} }))).toBe(
-      "This note has no claims to check.",
+      "This note has no sentences to check.",
     );
     expect(commandCallText(zh, ended({ key: "checks.problem.local-mode", values: {} }))).toBe(
       "未核对：已开启“所有内容都留在这台电脑上”。",
@@ -440,7 +440,7 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(doneText(en, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
       "Deleting for good is yours to do, not mine. It’s in Recently deleted.",
     );
-    expect(yoursWordsOf("permanent").open).toBe("commands.yours.openDeleted");
+    expect(yoursWordsOf("permanent").opens).toBe("recentlyDeleted");
     expect(en("commands.yours.openDeleted")).toBe("Open Recently deleted");
     expect(zh("commands.yours.openDeleted")).toBe("打开回收站");
   });
