@@ -645,7 +645,7 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
         call.question === "claimed-changes"
           ? { text: '{"claims":[]}' }
           : call.question === "request-done"
-            ? { text: '{"request":"none"}' }
+            ? { text: '{"asks_change":"no","request":"none"}' }
             : call.question
               ? unscripted(call.question, call.system)
               : { text: "OK" },

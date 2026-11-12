@@ -486,7 +486,9 @@ describe("A plain Question never carries the write line (#2194)", { timeout: 30_
           generate: (call) => {
             if (call.question !== "request-done") return claimCheckReply(call, []);
             questions.push(call.prompt);
-            return { text: JSON.stringify({ request: done ? "done" : "not_done" }) };
+            return {
+              text: JSON.stringify({ asks_change: "yes", request: done ? "done" : "not_done" }),
+            };
           },
         },
       );

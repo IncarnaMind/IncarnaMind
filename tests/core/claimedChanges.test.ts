@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange, MindProblem } from "../../src/core";
 import {
+  type ASKS_CHANGE,
   askAgainNote,
   CLAIM_CHECK_INSTRUCTIONS,
   DONE_BY_NOTE_CHANGE,
@@ -34,13 +35,20 @@ const mindCall = (tool: string, change: Partial<MindChange> | null): AnswerToolC
   }),
 });
 
-/** A quick model that gives `verdict` for the claims, and `request` for what the reply tells of the request. */
-function judge(verdict: unknown, request: (typeof REQUEST_TOLD)[number] = "none") {
+/**
+ * A quick model that gives `verdict` for the claims, and, for the request, whether it asks a change
+ * (`asks`) and what the reply tells of it (`request`).
+ */
+function judge(
+  verdict: unknown,
+  request: (typeof REQUEST_TOLD)[number] = "none",
+  asks: (typeof ASKS_CHANGE)[number] = "yes",
+) {
   return scriptedModel(() => ({ text: "" }), {
     generate: (call) => ({
       text:
         call.question === "request-done"
-          ? JSON.stringify({ request })
+          ? JSON.stringify({ asks_change: asks, request })
           : typeof verdict === "string"
             ? verdict
             : JSON.stringify(verdict),
@@ -971,6 +979,42 @@ describe("A reply that tells the User their request is done is held to the chang
     expect(claimsPrompt(model)).not.toContain("<question>");
   });
 
+  // protects=a reply read as saying the request is done is flagged only when the request, read alone, asks for a change: a request read as asking none (a Question about what changed) flags nothing, whatever the reply is read to say, in English and Chinese, beside the same reply flagged when the request asks a change; and a reading with no second word, or one not "yes" or "no", flags nothing and says the check failed, never read as no; fails_when=a Question about what a Document changed is flagged as an unmade change, or a missing word reads as "no" and passes as a clean check; no_claim=what a real quick model answers (step 0 and its rounds).
+  test.each([
+    ["What changed in the second version?", "The second version rewrote the conclusions."],
+    ["第二稿改了哪里？", "第二稿重写了结论部分。"],
+  ])("the request asks no change: nothing is flagged (%s)", async (request, reply) => {
+    const calls: AnswerToolCall[] = [];
+    const run = (model: ReturnType<typeof judge>) =>
+      unbackedClaims(reply, calls, MINDS, null, {
+        model,
+        request,
+        names,
+        signal: new AbortController().signal,
+      });
+    const asksNone = await run(judge({ claims: [] }, "done", "no"));
+    expect(asksNone.claims).toEqual([]);
+    expect(asksNone.unfinished).toBeUndefined();
+    expect(asksNone.failed).toBeUndefined();
+    const asksOne = await run(judge({ claims: [] }, "done", "yes"));
+    expect(asksOne.unfinished).toBe(true);
+    for (const said of [{ request: "done" }, { asks_change: "maybe", request: "done" }]) {
+      const unread = await run(
+        scriptedModel(() => ({ text: "" }), {
+          generate: (call) => ({
+            text:
+              call.question === "request-done"
+                ? JSON.stringify(said)
+                : JSON.stringify({ claims: [] }),
+          }),
+        }),
+      );
+      expect(unread.claims).toEqual([]);
+      expect(unread.unfinished).toBeUndefined();
+      expect(unread.failed).toBe(true);
+    }
+  });
+
   // protects=a question that fails or can't be read flags nothing and says the check failed, so no false line goes under an honest reply, while a reading of "done" stands when only the claims failed; fails_when=a failure reads as "done", or as a clean check; no_claim=none beyond protects.
   test("a question that fails flags nothing, and says the check failed", async () => {
     const failing = (failed: JudgeQuestion | null, request: string) =>
@@ -981,7 +1025,7 @@ describe("A reply that tells the User their request is done is held to the chang
             : {
                 text:
                   call.question === "request-done"
-                    ? JSON.stringify({ request })
+                    ? JSON.stringify({ asks_change: "yes", request })
                     : JSON.stringify({ claims: [] }),
               },
       });

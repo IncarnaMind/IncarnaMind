@@ -187,9 +187,9 @@ const QUESTIONS: Record<
   },
   "request-done": {
     reply: requestReply,
-    right: JSON.stringify({ request: "done" }),
-    read: "done",
-    unreadable: JSON.stringify({ request: "finished" }),
+    right: JSON.stringify({ asks_change: "yes", request: "done" }),
+    read: { asks_change: "yes", request: "done" },
+    unreadable: JSON.stringify({ request: "done" }),
   },
   "unmarked-quotes": {
     reply: CITED_REPLY,

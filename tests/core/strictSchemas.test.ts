@@ -142,7 +142,7 @@ function replyTo(body: Record<string, unknown>): Reply {
     case "change-claims":
       return { text: JSON.stringify({ claims: [] }) };
     case "request-done":
-      return { text: JSON.stringify({ request: "none" }) };
+      return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
     case "calculations":
       return { text: JSON.stringify({ calculations: [] }) };
     case "quotes":

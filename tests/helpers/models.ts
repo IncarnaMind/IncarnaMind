@@ -37,7 +37,7 @@ export function judgesNothing(call: GenerateCall): GeneratedReply {
     case "claimed-changes":
       return { text: JSON.stringify({ claims: [] }) };
     case "request-done":
-      return { text: JSON.stringify({ request: "none" }) };
+      return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
     case "restate":
       return { text: restatedAsQuoted(call) };
     case undefined:
@@ -367,7 +367,9 @@ export function claimCheckReply(
     | readonly { sentence: string; kind: ClaimedChange }[]
     | ((prompt: string) => readonly { sentence: string; kind: ClaimedChange }[]),
 ): GeneratedReply {
-  if (call.question === "request-done") return { text: JSON.stringify({ request: "none" }) };
+  if (call.question === "request-done") {
+    return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
+  }
   if (call.question && call.question !== "claimed-changes") {
     return unscripted(call.question, call.system);
   }
@@ -515,7 +517,10 @@ export function scriptedModel(
         content: [
           {
             type: "text",
-            text: question === "claimed-changes" ? '{"claims":[]}' : '{"request":"none"}',
+            text:
+              question === "claimed-changes"
+                ? '{"claims":[]}'
+                : '{"asks_change":"no","request":"none"}',
           },
         ],
         finishReason: { unified: "stop", raw: undefined },

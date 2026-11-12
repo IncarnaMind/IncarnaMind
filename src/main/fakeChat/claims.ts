@@ -59,7 +59,7 @@ export const checksChangeClaims = (options: GenerateOptions): boolean =>
 /** Whether a reply says its request is done: the fake never reads one as saying so. */
 export const fakeRequestDone = (options: GenerateOptions): string | null =>
   systemOf(options.prompt).includes(REQUEST_DONE_INSTRUCTIONS)
-    ? JSON.stringify({ request: "none" })
+    ? JSON.stringify({ asks_change: "no", request: "none" })
     : null;
 
 export function fakeChangeClaims(options: GenerateOptions): string | null {
