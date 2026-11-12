@@ -26,6 +26,19 @@ const BATCH_USAGE: ReportedUsage = {
 const lineOf = (n: number) => `Kiln ${n} is due in 2027`;
 
 const GEMMA = "google/gemma-4-12b";
+/** LM Studio's list: a window of 131,072 tokens and no most, so 4,096 are kept for a reply. */
+const LM_STUDIO_LIST = {
+  data: [{ id: GEMMA }],
+  models: [
+    {
+      type: "llm",
+      key: GEMMA,
+      max_context_length: 131_072,
+      loaded_instances: [],
+      capabilities: { vision: false, trained_for_tool_use: true },
+    },
+  ],
+};
 
 /** An Answer of `count` sentences, each citing its own line of the schedule. */
 async function answered(
@@ -331,20 +344,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
   });
 
   test("a model LM Studio lists with no most of its own is held to the room its window keeps for a reply", async () => {
-    // LM Studio's list gives a window of 131,072 tokens and no most: 4,096 are kept for a reply.
-    const listing = {
-      data: [{ id: GEMMA }],
-      models: [
-        {
-          type: "llm",
-          key: GEMMA,
-          max_context_length: 131_072,
-          loaded_instances: [],
-          capabilities: { vision: false, trained_for_tool_use: true },
-        },
-      ],
-    };
-    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(listing)));
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(LM_STUDIO_LIST)));
     try {
       const { answer, batches } = await answered(1, { kind: "lmstudio", modelId: GEMMA });
 
@@ -353,6 +353,109 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  test("a model with no price keeps the room for thinking with this month's spend past the cap", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(LM_STUDIO_LIST)));
+    try {
+      const { core, answer, judging, batches } = await answered(1, {
+        failing: true,
+        kind: "lmstudio",
+        modelId: GEMMA,
+      });
+      judging.failing = false;
+      // Spent on a priced model first: Sonnet 5.5's Answer and its check.
+      const sonnet = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-sonnet-5-5",
+      });
+      if (sonnet.service) await core.allowDataFlow("chat", sonnet.service.id);
+      const asked = await core.askInConversation({
+        text: "When are the kilns installed?",
+        model: { providerId: sonnet.id, modelId: "claude-sonnet-5-5" },
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      await answerJudged(core, asked.conversation.id, asked.answerId);
+      const spent = (await core.getCostSummary()).spent
+        .filter((each) => each.currency === "USD")
+        .reduce((total, each) => total + each.amount, 0);
+      await core.updateSettings({ user: { monthlyCap: { amount: spent / 2, currency: "USD" } } });
+      const before = batches.length;
+
+      await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+      const again = await answerJudged(core, answer.conversationId, answer.id);
+
+      expect(spent).toBeGreaterThan(0);
+      expect(roomsOf(batches.slice(before))).toEqual([4_096]);
+      expect(checksOf(again.citations)).toEqual(["found"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("quit while Check the rest reads the model's shape: it reads nothing more", async () => {
+    const held: (() => void)[] = [];
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(LM_STUDIO_LIST)));
+    try {
+      const { core, answer } = await answered(1, {
+        failing: true,
+        kind: "lmstudio",
+        modelId: GEMMA,
+      });
+      // The list was read for the Answer; past its five minutes it is read again, and held here.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 6 * 60_000);
+      vi.stubGlobal(
+        "fetch",
+        () =>
+          new Promise<Response>((resolve) => {
+            held.push(() => resolve(new Response(JSON.stringify(LM_STUDIO_LIST))));
+          }),
+      );
+      const estimating = core.estimateAnswerCheck({
+        conversationId: answer.conversationId,
+        answerId: answer.id,
+      });
+      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+      const reported = vi.spyOn(console, "error");
+
+      core.close();
+      for (const release of held) release();
+
+      await expect(estimating).resolves.toBeNull();
+      expect(reported).not.toHaveBeenCalled();
+      reported.mockRestore();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("Check the rest sends each batch with the room its estimate counted: two batches on GPT-4 Turbo", async () => {
+    const { core, answer, judging, batches } = await answered(9, {
+      failing: true,
+      kind: "openai",
+      modelId: "gpt-4-turbo",
+    });
+    judging.failing = false;
+    const ids = { conversationId: answer.conversationId, answerId: answer.id };
+
+    const estimate = await core.estimateAnswerCheck(ids);
+    if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) {
+      throw new Error(`No estimate: ${JSON.stringify(estimate)}`);
+    }
+    await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
+
+    // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts.
+    expect(estimate.upTo.cost.amount).toBe(0.27);
+    expect(roomsBySize(batches)).toEqual(
+      new Map([
+        [8, 4_096],
+        [1, 4_096],
+      ]),
+    );
   });
 
   test("where not every batch can have the room, the fewest sentences have it first: nine on Opus 5.5", async () => {

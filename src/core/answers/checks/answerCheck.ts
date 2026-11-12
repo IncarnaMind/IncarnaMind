@@ -439,6 +439,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
      */
     const together = (wanted: readonly (Money | null)[]): boolean => {
       const asked = wanted.filter((each): each is Money => each !== null);
+      // A model with no price sets nothing aside, so no limit is at stake, even past the cap.
+      if (asked.length === 0) return true;
       const total = (currency: Currency) =>
         asked.reduce((sum, each) => sum + inCurrency(each.amount, each.currency, currency), 0);
       const cap = options.capLeft();
