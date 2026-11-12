@@ -220,6 +220,35 @@ describe("A name is written as the meeting's Note writes it (#1031)", { timeout:
     core.close();
   });
 
+  // protects=the Note's title is part of what a Meeting's words are gathered from, so a name put in it by renaming the Note during the call is told to the engine on this computer, and the lines after it spell it the Note's way, while the lines written before stay as they were; fails_when=the later line still reads Donna and Leads, or the earlier line is rewritten; no_claim=what a cloud service is sent, which the renaming does not change (tests/core/cloudWords.test.ts).
+  test("a name put in the Note's title during the call is in the lines that follow; the lines before it stay", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, { engine: MISHEARING });
+    const mind = await core.createMind({ title: "Weekly call" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+    const live = () =>
+      readVtt(readFileSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`), "utf8")).cues.map(
+        (cue) => cue.text,
+      );
+    record(12 * SECOND);
+    await until(core, meeting.id, (each) => each.lines >= 6);
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    expect(live().join(" ")).not.toContain("Dana");
+
+    await core.renameMind(mind.id, "Weekly call with Dana in Leeds");
+    await vi.waitFor(
+      () => {
+        record(SECOND);
+        expect(live()).toContain("Dana is joining us from the Leeds office.");
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    expect(live()).toContain("Donna is joining us from the Leads office.");
+    await core.stopMeeting(meeting.id);
+    core.close();
+  });
+
   test("typing in the Note and quitting at once reads nothing after the core closed", async () => {
     const { log, entries } = recordingLog();
     const errors = vi.spyOn(console, "error");

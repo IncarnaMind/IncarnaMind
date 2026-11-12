@@ -583,6 +583,51 @@ describe("Words kept on this computer reach no cloud service (#1031)", { timeout
     core.close();
   });
 
+  // protects=a Note renamed while a cloud service transcribes changes nothing in what is sent: the Meeting paused and recorded on after it has its streams set up with the words the first ones were, while a Meeting started on a Note of that title is sent the name; fails_when=a stream opened after the renaming holds the name from the new title, or drops a word the first held, or a Meeting started after the renaming isn't sent it; no_claim=the line's spelling on this computer, which the new title does change (tests/core/meetingWords.test.ts).
+  test("a name put in the Note's title during the call is in no later request of that call; in the title before a meeting starts, it is sent", async () => {
+    const { core, cloud, meeting, record, mind } = await meetingOn("soniox");
+    const setups = () =>
+      cloud.frames
+        .map(json)
+        .filter((each) => "model" in each)
+        .map((each) => at(each, "context", "terms"));
+    const first = ["Maren Okafor", "Priya Raman", "Larkfield", "星河科技", "Ilse Brannock"];
+    await vi.waitFor(() => expect(setups()).toEqual([first, first]), { timeout: 20_000 });
+
+    const renamed = "Renewal call with Priya Raman and Dana Whitfield";
+    expect((await core.renameMind(mind?.id ?? "", renamed)).title).toBe(renamed);
+    // Recorded on, the Meeting opens new streams with the words it keeps.
+    await core.pauseMeeting(meeting.id);
+    await core.resumeMeeting(meeting.id);
+    record(3 * SECOND);
+    await vi.waitFor(() => expect(setups()).toEqual([first, first, first, first]), {
+      timeout: 20_000,
+    });
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (each) => each.state === "saved");
+
+    const other = await core.createMind({ title: NOTE });
+    await core.renameMind(other.id, renamed);
+    const next = await core.createMeeting({ mindId: other.id });
+    await core.startMeeting({ meetingId: next.id });
+    await until(core, next.id, (each) => each.cloud === "soniox");
+    record(3 * SECOND);
+    await vi.waitFor(
+      () =>
+        expect(setups().at(-1)).toEqual([
+          "Maren Okafor",
+          "Priya Raman",
+          "Dana Whitfield",
+          "Larkfield",
+          "星河科技",
+          "Ilse Brannock",
+        ]),
+      { timeout: 20_000 },
+    );
+    await core.stopMeeting(next.id);
+    core.close();
+  });
+
   // protects=a name the Note writes with its accents apart (e and U+0301, as text taken from a PDF often is) is sent whole, with each accent in its letter, exactly as the same Note written whole sends it, and this computer's engine is told the same; fails_when=the request holds the name cut at an accent (Jose, Marti), or an accent written apart, or lacks José Martín, or differs from the request of the Note written whole; no_claim=the Folder's Documents, which the same finder reads (tests/core/meetingNames.test.ts holds its table).
   test("a name the Note writes with its accents apart is sent whole, as the same Note written whole sends it", async () => {
     const apart = [note("Then we ask Jose\u0301 Marti\u0301n about the renewal.")];

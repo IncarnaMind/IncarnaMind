@@ -5801,6 +5801,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
       renameJoinedTranscripts(mind);
+      // A Meeting being recorded takes its words from the title too (#1031).
+      noteReadAgain?.(mind.id);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
