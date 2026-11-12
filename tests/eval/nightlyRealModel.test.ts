@@ -1182,6 +1182,43 @@ describe("a provider's words stay out of the summary and the log", () => {
     expect(none.map(logFilter())).toEqual(none);
   });
 
+  // protects=in a test's diff, where the marker stands in the column an unchanged line has a space, a changed message under an unchanged failure kind is the provider's: its ids are not printed and its credit words, or the cap's sentence, move the night to the next key; a changed message of ours one level out, after the object closed, prints as it is; fails_when=the marker is left out of the indentation, so the changed line reads as one column shallower and ends the object; no_claim=none.
+  test("a changed message under an unchanged kind in a diff is the provider's", async () => {
+    const diff = [
+      '      "kind": "rate-limit",',
+      `-     "message": "Rate limit reached for ${ORG}",`,
+      `+     "message": "Too many requests from ${ACCESS}",`,
+    ];
+    const shown = diff.map(logFilter());
+    expect(shown.join("\n")).not.toMatch(/org-|ak-/);
+    expect(shown.every((line) => line.startsWith("(a provider's words left out) "))).toBe(true);
+
+    const capped = [
+      '      "kind": "rate-limit",',
+      '-     "message": "Too many requests",',
+      '+     "message": "You have reached your specified API usage limits. You will regain access on 2026-12-01.",',
+    ].join("\n");
+    const asked: string[] = [];
+    const attempts = await runSteps([live], async (_step, secret) => {
+      asked.push(secret);
+      return secret === SECRETS.anthropic[0]
+        ? { exitCode: 1, log: `${capped}\n`, seconds: 1 }
+        : { exitCode: 0, log: "", seconds: 1 };
+    });
+    expect(asked).toEqual([...SECRETS.anthropic]);
+    expect(attempts.map((each) => each.outOfCredit)).toEqual([true, false]);
+
+    const ours = [
+      '    "error": Object {',
+      '      "kind": "rate-limit",',
+      "    },",
+      '-   "message": "ours a",',
+      '+   "message": "ours b",',
+    ];
+    const told = ours.map(logFilter());
+    expect(told.slice(2)).toEqual(ours.slice(2));
+  });
+
   /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */
   const heardOn = (stream: NodeJS.WriteStream) => {
     const chunks: string[] = [];

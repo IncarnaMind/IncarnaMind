@@ -199,9 +199,9 @@ const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
 const MEMBER = /^[+-]?\s+(?:"[^"]*"|'[^']*'|[\w$]+)\s*:/;
 const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
 
-/** How far a line is indented, after a diff's marker; -1 for a blank line. */
+/** How far a line is indented; -1 for a blank line. A diff's marker stands where an unchanged line has a space, so it is a column. */
 const indentOf = (line: string): number =>
-  line.trim() === "" ? -1 : (/^[+-]?(\s*)/.exec(line)?.[1]?.length ?? 0);
+  line.trim() === "" ? -1 : (/^[+-]?\s*/.exec(line)?.[0].length ?? 0);
 
 /**
  * Reads a step's output a line at a time and says what each line quotes of a provider's answer,
