@@ -139,18 +139,16 @@ for (const language of ["en", "zh-CN"] as const) {
     const card = window.getByTestId("claim-card");
     await expect(badge).toBeVisible();
 
-    /** Next on a part of the health card, which ends on that sentence's own card. */
-    const next = async (
-      part: "unsupported" | "contradicted",
-      state: string,
-      sentence: string,
-      action: string,
-    ) => {
+    /**
+     * Next on the card's "needs a look" row, which ends on the next such sentence's own card: the
+     * unsupported and the contradicted share that row, in the page's order (#2831).
+     */
+    const next = async (state: string, sentence: string, action: string) => {
       await window.mouse.move(2, 2);
       await pointAndClick(window, window.getByTestId("check-badge-open").first());
       const health = window.getByTestId("check-card");
       await expect(health).toBeVisible();
-      await pointAndClick(window, health.getByTestId(`health-${part}`));
+      await pointAndClick(window, health.getByTestId("health-look"));
       await expect(health).toHaveCount(0);
       await expect(card).toBeVisible();
       await expect(card).toHaveAttribute("data-check", state);
@@ -180,12 +178,12 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const size of WIDTHS) {
       await setWindowSize(app, window, size.width, size.height);
       for (const sentence of words.unsupported) {
-        await next("unsupported", "unsupported", sentence, "claim-remove");
+        await next("unsupported", sentence, "claim-remove");
         await clear(size);
         await window.keyboard.press("Escape");
         await expect(card).toHaveCount(0);
       }
-      await next("contradicted", "contradicted", words.last, "claim-open");
+      await next("contradicted", words.last, "claim-open");
       await clear(size);
       // Next keeps the focus in the Mind, and the card takes none: unchanged by where it sits.
       expect(await window.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe(
