@@ -3809,6 +3809,13 @@
         "confirmed": true
       },
       {
+        "name": "Payment in thirty days",
+        "kind": "figure",
+        "pattern": ["(?:thirty|30)[ -]days?", "pay|invoice"],
+        "said": [8],
+        "stated": true
+      },
+      {
         "name": "Price rise from February",
         "kind": "figure",
         "pattern": ["(?<!\\d)4 ?%|(?<!\\d)4 ?per ?cent|four per ?cent", "feb"],
@@ -3845,7 +3852,7 @@
     ],
     "claims": {
       "listed": ["Price rise from February", "Lids at 2.9p"],
-      "kept": ["Cup unit price", "Minimum order", "Four-week lead time"]
+      "kept": ["Cup unit price", "Minimum order", "Four-week lead time", "Payment in thirty days"]
     }
   },
   {
