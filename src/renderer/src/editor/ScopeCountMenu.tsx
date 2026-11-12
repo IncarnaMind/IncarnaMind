@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { menuClass } from "../components/ui";
+import { menuFrameClass } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { RemoveIcon } from "./icons";
 
@@ -53,7 +53,8 @@ export function ScopeCountMenu({
         role="menu"
         aria-label={menuLabel}
         data-testid="scope-chips-menu"
-        className={menuClass}
+        // No wider than the box has room for left of the count; a longer name is cut, its row's tooltip has it whole.
+        className={`${menuFrameClass} w-max max-w-52 min-w-40`}
       >
         {menu.open &&
           rows.map((row) => (

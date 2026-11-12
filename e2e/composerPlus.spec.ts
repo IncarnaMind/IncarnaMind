@@ -882,6 +882,7 @@ for (const language of ["en", "zh-CN"] as const) {
     ]);
     expect(listBox.x + listBox.width).toBeLessThanOrEqual(countBox.x + countBox.width + 1);
     expect(listBox.x + listBox.width).toBeLessThanOrEqual(composerBox.x + composerBox.width);
+    expect(listBox.x).toBeGreaterThanOrEqual(composerBox.x - 1);
     await window.keyboard.press("Escape");
     await expect(list).toBeHidden();
     await expect(count).toBeVisible();
