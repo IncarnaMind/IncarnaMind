@@ -59,15 +59,26 @@ const LETTER = /\p{L}/u;
 const FULL_STOP = /[.!?。！？]/u;
 const CHINESE_FULL_STOP = /[。！？]/u;
 const ENGLISH_STOP_AT_END = /[.!?][^\p{L}\p{N}\n。！？]*$/u;
-const QUOTATION_MARKS = new Map([
+const PAIRED_MARKS = new Map([
   ["“", "”"],
   ['"', '"'],
+  ["‘", "’"],
   ["「", "」"],
   ["『", "』"],
+  ["（", "）"],
+  ["(", ")"],
+  ["《", "》"],
 ]);
+const CHINESE_MARKS = new Set(["「", "『", "（", "《"]);
+// Chinese puts a sentence's own full stop outside the brackets or title marks inside it.
+const NEVER_END_A_SENTENCE = new Set(["（", "(", "《"]);
+
+interface Enclosed extends SentenceSpan {
+  lastStopEndsSentence: boolean;
+}
 
 function inChineseSentence(text: string, open: number, close: number | null): boolean {
-  if (text[open] === "「" || text[open] === "『") return true;
+  if (CHINESE_MARKS.has(text.charAt(open))) return true;
   for (let at = open - 1; at >= 0; at--) {
     const char = text.charAt(at);
     if (LETTER.test(char)) return CHINESE.test(char);
@@ -82,13 +93,24 @@ function inChineseSentence(text: string, open: number, close: number | null): bo
   return false;
 }
 
-function chineseQuotations(text: string): SentenceSpan[] {
+function spaceBeforeNextWord(text: string, at: number): boolean {
+  let spaced = false;
+  for (let next = at; next < text.length; next++) {
+    const char = text.charAt(next);
+    if (isSpace(char)) spaced = true;
+    else if (char !== INLINE_NODE) return spaced && hasWords(char);
+  }
+  return false;
+}
+
+function enclosedInChinese(text: string): Enclosed[] {
   if (!CHINESE.test(text)) return [];
   const fullStops = /[。！？]/gu;
-  const found: SentenceSpan[] = [];
+  const found: Enclosed[] = [];
   let sentenceEnd = -1;
   for (let at = 0; at < text.length; at++) {
-    const mark = QUOTATION_MARKS.get(text.charAt(at));
+    const open = text.charAt(at);
+    const mark = PAIRED_MARKS.get(open);
     if (mark === undefined) continue;
     if (sentenceEnd <= at) {
       fullStops.lastIndex = at + 1;
@@ -99,7 +121,11 @@ function chineseQuotations(text: string): SentenceSpan[] {
     const close = text.indexOf(mark, at + 1);
     const closed = close !== -1 && close < sentenceEnd;
     if (inChineseSentence(text, at, closed ? close : null)) {
-      found.push({ from: at, to: closed ? close : sentenceEnd });
+      // "…six weeks.” 我们同意…": Chinese leaves no space inside a sentence, so one after a
+      // quoted sentence starts the next.
+      const lastStopEndsSentence =
+        closed && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
+      found.push({ from: at, to: closed ? close : sentenceEnd, lastStopEndsSentence });
       at = closed ? close : sentenceEnd;
     } else if (closed) at = close;
   }
@@ -114,8 +140,9 @@ function chineseQuotations(text: string): SentenceSpan[] {
  * "v." and at the "(Tex." inside it. So does a record cite, which the
  * segmenter ends at "Dep." or "Compl."; and a sentence of record cites alone
  * belongs to the sentence before it, the one it supports (#1709). A Chinese
- * sentence that quotes English ends at its own 。, not at a full stop inside
- * the quotation (#3009).
+ * sentence that quotes English, in quotation marks, brackets or a title, ends
+ * at its own 。, not at a full stop inside them; a quoted sentence that a
+ * space follows ends it, as “…six weeks.” 我们同意… does (#3009).
  */
 export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
   if (figures.length > 0) {
@@ -138,12 +165,13 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const citation = unbrokenCitations[citationAt];
     return citation !== undefined && citation.from < previousTo;
   };
-  const quotations = chineseQuotations(text);
-  let quotationAt = 0;
-  const quoted = (at: number): boolean => {
-    while ((quotations[quotationAt]?.to ?? Number.POSITIVE_INFINITY) <= at) quotationAt++;
-    const quotation = quotations[quotationAt];
-    return quotation !== undefined && quotation.from < at;
+  const enclosures = enclosedInChinese(text);
+  let enclosedAt = 0;
+  const goesOnPast = (stop: number): boolean => {
+    while ((enclosures[enclosedAt]?.to ?? Number.POSITIVE_INFINITY) <= stop) enclosedAt++;
+    const enclosed = enclosures[enclosedAt];
+    if (enclosed === undefined || enclosed.from >= stop) return false;
+    return !enclosed.lastStopEndsSentence || hasWords(text.slice(stop, enclosed.to));
   };
   let englishStop: number | null = null;
   for (const { segment, index } of segmenter.segment(text)) {
@@ -161,7 +189,7 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
       before !== undefined &&
       ((ABBREVIATION.test(before) && !(startsDecision && COMPANY_ABBREVIATION.test(before))) ||
         (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))) ||
-        (englishStop !== null && quoted(englishStop)));
+        (englishStop !== null && goesOnPast(englishStop)));
     if (previous && joined && from < to) previous.to = to;
     else if (previous && overlapsCitation(previous.to, from)) {
       previous.to = to;

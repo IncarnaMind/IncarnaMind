@@ -71,6 +71,37 @@ describe("A cited sentence ends where its own sentence ends (#3009)", () => {
     ]);
   });
 
+  test("a quoted English sentence that ends a Chinese sentence ends it, when a space comes before the next word", () => {
+    expect(split("合同写明“Delivery in six weeks.”[^1] 我们同意这个日期[^2]。")).toEqual([
+      ["合同写明“Delivery in six weeks.”", [1]],
+      ["我们同意这个日期。", [2]],
+    ]);
+    expect(split("他说“Stop here. Go back.”[^1] Then he left the room [^2].")).toEqual([
+      ["他说“Stop here. Go back.”", [1]],
+      ["Then he left the room.", [2]],
+    ]);
+  });
+
+  test.each([
+    "合同写明“Delivery in six weeks.”[^1]，我们同意这个日期[^2]。",
+    "合同写明“Delivery in six weeks.”[^1]（六周内交货）我们同意这个日期[^2]。",
+    "所谓“Delivery in six weeks.”[^1]的说法我们同意[^2]。",
+  ])("a quoted English sentence that the Chinese sentence goes on past is in it: %s", (answer) => {
+    expect(split(answer)).toEqual([[answer.replaceAll(/\[\^\d\]/g, ""), [1, 2]]]);
+  });
+
+  test.each([
+    "合同第三条（原文：We ship in six weeks. No later than May.）[^1]规定了交货期[^2]。",
+    "合同第三条 (We ship in six weeks. No later than May.)[^1] 规定了交货期[^2]。",
+    "他说‘Stop here. Go back now.’[^1]然后就离开了会议室[^2]。",
+    "《Terms of Service. Second edition.》[^1]规定了退款的期限[^2]。",
+  ])(
+    "English sentences in brackets, single quotation marks or a title within a Chinese sentence are in it: %s",
+    (answer) => {
+      expect(split(answer)).toEqual([[answer.replaceAll(/\[\^\d\]/g, ""), [1, 2]]]);
+    },
+  );
+
   test("a quotation that starts a Chinese sentence is read with the words after it", () => {
     expect(
       split("“Prepared for software testing. The text is fictional.”是摘要页的原话[^1]。"),
@@ -123,14 +154,19 @@ const CHINESE = ["今天的潮水很高", "窑炉计划在明年二月安装", "
 const MARKS = [
   ["“", "”"],
   ['"', '"'],
+  ["‘", "’"],
   ["「", "」"],
   ["『", "』"],
+  ["（", "）"],
+  ["(", ")"],
+  ["《", "》"],
 ] as const;
 
 /**
  * An Answer whose every sentence, as its own language punctuates it, carries a Citation: Chinese
- * sentences quoting English ones (some never closed), Chinese and English ones without quotes,
- * English ones ending in the sentence they quote, list items and footnotes.
+ * sentences quoting English ones in quotation marks, brackets or a title (some never closed, some
+ * ending at the quoted sentence), Chinese and English ones without them, English ones ending in
+ * the sentence they quote, list items and footnotes.
  */
 function generatedAnswer(seed: number): string {
   const { next, pick } = random(seed);
@@ -147,6 +183,10 @@ function generatedAnswer(seed: number): string {
       }).join(" ");
       const end = chance(0.5) ? `${cite()}。` : `。${cite()}`;
       return `${pick(LEADS)}${open}${quoted}${chance(0.8) ? close : ""}${pick(AFTER)}${end}`;
+    }
+    if (kind < 0.6) {
+      const [open, close] = pick(MARKS);
+      return `${pick(LEADS)}${open}${pick(ENGLISH)}.${close}${cite()} `;
     }
     if (kind < 0.7) return `${pick(CHINESE)}${cite()}。`;
     if (kind < 0.85) return `He said "${pick(ENGLISH)}."${cite()}`;
