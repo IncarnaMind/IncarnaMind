@@ -71,12 +71,17 @@ jobs:
         with:
           path: ~/.cache/incarnamind-eval
           key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
-      - name: Upload the summary and the reports
+      # Not the steps' own reports (vitest.json, everyday/): they hold what the providers answered,
+      # with account and key ids in it, and anyone can download an artifact of a public run.
+      - name: Upload the summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: nightly-real-model
-          path: eval/results/nightly-real-model/
+          path: |
+            eval/results/nightly-real-model/summary.md
+            eval/results/nightly-real-model/status.json
+            eval/results/nightly-real-model/**/usage.jsonl
           if-no-files-found: ignore
           retention-days: 30
 

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { readStatus } from "../../scripts/nightlyIssue";
 import {
@@ -768,6 +768,73 @@ describe("a provider's words stay out of the summary", () => {
       "| an edit says what changed | **failed**: failed: an expectation did not hold |",
     );
     expect(report).toContain("| a plain pass | passed |");
+  });
+
+  /** The files the workflow uploads from a night's folder: only the shapes its upload step names. */
+  const uploadedFrom = async (out: string): Promise<string[]> => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/nightly-real-model.yml", import.meta.url),
+      "utf8",
+    );
+    const upload = workflow.slice(workflow.indexOf("actions/upload-artifact"));
+    const lines = /path: \|\n((?: +\S+\n)+)/.exec(upload)?.[1]?.split("\n").filter(Boolean) ?? [];
+    const patterns = lines.map((line) =>
+      line.trim().replace("eval/results/nightly-real-model/", ""),
+    );
+    expect(patterns).toEqual(["summary.md", "status.json", "**/usage.jsonl"]);
+    const every = (await readdir(out, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(out, join(entry.parentPath, entry.name)));
+    return every.filter(
+      (file) =>
+        file === "summary.md" || file === "status.json" || file.split("/").at(-1) === "usage.jsonl",
+    );
+  };
+
+  // protects=nothing a provider answered is in what the job uploads: the artifact is the summary, the status and the token counts, and a step's own reports with the raw bodies stay behind; fails_when=the upload names the whole folder again, or a file it names comes to hold an id from a raw body; no_claim=the Actions log, which holds the steps' output.
+  test("the files the job uploads hold no raw message, whatever else a step wrote", async () => {
+    const out = await createTempDataFolder();
+    const writer = [
+      "const fs = require('node:fs');",
+      "const dir = process.argv[1];",
+      "fs.mkdirSync(dir + '/everyday', { recursive: true });",
+      `const raw = ${JSON.stringify(SUSPENDED)};`,
+      "fs.writeFileSync(dir + '/vitest.json', JSON.stringify({ testResults: [{ message: raw, assertionResults: [{ fullName: 'a key connects', status: 'failed', failureMessages: [raw] }] }] }));",
+      "fs.writeFileSync(dir + '/everyday/report.json', JSON.stringify({ results: [{ id: 'owner-1', error: raw }] }));",
+      "fs.writeFileSync(dir + '/everyday/report.md', '| owner-1 | ' + raw + ' |');",
+      "fs.appendFileSync(process.env.NIGHTLY_USAGE_FILE, JSON.stringify({ model: 'kimi-k2.6', inputTokens: 1, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1 }) + '\\n');",
+      "console.error(raw);",
+      "process.exit(1);",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: (folder) => ["node", "-e", writer, folder],
+      env: () => ({}),
+    };
+    await runNight({
+      steps: [scripted],
+      env: { PATH: process.env.PATH, NIGHTLY_KIMI_KEY: "a-key" },
+      out,
+    });
+    const uploaded = await uploadedFrom(out);
+    expect(uploaded.sort()).toEqual([
+      "raw/NIGHTLY_KIMI_KEY/usage.jsonl",
+      "status.json",
+      "summary.md",
+    ]);
+    for (const file of uploaded) {
+      const text = await readFile(join(out, file), "utf8");
+      expect(text, file).not.toContain(ORG);
+      expect(text, file).not.toContain(ACCESS);
+      expect(text, file).not.toContain("suspended");
+    }
+    // The raw record is still in the folder, so the check above is looking at a real difference.
+    const reports = await readFile(join(out, "raw", "NIGHTLY_KIMI_KEY", "vitest.json"), "utf8");
+    expect(reports).toContain(ORG);
   });
 
   // protects=a step that failed with every case passing is told by its log's last error in our words, and our own eval's target line is kept because it holds only numbers; fails_when=the log's line is copied, or the target line is lost; no_claim=none.
