@@ -185,3 +185,37 @@ Asked for by the owner after the result above, and written here before any of it
 - **The key:** DeepSeek's own key, with no other evaluation's run beside any of these. DeepSeek's API gives no rate-limit headers, so the headroom is recorded as not given.
 - **What decides:** DeepSeek takes twelve only if both its cells hold every bar. The catalog would then name it with its route, as it names the others.
 - **Spend:** inside what is left of this run's $5.80 stop ($4.91 spent). The estimate is $0.04–0.05 a run, about $0.55 for twelve valid runs and about $0.75 with runs again for load. If the runs cost more than that, they stop before the stop is reached, and the pull request says how many runs an arm there are.
+
+### Result, 2026-11-12: DeepSeek V4.1 Flash holds in both cells
+
+The runs were made on the tree the gate measured: the step's code at 8b5f4ffd2, on `main` at 36800b60c. Each run held its key's lease, and the 1-minute and 15-minute load are given at its start and its end.
+
+| Cell | First verdict, today → step | Today's spread | Done, today → step | Holds | Valid runs, today / step |
+|---|---|--:|---|---|--:|
+| DeepSeek V4.1 Flash, English | 4.1 → 4.4 s | 1.0 s | 13.9 → 11.5 s | yes | 3 / 3 |
+| DeepSeek V4.1 Flash, Chinese | 3.5 → 3.6 s | 0.9 s | 14.1 → 9.7 s | yes | 3 / 3 |
+
+- **No failure:** no request failed, no rate limit was met and no check timed out in any run.
+- **One run was void:** today's second English run ended at a 1-minute load of 19.0, so another was made.
+- **Verdicts:**
+  - In one English run on the step's arm, DeepSeek's reply to one stated sentence couldn't be read, and it was Not checked ("malformed"). It was Supported in the step's other runs and in all of today's.
+  - No sentence was Supported in more of the step's runs than of today's. A Chinese sentence the Documents don't state was Supported in one of today's runs and in none of the step's.
+- **What decides:** both cells hold every bar, so DeepSeek V4.1 Flash on the app's own DeepSeek provider may take twelve, and the catalog would name it with its route. That line is the next change, made once it is agreed.
+
+| Cell | Arm | First verdict | Done | Load at start → end (1 / 15 min) | Failed requests | Rate limits met | Spent |
+|---|---|--:|--:|---|--:|--:|--:|
+| DeepSeek V4.1 Flash, en | today (6) | 3.4 s | 14.0 s | 9.5 / 7.5 → 10.7 / 7.7 | 0 | 0 | $0.011 |
+| DeepSeek V4.1 Flash, en | step (12) | 4.4 s | 11.5 s | 10.4 / 7.7 → 14.7 / 8.2 | 0 | 0 | $0.011 |
+| DeepSeek V4.1 Flash, zh-CN | today (6) | 3.5 s | 14.1 s | 14.3 / 8.2 → 14.7 / 8.4 | 0 | 0 | $0.013 |
+| DeepSeek V4.1 Flash, zh-CN | step (12) | 3.6 s | 9.5 s | 14.6 / 8.4 → 16.0 / 8.8 | 0 | 0 | $0.009 |
+| DeepSeek V4.1 Flash, en | today (6) | ~~3.3 s~~ | ~~18.1 s~~ | ~~16.0 / 8.8 → 19.0 / 9.3~~ | ~~0~~ | ~~0~~ | ~~$0.012~~ (struck: load) |
+| DeepSeek V4.1 Flash, en | step (12) | 3.3 s | 9.4 s | 15.7 / 9.6 → 16.3 / 10.0 | 0 | 0 | $0.009 |
+| DeepSeek V4.1 Flash, zh-CN | today (6) | 2.8 s | 14.3 s | 14.7 / 11.6 → 12.5 / 11.5 | 0 | 0 | $0.008 |
+| DeepSeek V4.1 Flash, zh-CN | step (12) | 3.6 s | 9.7 s | 11.7 / 11.5 → 11.7 / 11.5 | 0 | 0 | $0.008 |
+| DeepSeek V4.1 Flash, en | today (6) | 4.1 s | 13.8 s | 9.3 / 11.6 → 9.7 / 11.6 | 0 | 0 | $0.009 |
+| DeepSeek V4.1 Flash, en | step (12) | 4.8 s | 13.1 s | 9.8 / 11.6 → 13.0 / 11.8 | 0 | 0 | $0.011 |
+| DeepSeek V4.1 Flash, zh-CN | today (6) | 3.8 s | 13.8 s | 12.4 / 11.8 → 10.2 / 11.6 | 0 | 0 | $0.008 |
+| DeepSeek V4.1 Flash, zh-CN | step (12) | 3.1 s | 10.4 s | 9.2 / 11.5 → 8.3 / 11.4 | 0 | 0 | $0.008 |
+| DeepSeek V4.1 Flash, en | today (6) | 4.5 s | 13.9 s | 7.4 / 11.3 → 7.3 / 11.2 | 0 | 0 | $0.009 |
+
+**Spend:** $0.13 for the 13 runs, by their own counts (about $0.01 a run, against the $0.04–0.05 estimated). The gate's spend is now $5.05 of its $5.80 stop.
