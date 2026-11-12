@@ -79,6 +79,23 @@ export function comparisonQuestionsOf(attributes: Attributes): ComparisonQuestio
   return questions;
 }
 
+/**
+ * A table's columns, each with an id of its own, and what each old id became, so the cells that
+ * name a column by its id can follow it. A copy of a table is a table of its own.
+ */
+export function renewedQuestions(attributes: Attributes): {
+  questions: ComparisonQuestion[];
+  ids: ReadonlyMap<string, string>;
+} {
+  const ids = new Map<string, string>();
+  const questions = comparisonQuestionsOf(attributes).map((question) => {
+    const id = crypto.randomUUID();
+    ids.set(question.id, id);
+    return { ...question, id };
+  });
+  return { questions, ids };
+}
+
 /** A table's own name, as one line; empty when the User hasn't named it. */
 export function comparisonTitleOf(attributes: Attributes): string {
   const title = attributes.title;

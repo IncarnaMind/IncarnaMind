@@ -1,8 +1,17 @@
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import type { CitationRecheck, Document } from "../../src/core/api";
+import {
+  type CitationRecheck,
+  type CitedOrigin,
+  DEFAULT_ASSISTANT,
+  type Document,
+  type LayoutGroup,
+  type TabItem,
+  type WindowLayout,
+} from "../../src/core/api";
 
 type OpenCited = typeof import("../../src/renderer/src/openCited");
 type Store = typeof import("../../src/renderer/src/store");
+type LayoutSlice = typeof import("../../src/renderer/src/layoutSlice");
 
 const { recheckCitation } = vi.hoisted(() => ({ recheckCitation: vi.fn() }));
 vi.mock("../../src/renderer/src/core", () => ({
@@ -17,6 +26,7 @@ vi.mock("../../src/renderer/src/core", () => ({
 
 let opened: OpenCited;
 let store: Store;
+let layoutSlice: LayoutSlice;
 const openDocument = vi.fn();
 
 beforeAll(async () => {
@@ -24,9 +34,11 @@ beforeAll(async () => {
   (globalThis as unknown as { window: unknown }).window = {
     incarnamind: bridge,
     matchMedia: () => ({ matches: false, addEventListener: () => undefined }),
+    innerWidth: 1440,
   };
   opened = await import("../../src/renderer/src/openCited");
   store = await import("../../src/renderer/src/store");
+  layoutSlice = await import("../../src/renderer/src/layoutSlice");
 });
 
 const CITED = {
@@ -148,5 +160,76 @@ describe("Open the current version, out of the cited one's view", () => {
     expect(openDocument).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalled();
     logged.mockRestore();
+  });
+});
+
+const group = (id: string, item: TabItem): LayoutGroup => ({
+  id,
+  tabs: [{ id: `${id}-tab`, item, preview: false, pinned: false, place: null, opened: 0 }],
+  activeTabId: `${id}-tab`,
+  width: 0.5,
+});
+
+/** A Note and a page side by side: in an 860px card they have 430px each, under what a Note is written at (#2270). */
+const NOTE_AND_PAGE: WindowLayout = {
+  groups: [
+    group("note", { kind: "mind", mindId: "m" }),
+    group("page", { kind: "document", documentId: "terms" }),
+  ],
+  focusedGroupId: "note",
+  reopenable: 0,
+  conversationId: null,
+  assistant: DEFAULT_ASSISTANT,
+};
+
+describe("Open the current version leaves the assistant as the page it opens from found it", () => {
+  const placeAssistant = vi.fn();
+
+  beforeEach(() => {
+    placeAssistant.mockReset();
+    layoutSlice.useCardWidth.setState({ width: 860 });
+    store.useAppStore.setState({ layout: NOTE_AND_PAGE, placeAssistant });
+    openDocument.mockResolvedValue(NOTE_AND_PAGE);
+    recheckCitation.mockResolvedValue(recheckOf({}));
+  });
+
+  /** The page a Citation opens, as the viewer's tab then shows it, once its own opening has settled. */
+  async function pageOpenedFrom(origin: CitedOrigin) {
+    opened.openCited(CITED, { ...HOW, origin });
+    await openDocument.mock.results[0]?.value;
+    const [location] = openDocument.mock.calls[0] ?? [];
+    placeAssistant.mockClear();
+    openDocument.mockClear();
+    return { ...location, request: 1 };
+  }
+
+  test("a page opened from the assistant opens its current version with the assistant still open", async () => {
+    const page = await pageOpenedFrom("assistant");
+    await opened.openCurrentVersionOf(page);
+    await openDocument.mock.results[0]?.value;
+    expect(openDocument.mock.calls[0]?.[0]).toMatchObject({ currentVersion: true });
+    expect(placeAssistant).not.toHaveBeenCalled();
+  });
+
+  test("a page opened from a Note opens its current version as before, the assistant folding for the room", async () => {
+    const page = await pageOpenedFrom("note");
+    await opened.openCurrentVersionOf(page);
+    await openDocument.mock.results[0]?.value;
+    expect(openDocument.mock.calls[0]?.[0]).toMatchObject({ currentVersion: true });
+    expect(placeAssistant).toHaveBeenCalledWith({ folded: true });
+  });
+
+  test("a page whose origin was not kept, as one saved before it was, is taken as opened from a Note", async () => {
+    const { citation, ...rest } = await pageOpenedFrom("assistant");
+    const { origin: _origin, ...kept } = citation;
+    await opened.openCurrentVersionOf({ ...rest, citation: kept });
+    await openDocument.mock.results[0]?.value;
+    expect(placeAssistant).toHaveBeenCalledWith({ folded: true });
+  });
+
+  test("the current version it opens keeps the origin, so another round stays as the first", async () => {
+    const page = await pageOpenedFrom("assistant");
+    await opened.openCurrentVersionOf(page);
+    expect(openDocument.mock.calls[0]?.[0].citation.origin).toBe("assistant");
   });
 });

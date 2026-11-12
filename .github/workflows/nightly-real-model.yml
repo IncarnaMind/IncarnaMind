@@ -48,6 +48,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The Analysis live tests run the Python the app's build puts in resources/python
+      # (tests/helpers/pyodideAnalysis.ts).
+      - name: Build the app's Python
+        run: npm run build
       - name: Restore the models and the fetched Documents
         uses: actions/cache/restore@v5
         with:
