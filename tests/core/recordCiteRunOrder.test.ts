@@ -34,7 +34,10 @@ test.each([
   } as unknown as PreparedChatModel;
   const run = runChecks(
     {
-      content: { edit: (_mindId, change) => change(new Y.XmlFragment()) },
+      content: {
+        read: (_mindId, look) => look(new Y.XmlFragment()),
+        edit: (_mindId, change) => change(new Y.XmlFragment()),
+      },
       claimCheck: async ({ claim }) => {
         calls.push(claim);
         if (claim === first) await waiting;
