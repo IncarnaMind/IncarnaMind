@@ -188,6 +188,7 @@ describe("Tabs and groups", () => {
           quote,
           citation: {
             check: "found",
+            origin: "assistant",
             number: 1,
             location: { kind: "page", from: 3, to: 3 },
             pageFrom: 3,
@@ -206,6 +207,7 @@ describe("Tabs and groups", () => {
       quote: "Parks are cooler",
       citation: {
         check: "found",
+        origin: "assistant",
         number: 1,
         location: { kind: "page", from: 3, to: 3 },
         pageFrom: 3,

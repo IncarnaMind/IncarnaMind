@@ -527,14 +527,10 @@ describe("Using a Mind as a source", () => {
     expect(translate("zh-CN", "claim.ownSource")).toBe("你自己的记录，不是外部来源");
     expect(translate("en", "citation.ownRecord")).toBe("Your own record");
     expect(translate("zh-CN", "citation.ownRecord")).toBe("你自己的记录");
-    expect(translate("en", "health.ownNotes", { count: 3 })).toBe(
-      "3 supported only by your own notes",
-    );
-    expect(translate("en", "health.ownNotes.one")).toBe("1 supported only by your own note");
-    expect(translate("zh-CN", "health.ownNotes", { count: 3 })).toBe(
-      "其中 3 句只有你自己的笔记作依据",
-    );
-    expect(translate("zh-CN", "health.ownNotes.one")).toBe("其中 1 句只有你自己的笔记作依据");
+    expect(translate("en", "checks.row.ownNotes", { count: 3 })).toBe("3 only by your own notes");
+    expect(translate("en", "checks.row.ownNotes.one")).toBe("1 only by your own note");
+    expect(translate("zh-CN", "checks.row.ownNotes", { count: 3 })).toBe("3 句仅以你的笔记为依据");
+    expect(translate("zh-CN", "checks.row.ownNotes.one")).toBe("1 句仅以你的笔记为依据");
   });
 
   test("a Citation to a snapshot reads Your note: its title and the date", () => {

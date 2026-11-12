@@ -10,6 +10,7 @@ import {
   CALCULATED_FIGURE_NODE,
   type Citation,
   type ClaimCheckAttributes,
+  type FigureSchedule,
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
@@ -72,6 +73,51 @@ function basis(): ClaimCheckAttributes {
     excluded: [],
     checkedAt: "2026-10-27T00:00:00.000Z",
   };
+}
+/** The note's Figure schedule as the core reads it from `doc`. */
+const scheduleOf = (doc: Y.Doc) =>
+  figureSchedule({
+    mindId: "note",
+    name: "Results",
+    basis: fingerprintOfMind(doc),
+    blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
+    versions: new Map([["source", "hash"]]),
+    folderId: null,
+    scope: null,
+  });
+/** The note shown in an editor of this window, on `doc`. */
+function openEditor(doc: Y.Doc, mindId: string): Editor {
+  const editor = new Editor({
+    element: globalThis.document.createElement("div"),
+    editorProps: { handleScrollToSelection: () => true },
+    extensions: [
+      ...noteExtensions(),
+      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+    ],
+  });
+  editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  const unregister = registerMindEditor(mindId, editor);
+  cleanup.push(() => {
+    unregister();
+    editor.destroy();
+  });
+  return editor;
+}
+/**
+ * A window's copy of the note in `doc`, kept in step as the core keeps it: each gets the other's
+ * changes only as encoded updates.
+ */
+function copyOf(doc: Y.Doc): Y.Doc {
+  const copy = new Y.Doc();
+  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc), doc);
+  copy.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== doc) Y.applyUpdate(doc, update, copy);
+  });
+  doc.on("update", (update: Uint8Array, origin: unknown) => {
+    if (origin !== copy) Y.applyUpdate(copy, update, doc);
+  });
+  cleanup.push(() => copy.destroy());
+  return copy;
 }
 const citation: Citation = {
   passageId: "p",
@@ -186,31 +232,9 @@ function setup(
         : previous,
     );
   }
-  const editor = new Editor({
-    element: globalThis.document.createElement("div"),
-    editorProps: { handleScrollToSelection: () => true },
-    extensions: [
-      ...noteExtensions(),
-      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
-    ],
-  });
-  editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
-  const unregister = registerMindEditor("note", editor);
-  cleanup.push(() => {
-    unregister();
-    editor.destroy();
-    doc.destroy();
-  });
-  const read = () =>
-    figureSchedule({
-      mindId: "note",
-      name: "Results",
-      basis: fingerprintOfMind(doc),
-      blocks,
-      versions: new Map([["source", "hash"]]),
-      folderId: null,
-      scope: null,
-    });
+  cleanup.push(() => doc.destroy());
+  const editor = openEditor(doc, "note");
+  const read = () => scheduleOf(doc);
   /** Makes a schedule's change as the schedule does: in the note's open editor. */
   const edit = (change: (note: NoteState) => FigureEdit | null) => editNote("note", doc, change);
   return { doc, blocks, editor, read, edit };
@@ -414,6 +438,196 @@ test("with the note not open in an editor, the schedule changes its copy, with a
   expect(markedSentences(blocks)[0]?.check).toEqual(before);
   await undoable?.redo?.();
   expect(markedSentences(blocks)[0]?.check?.figures?.[0]?.kept).toBe(true);
+});
+
+describe("a figure kept from the schedule shows kept there, and the next change is taken", () => {
+  /** Each figure's state in the schedule the core reads, if the window's copy takes it. */
+  const shownIn = (copy: Y.Doc, read: () => FigureSchedule) => {
+    const schedule = read();
+    return schedule.basis === fingerprintOfMind(copy)
+      ? schedule.rows.map((row) => row.shown.state)
+      : "not taken";
+  };
+
+  test("with the note behind the schedule, through the schedule's copy", async () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    const keep = (index: number) => {
+      const schedule = read();
+      const row = schedule.rows[index];
+      if (!row) throw new Error("No figure");
+      return editNote("a note behind the schedule", copy, (note) =>
+        keepFigureViews(note, schedule, [row.id]),
+      );
+    };
+    expect(shownIn(copy, read)).toEqual(["contradicted", "supported"]);
+    keep(1);
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+    const undoable = keep(0);
+    expect(shownIn(copy, read)).toEqual(["kept", "kept"]);
+    await undoable?.undo();
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+  });
+
+  test("with the note in front, through its editor", () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    openEditor(copy, "a note in front");
+    const keep = (index: number) => {
+      const schedule = read();
+      const row = schedule.rows[index];
+      if (!row) throw new Error("No figure");
+      editNote("a note in front", copy, (note) => keepFigureViews(note, schedule, [row.id]));
+    };
+    keep(1);
+    expect(shownIn(copy, read)).toEqual(["contradicted", "kept"]);
+    keep(0);
+    expect(shownIn(copy, read)).toEqual(["kept", "kept"]);
+  });
+
+  test("a Note holding a keep made at a narrow window, saved and opened again, reads kept and takes the next change", () => {
+    const { doc, read } = setup();
+    const copy = copyOf(doc);
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    const stored = new Y.Doc();
+    Y.applyUpdate(stored, Y.encodeStateAsUpdate(doc));
+    cleanup.push(() => stored.destroy());
+    const readStored = () => scheduleOf(stored);
+    const opened = copyOf(stored);
+    expect(shownIn(opened, readStored)).toEqual(["contradicted", "kept"]);
+    const first = readStored().rows[0];
+    if (!first) throw new Error("No figure");
+    editNote("a note behind the schedule", opened, (note) =>
+      keepFigureViews(note, readStored(), [first.id]),
+    );
+    expect(shownIn(opened, readStored)).toEqual(["kept", "kept"]);
+  });
+});
+
+describe("a change from behind the tab writes only the Block it changed", () => {
+  const costs = "Costs were 8, as planned.";
+  /** The note's first paragraph, and a second whose sentence has a check of its own. */
+  function twoBlocks() {
+    const ready = setup();
+    ready.blocks.push([paragraph(costs, "q")].map(createElement));
+    const second = ready.blocks.get(1);
+    if (!(second instanceof Y.XmlElement)) throw new Error("No second paragraph");
+    const figures = figuresInMind(ready.blocks)
+      .filter((figure) => figure.reading.chars === "8")
+      .map((figure) => ({
+        ...basis(),
+        ...emptyFigureFinding(figure),
+        text: costs,
+        state: "supported" as const,
+      }));
+    markSentence(second, 0, costs.length, {
+      ...basis(),
+      id: "costs",
+      text: costs,
+      state: "supported",
+      figures,
+      remainder: { ...basis(), id: "costs", text: costs, state: "supported" },
+    });
+    return ready;
+  }
+  /** The Blocks an update changes as the core takes it in, by id. */
+  function blocksChangedBy(doc: Y.Doc, update: Uint8Array): string[] {
+    const top = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const changed = new Set<string>();
+    const took = (transaction: Y.Transaction) => {
+      for (const type of transaction.changed.keys()) {
+        let block = type;
+        while (block.parent && block.parent !== top) block = block.parent;
+        changed.add(block instanceof Y.XmlElement ? String(block.getAttribute("id")) : "the list");
+      }
+    };
+    doc.on("afterTransaction", took);
+    Y.applyUpdate(doc, update);
+    doc.off("afterTransaction", took);
+    return [...changed].sort();
+  }
+  const shown = (doc: Y.Doc) => scheduleOf(doc).rows.map((row) => row.shown.state);
+
+  test("a keep sends a change to its own Block alone", () => {
+    const { doc, read } = twoBlocks();
+    expect(shown(doc)).toEqual(["contradicted", "supported", "supported"]);
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    cleanup.push(() => copy.destroy());
+    const sent: Uint8Array[] = [];
+    copy.on("update", (update: Uint8Array) => sent.push(update));
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    expect(sent).toHaveLength(1);
+    const [update] = sent;
+    if (!update) throw new Error("Nothing sent");
+    expect(blocksChangedBy(doc, update)).toEqual(["p"]);
+    expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
+  });
+
+  /** The core lands a check of the second paragraph's sentence, Contradicted. */
+  function landContradicted(blocks: Y.XmlFragment) {
+    const landing = markedSentences(blocks).find((each) => each.check.id === "costs");
+    if (!landing) throw new Error("No check on the second paragraph");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...landing.check,
+      state: "contradicted",
+      figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+    });
+  }
+
+  test("Undo of a keep leaves a check result that landed on another Block since", async () => {
+    const { doc, blocks, read } = twoBlocks();
+    const copy = copyOf(doc);
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    const undoable = editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    expect(shown(doc)).toEqual(["contradicted", "kept", "supported"]);
+    landContradicted(blocks);
+    expect(shown(copy)).toEqual(["contradicted", "kept", "contradicted"]);
+    await undoable?.undo();
+    expect(shown(doc)).toEqual(["contradicted", "supported", "contradicted"]);
+    expect(shown(copy)).toEqual(["contradicted", "supported", "contradicted"]);
+  });
+
+  // Yjs orders two writes made at once by the ids of the copies that made them: both orders.
+  test.each([
+    ["before", 1],
+    ["after", 3],
+  ])(
+    "a check result that lands on another Block while a keep is on its way stays, the keep ordered %s it",
+    (_, copyId) => {
+      const { doc, blocks, read } = twoBlocks();
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      cleanup.push(() => copy.destroy());
+      copy.clientID = copyId;
+      doc.clientID = 2;
+      const schedule = read();
+      const row = schedule.rows[1];
+      if (!row) throw new Error("No figure");
+      landContradicted(blocks);
+      editNote("a note behind the schedule", copy, (note) =>
+        keepFigureViews(note, schedule, [row.id]),
+      );
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      expect(shown(doc)).toEqual(["contradicted", "kept", "contradicted"]);
+      expect(shown(copy)).toEqual(["contradicted", "kept", "contradicted"]);
+    },
+  );
 });
 
 const sourceInput = (chars: string, value: number) => ({

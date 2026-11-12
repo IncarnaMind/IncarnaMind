@@ -603,7 +603,7 @@ test("Check this Note runs the check as ⌘K does, and the reply says Done", asy
   await app.close();
 });
 
-test("Local mode is the User's: nothing changes, and one button opens Privacy", async () => {
+test("Local mode is the User's: nothing changes, and one button opens Settings › AI", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -612,7 +612,7 @@ test("Local mode is the User's: nothing changes, and one button opens Privacy", 
   const answer = await askInAssistant(window, "Turn on Local mode");
 
   const said =
-    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.";
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › AI and Settings › Privacy.";
   // Said once, in the reply: the card under it keeps only its button, and nothing to keep in a note.
   await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
   await expect(answer.getByText(said)).toHaveCount(1);
@@ -621,8 +621,9 @@ test("Local mode is the User's: nothing changes, and one button opens Privacy", 
   await expect(answer.getByTestId("answer-write-note")).toHaveCount(0);
   await expect(answer.getByTestId("approval-card")).toHaveCount(0);
   await screenshot(window, "commands-yours-en");
+  await expect(line.getByTestId("command-yours-open")).toHaveText("Open AI settings");
   await pointAndClick(window, line.getByTestId("command-yours-open"));
-  await expect(window.getByTestId("settings-page-title")).toHaveText("Privacy");
+  await expect(window.getByTestId("settings-page-title")).toHaveText("AI");
   const localOnly = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.getEmbeddingSettings()).localOnly;
@@ -641,13 +642,13 @@ test("in Chinese, Local mode's line and its button are in Chinese, and fit a nar
   const answer = await askInAssistant(window, "打开本地模式");
 
   const said =
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。";
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › AI”和“设置 › 隐私”里。";
   await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
   await expect(answer.getByText(said)).toHaveCount(1);
   const line = answer.getByTestId("command-yours");
   await expect(line).not.toContainText(said);
   await expect(answer.getByTestId("answer-write-note")).toHaveCount(0);
-  await expect(line.getByTestId("command-yours-open")).toHaveText("打开隐私设置");
+  await expect(line.getByTestId("command-yours-open")).toHaveText("打开 AI 设置");
   const [box, width] = await Promise.all([
     line.boundingBox(),
     window.evaluate(() => globalThis.innerWidth),
@@ -672,14 +673,14 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   );
   const line = answer.getByTestId("answer-unbacked-command-privacy");
   await expect(line).toHaveText(
-    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › Privacy",
+    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › AI and Settings › Privacy",
   );
   await expect(answer.getByTestId("answer-unbacked-claim")).toHaveCount(0);
   await screenshot(window, "claimed-local-mode-en");
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 700);
   await expect(line).toHaveText(
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › 隐私”里更改",
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › AI”和“设置 › 隐私”里更改",
   );
   const [box, width] = await Promise.all([
     line.boundingBox(),

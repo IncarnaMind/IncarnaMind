@@ -17,6 +17,7 @@ import {
   setLanguage,
   setWindowSize,
   sidebarFolder,
+  sizeAssistant,
   useLocalChatModel,
 } from "./app";
 import {
@@ -775,6 +776,8 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 660);
+    // Room for a Chinese Folder's name on its chip: a narrower panel folds it into a count.
+    await sizeAssistant(window, 480);
     const library = await openFullLibrary(window, sources);
     const last = FOLDERS.find((folder) => folder.name === "财务报表");
     if (!last) throw new Error("The fixture has no Chinese Folder.");
