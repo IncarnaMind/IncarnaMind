@@ -283,7 +283,7 @@ The result for a sentence when Verify or contradiction watch finds a Passage tha
 _Avoid_: wrong, conflict, false
 
 **Not examined**:
-A sentence the check couldn't tell is a Claim or not, because the model said nothing of it when the check named the Claims, even when asked again. The Note says "Couldn’t tell if 1 sentence is a claim". A sentence with a figure, a Citation, a record cite or a court decision never ends here: it is checked. The next Check asks about it again.
+A sentence the check couldn't tell is a Claim or not, because the model said nothing of it when the check named the Claims, even when asked again. The Note says "Couldn’t tell whether 1 sentence needs checking". A sentence with a figure, a Citation, a record cite or a court decision never ends here: it is checked. The next Check asks about it again.
 _Avoid_: unsorted (Sort files Documents), Not checked (a Claim whose check failed or hasn't run)
 
 **Part**:

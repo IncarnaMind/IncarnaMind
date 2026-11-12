@@ -11,6 +11,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openFolderInLibrary,
   paletteOffers,
   removeDataFolder,
   setLanguage,
@@ -365,6 +366,104 @@ for (const language of ["en", "zh-CN"] as const) {
     if (SCREENSHOTS)
       await window.screenshot({ path: join(SCREENSHOTS, `wall-refusal-menu-${language}-900.png`) });
     expect(await walled()).toBe(true);
+    await app.close();
+  });
+}
+
+const KEPT_LINE = {
+  en: {
+    matterA: "Matter A",
+    matterB: "Matter B",
+    inner: "Inner",
+    emptyNote: "Matter note",
+    innerNote: "Inner note",
+    looseNote: "Loose note",
+    reads: (mind: string, scope: string) => `Reads “${mind}” and “${scope}”`,
+    readsAll: (mind: string) => `Reads “${mind}” and All Documents`,
+    searches: (scope: string) => `Searches “${scope}”`,
+  },
+  "zh-CN": {
+    matterA: "甲事务",
+    matterB: "乙事务",
+    inner: "内层",
+    emptyNote: "事务笔记",
+    innerNote: "内层笔记",
+    looseNote: "散页笔记",
+    reads: (mind: string, scope: string) => `读“${mind}”和“${scope}”`,
+    readsAll: (mind: string) => `读“${mind}”和全部文档`,
+    searches: (scope: string) => `搜索“${scope}”`,
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the line above an empty conversation names the Folder the chat box is kept to, as its chip does (${language})`, async () => {
+    const w = KEPT_LINE[language];
+    await writeFile(join(sources, `${w.inner} lease.txt`), "Termination notice: 90 days.\n");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1200, 800);
+    const notes = await (await coreOf(window)).evaluate(
+      async (core, input) => {
+        const keep = async (name: string) => {
+          const folder = await core.createLibraryGroup({ name, description: "" });
+          await core.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
+          return folder.id;
+        };
+        // A kept Folder that holds no Document, and a kept Folder whose inner Folder holds one.
+        const emptyKept = await keep(input.matterA);
+        const outer = await keep(input.matterB);
+        const inner = await core.createLibraryGroup({
+          name: input.inner,
+          description: "",
+          parentId: outer,
+        });
+        await core.addDocuments([input.path], { groupId: inner.id });
+        const inEmpty = await core.createMind({ title: input.emptyNote, folderId: emptyKept });
+        const inInner = await core.createMind({ title: input.innerNote, folderId: inner.id });
+        const loose = await core.createMind({ title: input.looseNote });
+        return { inEmpty: inEmpty.id, inInner: inInner.id, loose: loose.id };
+      },
+      {
+        matterA: w.matterA,
+        matterB: w.matterB,
+        inner: w.inner,
+        emptyNote: w.emptyNote,
+        innerNote: w.innerNote,
+        looseNote: w.looseNote,
+        path: join(sources, `${w.inner} lease.txt`),
+      },
+    );
+    const open = async (folders: string[], mindId: string) => {
+      for (const name of folders) {
+        const row = sidebarFolder(window, name).getByTestId("folder-row");
+        if ((await row.getAttribute("aria-expanded")) !== "true") await row.click();
+      }
+      await window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first().click();
+    };
+    const line = window.getByTestId("assistant-reads");
+    const chip = window.getByTestId("composer-scope").getByTestId("scope-chip");
+
+    // A Note in a kept Folder that holds no Document: that Folder, not All Documents.
+    await open([w.matterA], notes.inEmpty);
+    await expect(chip).toContainText(w.matterA);
+    await expect(line).toHaveText(w.reads(w.emptyNote, w.matterA));
+
+    // A Note in a Folder inside a kept Folder: the Folder the chip names, which is the kept one.
+    await open([w.matterB, w.inner], notes.inInner);
+    await expect(chip).toContainText(w.matterB);
+    await expect(chip).not.toContainText(w.inner);
+    await expect(line).toHaveText(w.reads(w.innerNote, w.matterB));
+
+    // No Note open, the Library showing a kept Folder.
+    await openFolderInLibrary(window, w.matterA);
+    await expect(chip).toContainText(w.matterA);
+    await expect(line).toHaveText(w.searches(w.matterA));
+
+    // Without a kept Folder the line reads as it did.
+    await open([], notes.loose);
+    await expect(window.getByTestId("composer-scope-all")).toBeVisible();
+    await expect(line).toHaveText(w.readsAll(w.looseNote));
     await app.close();
   });
 }

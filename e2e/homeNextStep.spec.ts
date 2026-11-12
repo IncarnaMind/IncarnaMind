@@ -208,7 +208,7 @@ for (const language of ["en", "zh-CN"] as const)
         await goHome(window);
         await picture(window, `home-next-look-${language}-${width}`);
         await keyboard(await shown(window, "look"));
-        await expect(window.getByTestId("health-unsupported")).toBeVisible();
+        await expect(window.getByTestId("health-look")).toBeVisible();
       } finally {
         await app.close();
       }

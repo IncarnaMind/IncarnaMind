@@ -17,6 +17,11 @@ export function gap(language: Language, before: string, after: string): string {
   return HAN_END.test(before) && HAN_START.test(after) ? "" : " ";
 }
 
+/** "A, B" and "A、B": the first few of many, with nothing joining the last (docs/agents/zh-CN.md). */
+export function unitsOf(items: readonly string[], language: Language): string {
+  return items.join(language === "zh-CN" ? "、" : ", ");
+}
+
 /** "A and B", "A、B 和 C": a space where 和 meets a Latin letter or a digit (docs/agents/zh-CN.md). */
 export function listOf(items: readonly string[], language: Language): string {
   const latin = /[A-Za-z0-9%]/;
