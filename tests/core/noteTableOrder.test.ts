@@ -405,6 +405,27 @@ describe.each([EN, ZH])("$language: Check this Note foots a table in its order",
     expect((await shownIn(run))[2]).toEqual(["380", "supported"]);
   });
 
+  // protects=a total whose own check couldn't be made reads Unsupported when its cells don't add up, and Check this Note's usual mode still sends it: the footing is worked out, never a check, so only the total's own check decides what a run sends (#2998); fails_when=the run counts the footing's Unsupported as checked and never sends the total; no_claim=how a real provider fails.
+  test("Check this Note sends a total its own check missed though its cells don't add up", async () => {
+    const run = await checkThisNote(example, sheetOf(example, 400, 20), "400", {
+      last: null,
+      fails: "400",
+    });
+    await run.result;
+    await run.client.settled();
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
+
+    run.sent.push([]);
+    await run.core.checkMind({ requestId: randomUUID(), mindId: run.mindId, mode: "changed" });
+    await run.client.settled();
+
+    expect(run.sent.at(-1)).toEqual(["400"]);
+    expect((await shownIn(run))[2]).toEqual(["400", "unsupported"]);
+    expect((await rowOf(run.core, run.mindId, "400")).sourceFooting).toMatchObject([
+      { sum: 400, agrees: true, inputs: [{ label: example.labels.other }] },
+    ]);
+  });
+
   // protects=a total its cells add up to stays Supported when its check ends first: its footing agrees once "(120)" is read as a minus (#2560); fails_when=the total's footing is left unworked out, or misfoots it; no_claim=a real model's reading.
   test("a total its cells add up to stays Supported when its check ends first", async () => {
     const run = await checkThisNote(example, sheetOf(example, 380), "380", {
