@@ -35,6 +35,7 @@ import { emptyFigureFinding } from "../../src/shared/figureChecks";
 import { installFigureRuns } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { fingerprintOfMind } from "../../src/shared/mindState";
+import { copyInStep } from "../helpers/mindClient";
 
 vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: {
@@ -102,22 +103,6 @@ function openEditor(doc: Y.Doc, mindId: string): Editor {
     editor.destroy();
   });
   return editor;
-}
-/**
- * A window's copy of the note in `doc`, kept in step as the core keeps it: each gets the other's
- * changes only as encoded updates.
- */
-function copyOf(doc: Y.Doc): Y.Doc {
-  const copy = new Y.Doc();
-  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc), doc);
-  copy.on("update", (update: Uint8Array, origin: unknown) => {
-    if (origin !== doc) Y.applyUpdate(doc, update, copy);
-  });
-  doc.on("update", (update: Uint8Array, origin: unknown) => {
-    if (origin !== copy) Y.applyUpdate(copy, update, doc);
-  });
-  cleanup.push(() => copy.destroy());
-  return copy;
 }
 const citation: Citation = {
   passageId: "p",
@@ -451,7 +436,7 @@ describe("a figure kept from the schedule shows kept there, and the next change 
 
   test("with the note behind the schedule, through the schedule's copy", async () => {
     const { doc, read } = setup();
-    const copy = copyOf(doc);
+    const copy = copyInStep(doc);
     const keep = (index: number) => {
       const schedule = read();
       const row = schedule.rows[index];
@@ -471,7 +456,7 @@ describe("a figure kept from the schedule shows kept there, and the next change 
 
   test("with the note in front, through its editor", () => {
     const { doc, read } = setup();
-    const copy = copyOf(doc);
+    const copy = copyInStep(doc);
     openEditor(copy, "a note in front");
     const keep = (index: number) => {
       const schedule = read();
@@ -487,7 +472,7 @@ describe("a figure kept from the schedule shows kept there, and the next change 
 
   test("a Note holding a keep made at a narrow window, saved and opened again, reads kept and takes the next change", () => {
     const { doc, read } = setup();
-    const copy = copyOf(doc);
+    const copy = copyInStep(doc);
     const schedule = read();
     const row = schedule.rows[1];
     if (!row) throw new Error("No figure");
@@ -498,7 +483,7 @@ describe("a figure kept from the schedule shows kept there, and the next change 
     Y.applyUpdate(stored, Y.encodeStateAsUpdate(doc));
     cleanup.push(() => stored.destroy());
     const readStored = () => scheduleOf(stored);
-    const opened = copyOf(stored);
+    const opened = copyInStep(stored);
     expect(shownIn(opened, readStored)).toEqual(["contradicted", "kept"]);
     const first = readStored().rows[0];
     if (!first) throw new Error("No figure");
@@ -587,7 +572,7 @@ describe("a change from behind the tab writes only the Block it changed", () => 
 
   test("Undo of a keep leaves a check result that landed on another Block since", async () => {
     const { doc, blocks, read } = twoBlocks();
-    const copy = copyOf(doc);
+    const copy = copyInStep(doc);
     const schedule = read();
     const row = schedule.rows[1];
     if (!row) throw new Error("No figure");
