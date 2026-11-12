@@ -805,7 +805,7 @@ export async function openCall(
 /** The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12). */
 const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
 
-type CallHelpSet =
+export type CallHelpSet =
   | "call-help"
   | "call-help-held-out"
   | "call-help-fresh"
@@ -828,11 +828,21 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
 export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {
-  return CASES[set].map(
-    (each): PairedGroup => ({
-      name: `${set}-${each.id}`,
-      items: [item(each, set)],
-      open: (base) => openCall(base, each, `paired-call-help-${each.id}`),
-    }),
-  );
+  return CASES[set].map((each) => callHelpGroup(each, set));
 }
+
+/** One case as a group of its own: its own Library, its own Meeting heard before the press. */
+export function callHelpGroup(each: CallHelpCase, set: CallHelpSet): PairedGroup {
+  return {
+    name: `${set}-${each.id}`,
+    items: [item(each, set)],
+    open: (base) => openCall(base, each, `paired-call-help-${each.id}`),
+  };
+}
+
+/** A set's case by its id, for a reply saved from an earlier run of it. */
+export const callHelpCaseOf = (set: CallHelpSet, id: string): CallHelpCase | undefined =>
+  CASES[set].find((each) => each.id === id);
+
+/** The judge as a press is judged, for replies saved from an earlier run: per place when given places. */
+export const judgeCallHelp = judge;

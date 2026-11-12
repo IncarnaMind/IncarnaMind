@@ -627,6 +627,11 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
       check: "not-checked",
     },
     {
+      answer: "supported, with words no Passage states",
+      verdict: { verdict: "supported", unstated: "in writing today" },
+      check: "unsupported",
+    },
+    {
       answer: "sorted as opinion",
       verdict: { verdict: "supported", kind: "opinion" },
       check: "not-checked",

@@ -14,6 +14,8 @@ import {
 } from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { nextTurn, startCore } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { question, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -311,6 +313,41 @@ describe("words the check copies as unstated, or as not in the cited words, take
       expect(checkOf(citations, 3)).toMatchObject({ quote: COST, check: "found" });
     },
   );
+});
+
+describe("which Answers this batch judges", () => {
+  // protects=the batch's reply (#3003's copied fields) is read for an Answer in the assistant and call help's reply, never for an Answer written into a Note, whose sentences are the Note's own checks'; fails_when=a Note's Answer sends a batch; no_claim=what the Note's checks find.
+  test("an Answer written into a Note sends no batch: its sentences are the Note's own checks'", async () => {
+    const answer = "Two K9 kilns cost £185,000, installed[^1].";
+    let batches = 0;
+    const { core } = await setUpWithDocuments(
+      answeringModel(
+        "kilns cost",
+        answer,
+        [COST],
+        {},
+        {
+          judge: (call) => {
+            batches++;
+            return batchReply(call, {});
+          },
+        },
+      ),
+      [KILN_DECK],
+    );
+    const mind = await core.createMind({ title: "Kilns" });
+    const client = await connectToMind(core, mind.id);
+    const asked = question("What does the kiln upgrade cost?");
+    writeMind(client, [asked]);
+    await client.settled();
+    const finished = new Promise<void>((resolve) => core.on("answer.finished", () => resolve()));
+    await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    await finished;
+    // An Answer in the assistant, asked the same way, does send one: the count is real.
+    await citationsOfAnswer(core, "What does the kiln upgrade cost?");
+
+    expect(batches).toBe(1);
+  });
 });
 
 describe("a copy that isn't the sentence's own words decides nothing", () => {

@@ -24,23 +24,27 @@ import {
  */
 
 /** The sentences of a batch, each with the words it cites, as the batch's prompt shows them. */
-function batchSentences(prompt: string): { number: number; quoted: string }[] {
+function batchSentences(prompt: string): { number: number; sentence: string; quoted: string }[] {
   return [
     ...prompt.matchAll(
-      /<sentence number="(\d+)">\n[\s\S]*?\n<\/sentence>\n((?:It cites [^\n]*\n?)*)/g,
+      /<sentence number="(\d+)">\n([\s\S]*?)\n<\/sentence>\n((?:It cites [^\n]*\n?)*)/g,
     ),
-  ].map(([, number, cites = ""]) => ({ number: Number(number), quoted: cites }));
+  ].map(([, number, sentence = "", cites = ""]) => ({
+    number: Number(number),
+    sentence,
+    quoted: cites,
+  }));
 }
 
-/** The judge as a careful reader: supported as `each` says, copying the claim's words its quoted words don't hold. */
+/** The judge as a careful reader: supported as `each` says, copying the sentence as uncited when its quoted words don't hold the claim's. */
 function judge(each: Case) {
   return (call: GenerateCall): GeneratedReply => ({
     text: JSON.stringify({
-      sentences: batchSentences(call.prompt).map(({ number, quoted }) => ({
+      sentences: batchSentences(call.prompt).map(({ number, sentence, quoted }) => ({
         number,
         kind: "fact",
         unstated: null,
-        uncited: each.states.filter((words) => !holds(quoted, words)).join(" ") || null,
+        uncited: each.states.every((words) => holds(quoted, words)) ? null : sentence,
         verdict: each.verdict ?? "supported",
         roles: "same",
         time: "same",
