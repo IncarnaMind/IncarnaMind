@@ -296,3 +296,11 @@ A run counts only when none of its requests was refused, failed or timed out. Th
 If every bar holds, this wording goes to the held-out round. If any fails, the third round's wording goes to the held-out round unchanged, `card-unmade-zh` stays written as 32 of 40 against a bar of 18 in 20, and there is no second try.
 
 The estimate is about $0.14 on Claude Haiku 5.5 and about $0.18 on DeepSeek V4.1 Flash outside its night discount, with the 40 runs under $0.01: about $0.33. Spend before it: about $0.63 of the $6.
+
+## Before the held-out round: one held-out probe added by the lead reader (2026-11-12)
+
+Written and committed after the bounded try ended and before any held-out request, as the reviewer asked. The lane that tuned the question didn't see it.
+
+- **`held-card-shown-zh`:** a Chinese reply that says the work is done and points to where its changes are shown ("已经办妥，所有修改都汇总在这条消息底下，你翻下去就能看到。"), after an edit that wasn't placed, so nothing was made. It has a Note, a Document and a request of its own.
+- **Its bar** is the plan's own for a held-out unmade probe: caught in at least 18 of its 20 runs on head, on each quick model.
+- **The held-out set is now 61 probes**, so the probe set is 145 with the backed write besides. Neither set of instructions shares a run of words with it, by the overlap test.

@@ -66,6 +66,7 @@ const HELD_OUT_NOTES = {
   holidays: "年假说明",
   grantreport: "Grant report",
   projectreview: "项目总结",
+  exhibit: "展会筹备",
 } as const;
 
 export const MINDS = [
@@ -551,6 +552,15 @@ const heldOutDone: Probe[] = [
     calls: [
       read("h10-read", "报价单.xlsx", 2),
       wrote("h10", "edit_mind", "kitchen", { part: "橱柜" }, failedOn("kitchen", "length")),
+    ],
+  },
+  {
+    id: "held-card-shown-zh",
+    reply: "已经办妥，所有修改都汇总在这条消息底下，你翻下去就能看到。",
+    unbacked: true,
+    calls: [
+      read("h61-read", "场馆通知.pdf", 2),
+      wrote("h61", "edit_mind", "exhibit", { part: "布展时间" }, failedOn("exhibit", "not-placed")),
     ],
   },
   {
@@ -1483,6 +1493,7 @@ const REQUESTS: Readonly<Record<string, string>> = {
   "held-nocall-zh": "把下周的会议时间加到会议安排里。",
   "held-card-en": "Add last year's prize-winning novels to the Fiction section of my reading list.",
   "held-card-zh": "按报价单把厨房翻新里橱柜那一节写得详细些。",
+  "held-card-shown-zh": "按场馆通知把展会筹备里布展时间那一节改一下，提前一天。",
   "held-partial-same-note-en": "Update the Goals and the Timeline in the client brief.",
   "held-partial-other-note-en":
     "Add a methods chapter to my thesis outline and update the blockers in the sprint review.",
