@@ -21,7 +21,6 @@ import {
 import { WORD_LOOK_VERSION } from "../../src/core/documents/formats/docxLook";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { WORD_LOOK_TYPES } from "../../src/renderer/src/editor/wordSchema";
-import { writeExportMarks } from "../../src/shared/exportMarks";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
   wordFileOf,
@@ -512,12 +511,6 @@ async function importedBefore({
   const before = new Y.Doc();
   Y.applyUpdate(before, await readFile(join(BEFORE, `${mind}.yjs`)));
   change?.(before);
-  // This Mind comes from a fixture instead of the import: page numbers and a watermark are the
-  // Note's own choice (#1258), off so the file it was is the file export writes.
-  writeExportMarks(before.getMap(MIND_SETTINGS_FIELD), {
-    pageNumbers: false,
-    watermark: "none",
-  });
   const at = new Date().toISOString();
   queryDatabase(dataDir, "DELETE FROM mind_updates WHERE mind_id = ?", [mindId]);
   queryDatabase(
