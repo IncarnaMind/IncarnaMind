@@ -994,9 +994,8 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
     ["期限为30日以上。", "期限为30日以上。"],
     ["前两个季度收入增长。", "前两个季度收入增长。"],
     ["乙方应在5月30日内付款。", "乙方应在5月30日内付款。"],
-    ["乙方应在30个工作日内付款。", "乙方应在60个工作日内付款。"],
   ])(
-    "and the same days are judged, as are a date and working days, which are no count of days: %s citing %s",
+    "and the same days are judged, as is a date, which is no count of days: %s citing %s",
     async (claim, quote) => {
       expect(await leftNotJudged(claim, quote)).toBe(false);
     },
@@ -1092,4 +1091,39 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
   ])("and the same words are judged: %s citing %s", async (claim, quote) => {
     expect(await leftNotJudged(claim, quote)).toBe(false);
   });
+
+  test.each([
+    ["乙方应在30个工作日内付款。", "乙方应在60个工作日内付款。"],
+    ["乙方应在30个工作日内付款。", "乙方应在30日内付款。"],
+    ["乙方应在30个工作日内付款。", "乙方应在30天内付款。"],
+    ["乙方应在30日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在30个营业日内付款。", "乙方应在30个工作日内付款。"],
+    ["股票停牌不得超过10个交易日。", "股票停牌不得超过20个交易日。"],
+    ["银行应在3个营业日内处理。", "银行应在5个营业日内处理。"],
+    ["乙方应在3至5个工作日内付款。", "乙方应在2至5个工作日内付款。"],
+    ["乙方应在三十（30）个工作日内付款。", "乙方应在六十（60）个工作日内付款。"],
+    ["乙方应在三十（20）个工作日内付款。", "乙方应在三十（20）个工作日内付款。"],
+    ["Payment is due within 30 working days.", "Payment is due within 60 working days."],
+  ])(
+    "working, business and trading days are periods of their own, held and not calendar days: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(true);
+    },
+  );
+
+  test.each([
+    ["乙方应在30个工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在30工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["股票停牌不得超过10个交易日。", "股票停牌不得超过10个交易日。"],
+    ["银行应在三个营业日内处理。", "银行应在3个营业日内处理。"],
+    ["乙方应在3至5个工作日内付款。", "乙方应在3至5个工作日内付款。"],
+    ["乙方应在三十（30）个工作日内付款。", "乙方应在30个工作日内付款。"],
+    ["乙方应在第3个工作日付款。", "乙方应在第3个工作日付款。"],
+    ["Payment is due within 30 working days.", "Payment is due within 30 working days."],
+  ])(
+    "and the same working, business and trading days are judged, a position is no count: %s citing %s",
+    async (claim, quote) => {
+      expect(await leftNotJudged(claim, quote)).toBe(false);
+    },
+  );
 });

@@ -370,6 +370,27 @@ describe("the other ways of writing a count of periods (#2953)", () => {
   });
 
   test.each([
+    ["乙方应在30个工作日内付款。", "30个工作日", 30, "工作日"],
+    ["乙方应在30工作日内付款。", "30工作日", 30, "工作日"],
+    ["股票停牌不得超过10个交易日。", "10个交易日", 10, "交易日"],
+    ["银行应在3个营业日内处理。", "3个营业日", 3, "营业日"],
+    ["银行应在三个营业日内处理。", "三个营业日", 3, "营业日"],
+    ["乙方应在三十（30）个工作日内付款。", "三十（30）个工作日", 30, "工作日"],
+    ["乙方应在三十（20）个工作日内付款。", "三十（20）个工作日", Number.NaN, "工作日"],
+  ])(
+    "a number before 工作日, 交易日 or 营业日 is a count in a unit of its own: %s",
+    (text, chars, value, word) => {
+      expect(read(text, "zh-CN")).toEqual([{ chars, value, word }]);
+    },
+  );
+
+  test("a range of working days is both its ends", () => {
+    expect(read("乙方应在3至5个工作日内付款。", "zh-CN")).toEqual(
+      ends("3至5个工作日", [5, 3], "工作日"),
+    );
+  });
+
+  test.each([
     ["它持续了三个季度。", "三个季度", 3],
     ["它持续了3个季度。", "3个季度", 3],
     ["前两个季度收入增长。", "两个季度", 2],
@@ -386,8 +407,8 @@ describe("the other ways of writing a count of periods (#2953)", () => {
     "乙方应在每月5日内付款。",
     "乙方应于30日付款。",
     "乙方应在每月30日前付款。",
-    "乙方应在30个工作日内付款。",
-  ])("a day of a month, and working days, are no count of days: %s", (text) => {
+    "乙方应在第3个工作日付款。",
+  ])("a day of a month, and a position, are no count of days: %s", (text) => {
     expect(read(text, "zh-CN")).toEqual([]);
   });
 

@@ -399,6 +399,12 @@ const CHINESE_UNITS: Readonly<Record<string, string>> = {
   日: "day",
   个季度: "quarter",
   季度: "quarter",
+  个工作日: "工作日",
+  工作日: "工作日",
+  个交易日: "交易日",
+  交易日: "交易日",
+  个营业日: "营业日",
+  营业日: "营业日",
 };
 
 const DAYS_AFTER = /^(?:(?:以|之)?内|以上|以下|之上|之下)/u;
@@ -406,8 +412,9 @@ const DAYS_BEFORE = /(?:满|超过|不少于|不超过|少于|多于|不足|不�
 
 /**
  * Whether the text around a number makes the unit after it name a date or a position, not a count:
- * "5/6月" and "5月" are months, "3/4季度" and "第3季度" quarters, "5月30日" a day of a month. "30日内"
- * and "超过30日" are thirty days; "连续3季度" counts, and so does anything with 个 (#2953).
+ * "5/6月" and "5月" are months, "3/4季度" and "第3季度" quarters, "5月30日" a day of a month, "第3个工作日"
+ * a position. "30日内" and "超过30日" are thirty days; "连续3季度" counts, and so does anything with 个.
+ * 工作日, 交易日 and 营业日 are periods of their own, never calendar days (#2953).
  */
 function namesDate(
   unit: string,
@@ -440,7 +447,12 @@ function namesDate(
 
 function chineseCounts(text: string, context: FigureContext): Figure[] {
   const counts: Figure[] = [];
-  for (const match of text.matchAll(/年|个月|月|周岁|周年|周|天|日|个季度|季度/gu)) {
+  // The reader knows 工作日 as a period and not 交易日 or 营业日: they are as long, so it is handed
+  // 工作日 for them and every offset stays.
+  const readable = text.replace(/交易日|营业日/gu, "工作日");
+  for (const match of text.matchAll(
+    /年|个月|月|周岁|周年|周|天|个?工作日|个?交易日|个?营业日|日|个季度|季度/gu,
+  )) {
     const unit = CHINESE_UNITS[match[0]];
     if (!unit) continue;
     const unitAt = match.index;
@@ -448,7 +460,7 @@ function chineseCounts(text: string, context: FigureContext): Figure[] {
     const after = text.slice(unitEnd);
     // "三个半月" is "三个月" and a half: the reader is given "三个月".
     const halfMonths = match[0] === "月" && text.slice(unitAt - 2, unitAt) === "个半";
-    const source = halfMonths ? text.slice(0, unitAt - 1) + text.slice(unitAt) : text;
+    const source = halfMonths ? readable.slice(0, unitAt - 1) + readable.slice(unitAt) : readable;
     const readAt = halfMonths ? unitAt - 2 : unitAt;
     const window = source.slice(Math.max(0, readAt - WORD_REACH), readAt);
     let found: Quantity | undefined = bracketed(source, readAt, context);
