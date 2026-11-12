@@ -3,12 +3,7 @@ import { create } from "zustand";
 import { chooseNudge } from "./nudges";
 import { useAppStore } from "./store";
 
-export type TipId =
-  | "call-offers"
-  | "citation-style"
-  | "connect-app"
-  | "meeting-recorded"
-  | "transcript-word";
+export type TipId = "call-offers" | "citation-style" | "connect-app" | "meeting-recorded";
 
 /** Interaction rule 14: a tip never shows a third time on a device. */
 export const TIP_SHOWS = 2;
