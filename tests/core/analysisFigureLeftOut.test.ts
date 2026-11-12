@@ -38,6 +38,7 @@ const WORDS = {
     second: (number: string) => `There were ${number} loans in February.`,
     swap: "Update the growth sentence and the February sentence.",
     waiting: "Put the number into the growth sentence you wrote.",
+    byInstruction: "Have the growth sentence in the note rewritten with the figure in it.",
     takeOut: "Take out the branch loans sentence you wrote.",
     cut: "Delete the sentence about how much branch loans grew.",
     quarter: (n: number, said: string) => `Q${n} growth ${said}.`,
@@ -69,6 +70,7 @@ const WORDS = {
     second: (number: string) => `二月借阅 ${number} 次。`,
     swap: "更新增长率那句和二月那句。",
     waiting: "把数字写进你刚写的增长率那句。",
+    byInstruction: "让 AI 改写笔记里的增长率那句，把数字写进去。",
     takeOut: "把你刚写的分馆借阅量那句删掉。",
     cut: "删掉说分馆借阅量上升多少的那句。",
     quarter: (n: number, said: string) => `${["一", "二", "三"][n - 1]}季度增长率${said}。`,
@@ -213,7 +215,10 @@ async function written(
                 inputs: [{ name: "loans", passage: found?.id ?? "" }],
                 code: rewrites(call)
                   ? "count"
-                  : triesAgain(call) || writesPlain(call) || swaps(call)
+                  : triesAgain(call) ||
+                      writesPlain(call) ||
+                      swaps(call) ||
+                      call.prompt.includes(words.byInstruction)
                     ? "again"
                     : "pass",
               },
@@ -252,6 +257,26 @@ async function written(
                   mind: words.title,
                   part: words.part,
                   content: words.sentence("8.0%"),
+                  times_as_long: 1,
+                  removes_only: false,
+                },
+              },
+            ],
+          };
+        return { text: language === "en" ? "Done." : "已完成。" };
+      }
+      if (call.prompt.includes(words.byInstruction)) {
+        const edits = call.results.filter((result) => result.tool === "edit_mind");
+        told.push(...edits.slice(told.length).map((result) => result.text));
+        if (edits.length === 0)
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  mind: words.title,
+                  part: words.part,
+                  instruction: words.put,
                   times_as_long: 1,
                   removes_only: false,
                 },
@@ -607,6 +632,19 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
       language === "en"
         ? 'Error: This change was not made: it takes out "[number missing]" and puts no calculated figure in its place. "[number missing]" stands for a number that could not be calculated. Either call calculate and write its marker where "[number missing]" is, or keep "[number missing]" exactly as written. Never write the number yourself.'
         : "Error: 这处改动没有做：它去掉了“[缺少数字]”，却没有在原处放入计算得出的数字。“[缺少数字]”表示一个未能算出的数字。请调用 calculate 并把它的标记写在“[缺少数字]”所在的位置，或者原样保留“[缺少数字]”。不要自己写出这个数字。",
+    ]);
+    expect(line).toBe(words.sentence(MARK));
+    expect(figures).toBe(0);
+  });
+
+  test("an Answer that asks Edit with AI for a number where the mark is is refused, and the model reads that an instruction can't carry a calculated figure", async () => {
+    const { edits, line, figures, told } = await askedAgain(language, words.byInstruction);
+    expect(edits.map((call) => call.status)).toEqual(["failed"]);
+    expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+    expect(told).toEqual([
+      language === "en"
+        ? 'Error: This change was not made: it takes out "[number missing]" and puts no calculated figure in its place. "[number missing]" stands for a number that could not be calculated. A change asked for by instruction cannot carry a calculated figure\'s marker. Call edit_mind again with content, not instruction: write the new text yourself, with the marker calculate returned where "[number missing]" is, in the same sentence. Or keep "[number missing]" exactly as written. Never write the number yourself.'
+        : "Error: 这处改动没有做：它去掉了“[缺少数字]”，却没有在原处放入计算得出的数字。“[缺少数字]”表示一个未能算出的数字。用 instruction 提出的改动带不了计算数字的标记。请改用 content 再调用一次 edit_mind：自己写出新的文字，在同一句里“[缺少数字]”所在的位置写上 calculate 返回的标记。或者原样保留“[缺少数字]”。不要自己写出这个数字。",
     ]);
     expect(line).toBe(words.sentence(MARK));
     expect(figures).toBe(0);

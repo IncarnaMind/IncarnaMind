@@ -251,9 +251,10 @@ export interface MindToolsOptions {
   wallMessage?: string;
   /**
    * What the model reads when its change takes out the mark where a figure couldn't be calculated
-   * with no calculated figure in its place (#2577), in the language the mark's words are in.
+   * with no calculated figure in its place (#2577), in the language the mark's words are in: of a
+   * change it wrote as `content`, and of one it asked for by `instruction`.
    */
-  missingNumberRefused: string;
+  missingNumberRefused: { content: string; instruction: string };
   /** Called when a named Note is refused because of the Folder wall. */
   wallRefused?(): void;
   /** Whether a Note with this name exists outside the current wall. */
@@ -2435,7 +2436,10 @@ export function mindTools(options: MindToolsOptions): {
     if (
       minds.read(mind.id, (note) => takesMissingNumberOver(note, over, blocks, { removesOnly }))
     ) {
-      throw new Refusal({ kind: "missing-number", mindId: mind.id }, options.missingNumberRefused);
+      throw new Refusal(
+        { kind: "missing-number", mindId: mind.id },
+        options.missingNumberRefused.content,
+      );
     }
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
@@ -2722,7 +2726,12 @@ export function mindTools(options: MindToolsOptions): {
         removesOnly: input.removes_only === true,
       });
       if (result.kind !== "proposed") {
-        const why = notProposed(result, mind, unmadeSaid(mind.name), options.missingNumberRefused);
+        const why = notProposed(
+          result,
+          mind,
+          unmadeSaid(mind.name),
+          options.missingNumberRefused.instruction,
+        );
         if (typeof why === "string") return why;
         if (why.problem.kind === "waiting") {
           const now = minds.read(mind.id, (blocks) =>
