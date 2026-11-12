@@ -158,10 +158,74 @@ describe("A name the Meeting was told is written its way in a line (#1031)", () 
       "We asked Deshawn about it.",
     );
   });
+
+  // protects=a letter and the mark written after it are one letter, so a line the transcriber writes with its accents apart (e and U+0301) is respelled exactly where the same line with the accent in its letter (U+00E9) is: the whole name or none of it, with no accent left on the name written, and a name told with its accent apart is the same name; fails_when=Kathérine written apart becomes Kate with the accent and "rine" after it, or stays where its twin is written Catherine, or José written apart stays where its twin is written Jose, or a line that already holds the told name with its accent apart is rewritten or gains a second accent, or a name whose last letter keeps a mark Unicode has no one character for (the grave on the dotted o a Yoruba name ends in) is written with the mark left behind, or a told name that ends before that mark is taken to be written already; no_claim=which spellings sound the same, which the tests above hold.
+  test("a line written with its accents apart is respelled exactly where the same line written whole is", () => {
+    // Half of a name is never another name: Kate is not the start of Kathérine, written either way.
+    expect(inToldSpelling("We asked Kathe\u0301rine today.", ["Kate"])).toBe(
+      "We asked Kathe\u0301rine today.",
+    );
+    expect(inToldSpelling("We asked Kath\u00e9rine today.", ["Kate"])).toBe(
+      "We asked Kath\u00e9rine today.",
+    );
+    // Their twins: the whole name is respelled, written either way.
+    for (const heard of ["Kathe\u0301rine", "Kath\u00e9rine"]) {
+      expect(inToldSpelling(`We asked ${heard} today.`, ["Catherine"])).toBe(
+        "We asked Catherine today.",
+      );
+    }
+    for (const heard of ["Jose\u0301", "Jos\u00e9"]) {
+      expect(inToldSpelling(`We asked ${heard} today.`, ["Jose"])).toBe("We asked Jose today.");
+    }
+    // The told name with its accent, written either way, is in the line already: the line stays.
+    for (const told of ["Jos\u00e9", "Jose\u0301"]) {
+      for (const line of ["We asked Jose\u0301 today.", "We asked Jos\u00e9 today."]) {
+        expect(inToldSpelling(line, [told])).toBe(line);
+      }
+      // Its twin: heard without the accent, it is written with it, in one character.
+      expect(inToldSpelling("We asked Jose today.", [told])).toBe("We asked Jos\u00e9 today.");
+    }
+    // A mark that stays a mark however it is written: the name is taken with it.
+    for (const heard of ["Ad\u00e9b\u00e1y\u1ecd\u0300", "Ade\u0301ba\u0301yo\u0323\u0300"]) {
+      expect(inToldSpelling(`We asked ${heard} today.`, ["Adebayo"])).toBe(
+        "We asked Adebayo today.",
+      );
+    }
+    // And a told name is not standing whole where a mark of its last letter follows it.
+    expect(inToldSpelling("We asked Ay\u1ecd\u0300 today.", ["Ay\u1ecd"])).toBe(
+      "We asked Ay\u1ecd today.",
+    );
+    expect(inToldSpelling("We asked Ay\u1ecd today.", ["Ay\u1ecd"])).toBe(
+      "We asked Ay\u1ecd today.",
+    );
+  });
+
+  // protects=a told name already written keeps its place, whatever its case, on every line: one that also holds a character whose lower-case form has another length (an ellipsis, a half) or an accent written apart is no exception, and a name heard later in that line is still respelled, with the accent left as the transcriber wrote it; fails_when=Deshawn is rewritten DeShawn on a line with an ellipsis or a half, before it or after it, or with café written apart, while it stays on the same line without them, or Katherine after the ellipsis or after that café stays as heard, or the café's accent is put into its letter; no_claim=a told name that is itself written with such a character.
+  test("a told name already written keeps its place on a line with an ellipsis or an accent written apart", () => {
+    const told = ["DeShawn", "Catherine"];
+    for (const line of [
+      "We asked Deshawn\u2026 about it.",
+      "Then\u2026 we asked Deshawn about it.",
+      "We asked Deshawn for \u00bd of it.",
+      "For \u00bd of it we asked Deshawn.",
+      "We asked Deshawn at the cafe\u0301.",
+      "We asked Deshawn at the caf\u00e9.",
+      "We asked Deshawn about it.",
+    ]) {
+      expect(inToldSpelling(line, told)).toBe(line);
+    }
+    // Their twins: on the same lines a name heard another way is respelled, and nothing else changes.
+    expect(inToldSpelling("We asked Deshawn\u2026 and Katherine.", told)).toBe(
+      "We asked Deshawn\u2026 and Catherine.",
+    );
+    expect(inToldSpelling("At the cafe\u0301 we asked Katherine and Deshawn.", told)).toBe(
+      "At the cafe\u0301 we asked Catherine and Deshawn.",
+    );
+  });
 });
 
-/** A name as a transcriber writes it: words in Latin letters with one space, apostrophe or hyphen between them. */
-const AS_HEARD = String.raw`\p{Script=Latin}+(?:[ '’-]\p{Script=Latin}+)*`;
+/** A name as a transcriber writes it: words in Latin letters, each with its marks, with one space, apostrophe or hyphen between them. */
+const AS_HEARD = String.raw`(?:\p{Script=Latin}\p{M}*)+(?:[ '’-](?:\p{Script=Latin}\p{M}*)+)*`;
 const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
@@ -175,7 +239,7 @@ function onlyNamesDiffer(heard: string, written: string, told: readonly string[]
     .filter((name) => new RegExp(`^${AS_HEARD}$`, "u").test(name))
     .sort((a, b) => b.length - a.length);
   const name = new RegExp(
-    String.raw`(?<!\p{Script=Latin})(?:${names.map(literally).join("|")})(?!\p{Script=Latin})`,
+    String.raw`(?<!\p{Script=Latin}\p{M}*)(?:${names.map(literally).join("|")})(?![\p{Script=Latin}\p{M}])`,
     "u",
   );
   return new RegExp(`^${written.split(name).map(literally).join(AS_HEARD)}$`, "u").test(heard);
@@ -202,6 +266,10 @@ describe("A respelling changes nothing in a line but the name it writes (#1031)"
       "下周三Catherine Marsh和Erik过来, then we ship.",
     ],
     ["The last word goes to Katherine", "The last word goes to Catherine"],
+    [
+      "At the cafe\u0301, Kathe\u0301rine Marsh met Rene\u0301e and E\u0301ric.",
+      "At the cafe\u0301, Catherine Marsh met Rene\u0301e and Erik.",
+    ],
   ];
 
   test.each(LINES)("%s", (heard, written) => {
@@ -209,7 +277,7 @@ describe("A respelling changes nothing in a line but the name it writes (#1031)"
     expect(onlyNamesDiffer(heard, written, TOLD)).toBe(true);
   });
 
-  // protects=the yardstick of the property below: it turns away a line that lost a sentence's full stop inside a name, one that lost the characters of another script against a name, and one with a comma moved, and takes a hyphen between a name's heard words as the name's to write; fails_when=the yardstick takes any of the three, or turns the hyphen away; no_claim=which heard words are a name's, which the tests above hold.
+  // protects=the yardstick of the properties below: it turns away a line that lost a sentence's full stop inside a name, one that lost the characters of another script against a name, one with a comma moved and one where an accent written apart is left on the name written, and takes a hyphen between a name's heard words, and a heard name with its accent apart, as the name's to write; fails_when=the yardstick takes any of the four, or turns the hyphen or the whole name written apart away; no_claim=which heard words are a name's, which the tests above hold.
   test("the yardstick turns away a lost full stop, lost characters of another script and a moved comma", () => {
     expect(
       onlyNamesDiffer(
@@ -225,6 +293,15 @@ describe("A respelling changes nothing in a line but the name it writes (#1031)"
       onlyNamesDiffer("We asked Katherine, then Eric.", "We asked Catherine then, Erik.", TOLD),
     ).toBe(false);
     expect(onlyNamesDiffer("We asked Mary-Ann.", "We asked Maryann.", TOLD)).toBe(true);
+    // An accent written apart is its letter's: left on the name written, the line is turned away.
+    expect(
+      onlyNamesDiffer("We asked Kathe\u0301rine today.", "We asked Kate\u0301rine today.", [
+        "Kate",
+      ]),
+    ).toBe(false);
+    expect(
+      onlyNamesDiffer("We asked Kathe\u0301rine today.", "We asked Catherine today.", TOLD),
+    ).toBe(true);
   });
 
   const HEARD = [
@@ -274,6 +351,41 @@ describe("A respelling changes nothing in a line but the name it writes (#1031)"
         `We asked ${name} about it.`,
       );
     }
+  });
+
+  const ACCENTED = [
+    "Kath\u00e9rine",
+    "Kath\u00e9rine Marsh",
+    "\u00c9ric",
+    "O'N\u00e9ill",
+    "D\u00e9 Shawn",
+    "Ren\u00e9e",
+  ];
+
+  // protects=a line the transcriber writes with its accents apart is respelled exactly where the same line with each accent in its letter is, and outside the names written it is the heard line character for character, its other accents still apart; fails_when=for any of the 360 lines (6 heard forms with an accent in each of two places of 10 sentences) the line written apart, put together again, differs from what its twin is written as, or differs from the heard line outside a told name; no_claim=a mark Unicode has no one character for, which the rule's own test holds.
+  test("in every sentence, a line written with its accents apart is respelled exactly where its twin written whole is", () => {
+    const lines = AROUND.flatMap((around) =>
+      ACCENTED.flatMap((first) => ACCENTED.map((second) => around(first, second))),
+    );
+    expect(lines).toHaveLength(360);
+    const apart = (whole: string) => whole.normalize("NFD");
+    expect(lines.filter((whole) => apart(whole) === whole)).toEqual([]);
+    const broken = lines.filter((whole) => {
+      const written = inToldSpelling(apart(whole), TOLD);
+      return (
+        written.normalize("NFC") !== inToldSpelling(whole, TOLD) ||
+        !onlyNamesDiffer(apart(whole), written, TOLD)
+      );
+    });
+    expect(broken).toEqual([]);
+    // Its twin: the lines are respelled, written either way, and Renée, a name not told, stays apart.
+    const respelled = (form: (whole: string) => string) =>
+      lines.filter((whole) => inToldSpelling(form(whole), TOLD) !== form(whole));
+    expect(respelled(apart)).toHaveLength(336);
+    expect(respelled((whole) => whole)).toHaveLength(336);
+    expect(inToldSpelling("We asked Rene\u0301e and E\u0301ric about it.", TOLD)).toBe(
+      "We asked Rene\u0301e and Erik about it.",
+    );
   });
 });
 
@@ -386,6 +498,44 @@ describe("The transcriber's words as the line writes them, for their times (#103
       [19, 4],
       [25, 5],
       [27, 6],
+    ]);
+  });
+
+  // protects=on a line written with its accents apart, the word heard for a told name is the name and is placed at it, and every word after an accent written apart keeps its own place in the line as written: the places are the line's own, not those of the line with its accents put together; fails_when=a word after café (e and U+0301) is placed one character early, or the two words heard for the name are left out or placed outside it; no_claim=the times themselves.
+  test("on a line written with its accents apart, the name's words and the words after an accent keep their places", () => {
+    const line = "At the cafe\u0301 we asked Kathe\u0301rine Marsh today.";
+    const heard = [
+      "At",
+      " the",
+      " cafe\u0301",
+      " we",
+      " asked",
+      " Kathe\u0301rine",
+      " Marsh",
+      " today.",
+    ];
+    expect(wordsInToldSpelling(line, heard, ["Catherine Marsh"])).toEqual([
+      "At",
+      " the",
+      " cafe\u0301",
+      " we",
+      " asked",
+      "Catherine",
+      "Marsh",
+      " today.",
+    ]);
+    expect(inToldSpelling(line, ["Catherine Marsh"])).toBe(
+      "At the cafe\u0301 we asked Catherine Marsh today.",
+    );
+    expect(placed(line, heard, ["Catherine Marsh"])).toEqual([
+      [0, 0],
+      [3, 1],
+      [7, 2],
+      [13, 3],
+      [16, 4],
+      [22, 5],
+      [32, 6],
+      [38, 7],
     ]);
   });
 

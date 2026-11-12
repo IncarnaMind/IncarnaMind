@@ -158,6 +158,24 @@ describe("A name is written as the meeting's Note writes it (#1031)", { timeout:
     expect(lines.join(" ")).not.toMatch(/Katherine|高欣/);
   });
 
+  // protects=a line the engine writes with its accents apart (e and U+0301) has the name written the Note's way, the whole name with no accent left behind, and what the Note doesn't name stays in the Transcript as the engine wrote it, its accent still apart; fails_when=the line keeps Kathérine, or reads Catherine with a stray accent or half the heard name after it, or Renée is rewritten or its accent put into its letter; no_claim=which spellings sound the same (tests/core/toldSpelling.test.ts holds the table).
+  test("a name the engine writes with its accent apart is written the Note's way, whole; a name the Note doesn't hold stays as the engine wrote it", async () => {
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      engine: {
+        lines: ["We asked Kathe\u0301rine to send the draft."],
+        theirLines: ["Then Rene\u0301e joined the call."],
+      },
+    });
+    const mind = await core.createMind({ title: "Sync with Catherine Marsh" });
+    const meeting = await core.createMeeting({ mindId: mind.id });
+    await core.startMeeting({ meetingId: meeting.id });
+
+    const lines = await linesOf(core, meeting.id, record);
+    expect(lines).toContain("We asked Catherine to send the draft.");
+    expect(lines).toContain("Then Rene\u0301e joined the call.");
+    expect(lines.join(" ")).not.toMatch(/Kathe|\u0301rine|Ren\u00e9e/);
+  });
+
   test("its twin: a meeting whose Note doesn't name her keeps the engine's spelling", async () => {
     const { core, record } = await transcribingCore(await createTempDataFolder(), {
       engine: SPELLED,

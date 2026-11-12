@@ -10,12 +10,17 @@ import { wordPlaces } from "../../shared/wordTimes";
 import { fold, namesAndParts, toldKeys } from "./context";
 import { latinSound } from "./sounds";
 
-const WORD_PART = /[\p{Script=Latin}\p{N}]/u;
 /**
- * A word in Latin letters and digits: what stands against it in another script is no part of it
- * and stays (Katherineさん).
+ * A mark is part of the letter it is written after. Some stay marks however the text is written:
+ * Unicode has no one character for the o with a dot below and a grave that Yoruba names end in.
  */
-const WORD = /[\p{Script=Latin}\p{N}]+/gu;
+const WORD_PART = /[\p{Script=Latin}\p{N}\p{M}]/u;
+/**
+ * A word in Latin letters and digits, each with its marks: what stands against it in another
+ * script is no part of it and stays (Katherineさん).
+ */
+const WORD = /(?:[\p{Script=Latin}\p{N}]\p{M}*)+/gu;
+const MARKED = /\P{M}\p{M}+/gu;
 /**
  * What stands between the words of one name as it was heard: "Mary-Ann", "De Shawn". Never a
  * full stop, which ends a sentence as often as an abbreviation, a line break, or more than one
@@ -36,6 +41,38 @@ const writtenAsName = (word: string) => /^\p{Lu}/u.test(word) && /\p{Ll}/u.test(
  */
 const soundedWhole = (text: string) =>
   !/(?![a-z])[\p{L}\p{N}]/iu.test(text.normalize("NFKD").replace(/\p{M}/gu, ""));
+
+/**
+ * The line as it is read: each letter and the marks written after it as the one character Unicode
+ * has for them (e and U+0301 as é), so a name written either way is one name. `placed` gives
+ * where a place in it is in `text`, whose own characters stay the transcriber's.
+ */
+function asRead(text: string): { read: string; placed(at: number): number } {
+  if (!/\p{M}/u.test(text)) return { read: text, placed: (at) => at };
+  const places: number[] = [];
+  let read = "";
+  let done = 0;
+  for (const { 0: letter, index } of text.matchAll(MARKED)) {
+    const whole = letter.normalize("NFC");
+    for (let at = done; at < index; at++) places.push(at);
+    for (let at = 0; at < whole.length; at++) places.push(index);
+    read += text.slice(done, index) + whole;
+    done = index + letter.length;
+  }
+  for (let at = done; at < text.length; at++) places.push(at);
+  read += text.slice(done);
+  return { read, placed: (at) => places[at] ?? text.length };
+}
+
+/**
+ * `text` case folded place for place: a character whose folded form has another length ("…" is
+ * three full stops) stays as it is, so a place in the folded text is the same place in `text`.
+ */
+const foldedInPlace = (text: string) =>
+  text.replace(/./gsu, (each) => {
+    const folded = fold(each);
+    return folded.length === each.length ? folded : each;
+  });
 
 interface ToldName {
   name: string;
@@ -58,7 +95,8 @@ const prepared = new WeakMap<readonly string[], Told>();
 function toldOf(words: readonly string[]): Told {
   const known = prepared.get(words);
   if (known) return known;
-  const all = [...new Set(namesAndParts(words).map((each) => each.word))]
+  const whole = words.map((word) => word.normalize("NFC"));
+  const all = [...new Set(namesAndParts(whole).map((each) => each.word))]
     .filter((name) => name !== "")
     .sort((a, b) => b.length - a.length);
   const soundOf = (name: string) => (soundedWhole(name) ? latinSound(name) : "");
@@ -133,36 +171,42 @@ type Swap = Pick<Span, "from" | "until" | "starts"> & { name: string };
 function swapsIn(text: string, words: readonly string[]): Swap[] {
   const told = toldOf(words);
   if (told.sounds.size === 0) return [];
-  const spans = spansOf(text, told);
+  const { read, placed } = asRead(text);
+  const spans = spansOf(read, told);
   if (spans.size === 0) return [];
 
-  const taken = new Uint8Array(text.length);
+  const taken = new Uint8Array(read.length);
   const free = (from: number, until: number) => !taken.subarray(from, until).includes(1);
-  const lower = fold(text);
+  const lower = foldedInPlace(read);
   const swaps: Swap[] = [];
   for (const { name, sound, parts, longest } of told.names) {
     const key = fold(name);
     // A told name already written keeps its place, whatever its case: as whole words, never as
     // the start of a longer one (Ann in Anni).
-    if (key.length === name.length && lower.length === text.length) {
-      for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
-        const until = at + key.length;
-        const whole = !WORD_PART.test(text.charAt(at - 1)) && !WORD_PART.test(text.charAt(until));
-        if (whole && free(at, until)) taken.fill(1, at, until);
-      }
+    for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
+      const until = at + key.length;
+      const whole = !WORD_PART.test(read.charAt(at - 1)) && !WORD_PART.test(read.charAt(until));
+      if (whole && free(at, until)) taken.fill(1, at, until);
     }
     for (const { from, until, heard, starts } of spans.get(sound) ?? []) {
-      if (heard.length > longest || text.slice(from, until) === name || !free(from, until)) {
+      if (heard.length > longest || read.slice(from, until) === name || !free(from, until)) {
         continue;
       }
       // Another told name, or part of one (Sara when Sarah is told too), is that name.
       if (heard.some((word) => told.keys.has(fold(word)) && !parts.has(fold(word)))) continue;
-      if (heard.length === 1 && OPENS.test(text.slice(0, from))) continue;
+      if (heard.length === 1 && OPENS.test(read.slice(0, from))) continue;
       taken.fill(1, from, until);
       swaps.push({ from, until, name, starts });
     }
   }
-  return swaps.sort((a, b) => a.from - b.from);
+  return swaps
+    .sort((a, b) => a.from - b.from)
+    .map((swap) => ({
+      name: swap.name,
+      from: placed(swap.from),
+      until: placed(swap.until),
+      starts: swap.starts.map(placed),
+    }));
 }
 
 /** `text` with the words that sound the same as a told name written as the name. */
