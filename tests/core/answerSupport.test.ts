@@ -939,4 +939,42 @@ describe("the sentences of an Answer its check reads", () => {
       ["Revenue grew 20.4% in 2025.", [4], true, false],
     ]);
   });
+
+  test("a Chinese sentence that quotes an English one is judged whole, and its Citations take that judgement (#3009)", async () => {
+    const answer =
+      "另外，该文档的摘要页写明“Prepared for software testing[^1]. The text is fictional.”（为软件测试准备，文本是虚构的）[^2]。";
+    const whole =
+      "另外，该文档的摘要页写明“Prepared for software testing. The text is fictional.”（为软件测试准备，文本是虚构的）。";
+    const plans: Record<string, Plan> = { [whole]: { verdict: "supported", says: whole } };
+    const judged: string[] = [];
+    const { core } = await setUpWithDocuments(
+      answeringModel(
+        "software testing fictional",
+        answer,
+        ["Prepared for software testing", "The text is fictional"],
+        plans,
+        {
+          judge: (call) => {
+            for (const [, sentence = ""] of call.prompt.matchAll(
+              /<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g,
+            ))
+              judged.push(sentence);
+            return batchReply(call, plans);
+          },
+        },
+      ),
+      [
+        {
+          name: "Test summary.md",
+          contents: "# Summary\n\nPrepared for software testing. The text is fictional.\n",
+        },
+      ],
+    );
+
+    const citations = await citationsOfAnswer(core, "这份文档的摘要页写了什么？");
+
+    expect(judged).toEqual([whole]);
+    expect(checkOf(citations, 1)).toMatchObject({ check: "found" });
+    expect(checkOf(citations, 2)).toMatchObject({ check: "found" });
+  });
 });
