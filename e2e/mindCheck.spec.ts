@@ -131,17 +131,24 @@ async function harbourNotes(window: Page) {
 
 const marks = (window: Page) => window.getByTestId("claim-mark");
 
-const mindCheckFinished = (window: Page, claims: number) =>
-  window.waitForFunction((count) => {
-    const card = document.querySelector('[data-testid="check-card"]');
-    const marks = document.querySelectorAll('[data-testid="claim-mark"]');
-    return (
-      card !== null &&
-      marks.length === count &&
-      [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
-      card.querySelector('[data-testid="card-progress"]') === null
-    );
-  }, claims);
+/**
+ * Every one of the Note's `claims` marked and none still being checked; with `card` (the default),
+ * the check card open and showing no progress too.
+ */
+const mindCheckFinished = (window: Page, claims: number, { card = true } = {}) =>
+  window.waitForFunction(
+    ({ count, withCard }) => {
+      const open = document.querySelector('[data-testid="check-card"]');
+      const marks = document.querySelectorAll('[data-testid="claim-mark"]');
+      return (
+        (open !== null || !withCard) &&
+        marks.length === count &&
+        [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
+        open?.querySelector('[data-testid="card-progress"]') == null
+      );
+    },
+    { count: claims, withCard: card },
+  );
 
 for (const language of ["en", "zh-CN"] as const) {
   test(`a temporarily unavailable check says the problem in one line and Try again does it (${language})`, async () => {
@@ -839,7 +846,9 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
 
   await window.getByTestId("mind-tab").first().click({ button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: "核对", exact: true }));
-  // On this computer it checks at once, asking nothing: no price line and no question.
+  // On this computer it checks at once, asking nothing: no price line and no question. The run
+  // takes about ten seconds: the card is aimed at once every claim is marked, not after a time.
+  await mindCheckFinished(window, 15, { card: false });
   const health = await checkCard(window, window, { stopTimeout: 120_000 });
   await mindCheckFinished(window, 15);
   const ask = health.getByTestId("mind-check-ask");
@@ -853,9 +862,10 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(widen).toHaveText("对照全部文档核对");
   await pointAndClick(window, widen);
   // The claims are named already and a model on this computer is free: it checks at once, asking nothing.
-  await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(3);
+  await expect(marks(window).and(window.locator('[data-check="checking"]')).first()).toBeVisible();
   await expect(ask).toHaveCount(0);
   await mindCheckFinished(window, 15);
+  await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(3);
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
   await expect(health.getByTestId("health-checked-all")).toBeVisible();
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
