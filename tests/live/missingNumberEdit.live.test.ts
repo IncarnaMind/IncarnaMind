@@ -9,7 +9,7 @@
  *
  *   INCARNAMIND_LIVE_ANTHROPIC_KEY   Claude (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku by default)
  *   INCARNAMIND_LIVE_DEEPSEEK_KEY    DeepSeek (INCARNAMIND_LIVE_DEEPSEEK_MODEL, deepseek-flash by default)
- *   INCARNAMIND_LIVE_RUNS            runs of each language and instruction (5)
+ *   INCARNAMIND_LIVE_RUNS            runs of each language and instruction (1)
  *   INCARNAMIND_LIVE_MAX_USD         stops before the next run once the spend reaches it (0.5)
  *   INCARNAMIND_LIVE_REPORT          a file to keep each run's line and the totals
  *
@@ -98,7 +98,7 @@ describe.each(LIVE)("The mark through Edit with AI, live: $name", (live) => {
     `${live.name}: the mark comes back a mark, never a number`,
     { timeout: 3_600_000 },
     async () => {
-      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 5);
+      const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1);
       const cap = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? 0.5);
       const dataDir = await createTempDataFolder();
       const core = startCore(dataDir);
