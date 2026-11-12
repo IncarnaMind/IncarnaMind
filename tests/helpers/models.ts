@@ -359,11 +359,12 @@ export type GeneratedReply =
     }
   | { error: ScriptedRefusal };
 
+/** One unbacked claim a scripted check returns: about a Note unless `about` says otherwise. */
+type ScriptedClaim = { sentence: string; kind: ClaimedChange; about?: string };
+
 export function claimCheckReply(
   call: GenerateCall,
-  unbacked:
-    | readonly { sentence: string; kind: ClaimedChange }[]
-    | ((prompt: string) => readonly { sentence: string; kind: ClaimedChange }[]),
+  unbacked: readonly ScriptedClaim[] | ((prompt: string) => readonly ScriptedClaim[]),
 ): GeneratedReply {
   if (call.question && call.question !== "claimed-changes") {
     return unscripted(call.question, call.system);

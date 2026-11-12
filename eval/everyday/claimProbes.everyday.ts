@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { wrapLanguageModel } from "ai";
 import { test } from "vitest";
 import { spendOf } from "../../scripts/nightlyRealModel";
 import { unbackedClaims } from "../../src/core/answers/claimedChanges";
@@ -7,6 +8,7 @@ import type { AnswerToolCall } from "../../src/core/api";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { chatModelSpecOf, readConfig } from "../lib/config";
 import { createLog } from "../lib/log";
+import { type ClaimFilings, filingRows, filingsByProbe, keepClaimFilings } from "./claimFilings";
 
 const ROOT = resolve(__dirname, "../..");
 const MINDS = [
@@ -548,7 +550,13 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY.");
       return;
     }
-    const model = createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" });
+    // Where the check filed each sentence is kept beside its flag: a right count can come from the
+    // wrong filing (#2970).
+    const filings = keepClaimFilings();
+    const model = wrapLanguageModel({
+      model: createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" }),
+      middleware: filings.middleware,
+    });
     const rows: {
       id: string;
       run: number;
@@ -558,6 +566,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       durationMs: number;
       passed: boolean;
       unchecked?: true;
+      flagged: boolean;
+      filings?: ClaimFilings;
     }[] = [];
     const usage = {
       inputTokens: 0,
@@ -579,10 +589,12 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           });
         // A check the provider didn't answer gives no verdict, and reads as "nothing flagged": it is
         // asked again, and one never answered is counted apart rather than as a probe's result.
+        filings.take();
         let result = await check();
         for (let retry = 0; retry < 2 && result.failed && !result.usage; retry++) {
           result = await check();
         }
+        const filed = filings.take();
         const unchecked = result.failed === true && !result.usage;
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
@@ -601,9 +613,12 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           durationMs: result.durationMs,
           passed: passed && !unchecked,
           ...(unchecked && { unchecked: true as const }),
+          flagged,
+          ...(filed && { filings: filed }),
         });
       }
     }
+    filings.take();
     const backed = await unbackedClaims(
       "I added a risks section to “Q3 review”.",
       [writeCall],
@@ -624,6 +639,15 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
     }
     const backedPassed = backed.claims.length + backed.commands.length === 0;
+    const backedFilings = filings.take();
+    const filedByProbe = filingsByProbe([
+      ...rows,
+      {
+        id: "the backed write",
+        flagged: !backedPassed,
+        ...(backedFilings && { filings: backedFilings }),
+      },
+    ]);
     const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
     const checked = rows.filter((row) => !row.unchecked);
     const spent = spendOf(
@@ -648,7 +672,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
             commands: backed.commands,
             passed: backedPassed,
             durationMs: backed.durationMs,
+            ...(backedFilings && { filings: backedFilings }),
           },
+          filings: filedByProbe,
           usage,
           durationMs,
           spent,
@@ -668,6 +694,10 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
+        "",
+        "## Where each probe's sentences were filed",
+        "",
+        ...filingRows(filedByProbe),
         "",
         "Details are in report.json.",
       ].join("\n"),
