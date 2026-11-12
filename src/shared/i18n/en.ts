@@ -4974,6 +4974,8 @@ export const en = {
   "export.includeQuestions": "Include Questions",
   "export.pageNumbers": "Page numbers",
   "export.pageNumbers.hint": "At the foot of every Word and PDF page.",
+  "export.pageNumbers.wordHint":
+    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add page numbers if the file has no footer of its own.",
   "export.watermark": "Watermark",
   "export.watermark.hint": "Written as Word’s own watermark, so Word can change or remove it.",
   "export.watermark.none": "None",
@@ -6219,6 +6221,7 @@ export const en = {
   "error.question.model": "That model can’t be used. Choose another model.",
   "error.mindStyle.invalid": "That isn’t a font and a text size IncarnaMind has.",
   "error.exportMarks.invalid": "That isn’t a page number and watermark choice IncarnaMind has.",
+  "error.exportMarks.format": "Only a Word file and a PDF have page numbers and a watermark.",
   "error.privacy.usageDataLocalMode":
     "Usage data stays off: “Keep everything on this computer” is on.",
   "error.check.claimTooLong": "The claim is too long to check: at most {max} characters.",

@@ -14,6 +14,7 @@
  */
 
 import { readPartPlans } from "../../../shared/claimParts";
+import { isRecord } from "../../../shared/record";
 import type { ClaimPartPlan, DocumentText } from "../../api";
 import { byKey, fieldsOf, labelled, list, parseJson, replyJson } from "../judge";
 
@@ -172,22 +173,15 @@ export const findClaimsPrompt = (sentences: readonly ({ number: number } & Sorte
 
 /**
  * Each sentence's decision in the model's reply, by its number among `numbers`: true for a claim.
- * A sentence the reply doesn't decide has none. Null when the reply decides none of them.
+ * A sentence the reply doesn't decide has none. Null when the reply decides none of them, or gives
+ * a number two decisions that differ (#2895).
  */
 export function readClaimDecisions(
   reply: string,
   numbers: readonly number[],
 ): Map<number, boolean> | null {
-  const start = reply.indexOf("{");
-  const end = reply.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(reply.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const value = replyJson(reply);
+  if (!isRecord(value)) return null;
   const asked = new Set(numbers);
   const decisions = new Map<number, boolean>();
   for (const [key, decision] of Object.entries(value)) {
