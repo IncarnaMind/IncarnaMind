@@ -117,3 +117,92 @@ Every bar must hold on both models. A bar that fails keeps the change from shipp
 - **How long after the reply's end every mark had settled:** median, 90th percentile, and the share within 3, 5, 10 and 20 s, per cell. The owner will judge whether marks that late are worth having.
 - **What a press costs the User:** its model requests and their input and output tokens, from the press until its marks settled, the median per press on each arm, with how many of those requests were the check's (its tokens are in the medians).
 - **Each press with a wrong ✓ on either arm,** with its sentence and its check. Also the load at each run's start and during it, the allowance read before it, and the spend, with the judge's share apart.
+
+## Result, 2026-11-12
+
+**Bar 1a fails on Claude Sonnet 5.5: W1 is 12 against at most 10 (W0 21).** The gate fails and nothing ships. Every other bar holds on both models, and neither run is void.
+
+Both runs were at commit c893ebab2, judged by Claude Opus 5.5, on the second direct Anthropic key, one after the other. Each held the key's lock for its whole length.
+
+| | Claude Haiku 5.5 | Claude Sonnet 5.5 |
+|---|---|---|
+| Run (UTC) | 02:40:21–02:54:49 | 02:58:37–03:14:44 |
+| Allowance before it | 99% | 99% |
+| 15-minute load, start → end | 9.18 → 7.51 | 7.28 → 4.70 |
+| One-minute load, start / end (range) | 5.70 / 7.59 (4.6–8.9) | 7.19 / 2.88 (2.6–6.5) |
+| Model requests in the record, ended other than finished | 250, 0 | 307, 0 |
+| Spend (the judge's share) | $0.78 ($0.71) | $2.01 ($0.61) |
+
+### The bars
+
+| Bar | Claude Haiku 5.5 | Claude Sonnet 5.5 |
+|---|---|---|
+| **1a**, W1 at most half of W0 | W0 31, W1 5, at most 15: holds | **W0 21, W1 12, at most 10: fails** |
+| 1b, ✓ held against listed (Fisher) | 41 of 76 (54%) against 7 of 42 (17%), p = 0.0000554: holds | 94 of 107 (88%) against 16 of 28 (57%), p = 0.000602: holds |
+| Reported: main's presses with a wrong ✓ (its flips) | 31 (7) | 21 (7) |
+| Reported: how it would close (Chinese W1, English W1, flips) | 5, 0, 3: Part of #2847 | 6, 6, 4: Closes #2847 |
+| 2, kept ✓, English · Chinese | 24 of 44 (55%) · 17 of 32 (53%): holds | 41 of 50 (82%) · 53 of 57 (93%): holds |
+| 3, cited, English | 27 → 27: holds | 30 → 30: holds |
+| 3, judged right, English | 18 → 20: holds | 27 → 27: holds |
+| 3, every Citation found, English | 30 → 29: holds | 30 → 30: holds |
+| 3, cited, Chinese | 30 → 29: holds | 30 → 30: holds |
+| 3, judged right, Chinese | 18 → 18: holds | 26 → 28: holds |
+| 3, every Citation found, Chinese | 30 → 30: holds | 29 → 30: holds |
+| 4a, the same request | 60 of 60: holds | 60 of 60: holds |
+| 4b, first words, slower pairs, English · Chinese | 13 · 12 of 30: holds | 19 · 19 of 30, p = 0.100: holds |
+| 4b, the reply's end, slower pairs, English · Chinese | 15 · 11 of 30: holds | 19 · 19 of 30, p = 0.100: holds |
+| Reported: median paired difference, the reply's end, English · Chinese | +0.03 s · −0.18 s | +0.07 s · +0.04 s |
+| 5, failed on the branch alone | 0 · 0: holds | 0 · 0: holds |
+
+Reported, per cell:
+
+- **Marks settled after the reply's end:**
+
+  | | Median | Within 5 s |
+  |---|---|---|
+  | Haiku · English | 3.31 s | 29 of 30 |
+  | Haiku · Chinese | 3.98 s | 18 of 28 |
+  | Sonnet · English | 1.92 s | 29 of 30 |
+  | Sonnet · Chinese | 2.08 s | 29 of 30 |
+
+  Haiku's Chinese settle times count 28 presses, not 30: in two presses the judge's reply came back empty twice, cut at its length. The runner keeps a press's marks only with a judgement it can read, so those two drop out of bar 2 and the settle times. Bar 3 counts them as not judged right.
+- **A press's cost, median.** Main: 1 to 2 requests. The branch: 3, one of them the check's.
+
+  | | Main, tokens out | The branch, tokens out |
+  |---|---|---|
+  | Haiku | 263 to 287 | 893 to 1,062 |
+  | Sonnet | 273 to 286 | 472 to 495 |
+
+  On the branch the tokens in rise by about 1,000 to 1,500.
+- **Kept ✓ among the lines the check judged:** Haiku 24 of 34 and 17 of 29; Sonnet 41 of 44 and 53 of 57.
+- **On Claude Sonnet 5.5, first words and the reply's end are the same pairs.** In all 120 presses, on both arms, the first words came within 0.7 ms of the reply's end (median 0.2 ms). The reply's request gave its first text a median 4 ms before it ended. So the two sign tests count the same pairs. On Haiku the first words came a median 1.1 s before the end.
+
+Spend: $2.85 with the pilot ($0.05). #2847 is at $4.11 of its $8.
+
+### The presses with W1, line by line (a reading made after the run; it changes no bar)
+
+For each number the judge lists that shows ✓ on the branch, this gives the lines that carry it and its Citation's check. A Citation's check is the worst of its sentences. The record holds, per Citation, that check and whether ✓ shows on any line. It holds no verdict per line. The judge names numbers, not lines. So where a listed number sits on one line, the ✓ is on the line whose claim the judge faults. Where it sits on several lines, the record can't say which line carries the ✓, or which line's claim the judge faults.
+
+| Model | Press | Listed number with ✓ | Lines carrying it | Its Citation's check | The ✓ |
+|---|---|---|---|---|---|
+| Haiku | zh12-answer-two run 1 | 1, 2 | 2 each | not checked, both | on one line at least; which, not recorded |
+| Haiku | zh12-answer-two run 2 | 1, 2 | 2 each | not checked, both | on one line at least; which, not recorded |
+| Haiku | zh12-no-monday run 1 | 1 | 1 | passed | on the line the judge faults |
+| Haiku | zh12-check-right run 1 | 2 | 1 (a → line) | passed | on the line the judge faults |
+| Haiku | zh12-want-bills run 2 | 1 | 2 | unsupported | on one line at least; which, not recorded |
+| Sonnet | en12-answer-unknown run 1 | 1; 2 | 2; 1 | unsupported; passed | 2: on the line the judge faults |
+| Sonnet | en12-answer-unknown run 2 | 1 | 2 | unsupported | on one line at least; which, not recorded |
+| Sonnet | en12-answer-earlier run 1 | 1 | 2 | unsupported | on one line at least; which, not recorded |
+| Sonnet | en12-check-right run 1 | 2 | 2 (one a → line) | not checked | on one line at least; which, not recorded |
+| Sonnet | en12-sum run 1 | 1 | 1 ("…by Wednesday, and they agreed") | passed | on the line the judge faults |
+| Sonnet | en12-sum run 2 | 3 | 1 ("…by Wednesday, and they agreed") | passed | on the line the judge faults |
+| Sonnet | zh12-answer-price run 1 | 1 | 2 | not checked | on one line at least; which, not recorded |
+| Sonnet | zh12-answer-two run 1 | 1, 2 | 2 each | not checked, both | on one line at least; which, not recorded |
+| Sonnet | zh12-answer-unknown run 1 | 1, 2 | 1 each | passed, both | on the line the judge faults |
+| Sonnet | zh12-answer-unknown run 2 | 1; 2 | 2; 1 | unsupported; passed | 2: on the line the judge faults |
+| Sonnet | zh12-ask-shops run 1 | 1 | 1 | passed | on the line the judge faults |
+| Sonnet | zh12-check-right run 1 | 1 | 1 | passed | on the line the judge faults |
+
+- **Claude Haiku 5.5:** of 5 presses with W1, 2 have a ✓ on the very line the judge faults. In the other 3, the listed number sits on two lines, and not every sentence carrying it passed. The record doesn't say whether the ✓ is on the faulted line.
+- **Claude Sonnet 5.5:** of 12, 7 have a ✓ on the very line the judge faults. In the other 5, the listed number sits on two lines, and not every sentence carrying it passed; the record doesn't say whether the ✓ is on the faulted line.
+- **Presses with the ✓ only on another line of the same number:** the record can't count them. At most, they are the 3 and the 5 above.
