@@ -313,6 +313,37 @@ describe("words the check copies as unstated, or as not in the cited words, take
   );
 });
 
+describe("a copy that isn't the sentence's own words decides nothing", () => {
+  const CONCLUDED = "Two K9 kilns cost £185,000 installed, so the upgrade needs no further budget.";
+  const OTHER = "Hartwell Kilns supplies the two K9 kilns.";
+  test.each([
+    { copy: "a paraphrase", unstated: "so no more money will be needed", check: "not-checked" },
+    { copy: "another sentence's words", unstated: "Hartwell Kilns supplies", check: "not-checked" },
+    { copy: "the whole sentence", unstated: CONCLUDED.slice(0, -1), check: "unsupported" },
+    {
+      copy: "its own words, spaced and cased otherwise",
+      unstated: "SO the upgrade  needs no further budget",
+      check: "unsupported",
+    },
+  ])("unstated words that are $copy leave the sentence $check", async ({ unstated, check }) => {
+    const answer = `${CONCLUDED.slice(0, -1)}[^1]. ${OTHER.slice(0, -1)}[^2].`;
+    const plans: Record<string, Plan> = {
+      [CONCLUDED]: { verdict: "supported", unstated, says: CONCLUDED },
+      [OTHER]: { verdict: "unsupported", uncited: "the two K9 kilns cost £185,000", says: OTHER },
+    };
+    const { core } = await setUpWithDocuments(
+      answeringModel("kilns cost", answer, [COST, COST], plans),
+      [KILN_DECK],
+    );
+
+    const citations = await citationsOfAnswer(core, "What does the kiln upgrade cost?");
+
+    expect(checkOf(citations, 1)).toMatchObject({ quote: COST, check });
+    // Uncited words that aren't the sentence's own leave it unjudged too, whatever the verdict.
+    expect(checkOf(citations, 2)).toMatchObject({ quote: COST, check: "not-checked" });
+  });
+});
+
 describe("an Answer works at once, and its Citations wait for their sentences' judgement", () => {
   const ANSWER = "Installation is planned for February 2027[^1].";
   const ANSWER_ZH = "窑炉计划在 2027 年 2 月安装[^1]。";

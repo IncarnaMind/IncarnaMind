@@ -3250,6 +3250,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordAiUse: (inputs) => void aiUse.record(inputs),
     chat,
     ...(adapters.checkPaths && { checkPaths: adapters.checkPaths }),
+    checkRuleAsBefore: () => adapters.checkRuleAsBefore?.() ?? false,
     consent,
     localOnly: () => embedding.localOnly(),
     resolveScope,

@@ -296,6 +296,8 @@ export interface ChecksOptions
   };
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
+  /** See `CoreAdapters.checkRuleAsBefore`. */
+  checkRuleAsBefore?(): boolean;
   warmReranker?: VerifyOptions["warmReranker"];
   consent: Consent;
   /** Local mode: only models on this computer. */
@@ -1740,6 +1742,7 @@ export function createChecks(options: ChecksOptions) {
     },
     spent: (runId, currency) => options.readSpent(runId, currency).amount,
     capLeft: () => options.capLeft(),
+    ...(options.checkRuleAsBefore && { ruleAsBefore: options.checkRuleAsBefore }),
   });
 
   const wholeRead = createWholeRead({

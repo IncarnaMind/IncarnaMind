@@ -1373,6 +1373,11 @@ export interface CoreAdapters {
    */
   checkPaths?: CheckPathsOverride;
   /**
+   * Whether the sentence check's batches judge by the rule before #3003: its instructions with one
+   * `quoted` word, and no words copied as unstated or uncited. Only the evaluation passes one.
+   */
+  checkRuleAsBefore?: () => boolean | undefined;
+  /**
    * Whether a call's notes start once its words are final, while its speakers are told apart
    * (#2773), instead of after them; unset, they do. Only tests and the evaluation pass one.
    */

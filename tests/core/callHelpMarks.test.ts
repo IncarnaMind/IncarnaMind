@@ -12,6 +12,10 @@ import {
   type Meeting,
   type MeetingHelpKind,
 } from "../../src/core";
+import {
+  sentenceBatchInstructions,
+  sentenceBatchInstructionsAsBefore,
+} from "../../src/core/answers/checks/sentenceBatch";
 import { readHelpReply, sentencePassed } from "../../src/renderer/src/helpReply";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -59,6 +63,8 @@ function batchOf(call: GenerateCall, verdicts: readonly [string, Verdict][]): { 
         return {
           number: Number(number),
           kind: plan.kind ?? "fact",
+          // The rule before #3003 reads its one word for what `uncited` copies now.
+          quoted: plan.uncited ? "other" : "states",
           unstated: plan.unstated ?? null,
           uncited: plan.uncited ?? null,
           verdict: plan.verdict,
@@ -122,7 +128,12 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
  * A meeting recording, with the price sheet in its Library, its help answered by `given`, on a
  * model in Ollama unless `cloud` names an Anthropic one.
  */
-async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) {
+async function setUp(
+  given: Marking,
+  quoteOnly?: () => boolean,
+  cloud?: string,
+  ruleAsBefore?: () => boolean,
+) {
   const calls: ModelCall[] = [];
   const batches: GenerateCall[] = [];
   const dataDir = await createTempDataFolder();
@@ -130,6 +141,7 @@ async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) 
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     ...(quoteOnly && { helpMarksQuoteOnly: quoteOnly }),
+    ...(ruleAsBefore && { checkRuleAsBefore: ruleAsBefore }),
   });
   const saved = await core.saveChatProvider(
     cloud
@@ -246,17 +258,17 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   );
 
   test.each([
-    { language: "English", reply: ENGLISH, words: "Enterprise is $45" },
-    { language: "Chinese", reply: CHINESE, words: "企业版每个席位" },
+    { language: "English", reply: ENGLISH, words: "Enterprise is $45", own: "with single sign-on" },
+    { language: "Chinese", reply: CHINESE, words: "企业版每个席位", own: "含单点登录" },
   ])(
     "in $language, a sentence the check doesn't pass keeps its Citation plain, whatever the reason",
-    async ({ reply, words }) => {
+    async ({ reply, words, own }) => {
       const cases: [Verdict, string][] = [
         [{ verdict: "unsupported" }, "unsupported"],
         [{ verdict: "contradicted" }, "contradicted"],
         [{ verdict: "supported", kind: "opinion" }, "not-checked"],
-        [{ verdict: "supported", uncited: "with single sign-on" }, "not-checked"],
-        [{ verdict: "supported", unstated: "with single sign-on" }, "unsupported"],
+        [{ verdict: "supported", uncited: own }, "not-checked"],
+        [{ verdict: "supported", unstated: own }, "unsupported"],
       ];
       for (const [verdict, check] of cases) {
         const { core, meeting } = await setUp({ reply, verdicts: [[words, verdict]] });
@@ -755,6 +767,31 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(atEnd.citations[0]?.judgedAt).toBeUndefined();
     expect(batches).toHaveLength(1);
     expect(marks(judgedPress)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
+
+  // protects=the evaluation's switch for the rule before #3003 sends that rule's instructions and reads its one quoted word, so a paired gate compares the two rules and nothing else; fails_when=the switch sends today's instructions or reads today's fields; no_claim=which rule is right (#3003, #2739).
+  test("with the evaluation's switch for the rule before #3003, a conclusion the batch copies still passes, as it did, and its instructions are that rule's", async () => {
+    let asBefore = true;
+    const { core, meeting, batches } = await setUp(
+      {
+        reply: ENGLISH,
+        verdicts: [["Enterprise", { verdict: "supported", unstated: "with single sign-on" }]],
+      },
+      undefined,
+      undefined,
+      () => asBefore,
+    );
+
+    const before = await (await pressed(core, meeting, "answer")).judged();
+    asBefore = false;
+    const today = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(batches.map((batch) => batch.system)).toEqual([
+      sentenceBatchInstructionsAsBefore("en"),
+      sentenceBatchInstructions("en"),
+    ]);
+    expect(marks(before)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    expect(marks(today)).toEqual([{ marker: 1, check: "unsupported", passed: false }]);
   });
 
   // protects=the paired gate reads the reply's end on both arms from the same event, and the check's request comes after it, so the check can't move the reply's measured end (#2847); fails_when=a check request starts before the reply's end is announced; no_claim=how long the check takes.

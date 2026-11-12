@@ -44,7 +44,9 @@ import {
   batchParts,
   batchPrompt,
   readBatch,
+  readBatchAsBefore,
   sentenceBatchInstructions,
+  sentenceBatchInstructionsAsBefore,
 } from "./sentenceBatch";
 
 /** What a checked sentence's result makes of each of its found Citations. */
@@ -89,6 +91,11 @@ export interface AnswerCheckInput {
 }
 
 export interface AnswerCheckOptions {
+  /**
+   * Whether the batch's rule is the one before #3003: its instructions and its one `quoted` word.
+   * Only the evaluation's paired gate sets it (`CoreAdapters.checkRuleAsBefore`).
+   */
+  ruleAsBefore?(): boolean;
   /** The interface language: what a sentence's result on its Citations is written in. */
   language(): Language;
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
@@ -154,6 +161,15 @@ const WORSE: Record<SupportResult["check"], number> = {
   contradicted: 2,
 };
 
+/** Its letters and digits in order, spaces, punctuation and symbols aside, so a copy is found as written. */
+const copiedText = (text: string) => text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+
+/** Whether `words` a model copied are the sentence's own, as #3003's fields ask them to be. */
+export const isCopyOf = (sentence: string, words: string): boolean => {
+  const copy = copiedText(words);
+  return copy.length > 0 && copiedText(sentence).includes(copy);
+};
+
 /** A sentence a batch judged, as its Citations show it; null when it isn't judged. */
 async function supportOf(
   sentence: CitedSentence & { found: MarkedCitation[] },
@@ -163,6 +179,12 @@ async function supportOf(
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
   // a fact sorted as opinion must not show the green check.
   if (!verdict || verdict.kind === "opinion") return null;
+  // A copy that isn't the sentence's own words is a misreading, not a finding: the sentence is
+  // left unjudged rather than called unsupported or passed, so stray text never decides it.
+  const strayCopy = [verdict.unstated, verdict.uncited].some(
+    (words) => words !== null && !isCopyOf(sentence.sentence, words),
+  );
+  if (strayCopy) return null;
   if (verdict.verdict === "contradicted") return { check: "contradicted", verdict: verdict.says };
   // Who does it, and whether it has happened, as Roles and Time do in a sentence's own check (#1668).
   // Words no Passage states make it unsupported whatever verdict came with them: the verdict alone
@@ -316,7 +338,11 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const scope = options.scope(input.mindId, input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
     const judged = asked(input);
-    const instructions = sentenceBatchInstructions(options.language());
+    const asBefore = options.ruleAsBefore?.() === true;
+    const instructions = (asBefore ? sentenceBatchInstructionsAsBefore : sentenceBatchInstructions)(
+      options.language(),
+    );
+    const readReply = asBefore ? readBatchAsBefore : readBatch;
 
     const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
@@ -377,7 +403,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           within: { most: room },
           parts: batchParts(batch),
           data: BATCH_TAGS,
-          reply: json((value) => readBatch(value, batch.length)),
+          reply: json((value) => readReply(value, batch.length)),
           items: batch.length,
           retries: 1,
           signal: input.signal,
