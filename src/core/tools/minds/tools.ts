@@ -126,6 +126,7 @@ import {
   ownWaitingTexts,
   replaceApplied,
   replaceOwn,
+  takesMissingNumberOver,
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
@@ -248,6 +249,11 @@ export interface MindToolsOptions {
   focused: { mindId: string; blockIds: readonly string[] } | null;
   /** Why a named Note outside the Folder can't be read. */
   wallMessage?: string;
+  /**
+   * What the model reads when its change takes out the mark where a figure couldn't be calculated
+   * with no calculated figure in its place (#2577), in the language the mark's words are in.
+   */
+  missingNumberRefused: string;
   /** Called when a named Note is refused because of the Folder wall. */
   wallRefused?(): void;
   /** Whether a Note with this name exists outside the current wall. */
@@ -961,6 +967,7 @@ function notProposed(
   result: EditWithAiResult,
   mind: ChangeableMind,
   noTableSaid: string,
+  missingNumberRefused: string,
 ): Refusal | string {
   const { id: mindId, name } = mind;
   switch (result.kind) {
@@ -1024,6 +1031,8 @@ function notProposed(
         { kind: "typed-tag", mindId },
         `Nothing was proposed in “${name}”: the rewrite left out a <removed> tag the User typed there, which would take their words out. The text is as it was: don't say it was changed. You may try again once, keeping each tag the User typed as it is.`,
       );
+    case "missing-number":
+      return new Refusal({ kind: "missing-number", mindId }, missingNumberRefused);
     case "not-placed":
       return new Refusal(
         { kind: "not-placed", mindId },
@@ -2423,6 +2432,9 @@ export function mindTools(options: MindToolsOptions): {
     if (uncited) throw uncited;
     const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
     if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
+    if (minds.read(mind.id, (note) => takesMissingNumberOver(note, over, blocks))) {
+      throw new Refusal({ kind: "missing-number", mindId: mind.id }, options.missingNumberRefused);
+    }
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();
@@ -2708,7 +2720,7 @@ export function mindTools(options: MindToolsOptions): {
         removesOnly: input.removes_only === true,
       });
       if (result.kind !== "proposed") {
-        const why = notProposed(result, mind, unmadeSaid(mind.name));
+        const why = notProposed(result, mind, unmadeSaid(mind.name), options.missingNumberRefused);
         if (typeof why === "string") return why;
         if (why.problem.kind === "waiting") {
           const now = minds.read(mind.id, (blocks) =>

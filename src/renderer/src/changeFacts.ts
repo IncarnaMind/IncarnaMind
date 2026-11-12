@@ -230,6 +230,11 @@ export function keptText(t: Translate, row: ChangedMind): string | null {
         ? [t("mindChanges.extraCells", { count: row.extraCells })]
         : []),
     ...(row.figuresLeftOut ? [figuresLeftText(t, row.figuresLeftOut)] : []),
+    ...(row.missingNumberRefused === undefined
+      ? []
+      : row.missingNumberRefused === 1
+        ? [t("mindChanges.missingNumberRefused.one")]
+        : [t("mindChanges.missingNumberRefused", { count: row.missingNumberRefused })]),
     ...(row.chartNotDrawn
       ? [t("mindChanges.noChart", { reason: t(`mindChanges.noChart.${row.chartNotDrawn}`) })]
       : []),

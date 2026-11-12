@@ -84,7 +84,13 @@ import {
   replaceOwn,
   waitingIn,
 } from "../proposals/ownWaiting";
-import { splitCiting, type Unplaced, unplacedSince } from "../proposals/placed";
+import {
+  figurePlaces,
+  splitCiting,
+  takesMissingNumber,
+  type Unplaced,
+  unplacedSince,
+} from "../proposals/placed";
 import {
   acceptedText,
   addNotes,
@@ -850,6 +856,7 @@ export function createEdits(options: EditsOptions) {
     const { blocks } = copy;
     // Explain's words cite nothing: what it writes is checked against the Mind as it was.
     const asItWas = explain ? splitCiting(blocks, request) : null;
+    const placesBefore = figurePlaces(blocks, request);
     const { requestId } = hooks;
     // An edit the User asked for applies at once, here or from the assistant, and what its reply
     // leaves out without quoting it as taken out stays (#880, #2180), made again too (#2796).
@@ -948,7 +955,13 @@ export function createEdits(options: EditsOptions) {
       unplaced = stream
         ? stream.unplaced()
         : asItWas && unplacedSince(asItWas, blocks, request, new Map());
-      return { ...stream?.written(), ...(unplaced && { notPlaced: true }) };
+      return {
+        ...stream?.written(),
+        ...(unplaced && { notPlaced: true }),
+        ...(takesMissingNumber(placesBefore, figurePlaces(blocks, request)) && {
+          takesMissingNumber: true,
+        }),
+      };
     };
     /** Writes in the copy and, checked, merges it into the Mind: nothing more once the change is refused. */
     const step = (write: () => boolean): void => {
@@ -981,11 +994,15 @@ export function createEdits(options: EditsOptions) {
     };
     /**
      * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed,
-     * or hold a Citation it didn't place: none of it goes in, and the reply isn't read further.
+     * hold a Citation it didn't place, or take out the mark where a figure couldn't be calculated:
+     * none of it goes in, and the reply isn't read further.
      */
     const untrusted = (): EditWithAiResult | null => {
       const why = refusedNow();
-      return why === "not-placed" || why === "misnamed" || why === "typed-tag"
+      return why === "not-placed" ||
+        why === "misnamed" ||
+        why === "typed-tag" ||
+        why === "missing-number"
         ? { kind: why }
         : null;
     };

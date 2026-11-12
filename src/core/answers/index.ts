@@ -77,7 +77,11 @@ import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
-import { missingNumberWords, withMissingNumbers } from "../../shared/missingNumbers";
+import {
+  MISSING_NUMBER_REFUSED,
+  missingNumberWords,
+  withMissingNumbers,
+} from "../../shared/missingNumbers";
 import {
   linkKnownSources,
   type NamedSource,
@@ -2886,6 +2890,7 @@ export function createAnswers(options: AnswersOptions) {
               notFiled: () => {
                 wallRefusals.add("folder.wall.notFiled");
               },
+              missingNumberRefused: MISSING_NUMBER_REFUSED[options.interfaceLanguage()],
               ...(wallId && {
                 wallMessage: translate(options.interfaceLanguage(), "folder.wall.refusal"),
                 wallRefused: () => {

@@ -58,7 +58,7 @@ export const recordOf = (made: Made, at: Date): ProposalRequest => ({
 /** What the one check reads of what a write wrote: `Written`'s flags. */
 export type WriteReport = Pick<
   Written,
-  "notPlaced" | "misnamed" | "droppedTypedTag" | "unmadeTable" | "unplaced"
+  "notPlaced" | "misnamed" | "droppedTypedTag" | "takesMissingNumber" | "unmadeTable" | "unplaced"
 > & {
   /** Where the write went wrong, as its writer names the place: an outside agent's paragraph. */
   at?: string;
@@ -78,6 +78,7 @@ export function refusalOf(report: WriteReport): ChangeRefusal | null {
   if (report.notPlaced) return { kind: "not-placed", ...at };
   if (report.misnamed) return { kind: "misnamed", ...at };
   if (report.droppedTypedTag) return { kind: "typed-tag", ...at };
+  if (report.takesMissingNumber) return { kind: "missing-number", ...at };
   if (report.unmadeTable) return { kind: "no-table", ...at };
   if (report.unplaced && report.unplaced.length > 0) {
     return { kind: "unplaced", quotes: report.unplaced, ...at };

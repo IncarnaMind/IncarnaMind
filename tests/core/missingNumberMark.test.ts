@@ -11,6 +11,8 @@ import type { ConversationAnswer } from "../../src/core";
 import { EDIT_INSTRUCTIONS, withMissingNumber } from "../../src/core/edits/prompt";
 import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { REFUSAL_WORDS } from "../../src/shared/changeRefusals";
+import { translate } from "../../src/shared/i18n";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { type EditCall, editingModel, wholeParagraph } from "../helpers/editing";
@@ -170,5 +172,22 @@ describe.each([
       passage.replace(" in 2026 and 9% in 2025.", `; 2025 was ${otherWords} too.`),
     );
     expect(lastLine(client)).toBe(`Growth was ${MARK}; 2025 was ${otherWords} too.`);
+  });
+
+  test("a reply that puts a plain number where the mark is is refused, the mark stays, and the line says so", async () => {
+    const { client, result } = await noteWithMark((passage) => passage.replace(words, "8.0%"));
+    expect(result.kind).toBe("missing-number");
+    expect(lastLine(client)).toBe(`Growth was ${MARK} in 2026 and 9% in 2025.`);
+    expect(translate(language, REFUSAL_WORDS["missing-number"].editor)).toBe(
+      language === "en"
+        ? "The AI’s rewrite left out [number missing], so nothing changed. Try again."
+        : "AI 改写时漏掉了[缺少数字]，没有改动。请重试。",
+    );
+  });
+
+  test("a reply that leaves the mark out is refused too", async () => {
+    const { client, result } = await noteWithMark((passage) => passage.replace(` ${words}`, ""));
+    expect(result.kind).toBe("missing-number");
+    expect(lastLine(client)).toBe(`Growth was ${MARK} in 2026 and 9% in 2025.`);
   });
 });

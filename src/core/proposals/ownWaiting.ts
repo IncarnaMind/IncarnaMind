@@ -31,15 +31,18 @@ import { createElement, type NodeJSON, nodeOf, topLevelBlocks } from "../answers
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
+  CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
+import { takesMissingNumber } from "./placed";
 import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
@@ -140,13 +143,15 @@ const REMOVED_BLOCKS: ReadonlySet<string> = new Set([
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
   CITATION_NODE,
+  MISSING_NUMBER_NODE,
   "hardBreak",
   "paragraph",
   "heading",
 ]);
 // A formula, picture, chart or code block carries no mark in the Mind, so one among the
-// assistant's text already there may be the User's: only Citations, line breaks and empty
-// paragraphs are its own.
+// assistant's text already there may be the User's: only Citations, the mark where a figure
+// couldn't be calculated, which a later Answer's calculated figure takes the place of (#2577),
+// line breaks and empty paragraphs are its own.
 const writtenAtom = (atom: Y.XmlElement): boolean => WRITTEN_ATOMS.has(atom.nodeName);
 
 function allAiText(
@@ -578,6 +583,33 @@ export function citationsDropped(
 ): number {
   const kept = new Set(revised.flatMap(citationsIn));
   return (blocksOf(blocks, over) ?? []).flatMap(citationsIn).filter((key) => !kept.has(key)).length;
+}
+
+/**
+ * Whether `revised`, put in place of `over`'s Blocks, takes out the mark where a figure couldn't
+ * be calculated with no calculated figure in its place (#2577).
+ */
+export function takesMissingNumberOver(
+  blocks: Y.XmlFragment,
+  over: Pick<OwnWaiting, "blockIds" | "fingerprint">,
+  revised: readonly NodeJSON[],
+): boolean {
+  const namesInNote = (node: Y.XmlElement): string[] => [
+    node.nodeName,
+    ...node.toArray().flatMap((child) => (child instanceof Y.XmlElement ? namesInNote(child) : [])),
+  ];
+  const namesInText = (node: NodeJSON): string[] => [
+    node.type,
+    ...(node.content ?? []).flatMap(namesInText),
+  ];
+  const places = (names: readonly string[]) => ({
+    marks: names.filter((name) => name === MISSING_NUMBER_NODE).length,
+    figures: names.filter((name) => name === CALCULATED_FIGURE_NODE).length,
+  });
+  return takesMissingNumber(
+    places((blocksOf(blocks, over) ?? []).flatMap(namesInNote)),
+    places(revised.flatMap(namesInText)),
+  );
 }
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */

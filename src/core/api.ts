@@ -7054,6 +7054,8 @@ export interface RegenerateProposalInput {
  *   no words for it, so which paragraph it replaces can't be told (#2356).
  * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
  *   take their words out (#2356).
+ * - "missing-number": it took out the mark where a figure couldn't be calculated, with no
+ *   calculated figure in its place (#2577).
  * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
  * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
  */
@@ -7061,6 +7063,7 @@ export const changeRefusals = [
   "not-placed",
   "misnamed",
   "typed-tag",
+  "missing-number",
   "no-table",
   "unplaced",
 ] as const;

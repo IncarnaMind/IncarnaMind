@@ -32,6 +32,11 @@ export interface ChangedMind {
   extraCells: number;
   /** Figure markers its text there marks as missing, for lack of a figure (#2577). Absent: none. */
   figuresLeftOut?: FiguresLeftOut;
+  /**
+   * Its calls there refused for taking out that mark with no calculated figure in its place, and
+   * not followed by a call that changed the Note after all (#2577). Absent: none.
+   */
+  missingNumberRefused?: number;
   /** The whole paragraphs its removals there took out, when they only removed (#2356). Absent: none. */
   removed?: RemovedParagraphs;
 }
@@ -94,5 +99,14 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     }
     rows.set(change.mindId, row);
   }
+  answer.toolCalls.forEach((call, at) => {
+    const problem = call.mindProblem;
+    if (problem?.kind !== "missing-number") return;
+    const row = rows.get(problem.mindId);
+    const tried = answer.toolCalls
+      .slice(at + 1)
+      .some((later) => later.mindChange?.mindId === problem.mindId);
+    if (row && !tried) row.missingNumberRefused = (row.missingNumberRefused ?? 0) + 1;
+  });
   return [...rows].map(([mindId, row]) => ({ mindId, ...row }));
 }

@@ -1853,6 +1853,8 @@ export const en = {
   "edit.problem.unchanged.said": "Nothing changed. The AI said: “{said}”",
   "edit.problem.typed-tag":
     "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
+  "edit.problem.missing-number":
+    "The AI’s rewrite left out [number missing], so nothing changed. Try again.",
   "edit.problem.not-placed":
     "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
   "edit.problem.misnamed":
@@ -7796,6 +7798,10 @@ export const en = {
   "mindChanges.dropped.one": "· 1 source couldn’t be matched, so it was left out",
   "mindChanges.extraCells": "· {count} extra cells were kept as text",
   "mindChanges.extraCells.one": "· 1 extra cell was kept as text",
+  "mindChanges.missingNumberRefused.one":
+    "· 1 change wasn’t made: it left out [number missing] without calculating the figure",
+  "mindChanges.missingNumberRefused":
+    "· {count} changes weren’t made: they left out [number missing] without calculating the figure",
   "mindChanges.figuresLeft.one":
     "· 1 figure couldn’t be calculated, so the text says [number missing]",
   "mindChanges.figuresLeft.one.named":
@@ -7952,6 +7958,8 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.propose.missingNumber":
+    "The text for {name} takes out [number missing], which only a figure IncarnaMind calculated may take the place of, so nothing was written.",
   "agents.propose.typedTag":
     "The text for {name} leaves out a <removed> tag the User typed there, which would take their words out, so nothing was written. Keep each tag as the paragraph has it.",
   "agents.propose.misnamed":

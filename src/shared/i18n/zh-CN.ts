@@ -1776,6 +1776,7 @@ export const zhCN = {
   "edit.problem.unplaced": "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
   "edit.problem.unchanged.said": "没有改动。AI 说：“{said}”",
   "edit.problem.typed-tag": "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
+  "edit.problem.missing-number": "AI 改写时漏掉了[缺少数字]，没有改动。请重试。",
   "edit.problem.not-placed": "AI 的改写会加入或修改引用、脚注或计算结果，没有改动。请重试。",
   "edit.problem.misnamed": "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
@@ -7383,6 +7384,8 @@ export const zhCN = {
   "mindChanges.dropped.one": "· 有 1 处出处无法匹配，已删去",
   "mindChanges.extraCells": "· 多出的 {count} 个单元格已作为文字保留",
   "mindChanges.extraCells.one": "· 多出的 1 个单元格已作为文字保留",
+  "mindChanges.missingNumberRefused.one": "· 有 1 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
+  "mindChanges.missingNumberRefused": "· 有 {count} 处改动没有做：漏掉了[缺少数字]，也没有算出数字",
   "mindChanges.figuresLeft.one": "· 有 1 个数字未能计算，文中标为[缺少数字]",
   "mindChanges.figuresLeft.one.named": "· 有 1 个数字未能计算，文中标为[缺少数字]：{figures}",
   "mindChanges.figuresLeft": "· 有 {count} 个数字未能计算，文中标为[缺少数字]",
@@ -7510,6 +7513,8 @@ export const zhCN = {
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
+  "agents.propose.missingNumber":
+    "{name} 的文字去掉了[缺少数字]，只有 IncarnaMind 计算得出的数字才能替代它，因此没有写入任何修改。",
   "agents.propose.typedTag":
     "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
   "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",

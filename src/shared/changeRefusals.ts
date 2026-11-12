@@ -26,6 +26,13 @@ export const REFUSAL_WORDS = {
     agent: "agents.propose.typedTag",
     model: "the rewrite left out a <removed> tag the User typed",
   },
+  "missing-number": {
+    editor: "edit.problem.missing-number",
+    card: "mindChanges.missingNumberRefused.one",
+    agent: "agents.propose.missingNumber",
+    model:
+      "the change took out [number missing], which only a calculated figure may take the place of",
+  },
   "no-table": {
     editor: "edit.problem.no-table",
     card: "mindCall.failed.noTable",

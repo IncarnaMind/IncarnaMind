@@ -13,6 +13,7 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
 } from "../api";
 
@@ -85,6 +86,41 @@ export function tallyCiting(
   }
   return counts;
 }
+
+/**
+ * The marks where a figure couldn't be calculated, and the calculated figures, in `root` as it
+ * reads with `request`'s changes accepted and no other's (#2577).
+ */
+export function figurePlaces(
+  root: Y.XmlFragment | Y.XmlElement,
+  request: string,
+): { marks: number; figures: number } {
+  const found = { marks: 0, figures: 0 };
+  const visit = (node: Y.XmlFragment | Y.XmlElement) => {
+    for (const child of node.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      const othersToAdd = proposal?.kind === "insert" && proposal.request !== request;
+      const takenOut = proposal?.kind === "delete" && proposal.request === request;
+      if (othersToAdd || takenOut) continue;
+      if (child.nodeName === MISSING_NUMBER_NODE) found.marks++;
+      if (child.nodeName === CALCULATED_FIGURE_NODE) found.figures++;
+      visit(child);
+    }
+  };
+  visit(root);
+  return found;
+}
+
+/**
+ * Whether going from `before` to `now` takes out a mark where a figure couldn't be calculated with
+ * no calculated figure in its place: only a figure that reaches the Note as a calculated figure
+ * may take a mark's place, never digits in text (#2577).
+ */
+export const takesMissingNumber = (
+  before: { marks: number; figures: number },
+  now: { marks: number; figures: number },
+): boolean => before.marks - now.marks > Math.max(0, now.figures - before.figures);
 
 const same = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) =>
   a.size === b.size && [...a].every(([key, n]) => b.get(key) === n);

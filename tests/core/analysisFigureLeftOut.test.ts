@@ -34,6 +34,7 @@ const WORDS = {
     rewrite: "Tidy the growth sentence in that note.",
     again: "Try the growth figure again and put it in the note.",
     put: "Put the calculated growth, 8.0%, where the note says [number missing].",
+    plain: "Write the growth into the note as a plain number.",
     label: "Average monthly loan growth",
     title: "Growth",
     sentence: (marker: string) => `Harbour's average monthly loan growth was ${marker}.`,
@@ -47,6 +48,7 @@ const WORDS = {
     rewrite: "整理一下那篇笔记里的增长率这句话。",
     again: "再算一次增长率，写进笔记。",
     put: "把算出的增长率 8.0% 写在笔记中[缺少数字]的位置。",
+    plain: "把增长率直接写成数字放进笔记。",
     label: "月均借阅增长率",
     title: "增长",
     sentence: (marker: string) => `港湾分馆的月均借阅增长率为 ${marker}。`,
@@ -123,6 +125,10 @@ const rewrites = (call: ModelCall) =>
 const triesAgain = (call: ModelCall) =>
   call.prompt.includes(WORDS.en.again) || call.prompt.includes(WORDS["zh-CN"].again);
 
+/** The Answer's request that writes the number as plain digits: the plain Question's. */
+const writesPlain = (call: ModelCall) =>
+  call.prompt.includes(WORDS.en.plain) || call.prompt.includes(WORDS["zh-CN"].plain);
+
 /** The sentence of the Note the second Answer read, as it read it: its line that names the growth. */
 const readSentence = (call: ModelCall, language: Language): string =>
   call.prompt
@@ -134,6 +140,8 @@ async function written(language: Language, file: Buffer, content: string) {
   const words = WORDS[language];
   /** The sentences each Check sent to be sorted into claims, the latest last. */
   const listed: string[][] = [];
+  /** What the model was told each edit_mind call came to, in order. */
+  const told: string[] = [];
   const tidy = (said: string) =>
     language === "en" ? said.replace("average", "mean") : said.replace("的月均", "每月平均");
   const model = scriptedModel(
@@ -156,11 +164,36 @@ async function written(language: Language, file: Buffer, content: string) {
               input: {
                 title: rewrites(call) ? BRANCHES.label : words.label,
                 inputs: [{ name: "loans", passage: found?.id ?? "" }],
-                code: rewrites(call) ? "count" : triesAgain(call) ? "again" : "pass",
+                code: rewrites(call)
+                  ? "count"
+                  : triesAgain(call) || writesPlain(call)
+                    ? "again"
+                    : "pass",
               },
             },
           ],
         };
+      }
+      if (writesPlain(call)) {
+        const edits = call.results.filter((result) => result.tool === "edit_mind");
+        if (edits.length > 0 && told.length < edits.length)
+          told.push(...edits.slice(told.length).map((result) => result.text));
+        if (edits.length === 0)
+          return {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  mind: words.title,
+                  part: words.part,
+                  content: words.sentence("8.0%"),
+                  times_as_long: 1,
+                  removes_only: false,
+                },
+              },
+            ],
+          };
+        return { text: language === "en" ? "Done." : "已完成。" };
       }
       if (triesAgain(call)) {
         const edits = call.results.filter((result) => result.tool === "edit_mind");
@@ -300,6 +333,7 @@ async function written(language: Language, file: Buffer, content: string) {
     core,
     conversationId: answer.conversationId,
     mindId: change.mindId,
+    told,
     listed,
     lines,
     sentence: lines().at(-1),
@@ -393,41 +427,16 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     expect(read).not.toMatch(/\d/);
   });
 
-  test("an Answer that records its own figure 1 and rewrites the sentence keeps the mark a mark", async () => {
-    const { core, mindId, conversationId } = await written(
+  /** Asks the Answer in the Note's conversation, accepts what it wrote, and reads the Note's last line and its figures. */
+  async function askedAgain(language: Language, question: string) {
+    const { core, mindId, conversationId, told } = await written(
       language,
       FIRST_MONTH_BLANK,
-      words.sentence("[=1]"),
+      WORDS[language].sentence("[=1]"),
     );
     const answer = await askAssistant(core, {
       conversationId,
-      text: words.rewrite,
-      mindId,
-      analyse: true,
-    });
-    const client = await connectToMind(core, mindId);
-    await client.settled();
-    await resolveChanges(client, "accept");
-    await client.settled();
-    const edited = answer.toolCalls.findLast((call) => call.tool === "edit_mind");
-    const after = client.blocks
-      .toArray()
-      .flatMap((block) => (block instanceof Y.XmlElement ? [shown(block)] : []));
-    core.close();
-    expect(edited?.status).toBe("done");
-    expect(after.at(-1)).toBe(words.tidied(MARK));
-    expect(after.join("\n")).not.toContain("12");
-  });
-
-  test("a later Answer that calculates the figure can't yet write it over the mark: its new text is refused as not its own, and Edit with AI puts the number in as text (What is left)", async () => {
-    const { core, mindId, conversationId } = await written(
-      language,
-      FIRST_MONTH_BLANK,
-      words.sentence("[=1]"),
-    );
-    const answer = await askAssistant(core, {
-      conversationId,
-      text: words.again,
+      text: question,
       mindId,
       analyse: true,
     });
@@ -436,7 +445,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     await resolveChanges(client, "accept");
     await client.settled();
     const edits = answer.toolCalls.filter((call) => call.tool === "edit_mind");
-    const after = client.blocks.toArray().at(-1);
+    const last = client.blocks.toArray().at(-1);
     let figures = 0;
     const count = (node: Y.XmlElement) => {
       for (const child of node.toArray()) {
@@ -445,11 +454,34 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
         count(child);
       }
     };
-    if (after instanceof Y.XmlElement) count(after);
+    if (last instanceof Y.XmlElement) count(last);
     core.close();
-    expect(edits.map((call) => call.status)).toEqual(["failed", "done"]);
-    expect(edits[0]?.mindProblem?.kind).toBe("content-not-own");
-    expect(after instanceof Y.XmlElement ? shown(after) : null).toBe(words.sentence("8.0%"));
+    return { edits, line: last instanceof Y.XmlElement ? shown(last) : null, figures, told };
+  }
+
+  test("an Answer that records its own figure 1 and rewrites its own sentence keeps the mark a mark", async () => {
+    const { edits, line } = await askedAgain(language, words.rewrite);
+    expect(edits.map((call) => call.status)).toEqual(["done"]);
+    expect(line).toBe(words.tidied(MARK));
+  });
+
+  test("a later Answer that calculates the figure puts it where the mark was", async () => {
+    const { edits, line, figures } = await askedAgain(language, words.again);
+    expect(edits.map((call) => call.status)).toEqual(["done"]);
+    expect(line).toBe(words.sentence("8.0%"));
+    expect(figures).toBe(1);
+  });
+
+  test("an Answer whose new text has a plain number where the mark is is refused, and the mark stays", async () => {
+    const { edits, line, figures, told } = await askedAgain(language, words.plain);
+    expect(edits.map((call) => call.status)).toEqual(["failed"]);
+    expect(edits[0]?.mindProblem?.kind).toBe("missing-number");
+    expect(told).toEqual([
+      language === "en"
+        ? 'Error: This change was not made: it takes out "[number missing]" and puts no calculated figure in its place. "[number missing]" stands for a number that could not be calculated. Either call calculate and write its marker where "[number missing]" is, or keep "[number missing]" exactly as written. Never write the number yourself.'
+        : "Error: 这处改动没有做：它去掉了“[缺少数字]”，却没有在原处放入计算得出的数字。“[缺少数字]”表示一个未能算出的数字。请调用 calculate 并把它的标记写在“[缺少数字]”所在的位置，或者原样保留“[缺少数字]”。不要自己写出这个数字。",
+    ]);
+    expect(line).toBe(words.sentence(MARK));
     expect(figures).toBe(0);
   });
 

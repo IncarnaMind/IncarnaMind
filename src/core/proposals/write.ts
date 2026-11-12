@@ -1330,6 +1330,11 @@ export interface Written {
    * doesn't place (#2424): the change is refused.
    */
   notPlaced?: true;
+  /**
+   * What it wrote takes out the mark where a figure couldn't be calculated, which only a
+   * calculated figure may take the place of (#2577): the change is refused.
+   */
+  takesMissingNumber?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
