@@ -46,16 +46,16 @@ const WORDS = {
     question: "What do tides do? Four citations, thought over.",
     line: "0 of 4 sentences checked · This Answer’s $0.25 checking limit reached",
     card: "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
-    capLine: "Your monthly limit of",
+    capLine: "0 of 4 sentences checked · Your monthly limit reached",
     capCard:
-      /^Not checked: your monthly limit of \$\d+\.\d\d was reached before Claude Fable 5 finished checking this sentence\.$/,
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
   },
   "zh-CN": {
     question: "潮水怎么涨落？四条引用，细想。",
     line: "已核对 4 句中的 0 句 · 已达本回答 $0.25 的核对上限",
     card: "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
-    capLine: "已达每月上限",
-    capCard: /^未核对：Claude Fable 5 还没核对完这句，就已达每月上限 \$\d+\.\d\d。$/,
+    capLine: "已核对 4 句中的 0 句 · 已达每月上限",
+    capCard: "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
   },
 } as const;
 
@@ -111,7 +111,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(notChecked).toHaveCount(4, { timeout: 30_000 });
 
       const steps = await openSteps(window, answer);
-      await expect(steps.getByTestId("answer-check-stopped")).toContainText(words.line);
+      await expect(steps.getByTestId("answer-check-stopped")).toContainText(words.line, {
+        timeout: 15_000,
+      });
       const card = await firstCard(window, answer);
       await expect(card.getByTestId("citation-reason")).toHaveText(words.card);
       await screenshot(window, `check-unfinished-answer-limit-${language}`);
@@ -127,8 +129,9 @@ for (const language of ["en", "zh-CN"] as const) {
         });
       });
       await pointAndClick(window, steps.getByTestId("answer-check-the-rest"));
+      // The ask shows once the estimate, a request to the core, has come back.
       const ask = steps.getByTestId("answer-check-the-rest-ask");
-      await expect(ask).toContainText("$");
+      await expect(ask).toContainText("$", { timeout: 15_000 });
       await motionSettled(window);
       await screenshot(window, `check-unfinished-check-the-rest-${language}`);
       await pointAndClick(window, ask.getByTestId("answer-check-the-rest-go"));

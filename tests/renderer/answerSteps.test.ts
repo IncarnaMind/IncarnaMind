@@ -694,11 +694,11 @@ describe("an Answer's steps", () => {
     expect(zh("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
       "已核对 40 句中的 12 句 · 已达本回答 $0.25 的核对上限",
     );
-    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "12 of 40 sentences checked · Your monthly limit of $20.00 reached",
+    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "12 of 40 sentences checked · Your monthly limit reached",
     );
-    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "已核对 40 句中的 12 句 · 已达每月上限 $20.00",
+    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "已核对 40 句中的 12 句 · 已达每月上限",
     );
   });
 
@@ -734,12 +734,12 @@ describe("an Answer's steps", () => {
     expect(zh("citation.reason.answer-limit-unfinished", limit)).toBe(
       "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
     );
-    const cap = { cap: "$20.00", model: "Claude Fable 5" };
-    expect(en("citation.reason.monthly-limit-unfinished", cap)).toBe(
-      "Not checked: your monthly limit of $20.00 was reached before Claude Fable 5 finished checking this sentence.",
+    const model = { model: "Claude Fable 5" };
+    expect(en("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
     );
-    expect(zh("citation.reason.monthly-limit-unfinished", cap)).toBe(
-      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限 $20.00。",
+    expect(zh("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
     );
     // In a Note, whose card has no Answer to name the model by.
     expect(en("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
@@ -748,8 +748,8 @@ describe("an Answer's steps", () => {
     expect(zh("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
       "未核对：这句还没核对完，就已达本回答 $0.25 的核对上限。",
     );
-    expect(zh("citation.reason.monthly-limit-unfinished.unnamed", { cap: "$20.00" })).toBe(
-      "未核对：这句还没核对完，就已达每月上限 $20.00。",
+    expect(zh("citation.reason.monthly-limit-unfinished.unnamed")).toBe(
+      "未核对：这句还没核对完，就已达每月上限。",
     );
   });
 
