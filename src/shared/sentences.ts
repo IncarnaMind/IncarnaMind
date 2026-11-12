@@ -54,6 +54,58 @@ function onlyRecordCites(text: string, from: number, to: number, cites: readonly
   return !hasWords(rest.replace(CITATION_SIGNAL, ""));
 }
 
+const CHINESE = /\p{Script=Han}/u;
+const LETTER = /\p{L}/u;
+const FULL_STOP = /[.!?。！？]/u;
+const CHINESE_FULL_STOP = /[。！？]/u;
+const ENGLISH_STOP_AT_END = /[.!?][^\p{L}\p{N}\n。！？]*$/u;
+const QUOTATION_MARKS = new Map([
+  ["“", "”"],
+  ['"', '"'],
+  ["「", "」"],
+  ["『", "』"],
+]);
+
+function inChineseSentence(text: string, open: number, close: number | null): boolean {
+  if (text[open] === "「" || text[open] === "『") return true;
+  for (let at = open - 1; at >= 0; at--) {
+    const char = text.charAt(at);
+    if (LETTER.test(char)) return CHINESE.test(char);
+    if (FULL_STOP.test(char)) break;
+  }
+  // A quotation that starts its sentence ("“…”是原话。") is in the language of what follows it.
+  for (let at = (close ?? text.length) + 1; at < text.length; at++) {
+    const char = text.charAt(at);
+    if (LETTER.test(char)) return CHINESE.test(char);
+    if (FULL_STOP.test(char)) return CHINESE_FULL_STOP.test(char);
+  }
+  return false;
+}
+
+function chineseQuotations(text: string): SentenceSpan[] {
+  if (!CHINESE.test(text)) return [];
+  const fullStops = /[。！？]/gu;
+  const found: SentenceSpan[] = [];
+  let sentenceEnd = -1;
+  for (let at = 0; at < text.length; at++) {
+    const mark = QUOTATION_MARKS.get(text.charAt(at));
+    if (mark === undefined) continue;
+    if (sentenceEnd <= at) {
+      fullStops.lastIndex = at + 1;
+      sentenceEnd = fullStops.exec(text)?.index ?? text.length;
+    }
+    // A mark not closed before its sentence's own full stop quotes up to it: a straight mark
+    // would otherwise pair with the next sentence's.
+    const close = text.indexOf(mark, at + 1);
+    const closed = close !== -1 && close < sentenceEnd;
+    if (inChineseSentence(text, at, closed ? close : null)) {
+      found.push({ from: at, to: closed ? close : sentenceEnd });
+      at = closed ? close : sentenceEnd;
+    } else if (closed) at = close;
+  }
+  return found;
+}
+
 /**
  * The sentences of a paragraph's text, in order. A Citation's marker right
  * after a sentence's full stop ("…quarter.[1] Next") belongs to that
@@ -61,7 +113,9 @@ function onlyRecordCites(text: string, from: number, to: number, cites: readonly
  * decision's citation stays in one sentence: the segmenter ends one at the
  * "v." and at the "(Tex." inside it. So does a record cite, which the
  * segmenter ends at "Dep." or "Compl."; and a sentence of record cites alone
- * belongs to the sentence before it, the one it supports (#1709).
+ * belongs to the sentence before it, the one it supports (#1709). A Chinese
+ * sentence that quotes English ends at its own 。, not at a full stop inside
+ * the quotation (#3009).
  */
 export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
   if (figures.length > 0) {
@@ -84,6 +138,14 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const citation = unbrokenCitations[citationAt];
     return citation !== undefined && citation.from < previousTo;
   };
+  const quotations = chineseQuotations(text);
+  let quotationAt = 0;
+  const quoted = (at: number): boolean => {
+    while ((quotations[quotationAt]?.to ?? Number.POSITIVE_INFINITY) <= at) quotationAt++;
+    const quotation = quotations[quotationAt];
+    return quotation !== undefined && quotation.from < at;
+  };
+  let englishStop: number | null = null;
   for (const { segment, index } of segmenter.segment(text)) {
     let from = index;
     let to = index + segment.length;
@@ -98,12 +160,15 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const joined =
       before !== undefined &&
       ((ABBREVIATION.test(before) && !(startsDecision && COMPANY_ABBREVIATION.test(before))) ||
-        (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))));
+        (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))) ||
+        (englishStop !== null && quoted(englishStop)));
     if (previous && joined && from < to) previous.to = to;
     else if (previous && overlapsCitation(previous.to, from)) {
       previous.to = to;
     } else if (from < to && hasWords(text.slice(from, to))) spans.push({ from, to });
     else if (previous && from < to) previous.to = to;
+    const stop = ENGLISH_STOP_AT_END.exec(segment);
+    englishStop = stop ? index + stop.index : null;
   }
   const kept: SentenceSpan[] = [];
   let recordAt = 0;
