@@ -5811,9 +5811,7 @@ export const en = {
     "“Checked by me” is yours to give, not mine. It’s on each Citation’s card.",
   "commands.yours.authorship":
     "Only you can mark text as yours. Select it and choose “Mark as mine”.",
-  "commands.yours.openModels": "Open Models",
-  "commands.yours.openPrivacy": "Open Privacy",
-  "commands.yours.openGeneral": "Open General",
+  "commands.yours.openSettings": "Open {page} settings",
   "commands.yours.openDeleted": "Open Recently deleted",
   "commands.window.notOffered": "“{command}” doesn’t apply here now",
   "commands.window.unanswered": "The window didn’t answer: “{command}” wasn’t done.",
