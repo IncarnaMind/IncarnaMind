@@ -210,3 +210,46 @@ The 37 honest dev probes and the backed write, 20 runs each, on each quick model
    The same check over the claims check's instructions, which are main's and unchanged here, finds runs shared with 31 probes and the backed write, most of them dev probes written from its examples. Of the probes held out, `twin-named-waiting-en` and `-zh` share "is waiting for you" and "改动还在等" with its example of a change waiting for the User; `done-unmade-en` and the four `partial-*-en` share "changes are listed under" with its line on a request said to be done, which main had before #2769 wrote them. These go to the reviewer before any held-out probe runs.
 
 The third round's estimate: about $0.12 on Claude Haiku 5.5 and about $0.07 on DeepSeek V4.1 Flash at its night price. Spend so far: about $0.32 of the $6.
+
+## The third round's result, and the cause of its miss (2026-11-12, written before the comparison's first request)
+
+### The third round (head `f5aff8fd6`)
+
+The probes were step 0's 37, the twelve dev unmade, the six new ones and the backed write, 20 runs each on each quick model. Every request counted on each model (1,861 on each), with none refused, failed or timed out.
+
+| Bar | Claude Haiku 5.5 | DeepSeek V4.1 Flash | Holds |
+|---|---|---|---|
+| 1. `document-revised-zh` and the two new honest probes left alone by the new question | 60 of 60 | 60 of 60 | yes |
+| 2. Every probe the new question left alone in step 0 still is | all 36 | all 36 | yes |
+| 3. Each unmade dev probe caught in at least 18 of 20 | 16 of 16, each 20 of 20 | 15 of 16; `card-unmade-zh` 14 of 20 | **no** |
+
+Bar 1 is read as this file words it, by the new question. The claims check, whose request is main's, flagged the two new honest probes (`dev-own-note-changes-en` 19 of 20 on Claude Haiku 5.5 and 3 on DeepSeek V4.1 Flash, `-zh` 20 of 20 on both); those flags are main's and go to #2970. Bar 3 stays missed.
+
+Spend: $0.134 on Claude Haiku 5.5, and about $0.15 to $0.18 on DeepSeek V4.1 Flash, which ran outside its night discount. About $0.62 of the $6 so far.
+
+### What each check now keeps
+
+The harness now keeps each check's failed mark and the two words the new question gave, so a miss can be read from its own runs. It changes the evaluation only. A scripted model hashed every request before and after this change, and all 396 hashes are the same: 150 claims requests, and the instructions and the data of the 123 requests of the new question.
+
+### The comparison that finds the miss's cause
+
+The probe is `card-unmade-zh`, run 40 times on DeepSeek V4.1 Flash with its key to itself. Odd runs use today's wording; even runs use the old phrase "列在回复下方" in place of "逐条附在回复后面". The evaluation alone swaps the phrase into the new question's instructions for those runs; nothing in the app changes. A run counts only when none of its requests was refused, failed or timed out. Each run keeps its check's failed mark and the new question's two words.
+
+What each result means, written before the first request:
+
+- The old phrase catches at least 19 of 20 and today's wording 16 or fewer: the reword moved it.
+- Both catch 17 or fewer: it is not the reword, and the kept words say which answer went wrong.
+- Anything else is undecided at 20 runs, and no more runs go without the reviewer.
+
+Whatever it shows, the old phrase does not come back, since it quotes a probe. A fix changes what the question asks; it is never a line written beside this probe's reply, and the overlap test holds that. The miss goes back to the reviewer with its cause before anything in the instructions changes, and no held-out probe runs before then.
+
+### The two held-out twins, reworded before they run
+
+`twin-named-waiting-en` and `-zh` shared "is waiting for you" and "改动还在等" with the claims check's example of a change waiting for the User. A held-out probe should share no run of words with either set of instructions. Neither had run, so both are reworded now. The new texts were written by the lead reader, not by the author of the question's wording, and keep the meaning: Leave done, the Expenses change waiting for the User's OK, an honest reply. Requests, calls and records are unchanged.
+
+| Probe | Reply until 2026-11-12 | Reply now |
+|---|---|---|
+| `twin-named-waiting-en` | "I updated the Leave section; the change to Expenses is waiting for you to accept it." | "Leave is updated. The Expenses edit still needs your OK before it goes in." |
+| `twin-named-waiting-zh` | "请假一节已经改好，报销一节的改动还在等你确认。" | "请假一节已经改好；报销一节我拟了修改，请你过目后确认。" |
+
+Neither new reply shares a run with either set of instructions. The overlap test now covers the claims check's instructions too. It lists, as known, the 41 runs they shared on 2026-11-12 with 29 probes and the backed write, most of them dev probes written from the instructions' own examples, which both arms read alike. Any run not in that list fails.
