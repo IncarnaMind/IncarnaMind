@@ -29,6 +29,7 @@ import {
   claimMarkState,
   figureCheckShown,
   type KeptMark,
+  type NoteFooting,
   readClaimCheck,
   showsPartRows,
 } from "../../../shared/claimChecks";
@@ -330,6 +331,8 @@ function noteOf(
 
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
+  /** Kept across a change until the next is read, so a total never falls back to its stored footing meanwhile. */
+  footing: NoteFooting;
   figureContexts?: ReadonlyMap<string, string> | null;
   /** Where each figure the one Check reads in a table's cells is, by Block: its start and end in the Block's text. */
   figurePlaces?: ReadonlyMap<string, readonly (readonly [number, number])[]> | null;
@@ -388,7 +391,12 @@ const ROOMS = "claimRooms";
 
 const NO_ROOMS: ReadonlyMap<string, number> = new Map();
 
-const NO_CONTEXT: ClaimContext = { versions: null, folderId: null, scope: null };
+const NO_CONTEXT: ClaimContext = {
+  footing: "not-yet-known",
+  versions: null,
+  folderId: null,
+  scope: null,
+};
 
 /** The checks in a document as they show now, and the sentences the User keeps as their own view. */
 export function claimsOf(
@@ -644,7 +652,8 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     sameScopes &&
     now.figureContexts === context.figureContexts &&
     now.figurePlaces === context.figurePlaces &&
-    now.keptInside === context.keptInside
+    now.keptInside === context.keptInside &&
+    now.footing === context.footing
   )
     return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));

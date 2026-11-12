@@ -264,6 +264,7 @@ describe("ordered claim part codec", () => {
   test("an edit that shifts literal part offsets needs a re-check", () => {
     expect(
       claimCheckShown(mark([part()]), {
+        footing: "not-yet-known",
         text: "Revenue  rose.",
         versions: null,
         folderId: null,
@@ -903,6 +904,7 @@ describe("one sentence projection", () => {
     if (!checked) return;
     expect(
       claimCheckShown(checked, {
+        footing: "not-yet-known",
         text: checked.text,
         versions: new Map(),
         folderId: null,
@@ -1030,6 +1032,7 @@ describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。
       expect(written.remainder).toBeNull();
       expect(
         claimCheckShown(written, {
+          footing: "not-yet-known",
           text: sentence,
           versions: new Map(),
           folderId: null,

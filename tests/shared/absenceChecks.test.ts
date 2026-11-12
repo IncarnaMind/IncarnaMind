@@ -36,6 +36,7 @@ describe("An absence check's lifetime", () => {
   test("deleting a Document read whole makes the result need a re-check", () => {
     expect(
       claimCheckShown(ABSENCE, {
+        footing: "not-yet-known",
         text: ABSENCE.text,
         versions: new Map(),
         folderId: null,

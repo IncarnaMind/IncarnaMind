@@ -571,6 +571,7 @@ describe("record-cite choices through the core", () => {
     const stale = await storedCheck(setup.client);
     expect(
       claimCheckShown(stale, {
+        footing: "not-yet-known",
         text: stale.text,
         versions: new Map([[setup.first.id, setup.first.contentHash]]),
         folderId: null,

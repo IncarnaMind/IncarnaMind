@@ -20,8 +20,9 @@ import {
  * The assistant's one left edge (#612): its header's first icon, the empty
  * conversation's and an Answer's steps icon, an Answer's first letter, the
  * Task tray and the composer's box start at the same x docked on the right, on
- * the left, at the bottom and floating; the composer's text sits 12px inside
- * its box; a Question's bubble ends where the composer does. The checks are
+ * the left, at the bottom and floating; the composer's row starts 12px inside
+ * its box, with the + (#2924) and the text, which follows the + on a one-line
+ * row; a Question's bubble ends where the composer does. The checks are
  * relations; the 16px is what DESIGN.md fixes. Set INCARNAMIND_SCREENSHOTS to
  * a folder to also save screenshots.
  */
@@ -107,7 +108,7 @@ async function edges(window: Page) {
   };
 }
 
-test("the header, the thread, the Task tray and the composer share one left edge at every dock; the composer's text is 12px in; Questions end where it does", async () => {
+test("the header, the thread, the Task tray and the composer share one left edge at every dock; the composer's row starts 12px in; Questions end where it does", async () => {
   test.setTimeout(150_000);
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -148,15 +149,24 @@ test("the header, the thread, the Task tray and the composer share one left edge
     // Docked at a side or floating, it is 16px in from the panel's edge.
     if (dock !== "bottom") expect(Math.round(found.composer - panel)).toBe(16);
 
-    // The text starts 12px inside its box, and a Question's bubble ends where the box does.
-    const input = await window
-      .getByTestId("composer-input")
-      .evaluate((el) => el.getBoundingClientRect().left);
-    const box = await window.getByTestId("composer").evaluate((el) => {
-      const { left, right } = el.getBoundingClientRect();
-      return { left, right };
-    });
-    expect(Math.round(input - box.left)).toBe(12);
+    // The row starts 12px inside its box: the text, or on a one-line row the + before it (#2924).
+    // A Question's bubble ends where the box does.
+    const rect = (target: Locator) =>
+      target.evaluate((el) => {
+        const { left, right, top, bottom } = el.getBoundingClientRect();
+        return { left, right, top, bottom };
+      });
+    const [input, plus, box] = await Promise.all([
+      rect(window.getByTestId("composer-input")),
+      rect(window.getByTestId("composer-plus")),
+      rect(window.getByTestId("composer")),
+    ]);
+    expect(Math.round(plus.left - box.left), `the + at ${dock}`).toBe(12);
+    if (plus.top < input.bottom && input.top < plus.bottom) {
+      expect(input.left, `the text after the + at ${dock}`).toBeGreaterThanOrEqual(plus.right);
+    } else {
+      expect(Math.round(input.left - box.left), `the text at ${dock}`).toBe(12);
+    }
     const bubbleRight = await window
       .locator(".assistant-question-bubble")
       .last()

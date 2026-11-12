@@ -312,7 +312,14 @@ function source(content: JSONContent[]): Y.Doc {
 }
 
 const read = (doc: Y.Doc) =>
-  readNoteState({ cellFigures: [], doc, documents: [], keptCitationTexts: [], folderId: null });
+  readNoteState({
+    footing: [],
+    cellFigures: [],
+    doc,
+    documents: [],
+    keptCitationTexts: [],
+    folderId: null,
+  });
 
 const unreadFile = (name: string): UnreadFile => ({
   id: name,
@@ -441,6 +448,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     recordCheckUnread(narrow, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
     expect(
       readNoteState({
+        footing: [],
         cellFigures: [],
         doc: narrow,
         documents: [],
@@ -486,6 +494,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       ]),
     ]);
     const { health: readHealth, state } = readNoteState({
+      footing: [],
       cellFigures: [],
       doc,
       documents: [{ id: "d1", contentHash: "h1" }],
@@ -530,6 +539,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       ]),
     ]);
     const { health: readHealth, state } = readNoteState({
+      footing: [],
       cellFigures: [],
       doc,
       documents: [{ id: "d1", contentHash: "new" }],
@@ -618,6 +628,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      footing: [],
       cellFigures: [],
       doc,
       documents: [],
@@ -660,6 +671,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      footing: [],
       cellFigures: [],
       doc,
       documents: [],
@@ -706,6 +718,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       new Set(["r1"]),
     );
     const { state } = readNoteState({
+      footing: [],
       cellFigures: [],
       doc,
       documents: [],
@@ -777,6 +790,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     const requests = ["r1", "r2"];
     const readFolder = () =>
       readNoteState({
+        footing: [],
         cellFigures: [],
         doc,
         documents: [],
@@ -835,8 +849,14 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     setMindScope(doc, tagScope);
     const requests = ["r1", "r2"];
     const readTag = () =>
-      readNoteState({ cellFigures: [], doc, documents: [], keptCitationTexts: [], folderId: null })
-        .state;
+      readNoteState({
+        footing: [],
+        cellFigures: [],
+        doc,
+        documents: [],
+        keptCitationTexts: [],
+        folderId: null,
+      }).state;
     recordCheckUnread(
       doc,
       "r2",
@@ -979,6 +999,7 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     carried(answer(citations), undefined, scope);
   const noteOf = (blocks: JSONContent[], documents: LiveDocument[] = [plan]) =>
     readNoteState({
+      footing: [],
       cellFigures: [],
       doc: source(blocks),
       documents,

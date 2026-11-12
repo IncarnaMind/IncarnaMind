@@ -303,6 +303,7 @@ export const shownMark = (
 ): Pick<Landed, "verdict" | "reason"> => {
   const shown = claimCheckShown(check, {
     text,
+    footing: "not-yet-known",
     versions,
     folderId: check.scope.folderId,
     scope: null,

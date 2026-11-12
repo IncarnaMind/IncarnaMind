@@ -6044,6 +6044,32 @@ export type ProviderErrorKind =
   | "cut-short"
   | "unknown";
 
+// Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
+export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
+  auth: true,
+  "api-key-unreadable": true,
+  model: true,
+  "rate-limit": true,
+  network: true,
+  provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
+  "consent-declined": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "ollama-not-running": true,
+  "data-retention": true,
+  "not-signed-in": true,
+  "plan-limit": true,
+  blocked: true,
+  "too-long": true,
+  "cost-cap": true,
+  "no-answer": true,
+  "cut-short": true,
+  unknown: true,
+};
+
 export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
@@ -8916,6 +8942,15 @@ export interface MindContentSnapshot {
   state: Uint8Array;
   /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
   cellFigures: CellFigurePlace[];
+  /** Each total's footing against its table as the Note is now, which its verdict reads (#2998). */
+  footing: FigureFootingNow[];
+}
+
+/** A total's footing as the Note's marks and numbers are now; `waiting` while a cell it counts is still being checked. */
+export interface FigureFootingNow {
+  id: string;
+  footing: FigureFinding["footing"];
+  waiting: boolean;
 }
 
 /** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */

@@ -1,11 +1,10 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { settleFigureCheck } from "../../../shared/figureChecks";
 /**
  * Checks claims already marked "checking", for Verify (#97) and Check this
  * Mind (#737): a cloud model six at a time, one on this computer one at a
- * time, each result written onto its mark as it comes, a table's in the
- * table's order (#2560). The monthly cap or a plan's limit stops the run, and
- * the claims left say why they weren't checked.
+ * time, each result written onto its mark as it comes. The monthly cap or a
+ * plan's limit stops the run, and the claims left say why they weren't checked.
  */
 
 import { pendingPart, resultFromParts } from "../../../shared/claimParts";
@@ -34,7 +33,7 @@ import {
   recordCheck,
   runClaimChecks,
 } from "./runCheck";
-import { markedSentences, updateCheck } from "./sentences";
+import { updateCheck } from "./sentences";
 
 export function pendingParts(
   plans: readonly ClaimPartPlan[],
@@ -85,7 +84,7 @@ export interface QueuedClaim {
 }
 
 export interface RunChecksOptions extends CheckRuns {
-  content: Pick<MindContent, "read" | "edit">;
+  content: Pick<MindContent, "edit">;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   withResult: WithResult;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
@@ -292,53 +291,6 @@ export function earlyChecks(
   };
 }
 
-function queuedByTable(blocks: Y.XmlFragment, queued: readonly QueuedClaim[]): string[][] {
-  const ids = new Set(queued.map((claim) => claim.id));
-  const tables = new Map<Y.XmlElement, string[]>();
-  for (const { element, check } of markedSentences(blocks)) {
-    let table: unknown = element.parent;
-    while (table instanceof Y.XmlElement && table.nodeName !== "table") table = table.parent;
-    if (ids.has(check.id) && table instanceof Y.XmlElement)
-      tables.set(table, [...(tables.get(table) ?? []), check.id]);
-  }
-  return [...tables.values()];
-}
-
-// A mark is footed against the marks of its table as it lands, a total against the cells above it
-// and to its left: so a claim in a table lands only after every claim before it there, whatever
-// order their checks end in (#2560).
-function inTableOrder<L extends { id: string }>(
-  tables: readonly (readonly string[])[],
-  land: (landings: L[]) => void,
-): (landing: L) => void {
-  const tableOf = new Map<string, { id: string; landing?: L }[]>();
-  for (const ids of tables) {
-    const claims: { id: string; landing?: L }[] = ids.map((id) => ({ id }));
-    for (const id of ids) tableOf.set(id, claims);
-  }
-  return (landing) => {
-    const claims = tableOf.get(landing.id);
-    if (!claims) {
-      land([landing]);
-      return;
-    }
-    const claim = claims.find((each) => each.id === landing.id);
-    if (claim) claim.landing = landing;
-    const ready: L[] = [];
-    for (let first = claims[0]; first?.landing !== undefined; first = claims[0]) {
-      ready.push(first.landing);
-      claims.shift();
-    }
-    if (ready.length > 0) land(ready);
-  };
-}
-
-interface Landing {
-  id: string;
-  countsAsChecked: boolean;
-  mark(check: ClaimCheckAttributes, blocks: Y.XmlFragment): ClaimCheckAttributes;
-}
-
 export async function runChecks(
   options: RunChecksOptions,
   run: ChecksRun & {
@@ -348,25 +300,19 @@ export async function runChecks(
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
-  let checked = 0;
-  // Once stopped, a table's marks still waiting are never written, and read Not checked: footed
-  // against cells whose checks didn't end, they would stay that way, as nothing foots a total
-  // again until it is checked again.
-  const land = (landings: readonly Landing[]) => {
-    if (signal.aborted) return;
+  const write = (
+    id: string,
+    change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
+  ) => {
+    if (signal.aborted) return false;
     const kept = options.content.edit(mindId, (blocks) =>
-      landings.filter((landing) =>
-        updateCheck(blocks, landing.id, (check) => landing.mark(check, blocks)),
-      ),
+      updateCheck(blocks, id, (check) => change(check, blocks)),
     );
-    if (kept.length > 0) options.retainEvidence(mindId);
-    checked += kept.filter((landing) => landing.countsAsChecked).length;
+    if (kept) options.retainEvidence(mindId);
+    return kept;
   };
-  const landed = inTableOrder(
-    options.content.read(mindId, (blocks) => queuedByTable(blocks, run.queued)),
-    land,
-  );
 
+  let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
   const { stop, outcomeError } = await runClaimChecks(
@@ -383,21 +329,16 @@ export async function runChecks(
         const at = options.now().toISOString();
         if (!("result" in outcome)) {
           const landing = { withResult: options.withResult, mindId, at };
-          landed({
-            id: claim.id,
-            countsAsChecked: false,
-            mark: (each, blocks) =>
-              notCheckedMark(each, blocks, landing, outcome.reason, outcome.detail),
-          });
+          write(claim.id, (each, blocks) =>
+            notCheckedMark(each, blocks, landing, outcome.reason, outcome.detail),
+          );
           return;
         }
         const { result } = outcome;
-        landed({
-          id: claim.id,
-          countsAsChecked: result.verdict !== "not-checked",
-          mark: (each, blocks) =>
-            options.withResult(each, result, at, blocks, mindId, claim.claim, claim.priorParts),
-        });
+        const landed = write(claim.id, (each, blocks) =>
+          options.withResult(each, result, at, blocks, mindId, claim.claim, claim.priorParts),
+        );
+        if (landed && result.verdict !== "not-checked") checked++;
       },
     },
   );
