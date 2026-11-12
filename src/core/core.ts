@@ -250,7 +250,7 @@ import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
-import { figureSchedule } from "./figureSchedule";
+import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
@@ -2337,6 +2337,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
+    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -3089,6 +3090,14 @@ export function createCore(adapters: CoreAdapters): Core {
   const documentVersions = () =>
     new Map(documents.rows().map((document) => [document.id, document.contentHash]));
 
+  // One object for the life of the core: a total's source footing is cached by it (#2998).
+  const scheduleDocuments = {
+    citationSource: (passageId: string) => documents.citationSource(passageId),
+    documentDate: (documentId: string) => documents.documentDate(documentId),
+    pageTexts: (documentId: string, contentHash: string, from: number | null, to: number | null) =>
+      documents.pageTexts(documentId, contentHash, from, to),
+  };
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -3105,6 +3114,7 @@ export function createCore(adapters: CoreAdapters): Core {
         language: settings.get().language,
         keptInside: (documentId) =>
           mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
+        documents: scheduleDocuments,
       });
     });
   }
@@ -5922,21 +5932,31 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
+      const versions = documentVersions();
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
           throw new InvalidInputError("A Note id must be text.");
         }
+        let mind: Mind;
         try {
-          minds.get(mindId);
+          mind = minds.get(mindId);
         } catch (error) {
           // A Mind deleted since Home listed it has no state to show; anything else is real.
           if (error instanceof NotFoundError) continue;
           throw error;
         }
+        const now = {
+          versions,
+          folderId: mind.folderId,
+          scope: content.readSettings(mindId, mindScopeIn),
+        };
         found.push({
           mindId,
           state: content.storedState(mindId),
           cellFigures: content.peek(mindId, tableCellFigurePlaces),
+          footing: content.peek(mindId, (blocks) =>
+            [...noteFooting(blocks, now)].map(([id, live]) => ({ id, ...live })),
+          ),
         });
       }
       return found;

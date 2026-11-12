@@ -16,8 +16,9 @@ import type { Library } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
-import { armNamed, armSwitch } from "./arms";
+import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
+import { marksSection } from "./callHelpMarksReport";
 import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
@@ -44,8 +45,8 @@ import {
   outcomeOf,
   type PairedRow,
   pairedSection,
-  sameRequestOf,
   seconds,
+  sentPair,
   timeTable,
   wentFirst,
   wentFirstByCell,
@@ -83,6 +84,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-fresh":
     case "call-help-documents":
     case "call-help-checks":
+    case "call-help-marks":
+    case "call-help-marks-3":
       return callHelpSet(set);
     case "meeting-notes":
       return meetingNotesSet();
@@ -200,6 +203,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
       helpFormJudged: switches[which].helpFormJudged,
       quotesAsGiven: switches[which].quotesAsGiven,
+      helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
@@ -252,7 +256,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             loads.push(loadavg()[0] ?? 0);
             const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
             const done: ArmRun[] = [];
-            const firstSent: (string | null)[] = [null, null];
+            const firstSent: (SentRequest | null)[] = [null, null];
             for (const which of order) {
               const arm = arms[which];
               const { library } = opened[which];
@@ -278,9 +282,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               model: name,
               run: time,
               first: order[0],
-              ...(sameRequest && {
-                sameRequest: sameRequestOf(firstSent[0] ?? null, firstSent[1] ?? null),
-              }),
+              ...(sameRequest && sentPair(firstSent[0] ?? null, firstSent[1] ?? null)),
               baseline: done[0] as ArmRun,
               candidate: done[1] as ArmRun,
             };
@@ -347,6 +349,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     itemTable(group.rows, names),
     "",
   ]);
+  const marks = marksSection(rows);
   const report = [
     `# Paired run: ${arms[0].id} against ${arms[1].id}`,
     "",
@@ -369,6 +372,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",
     ...sections,
+    ...(marks ? [marks, ""] : []),
     "## Item by item",
     "",
     ...items,

@@ -547,7 +547,13 @@ function checkedFigureInText(
   });
   editors.push(editor);
   if (keptInside)
-    setClaimContext(editor.view, { versions: null, folderId: null, scope: null, keptInside });
+    setClaimContext(editor.view, {
+      footing: "not-yet-known",
+      versions: null,
+      folderId: null,
+      scope: null,
+      keptInside,
+    });
   return figureShownIn(
     editor.state,
     "figure",

@@ -55,7 +55,7 @@ const WORDS = {
     },
   },
   "zh-CN": {
-    label: "核对",
+    label: "核对结果",
     allChecked: "已全部核对",
     supported: "4 句有依据",
     allSupported: "2 句有依据",

@@ -469,6 +469,7 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
     if (!stored) throw new Error("No content.");
     const badge =
       readNoteState({
+        footing: [],
         doc: client.doc,
         cellFigures: stored.cellFigures,
         documents,

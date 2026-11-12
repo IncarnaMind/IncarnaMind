@@ -168,6 +168,7 @@ function setUp(
   });
   const claim = () => {
     const [shown] = claimsOf(editor.state.doc, {
+      footing: "not-yet-known",
       versions: null,
       folderId: null,
       scope: null,

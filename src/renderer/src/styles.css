@@ -8102,9 +8102,7 @@
     vertical-align: 1px;
     color: var(--color-ink-secondary);
 
-    &[data-check="not-found"],
-    &[data-check="unsupported"],
-    &[data-check="contradicted"] {
+    &[data-check="not-found"] {
       color: var(--color-warning);
     }
   }
@@ -8112,6 +8110,10 @@
     width: 10px;
     height: 10px;
     color: var(--color-success);
+    visibility: hidden;
+  }
+  .help-citation[data-passed="true"] .help-citation-found {
+    visibility: visible;
   }
   .help-sources {
     display: flex;

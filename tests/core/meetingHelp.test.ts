@@ -23,24 +23,33 @@ const PRICE = "Enterprise plan: $45 per seat a month, single sign-on included.";
 const block = (text: string, tag: string) =>
   new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? null;
 
-/** A model that answers in the help shape, citing the first Passage found ahead if it has one. */
+/**
+ * A model that answers in the help shape, citing the first Passage found ahead if it has one, and
+ * judges its sentences supported by what they cite (#2847).
+ */
 function helpingModel(calls: ModelCall[]) {
-  return scriptedModel((call) => {
-    calls.push(call);
-    const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
-    if (found && !call.results.some((result) => result.tool === "cite")) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+      if (found && !call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] },
+            },
+          ],
+        };
+      }
       return {
-        calls: [
-          { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] } },
-        ],
+        text: found
+          ? "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time"
+          : "★ Let me confirm by Friday\n→ keeps it moving\n\nWhat matters most to you?\n→ learns their priority",
       };
-    }
-    return {
-      text: found
-        ? "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time"
-        : "★ Let me confirm by Friday\n→ keeps it moving\n\nWhat matters most to you?\n→ learns their priority",
-    };
-  });
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 /**
