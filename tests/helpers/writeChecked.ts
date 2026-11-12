@@ -42,6 +42,9 @@ const PLANS: Record<string, Plan> = Object.fromEntries(
 
 export const TWELVE_SUPPORTED = Array.from({ length: 12 }, () => "supported");
 
+/** A Question the scripted assistant answers in its conversation, citing the sentences it would write. */
+const ANSWERED = "Tell me about the spring tides";
+
 /** Which of the write's sentences a check request is for, from 1. */
 export const numberOf = (call: ModelCall) =>
   Number(/Spring tide (\d+) /.exec(sentenceOf(call))?.[1]);
@@ -78,13 +81,15 @@ export const indexOf = (seen: Seen, kind: Event["kind"], n: number, nth = 1) => 
 /**
  * The assistant writes `count` cited sentences into a Note, each its own paragraph, checked
  * `atOnce` at a time; each check replies as `PLANS` says, unless `hold` holds or replaces it.
- * `write` writes them into a new Note of the same session, and gives that Note.
+ * `write` writes them into a new Note of the same session, and gives that Note. `answer` replies
+ * to any other Question the test asks, where it gives a reply.
  */
 export async function writeChecked(
   count: number,
   atOnce: number,
   hold: (call: ModelCall, reply: ScriptedReply, seen: Seen) => ScriptedReply = (_, reply) => reply,
   adapters: Partial<CoreAdapters> = {},
+  answer: (call: ModelCall) => ScriptedReply | null = () => null,
 ) {
   const seen: Seen = { events: [], running: new Set(), most: 0, sent: new Map(), order: [] };
   const content = Array.from(
@@ -117,6 +122,8 @@ export async function writeChecked(
         }
         return reply;
       }
+      const other = answer(call);
+      if (other) return other;
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
         return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
@@ -129,14 +136,17 @@ export async function writeChecked(
         }));
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
+      // Asked in a conversation, it answers there, its sentences cited, and they are checked there.
+      if (call.prompt.includes(ANSWERED)) return { text: content.replaceAll("\n\n", " ") };
       if (!call.results.some((result) => result.tool === "add_to_mind"))
         return { calls: [{ tool: "add_to_mind", input: { content } }] };
       return { text: "Wrote it from your Documents." };
     },
     { generate: judgesNothing },
   );
+  const models = scriptedModels(model);
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
+    createChatModel: models.createChatModel,
     modelFacts: () => ({ writtenChecksAtOnce: atOnce }),
     paceTimers: checkClock().timers,
     ...adapters,
@@ -171,6 +181,19 @@ export async function writeChecked(
     seen,
     client,
     ask: () => askInto(mind.id),
+    folderId: folder.id,
+    /** Every request the model was sent, as the AI SDK sent it, and each model asked for. */
+    sent: () => ({
+      streamed: model.doStreamCalls,
+      generated: model.doGenerateCalls,
+      models: models.specs.map((spec) => spec.modelId),
+    }),
+    /** The same sentences answered in a conversation, cited, so the Answer's own check reads them. */
+    answer: () =>
+      askAssistant(core, {
+        text: ANSWERED,
+        scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
+      }),
     /** Asks for the write into the Note, and gives the Answer as it starts. */
     start: async () => {
       const asked = await core.askInConversation({
@@ -345,7 +368,10 @@ export function virtualClock() {
  * How a scripted key refuses, as the provider answers a rate limit (an HTTP 429 the AI SDK may send
  * again):
  * - `bucket`: a bucket of `holds` requests refilled `refillsPerReply` a reply's time, whose refusal
- *   says how long until there is room, as Anthropic's token bucket does;
+ *   says how long until there is room, as Anthropic's token bucket does. With `countsRefused`, a
+ *   refused request takes its room too, as OpenAI says ("unsuccessful requests contribute to your
+ *   per-minute limit"): the bucket goes below empty, and the refusal says how long until a request
+ *   fits again;
  * - `at-once`: `atOnce` requests out at a time, whose refusal says nothing of how long;
  * - `tokens`: a provider's published limits a minute (`requests`, `input` tokens, `output` tokens:
  *   null for none of its own), each a bucket holding `minutes` of it; each request costs `costs`
@@ -353,7 +379,7 @@ export function virtualClock() {
  *   refusal says how long until there is room.
  */
 export type KeyShape =
-  | { kind: "bucket"; holds: number; refillsPerReply: number }
+  | { kind: "bucket"; holds: number; refillsPerReply: number; countsRefused?: true }
   | { kind: "at-once"; atOnce: number }
   | {
       kind: "tokens";
@@ -458,7 +484,11 @@ export async function keyWrites(
     if (key.kind === "at-once") {
       if (out >= key.atOnce) return refusal(null);
     } else if (key.kind === "bucket") {
-      if (!requests || requests.level(now) < 1) return refusal(requests?.until(now, 1) ?? null);
+      if (!requests) return refusal(null);
+      if (requests.level(now) < 1) {
+        if (key.countsRefused) requests.take(1);
+        return refusal(requests.until(now, 1));
+      }
       requests.take(1);
     } else if (requests && input) {
       const costs = firstOfWrite ? key.firstCosts : key.costs.input;

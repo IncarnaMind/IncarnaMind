@@ -27,6 +27,15 @@ const SHAPES: [string, KeyShape][] = [
   ["at-once fits six", { kind: "at-once", atOnce: 6 }],
   ["at-once refuses six", { kind: "at-once", atOnce: 4 }],
   ["at-once very small", { kind: "at-once", atOnce: 1 }],
+  // A refused request takes room too (OpenAI's guide), added 2026-11-12 before its run.
+  [
+    "counting bucket refuses six",
+    { kind: "bucket", holds: 4, refillsPerReply: 4, countsRefused: true },
+  ],
+  [
+    "counting bucket very small",
+    { kind: "bucket", holds: 1, refillsPerReply: 1, countsRefused: true },
+  ],
 ];
 
 /**

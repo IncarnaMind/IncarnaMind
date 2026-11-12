@@ -137,3 +137,15 @@ Every variant was measured with the same harness against the same gated-head fil
 
 - **Why A failed:** one refusal paused every request of the run, and each refusal moved that pause by its own request's next step. On a key that refuses often, the steps reached 16 s and held every check. Six on the so-many-at-once key that takes one went from 13.3 s to 233.9 s. At 2 s a reply, 7 of 12 sentences ran out of waits and landed Not checked.
 - **Why G:** where the service states a wait, waiting it inside the check is never worse here than the gated head's, and keeps the check's earlier turns. Where it states none, our own steps were worse than the AI SDK's 2 and 4 s retries followed by the run's pauses (C, D, E). So G leaves that path as it is.
+
+## Added 2026-11-12, before its run: a key that counts a refused request
+
+OpenAI's guide says, under "Retrying with exponential backoff": "unsuccessful requests contribute to your per-minute limit, so continuously resending a request won't work". On the very small bucket, this head sends about twice the gated head's refused requests for the same end: 165 against 84 at 1 s and at 2 s. A key that charges for them is where a cost could hide.
+
+- **The key.** A bucket, as above, except that a refused request takes room too. The bucket goes below empty, and the refusal states, in whole seconds and at least 1, how long until one request fits again.
+- **Sizes.** "Refuses six" (holds 4, refilled 4 a reply's time) and "very small" (holds 1, refilled 1 a reply's time), each at 0.1, 0.5, 1 and 2 s a reply.
+- **The runs.** Both heads, at six and at twelve, two writes a session, with the same harness as above.
+- **The bars, set now, before the run:**
+  - **2.** Twelve lands every mark six lands.
+  - **3.** Six on this head is never later, and never lands fewer marks, than six on the gated head.
+- **What a miss would mean.** A cell this head misses is the cell that a place taken away below six would be built on.
