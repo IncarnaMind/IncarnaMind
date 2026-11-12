@@ -17,6 +17,7 @@ import {
   requestOf,
   writeCall,
 } from "./claimProbes";
+import { keepRequestWords, type RequestWords } from "./requestWords";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -35,37 +36,41 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     // Each question's requests and tokens, so the report gives what the second question costs and
     // how many checks sent it (#2878).
     let asked: string[] = [];
+    const words = keepRequestWords();
     const questions: Record<
       string,
       { requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }
     > = {};
     const model = wrapLanguageModel({
       model: createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" }),
-      middleware: {
-        specificationVersion: "v4",
-        wrapGenerate: async ({ doGenerate, params }) => {
-          const question = String(params.providerOptions?.incarnamind?.question ?? "other");
-          asked.push(question);
-          try {
-            const result = await doGenerate();
-            const tally = questions[question] ?? {
-              requests: 0,
-              inputTokens: 0,
-              cachedInputTokens: 0,
-              outputTokens: 0,
-            };
-            tally.requests += 1;
-            tally.inputTokens += result.usage.inputTokens.total ?? 0;
-            tally.cachedInputTokens += result.usage.inputTokens.cacheRead ?? 0;
-            tally.outputTokens += result.usage.outputTokens.total ?? 0;
-            questions[question] = tally;
-            return result;
-          } catch (error) {
-            refused.push(error instanceof Error ? error.message : String(error));
-            throw error;
-          }
+      middleware: [
+        {
+          specificationVersion: "v4",
+          wrapGenerate: async ({ doGenerate, params }) => {
+            const question = String(params.providerOptions?.incarnamind?.question ?? "other");
+            asked.push(question);
+            try {
+              const result = await doGenerate();
+              const tally = questions[question] ?? {
+                requests: 0,
+                inputTokens: 0,
+                cachedInputTokens: 0,
+                outputTokens: 0,
+              };
+              tally.requests += 1;
+              tally.inputTokens += result.usage.inputTokens.total ?? 0;
+              tally.cachedInputTokens += result.usage.inputTokens.cacheRead ?? 0;
+              tally.outputTokens += result.usage.outputTokens.total ?? 0;
+              questions[question] = tally;
+              return result;
+            } catch (error) {
+              refused.push(error instanceof Error ? error.message : String(error));
+              throw error;
+            }
+          },
         },
-      },
+        words.middleware,
+      ],
     });
     const rows: {
       id: string;
@@ -81,6 +86,10 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       flaggedBy?: ("claims" | "request")[];
       /** The check also asked whether the reply says the request is done. */
       askedDone?: true;
+      /** The check says what it found is not all there is: a question failed or wasn't read. */
+      failed?: true;
+      /** The words that question gave. */
+      told?: RequestWords;
     }[] = [];
     const allRefused: string[] = [];
     const usage = {
@@ -97,6 +106,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         const check = () => {
           refused = [];
           asked = [];
+          words.take();
           return unbackedClaims(probe.reply, probe.calls ?? [], MINDS, probe.focused ?? null, {
             model,
             request: requestOf(probe.id),
@@ -122,6 +132,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           allRefused.push(...refused);
         }
         const unchecked = unanswered(result);
+        const told = words.take();
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
           usage.outputTokens += result.usage.outputTokens ?? 0;
@@ -145,6 +156,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           ...(unchecked && { unchecked: true as const, refused }),
           ...(flagged && { flaggedBy }),
           ...(asked.includes("request-done") && { askedDone: true as const }),
+          ...(result.failed && { failed: true as const }),
+          ...(told && { told }),
         });
       }
     }
@@ -171,6 +184,12 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       config.chat.kind === "kimi" ? "kimi" : "anthropic",
     );
     const durationMs = rows.reduce((sum, row) => sum + row.durationMs, 0) + backed.durationMs;
+    const wordCounts: Record<string, number> = {};
+    for (const { told } of rows) {
+      if (!told) continue;
+      const key = `${told.asks_change ?? "—"}/${told.request ?? "—"}`;
+      wordCounts[key] = (wordCounts[key] ?? 0) + 1;
+    }
     const folder = join(
       config.resultsDir,
       `${new Date().toISOString().replace(/[:.]/g, "-")}-claim-probes`,
@@ -209,6 +228,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `- Checks the provider never answered, in three tries: ${rows.length - checked.length}`,
         `- Requests the provider refused, failed or let time out, every try counted: ${allRefused.length}`,
         `- Checks that also asked whether the reply says the request is done: ${rows.filter((row) => row.askedDone).length} of ${rows.length}; that question's requests: ${JSON.stringify(questions["request-done"] ?? null)}`,
+        `- Checks marked as not all there is, a question failed or not read: ${rows.filter((row) => row.failed).length}; the second question's words: ${JSON.stringify(wordCounts)}`,
         `- Judge time: ${durationMs} ms total, ${Math.round(durationMs / (rows.length + 1))} ms per check`,
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
