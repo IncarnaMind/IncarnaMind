@@ -17,12 +17,12 @@ import { contradictionWatchOf } from "../../src/shared/contradictionWatch";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
-import { shownPassages } from "../helpers/citations";
+import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextTurn, startCore, tickingClock } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { checkClock } from "../helpers/heldClock";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { question, readMind, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -100,6 +100,8 @@ interface Script {
   unreadable?: number;
   /** A reply of its own for a claim's check, by which of its Runs it is, from 1; null: the planned one. */
   reply?(claim: number, run: number, call: ModelCall, planned: ScriptedReply): ScriptedReply | null;
+  /** An Answer's model call waits for `until`, and says when it has paused: the background queue waits meanwhile. */
+  answer?: { until: Promise<void>; reached(): void };
 }
 
 interface World {
@@ -404,6 +406,11 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
   };
 
   const write = (call: ModelCall): ScriptedReply => {
+    if (script?.answer)
+      return {
+        text: "High water comes twice a day.",
+        pause: { after: 0, until: script.answer.until, reached: script.answer.reached },
+      };
     if (planUsed) return PLAN_USED_UP;
     const search = call.results.find((result) => result.tool === "search_documents");
     if (!search)
@@ -441,8 +448,9 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
   });
   const clock = checkClock(LIMIT_MS);
   const background = flow.name === "the background watch";
+  const factory = scriptedModels(model);
   const started = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
+    createChatModel: factory.createChatModel,
     paceTimers: clock.timers,
     // Only the background watch's own flow watches in the background, as it asks.
     contradictionWatch: { delayMs: background ? 0 : 60_000, claimTimeLimitMs: LIMIT_MS },
@@ -503,6 +511,8 @@ async function worldOf(example: Example, flow: Flow, plan = false) {
     plans,
     /** Resolves once a check's model has begun the reply that `hangsAfterReply` holds. */
     began,
+    /** How many models the core has been asked to build: one for each run that prepares one. */
+    modelsBuilt: () => factory.specs.length,
     async begin(next: Script) {
       judgedBefore = await everyRecorded(started);
       script = next;
@@ -1079,4 +1089,61 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
     expect(made.runs).toEqual([2, 1, 1]);
     expect(await shown(world, BACKGROUND)).toEqual(found);
   });
+
+  // protects=a Not checked that a limit gives the claim at which it ends a background run, before any request of the claim went, is an unsent claim's: it doesn't replace the verdict of a Check for contradictions on demand that began after the run and finished while the claim waited its turn (#2909); fails_when=the claim's check function being called gives its Not checked a place of its own, newer than the Check on demand, so the Note shows the limit where the User just got a verdict; no_claim=a result that is Supported, which neither can give.
+  test.each([{ limit: "the monthly cap" }, { limit: "a rate limit" }])(
+    "a background run held behind an Answer, then refused by $limit at its first claim, doesn't replace the verdicts of the on-demand check that finished meanwhile",
+    async ({ limit }) => {
+      const made = await worldOf(example, BACKGROUND);
+      const { world } = made;
+      const answer = Promise.withResolvers<void>();
+      const answerHeld = Promise.withResolvers<void>();
+      await made.begin({
+        answer: { until: answer.promise, reached: answerHeld.resolve },
+        // The background watch's first claim is refused for too many requests until its run gives up.
+        reply: (claim, run) =>
+          limit === "a rate limit" && claim === 0 && run > 1
+            ? { error: { status: 429, message: "Too many requests." } }
+            : null,
+      });
+      const asking = await world.core.createMind({ title: "Questions", folderId: null });
+      const questions = await connectToMind(world.core, asking.id);
+      const asked = question("When is high water?");
+      writeMind(questions, [asked]);
+      await questions.settled();
+      const answering = await world.core.askQuestion({
+        mindId: asking.id,
+        questionId: asked.attrs.id,
+      });
+      if (!answering.asked) throw new Error("The Question wasn't asked.");
+      await answerHeld.promise;
+
+      // The Note joins the Folder while the Answer is written: the watch plans its run, and the
+      // run's claims wait their turn.
+      const built = made.modelsBuilt();
+      await world.core.moveToFolder({ mindIds: [world.note.mindId], folderId: world.folderId });
+      await vi.waitFor(() => expect(made.modelsBuilt()).toBeGreaterThan(built), {
+        timeout: 20_000,
+      });
+      await nextTurn();
+      await nextTurn();
+      const onDemand = await world.core.checkContradictions({
+        requestId: crypto.randomUUID(),
+        mindId: world.note.mindId,
+      });
+      expect(onDemand).toMatchObject({ kind: "checked", claims: 3 });
+      const found = ["contradicted", "contradicted", "contradicted"];
+      expect(await shown(world, BACKGROUND)).toEqual(found);
+      expect(made.runs).toEqual([1, 1, 1]);
+
+      if (limit === "the monthly cap")
+        await world.core.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
+      answer.resolve();
+      await answerEnded(world.core, answering.answerId);
+      await lastWatch(world.note.client, { checked: 0, contradicted: 0 });
+
+      expect(made.runs.slice(1)).toEqual([1, 1]);
+      expect(await shown(world, BACKGROUND)).toEqual(found);
+    },
+  );
 });

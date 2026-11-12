@@ -93,8 +93,8 @@ type StreamPart =
     ? Part
     : never;
 
-/** A model lent to a check, and what to tell when a reply comes to it some other way. */
-const lent = new WeakMap<PreparedChatModel, () => void>();
+/** A model lent to a check: what to tell when a reply comes to it some other way, and whether one has. */
+const lent = new WeakMap<PreparedChatModel, { hear(): void; replied(): boolean }>();
 
 /**
  * `prepared`, and whether a reply from its model has begun: a request refused before it was
@@ -146,7 +146,7 @@ export function heardFrom(
       return listened;
     },
   };
-  lent.set(listening, hear);
+  lent.set(listening, { hear, replied: () => replied });
   return { prepared: listening, replied: () => replied };
 }
 
@@ -154,7 +154,11 @@ export function heardFrom(
  * Tells the check that was lent `prepared` (`heardFrom`) that its claim was read, by a check it
  * took in place of its own: one Check this Note started early.
  */
-export const heardThrough = (prepared: PreparedChatModel): void => lent.get(prepared)?.();
+export const heardThrough = (prepared: PreparedChatModel): void => lent.get(prepared)?.hear();
+
+/** Whether a reply has begun to the check that was lent `prepared` (`heardFrom`). */
+export const hasReplied = (prepared: PreparedChatModel): boolean =>
+  lent.get(prepared)?.replied() ?? false;
 
 /**
  * Records a check a model replied to as a use of AI: checked when it came to a verdict, else

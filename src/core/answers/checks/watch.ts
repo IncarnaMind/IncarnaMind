@@ -54,6 +54,7 @@ import {
   type CheckRuns,
   type ClaimCheck,
   checkRunOf,
+  hasReplied,
   resultOf,
   runCheck,
   runClaimChecks,
@@ -183,17 +184,17 @@ export function createContradictionWatch(options: WatchOptions) {
 
   // The background queue runs one check at a time, so background runs land in order. A Check for
   // contradictions on demand isn't queued, so it can end after a later check of the same sentence.
-  // Each try at a check takes the next place as it begins (`began`, `placed`), and its result is
+  // Each try at a check takes the next place as it begins (`began`, `tries`), and its result is
   // refused once a check of that sentence that began after it has landed (`landed`): the newer
-  // check's result is the one the Note keeps (#2909). A claim left unsent because its run ended
-  // has no try: its Not checked asked no model, so it takes the place its run began at, and is
-  // refused once a check of that sentence that began after the run did has landed; it is not
-  // recorded in `landed`, so it refuses no result. With no run under way no place matters, so
-  // `landed` is emptied then.
+  // check's result is the one the Note keeps (#2909). A claim no model replied to, left unsent
+  // because its run ended or refused before any request went (the cap, a rate limit), asked no
+  // model: its Not checked takes the place its run began at, and is refused once a check of that
+  // sentence that began after the run did has landed; it is not recorded in `landed`, so it
+  // refuses no result. With no run under way no place matters, so `landed` is emptied then.
   let began = 0;
   let underway = 0;
   const landed = new Map<string, number>();
-  const placed = new WeakMap<Claim, number>();
+  const tries = new WeakMap<Claim, { place: number; models: PreparedChatModel[] }>();
 
   const enter = () => {
     underway++;
@@ -205,9 +206,18 @@ export function createContradictionWatch(options: WatchOptions) {
   const checkOf =
     (claim: Claim): ClaimCheck =>
     (request) => {
-      placed.set(claim, began++);
+      const own = tries.get(claim) ?? { place: 0, models: [] };
+      own.place = began++;
+      own.models.push(request.model);
+      tries.set(claim, own);
       return options.claimCheck(request);
     };
+
+  /** The place of the claim's last try, when a model replied to any of its tries; else none. */
+  const askedAt = (claim: Claim): number | undefined => {
+    const own = tries.get(claim);
+    return own?.models.some(hasReplied) ? own.place : undefined;
+  };
 
   /** What a check of the Mind's cited sentences (or those `stretches` touch) would check. */
   function plan(mindId: string, stretches?: readonly TextStretch[]): Plan {
@@ -254,7 +264,7 @@ export function createContradictionWatch(options: WatchOptions) {
    * Writes a claim's result: a contradiction's mark, in place of any check
    * there; otherwise any watch mark goes, or, if the model couldn't check it,
    * says why. False when the sentence has changed or gone meanwhile, or a check of it that began
-   * later has landed already: later than its own try, or, for a claim its run left unsent, than
+   * later has landed already: later than its own try, or, for a claim no model replied to, than
    * the run (`since`).
    */
   function write(
@@ -266,9 +276,9 @@ export function createContradictionWatch(options: WatchOptions) {
     prepared: PreparedChatModel,
     since: number,
   ) {
-    const tried = placed.get(claim);
+    const asked = askedAt(claim);
     const key = JSON.stringify([mindId, claim.blockId, claim.text]);
-    if ((landed.get(key) ?? -1) > (tried ?? since)) return false;
+    if ((landed.get(key) ?? -1) > (asked ?? since)) return false;
     const at = options.now().toISOString();
     const kept = content.edit(mindId, (blocks) => {
       const sentence = everySentence(blocks).find(
@@ -327,7 +337,7 @@ export function createContradictionWatch(options: WatchOptions) {
       return true;
     });
     if (kept) {
-      if (tried !== undefined) landed.set(key, tried);
+      if (asked !== undefined) landed.set(key, asked);
       options.retainEvidence(mindId);
     }
     return kept;
