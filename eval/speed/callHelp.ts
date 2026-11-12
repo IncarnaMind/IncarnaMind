@@ -15,6 +15,7 @@ import { generateText, type LanguageModel } from "ai";
 import type { ConversationAnswer, Core, CoreAdapters, MeetingHelpKind } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
+import type { TimingOutcome } from "../../src/core/timing/timings";
 import {
   citationNumbers,
   type ReplyItem,
@@ -47,6 +48,7 @@ import { CALL_HELP_FRESH } from "./callHelpFresh";
 import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
+import { MARKS_UNSETTLED } from "./callHelpMarksReport";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, RequestTiming } from "./paired";
 
 const STEP_MS = 500;
@@ -78,7 +80,7 @@ function replyEnded(
       if (answer?.kind === "answer" && !answer.citations.some((each) => each.check === "checking"))
         return;
       if (performance.now() > deadline)
-        throw new Error(`Its marks hadn't settled ${MARKS_MS / 1000} s after the reply ended.`);
+        throw new Error(`${MARKS_UNSETTLED} ${MARKS_MS / 1000} s after the reply ended.`);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   };
@@ -321,6 +323,7 @@ interface TimingRow {
   end_ms: number;
   input_tokens: number | null;
   output_tokens: number | null;
+  outcome: TimingOutcome;
 }
 
 /** What the press asked of models and did on this computer, from the core's own timing records. */
@@ -343,6 +346,7 @@ function requestsSince(dataDir: string, since: string): RequestTiming[] {
     endMs: row.end_ms,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
+    outcome: row.outcome,
   }));
 }
 

@@ -12,6 +12,7 @@ import type { ChatModelChoice, CoreEventName } from "../../src/core";
 import { COMPARISON_CELL_NODE, DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
+import type { TimingOutcome } from "../../src/core/timing/timings";
 import { comparisonCellOf } from "../../src/shared/comparisons";
 import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -73,6 +74,8 @@ export interface RequestTiming {
   endMs: number;
   inputTokens: number | null;
   outputTokens: number | null;
+  /** "failed" when refused or failed, "stopped" when timed out or stopped; absent before 2026-11-12. */
+  outcome?: TimingOutcome;
 }
 
 /** What one arm did on one item. */

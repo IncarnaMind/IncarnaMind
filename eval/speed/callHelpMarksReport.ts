@@ -12,6 +12,33 @@ const GATES: Readonly<Record<string, string>> = {
   "call-help-marks-3": "call-help-checked-marks-3.md",
 };
 
+/** How a press's error starts when its marks hadn't settled in time: bar 5 counts it. */
+export const MARKS_UNSETTLED = "Its marks hadn't settled";
+
+/**
+ * Why a model's run is void (shared-key rule 3): each model request that was refused, failed or
+ * timed out, and each press that failed for another reason than its marks' wait.
+ */
+function voidOf(rows: readonly PairedRow[]): string[] {
+  const runs = rows.flatMap((row) => [row.baseline, row.candidate]);
+  const ended = runs.flatMap((run) =>
+    (run.requests ?? []).filter(
+      (request) =>
+        request.kind === "model" && request.outcome !== undefined && request.outcome !== "finished",
+    ),
+  );
+  const failed = runs.filter(
+    (run) => run.status === "failed" && !run.error?.startsWith(MARKS_UNSETTLED),
+  );
+  return [
+    ...ended.map(
+      (request) =>
+        `a request (${request.step ?? "the reply"}, ${request.model}) ${request.outcome}`,
+    ),
+    ...failed.map((run) => `a press failed: ${run.error ?? "no error"}`),
+  ];
+}
+
 /** Bar 3's allowance (cited, judged right, every Citation found), by model and language. */
 const ALLOWED: Readonly<Record<string, readonly [number, number, number]>> = {
   "sonnet en": [2, 2, 2],
@@ -104,6 +131,16 @@ function gateSection(rows: readonly PairedRow[], gate: string): string {
   const cell = (model: string, language: string) =>
     rows.filter((row) => row.model === model && row.language === language);
   const languages = ["en", "zh-CN"] as const;
+
+  for (const model of models) {
+    const why = voidOf(rows.filter((row) => row.model === model));
+    if (why.length > 0) {
+      lines.push(
+        `**Void, ${model}: its bars are not read, and the run is taken again.** ${why.join("; ")}.`,
+        "",
+      );
+    }
+  }
 
   lines.push("### Bar 1: the check clears wrong ✓ from the branch's own replies", "");
   for (const model of models) {
