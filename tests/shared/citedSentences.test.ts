@@ -95,6 +95,7 @@ describe("A cited sentence ends where its own sentence ends (#3009)", () => {
     "合同第三条 (We ship in six weeks. No later than May.)[^1] 规定了交货期[^2]。",
     "他说‘Stop here. Go back now.’[^1]然后就离开了会议室[^2]。",
     "《Terms of Service. Second edition.》[^1]规定了退款的期限[^2]。",
+    "合同（原文（英文）：We ship in six weeks. No later than May.）[^1]规定了交货期[^2]。",
   ])(
     "English sentences in brackets, single quotation marks or a title within a Chinese sentence are in it: %s",
     (answer) => {

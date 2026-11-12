@@ -103,9 +103,22 @@ function spaceBeforeNextWord(text: string, at: number): boolean {
   return false;
 }
 
+function closingMark(text: string, at: number, close: string, end: number): number | null {
+  const open = text.charAt(at);
+  let depth = 0;
+  for (let next = at + 1; next < end; next++) {
+    const char = text.charAt(next);
+    if (char === close) {
+      if (depth === 0) return next;
+      depth--;
+    } else if (char === open) depth++;
+  }
+  return null;
+}
+
 function enclosedInChinese(text: string): Enclosed[] {
   if (!CHINESE.test(text)) return [];
-  const fullStops = /[。！？]/gu;
+  const sentenceEnds = /[。！？\n]/gu;
   const found: Enclosed[] = [];
   let sentenceEnd = -1;
   for (let at = 0; at < text.length; at++) {
@@ -113,21 +126,20 @@ function enclosedInChinese(text: string): Enclosed[] {
     const mark = PAIRED_MARKS.get(open);
     if (mark === undefined) continue;
     if (sentenceEnd <= at) {
-      fullStops.lastIndex = at + 1;
-      sentenceEnd = fullStops.exec(text)?.index ?? text.length;
+      sentenceEnds.lastIndex = at + 1;
+      sentenceEnd = sentenceEnds.exec(text)?.index ?? text.length;
     }
-    // A mark not closed before its sentence's own full stop quotes up to it: a straight mark
-    // would otherwise pair with the next sentence's.
-    const close = text.indexOf(mark, at + 1);
-    const closed = close !== -1 && close < sentenceEnd;
-    if (inChineseSentence(text, at, closed ? close : null)) {
+    // A mark not closed before its sentence's own full stop or line break quotes up to it: a
+    // straight mark would otherwise pair with the next sentence's.
+    const close = closingMark(text, at, mark, sentenceEnd);
+    if (inChineseSentence(text, at, close)) {
       // "…six weeks.” 我们同意…": Chinese leaves no space inside a sentence, so one after a
       // quoted sentence starts the next.
       const lastStopEndsSentence =
-        closed && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
-      found.push({ from: at, to: closed ? close : sentenceEnd, lastStopEndsSentence });
-      at = closed ? close : sentenceEnd;
-    } else if (closed) at = close;
+        close !== null && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
+      found.push({ from: at, to: close ?? sentenceEnd, lastStopEndsSentence });
+      at = close ?? sentenceEnd;
+    } else if (close !== null) at = close;
   }
   return found;
 }
