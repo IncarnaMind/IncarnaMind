@@ -110,6 +110,34 @@ export async function probeKey(
   return status >= 200 && status < 300 ? { ok: true } : { ok: false, why: `status ${status}` };
 }
 
+const STATUS =
+  /(?:\bstatus(?: code)?|\bstatusCode|\bHTTP(?:\/[\d.]+)?|\b(?:Error|APICallError))["':= ]{0,4}([1-5]\d\d)\b/i;
+
+/**
+ * What a failure's text says about the request, in words of ours, or null when it says nothing we
+ * can name. Only fixed words and a status code leave this function, never the text: it may hold
+ * what a provider answered, with an account or key id in it, and the summary is an artifact anyone
+ * can download.
+ */
+function classify(text: string): string | null {
+  const status = Number(STATUS.exec(text)?.[1]);
+  if (OUT_OF_CREDIT.test(text)) {
+    return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
+  }
+  if (status >= 400 && status < 500) return `refused: status ${status}`;
+  if (status >= 500) return `failed: status ${status}`;
+  if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
+  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) {
+    return "failed: no answer from the provider";
+  }
+  if (/^\s*(?:AssertionError|expected )/.test(text)) return "failed: an expectation did not hold";
+  return null;
+}
+
+/** A failed case's line in the summary: `classify`'s words, or a pointer to the job's log. */
+export const describeFailure = (text: string): string =>
+  classify(text) ?? "failed: see the job's log";
+
 interface Case {
   name: string;
   passed: boolean;
@@ -363,13 +391,18 @@ const redOf = (step: Step, cases: readonly Case[], ran: boolean, failing: number
     ? cases.filter((each) => !each.passed).map((each) => `${step.name}: ${each.name}`)
     : [`${step.name}: ${ran ? "the step failed with every case passing" : "no case reported a result"}`];
 
-/** The last line of a step's log that names an error, or none. */
+/** Lines our own code writes, which hold numbers and no provider's words. */
+const OWN_LINE =
+  /^(?:Error: \d+% of the cited sentences are Supported, under the target of \d+(?:\.\d+)?%\.|Stopped after [\d.]+ minutes\.)$/;
+
+/** Why the last line of a step's log that names an error failed the step, in our words, or none. */
 function failureLine(log: string): string {
   const line = log
     .split("\n")
     .filter((each) => /\b(?:Error|Stopped after)\b/.test(each))
-    .at(-1);
-  return line ? line.trim().slice(0, 240) : "";
+    .at(-1)
+    ?.trim();
+  return line === undefined ? "" : OWN_LINE.test(line) ? line : (classify(line) ?? "");
 }
 
 /** The night's report: a line for each step, then a result for every case, and what it spent. */
@@ -557,11 +590,11 @@ export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: n
   const cases = all
     .filter((each) => each.status === "passed" || each.status === "failed")
     .map((each) => {
-      const reason = each.failureMessages?.[0]?.split("\n")[0]?.slice(0, 200);
+      const failure = each.failureMessages?.join("\n");
       return {
         name: each.fullName,
         passed: each.status === "passed",
-        ...(reason && { detail: reason }),
+        ...(failure && { detail: describeFailure(failure) }),
       };
     });
   return { cases, skipped: all.length - cases.length };

@@ -6,6 +6,7 @@ import { readStatus } from "../../scripts/nightlyIssue";
 import {
   type Attempt,
   casesOf,
+  describeFailure,
   executeIn,
   missingMessage,
   missingSecrets,
@@ -687,5 +688,114 @@ describe("the three states of a night", () => {
     ]);
     expect(JSON.parse(await readFile(join(out, "status.json"), "utf8"))).toEqual(night.status);
     expect(await readFile(join(out, "summary.md"), "utf8")).toContain("**not measured**");
+  });
+});
+
+describe("a provider's words stay out of the summary", () => {
+  const ORG = "org-1111aaaa2222bbbb3333cccc4444dddd";
+  const ACCESS = "ak-test1234test5678abcd";
+  const SUSPENDED = `{"ok":false,"error":{"kind":"out-of-credit","message":"Your account ${ORG} <${ACCESS}> is suspended due to insufficient balance, please recharge"}}`;
+  const raw = [
+    `AssertionError: ${SUSPENDED}`,
+    `APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG} in project proj_9f8e7d6c"}}`,
+    "AssertionError: expected 'workspace-id-7777 said hello' to contain 'cites'",
+    `Error: Request to ${ACCESS} timed out after 30000 ms`,
+    "TypeError: fetch failed",
+    `Error: 503 upstream ${ORG} is down`,
+    "Error: something we never classified, with org-0000 in it",
+  ];
+
+  // protects=a failure's words become status and words of ours (refused, failed, timed out), whatever the provider said; fails_when=any part of the text, an id in it included, comes out, or a refusal is called a failure; no_claim=how the providers word their errors.
+  test("a failure is told by its status and our own words", () => {
+    expect(raw.map(describeFailure)).toEqual([
+      "refused: out of credit",
+      "refused: status 429",
+      "failed: an expectation did not hold",
+      "failed: timed out",
+      "failed: no answer from the provider",
+      "failed: status 503",
+      "failed: see the job's log",
+    ]);
+    expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
+      "refused: out of credit (status 402)",
+    );
+    for (const text of raw) {
+      expect(describeFailure(text)).not.toMatch(/org-|ak-|proj_|workspace-id|upstream|suspended/);
+    }
+  });
+
+  // protects=a raw body with an account id and a key id, in a step's results and in its log, never reaches summary.md or status.json, which anyone can download; fails_when=the first line of a failure message is copied again; no_claim=the step's own report files, which are the raw record.
+  test("summary.md carries no raw message, only the status and our words", async () => {
+    const out = await createTempDataFolder();
+    const writer = [
+      "const fs = require('node:fs');",
+      "const failure = (title, message) => ({ fullName: title, status: 'failed', failureMessages: [message + '\\n    at /work/test.ts:1:1'] });",
+      `fs.writeFileSync(process.argv[1] + '/vitest.json', JSON.stringify({ testResults: [{ assertionResults: [`,
+      `  failure('a key connects', ${JSON.stringify(`AssertionError: ${SUSPENDED}`)}),`,
+      `  failure('an answer cites', ${JSON.stringify(`APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG}"}}`)}),`,
+      `  failure('an edit says what changed', ${JSON.stringify("AssertionError: expected 'workspace-id-7777 said hello' to contain 'cites'")}),`,
+      `  { fullName: 'a plain pass', status: 'passed', failureMessages: [] },`,
+      "] }] }));",
+      `console.error(${JSON.stringify(`Error: 400 ${SUSPENDED}`)});`,
+      "process.exit(1);",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: (folder) => ["node", "-e", writer, folder],
+      env: () => ({}),
+    };
+    const night = await runNight({
+      steps: [scripted],
+      env: { PATH: process.env.PATH, NIGHTLY_KIMI_KEY: "a-key" },
+      out,
+    });
+    const report = await readFile(join(out, "summary.md"), "utf8");
+    const status = await readFile(join(out, "status.json"), "utf8");
+    for (const text of [report, status, night.text]) {
+      expect(text).not.toContain(ORG);
+      expect(text).not.toContain(ACCESS);
+      expect(text).not.toContain("suspended");
+      expect(text).not.toContain("workspace-id-7777");
+      expect(text).not.toContain("Rate limit reached");
+    }
+    expect(report).toContain("| a key connects | **failed**: refused: out of credit |");
+    expect(report).toContain("| an answer cites | **failed**: refused: status 429 |");
+    expect(report).toContain(
+      "| an edit says what changed | **failed**: failed: an expectation did not hold |",
+    );
+    expect(report).toContain("| a plain pass | passed |");
+  });
+
+  // protects=a step that failed with every case passing is told by its log's last error in our words, and our own eval's target line is kept because it holds only numbers; fails_when=the log's line is copied, or the target line is lost; no_claim=none.
+  test("a log's error line is described, not copied", () => {
+    const failed = (log: string) =>
+      summary(
+        [
+          {
+            step: live,
+            secret: "NIGHTLY_ANTHROPIC_KEY_1",
+            exitCode: 1,
+            log,
+            seconds: 1,
+            outOfCredit: false,
+            cases: [{ name: "owner-1 (en)", passed: true }],
+            usage: [],
+          },
+        ],
+        "2026-11-12",
+      ).text;
+    const copied = failed(`x\nError: 400 ${SUSPENDED}\n`);
+    expect(copied).toContain("every case passed: refused: out of credit (status 400)");
+    expect(copied).not.toContain(ORG);
+    expect(
+      failed("Error: 90% of the cited sentences are Supported, under the target of 95%."),
+    ).toContain(
+      "every case passed: Error: 90% of the cited sentences are Supported, under the target of 95%.",
+    );
+    expect(failed(`Error: ${ORG} said no\n`)).not.toContain("every case passed");
   });
 });
