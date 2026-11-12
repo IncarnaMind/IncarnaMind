@@ -1046,4 +1046,37 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
 
     expect(await shown(world, BACKGROUND)).toEqual([RL, "none", RL]);
   });
+
+  // protects=a Not checked that a run writes on the claims it never sent, once a limit has ended it, doesn't replace the verdict a model gave a Check for contradictions on demand that began after that run began and has landed (#2909); fails_when=the claims a run left unsent are written as if they were the newest check of their sentences, so the Note keeps the Not checked and the verdict is lost; no_claim=a result that is Supported, which neither can give.
+  test("a background run's Not checked on sentences it never sent doesn't replace the verdicts of the on-demand check that began after it and has landed", async () => {
+    const made = await worldOf(example, BACKGROUND);
+    const { world } = made;
+    const gate = Promise.withResolvers<void>();
+    await made.begin({
+      reply: (claim, run, call, planned) =>
+        // The background watch's first request for the first claim waits: the cap is reached while it does.
+        claim === 0 && run === 1 && call.results.length === 0
+          ? { ...planned, pause: { after: 0, until: gate.promise } }
+          : null,
+    });
+
+    // The Note joins the Folder: the background watch begins, with nothing marked in the Note.
+    await world.core.moveToFolder({ mindIds: [world.note.mindId], folderId: world.folderId });
+    await vi.waitFor(() => expect(made.runs).toEqual([1, 0, 0]), { timeout: 20_000 });
+    const onDemand = await world.core.checkContradictions({
+      requestId: crypto.randomUUID(),
+      mindId: world.note.mindId,
+    });
+    expect(onDemand).toMatchObject({ kind: "checked", claims: 3 });
+    const found = ["contradicted", "contradicted", "contradicted"];
+    expect(await shown(world, BACKGROUND)).toEqual(found);
+
+    // The cap ends the background run at its first claim: the other two are left Not checked.
+    await world.core.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
+    gate.resolve();
+    await lastWatch(world.note.client, { checked: 0, contradicted: 0 });
+
+    expect(made.runs).toEqual([2, 1, 1]);
+    expect(await shown(world, BACKGROUND)).toEqual(found);
+  });
 });

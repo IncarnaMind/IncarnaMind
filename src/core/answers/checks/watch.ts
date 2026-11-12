@@ -186,8 +186,10 @@ export function createContradictionWatch(options: WatchOptions) {
   // Each try at a check takes the next place as it begins (`began`, `placed`), and its result is
   // refused once a check of that sentence that began after it has landed (`landed`): the newer
   // check's result is the one the Note keeps (#2909). A claim left unsent because its run ended
-  // has no place: its Not checked asked no model, so it refuses no result and none refuses it.
-  // With no run or background check under way no place matters, so `landed` is emptied then.
+  // has no try: its Not checked asked no model, so it takes the place its run began at, and is
+  // refused once a check of that sentence that began after the run did has landed; it is not
+  // recorded in `landed`, so it refuses no result. With no run under way no place matters, so
+  // `landed` is emptied then.
   let began = 0;
   let underway = 0;
   const landed = new Map<string, number>();
@@ -252,7 +254,8 @@ export function createContradictionWatch(options: WatchOptions) {
    * Writes a claim's result: a contradiction's mark, in place of any check
    * there; otherwise any watch mark goes, or, if the model couldn't check it,
    * says why. False when the sentence has changed or gone meanwhile, or a check of it that began
-   * later has landed already; a claim left unsent has no place, and is never refused for it.
+   * later has landed already: later than its own try, or, for a claim its run left unsent, than
+   * the run (`since`).
    */
   function write(
     mindId: string,
@@ -261,10 +264,11 @@ export function createContradictionWatch(options: WatchOptions) {
     claim: Claim,
     result: ClaimCheckResult,
     prepared: PreparedChatModel,
+    since: number,
   ) {
-    const place = placed.get(claim);
+    const tried = placed.get(claim);
     const key = JSON.stringify([mindId, claim.blockId, claim.text]);
-    if (place !== undefined && (landed.get(key) ?? -1) > place) return false;
+    if ((landed.get(key) ?? -1) > (tried ?? since)) return false;
     const at = options.now().toISOString();
     const kept = content.edit(mindId, (blocks) => {
       const sentence = everySentence(blocks).find(
@@ -323,7 +327,7 @@ export function createContradictionWatch(options: WatchOptions) {
       return true;
     });
     if (kept) {
-      if (place !== undefined) landed.set(key, place);
+      if (tried !== undefined) landed.set(key, tried);
       options.retainEvidence(mindId);
     }
     return kept;
@@ -341,6 +345,7 @@ export function createContradictionWatch(options: WatchOptions) {
     let checked = 0;
     let contradicted = 0;
     enter();
+    const since = began++;
     const { stop, outcomeError } = await runClaimChecks(
       ready.claims,
       (claim, attempt) =>
@@ -355,7 +360,7 @@ export function createContradictionWatch(options: WatchOptions) {
         onOutcome(claim, outcome) {
           if (signal.aborted) return;
           const result = resultOf(outcome);
-          if (write(mindId, request, ready.folderId, claim, result, prepared)) {
+          if (write(mindId, request, ready.folderId, claim, result, prepared, since)) {
             if (result.verdict !== "not-checked") checked++;
             if (result.verdict === "contradicted") contradicted++;
           }
@@ -468,6 +473,14 @@ export function createContradictionWatch(options: WatchOptions) {
     if (!prepared || closed) return;
     const runId = randomUUID();
     const request = randomUUID();
+    const since = began++;
+    enter();
+    let over = false;
+    const end = () => {
+      if (over) return;
+      over = true;
+      leave();
+    };
     let left = ready.claims.length;
     let checked = 0;
     let contradicted = 0;
@@ -476,7 +489,7 @@ export function createContradictionWatch(options: WatchOptions) {
     let markFailed = false;
     const mark = (claim: Claim, result: ClaimCheckResult): boolean => {
       try {
-        return write(mindId, request, ready.folderId, claim, result, prepared);
+        return write(mindId, request, ready.folderId, claim, result, prepared, since);
       } catch (error) {
         if (!markFailed) {
           markFailed = true;
@@ -506,6 +519,7 @@ export function createContradictionWatch(options: WatchOptions) {
     };
     const finish = () => {
       if (--left > 0) return;
+      end();
       record(stop);
     };
     /** Once a claim ends the run, what each claim after it lands, sending nothing. */
@@ -514,7 +528,6 @@ export function createContradictionWatch(options: WatchOptions) {
       options.background.add({
         kind: ACTION,
         async run(call) {
-          enter();
           try {
             if (closed) return;
             if (!rest && !prepared.provider.service) call.runsLocally();
@@ -539,11 +552,12 @@ export function createContradictionWatch(options: WatchOptions) {
               if (result.verdict === "contradicted") contradicted++;
             }
           } finally {
-            leave();
             // A run that gives way or closes ends without finishing: its record says so, so a
             // scoped Check never stands on it (#1941).
-            if (call.signal.aborted || closed) record(stop ?? { reason: "cancelled" });
-            else finish();
+            if (call.signal.aborted || closed) {
+              if (closed) end();
+              record(stop ?? { reason: "cancelled" });
+            } else finish();
           }
         },
       });
