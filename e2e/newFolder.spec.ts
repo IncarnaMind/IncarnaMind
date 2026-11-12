@@ -209,16 +209,18 @@ test("a blank name changes nothing, a name another Folder has is said in a line,
     await expect(field).toHaveCount(0);
     await expect(sidebarFolder(window, "Untitled Folder")).toHaveCount(1);
 
-    // Finance is taken, whatever its case: the Folder keeps the name it has.
-    await window.keyboard.press("ControlOrMeta+Shift+n");
+    // Finance is taken beside it, whatever its case: the Folder keeps the name it has. A name is
+    // taken only among a Folder's siblings (#2425), and ⇧⌘N would make this one inside the
+    // Untitled Folder the keyboard is still on (#246), so the Folders heading's + makes it.
+    await pointAndClick(window, window.getByTestId("folders-add"));
     await expect(field).toHaveValue("Untitled Folder 2");
     await window.keyboard.type("finance");
     await window.keyboard.press("Enter");
     await expect(window.getByRole("alert")).toContainText("already exists");
     await expect(sidebarFolder(window, "Untitled Folder 2")).toHaveCount(1);
     await expect
-      .poll(() => folderNames(window))
-      .toEqual(["Finance", "Untitled Folder", "Untitled Folder 2"]);
+      .poll(() => folderPlaces(window))
+      .toEqual({ Finance: null, "Untitled Folder": null, "Untitled Folder 2": null });
   } finally {
     await app.close();
   }
