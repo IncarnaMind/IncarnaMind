@@ -406,8 +406,16 @@ export interface CreateMindInput {
  *   a what-if as the workbook's own figure, so it opens these Notes read-only.
  *   Older content is version 55 content as it is: a figure without it is the
  *   workbook's own, or a what-if of the one input it names.
+ * - 57: each sentence's check, each comment and each change the assistant
+ *   proposes is kept under a format key of its own, the mark's name, `--` and
+ *   eight characters of its id (#2996), so two side by side don't share the
+ *   marker that ends one and starts the next. An older version reads them
+ *   only under their names, so it opens these Notes read-only and shows their
+ *   checks as not checked. Older content is version 56 content as it is: the
+ *   core moves these marks to their own keys when it opens the Note, or
+ *   restores a Checkpoint of it.
  */
-export const CONTENT_SCHEMA_VERSION = 56;
+export const CONTENT_SCHEMA_VERSION = 57;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

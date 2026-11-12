@@ -739,6 +739,100 @@ test.each([
 );
 const shown = (doc: Y.Doc) => scheduleOf(doc).rows.map((row) => row.shown.state);
 
+// #2996: two checked sentences with nothing between them. A keep from the schedule on one, with the
+// note behind it, while a result lands on the other, in both of Yjs's orders.
+describe.each([
+  { layout: "side by side", first: "Revenue was 10 in May. ", second: "Costs were 8 in May." },
+  { layout: "紧挨着", first: "五月收入为10亿元。", second: "五月成本为8亿元。" },
+])("two checked sentences $layout", ({ first, second }) => {
+  const sentences = { first, second };
+  function touching() {
+    const ready = setup([paragraph(first + second, "p")], false);
+    const element = ready.blocks.get(0);
+    if (!(element instanceof Y.XmlElement)) throw new Error("No paragraph");
+    for (const [id, text, from] of [
+      ["first", first, 0],
+      ["second", second, first.length],
+    ] as const) {
+      const figures = figuresInMind(ready.blocks)
+        .filter((figure) => text.includes(figure.reading.chars))
+        .map((figure) => ({
+          ...basis(),
+          ...emptyFigureFinding(figure),
+          text,
+          state: "supported" as const,
+        }));
+      markSentence(element, from, from + text.length, {
+        ...basis(),
+        id,
+        text,
+        state: "supported",
+        figures,
+        remainder: { ...basis(), id, text, state: "supported" },
+      });
+    }
+    return ready;
+  }
+  test.each([
+    ["the first", "before", "first", 1],
+    ["the first", "after", "first", 3],
+    ["the second", "before", "second", 1],
+    ["the second", "after", "second", 3],
+  ] as const)(
+    "a keep on %s from the schedule while a result lands on the other leaves each its own check, the keep ordered %s it",
+    (_, _order, kept, copyId) => {
+      const { doc, blocks, read } = touching();
+      const other = kept === "first" ? "second" : "first";
+      const copy = new Y.Doc();
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      cleanup.push(() => copy.destroy());
+      copy.clientID = copyId;
+      doc.clientID = 2;
+      const schedule = read();
+      const row = schedule.rows[kept === "first" ? 0 : 1];
+      if (!row) throw new Error("No figure");
+      const landing = markedSentences(blocks).find((each) => each.check.id === other);
+      if (!landing) throw new Error("No check on the other sentence");
+      markSentence(landing.element, landing.from, landing.to, {
+        ...landing.check,
+        text: sentences[other],
+        state: "contradicted",
+        figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+      });
+      editNote("a note behind the schedule", copy, (note) =>
+        keepFigureViews(note, schedule, [row.id]),
+      );
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+      Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+      const want = kept === "first" ? ["kept", "contradicted"] : ["contradicted", "kept"];
+      expect(shown(doc)).toEqual(want);
+      expect(shown(copy)).toEqual(want);
+      expect(markedSentences(blocks).map((each) => each.check.id)).toEqual(["first", "second"]);
+    },
+  );
+
+  test("Undo of a keep with the note in front leaves a result that landed on the other since", () => {
+    const { doc, blocks, read } = touching();
+    const copy = copyInStep(doc);
+    const editor = openEditor(copy, "a note in front");
+    const schedule = read();
+    const row = schedule.rows[0];
+    if (!row) throw new Error("No figure");
+    editNote("a note in front", copy, (note) => keepFigureViews(note, schedule, [row.id]));
+    expect(shown(doc)).toEqual(["kept", "supported"]);
+    const landing = markedSentences(blocks).find((each) => each.check.id === "second");
+    if (!landing) throw new Error("No check on the second sentence");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...landing.check,
+      state: "contradicted",
+      figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+    });
+    editor.commands.undo();
+    expect(shown(doc)).toEqual(["supported", "contradicted"]);
+    expect(shown(copy)).toEqual(["supported", "contradicted"]);
+  });
+});
+
 const sourceInput = (chars: string, value: number) => ({
   name: "revenue",
   label: "Revenue",

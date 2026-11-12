@@ -20,6 +20,7 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
+import { countingCheckOf, isCheckKey, keyedFormats, markValueOf } from "../../../shared/markKeys";
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
@@ -316,8 +317,8 @@ function changesIn(element: Y.XmlElement, from: number, to: number): string[] {
     for (const run of node.toDelta() as Run[]) {
       const length = typeof run.insert === "string" ? run.insert.length : 1;
       if (offset < to && offset + length > from) {
-        add(readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]));
-        add(readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]));
+        add(readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes)));
+        add(readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes)));
       }
       offset += length;
     }
@@ -568,7 +569,7 @@ export function markSentence(
     const begin = Math.max(from, start);
     const end = Math.min(to, start + size);
     if (begin >= end) continue;
-    node.format(begin - start, end - begin, { [CLAIM_CHECK_MARK]: { ...check } });
+    node.format(begin - start, end - begin, keyedFormats(node, CLAIM_CHECK_MARK, { ...check }));
   }
 }
 
@@ -598,12 +599,11 @@ export function unmarkSentence(
     let offset = start;
     for (const run of node.toDelta() as Run[]) {
       const length = typeof run.insert === "string" ? run.insert.length : 1;
-      const check = readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
-      if (check?.action === action && offset < to && offset + length > from) {
+      for (const [key, value] of Object.entries(run.attributes ?? {})) {
+        if (!isCheckKey(key) || readClaimCheck(value)?.action !== action) continue;
+        if (offset >= to || offset + length <= from) continue;
         const begin = Math.max(from, offset);
-        node.format(begin - start, Math.min(to, offset + length) - begin, {
-          [CLAIM_CHECK_MARK]: null,
-        });
+        node.format(begin - start, Math.min(to, offset + length) - begin, { [key]: null });
         removed = true;
       }
       offset += length;
@@ -660,9 +660,10 @@ const marksOfBlock = perBlock((block): readonly MarkedSentence[] => {
       let offset = start;
       for (const run of node.toDelta() as Run[]) {
         const length = typeof run.insert === "string" ? run.insert.length : 1;
-        const check = readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
+        const raw = countingCheckOf(run.attributes)?.attrs;
+        const check = readClaimCheck(raw);
         if (check) {
-          const partsComplete = completeParts(run.attributes?.[CLAIM_CHECK_MARK], check);
+          const partsComplete = completeParts(raw, check);
           const known = found.get(check.id);
           if (known && known.element === element) {
             known.to = offset + length;
@@ -827,8 +828,10 @@ export function updateCheck(
     let offset = 0;
     for (const run of node.toDelta() as Run[]) {
       const length = typeof run.insert === "string" ? run.insert.length : 1;
-      const check = readClaimCheck(run.attributes?.[CLAIM_CHECK_MARK]);
-      if (check?.id === id) node.format(offset, length, { [CLAIM_CHECK_MARK]: { ...changed } });
+      // Only where this check counts: one that lost to another on these words lands nowhere.
+      const counting = countingCheckOf(run.attributes);
+      if (counting && readClaimCheck(counting.attrs)?.id === id)
+        node.format(offset, length, { [counting.key]: { ...changed } });
       offset += length;
     }
   }
