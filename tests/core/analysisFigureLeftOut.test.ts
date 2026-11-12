@@ -713,7 +713,12 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
         { content: "" },
         false,
       );
-      const answer = await askAssistant(core, { conversationId, text: question, mindId, analyse: true });
+      const answer = await askAssistant(core, {
+        conversationId,
+        text: question,
+        mindId,
+        analyse: true,
+      });
       const client = await connectToMind(core, mindId);
       await client.settled();
       await resolveChanges(client, "accept");
