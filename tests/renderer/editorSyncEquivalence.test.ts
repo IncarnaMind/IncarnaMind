@@ -11,6 +11,7 @@ import { expect, test } from "vitest";
 import * as Y from "yjs";
 import { CLAIM_CHECK_MARK, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { countingCheckOf } from "../../src/shared/markKeys";
 import { random } from "../helpers/random";
 
 /*
@@ -203,7 +204,9 @@ function libraryWrite(
       retain: (p.text ?? "").length,
       attributes: {
         ...cleared,
-        ...Object.fromEntries(p.marks.map((mark) => [mark.type.name, mark.attrs])),
+        ...Object.fromEntries(
+          p.marks.map((mark) => [mark.type.spec.yKey?.(mark.attrs) ?? mark.type.name, mark.attrs]),
+        ),
       },
     }));
     return applyDelta.call(this, all, options);
@@ -244,11 +247,13 @@ test("over 360 random edits, the Note reads back as the library writes it, with 
             insert: string;
             attributes?: Record<string, Record<string, unknown>>;
           }[]) {
-            const check = run.attributes?.[CLAIM_CHECK_MARK];
+            const check = countingCheckOf(run.attributes);
             if (check)
               text.format(at, run.insert.length, {
-                [CLAIM_CHECK_MARK]: Object.fromEntries(
-                  Object.entries(check).filter(([, value]) => value != null),
+                [check.key]: Object.fromEntries(
+                  Object.entries(check.attrs as Record<string, unknown>).filter(
+                    ([, value]) => value != null,
+                  ),
                 ),
               });
             at += run.insert.length;

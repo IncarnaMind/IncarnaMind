@@ -218,7 +218,12 @@ test("Check this Note reads a later Id. on the cite before it, in whatever order
     location: { kind: "page", from: 2, to: 2 },
     via: ["ECF No. 41 at 3"],
   });
-  const context = { versions: null, folderId: folder.id, scope: null };
+  const context = {
+    footing: "not-yet-known" as const,
+    versions: null,
+    folderId: folder.id,
+    scope: null,
+  };
   const shownNext = () =>
     claimsOf(readMind(client), context).claims.find((claim) => claim.check.text === NEXT)?.shown;
   expect(shownNext()).toEqual({ state: "supported" });

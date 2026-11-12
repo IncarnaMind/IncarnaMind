@@ -146,6 +146,14 @@ describe("The sentences of a paragraph", () => {
     ]);
   });
 
+  test("a quotation never closed in a Chinese line ends at the line break (#3009)", () => {
+    expect(sentences('他说“这句没有结束\nHe said "Stop." Then he left.')).toEqual([
+      "他说“这句没有结束",
+      'He said "Stop."',
+      "Then he left.",
+    ]);
+  });
+
   test("nothing but spaces or a lone Citation is no sentence", () => {
     expect(sentences("   ")).toEqual([]);
     expect(sentences(` ${INLINE_NODE} `)).toEqual([]);

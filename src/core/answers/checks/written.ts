@@ -74,7 +74,7 @@ import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import { type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
-import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
+import { type MarkJSON, marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
@@ -582,9 +582,9 @@ function inlineOf(parent: Y.XmlElement): NodeJSON[] {
       const runs = child.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[];
       return runs.flatMap((run) => {
         if (typeof run.insert !== "string") return [];
-        const marks = Object.entries(run.attributes ?? {}).map(([type, attrs]) => ({
-          type,
-          attrs: (attrs ?? {}) as Record<string, unknown>,
+        const marks = marksOfRun(run.attributes).map((mark) => ({
+          ...mark,
+          attrs: mark.attrs ?? {},
         }));
         return [{ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) }];
       });

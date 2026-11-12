@@ -12,6 +12,7 @@ import type { ChatModelChoice, CoreEventName } from "../../src/core";
 import { COMPARISON_CELL_NODE, DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
+import type { TimingOutcome } from "../../src/core/timing/timings";
 import { comparisonCellOf } from "../../src/shared/comparisons";
 import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -49,6 +50,8 @@ export const SET_IDS = [
   "call-help-fresh",
   "call-help-documents",
   "call-help-checks",
+  "call-help-marks",
+  "call-help-marks-3",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -71,6 +74,8 @@ export interface RequestTiming {
   endMs: number;
   inputTokens: number | null;
   outputTokens: number | null;
+  /** "failed" when refused or failed, "stopped" when timed out or stopped; absent before 2026-11-12. */
+  outcome?: TimingOutcome;
 }
 
 /** What one arm did on one item. */
@@ -105,6 +110,27 @@ export interface ArmRun {
   text: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
+  /**
+   * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
+   * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
+   * show ✓, how many the check gave a verdict (passed it, or found it unsupported or
+   * contradicted), and why each of the rest shows none, by its check and reason. Of those whose
+   * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
+   * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
+   */
+  marks?: {
+    held: number;
+    checked: number;
+    judged: number;
+    missed: Record<string, number>;
+    listed: number;
+    listedChecked: number;
+    settledMs: number | null;
+    /** The judge's own reply, as read: its grade and the numbers it listed. */
+    judge: { grade: string; unstated: number[] };
+    /** Each shown number: its Citation's check, its quote found, listed by the judge, and ✓ shown. */
+    numbers: { number: number; check: string; found: boolean; listed: boolean; passed: boolean }[];
+  };
 }
 
 /**
@@ -196,7 +222,7 @@ export async function openForArms(
 const languageOf = (language: "en" | "zh" | "zh-CN"): Language =>
   language === "en" ? "en" : "zh-CN";
 
-const NOTHING: Measured = {
+export const NOTHING: Measured = {
   status: "done",
   error: null,
   searches: null,

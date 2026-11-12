@@ -383,7 +383,13 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
         expected.forEach((written, index) => {
           const { text, check } = found[index] ?? { text: "(missing)", check: null };
           const shown = check
-            ? claimCheckShown(check, { text, versions: null, folderId: folder.id, scope: null })
+            ? claimCheckShown(check, {
+                footing: "not-yet-known",
+                text,
+                versions: null,
+                folderId: folder.id,
+                scope: null,
+              })
             : null;
           const verdict = shown?.state ?? "not-checked";
           const label = `${written.right ? "right" : "wrong"} ${written.text}${check ? "" : " (no check)"}`;

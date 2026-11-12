@@ -18,6 +18,7 @@ import {
 } from "../../shared/askedChanges";
 import { originOf, setOrigins } from "../../shared/blockOrigins";
 import { readChart } from "../../shared/charts";
+import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
   keepRevised,
   proposalRequestOf,
@@ -35,11 +36,20 @@ import {
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type TextPlace,
 } from "../api";
+import {
+  holdsMissingNumber,
+  type PlaceKeys,
+  paragraphPlaces,
+  placeKeysOf,
+  TEXT_BLOCKS,
+  takesMissingNumber,
+} from "./placed";
 import { blockProposal, citationsIn, proposeOver, setProposal, textBlocks } from "./write";
 
 /** The assistant's own waiting Blocks a stretch is in, from the first's top-level Block to the last's. */
@@ -93,8 +103,8 @@ function holdsProposal(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[])
     if (node instanceof Y.XmlText) {
       return (node.toDelta() as Run[]).some(
         (run) =>
-          !!run.attributes &&
-          (PROPOSAL_INSERT_MARK in run.attributes || PROPOSAL_DELETE_MARK in run.attributes),
+          hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes) ||
+          hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes),
       );
     }
     if (!(node instanceof Y.XmlElement)) return false;
@@ -108,8 +118,8 @@ function requestsIn(nodes: readonly (Y.XmlElement | Y.XmlText | Y.XmlHook)[]): s
     for (const node of nodes) {
       if (node instanceof Y.XmlText) {
         for (const run of node.toDelta() as Run[]) {
-          const insert = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removed = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const insert = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removed = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if (insert) requests.add(insert.request);
           if (removed) requests.add(removed.request);
         }
@@ -140,13 +150,15 @@ const REMOVED_BLOCKS: ReadonlySet<string> = new Set([
 
 const WRITTEN_ATOMS: ReadonlySet<string> = new Set([
   CITATION_NODE,
+  MISSING_NUMBER_NODE,
   "hardBreak",
   "paragraph",
   "heading",
 ]);
 // A formula, picture, chart or code block carries no mark in the Mind, so one among the
-// assistant's text already there may be the User's: only Citations, line breaks and empty
-// paragraphs are its own.
+// assistant's text already there may be the User's: only Citations, the mark where a figure
+// couldn't be calculated, which a later Answer's calculated figure takes the place of (#2577),
+// line breaks and empty paragraphs are its own.
 const writtenAtom = (atom: Y.XmlElement): boolean => WRITTEN_ATOMS.has(atom.nodeName);
 
 function allAiText(
@@ -242,7 +254,7 @@ function unsafeInlineInsertion(element: Y.XmlElement, current: ReadonlySet<strin
       }
       if (!(node instanceof Y.XmlText)) return false;
       return (node.toDelta() as Run[]).some((run) => {
-        const proposal = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
+        const proposal = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
         return (
           !!proposal &&
           current.has(proposal.request) &&
@@ -578,6 +590,41 @@ export function citationsDropped(
 ): number {
   const kept = new Set(revised.flatMap(citationsIn));
   return (blocksOf(blocks, over) ?? []).flatMap(citationsIn).filter((key) => !kept.has(key)).length;
+}
+
+/**
+ * Whether `revised`, put in place of `over`'s Blocks, takes out the mark where a figure couldn't
+ * be calculated with no calculated figure in its place (#2577).
+ */
+export function takesMissingNumberOver(
+  blocks: Y.XmlFragment,
+  over: Pick<OwnWaiting, "blockIds" | "fingerprint">,
+  revised: readonly NodeJSON[],
+  options: { removesOnly?: boolean } = {},
+): boolean {
+  const before = (blocksOf(blocks, over) ?? []).flatMap((element) =>
+    paragraphPlaces(element, null),
+  );
+  if (!holdsMissingNumber(before)) return false;
+  const after: PlaceKeys[] = [];
+  const visit = (node: NodeJSON) => {
+    const content = node.content ?? [];
+    if (TEXT_BLOCKS.has(node.type) || content.some((child) => child.type === "text")) {
+      after.push(
+        placeKeysOf(
+          content.map((child) =>
+            child.type === "text"
+              ? { text: child.text ?? "" }
+              : { node: child.type, id: child.attrs?.[BLOCK_ID_ATTRIBUTE] },
+          ),
+        ),
+      );
+      return;
+    }
+    content.forEach(visit);
+  };
+  revised.forEach(visit);
+  return takesMissingNumber(before, after, options);
 }
 
 /** Whether the User asked for all of the text `own` holds (#880): a revision of it is asked for too. */

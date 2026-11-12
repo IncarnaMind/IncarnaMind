@@ -19,7 +19,7 @@ import { TAG_KINDS } from "../../src/core/tags/kinds";
 
 /** Every call under src/core that makes a model reply to a schema, and the names of the schemas it sends. */
 export const SCHEMA_CALLS = {
-  "answers/claimedChanges.ts": ["change-claims"],
+  "answers/claimedChanges.ts": ["change-claims", "request-done"],
   "answers/engine.ts": ["answer"],
   "answers/figureRetry.ts": ["calculations"],
   "answers/quoteRetry.ts": ["quotes"],
@@ -81,6 +81,7 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
   const signal = new AbortController().signal;
   await unbackedClaims("Done, the summary is on the page.", [], [], null, {
     model,
+    request: "Put the summary on the page.",
     names: () => null,
     signal,
   });

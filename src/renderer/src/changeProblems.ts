@@ -136,6 +136,9 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
     case "no-table":
     case "unplaced":
       return t(REFUSAL_WORDS[problem.kind].card, { mind });
+    // The change card's own line, as a call's row says it, without the card's separator.
+    case "missing-number":
+      return t(REFUSAL_WORDS[problem.kind].card).replace(/^·\s*/u, "");
     case "uncited":
       return t("mindCall.failed.uncited", { mind });
     case "length":

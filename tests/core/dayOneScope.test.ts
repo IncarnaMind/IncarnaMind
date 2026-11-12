@@ -138,7 +138,13 @@ describe("“every Document” is the examples until the User has one, then thei
     const [span] = claimSpans(readMind(client));
     if (!span) throw new Error("The sentence has no check.");
     expect(
-      claimCheckShown(span.check, { text: CLAIM, versions, folderId: null, scope: null }),
+      claimCheckShown(span.check, {
+        footing: "not-yet-known",
+        text: CLAIM,
+        versions,
+        folderId: null,
+        scope: null,
+      }),
     ).toMatchObject({ state: "supported" });
     core.close();
   });
@@ -307,7 +313,13 @@ describe("“every Document” is the examples until the User has one, then thei
     const [span] = claimSpans(readMind(client));
     if (!span) throw new Error("The sentence has no check.");
     expect(
-      claimCheckShown(span.check, { text: CLAIM, versions, folderId: null, scope: null }),
+      claimCheckShown(span.check, {
+        footing: "not-yet-known",
+        text: CLAIM,
+        versions,
+        folderId: null,
+        scope: null,
+      }),
     ).toMatchObject({ state: "unsupported" });
     for (const call of calls) {
       expect(JSON.stringify(call.options.prompt)).not.toContain("Net debt to EBITDA");

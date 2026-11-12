@@ -237,3 +237,167 @@ describe("Word times in a Transcript (#138)", { timeout: 120_000 }, () => {
     },
   );
 });
+
+/**
+ * The saved cues of a call on Soniox whose pretend service hears `line` each time, a token a word
+ * timed evenly over the line, with `told` in Words to know. Each cue is given as its text and its
+ * placed words: where each is in the text, and which of the line's tokens its time is, from 0.
+ */
+async function placedIn(line: string, told: string[]) {
+  const { core, record } = await transcribingCore(await createTempDataFolder(), {
+    engine: { cloud: { lines: [line] } },
+  });
+  await core.updateSettings({ user: { meetingWords: told } });
+  await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+  await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
+  const meeting = await core.createMeeting();
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
+  await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+  record(5000, ["microphone"]);
+  await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+  await core.stopMeeting(meeting.id);
+  const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+  const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+  core.close();
+  const tokens = line.split(" ").length;
+  return cues.map((cue) => ({
+    text: cue.text,
+    words: (cue.words ?? []).map(({ at, ms }) => [
+      at,
+      Math.round(((ms - cue.startMs) / (cue.endMs - cue.startMs)) * tokens),
+    ]),
+  }));
+}
+
+/**
+ * Lines whose told name the engine spells another way, each with where its words are placed and
+ * the token each has the time of, with the name told and, its twin, with nothing told.
+ */
+const RESPELLED = [
+  {
+    form: "a later word holds the heard spelling (Market)",
+    told: "Marc",
+    heard: "We asked Mark about the Market.",
+    written: "We asked Marc about the Market.",
+    places: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [14, 3],
+      [20, 4],
+      [24, 5],
+    ],
+    untold: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [14, 3],
+      [20, 4],
+      [24, 5],
+    ],
+  },
+  {
+    form: "the heard spelling is a common word later in the line (mark)",
+    told: "Marc",
+    heard: "We asked Mark to mark the page.",
+    written: "We asked Marc to mark the page.",
+    places: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [14, 3],
+      [17, 4],
+      [22, 5],
+      [26, 6],
+    ],
+    untold: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [14, 3],
+      [17, 4],
+      [22, 5],
+      [26, 6],
+    ],
+  },
+  {
+    form: "the name is heard again after a colon, where it stays as heard",
+    told: "Catherine",
+    heard: "We asked Katherine about it: Katherine agreed.",
+    written: "We asked Catherine about it: Katherine agreed.",
+    places: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [19, 3],
+      [25, 4],
+      [29, 5],
+      [39, 6],
+    ],
+    untold: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [19, 3],
+      [25, 4],
+      [29, 5],
+      [39, 6],
+    ],
+  },
+  {
+    form: "the name is heard as two words and written as one: it takes the first one's time, and the second's is left out",
+    told: "Lindqvist",
+    heard: "We asked Lind Qvist about it.",
+    written: "We asked Lindqvist about it.",
+    places: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [19, 4],
+      [25, 5],
+    ],
+    untold: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [14, 3],
+      [20, 4],
+      [26, 5],
+    ],
+  },
+  {
+    form: "the name is heard as one word and written as two: it takes that word's time",
+    told: "De Shawn",
+    heard: "We asked DeShawn about it.",
+    written: "We asked De Shawn about it.",
+    places: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [18, 3],
+      [24, 4],
+    ],
+    untold: [
+      [0, 0],
+      [3, 1],
+      [9, 2],
+      [17, 3],
+      [23, 4],
+    ],
+  },
+];
+
+describe("A name written the Meeting's way keeps each word's time (#1031)", {
+  timeout: 60_000,
+}, () => {
+  // protects=where a line writes a told name for the words heard, every word plays from its own time: the name from the time of the first word heard for it, and each word after it from its own, also when the heard spelling stands again later in the line (inside a longer word, as a common word, or as the name once more) and when the name has more or fewer words than were heard; and with nothing told the same line keeps the engine's spelling and every word's time; fails_when=the heard word's time lands on a later word, the words between lose their times, or an unchanged line loses a time; no_claim=a service that times parts of words, or two sentences in one line, which a route that gives words never writes (a line ends at each sentence's end): tests/core/toldSpelling.test.ts holds both.
+  test.each(RESPELLED)("$form", async ({ told, heard, written, places, untold }) => {
+    const cues = await placedIn(heard, [told]);
+    expect(cues.length).toBeGreaterThanOrEqual(2);
+    for (const cue of cues) expect(cue).toEqual({ text: written, words: places });
+
+    const asHeard = await placedIn(heard, []);
+    expect(asHeard.length).toBeGreaterThanOrEqual(2);
+    for (const cue of asHeard) expect(cue).toEqual({ text: heard, words: untold });
+  });
+});

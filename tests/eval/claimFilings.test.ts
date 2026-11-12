@@ -94,6 +94,7 @@ describe("Where the claims check filed each sentence (#2970)", () => {
     });
     const result = await unbackedClaims("我整理了手册的要点。", [], [], null, {
       model,
+      request: "手册里有哪些要点？",
       names: () => null,
       signal: new AbortController().signal,
     });

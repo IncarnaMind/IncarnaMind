@@ -137,6 +137,7 @@ async function shownChecks(core: Core, client: MindClient, folderId: string | nu
     check: span.check,
     sentence: span.sentence.text,
     shown: claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId,
@@ -3265,13 +3266,19 @@ describe("Needs re-check", () => {
     };
     const now = (folderId: string) => ({
       text: SUPPORTED,
+      footing: "not-yet-known" as const,
       versions,
       folderId,
       scope: null,
     });
     expect(claimCheckShown(quoted, now("folder-a"))).toEqual({ state: "supported" });
     expect(claimCheckShown(quoted, now("folder-b"))).toEqual({ state: "supported" });
-    expect(claimCheckShown(absence, { ...now("folder-b"), text: absence.text })).toEqual({
+    expect(
+      claimCheckShown(absence, {
+        ...now("folder-b"),
+        text: absence.text,
+      }),
+    ).toEqual({
       state: "needs-recheck",
       why: "scope",
     });
@@ -3306,7 +3313,13 @@ describe("Needs re-check", () => {
       ],
     };
     expect(
-      claimCheckShown(mixed, { text: mixed.text, versions, folderId: "folder-b", scope: null }),
+      claimCheckShown(mixed, {
+        footing: "not-yet-known",
+        text: mixed.text,
+        versions,
+        folderId: "folder-b",
+        scope: null,
+      }),
     ).toEqual({ state: "needs-recheck", why: "scope" });
     // A widened search, and the User's own chosen scope, do not follow the Folder.
     expect(
@@ -3322,7 +3335,13 @@ describe("Needs re-check", () => {
     expect(
       claimCheckShown(
         { ...absence, scope: { folderId: "folder-a", widened: false, chosen } },
-        { text: absence.text, versions, folderId: "folder-b", scope: chosen },
+        {
+          footing: "not-yet-known",
+          text: absence.text,
+          versions,
+          folderId: "folder-b",
+          scope: chosen,
+        },
       ),
     ).toEqual({ state: "supported" });
     // An Unsupported verdict says nothing in the Folder stated the rest, so a move re-checks it
@@ -3356,6 +3375,7 @@ describe("Needs re-check", () => {
     };
     expect(
       claimCheckShown(mixedUnsupported, {
+        footing: "not-yet-known",
         text: mixedUnsupported.text,
         versions,
         folderId: "folder-b",
@@ -3381,6 +3401,7 @@ describe("Needs re-check", () => {
     };
     expect(
       claimCheckShown(emptyPartRead, {
+        footing: "not-yet-known",
         text: emptyPartRead.text,
         versions,
         folderId: "folder-b",
@@ -3408,6 +3429,7 @@ describe("Needs re-check", () => {
     };
     const now = {
       text: "导出为 Word 文件，你好。",
+      footing: "not-yet-known" as const,
       versions: null,
       folderId: null,
       scope: null,
@@ -3490,6 +3512,7 @@ describe("Needs re-check", () => {
       await check();
       const before = noteStateParts(
         readNoteState({
+          footing: [],
           cellFigures: [],
           doc: client.doc,
           documents: await core.listDocuments(),
@@ -3509,6 +3532,7 @@ describe("Needs re-check", () => {
         state: "supported",
       });
       const after = readNoteState({
+        footing: [],
         cellFigures: [],
         doc: client.doc,
         documents: await core.listDocuments(),
@@ -3536,6 +3560,7 @@ describe("Needs re-check", () => {
       });
       expect(
         readNoteState({
+          footing: [],
           cellFigures: [],
           doc: client.doc,
           documents: await core.listDocuments(),

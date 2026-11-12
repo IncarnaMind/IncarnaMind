@@ -24,7 +24,12 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
-import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
+import {
+  addedCouldChange,
+  checkedSentence,
+  claimCheckShown,
+  type NoteFooting,
+} from "../../../shared/claimChecks";
 import { planOf, withFigureFacts } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
@@ -127,6 +132,11 @@ export interface MindCheckOptions extends RunChecksOptions {
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
+
+// A total's footing is worked out, never a model's check of it: what a run sends reads each total's
+// own check alone, so one that couldn't be made is sent whether a cell out in another check holds
+// it at Checking or its cells don't add up (#2998).
+const NO_FOOTING: NoteFooting = new Map();
 
 /** The figures a run checks: a non-empty list of distinct ids, or null for the whole Note. */
 function parseFigureIds(value: unknown): string[] | null {
@@ -326,6 +336,7 @@ export function createMindCheck(options: MindCheckOptions) {
           marked.check,
           claimCheckShown(marked.check, {
             text: marked.sentence,
+            footing: NO_FOOTING,
             versions,
             folderId,
             scope,
@@ -498,6 +509,7 @@ export function createMindCheck(options: MindCheckOptions) {
             check: mark
               ? claimCheckShown(mark.check, {
                   text: sentence.text,
+                  footing: NO_FOOTING,
                   versions,
                   folderId,
                   scope,
@@ -533,6 +545,7 @@ export function createMindCheck(options: MindCheckOptions) {
         const shown = mark
           ? claimCheckShown(mark.check, {
               text: sentence.text,
+              footing: NO_FOOTING,
               versions,
               folderId,
               scope,

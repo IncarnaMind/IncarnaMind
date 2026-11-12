@@ -28,6 +28,7 @@ import { asGenerated } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
+import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
   readProposalAttribute,
   readProposalRef,
@@ -171,7 +172,7 @@ function heldWords(element: Y.XmlElement): string {
   for (const { node } of layout(element)) {
     if (!(node instanceof Y.XmlText)) continue;
     for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
-      if (typeof run.insert === "string" && !(PROPOSAL_INSERT_MARK in (run.attributes ?? {})))
+      if (typeof run.insert === "string" && !hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes))
         text += run.insert;
     }
   }
@@ -516,8 +517,8 @@ function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
       if (node instanceof Y.XmlText) {
         for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
           if (typeof run.insert !== "string") continue;
-          const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK]);
-          const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK]);
+          const adds = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
+          const removes = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
           if ((adds && adds.request !== request) || removes?.request === request) continue;
           for (const character of run.insert.split("")) {
             if (wholly || adds) mine.add(text.length);

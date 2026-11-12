@@ -76,6 +76,25 @@ interface Fact {
   /** The turns that say it, counted from 0: a Citation of any of them is right. */
   said: number[];
   underLine?: string;
+  /** A figure only one side said, which the other never answered: never a decision (#2306). */
+  stated?: boolean;
+  /**
+   * A term one side gave and the other accepted aloud, as a Decisions line would state it. Counted
+   * and reported, never asserted: the prompt does not say where such a term goes (#2306).
+   */
+  accepted?: RegExp;
+  /**
+   * A term one side raised and the other answered with a yes or by saying it back: a decision too,
+   * new or unchanged, so it may stand under Decisions (#2306).
+   */
+  confirmed?: boolean;
+  /** Who it belongs to, as the notes must name them, and the ways they mustn't (#2306). */
+  owner?: RegExp;
+  forbid?: RegExp;
+  /** A name the transcript misheard: wrong even beside the right first name (#2306). */
+  misheard?: RegExp;
+  /** Said by someone unnamed: the name of another person on their side must not be put on it (#2306). */
+  notBy?: RegExp;
 }
 
 interface Call {
@@ -1468,6 +1487,13 @@ interface ReservedFactInput {
   said: number[];
   underLine?: string;
   subject?: string | string[];
+  stated?: true;
+  accepted?: string;
+  confirmed?: true;
+  owner?: string;
+  forbid?: string;
+  misheard?: string;
+  notBy?: string;
 }
 
 interface ReservedCallInput {
@@ -1504,7 +1530,21 @@ const isRegexSource = (value: unknown): value is string | string[] =>
 function isReservedFact(value: unknown): value is ReservedFactInput {
   return (
     isRecord(value) &&
-    onlyKeys(value, ["name", "kind", "pattern", "said", "underLine", "subject"]) &&
+    onlyKeys(value, [
+      "name",
+      "kind",
+      "pattern",
+      "said",
+      "underLine",
+      "subject",
+      "stated",
+      "accepted",
+      "confirmed",
+      "owner",
+      "forbid",
+      "misheard",
+      "notBy",
+    ]) &&
     typeof value.name === "string" &&
     (value.kind === "decision" || value.kind === "action" || value.kind === "figure") &&
     isRegexSource(value.pattern) &&
@@ -1514,7 +1554,25 @@ function isReservedFact(value: unknown): value is ReservedFactInput {
       (index) => typeof index === "number" && Number.isInteger(index) && index >= 0,
     ) &&
     (value.underLine === undefined || typeof value.underLine === "string") &&
-    (value.subject === undefined || isRegexSource(value.subject))
+    (value.subject === undefined || isRegexSource(value.subject)) &&
+    (value.stated === undefined || (value.stated === true && value.kind === "figure")) &&
+    (value.accepted === undefined ||
+      (typeof value.accepted === "string" &&
+        value.accepted !== "" &&
+        value.kind === "figure" &&
+        value.stated === undefined)) &&
+    (value.confirmed === undefined ||
+      (value.confirmed === true &&
+        value.kind === "figure" &&
+        value.stated === undefined &&
+        value.accepted === undefined)) &&
+    (value.owner === undefined || (typeof value.owner === "string" && value.owner !== "")) &&
+    (value.forbid === undefined ||
+      (typeof value.forbid === "string" && value.owner !== undefined)) &&
+    (value.misheard === undefined ||
+      (typeof value.misheard === "string" && value.owner !== undefined)) &&
+    (value.notBy === undefined ||
+      (typeof value.notBy === "string" && value.notBy !== "" && value.owner === undefined))
   );
 }
 
@@ -1667,11 +1725,18 @@ async function loadReservedCalls(
     .filter((call) => selected.includes(call.id))
     .map(({ topics, named, ...call }) => ({
       ...call,
-      facts: call.facts.map(({ pattern, subject, ...fact }) => ({
-        ...fact,
-        pattern: reservedRegex(pattern),
-        ...(subject !== undefined && { subject: reservedRegex(subject) }),
-      })),
+      facts: call.facts.map(
+        ({ pattern, subject, accepted, owner, forbid, misheard, notBy, ...fact }) => ({
+          ...fact,
+          pattern: reservedRegex(pattern),
+          ...(subject !== undefined && { subject: reservedRegex(subject) }),
+          ...(accepted !== undefined && { accepted: new RegExp(accepted, "iu") }),
+          ...(owner !== undefined && { owner: new RegExp(owner, "iu") }),
+          ...(forbid !== undefined && { forbid: new RegExp(forbid, "iu") }),
+          ...(misheard !== undefined && { misheard: new RegExp(misheard, "iu") }),
+          ...(notBy !== undefined && { notBy: new RegExp(notBy, "iu") }),
+        }),
+      ),
       ...(topics && {
         topics: topics.map((topic) => ({
           name: topic.name,
@@ -1895,6 +1960,27 @@ function structureOf(doc: ProseMirrorNode, call: Call) {
 
 const says = (fact: Fact, text: string) =>
   (Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).every((each) => each.test(text));
+
+/** Which of a call's marked terms its Decisions section holds, by class (#2306). */
+const termsUnderDecisions = (facts: readonly Fact[], decisions: readonly { text: string }[]) => {
+  const held = (fact: Fact) => decisions.some((unit) => says(fact, unit.text));
+  return {
+    statedAsDecisions: facts.filter((fact) => fact.stated && held(fact)).length,
+    stated: facts.filter((fact) => fact.stated).length,
+    acceptedInSection: facts.filter((fact) =>
+      decisions.some((unit) => fact.accepted?.test(unit.text) === true),
+    ).length,
+    accepted: facts.filter((fact) => fact.accepted).length,
+    confirmedInSection: facts.filter((fact) => fact.confirmed && held(fact)).length,
+    confirmed: facts.filter((fact) => fact.confirmed).length,
+  };
+};
+
+/** A Decisions section belongs when the call decided something, or when it holds an accepted or confirmed term. */
+const decisionsSectionExpected = (
+  decisions: number,
+  terms: Pick<ReturnType<typeof termsUnderDecisions>, "acceptedInSection" | "confirmedInSection">,
+) => decisions > 0 || terms.acceptedInSection > 0 || terms.confirmedInSection > 0;
 
 const namesSubject = (fact: Fact, text: string) => {
   const subject = fact.subject ?? fact.pattern;
@@ -3234,6 +3320,28 @@ test.each<{ name: string; invalid: (sample: ReservedCallInput) => unknown }>([
     name: "unknown section",
     invalid: (sample) => [{ ...sample, sectionHeadings: { other: "x" } }],
   },
+  ...[
+    { name: "stated on a decision", fact: { kind: "decision", stated: true } },
+    { name: "accepted on a decision", fact: { kind: "decision", accepted: "90" } },
+    { name: "confirmed on a decision", fact: { kind: "decision", confirmed: true } },
+    { name: "non-true stated", fact: { stated: false } },
+    { name: "empty accepted", fact: { accepted: "" } },
+    { name: "non-true confirmed", fact: { confirmed: false } },
+    { name: "stated and accepted on one term", fact: { stated: true, accepted: "90" } },
+    { name: "stated and confirmed on one term", fact: { stated: true, confirmed: true } },
+    { name: "accepted and confirmed on one term", fact: { accepted: "90", confirmed: true } },
+  ].map(({ name, fact }) => ({
+    name,
+    invalid: (sample: ReservedCallInput) => [
+      {
+        ...sample,
+        facts: [
+          ...sample.facts,
+          { name: "rush fee", kind: "figure", pattern: "90", said: [1], ...fact },
+        ],
+      },
+    ],
+  })),
 ])("meeting scores reject invalid synthetic reserved fixture: $name", async ({ invalid }) => {
   const sample = reservedSample("en");
   await expect(
@@ -3251,6 +3359,66 @@ test("meeting scores reject duplicate or absent selected reserved ids and malfor
   ).rejects.toThrow("duplicate or missing");
   await expect(loadReservedCalls([sample.id], async () => "[")).rejects.toThrow();
 });
+
+test("meeting scores count a term nobody answered apart from one accepted or confirmed", async () => {
+  const sample = reservedSample("en");
+  const marked: ReservedCallInput = {
+    ...sample,
+    facts: [
+      ...sample.facts,
+      { name: "storage fee", kind: "figure", pattern: ["storage", "40"], said: [1], stated: true },
+      { name: "rush fee", kind: "figure", pattern: ["rush", "90"], said: [1], accepted: "90" },
+      {
+        name: "delivery day",
+        kind: "figure",
+        pattern: ["deliver", "Friday"],
+        said: [1],
+        confirmed: true,
+      },
+    ],
+  };
+  const [call] = await loadReservedCalls([sample.id], async () => JSON.stringify([marked]));
+  if (!call) throw new Error("The marked sample did not load.");
+  const storage = { text: "Storage is 40 a pallet." };
+  const rush = { text: "We took the rush fee of 90." };
+  const delivery = { text: "Delivery stays on Friday." };
+  expect(termsUnderDecisions(call.facts, [])).toEqual({
+    statedAsDecisions: 0,
+    stated: 1,
+    acceptedInSection: 0,
+    accepted: 1,
+    confirmedInSection: 0,
+    confirmed: 1,
+  });
+  expect(termsUnderDecisions(call.facts, [rush, delivery])).toEqual({
+    statedAsDecisions: 0,
+    stated: 1,
+    acceptedInSection: 1,
+    accepted: 1,
+    confirmedInSection: 1,
+    confirmed: 1,
+  });
+  expect(termsUnderDecisions(call.facts, [storage, rush, delivery])).toEqual({
+    statedAsDecisions: 1,
+    stated: 1,
+    acceptedInSection: 1,
+    accepted: 1,
+    confirmedInSection: 1,
+    confirmed: 1,
+  });
+});
+
+test.each([
+  { decisions: 0, acceptedInSection: 0, confirmedInSection: 0, expected: false },
+  { decisions: 1, acceptedInSection: 0, confirmedInSection: 0, expected: true },
+  { decisions: 0, acceptedInSection: 1, confirmedInSection: 0, expected: true },
+  { decisions: 0, acceptedInSection: 0, confirmedInSection: 1, expected: true },
+])(
+  "meeting scores expect a Decisions section for $decisions decisions, $acceptedInSection accepted and $confirmedInSection confirmed terms there: $expected",
+  ({ decisions, expected, ...terms }) => {
+    expect(decisionsSectionExpected(decisions, terms)).toBe(expected);
+  },
+);
 
 test.skipIf(!LOADER_PREFLIGHT)("structured meeting loader source-freeze preflight", async () => {
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
@@ -3754,6 +3922,63 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           omitted: fill.omitted ?? 0,
           unfinishedParts: fill.unfinishedParts ?? 0,
         };
+        // The fill's slips (#2306), each beside the positive it mustn't cost.
+        const related = (fact: Fact, text: string) =>
+          fact.subject
+            ? namesSubject(fact, text)
+            : parts(fact).some(
+                (pattern) => pattern.source !== fact.owner?.source && pattern.test(text),
+              );
+        const owned = call.facts.filter((fact) => fact.owner);
+        const theirTurns = (fact: Fact): Fact => ({
+          ...fact,
+          said: fact.said.filter((index) => call.turns[index]?.side === "them"),
+        });
+        // A part that states the unnamed person's fact, or cites their turn, and carries the name.
+        // The Summary is left out: it speaks for the whole call, and may name who the call was with.
+        const misattributed = call.facts.flatMap((fact) => {
+          const unit = units.find(
+            (unit) =>
+              unit.ai &&
+              !summary.includes(unit) &&
+              fact.notBy?.test(unit.text) === true &&
+              (says(fact, unit.text) || citesRightly(unit, theirTurns(fact), call, cues)),
+          );
+          return unit ? [{ fact: fact.name, text: unit.text }] : [];
+        });
+        const slips = {
+          ...termsUnderDecisions(call.facts, decisions),
+          decisionsInSection: counts.decisionsInSection,
+          decisions: call.facts.filter((fact) => fact.kind === "decision").length,
+          unnamed: owned.filter((fact) =>
+            units.some(
+              (unit) =>
+                unit.ai &&
+                related(fact, unit.text) &&
+                fact.forbid?.test(unit.text) === true &&
+                fact.owner?.test(unit.text) === false,
+            ),
+          ).length,
+          named: owned.filter((fact) =>
+            units.some(
+              (unit) =>
+                unit.ai &&
+                says(fact, unit.text) &&
+                fact.owner?.test(unit.text) === true &&
+                fact.forbid?.test(unit.text) !== true,
+            ),
+          ).length,
+          misheard: units.filter(
+            (unit) => unit.ai && call.facts.some((fact) => fact.misheard?.test(unit.text) === true),
+          ).length,
+          owned: owned.length,
+          misattributed: misattributed.length,
+          unowned: call.facts.filter((fact) => fact.notBy).length,
+          unownedWritten: scored.filter((each) => each.fact.notBy && each.count > 0).length,
+          restated: scored
+            .filter((each) => each.fact.kind === "decision")
+            .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+        };
         if (REPORT) {
           const rows = scored
             .map(
@@ -3773,6 +3998,10 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
                 `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, claimChecks, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
                 `Structure (#2306): ${JSON.stringify(structure)}`,
+                `Slips (#2306): ${JSON.stringify(slips)}`,
+                ...(misattributed.length > 0
+                  ? [`Misattributed (#2306): ${JSON.stringify(misattributed)}`]
+                  : []),
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,
@@ -3837,7 +4066,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           const expected = call.facts.filter((fact) => fact.kind === "decision").length;
           check("decisions", () => {
             expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
-              expected > 0,
+              decisionsSectionExpected(expected, slips),
             );
             expect(counts.decisionsInSection).toBe(expected);
             expect(counts.invented).toBe(0);
@@ -3877,6 +4106,12 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             }
           });
           check("structure", () => {
+            expect(slips.statedAsDecisions, "A stated figure is never a decision").toBe(0);
+            expect(slips.misheard, "A name the User typed is never written as misheard").toBe(0);
+            expect(
+              slips.misattributed,
+              "What someone unnamed said never carries another person's name",
+            ).toBe(0);
             expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
             expect(structure.summaryParts, "Summary is one overview").toBe(1);
             expect(structure.summaryCited, "The overview is a cited paragraph").toBe(true);

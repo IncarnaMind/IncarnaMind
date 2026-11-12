@@ -49,6 +49,7 @@ import {
   sameStyle,
   writeMindStyle,
 } from "../shared/mindStyle";
+import { missingNumberWords } from "../shared/missingNumbers";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
@@ -250,7 +251,7 @@ import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
-import { figureSchedule } from "./figureSchedule";
+import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
@@ -272,6 +273,7 @@ import type { PlanRequest } from "./library/plan";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
+import { keyMarks } from "./markKeys";
 import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -409,6 +411,7 @@ import {
 } from "./transcription/model";
 import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
+import { inToldSpelling, wordsInToldSpelling } from "./transcription/spelling";
 import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
@@ -811,6 +814,7 @@ export function createCore(adapters: CoreAdapters): Core {
     {
       unsaved: unsaved.mindUnsaved,
       persisted: (mindId) => rebuildFigureRetention(mindId),
+      upgrade: keyMarks,
     },
   );
   const noteConversations = createNoteConversations({
@@ -832,10 +836,12 @@ export function createCore(adapters: CoreAdapters): Core {
       else content.peekDeleted(mind.id, look);
     }
   };
+  let noteReadAgain: ((mindId: string) => void) | undefined;
   const mindIndex = createMindIndex({
     db,
     now,
     content,
+    readAgain: (mindId) => noteReadAgain?.(mindId),
     reportError: (error) => console.error(error),
   });
   // The record of AI use stays on this computer: it takes nothing from the network or the usage-data catalog.
@@ -2337,6 +2343,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
+    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2503,7 +2510,18 @@ export function createCore(adapters: CoreAdapters): Core {
       edit: (mindId, change) => content.edit(mindId, change),
       text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
+          .peek(mindId, (blocks) =>
+            readMind(
+              blocks,
+              name,
+              null,
+              null,
+              ids,
+              true,
+              applied,
+              missingNumberWords(settings.get().language),
+            ),
+          )
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2975,6 +2993,7 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
+    missingNumber: () => missingNumberWords(settings.get().language),
     // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
     recheck: (attributes, mindId) =>
       typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)
@@ -3089,6 +3108,14 @@ export function createCore(adapters: CoreAdapters): Core {
   const documentVersions = () =>
     new Map(documents.rows().map((document) => [document.id, document.contentHash]));
 
+  // One object for the life of the core: a total's source footing is cached by it (#2998).
+  const scheduleDocuments = {
+    citationSource: (passageId: string) => documents.citationSource(passageId),
+    documentDate: (documentId: string) => documents.documentDate(documentId),
+    pageTexts: (documentId: string, contentHash: string, from: number | null, to: number | null) =>
+      documents.pageTexts(documentId, contentHash, from, to),
+  };
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -3105,6 +3132,7 @@ export function createCore(adapters: CoreAdapters): Core {
         language: settings.get().language,
         keptInside: (documentId) =>
           mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
+        documents: scheduleDocuments,
       });
     });
   }
@@ -5027,18 +5055,26 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
-      wordsOf: (meetingId) =>
-        meetingWords({
-          db,
-          meetingId,
-          userName: settings.get().user.authorName,
-          userWords: settings.get().user.meetingWords,
-          folderName: (folderId) =>
-            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
-          folderDocuments: (folderId) => library.treeDocumentIds(folderId),
-          attendees: (mindId) => calendars.attendeesOf(mindId),
-        }),
-      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
+      wordsOf: (meetingId, first) =>
+        meetingWords(
+          {
+            db,
+            meetingId,
+            userName: settings.get().user.authorName,
+            userWords: settings.get().user.meetingWords,
+            folderName: (folderId) =>
+              library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+            folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+            attendees: (mindId) => calendars.attendeesOf(mindId),
+          },
+          first,
+        ),
+      lineText: (text, words) =>
+        inScript(inToldSpelling(text, words), settings.get().chineseScript, words),
+      lineWords: (text, heard, words) =>
+        wordsInToldSpelling(text, heard, words).map((word) =>
+          inScript(word, settings.get().chineseScript, words),
+        ),
       purgedPaths: () =>
         db
           .all<{ path: string }>(
@@ -5090,6 +5126,11 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  noteReadAgain = (mindId) => {
+    if (!transcripts || lifetime.signal.aborted) return;
+    const meeting = meetings.liveOf(mindId);
+    if (meeting) transcripts.noteRead(meeting.id);
+  };
   // Calendars (#190): Meetings coming up, and a Note started for one.
   const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
   if (googleCalendarSecret) rememberSecret(googleCalendarSecret);
@@ -5799,6 +5840,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
       renameJoinedTranscripts(mind);
+      // A Meeting being recorded takes its words from the title too (#1031).
+      noteReadAgain?.(mind.id);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
@@ -5922,21 +5965,31 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
+      const versions = documentVersions();
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
           throw new InvalidInputError("A Note id must be text.");
         }
+        let mind: Mind;
         try {
-          minds.get(mindId);
+          mind = minds.get(mindId);
         } catch (error) {
           // A Mind deleted since Home listed it has no state to show; anything else is real.
           if (error instanceof NotFoundError) continue;
           throw error;
         }
+        const now = {
+          versions,
+          folderId: mind.folderId,
+          scope: content.readSettings(mindId, mindScopeIn),
+        };
         found.push({
           mindId,
           state: content.storedState(mindId),
           cellFigures: content.peek(mindId, tableCellFigurePlaces),
+          footing: content.peek(mindId, (blocks) =>
+            [...noteFooting(blocks, now)].map(([id, live]) => ({ id, ...live })),
+          ),
         });
       }
       return found;

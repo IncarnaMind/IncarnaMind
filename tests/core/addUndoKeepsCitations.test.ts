@@ -63,6 +63,7 @@ async function shown(core: Core, client: MindClient, answerId: string) {
   const versions = new Map(documents.map((each) => [each.id, each.contentHash]));
   const [mark] = claimSpans(readMind(client)).map((span) =>
     claimCheckShown(span.check, {
+      footing: "not-yet-known",
       text: span.sentence.text,
       versions,
       folderId: null,

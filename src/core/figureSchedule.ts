@@ -13,8 +13,10 @@ import {
   type ClaimCheckNow,
   type ClaimCheckShown,
   claimCheckShown,
+  figureBasisShown,
   figureCheckShown,
   keepRecordCites,
+  type LiveFooting,
   saysNotFound,
 } from "../shared/claimChecks";
 import { resultFromParts } from "../shared/claimParts";
@@ -29,7 +31,7 @@ import {
 } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
-import { perBlock } from "../shared/memo";
+import { memoized, perBlock } from "../shared/memo";
 import {
   figureSignOffBasis,
   figureSignOffSources,
@@ -82,7 +84,9 @@ type Place = {
 };
 type SourceDocuments = Pick<AnswerDocuments, "citationSource" | "documentDate" | "pageTexts">;
 
-export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
+type CheckedNow = Omit<ClaimCheckNow, "text" | "footing">;
+
+export interface FigureScheduleInput extends CheckedNow {
   mindId: string;
   name: string;
   basis: string;
@@ -93,6 +97,8 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   language?: Language;
   /** The walled Folder that keeps a Document inside it, seen from this Note; null when it may read it. */
   keptInside?: (documentId: string) => string | null;
+  /** What a total's source footing reads, to name the rows of its source its table leaves out. */
+  documents: SourceDocuments;
 }
 
 /** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
@@ -103,7 +109,7 @@ export function augmentFigureFooting(
   blocks: Y.XmlFragment,
   result: ClaimCheckResult,
   documents: SourceDocuments,
-  now?: Omit<ClaimCheckNow, "text">,
+  now?: CheckedNow,
 ): ClaimCheckResult {
   if (result.parts) result = keepingRecordCites(result, resultFromParts(result.parts));
   if (!result.figures?.length) return result;
@@ -123,7 +129,7 @@ export function augmentFigureFooting(
         continue;
       if (
         now &&
-        figureCheckShown(child, { ...now, text: owner.sentence, figureContexts }).state !==
+        figureBasisShown(child, { ...now, text: owner.sentence, figureContexts }).state !==
           "needs-recheck" &&
         (child.state === "supported" || child.state === "contradicted")
       ) {
@@ -142,17 +148,10 @@ export function augmentFigureFooting(
   const footings = tableFooting(occurrences, findings, placesIn(blocks));
   const figures = result.figures.map((figure): FigureCheckResult => {
     const footing = footings.get(figure.id) ?? [];
-    const sourceFooting: FigureSourceFooting[] = [];
-    if (figure.result.verdict === "supported") {
-      let remaining = MAX_INPUTS_PER_FIGURE;
-      for (const axis of footing) {
-        if (axis.agrees !== false) continue;
-        const proof = sourceFootingFor(figure, axis, findings, checked, documents, remaining);
-        if (!proof) continue;
-        sourceFooting.push(proof);
-        remaining -= proof.inputs.length;
-      }
-    }
+    const sourceFooting =
+      figure.result.verdict === "supported"
+        ? sourceFootingsOf(figure, footing, findings, checked, documents)
+        : [];
     return { ...figure, footing, sourceFooting };
   });
   if (result.parts) {
@@ -202,6 +201,57 @@ function sourceFigure(input: FigureInput, units: readonly UnitText[]): Figure | 
     rangeTo: null,
     ambiguous: [],
   };
+}
+
+function sourceFootingsOf(
+  total: FigureFinding,
+  footing: FigureFinding["footing"],
+  findings: ReadonlyMap<string, FigureFinding>,
+  checked: ReadonlySet<string>,
+  documents: SourceDocuments,
+): FigureSourceFooting[] {
+  const proofs: FigureSourceFooting[] = [];
+  let remaining = MAX_INPUTS_PER_FIGURE;
+  for (const axis of footing) {
+    if (axis.agrees !== false) continue;
+    const proof = sourceFootingOnce(total, axis, findings, checked, documents, remaining);
+    if (!proof) continue;
+    proofs.push(proof);
+    remaining -= proof.inputs.length;
+  }
+  return proofs;
+}
+
+type SourceFootingArgs = Parameters<typeof sourceFootingFor>;
+
+// The schedule foots every total again on each change to the Note: a footing that reads the same
+// inputs reads its source sheet once, not on every keystroke (#2998).
+const sourceFootings = new WeakMap<
+  SourceDocuments,
+  (...args: SourceFootingArgs) => FigureSourceFooting | null
+>();
+
+function sourceFootingOnce(...args: SourceFootingArgs): FigureSourceFooting | null {
+  const documents = args[4];
+  let once = sourceFootings.get(documents);
+  if (!once) {
+    once = memoized(
+      64,
+      (total, axis, findings, checked, _documents, limit) =>
+        JSON.stringify([
+          total.sourceInput,
+          axis.axis,
+          axis.componentIds,
+          axis.componentIds.map((id) =>
+            checked.has(id) ? (findings.get(id)?.sourceInput ?? null) : null,
+          ),
+          limit,
+        ]),
+      sourceFootingFor,
+    );
+    sourceFootings.set(documents, once);
+  }
+  return once(...args);
 }
 
 function sourceFootingFor(
@@ -511,6 +561,25 @@ function ownerOf(occurrence: FigureOccurrence, owners: readonly Owner[]): Owner 
   );
 }
 
+// A verified document's table row is one claim, marked on its first cell and holding the figures
+// of every cell in the row (#1368).
+function rowOwnerOf(
+  occurrence: FigureOccurrence,
+  owners: readonly Owner[],
+  places: ReadonlyMap<string, Place>,
+): Owner | null {
+  if (occurrence.locator.kind !== "text" || !occurrence.table) return null;
+  const row = places.get(occurrence.locator.from.blockId)?.element.parent?.parent;
+  if (!(row instanceof Y.XmlElement)) return null;
+  return (
+    owners.find(
+      (owner) =>
+        owner.element.parent?.parent === row &&
+        owner.check.figures?.some((figure) => figure.id === occurrence.id),
+    ) ?? null
+  );
+}
+
 function childOf(occurrence: FigureOccurrence, owner: Owner | null) {
   return owner?.check.figures?.find((figure) => figure.id === occurrence.id) ?? null;
 }
@@ -813,12 +882,10 @@ function analysisTableRows(
   });
 }
 
-export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
-  const { blocks } = input;
+function readFindings(blocks: Y.XmlFragment, input: CheckedNow) {
   const occurrences = figuresInMind(blocks);
   const owners = checkedSentences(blocks);
   const layout = placesIn(blocks);
-  const retained = retainedAnalyses(blocks, layout.figures, input.mindId);
   const figureContexts = new Map(
     occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
   );
@@ -827,7 +894,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
   const states: {
     owner: Owner | null;
     child: FigureCheckAttributes | null;
-    now: ClaimCheckNow;
+    now: Omit<ClaimCheckNow, "footing">;
     current: boolean;
     finding: FigureFinding;
   }[] = [];
@@ -835,7 +902,9 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     occurrences.map((occurrence) => occurrence.id).filter((id, at, ids) => ids.indexOf(id) !== at),
   );
   for (const occurrence of occurrences) {
-    const owner = ownerOf(occurrence, owners);
+    const owner =
+      ownerOf(occurrence, owners) ??
+      (repeated.has(occurrence.id) ? null : rowOwnerOf(occurrence, owners, layout.places));
     const child = childOf(occurrence, owner);
     // A figure whose id another one shares reads its own words, never the other's.
     const contexts = repeated.has(occurrence.id)
@@ -845,7 +914,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     const current =
       child !== null &&
       sameOccurrence(occurrence, child) &&
-      figureCheckShown(child, now).state !== "needs-recheck";
+      figureBasisShown(child, now).state !== "needs-recheck";
     const finding = child
       ? {
           ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
@@ -859,7 +928,58 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     findings.set(occurrence.id, finding);
     states.push({ owner, child, now, current, finding });
   }
-  const footings = tableFooting(occurrences, findings, layout);
+  const checking = new Set(
+    occurrences.flatMap((occurrence, index) => {
+      const state = states[index];
+      return (state?.child ?? state?.owner?.check)?.state === "checking" ? [occurrence.id] : [];
+    }),
+  );
+  const footing = new Map(
+    [...tableFooting(occurrences, findings, layout)].map(([id, axes]): [string, LiveFooting] => [
+      id,
+      {
+        footing: axes,
+        waiting: axes.some((axis) => axis.componentIds.some((each) => checking.has(each))),
+      },
+    ]),
+  );
+  return { occurrences, owners, layout, states, findings, footing };
+}
+
+/** Each figure's footing against its table as the Note's marks and numbers are now (#2998). */
+export function noteFooting(
+  blocks: Y.XmlFragment,
+  input: CheckedNow,
+): ReadonlyMap<string, LiveFooting> {
+  return readFindings(blocks, input).footing;
+}
+
+export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
+  const { blocks } = input;
+  const {
+    occurrences,
+    owners,
+    layout,
+    states,
+    findings,
+    footing: live,
+  } = readFindings(blocks, input);
+  const retained = retainedAnalyses(blocks, layout.figures, input.mindId);
+  const checked = new Set(
+    occurrences.flatMap((occurrence, index) => {
+      const state = states[index];
+      return state?.current &&
+        (state.child?.state === "supported" || state.child?.state === "contradicted")
+        ? [occurrence.id]
+        : [];
+    }),
+  );
+  // A Note outside the walled Folder that keeps a total's source never reads it again, nor shows the
+  // rows of it the Note never cited; its cells still foot it from the Note's own numbers.
+  const readable = (total: FigureFinding) => {
+    const documentId = total.sourceInput?.citation.documentId;
+    return !documentId || !input.keptInside?.(documentId);
+  };
   const signOffs = figureSignOffs(
     blocks.doc ? signOffsOf(blocks.doc) : [],
     occurrences.map((occurrence) => occurrence.id),
@@ -868,33 +988,31 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
   const rows = occurrences.map((occurrence, index): FigureScheduleRow => {
     const state = states[index];
     const existing = state?.finding ?? emptyFinding(occurrence);
-    const footing = footings.get(occurrence.id) ?? [];
+    const footing = live.get(occurrence.id)?.footing ?? [];
     const finding = {
       ...existing,
       footing,
-      sourceFooting: (existing.sourceFooting ?? []).filter(
-        (proof) =>
-          state?.current &&
-          footing.some(
-            (axis) => axis.axis === proof.axis && same(axis.componentIds, proof.componentIds),
-          ),
-      ),
+      sourceFooting:
+        state?.current && state.child?.state === "supported" && readable(existing)
+          ? sourceFootingsOf(existing, footing, findings, checked, input.documents)
+          : [],
     };
+    const now = state && { ...state.now, footing: live };
     const check = state?.child ?? state?.owner?.check ?? null;
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
     // A claim check covers the figure through its own child, through a Keep of the sentence, or
     // through a whole-sentence check's re-check or run — never through its verdict alone (#2378).
-    if (state?.owner?.check.kept) {
-      shown = claimCheckShown(state.owner.check, state.now);
-    } else if (state?.child) {
+    if (now && state?.owner?.check.kept) {
+      shown = claimCheckShown(state.owner.check, now);
+    } else if (now && state?.child) {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
-        : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
-    } else if (state?.owner) {
+        : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, now);
+    } else if (now && state?.owner) {
       const parent = state.owner.check;
       const legacy = claimCheckShown(
         { ...parent, figures: undefined },
-        { ...state.now, figured: !parent.figures?.length && occurrence.table !== undefined },
+        { ...now, figured: !parent.figures?.length && occurrence.table !== undefined },
       );
       if (
         legacy.state === "needs-recheck" ||
@@ -916,6 +1034,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       shown.state !== "needs-recheck" &&
       shown.state !== "kept" &&
       shown.state !== "contradicted" &&
+      shown.state !== "checking" &&
       figureProblem(finding)
     )
       shown = { state: "unsupported" };

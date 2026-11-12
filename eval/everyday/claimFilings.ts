@@ -1,6 +1,7 @@
 import type { LanguageModelMiddleware } from "ai";
 import { questionOf, replyJson } from "../../src/core/answers/judge";
 import { isRecord } from "../../src/shared/record";
+import { type ReplyPart, replyTextOf } from "../lib/replyText";
 
 /**
  * Where the claims check filed one sentence it returned, as the model gave it (#2970): a field that
@@ -20,23 +21,11 @@ export interface ClaimFilings {
   text?: string;
 }
 
-interface ReplyPart {
-  type: string;
-  text?: unknown;
-  input?: unknown;
-}
-
-const partText = (part: ReplyPart) => {
-  if (part.type === "text" && typeof part.text === "string") return part.text;
-  if (part.type === "tool-call" && typeof part.input === "string") return part.input;
-  return "";
-};
-
 const fieldOf = <T>(item: Record<string, unknown>, key: string, type: string): T | null =>
   typeof item[key] === type ? (item[key] as T) : null;
 
 export function claimFilingsOf(content: readonly ReplyPart[]): ClaimFilings {
-  const text = content.map(partText).join("");
+  const text = replyTextOf(content);
   const value = replyJson(text);
   const claims = isRecord(value) ? value.claims : undefined;
   if (!Array.isArray(claims)) return { filed: [], text: text.slice(0, 200) };

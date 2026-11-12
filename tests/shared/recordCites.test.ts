@@ -134,6 +134,7 @@ describe("record-cite results in a claim-check mark", () => {
     ]);
     expect(
       claimCheckShown(check, {
+        footing: "not-yet-known",
         text: check.text,
         versions: new Map(),
         folderId: null,
@@ -162,6 +163,7 @@ describe("an Id. or supra as the text it refers back to changes", () => {
   const check = { ...attributes([idCite]), text: claim };
   const shownWith = (before: string, note = true) =>
     claimCheckShown(check, {
+      footing: "not-yet-known",
       text: claim,
       versions: null,
       folderId: null,
@@ -195,6 +197,7 @@ describe("an Id. or supra as the text it refers back to changes", () => {
   test("a sentence edited is Edited first, and without the Note nothing is assumed", () => {
     expect(
       claimCheckShown(check, {
+        footing: "not-yet-known",
         text: "Then he left. Id. at 46:1.",
         versions: null,
         folderId: null,
@@ -230,6 +233,7 @@ describe("an Id. or supra as the text it refers back to changes", () => {
           text: claim,
         },
         {
+          footing: "not-yet-known",
           text: claim,
           versions: null,
           folderId: null,

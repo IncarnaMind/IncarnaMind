@@ -17,6 +17,7 @@ import type { Price } from "../../src/core/providers/catalog/types";
 import { endpointUrl } from "../../src/core/providers/kinds";
 import type { ChatLanguageModel, ChatModelSpec } from "../../src/core/providers/models";
 import { tokenUsageOf } from "../../src/core/providers/promptCache";
+import { isRecord } from "../../src/shared/record";
 import structuredGate from "../fixtures/meetings/fill-structured-gate.json";
 
 export interface StructuredControls {
@@ -29,6 +30,28 @@ export interface StructuredControls {
   dataDir: string;
   key: string;
   cap: 0.25;
+  /** OpenRouter in place of DeepSeek's own API, when DeepSeek's key can't be used (#2306). */
+  route: OpenRouterRoute | null;
+}
+
+/**
+ * DeepSeek V4.1 Flash through OpenRouter, pinned to one host: the snapshot DeepSeek serves as
+ * `deepseek-flash`, thinking as it does there. The app still asks DeepSeek's API with the key it
+ * holds, which is then the OpenRouter key; the request goes to OpenRouter instead.
+ */
+export interface OpenRouterRoute {
+  model: "deepseek/deepseek-v4.1-flash-1017";
+  host: string;
+}
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+function routeOf(value: string | undefined): OpenRouterRoute | null | undefined {
+  if (value === undefined) return null;
+  const match = /^openrouter:(deepseek\/deepseek-v4\.1-flash-1017)@([a-z0-9-]+)$/.exec(value);
+  return match?.[1] === "deepseek/deepseek-v4.1-flash-1017" && match[2]
+    ? { model: match[1], host: match[2] }
+    : undefined;
 }
 
 export function meetingFillCloud(environment: Readonly<Record<string, string | undefined>>) {
@@ -65,6 +88,7 @@ export function structuredControls(
     return null;
   }
   const report = environment.INCARNAMIND_LIVE_REPORT;
+  const route = routeOf(environment.INCARNAMIND_LIVE_DEEPSEEK_ROUTE);
   const candidate = environment.INCARNAMIND_STRUCTURED_CANDIDATE;
   const call = environment.INCARNAMIND_LIVE_CALLS;
   const dataDir = environment.INCARNAMIND_DATA_DIR;
@@ -88,10 +112,92 @@ export function structuredControls(
     !key?.trim() ||
     environment.INCARNAMIND_STRUCTURED_CAP_USD !== "0.25" ||
     environment.INCARNAMIND_LIVE_REPLIES !== "1" ||
-    environment.INCARNAMIND_LIVE_OLLAMA_MODEL !== undefined
+    environment.INCARNAMIND_LIVE_OLLAMA_MODEL !== undefined ||
+    route === undefined ||
+    (route !== null && provider !== "deepseek")
   )
     throw new Error("Invalid strict structured observation controls.");
-  return { receipt, report, candidate, provider, model, call, dataDir, key, cap: 0.25 };
+  return { receipt, report, candidate, provider, model, call, dataDir, key, cap: 0.25, route };
+}
+
+/** DeepSeek's request as OpenRouter's: the route's model and host, thinking as DeepSeek's default. */
+function openRouterBody(body: unknown, route: OpenRouterRoute): string {
+  if (!isRecord(body)) throw new Error("A DeepSeek request body is an object.");
+  const { thinking, reasoning_effort: effort, messages, ...rest } = body;
+  const off = isRecord(thinking) && thinking.type === "disabled";
+  return JSON.stringify({
+    ...rest,
+    model: route.model,
+    messages: Array.isArray(messages)
+      ? messages.map((message) => {
+          if (!isRecord(message) || !("reasoning_content" in message)) return message;
+          const { reasoning_content: reasoning, ...each } = message;
+          return { ...each, reasoning };
+        })
+      : messages,
+    reasoning: { effort: off ? "none" : typeof effort === "string" ? effort : "high" },
+    provider: {
+      only: [route.host],
+      allow_fallbacks: false,
+      data_collection: "deny",
+      require_parameters: true,
+    },
+  });
+}
+
+/** OpenRouter's reply in DeepSeek's shape, with the host that served it in its usage. */
+function deepSeekShaped(chunk: unknown): unknown {
+  if (!isRecord(chunk)) return chunk;
+  for (const choice of Array.isArray(chunk.choices) ? chunk.choices : []) {
+    if (!isRecord(choice)) continue;
+    for (const part of [choice.delta, choice.message]) {
+      if (!isRecord(part)) continue;
+      if (typeof part.reasoning === "string") part.reasoning_content = part.reasoning;
+      delete part.reasoning;
+      delete part.reasoning_details;
+    }
+  }
+  const usage = chunk.usage;
+  if (isRecord(usage) && typeof usage.prompt_tokens === "number") {
+    const details = usage.prompt_tokens_details;
+    const cached =
+      isRecord(details) && typeof details.cached_tokens === "number" ? details.cached_tokens : 0;
+    usage.prompt_cache_hit_tokens = cached;
+    usage.prompt_cache_miss_tokens = usage.prompt_tokens - cached;
+    usage.openrouter_host =
+      typeof chunk.provider === "string" ? chunk.provider.toLowerCase() : null;
+  }
+  return chunk;
+}
+
+async function fromOpenRouter(response: Response): Promise<Response> {
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  const init = { status: response.status, statusText: response.statusText, headers };
+  if (!response.headers.get("content-type")?.includes("text/event-stream"))
+    return new Response(JSON.stringify(deepSeekShaped(await response.json())), init);
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const line = (text: string) =>
+    text.startsWith("data: ") && text !== "data: [DONE]"
+      ? `data: ${JSON.stringify(deepSeekShaped(JSON.parse(text.slice(6))))}`
+      : text;
+  let buffer = "";
+  const body = response.body?.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(bytes, controller) {
+        buffer += decoder.decode(bytes, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const each of lines) controller.enqueue(encoder.encode(`${line(each)}\n`));
+      },
+      flush(controller) {
+        buffer += decoder.decode();
+        if (buffer) controller.enqueue(encoder.encode(line(buffer)));
+      },
+    }),
+  );
+  return new Response(body ?? null, init);
 }
 
 export interface ObservedRequest {
@@ -142,6 +248,7 @@ export function createRequestLedger(options: {
   const logical = new AsyncLocalStorage<ObservedRequest>();
   const sent = new WeakSet<ObservedRequest>();
   const provider = options.strict?.provider ?? "anthropic";
+  const openRouter = options.strict?.route ?? null;
   const endpoint = endpointUrl(provider);
   const endpointId = catalogProviderOfKind(provider)?.endpoints[0]?.id;
   const route = provider === "deepseek" ? "chat/completions" : "messages";
@@ -205,7 +312,7 @@ export function createRequestLedger(options: {
       output_tokens: null,
       cost_usd: null,
       priced_at: new Date().toISOString(),
-      price_currency: options.price?.currency ?? null,
+      price_currency: openRouter ? "USD" : (options.price?.currency ?? null),
       provider_usage: null,
       text: "",
       raw: "",
@@ -255,6 +362,17 @@ export function createRequestLedger(options: {
         fault("usage");
         return;
       }
+      if (openRouter) {
+        // OpenRouter bills by its host, so the cost is the one it reports, in USD.
+        if (raw.openrouter_host !== openRouter.host) {
+          fault("identity");
+          return;
+        }
+        request.cost_usd =
+          typeof raw.cost === "number" && Number.isFinite(raw.cost) && raw.cost >= 0
+            ? raw.cost
+            : null;
+      }
     } else {
       request.input_tokens = count(usage.inputTokens.total);
       request.cache_read_tokens = count(usage.inputTokens.cacheRead);
@@ -274,7 +392,7 @@ export function createRequestLedger(options: {
       output !== null &&
       cached + written <= input &&
       input + output > 0;
-    if (request.usage_complete && options.price) {
+    if (request.usage_complete && options.price && !openRouter) {
       const cost = costOf(
         tokenUsageOf({
           inputTokens: input ?? undefined,
@@ -425,19 +543,25 @@ export function createRequestLedger(options: {
         physicalCount++;
         const index = httpStatuses.push(null) - 1;
         try {
-          const response = await original(input, {
-            ...init,
-            redirect: "manual",
-            signal: AbortSignal.any([abort.signal, request.signal]),
-          });
+          const signal = AbortSignal.any([abort.signal, request.signal]);
+          const response = strict.route
+            ? await original(OPENROUTER_URL, {
+                method: "POST",
+                headers: request.headers,
+                body: openRouterBody(body, strict.route),
+                redirect: "manual",
+                signal,
+              })
+            : await original(input, { ...init, redirect: "manual", signal });
           httpStatuses[index] = response.status;
           if (!response.ok) {
             current.status = "failed";
             providerError = "http-non-ok";
             fault("request", { statusCode: response.status });
             networkError = null;
+            return response;
           }
-          return response;
+          return strict.route ? await fromOpenRouter(response) : response;
         } catch {
           current.status = "failed";
           fault("request");
@@ -661,6 +785,7 @@ export function observationReceipt(
     candidate: controls.candidate,
     provider: controls.provider,
     model: controls.model,
+    route: controls.route && `openrouter:${controls.route.model}@${controls.route.host}`,
     call: controls.call,
     scoring: "cue-owner-subject-placement-structure-v6",
     app_cap_usd: controls.cap,

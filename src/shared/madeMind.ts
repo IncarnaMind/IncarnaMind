@@ -7,6 +7,7 @@ import {
 } from "../core/api";
 import { isRecord } from "../core/errors";
 import { originOf } from "./blockOrigins";
+import { markValueOf } from "./markKeys";
 import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
 
 const textOfRun = (run: unknown): string =>
@@ -60,7 +61,7 @@ const isAiRun = (run: unknown, doc: Y.Doc | null): boolean =>
   isRecord(run) &&
   isRecord(run.attributes) &&
   (run.attributes[GENERATED_MARK] != null ||
-    byAi(doc, readProposalRef(run.attributes[PROPOSAL_INSERT_MARK])?.request));
+    byAi(doc, readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes))?.request));
 
 /** Whether a Block holds any text the User wrote: a run that is neither AI text nor in an AI's waiting insert. */
 function holdsOwnText(element: Y.XmlElement, doc: Y.Doc | null): boolean {

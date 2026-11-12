@@ -162,9 +162,14 @@ describe("an old verdict on a numeric table cell", () => {
       const cellFigures = tableCellFigurePlaces(doc.getXmlFragment(MIND_CONTENT_FIELD));
       expect(cellFigures).toHaveLength(1);
       const context = { versions: new Map(), folderId: null, scope: null };
-      const editor = claimsOf(root, { ...context, figurePlaces: figurePlacesOf(cellFigures) });
+      const editor = claimsOf(root, {
+        footing: "not-yet-known",
+        ...context,
+        figurePlaces: figurePlacesOf(cellFigures),
+      });
       expect(editor.claims[0]?.shown).toEqual({ state: "needs-recheck", why: "figures" });
       const home = readNoteState({
+        footing: [],
         doc,
         cellFigures,
         documents: [],

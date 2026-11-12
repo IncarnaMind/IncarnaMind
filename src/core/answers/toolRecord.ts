@@ -86,6 +86,7 @@ function whyNot(problem: MindProblem | undefined): string {
     case "not-placed":
     case "misnamed":
     case "typed-tag":
+    case "missing-number":
     case "no-table":
     case "unplaced":
       return REFUSAL_WORDS[problem.kind].model;
