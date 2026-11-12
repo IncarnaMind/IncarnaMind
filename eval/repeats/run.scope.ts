@@ -16,10 +16,11 @@ import { type Library, openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { watchPassages } from "./passagesHanded";
-import { repeatChecks } from "./repeat";
+import { barOf, repeatChecks, sortsAsked, sortsOf } from "./repeat";
 import { watchRequests } from "./requests";
 import { SCOPE_CASES, SCOPE_SETS, type ScopeSet, writeScopeDocuments } from "./scopeCases";
 import { report, type ScopeRow, summarise } from "./scopeScore";
+import { sortsBy } from "./score";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -40,6 +41,9 @@ async function fileAgreement(library: Library, set: ScopeSet): Promise<string> {
 test("the scope of a check from a Mind", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
+  // Refused here, before any request, when its bar can't stand on the sorts asked for (#2964).
+  const bar = barOf(process.env.INCARNAMIND_EVAL_REPEATS_BAR);
+  const sorts = sortsOf(bar, sortsAsked(process.env.INCARNAMIND_EVAL_REPEATS_SORTS));
   const chat = config.chat;
   if (!chat) {
     log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY (README.md).");
@@ -100,6 +104,8 @@ test("the scope of a check from a Mind", async () => {
         log(`${model} · ${scopeCase.id}: ${set.sentences.length} sentences, ${repeats} checks`);
         await repeatChecks(core, {
           mind: set.mind,
+          bar,
+          sorts,
           folderId,
           ...(scope && { scope }),
           sentences: set.sentences.map((each) => each.text),
@@ -147,7 +153,18 @@ test("the scope of a check from a Mind", async () => {
     );
     await writeFile(
       join(out, "report.json"),
-      JSON.stringify({ model, spent: spentBefore, rows }, null, 2),
+      JSON.stringify(
+        {
+          model,
+          bar,
+          sorts,
+          sortsByCase: sortsBy(rows, (row) => row.caseId),
+          spent: spentBefore,
+          rows,
+        },
+        null,
+        2,
+      ),
     );
     log(`$${spentBefore.toFixed(2)} spent; report in ${out}`);
   }

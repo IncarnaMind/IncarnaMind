@@ -2,7 +2,7 @@
 
 Scripts that walk the app as a person does and measure how fast it is. They aren't tests: they save screenshots and numbers for a person to read, and a step of the walk that fails is recorded rather than stopping it. The walk ends by listing every step that failed or was skipped and exits non-zero, and `walk.failures` in `results.json` is empty when none did. A step that needs an earlier one that failed (the viewers need the Documents) is skipped at once, not left to wait out its timeouts. Their files end in `.audit.ts`, so `npm run test:smoke` (`*.spec.ts`) never runs them; `tests/scripts/auditTestIds.test.ts` fails when a script names a test id the app no longer has.
 
-Every launch uses the test build on a temporary data folder and a temporary HOME, with test hooks on. Chat is the scripted fake model (or, to show a model that can't be reached, a local address nothing answers on), and the embedding and reranking models are the fakes (`INCARNAMIND_TEST_EMBEDDER=fake`), so nothing is downloaded, no local model runs and nothing leaves the machine. Links, files to open and save dialogs are intercepted.
+Every launch uses the test build on a temporary data folder and a temporary HOME, with test hooks on. Chat is the scripted fake model (or, to show a model that can't be reached, a local address nothing answers on), and the embedding, reranking and text recognition models are the fakes (`INCARNAMIND_TEST_EMBEDDER=fake`, `INCARNAMIND_TEST_OCR=fake`), so nothing is downloaded, no local model runs and nothing leaves the machine. Links, files to open and save dialogs are intercepted.
 
 ## What each script measures
 
