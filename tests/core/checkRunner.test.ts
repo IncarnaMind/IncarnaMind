@@ -375,9 +375,12 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
   });
   const afterTheReply = (call: ModelCall, reply: ScriptedReply): ScriptedReply => {
     if (flow.asksFirst !== "write" || call.results.length > 0 || "error" in reply) return reply;
-    const until =
-      "pause" in reply && reply.pause ? Promise.all([replied, reply.pause.until]) : replied;
-    return { ...reply, pause: { after: 0, until: until.then(() => undefined) } };
+    // A reply's own pause keeps where it stops and what it says when it gets there.
+    if ("pause" in reply && reply.pause) {
+      const until = Promise.all([replied, reply.pause.until]).then(() => undefined);
+      return { ...reply, pause: { ...reply.pause, until } };
+    }
+    return { ...reply, pause: { after: 0, until: replied } };
   };
 
   const scripted = (call: ModelCall): ScriptedReply => {

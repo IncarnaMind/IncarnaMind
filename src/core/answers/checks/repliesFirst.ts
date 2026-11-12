@@ -12,6 +12,11 @@ import type { PaceTimers } from "../../sources/pace";
 export interface RepliesFirst {
   /** `prepared`, whose requests wait while a reply is out on its provider, or until their abort. */
   model(prepared: PreparedChatModel): PreparedChatModel;
+  /**
+   * Settles once no reply is out on `prepared`'s provider, or `stop` aborts: before a sentence's
+   * check or the sort begins, so their clocks start once it has, and `timers` never counts it.
+   */
+  before(prepared: PreparedChatModel, stop: AbortSignal): Promise<void>;
   /** `base`, whose sleeps leave out the time a request of this check waited behind a reply. */
   timers: PaceTimers;
   /** Aborts after `ms` of time nothing of the check waited behind a reply, unless `until` aborts first. */
@@ -113,6 +118,7 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
         },
       }),
     }),
+    before: (prepared, stop) => replies?.none(prepared.provider.id, stop) ?? Promise.resolve(),
     timers,
     timeout(ms, until) {
       const timedOut = new AbortController();

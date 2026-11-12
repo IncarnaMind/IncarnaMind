@@ -1097,6 +1097,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           if (own.signal.aborted) return takenOver();
           signal.throwIfAborted();
         }
+        // Behind a reply out on its provider before its clock starts, so its time limit never runs
+        // while its first request waits.
+        await behind.before(sending, ended);
+        if (own.signal.aborted) return takenOver();
+        signal.throwIfAborted();
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
           looked.get(sentence) ??
@@ -1158,6 +1163,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
      */
     const claimsOf = async (uncited: readonly Sentence[]): Promise<readonly Sentence[]> => {
       if (uncited.length === 0) return [];
+      await behind.before(sending, signal);
+      if (signal.aborted) return [];
       const timedOut =
         options.sortTimeLimit?.() ??
         behind.timeout(options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS, signal);
