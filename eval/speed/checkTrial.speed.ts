@@ -425,6 +425,18 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
     throw new Error("INCARNAMIND_EVAL_SPEED_STOP_USD is needed for a run that pays.");
   const ledger = await openLedger(env("LEDGER"), "judge's sample");
   const judge = judgeOf([]);
+  // Each request to the judge is counted: a second one for a press is a reply it couldn't read.
+  let asked = 0;
+  const counted = wrapLanguageModel({
+    model: judge.model as ChatLanguageModel,
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate }) => {
+        asked++;
+        return doGenerate();
+      },
+    },
+  });
   const picked = [...new Set(rows.map((row) => row.model))].flatMap((model) =>
     rows.filter((row) => row.model === model && row.candidate.marks).slice(0, each),
   );
@@ -457,8 +469,9 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
         };
       });
     const reply = raw.replace(/\[\^(\d+)\]/g, "[$1]");
+    const before = asked;
     const read = await judgeCallHelp(
-      judge.model,
+      counted,
       known,
       [...(known.before ?? []), ...known.turns],
       reply,
@@ -479,6 +492,7 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
         ),
       ],
       earlier: row.candidate.marks?.judge.unstated ?? [],
+      requests: asked - before,
     });
   }
   await writeFile(
