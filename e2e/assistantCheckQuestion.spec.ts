@@ -73,10 +73,10 @@ test("a Check's question changes the assistant card line, EN and ZH", async () =
     await pointAndClick(window, window.getByTestId("check-badge-open"));
     await expect(ask).toContainText("Check this note’s claim against your Documents?");
     await expect(ask).toContainText("Under $0.01");
-    await expect(ask.getByTestId("estimate-price")).toHaveAttribute(
-      "title",
-      /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+    await expect(ask.getByTestId("estimate-price")).toHaveAccessibleDescription(
+      /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
     );
+    await expect(ask.getByTestId("estimate-price")).not.toHaveAttribute("title", /.+/);
     await expect(ask.getByTestId("estimate-pricing")).toHaveText("Pricing ↗");
 
     // Esc closes the question.

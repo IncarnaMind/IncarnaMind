@@ -13,6 +13,7 @@ import {
   createDataFolder,
   cutALineAtFoot,
   dismissChatSetup,
+  expectEstimateTip,
   focusSettled,
   footFadeOf,
   interceptOpenExternal,
@@ -312,17 +313,17 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   expect(await inside(press, health)).toBe(true);
   await setWindowSize(app, window, 1440, 900);
   await screenshot(window, "mind-check-card-en");
-  // The price says whose it is and when that was checked, reached by Tab, and Pricing ↗ opens the
-  // provider's own page (#1257).
+  // The price says whose it is and when that was checked, in the app's tip that Tab shows at once,
+  // and Pricing ↗ opens the provider's own page (#1257).
   const price = health.getByTestId("check-estimate").getByTestId("estimate-price");
-  await expect(price).toHaveAttribute(
-    "title",
-    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
-  );
-  await price.focus();
-  await expect(price).toBeFocused();
-  await expect(price).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
   const pricing = health.getByTestId("check-estimate").getByTestId("estimate-pricing");
+  await expectEstimateTip(
+    window,
+    price,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+    pricing,
+  );
+  await expect(price).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
   await expect(pricing).toHaveText("Pricing ↗");
   await interceptOpenExternal(app);
   await pointAndClick(window, pricing);
@@ -501,17 +502,16 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await inside(press, health)).toBe(true);
     await expect.poll(fading).toBe(true);
     await screenshotOf(health, `mind-check-price-${language}-1440`);
-    await expect(
+    const pricing = health.getByTestId("check-estimate").getByTestId("estimate-pricing");
+    await expectEstimateTip(
+      window,
       health.getByTestId("check-estimate").getByTestId("estimate-price"),
-    ).toHaveAttribute(
-      "title",
       language === "en"
-        ? /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/
+        ? /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/
         : /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
+      pricing,
     );
-    await expect(health.getByTestId("check-estimate").getByTestId("estimate-pricing")).toHaveText(
-      language === "en" ? "Pricing ↗" : "价格 ↗",
-    );
+    await expect(pricing).toHaveText(language === "en" ? "Pricing ↗" : "价格 ↗");
     await app.close();
   });
 }

@@ -12,6 +12,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   enterContent,
+  expectEstimateTip,
   forceQuit,
   interceptOpenExternal,
   launchApp,
@@ -174,22 +175,22 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await expect(card.getByTestId("research-plan-estimate")).toHaveText(
     new RegExp(`^About \\$\\d+\\.\\d+ · 4–8 min · ${MODEL_NAME}$`),
   );
-  // The cost says whose price it is worked out from and when that was checked, reached by Tab,
-  // and Pricing ↗ opens the provider's own page (#1257).
+  // The cost says whose price it is worked out from and when that was checked, in the app's tip
+  // that Tab shows at once, and Pricing ↗ opens the provider's own page (#1257).
   await screenshot(window, "research-estimate-en-1600");
   await setWindowSize(app, window, 900, 760);
   await screenshot(window, "research-estimate-en-900");
   await setWindowSize(app, window, 1600, 900);
   const estimate = card.getByTestId("research-plan-estimate");
-  await expect(estimate).toHaveAttribute(
-    "title",
-    /^Estimate from Anthropic’s price, checked \d{1,2} \w+ \d{4}$/,
+  const pricing = card.getByTestId("research-plan-pricing");
+  await expectEstimateTip(
+    window,
+    estimate,
+    /^Estimate from Anthropic’s price, checked \d{1,2}\s\w+\s\d{4}$/,
+    pricing,
   );
-  await estimate.focus();
-  await expect(estimate).toBeFocused();
   await expect(estimate).toHaveAccessibleDescription(/^Estimate from Anthropic’s price/);
   await window.keyboard.press("Tab");
-  const pricing = card.getByTestId("research-plan-pricing");
   await expect(pricing).toBeFocused();
   await expect(pricing).toHaveText("Pricing ↗");
   await interceptOpenExternal(app);
@@ -200,10 +201,6 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   // At 900 px, in Chinese too, the cost and its link stay inside the card.
   await setWindowSize(app, window, 900, 760);
   await setLanguage(window, "zh-CN");
-  await expect(estimate).toHaveAttribute(
-    "title",
-    /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
-  );
   await expect(pricing).toHaveText("价格 ↗");
   await screenshot(window, "research-estimate-zh-900");
   const [cardBox, pricingBox] = [await card.boundingBox(), await pricing.boundingBox()];
@@ -211,6 +208,12 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   expect(pricingBox.x + pricingBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
   await setWindowSize(app, window, 1600, 900);
   await screenshot(window, "research-estimate-zh-1600");
+  await expectEstimateTip(
+    window,
+    estimate,
+    /^按 Anthropic 的价格估算，核对于 \d{4}年\d{1,2}月\d{1,2}日$/,
+    pricing,
+  );
   await setLanguage(window, "en");
   await expect(window.getByTestId("composer-input")).toHaveAttribute(
     "placeholder",
