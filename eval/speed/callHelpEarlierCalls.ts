@@ -82,47 +82,101 @@ const ZH_B: EarlierCallSide = {
   holds: "对方问数据会存在哪里，说现在要三月份才开始，并问包含上线培训的话预算能否到十五万。",
 };
 
+const EN_C: EarlierCallSide = {
+  turns: [
+    { who: "me", text: "Thanks for joining, Tomas. Who should we send the contract to?" },
+    {
+      who: "them",
+      text: "Send it to Priya Nandakumar in procurement, she signs everything for us.",
+    },
+    { who: "them", text: "The tablets go to our Fenmoor warehouse first." },
+    { who: "them", text: "And we want a two-year contract, no longer." },
+    { who: "me", text: "Got it, I'll draft it that way." },
+  ],
+  holds:
+    "The buyer said the contract goes to Priya Nandakumar in procurement, that the tablets go to the Fenmoor warehouse, and that they want a two-year contract.",
+};
+
+const EN_D: EarlierCallSide = {
+  turns: [
+    { who: "me", text: "Good to speak again, Tomas. Has anything changed on your side?" },
+    { who: "them", text: "Who on your side would run the rollout with us?" },
+    {
+      who: "them",
+      text: "The tablets now go straight to the Eastbrook clinic, not to a warehouse.",
+    },
+    { who: "them", text: "Could we sign for three years if the price comes down?" },
+  ],
+  holds:
+    "The buyer asked who would run the rollout, said the tablets now go straight to the Eastbrook clinic, and asked whether they could sign for three years if the price came down.",
+};
+
+const ZH_C: EarlierCallSide = {
+  turns: [
+    { who: "me", text: "邵主任，谢谢参加。合同寄给谁比较好？" },
+    { who: "them", text: "寄给采购部的许蔓，我们所有合同都是她签。" },
+    { who: "them", text: "平板先送到我们东郊的仓库。" },
+    { who: "them", text: "合同我们想签两年，不要更长。" },
+    { who: "me", text: "好的，我按这个起草。" },
+  ],
+  holds: "对方说合同寄给采购部的许蔓，平板送到东郊的仓库，合同想签两年。",
+};
+
+const ZH_D: EarlierCallSide = {
+  turns: [
+    { who: "me", text: "邵主任，又见面了。你们那边有什么变化吗？" },
+    { who: "them", text: "你们那边谁来跟我们一起负责上线？" },
+    { who: "them", text: "平板现在直接送到南湖门诊，不送仓库了。" },
+    { who: "them", text: "如果价格能降下来，合同能不能签三年？" },
+  ],
+  holds: "对方问谁来负责上线，说平板现在直接送到南湖门诊，并问价格降下来的话合同能否签三年。",
+};
+
 /**
- * The buttons pressed on each live call: the first two of the ask bar, which are sent the Note's
- * Folder's Documents found for the newest lines, an earlier call's Transcript among them. "Sum up
- * so far" and "What do they want?" read this call alone and are sent no Documents.
+ * The buttons pressed on each live call: the three general ones sent the Note's Folder's Documents
+ * found for the newest lines, an earlier call's Transcript among them. "Sum up so far" and "What
+ * do they want?" read this call alone and are sent no Documents.
  */
-export const EARLIER_CALL_PRESSES = ["say", "answer"] as const;
+export const EARLIER_CALL_PRESSES = ["say", "answer", "check"] as const;
 
 const EN_LAST_TIME = "What did they say last time?";
 const ZH_LAST_TIME = "上次他们说了什么？";
 
+/** A pair of calls as two cases: each call the earlier once and the live one once. */
+const bothOrders = (
+  pair: string,
+  language: EarlierCallCase["language"],
+  folder: string,
+  first: EarlierCallSide,
+  second: EarlierCallSide,
+): EarlierCallCase[] => {
+  const prefix = language === "en" ? "en" : "zh";
+  const lastTime = language === "en" ? EN_LAST_TIME : ZH_LAST_TIME;
+  const [one, two] = pair.split("");
+  return [
+    {
+      id: `${prefix}-${one}-then-${two}`,
+      language,
+      folder,
+      earlier: first,
+      live: second,
+      lastTime,
+    },
+    {
+      id: `${prefix}-${two}-then-${one}`,
+      language,
+      folder,
+      earlier: second,
+      live: first,
+      lastTime,
+    },
+  ];
+};
+
+/** Two pairs of calls, each in English and its Chinese twin, each in both orders: 8 cases. */
 export const EARLIER_CALL_CASES: readonly EarlierCallCase[] = [
-  {
-    id: "en-a-then-b",
-    language: "en",
-    folder: "Tallowmere Freight",
-    earlier: EN_A,
-    live: EN_B,
-    lastTime: EN_LAST_TIME,
-  },
-  {
-    id: "en-b-then-a",
-    language: "en",
-    folder: "Tallowmere Freight",
-    earlier: EN_B,
-    live: EN_A,
-    lastTime: EN_LAST_TIME,
-  },
-  {
-    id: "zh-a-then-b",
-    language: "zh-CN",
-    folder: "澜川冷链",
-    earlier: ZH_A,
-    live: ZH_B,
-    lastTime: ZH_LAST_TIME,
-  },
-  {
-    id: "zh-b-then-a",
-    language: "zh-CN",
-    folder: "澜川冷链",
-    earlier: ZH_B,
-    live: ZH_A,
-    lastTime: ZH_LAST_TIME,
-  },
+  ...bothOrders("ab", "en", "Tallowmere Freight", EN_A, EN_B),
+  ...bothOrders("ab", "zh-CN", "澜川冷链", ZH_A, ZH_B),
+  ...bothOrders("cd", "en", "Pellworth Clinics", EN_C, EN_D),
+  ...bothOrders("cd", "zh-CN", "青岚诊所", ZH_C, ZH_D),
 ];

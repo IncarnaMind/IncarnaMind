@@ -22,6 +22,10 @@ const LAST_SAID: Readonly<Record<string, string>> = {
   "en-b-then-a": "we'd start in March now",
   "zh-a-then-b": "我们的数据必须留在欧洲",
   "zh-b-then-a": "我们现在要三月份才开始",
+  "en-c-then-d": "Send it to Priya Nandakumar in procurement",
+  "en-d-then-c": "The tablets now go straight to the Eastbrook clinic",
+  "zh-c-then-d": "寄给采购部的许蔓",
+  "zh-d-then-c": "平板现在直接送到南湖门诊",
 };
 
 /** Each Passage the model was shown: its tag and its text. */
@@ -154,17 +158,20 @@ function armOf(id: string) {
 }
 
 describe("The earlier-call cases", () => {
-  test("two pairs of calls, English and Chinese, each pair in both orders, with ids of their own", () => {
-    expect(EARLIER_CALL_CASES.map((each) => [each.id, each.language])).toEqual([
-      ["en-a-then-b", "en"],
-      ["en-b-then-a", "en"],
-      ["zh-a-then-b", "zh-CN"],
-      ["zh-b-then-a", "zh-CN"],
+  test("two pairs of calls, each in English and Chinese and in both orders, with ids of their own", () => {
+    expect(EARLIER_CALL_CASES.map((each) => [each.id, each.language, each.folder])).toEqual([
+      ["en-a-then-b", "en", "Tallowmere Freight"],
+      ["en-b-then-a", "en", "Tallowmere Freight"],
+      ["zh-a-then-b", "zh-CN", "澜川冷链"],
+      ["zh-b-then-a", "zh-CN", "澜川冷链"],
+      ["en-c-then-d", "en", "Pellworth Clinics"],
+      ["en-d-then-c", "en", "Pellworth Clinics"],
+      ["zh-c-then-d", "zh-CN", "青岚诊所"],
+      ["zh-d-then-c", "zh-CN", "青岚诊所"],
     ]);
-    for (const [first, second] of [
-      [EARLIER_CALL_CASES[0], EARLIER_CALL_CASES[1]],
-      [EARLIER_CALL_CASES[2], EARLIER_CALL_CASES[3]],
-    ]) {
+    for (const [first, second] of [0, 2, 4, 6].map(
+      (at) => [EARLIER_CALL_CASES[at], EARLIER_CALL_CASES[at + 1]] as const,
+    )) {
       expect(first?.earlier).toBe(second?.live);
       expect(first?.live).toBe(second?.earlier);
       expect(first?.folder).toBe(second?.folder);
@@ -183,7 +190,9 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
   test("records the earlier call and stops it, then the live one, in one Folder; its buttons failing as earlier-as-this and the typed question cited to the earlier call, as the judge and the Citations say", async () => {
     const { meetings, runs, calls, judged } = await ran("en-a-then-b", "today", {
       earlierAsThis: true,
+      thenWithWhen: false,
       grade: "wrong",
+      asThisCall: [1],
       unstated: [],
     });
 
@@ -191,12 +200,19 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
     expect(runs.map(({ id }) => id)).toEqual([
       "en-a-then-b-say",
       "en-a-then-b-answer",
+      "en-a-then-b-check",
       "en-a-then-b-last-time",
     ]);
     for (const { run } of runs) expect(run.status).toBe("done");
-    const [say, answer, lastTime] = runs.map(({ run }) => run);
+    const [say, answer, check, lastTime] = runs.map(({ run }) => run);
     expect(say?.failures).toEqual(["earlier-as-this"]);
     expect(answer?.failures).toEqual(["earlier-as-this"]);
+    expect(check?.failures).toEqual(["earlier-as-this"]);
+    expect(lastTime?.callReading).toEqual({
+      earlierAsThis: true,
+      thenWithWhen: false,
+      asThisCall: [1],
+    });
     expect(say?.cited).toBeNull();
     expect(lastTime?.cited).toBe(true);
     expect(lastTime?.grade).toBe("wrong");
@@ -211,35 +227,43 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
         call: "earlier",
         quote: EUROPE,
         found: true,
+        passed: true,
       },
     ]);
-    // The press heard the live call's lines, and was sent the earlier call's found for them.
-    expect(calls[0]?.prompt).toContain("Where would our data actually be stored?");
-    expect(calls[0]?.prompt).toContain("<found-in-documents>");
-    expect(calls[0]?.prompt).toContain(EUROPE);
+    // Each button heard the live call's lines, and was sent the earlier call's found for them.
+    const pressed = calls.filter((call) => call.prompt.includes("<help>"));
+    expect(pressed.length).toBeGreaterThanOrEqual(3);
+    for (const call of pressed) {
+      expect(call.prompt).toContain("Where would our data actually be stored?");
+      expect(call.prompt).toContain("<found-in-documents>");
+      expect(call.prompt).toContain(EUROPE);
+    }
     // The judge read both calls and the typed question's Citation as the earlier call's.
     expect(judged[0]).toContain("<this-call>");
     expect(judged[0]).toContain("Where would our data actually be stored?");
-    expect(judged[0]).toContain("<earlier-call>");
+    expect(judged[0]).toMatch(/<earlier-call started="[^"]+">/);
     expect(judged[0]).toContain("our data has to stay in Europe, that's a board decision.");
-    expect(judged[2]).toContain('<asked kind="last-time">');
-    expect(judged[2]).toMatch(/\[1\] .*\(the earlier call\): “our data has to stay in Europe”/);
+    expect(judged[3]).toContain('<asked kind="last-time">');
+    expect(judged[3]).toMatch(/\[1\] .*\(the earlier call\): “our data has to stay in Europe”/);
   });
 
   test.each(EARLIER_CALL_CASES.map((each) => [each.id]))(
-    "%s records both calls and runs its three items, the typed one cited to the earlier call",
+    "%s records both calls and runs its four items, the typed one cited to the earlier call",
     async (id) => {
       const { runs } = await ran(id, "today", {
         earlierAsThis: false,
+        thenWithWhen: true,
         grade: "right",
+        asThisCall: [],
         unstated: [],
       });
       expect(runs.map(({ run }) => [run.status, run.cited])).toEqual([
         ["done", null],
         ["done", null],
+        ["done", null],
         ["done", true],
       ]);
-      expect(runs[2]?.run.places?.map((place) => place.call)).toEqual(["earlier"]);
+      expect(runs[3]?.run.places?.map((place) => place.call)).toEqual(["earlier"]);
     },
   );
 
@@ -249,16 +273,15 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
         .flatMap((call) => passagesIn(call.prompt))
         .filter((each) => each.text.includes(EUROPE))
         .map((each) => each.tag);
-    const today = await ran("en-a-then-b", "today", {
+    const reading = {
       earlierAsThis: false,
+      thenWithWhen: true,
       grade: "right",
+      asThisCall: [],
       unstated: [],
-    });
-    const main = await ran("en-a-then-b", "calls-unmarked", {
-      earlierAsThis: false,
-      grade: "right",
-      unstated: [],
-    });
+    };
+    const today = await ran("en-a-then-b", "today", reading);
+    const main = await ran("en-a-then-b", "calls-unmarked", reading);
 
     expect(marked(today.calls).length).toBeGreaterThan(0);
     for (const tag of marked(today.calls)) expect(tag).toContain('call="earlier"');
@@ -268,17 +291,32 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
 });
 
 describe("The earlier-call judge's reading", () => {
-  test("needs earlierAsThis and a grade; unstated defaults to none", () => {
-    expect(readEarlierJudged('{"earlierAsThis": false, "grade": "right"}')).toEqual({
+  test("needs earlierAsThis, thenWithWhen and a grade; the numbers it lists default to none", () => {
+    expect(
+      readEarlierJudged('{"earlierAsThis": false, "thenWithWhen": true, "grade": "right"}'),
+    ).toEqual({
       earlierAsThis: false,
+      thenWithWhen: true,
       grade: "right",
+      asThisCall: [],
       unstated: [],
     });
     expect(
-      readEarlierJudged('Here: {"earlierAsThis": true, "grade": "wrong", "unstated": [2]}'),
-    ).toEqual({ earlierAsThis: true, grade: "wrong", unstated: [2] });
-    expect(readEarlierJudged('{"grade": "right"}')).toBeNull();
-    expect(readEarlierJudged('{"earlierAsThis": "yes", "grade": "right"}')).toBeNull();
+      readEarlierJudged(
+        'Here: {"earlierAsThis": true, "thenWithWhen": false, "grade": "wrong", "asThisCall": [1, "x"], "unstated": [2]}',
+      ),
+    ).toEqual({
+      earlierAsThis: true,
+      thenWithWhen: false,
+      grade: "wrong",
+      asThisCall: [1],
+      unstated: [2],
+    });
+    expect(readEarlierJudged('{"earlierAsThis": false, "grade": "right"}')).toBeNull();
+    expect(readEarlierJudged('{"thenWithWhen": true, "grade": "right"}')).toBeNull();
+    expect(
+      readEarlierJudged('{"earlierAsThis": "yes", "thenWithWhen": true, "grade": "right"}'),
+    ).toBeNull();
     expect(readEarlierJudged("The reply is fine.")).toBeNull();
   });
 });

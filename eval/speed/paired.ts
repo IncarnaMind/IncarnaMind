@@ -124,7 +124,15 @@ export interface ArmRun {
     call: "this" | "earlier" | "other";
     quote: string;
     found: boolean;
+    /** It shows ✓: the sentence check passed the line or sentence it is cited in. */
+    passed: boolean;
   }[];
+  /**
+   * The earlier-call judge's reading of the reply (#3005): it gives an earlier call's words as said
+   * in this call; for "last time", it gives them as said then, saying when; and the numbers whose
+   * sentence says the other side said, asked or wants something in this call.
+   */
+  callReading?: { earlierAsThis: boolean; thenWithWhen: boolean; asThisCall: number[] };
   /**
    * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
    * quote was found and whose sentence the judge says their quoted words hold (`held`): how many

@@ -22,6 +22,7 @@ import {
   startedLabel,
 } from "../../src/renderer/src/helpReply";
 import { citedLocation } from "../../src/shared/citations";
+import { formatFullDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { until } from "../../tests/helpers/transcription";
@@ -33,27 +34,34 @@ import {
   EARLIER_CALL_PRESSES,
   type EarlierCallCase,
 } from "./callHelpEarlierCalls";
+import { JUDGE_FAILED } from "./callHelpMarksReport";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, PairedItem } from "./paired";
 
 const ANSWER_TIMEOUT_MS = 120_000;
 
-/** A reply or Answer that couldn't be judged: the item fails to run, as a judge's error is no product's. */
-const JUDGE_FAILED = "The judge failed";
-
 const JUDGE = [
   "You read a reply that helps the User during a live call, with people they have spoken to before.",
-  "<this-call> holds what was said in this call. <earlier-call> holds what an earlier call with the same people said: none of it was said in this call.",
+  "<this-call> holds what was said in this call. <earlier-call> holds what an earlier call with the same people said, and when that call started: none of it was said in this call.",
   "earlierAsThis: true when the reply gives anything that only <earlier-call> holds as said, asked or wanted in this call, or as where the other side stands now, without saying it comes from the earlier call; false otherwise. Giving it as from the earlier call (last time, before, in that call) is fine.",
-  'grade: for <asked kind="button">, right when what the reply gives the User to say fits the newest lines of <this-call> and earlierAsThis is false; partly when it fits only in part; wrong otherwise. For <asked kind="last-time">, right when it gives what <earlier-call> holds as from that call; partly when only some of it; wrong when it misses it or gives this call\'s words as the earlier call\'s.',
+  'thenWithWhen: for <asked kind="last-time">, true when the reply gives at least one thing <earlier-call> holds as said in that call and says when that call was, by its date, its day or its time; false otherwise, and always false for <asked kind="button">.',
+  'grade: for <asked kind="button">, right when what the reply gives the User to say fits the newest lines of <this-call> and earlierAsThis is false; partly when it fits only in part; wrong otherwise. For <asked kind="last-time">, right when it gives what <earlier-call> holds as from that call, saying when; partly when only some of it, or without when; wrong when it misses it or gives this call\'s words as the earlier call\'s.',
+  "asThisCall: the number n of each sentence carrying a Citation [n] that says the other side said, asked or wants something in this call.",
   "unstated: read each sentence that carries a Citation number [n] against the words that Citation quotes, in <citations>: list n when the sentence states as so something its quoted words don't say.",
-  'Reply with JSON and nothing else: {"earlierAsThis": true | false, "grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
+  'Reply with JSON and nothing else: {"earlierAsThis": true | false, "thenWithWhen": true | false, "grade": "right" | "partly" | "wrong", "asThisCall": [n, ...], "unstated": [n, ...]}',
 ].join("\n");
 
 interface Judged {
   earlierAsThis: boolean;
+  thenWithWhen: boolean;
   grade: "right" | "partly" | "wrong";
+  asThisCall: number[];
   unstated: number[];
 }
+
+const numbersIn = (read: object, key: string): number[] => {
+  const value: unknown = key in read ? (read as Record<string, unknown>)[key] : [];
+  return Array.isArray(value) ? value.filter((n): n is number => typeof n === "number") : [];
+};
 
 /** The judge's reading, or null when its reply holds no such JSON. */
 export function readEarlierJudged(text: string): Judged | null {
@@ -61,14 +69,17 @@ export function readEarlierJudged(text: string): Judged | null {
     const read: unknown = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "");
     if (typeof read !== "object" || read === null) return null;
     if (!("earlierAsThis" in read) || typeof read.earlierAsThis !== "boolean") return null;
+    if (!("thenWithWhen" in read) || typeof read.thenWithWhen !== "boolean") return null;
     if (!("grade" in read)) return null;
     const grade = read.grade;
     if (grade !== "right" && grade !== "partly" && grade !== "wrong") return null;
-    const unstated =
-      "unstated" in read && Array.isArray(read.unstated)
-        ? read.unstated.filter((n): n is number => typeof n === "number")
-        : [];
-    return { earlierAsThis: read.earlierAsThis, grade, unstated };
+    return {
+      earlierAsThis: read.earlierAsThis,
+      thenWithWhen: read.thenWithWhen,
+      grade,
+      asThisCall: numbersIn(read, "asThisCall"),
+      unstated: numbersIn(read, "unstated"),
+    };
   } catch {
     return null;
   }
@@ -81,6 +92,7 @@ async function judge(
   model: LanguageModel,
   each: EarlierCallCase,
   asked: "button" | "last-time",
+  earlierStarted: string,
   reply: string,
   cited: readonly string[],
 ): Promise<Judged> {
@@ -89,7 +101,7 @@ async function judge(
     "<this-call>",
     ...said(each.live.turns),
     "</this-call>",
-    "<earlier-call>",
+    `<earlier-call started="${earlierStarted}">`,
     ...said(each.earlier.turns),
     "</earlier-call>",
     "<reply>",
@@ -138,14 +150,14 @@ async function asked(core: Core, ask: () => Promise<ConversationAskResult>) {
   return answer;
 }
 
-/** The earlier call's Transcript: the Meeting in the group that has stopped. */
-async function earlierTranscript(core: Core): Promise<string> {
+/** The earlier call: the Meeting in the group that has stopped, its Transcript and its start. */
+async function earlierCall(core: Core): Promise<{ transcript: string; startedAt: string }> {
   const stopped = (await core.listMeetings()).find(
     (meeting) => meeting.status !== "recording" && meeting.status !== "paused",
   );
-  const id = stopped?.transcript?.documentId;
-  if (!id) throw new Error("The earlier call has no Transcript.");
-  return id;
+  const transcript = stopped?.transcript?.documentId;
+  if (!transcript || !stopped?.startedAt) throw new Error("The earlier call has no Transcript.");
+  return { transcript, startedAt: stopped.startedAt };
 }
 
 /** A reply as shown and judged: a button's as the panel lays it out, a typed one's as written. */
@@ -162,11 +174,12 @@ function readable(answer: ConversationAnswer, kind: MeetingHelpKind | null) {
       answer.citations.some(
         (citation) => citation.marker === marker && (citation.passedAt?.length ?? 0) > 0,
       );
-    const lines = answer.text
-      .split(/(?<=[.!?。！？])\s+|\n+/)
-      .flatMap((line) =>
-        [...line.matchAll(/\[\^(\d+)\]/g)].map((match) => ({ line, marker: Number(match[1]) })),
-      );
+    const lines = answer.text.split(/(?<=[.!?。！？])\s+|\n+/).flatMap((line) =>
+      [...line.matchAll(/\[\^(\d+)\]/g)].map((match) => {
+        const marker = Number(match[1]);
+        return { line, marker, passed: passed(marker) };
+      }),
+    );
     return { text, numbers, passed, lines };
   }
   const shown = shownItems(readHelpReply(answer.text), {
@@ -196,9 +209,12 @@ function readable(answer: ConversationAnswer, kind: MeetingHelpKind | null) {
         [{ ...item, lead: pieces, notes: [], effect: null }],
         numbers,
       );
-      return pieces.flatMap((piece) =>
-        piece.kind === "citation" ? [{ line, marker: piece.marker }] : [],
-      );
+      return pieces.flatMap((piece) => {
+        if (piece.kind !== "citation") return [];
+        const citation = answer.citations.find((each) => each.marker === piece.marker);
+        const passed = citation !== undefined && sentencePassed(citation, piece.at);
+        return [{ line, marker: piece.marker, passed }];
+      });
     }),
   );
   return { text: shownReply(answer, shown, numbers), numbers, passed, lines };
@@ -249,7 +265,7 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const { text, numbers, passed, lines } = readable(answer, kind);
-      const earlier = await earlierTranscript(core);
+      const { transcript: earlier, startedAt: earlierStarted } = await earlierCall(core);
       const meetings = await core.listMeetings();
       const live = meetings.find((each) => each.id === meeting.id);
       const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
@@ -262,7 +278,7 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
         meetings,
         live?.transcript?.documentId ?? null,
       );
-      const places = lines.flatMap(({ line, marker }) => {
+      const places = lines.flatMap(({ line, marker, passed: checked }) => {
         const citation = answer.citations.find((each) => each.marker === marker);
         const number = numbers.get(marker);
         if (!citation || number === undefined) return [];
@@ -281,7 +297,17 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
         ]
           .filter(Boolean)
           .join(" · ");
-        return [{ line, number, source, call, quote: citation.quote, found: quoteFound(citation) }];
+        return [
+          {
+            line,
+            number,
+            source,
+            call,
+            quote: citation.quote,
+            found: quoteFound(citation),
+            passed: checked,
+          },
+        ];
       });
       const found = answer.citations.filter(quoteFound);
       let judged: Judged | null = null;
@@ -291,6 +317,7 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
               claimsJudge,
               each,
               kind === null ? "last-time" : "button",
+              formatFullDateTime(earlierStarted, each.language),
               text,
               [...numbers].flatMap(([marker, number]) => {
                 const citation = answer.citations.find((each) => each.marker === marker);
@@ -324,6 +351,13 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
         text,
         requests,
         places,
+        ...(judged && {
+          callReading: {
+            earlierAsThis: judged.earlierAsThis,
+            thenWithWhen: judged.thenWithWhen,
+            asThisCall: judged.asThisCall,
+          },
+        }),
       };
     },
   };

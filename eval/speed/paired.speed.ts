@@ -20,6 +20,7 @@ import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
 import { earlierCallsSet } from "./earlierCalls";
+import { earlierCallsSection } from "./earlierCallsReport";
 import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
@@ -354,6 +355,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
   ]);
   const marks = marksSection(rows);
+  const earlierCalls = earlierCallsSection(rows, [arms[0].id, arms[1].id]);
   const report = [
     `# Paired run: ${arms[0].id} against ${arms[1].id}`,
     "",
@@ -377,6 +379,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     ...sections,
     ...(marks ? [marks, ""] : []),
+    ...(earlierCalls ? [earlierCalls, ""] : []),
     "## Item by item",
     "",
     ...items,
