@@ -52,12 +52,39 @@ export function noteEditor(doc: Y.Doc): Editor {
   return editor;
 }
 
-/** What copying the Block at `pos` puts on the clipboard, through the editor's own copy. */
-export function copiedHtml(editor: Editor, pos: number): string {
+/** What copying the Block at `pos` (or everything from `pos` to `end`) puts on the clipboard, through the editor's own copy. */
+export function copiedHtml(editor: Editor, pos: number, end?: number): string {
   const node = editor.state.doc.nodeAt(pos);
   if (!node) throw new Error("Nothing to copy.");
-  return editor.view.serializeForClipboard(editor.state.doc.slice(pos, pos + node.nodeSize)).dom
-    .innerHTML;
+  return editor.view.serializeForClipboard(editor.state.doc.slice(pos, end ?? pos + node.nodeSize))
+    .dom.innerHTML;
+}
+
+function cutSelection(editor: Editor): string {
+  let html = "";
+  const event = new window.Event("cut", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      clearData: () => {},
+      setData: (type: string, data: string) => {
+        if (type === "text/html") html = data;
+      },
+    },
+  });
+  editor.view.dispatchEvent(event);
+  return html;
+}
+
+/** Cuts the Block at `pos`, selected as a Block, through the editor's own cut: it leaves the Note, and what it put on the clipboard comes back. */
+export function cutBlock(editor: Editor, pos: number): string {
+  editor.commands.setNodeSelection(pos);
+  return cutSelection(editor);
+}
+
+/** Cuts the text selection from `from` to `to`, as a person does who selects across a table that cannot be selected as a Block. */
+export function cutRange(editor: Editor, from: number, to: number): string {
+  editor.commands.setTextSelection({ from, to });
+  return cutSelection(editor);
 }
 
 /** Pastes clipboard HTML where the caret is, as the browser's paste event reaches the editor. */
