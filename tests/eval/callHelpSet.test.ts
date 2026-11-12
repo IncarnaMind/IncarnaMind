@@ -8,11 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
-import { newestStretch } from "../../eval/speed/arms";
+import { armSwitch, newestStretch } from "../../eval/speed/arms";
 import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
+import { sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../helpers/citations";
@@ -24,20 +25,28 @@ const TEAM = "Team plan: $25 per seat a month.";
 const block = (text: string, tag: string) =>
   new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? "";
 
-/** A model that cites `quote` from the first Passage found ahead, then answers in the options' shape. */
+/**
+ * A model that cites `quote` from the first Passage found ahead, then answers in the options'
+ * shape, and judges its sentences supported by what they cite, as call help's are judged (#2847).
+ */
 function helping(quote: string, calls: ModelCall[]) {
-  return scriptedModel((call) => {
-    calls.push(call);
-    const [found] = shownPassages(block(call.prompt, "found-in-documents"));
-    if (found && !call.results.some((result) => result.tool === "cite")) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents"));
+      if (found && !call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } },
+          ],
+        };
+      }
       return {
-        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } }],
+        text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
       };
-    }
-    return {
-      text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
-    };
-  });
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 /**
@@ -83,11 +92,17 @@ function judging(
   });
 }
 
-/** Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says. */
+/**
+ * Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says,
+ * on `arm`: the judged marks, or the quote-only ones, whose ✓ needs only a found quote.
+ */
 async function pressed(
   id: string,
   quote: string,
   judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
+  arm: "today" | "help-marks-quote-only" = "today",
+  /** The arm switch a paired run sends through, to read the requests as it records them. */
+  through?: ReturnType<typeof armSwitch>,
 ) {
   const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
   const item = group?.items[0];
@@ -107,7 +122,8 @@ async function pressed(
     log: () => undefined,
     embeddings: false,
     recordTimings: true,
-    chatModels: () => () => model,
+    chatModels: () => (through ? through.chatModels(() => model) : () => model),
+    ...(arm === "help-marks-quote-only" && { helpMarksQuoteOnly: () => true }),
   });
   try {
     const { library } = opened;
@@ -125,7 +141,7 @@ async function pressed(
       recorder,
       choice: { providerId, modelId: "local-model" },
       model: "ollama/local-model",
-      arm: "today",
+      arm,
       grade: async () => "unread",
       claimsJudge: judging(judge.grade, judge.unstated, judged, judge.first, roles),
     });
@@ -202,14 +218,34 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
   });
 
-  test("a found Citation of another line than the case rests on isn't cited, and a sentence the judge says its quote doesn't state is a false Supported", async () => {
-    const { run } = await pressed("en-answer-sso", TEAM, { grade: "wrong", unstated: [1] });
+  test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on a quote-only ✓, and the sentence check withholds it", async () => {
+    const judge = { grade: "wrong", unstated: [1] };
+    const main = (await pressed("en-answer-sso", TEAM, judge, "help-marks-quote-only")).run;
+    const branch = (await pressed("en-answer-sso", TEAM, judge)).run;
 
-    expect(run.status).toBe("done");
-    expect(run.found).toBe(1);
-    expect(run.cited).toBe(false);
-    expect(run.grade).toBe("wrong");
-    expect(run.falseSupported).toBe(1);
+    for (const run of [main, branch]) {
+      expect(run.status).toBe("done");
+      expect(run.found).toBe(1);
+      expect(run.cited).toBe(false);
+      expect(run.grade).toBe("wrong");
+    }
+    expect(main.falseSupported).toBe(1);
+    expect(main.marks).toMatchObject({ listed: 1, listedChecked: 1 });
+    // "$45 a seat" against a quote of "$25": the check leaves it unjudged, so it shows no ✓.
+    expect(branch.falseSupported).toBe(0);
+    expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
+  });
+
+  // protects=bar 4a of the call-help marks gate reads the same setup from two arms' own cores, each library's ids and the hash naming its prompt cache aside (#2847); fails_when=anything per library makes every pair's setup differ; no_claim=what a model does with either request.
+  test("two cores' first requests of one press have the same model, system prompt, Tools and parameters through the arm switch", async () => {
+    const switches = [armSwitch(), armSwitch()];
+    const judge = { grade: "right", unstated: [] };
+    for (const each of switches) await pressed("en-answer-sso", ENTERPRISE, judge, "today", each);
+    const [first, second] = switches.map((each) => each.takeSent()[0] ?? null);
+
+    expect(first?.setup).toContain("promptCacheKey");
+    expect(first?.setup).not.toBe(second?.setup);
+    expect(sentPair(first ?? null, second ?? null)).toMatchObject({ sameSetup: true });
   });
 
   test("a judge that answers in words first is asked once more, and the JSON it gives then counts", async () => {

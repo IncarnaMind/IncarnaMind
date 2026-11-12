@@ -148,3 +148,10 @@ export async function linkAndProcess(
     documents.map((document) => document.id),
   );
 }
+
+/** What a figure schedule reads of the Library when none of its Documents is there. */
+export const NO_SOURCE_DOCUMENTS = {
+  citationSource: () => null,
+  documentDate: () => null,
+  pageTexts: () => [],
+};

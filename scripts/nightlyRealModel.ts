@@ -31,9 +31,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
+import { PROVIDER_ERROR_KINDS, type ProviderErrorKind } from "../src/core/api";
 import { costOf, inCurrency } from "../src/core/cost/price";
 import type { Price } from "../src/core/providers/catalog/types";
+import { OUT_OF_CREDIT as CORE_OUT_OF_CREDIT } from "../src/core/providers/creditWords";
 import type { Gap, Status } from "./nightlyIssue";
 import type { Usage } from "./usageTally";
 
@@ -56,9 +60,16 @@ export const RATES: Readonly<Record<string, Price>> = {
   "kimi-k3": { currency: "CNY", input: 20, output: 100, cacheRead: 2 },
 };
 
-/** What Anthropic and Kimi say when a key's credit or spending limit is used up. */
-export const OUT_OF_CREDIT =
-  /credit balance is too low|insufficient[ _](?:credit|balance|funds|quota)|balance (?:is )?insufficient|exceeded_current_quota|specified (?:workspace )?API usage limits|payment required/i;
+/**
+ * What providers say when a key's credit or spending limit is used up: the core's words, and two
+ * its list lacks, Anthropic's for a key's own cap and the reason phrase of a 402.
+ */
+export const OUT_OF_CREDIT = new RegExp(
+  `${CORE_OUT_OF_CREDIT.source}|specified (?:workspace )?API usage limits|payment required`,
+  "i",
+);
+
+const OUT_OF_CREDIT_KIND: ProviderErrorKind = "out-of-credit";
 
 export type Probe = { ok: true } | { ok: false; why: string };
 
@@ -113,30 +124,154 @@ export async function probeKey(
 const STATUS =
   /(?:\bstatus(?: code)?|\bstatusCode|\bHTTP(?:\/[\d.]+)?|\b(?:Error|APICallError))["':= ]{0,4}([1-5]\d\d)\b/i;
 
+const KINDS = Object.keys(PROVIDER_ERROR_KINDS).join("|");
+
+/** The core's own failure, whose message is the provider's: `"kind":"rate-limit"` in a result, `kind: 'rate-limit'` in an error printed with its fields. */
+const KIND = new RegExp(`\\bkind["']?\\s*:\\s*["'](${KINDS})["']`);
+
+/** The core's own line for a failure, `auth (401)`: its kind, then its status. */
+const KIND_STATUS = new RegExp(`\\b(${KINDS}) \\(([1-5]\\d\\d)\\)`);
+
+const RESPONSE_BODY = /^[+-]?\s+"?responseBody"?\s*:/;
+
+const NO_ANSWER = /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i;
+
+/** The AI SDK's wording for a request that got no answer, whichever error class carries it. */
+const CANNOT_CONNECT = /Cannot connect to API/;
+
+/** The AI SDK's errors whose message is what a provider answered. */
+const PROVIDER_ERROR =
+  /\b(?:AI_)?(?:APICall|Retry|JSONParse|TypeValidation|InvalidResponseData)Error\b/;
+
+const PROVIDER_ANSWERED = "failed: the provider answered with an error";
+
+const providerSaid = (text: string) =>
+  PROVIDER_ERROR.test(text) && !NO_ANSWER.test(text) && !CANNOT_CONNECT.test(text);
+
 /**
- * What a failure's text says about the request, in words of ours, or null when it says nothing we
- * can name. Only fixed words and a status code leave this function, never the text: it may hold
- * what a provider answered, with an account or key id in it, and the summary is an artifact anyone
- * can download.
+ * What the text says about a provider's answer to a request, in words of ours, or null when it
+ * quotes none. The text may hold what the provider answered, with an account or key id in it.
+ * Credit words count only on a line that also says a provider answered (a status of 400 or more,
+ * one of the core's kinds, an AI SDK error, a `responseBody` member, or, as `after`, a message
+ * member after one of those in the same object): "没有欠费的会员" is a sentence of a test's
+ * Document, and a 402 or the kind `out-of-credit` count alone.
  */
-function classify(text: string): string | null {
-  const status = Number(STATUS.exec(text)?.[1]);
-  if (OUT_OF_CREDIT.test(text)) {
+function answered(text: string, after = false): string | null {
+  const printed = KIND_STATUS.exec(text);
+  const status = Number(STATUS.exec(text)?.[1] ?? printed?.[2]);
+  const kind = KIND.exec(text)?.[1] ?? printed?.[1];
+  const refusal =
+    after ||
+    status >= 400 ||
+    kind !== undefined ||
+    providerSaid(text) ||
+    RESPONSE_BODY.test(text);
+  if (status === 402 || kind === OUT_OF_CREDIT_KIND || (refusal && OUT_OF_CREDIT.test(text))) {
     return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
   if (status >= 500) return `failed: status ${status}`;
+  return kind ? `failed: ${kind}` : null;
+}
+
+/**
+ * What a failure's text says about the request, in words of ours, or null when it says nothing we
+ * can name. Only fixed words and a status code leave this function, never the text: the summary is
+ * an artifact and the job's log a page, and anyone can read either.
+ */
+function classify(text: string): string | null {
+  const answer = answered(text);
+  if (answer) return answer;
   if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
-  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) {
-    return "failed: no answer from the provider";
-  }
+  if (NO_ANSWER.test(text)) return "failed: no answer from the provider";
   if (/^\s*(?:AssertionError|expected )/.test(text)) return "failed: an expectation did not hold";
-  return null;
+  return providerSaid(text) ? PROVIDER_ANSWERED : null;
 }
 
 /** A failed case's line in the summary: `classify`'s words, or a pointer to the job's log. */
 export const describeFailure = (text: string): string =>
   classify(text) ?? "failed: see the job's log";
+
+/** A reporter's line for a test, whose title is ours and may say "429" without quoting a provider. */
+const TEST_LINE = /^\s*(?:[✓✔✗×↓] |(?:FAIL|PASS) )/;
+
+/** A line of a printed object, in a diff or not: a key, then a colon. */
+const MEMBER = /^[+-]?\s+(?:"[^"]*"|'[^']*'|[\w$]+)\s*:/;
+const HOLDS_MESSAGE = /\bmessage["']?\s*:/;
+
+/** How far a line is indented; -1 for a blank line. A diff's marker stands where an unchanged line has a space, so it is a column. */
+const indentOf = (line: string): number =>
+  line.trim() === "" ? -1 : (/^[+-]?\s*/.exec(line)?.[0].length ?? 0);
+
+/**
+ * Reads a step's output a line at a time and says what each line quotes of a provider's answer,
+ * in words of ours, or null when it quotes none. A message member of a printed object is the
+ * provider's when a member line of the same object before it has said so (`"kind": "rate-limit"`,
+ * `statusCode: 401`), so the reader remembers that for every later line indented at least as
+ * deep as the one that said it, and forgets it at the first line indented less, at a blank line
+ * or at a test's own line: braces are not counted, so a nested object or a list that closes
+ * before the message does not end it. A message of ours follows no such line and stays. A member line that holds a message
+ * anywhere in it is told the same way, as Node prints a short parsed body on one line:
+ * `data: { error: { message: … } }`. A test's own line says nothing.
+ */
+function answerReader(): (line: string) => string | null {
+  let said: { words: string; indent: number } | null = null;
+  return (line) => {
+    const plain = stripVTControlCharacters(line);
+    if (TEST_LINE.test(plain)) {
+      said = null;
+      return null;
+    }
+    const indent = indentOf(plain);
+    const member = MEMBER.test(plain);
+    if (said && indent < said.indent) said = null;
+    const after = said !== null && member && HOLDS_MESSAGE.test(plain);
+    const quoted =
+      answered(plain, after) ??
+      (providerSaid(plain) ? classify(plain) : null) ??
+      (RESPONSE_BODY.test(plain) ? PROVIDER_ANSWERED : null);
+    if (quoted && member && !said) said = { words: quoted, indent };
+    return quoted ?? (after ? (said?.words ?? null) : null);
+  };
+}
+
+/** Whether the step's output says its key's credit is used up, by the words, status or kind `answered` knows. */
+function ranOutOfCredit(log: string): boolean {
+  const read = answerReader();
+  return stripVTControlCharacters(log)
+    .split("\n")
+    .some((line) => read(line)?.startsWith("refused: out of credit") === true);
+}
+
+/**
+ * Turns a step's output, line by line, into what the job's log shows: a line that quotes a
+ * provider's answer (see `answerReader`) becomes its status or the core's failure kind and our
+ * words, every other line stays as it is.
+ */
+export function logFilter(): (line: string) => string {
+  const read = answerReader();
+  return (line) => {
+    const words = read(line);
+    return words ? `(a provider's words left out) ${words}` : line;
+  };
+}
+
+/** Prints text to `to` a whole line at a time, so that the filter never judges half a line. */
+function lineByLine(to: NodeJS.WritableStream) {
+  const inTheLog = logFilter();
+  let rest = "";
+  return {
+    add(text: string) {
+      const lines = (rest + text).split("\n");
+      rest = lines.pop() ?? "";
+      for (const line of lines) to.write(`${inTheLog(line)}\n`);
+    },
+    end() {
+      if (rest) to.write(inTheLog(rest));
+      rest = "";
+    },
+  };
+}
 
 interface Case {
   name: string;
@@ -335,7 +470,7 @@ export async function runSteps(
       if (spent.has(secret) || !(await accepted(secret, step.provider))) continue;
       ran = true;
       const run = await execute(step, secret);
-      const outOfCredit = run.exitCode !== 0 && OUT_OF_CREDIT.test(run.log);
+      const outOfCredit = run.exitCode !== 0 && ranOutOfCredit(run.log);
       attempts.push({ step, secret, outOfCredit, ...run });
       after?.(attempts);
       if (!outOfCredit) break;
@@ -656,9 +791,18 @@ export function executeIn(
         [run.stdout, process.stdout],
         [run.stderr, process.stderr],
       ] as const) {
+        const decoder = new StringDecoder("utf8");
+        const shown = lineByLine(to);
         stream.on("data", (chunk: Buffer) => {
-          log += chunk.toString();
-          to.write(chunk);
+          const text = decoder.write(chunk);
+          log += text;
+          shown.add(text);
+        });
+        stream.on("end", () => {
+          const text = decoder.end();
+          log += text;
+          shown.add(text);
+          shown.end();
         });
       }
       const finish = (exitCode: number) => {

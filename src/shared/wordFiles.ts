@@ -24,6 +24,7 @@ import {
   type WordOrigin,
   type WordSource,
 } from "../core/api";
+import { countingMarkOf, keyedMarkOf } from "./markKeys";
 import { targetHash } from "./proposals";
 
 /** Atoms that show nothing: they only keep their place in the text. */
@@ -278,8 +279,13 @@ function canonical(node: Y.XmlElement | Y.XmlText, rejoin = true, root = true): 
       const marks = Object.fromEntries(
         Object.keys(run.attributes ?? {})
           .filter((mark) => !NOT_TEXT_CONTENT.has(mark))
-          .sort()
-          .map((mark) => [mark, sorted(run.attributes?.[mark], NOT_MARK_CONTENT)]),
+          .flatMap((key): [string, unknown][] => {
+            // A keyed mark reads the same under its own key as under its name (#2996).
+            const keyed = keyedMarkOf(key);
+            if (keyed && countingMarkOf(keyed, run.attributes)?.key !== key) return [];
+            return [[keyed ?? key, sorted(run.attributes?.[key], NOT_MARK_CONTENT)]];
+          })
+          .sort(([a], [b]) => (a < b ? -1 : 1)),
       );
       const last = runs.at(-1);
       // Rejoin text that only a left-out mark split, so adding the mark keeps the fingerprint.

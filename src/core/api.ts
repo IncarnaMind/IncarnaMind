@@ -92,7 +92,7 @@ import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/ci
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
-import type { ExportMarks } from "../shared/exportMarks";
+import type { ExportMarks, ExportMarksChoice, MarkedFormat } from "../shared/exportMarks";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -406,8 +406,16 @@ export interface CreateMindInput {
  *   a what-if as the workbook's own figure, so it opens these Notes read-only.
  *   Older content is version 55 content as it is: a figure without it is the
  *   workbook's own, or a what-if of the one input it names.
+ * - 57: each sentence's check, each comment and each change the assistant
+ *   proposes is kept under a format key of its own, the mark's name, `--` and
+ *   eight characters of its id (#2996), so two side by side don't share the
+ *   marker that ends one and starts the next. An older version reads them
+ *   only under their names, so it opens these Notes read-only and shows their
+ *   checks as not checked. Older content is version 56 content as it is: the
+ *   core moves these marks to their own keys when it opens the Note, or
+ *   restores a Checkpoint of it.
  */
-export const CONTENT_SCHEMA_VERSION = 56;
+export const CONTENT_SCHEMA_VERSION = 57;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -6036,6 +6044,32 @@ export type ProviderErrorKind =
   | "cut-short"
   | "unknown";
 
+// Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
+export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
+  auth: true,
+  "api-key-unreadable": true,
+  model: true,
+  "rate-limit": true,
+  network: true,
+  provider: true,
+  refused: true,
+  "out-of-credit": true,
+  region: true,
+  "consent-declined": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "ollama-not-running": true,
+  "data-retention": true,
+  "not-signed-in": true,
+  "plan-limit": true,
+  blocked: true,
+  "too-long": true,
+  "cost-cap": true,
+  "no-answer": true,
+  "cut-short": true,
+  unknown: true,
+};
+
 export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
@@ -8655,6 +8689,13 @@ export interface MarkedCitation extends Citation {
    * and not the quote check alone (#2313).
    */
   judgedAt?: string;
+  /**
+   * Where in the text its marker sits in a sentence the judgement passed: its place among the
+   * Answer's Citation markers, from 0. Call help draws its ✓ by sentence from these (#2847), so a
+   * marker that another sentence reuses keeps the mark where its own sentence passed. Kept with an
+   * Answer's Citations, not in a Note.
+   */
+  passedAt?: number[];
 }
 
 /**
@@ -8908,6 +8949,15 @@ export interface MindContentSnapshot {
   state: Uint8Array;
   /** Where its table cells hold figures the one Check reads, so a reader judges them as the editor does (#1459). */
   cellFigures: CellFigurePlace[];
+  /** Each total's footing against its table as the Note is now, which its verdict reads (#2998). */
+  footing: FigureFootingNow[];
+}
+
+/** A total's footing as the Note's marks and numbers are now; `waiting` while a cell it counts is still being checked. */
+export interface FigureFootingNow {
+  id: string;
+  footing: FigureFinding["footing"];
+  waiting: boolean;
 }
 
 /** A figure's place in a table's cell: its paragraph's Block, and where it starts and ends there. */
@@ -14221,10 +14271,16 @@ export interface CoreApi {
   getMindStyle(mindId: string): Promise<MindStyle>;
   /** Sets the Mind's font and text size together, so Undo can put both back. */
   setMindStyle(mindId: string, style: MindStyle): Promise<MindStyle>;
-  /** The page numbers and watermark a Mind's Word file and PDF carry (#1258): its own choice, saved with the Mind. */
-  getExportMarks(mindId: string): Promise<ExportMarks>;
-  /** Sets the Mind's page numbers and watermark, together. */
-  setExportMarks(mindId: string, marks: ExportMarks): Promise<ExportMarks>;
+  /**
+   * The page numbers and watermark a Mind's Word file or PDF carries (#1258): its own choice, saved
+   * with the Mind, else what that format starts with (#1741).
+   */
+  getExportMarks(mindId: string, format: MarkedFormat): Promise<ExportMarks>;
+  /**
+   * Sets the Mind's page numbers and watermark: one choice for every format. Without page numbers,
+   * the Mind keeps the ones it chose before, else each format's own; returns the choice as saved.
+   */
+  setExportMarks(mindId: string, marks: ExportMarksChoice): Promise<ExportMarksChoice>;
   /**
    * The pages of a Mind, for Page view (#803): each section's size, orientation and margins, and its
    * headers and footers with their page fields, as the Word file it was imported from has them; for

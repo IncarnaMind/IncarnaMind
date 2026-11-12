@@ -77,6 +77,13 @@ export interface AnswerCheckInput {
    * couldn't be, with the limit that stopped it, if one did.
    */
   onJudged?(marker: number, result: SupportResult | null, stop: JudgementStop | null): void;
+  /**
+   * Each sentence's own result as it is judged, before its markers' (`onJudged`), which are their
+   * sentences' worst; null when it couldn't be judged. `read`: the model answered about it, even
+   * where that leaves no result (sorted as opinion, words its quote doesn't state, a number that
+   * needs a calculation). It changes no Citation's result.
+   */
+  onSentence?(sentence: CitedSentence, result: SupportResult | null, read: boolean): void;
   /** Why nothing was judged, when no batch was reached: the model can't judge the sentence. */
   onStop?(stop: JudgementStop): void;
 }
@@ -196,7 +203,7 @@ const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
  * that unit, and only the model's own words say which it meant. With nothing widened they are the
  * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
  */
-function pinnedByModel(
+export function pinnedByModel(
   figure: Figure,
   cited: readonly Citation[],
   units: AnswerCheckOptions["units"],
@@ -321,7 +328,9 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       sentence: (typeof judged)[number],
       support: SupportResult | null,
       stop: JudgementStop | null,
+      read = false,
     ) => {
+      input.onSentence?.(sentence, support, read);
       for (const { marker } of waitingIn(sentence)) {
         const before = worst.get(marker);
         if (!support) unjudged.set(marker, unjudged.get(marker) ?? stop);
@@ -516,7 +525,13 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         return;
       }
       for (const [index, sentence] of batch.entries()) {
-        settle(sentence, await supportOf(sentence, reply.get(index + 1), options.units), null);
+        const verdict = reply.get(index + 1);
+        settle(
+          sentence,
+          await supportOf(sentence, verdict, options.units),
+          null,
+          verdict !== undefined,
+        );
       }
     };
 

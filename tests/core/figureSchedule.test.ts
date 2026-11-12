@@ -28,6 +28,7 @@ import { aggregateFigureResults } from "../../src/shared/figureChecks";
 import { childrenOf, lineShows, rowOpens } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { addSignOff, figureSignOffBasis } from "../../src/shared/signOffs";
+import { NO_SOURCE_DOCUMENTS } from "../helpers/documents";
 
 const paragraph = (id: string, text: string, attrs: Record<string, string> = {}): NodeJSON => ({
   type: "paragraph",
@@ -1197,6 +1198,7 @@ function scheduleInput(blocks: Y.XmlFragment) {
     versions: new Map<string, string>(),
     folderId: null,
     scope: null,
+    documents: NO_SOURCE_DOCUMENTS,
   };
 }
 

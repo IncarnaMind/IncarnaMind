@@ -259,7 +259,12 @@ async function checkWholeNote(core: Core, sentences: readonly string[]): Promise
 /** The check badge's state of a Note, as the badge works it out from the Note's marks. */
 function badgeOf(mind: MindClient) {
   const doc = readMind(mind);
-  const claims = claimsOf(doc, { versions: null, folderId: null, scope: null });
+  const claims = claimsOf(doc, {
+    footing: "not-yet-known",
+    versions: null,
+    folderId: null,
+    scope: null,
+  });
   return noteStateOf(
     noteHealth(doc, {
       claims: claims.claims,
@@ -1290,7 +1295,13 @@ describe("a change to the Library", () => {
         ...(await setup.core.listDocuments()).map((each) => [each.id, each.contentHash] as const),
         ...Object.entries(await setup.core.libraryFactsNow(noteId)),
       ]);
-      return claimCheckShown(check, { text: check.text, versions, folderId: null, scope: null });
+      return claimCheckShown(check, {
+        footing: "not-yet-known",
+        text: check.text,
+        versions,
+        folderId: null,
+        scope: null,
+      });
     };
     expect(await shown()).toEqual({ state: "supported" });
     await addAndProcess(setup.core, [
@@ -1313,7 +1324,13 @@ describe("a change to the Library", () => {
         ...(await setup.core.listDocuments()).map((each) => [each.id, each.contentHash] as const),
         ...Object.entries(await setup.core.libraryFactsNow(noteId)),
       ]);
-      return claimCheckShown(check, { text: check.text, versions, folderId: null, scope: null });
+      return claimCheckShown(check, {
+        footing: "not-yet-known",
+        text: check.text,
+        versions,
+        folderId: null,
+        scope: null,
+      });
     };
     expect(await shown()).toEqual({ state: "unsupported" });
     await addAndProcess(setup.core, [

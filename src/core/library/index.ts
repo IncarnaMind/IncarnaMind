@@ -447,6 +447,12 @@ export function createLibrary(options: {
     options.sendsTo(saved).length > 0;
   const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
   /**
+   * Where tagging and organizing by themselves send now, and so what a turn-on names: nowhere
+   * outside this computer in Local mode, whose line names no service (#2982).
+   */
+  const sendsNow = (saved: Parameters<typeof options.sendsTo>[0]) =>
+    options.localOnly?.() ? [] : options.sendsTo(saved);
+  /**
    * When the switch was turned on for each service. One saved before these were kept names none:
    * nothing stored tells a turn-on from a consent given elsewhere, so it holds only where tagging
    * sends nothing out, until the User turns it on again (#2623).
@@ -459,7 +465,7 @@ export function createLibrary(options: {
    */
   const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
     const since = sinceOf(saved);
-    return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
+    return sendsNow(saved).every((service) => since[service.id] !== undefined);
   };
   /**
    * The place of the User's turn-on for this service in the database's order; null if none. The
@@ -1091,24 +1097,26 @@ export function createLibrary(options: {
         stopForDestination();
         return;
       }
-      state(id, "classifying");
       const settingsNow = getSettings();
-      const classifier = await options.prepare(settingsNow, call.permit);
-      if (classifier.local) call.runsLocally();
-      if (stale()) return;
-      if (abandoned()) return;
-      // Checked on where this request goes, as prepared; the User's own Organize goes.
+      // Checked on where this request goes, before the model is prepared: a Document that may not
+      // go by itself is held, never left waiting for a consent that wouldn't send it (#2982). The
+      // User's own Organize goes.
       const service = options.organizeService(settingsNow);
-      if (destinationChanged()) {
-        stopForDestination();
-        return;
-      }
       const services = service ? [service] : [];
       if (
         !asked.has(id) &&
         (!mayBackgroundSend(db, id, services, turnedOnSeq) || (services.length > 0 && inWall(id)))
       ) {
         holdBack(id, initial);
+        return;
+      }
+      state(id, "classifying");
+      const classifier = await options.prepare(settingsNow, call.permit);
+      if (classifier.local) call.runsLocally();
+      if (stale()) return;
+      if (abandoned()) return;
+      if (destinationChanged()) {
+        stopForDestination();
         return;
       }
       const read = source(current);
@@ -1931,7 +1939,8 @@ export function createLibrary(options: {
       changed();
       return true;
     },
-    saveSettings(input: unknown) {
+    /** Saves the settings; returns the services a turn-on named, none for any other save. */
+    saveSettings(input: unknown): ExternalService[] {
       if (!isRecord(input) || typeof input.automatic !== "boolean")
         throw new InvalidInputError("Choose classification settings.");
       // Null was "Organize manually" before there was Automatic: it is Automatic now.
@@ -1952,35 +1961,36 @@ export function createLibrary(options: {
       // older view (#2308).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
-      const automatic = turnOn
-        ? true
-        : input.automatic === false && showing
-          ? false
-          : before.automatic;
+      const turnOff = !turnOn && input.automatic === false && showing;
+      const automatic = turnOn ? true : turnOff ? false : before.automatic;
       const at = now();
+      const named = turnOn ? sendsNow(next) : [];
       // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
       // its place: what came in while it was on stays new. Where the User took the consent back,
       // turning it on is a new consent.
       const onFor = new Set(
         showing
-          ? options
-              .sendsTo(before)
+          ? sendsNow(before)
               .filter((service) => options.taggingAllowed(service))
               .map((service) => service.id)
           : [],
       );
-      const freshOn = turnOn
-        ? options.sendsTo(next).filter((service) => !onFor.has(service.id))
-        : [];
+      const freshOn = named.filter((service) => !onFor.has(service.id));
+      // Turned off, it is on nowhere: a turn-on afterwards names only where it sends then, so one
+      // made in Local mode leaves no earlier service on for when Local mode ends (#2982).
       const automaticSince = turnOn
         ? { ...sinceOf(before), ...Object.fromEntries(freshOn.map((service) => [service.id, at])) }
-        : sinceOf(before);
+        : turnOff
+          ? {}
+          : sinceOf(before);
       const automaticSinceSeq = turnOn
         ? {
             ...sinceSeqOf(before),
             ...Object.fromEntries(freshOn.map((service) => [service.id, nextSequence(db, at)])),
           }
-        : sinceSeqOf(before);
+        : turnOff
+          ? {}
+          : sinceSeqOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
@@ -1994,6 +2004,7 @@ export function createLibrary(options: {
       revision++;
       changed();
       resume();
+      return named;
     },
     classify(input: unknown, forService?: string, run: OrganizeReviewRun = { origin: "library" }) {
       if (!organizeModelOf(getSettings()))

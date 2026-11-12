@@ -186,7 +186,8 @@ interface Live {
   doneMs: number;
   /**
    * How far the engine has answered for on every stream: at least `doneMs`. A cloud service that
-   * answers while nothing is final yet (a long silence, a long sentence) is keeping up.
+   * answers while nothing is final yet (a long silence, a long sentence) is keeping up, and so is
+   * this computer's engine while a long turn is still being said (#2902).
    */
   heardMs: number;
   /** Audio from here on isn't transcribed live: it is transcribed after Stop. Null while it is. */
@@ -1157,8 +1158,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!live.started || live.pendingFrom !== null) return;
     pushTracks(state, live, audio);
     if (!live.started) return;
-    // Behind is the engine not keeping up, which a cloud service's answers show; what is safe to
-    // replay after a lost connection stays `doneMs`.
+    // Behind is the engine not keeping up, which a cloud service's answers and this computer's
+    // queue show; what is safe to replay after a lost connection stays `doneMs`.
     if (live.pushedMs - Math.max(live.heardMs, live.doneMs, live.backlogEnd) > BEHIND_MS)
       fallBehind(state, live);
   }

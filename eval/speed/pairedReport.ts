@@ -3,6 +3,7 @@
  * calls and tokens, the candidate against the baseline item by item, and the quality guards, each
  * held or not; then every item, both arms side by side.
  */
+import type { SentRequest } from "./arms";
 import type { ArmRun, Language, RequestTiming, SetId } from "./paired";
 import { percentile } from "./report";
 
@@ -18,6 +19,10 @@ export interface PairedRow {
   first: 0 | 1;
   /** Both arms' first requests were the same, ids and times aside; set only when the run asks. */
   sameRequest?: boolean;
+  /** Their model, system prompt, Tools and parameters were the same, ids and times aside. */
+  sameSetup?: boolean;
+  /** Where their messages differed, ids and times aside: both sides around it; null when they didn't. */
+  messageDifference?: string | null;
   baseline: ArmRun;
   candidate: ArmRun;
 }
@@ -41,19 +46,34 @@ export function armTurns(): (cell: string) => readonly [0 | 1, 0 | 1] {
 export const cellOf = (row: Pick<PairedRow, "model" | "set" | "language">) =>
   `${row.model} · ${row.set} · ${row.language}`;
 
-/** What tells two arms' libraries apart in a request: ids, and the times files were made. */
+/**
+ * What tells two arms' libraries apart in a request: ids, the times files were made, and the hash
+ * of each one's own conversation that names its prompt cache.
+ */
 const PER_LIBRARY = [
+  /"promptCacheKey":"[0-9a-f]+"/g,
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
   /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
   /file-modified=\\"[^"\\]*\\"/g,
 ];
 
+const masked = (prompt: string) =>
+  PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
+
 /** Whether two arms sent the same first request, what differs between their libraries aside. */
 export function sameRequestOf(baseline: string | null, candidate: string | null): boolean {
   if (baseline === null || candidate === null) return false;
-  const masked = (prompt: string) =>
-    PER_LIBRARY.reduce((text, pattern) => text.replace(pattern, "·"), prompt);
   return masked(baseline) === masked(candidate);
+}
+
+/** Where two arms' messages first differ, what differs between their libraries aside: each side's 60 characters from a little before it. Null: they don't. */
+export function messageDifference(baseline: string, candidate: string): string | null {
+  const [a, b] = [masked(baseline), masked(candidate)];
+  if (a === b) return null;
+  let at = 0;
+  while (at < a.length && a[at] === b[at]) at++;
+  const from = Math.max(0, at - 20);
+  return `${JSON.stringify(a.slice(from, from + 60))} / ${JSON.stringify(b.slice(from, from + 60))}`;
 }
 
 /** How many of `rows` each arm went first in, baseline then candidate. */
@@ -412,4 +432,16 @@ export function timeTable(rows: readonly PairedRow[], names: [string, string]): 
     time("Reasoning, all requests", reasoning),
     tokens("Input tokens, first request", (run) => own(run)[0]?.inputTokens ?? null),
   ].join("\n");
+}
+
+/** What a pair's first requests share: the whole prompt, the setup apart, and where the messages differ. */
+export function sentPair(baseline: SentRequest | null, candidate: SentRequest | null) {
+  return {
+    sameRequest: sameRequestOf(baseline?.prompt ?? null, candidate?.prompt ?? null),
+    sameSetup: sameRequestOf(baseline?.setup ?? null, candidate?.setup ?? null),
+    messageDifference:
+      baseline && candidate
+        ? messageDifference(baseline.messages, candidate.messages)
+        : "a request missing",
+  };
 }

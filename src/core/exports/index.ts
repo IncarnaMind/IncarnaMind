@@ -16,7 +16,12 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
-import { type ExportMarks, type PrintedMarks, printedMarks } from "../../shared/exportMarks";
+import {
+  type ExportMarks,
+  type MarkedFormat,
+  type PrintedMarks,
+  printedMarks,
+} from "../../shared/exportMarks";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
 import { factWords, sourceWords } from "../../shared/libraryFacts";
@@ -130,8 +135,8 @@ export interface ExportsDependencies {
   font(mindId: string): string | null;
   /** The Mind's line spacing, a multiple of a single line; null: its text size's own. */
   lineSpacing(mindId: string): number | null;
-  /** The page numbers and watermark the Mind's Word file and PDF carry (#1258). */
-  exportMarks(mindId: string): ExportMarks;
+  /** The page numbers and watermark the Mind's Word file or PDF carries (#1258). */
+  exportMarks(mindId: string, format: MarkedFormat): ExportMarks;
   /** Whether the Mind shows its Bibliography without a citation style (#102). */
   bibliography(mindId: string): boolean;
   /** Formats Citations in a style, as the editor does (see `CoreApi.formatCitations`). */
@@ -429,7 +434,7 @@ export function createExports(deps: ExportsDependencies) {
       lineSpacing: deps.lineSpacing(mind.id),
       marks:
         format === "docx" || format === "pdf"
-          ? printedMarks(deps.exportMarks(mind.id), language)
+          ? printedMarks(deps.exportMarks(mind.id, format), language)
           : null,
       attributesOf,
       comments: writtenComments,
