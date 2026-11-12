@@ -231,4 +231,21 @@ describe("the data pages name the words a cloud transcription route is sent", ()
       ).toContain(clause.toLowerCase());
     },
   );
+
+  // Each place that says a name written during the call is used says, in the same sentence, that
+  // a cloud route isn't sent it, and the glossary's cloud list waits for the User's consent (#1031).
+  test("a name written during the call is nowhere said to reach a cloud route", () => {
+    const privacy = read("docs/privacy.md").split("\n");
+    const row = privacy.find((line) => line.includes("(`transcription`)")) ?? "";
+    const bullet = privacy.find((line) => line.startsWith("- **Words to know**")) ?? "";
+    expect(row).toContain(
+      "is used on this computer, for the lines that follow, and isn't added to what the service has",
+    );
+    expect(bullet).toContain(
+      "is used on this computer for the lines that follow, and isn't added to what a cloud route has",
+    );
+    expect(read("CONTEXT.md")).toContain(
+      "A cloud route is sent one once the User has allowed it the words (a route chosen before the words were sent gets only the audio until then)",
+    );
+  });
 });
