@@ -31,6 +31,8 @@ export const FAKE_CLOUD_LINES: readonly string[] = [
 ];
 
 export interface FakeCloudOptions {
+  /** The lines the service hears, in turn, in place of its own. */
+  lines?: readonly string[];
   /** The connection drops once this many ms of audio have been sent on it. */
   dropAfterMs?: number;
   /** The service refuses the key. */
@@ -62,7 +64,8 @@ export const createFakeCloudFetch = (options: FakeCloudOptions = {}): CloudServi
 
 export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
   let said = 0;
-  const nextLine = () => FAKE_CLOUD_LINES[said++ % FAKE_CLOUD_LINES.length] as string;
+  const lines = options.lines ?? FAKE_CLOUD_LINES;
+  const nextLine = () => lines[said++ % lines.length] as string;
 
   const lineMs = options.lineMs ?? LINE_MS;
 

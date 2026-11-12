@@ -9598,9 +9598,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   voices included, to the cloud transcription service the User chose in
  *   Settings › Meetings or on the first-meeting sheet (#141), with the
  *   meeting's words to know in that service's own field (#1031): the User's
- *   name, the names in the meeting's Note, calendar event and Folder, and
- *   Words to know. Choosing it allows both; a route chosen before the words
- *   went sends them only once the User allows them. None in local mode.
+ *   name, the names and other capitalised words in the meeting's Note,
+ *   calendar event and Folder, and Words to know. Choosing it allows both; a
+ *   route chosen before the words went sends them only once the User allows
+ *   them. None in local mode.
  * - "scan-images": when Organize or the Library's automatic grouping meets a
  *   PDF with no text after reading and OCR (a scan), up to 3 of its page
  *   images, to the service of the model that reads them (the chosen model's,

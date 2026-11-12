@@ -531,13 +531,13 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
     );
     const consent = settings.getByTestId("meetings-route-consent");
     await expect(consent).toHaveText(
-      "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     );
     expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
 
     await route.selectOption("soniox");
     await expect(consent).toHaveText(
-      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     );
     await expect
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
@@ -549,15 +549,15 @@ test("Settings › AI offers a cloud route once a key is saved, says what choosi
 
 const MEETING_ROUTE_LINES = {
   en: {
-    once: "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+    once: "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     sends:
-      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     paused: "Paused: “Keep everything on this computer” is on.",
   },
   "zh-CN": {
-    once: "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+    once: "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
     sends:
-      "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+      "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
     paused: "已暂停：已开启“所有内容都留在这台电脑上”。",
   },
 } as const;

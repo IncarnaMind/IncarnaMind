@@ -18,16 +18,16 @@ import type { ServicesView } from "../../src/renderer/src/transcriptionServices"
 const SENDS: Record<"en" | "zh-CN", { full: string; audio: string; paused: string; once: string }> =
   {
     en: {
-      full: "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      full: "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
       audio: "Audio goes to Soniox while you record.",
       paused: "Paused: “Keep everything on this computer” is on.",
-      once: "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names in its note, calendar event and folder’s documents.",
+      once: "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
     },
     "zh-CN": {
-      full: "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+      full: "录音期间，音频会发送给 Soniox，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
       audio: "录音期间，音频会发送给 Soniox。",
       paused: "已暂停：已开启“所有内容都留在这台电脑上”。",
-      once: "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字。",
+      once: "选择云服务后，录音期间会议音频会发送给该服务，同时发送你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
     },
   };
 
@@ -64,6 +64,7 @@ let container: HTMLElement;
 let Consent: ComponentType<{ read: ServicesView }>;
 let Line: ComponentType<{ read: ServicesView }>;
 let Choice: ComponentType;
+let Words: ComponentType<{ services: ServicesView }>;
 let SetUp: ComponentType<{ service: TranscriptionServiceStatus; onDone(): void }>;
 let useSetUp: (
   selectId: string,
@@ -131,6 +132,8 @@ beforeEach(async () => {
   Line = settings.TranscriptionRouteLine;
   const choicePath = "../../src/renderer/src/components/meetings/TranscriptionRouteChoice.tsx";
   ({ TranscriptionRouteChoice: Choice } = await import(choicePath));
+  const wordsPath = "../../src/renderer/src/components/meetings/WordsToKnow.tsx";
+  ({ WordsToKnow: Words } = await import(wordsPath));
   const setUpPath = "../../src/renderer/src/components/meetings/TranscriptionSetUp.tsx";
   ({ TranscriptionSetUp: SetUp, useTranscriptionSetUp: useSetUp } = await import(setUpPath));
   ({ useAppStore } = await import("../../src/renderer/src/store"));
@@ -255,6 +258,82 @@ describe.each(["en", "zh-CN"] as const)(
         expect(consentRow()?.textContent).toBe(said[line]);
       },
     );
+
+    // protects=a cloud route saved, before the list of services is read: Local mode says it is paused, as it will once the list is read, and never what choosing a service sends; fails_when=the line says a service gets the audio and the words while Local mode sends nothing; no_claim=how long the read takes.
+    test.each([
+      [false, "once"],
+      [true, "paused"],
+    ] as const)(
+      "with a cloud service saved, the list not read yet and Local mode %s, says the line for that mode",
+      async (localOnly, line) => {
+        setUp(language, "soniox", localOnly);
+        await render({ state: "loading" });
+        expect(paragraphs()).toEqual([said[line]]);
+      },
+    );
+  },
+);
+
+const WORDS_HELP = {
+  en: {
+    told: "Each meeting’s transcriber is told your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
+    cloud: "A cloud service you transcribe with gets them with the audio.",
+    waiting: "Soniox gets the audio but not these words",
+  },
+  "zh-CN": {
+    told: "每场会议的转写会用到你的名字、要识别的词、会议所在文件夹的名称，以及会议笔记、日历事件和该文件夹文档里的名字和首字母大写的词。",
+    cloud: "用云服务转写时，这些词会随音频一起发送给该服务。",
+    waiting: "Soniox 目前只收到音频，没有收到这些词",
+  },
+} as const;
+
+describe.each(["en", "zh-CN"] as const)(
+  "Settings › Meetings, under Words to know (%s)",
+  (language) => {
+    const said = WORDS_HELP[language];
+    const render = async (route: string, localOnly: boolean, service = soniox()) => {
+      useAppStore.setState({
+        settings: {
+          language,
+          device: { transcriptionRoute: route },
+          user: { meetingWords: [] },
+        } as unknown as Settings,
+        embedding: { localOnly } as never,
+      } as never);
+      await act(() => root?.render(createElement(Words, { services: ready(service) })));
+      return container.textContent ?? "";
+    };
+
+    // protects=the help under Words to know says a cloud service gets the words only where one could: with Local mode on it says what the transcriber is told and nothing of a cloud service, whether a route is chosen, none is, or one's words wait; fails_when=Local mode shows the sentence that a cloud service gets the words with the audio, or the waiting line; no_claim=what the core sends, which cloudWords.test.ts holds.
+    test.each([
+      ["soniox", soniox()],
+      ["local", soniox()],
+      ["soniox", soniox({ wordsWaiting: true })],
+    ] as const)(
+      "with Local mode on (route %s), says what the transcriber is told and nothing of a cloud service",
+      async (route, service) => {
+        const text = await render(route, true, service);
+        expect(text).toContain(said.told);
+        expect(text).not.toContain(said.cloud);
+        expect(text).not.toContain(said.waiting);
+      },
+    );
+
+    test.each(["soniox", "local"])(
+      "with Local mode off (route %s), says a cloud service gets them with the audio",
+      async (route) => {
+        const text = await render(route, false);
+        expect(text).toContain(said.told);
+        expect(text).toContain(said.cloud);
+      },
+    );
+
+    test("with Local mode off and the words waiting, the waiting line says what Send gives, and the help doesn't say a cloud service gets them", async () => {
+      const text = await render("soniox", false, soniox({ wordsWaiting: true }));
+      expect(text).toContain(said.told);
+      expect(text).toContain(said.waiting);
+      expect(text).not.toContain(said.cloud);
+    });
   },
 );
 

@@ -410,6 +410,7 @@ import {
 } from "./transcription/model";
 import { inScript } from "./transcription/script";
 import { createSpeakerModel } from "./transcription/speakerModel";
+import { inToldSpelling, wordsInToldSpelling } from "./transcription/spelling";
 import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
@@ -834,10 +835,12 @@ export function createCore(adapters: CoreAdapters): Core {
       else content.peekDeleted(mind.id, look);
     }
   };
+  let noteReadAgain: ((mindId: string) => void) | undefined;
   const mindIndex = createMindIndex({
     db,
     now,
     content,
+    readAgain: (mindId) => noteReadAgain?.(mindId),
     reportError: (error) => console.error(error),
   });
   // The record of AI use stays on this computer: it takes nothing from the network or the usage-data catalog.
@@ -5039,18 +5042,26 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       health: captureHealth,
       memo: (meetingId) => isMemo(db, meetingId),
-      wordsOf: (meetingId) =>
-        meetingWords({
-          db,
-          meetingId,
-          userName: settings.get().user.authorName,
-          userWords: settings.get().user.meetingWords,
-          folderName: (folderId) =>
-            library.folders().find((folder) => folder.id === folderId)?.name ?? null,
-          folderDocuments: (folderId) => library.treeDocumentIds(folderId),
-          attendees: (mindId) => calendars.attendeesOf(mindId),
-        }),
-      lineText: (text, words) => inScript(text, settings.get().chineseScript, words),
+      wordsOf: (meetingId, first) =>
+        meetingWords(
+          {
+            db,
+            meetingId,
+            userName: settings.get().user.authorName,
+            userWords: settings.get().user.meetingWords,
+            folderName: (folderId) =>
+              library.folders().find((folder) => folder.id === folderId)?.name ?? null,
+            folderDocuments: (folderId) => library.treeDocumentIds(folderId),
+            attendees: (mindId) => calendars.attendeesOf(mindId),
+          },
+          first,
+        ),
+      lineText: (text, words) =>
+        inScript(inToldSpelling(text, words), settings.get().chineseScript, words),
+      lineWords: (text, heard, words) =>
+        wordsInToldSpelling(text, heard, words).map((word) =>
+          inScript(word, settings.get().chineseScript, words),
+        ),
       purgedPaths: () =>
         db
           .all<{ path: string }>(
@@ -5102,6 +5113,11 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  noteReadAgain = (mindId) => {
+    if (!transcripts || lifetime.signal.aborted) return;
+    const meeting = meetings.liveOf(mindId);
+    if (meeting) transcripts.noteRead(meeting.id);
+  };
   // Calendars (#190): Meetings coming up, and a Note started for one.
   const googleCalendarSecret = adapters.calendarServices?.google?.clientSecret;
   if (googleCalendarSecret) rememberSecret(googleCalendarSecret);
@@ -5811,6 +5827,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
       renameJoinedTranscripts(mind);
+      // A Meeting being recorded takes its words from the title too (#1031).
+      noteReadAgain?.(mind.id);
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),
