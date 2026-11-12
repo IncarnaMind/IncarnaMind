@@ -297,6 +297,28 @@ If every bar holds, this wording goes to the held-out round. If any fails, the t
 
 The estimate is about $0.14 on Claude Haiku 5.5 and about $0.18 on DeepSeek V4.1 Flash outside its night discount, with the 40 runs under $0.01: about $0.33. Spend before it: about $0.63 of the $6.
 
+## The bounded try's result (2026-11-12, head `ac112918d`)
+
+Every bar holds, so this wording goes to the held-out round. Only development probes ran. A scripted model hashed every request before and after the change: only the new question's instructions differ (123 hashes); every claims request, and the data of every request of the new question, is the same.
+
+| Bar | Claude Haiku 5.5 | DeepSeek V4.1 Flash | Holds |
+|---|---|---|---|
+| 1a. `document-revised-zh` and the two new honest probes left alone by the new question | 60 of 60 | 60 of 60 | yes |
+| 1b. Every probe the new question left alone in step 0 still is | all 36 | all 36 | yes |
+| 1c. Each unmade dev probe caught in at least 18 of 20 | 16 of 16; 320 of 320 checks | 16 of 16; 319 of 320 (`card-unmade-zh` 19 of 20) | yes |
+| 2. `card-unmade-zh` caught at least 36 of 40, in a batch of its own | — | 40 of 40 | yes |
+| 3. The new question's output within 5 tokens a request of the third round's | 17.4 (was 17.4) | 10.0 (was 10.0) | yes |
+
+What the kept words show:
+
+- In the 40-run batch, all 40 of `card-unmade-zh`'s runs read yes/done.
+- In the development batch, 19 read yes/done and one yes/not_done.
+- No check was marked failed.
+
+The claims check's flags, whose request is main's, match the third round's.
+
+Requests: 1,861 on each model's development set and 81 in the 40 runs, none refused, failed or timed out. Before the Claude run, the second direct Anthropic key had 3,999 of 4,000 requests a minute left. Spend: $0.136 on Claude Haiku 5.5, about $0.15 to $0.18 on DeepSeek V4.1 Flash outside its night discount, and under $0.01 for the 40 runs. That is about $0.33 for the try and about $0.95 of the $6 in all.
+
 ## Before the held-out round: one held-out probe added by the lead reader (2026-11-12)
 
 Written and committed after the bounded try ended and before any held-out request, as the reviewer asked. The lane that tuned the question didn't see it.
