@@ -52,6 +52,7 @@ export const SET_IDS = [
   "call-help-checks",
   "call-help-marks",
   "call-help-marks-3",
+  "call-help-earlier-calls",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -110,6 +111,20 @@ export interface ArmRun {
   text: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
+  /**
+   * What a reply of the earlier-call set showed, place by place (#3005), so a judge's reading can
+   * be checked against the record: each line or sentence with a Citation, the number it shows, the
+   * source line the panel shows for it, whose call its Transcript is, its quote and whether it was
+   * found.
+   */
+  places?: {
+    line: string;
+    number: number;
+    source: string;
+    call: "this" | "earlier" | "other";
+    quote: string;
+    found: boolean;
+  }[];
   /**
    * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
    * quote was found and whose sentence the judge says their quoted words hold (`held`): how many

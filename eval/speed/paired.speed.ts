@@ -19,6 +19,7 @@ import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
+import { earlierCallsSet } from "./earlierCalls";
 import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
@@ -87,6 +88,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-marks":
     case "call-help-marks-3":
       return callHelpSet(set);
+    case "call-help-earlier-calls":
+      return earlierCallsSet();
     case "meeting-notes":
       return meetingNotesSet();
   }
@@ -204,6 +207,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       helpFormJudged: switches[which].helpFormJudged,
       quotesAsGiven: switches[which].quotesAsGiven,
       helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
+      callsUnmarked: switches[which].callsUnmarked,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
