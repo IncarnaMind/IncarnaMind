@@ -171,8 +171,10 @@ describe.each([
   );
 });
 
-// The editor's sync is y-tiptap's, patched (patches/@tiptap+y-tiptap+3.0.9.patch): an upgrade or a
-// lost patch that sets every run's marks again fails here.
+// The editor's sync is y-tiptap's, patched at install by patches/y-tiptap.mjs: an upgrade or a lost
+// patch that sets every run's marks again fails here.
+const unpatched =
+  "y-tiptap isn't patched for #2988: run npm ci, which runs patches/y-tiptap.mjs at install.";
 test("the editor's sync formats only the runs whose marks changed", () => {
   const { first, second, gap } = english;
   const doc = new Y.Doc();
@@ -191,7 +193,9 @@ test("the editor's sync formats only the runs whose marks changed", () => {
   const typing = initProseMirrorDoc(blocks, schema);
   const typed = EditorState.create({ schema, doc: typing.doc }).tr.insertText("about ", 13);
   updateYFragment(doc, blocks, typed.doc, typing.meta);
-  expect(written.mock.calls.at(-1)?.[0]).toEqual([{ retain: start + second.length + 6 }]);
+  expect(written.mock.calls.at(-1)?.[0], unpatched).toEqual([
+    { retain: start + second.length + 6 },
+  ]);
 
   const keeping = initProseMirrorDoc(blocks, schema);
   const type = schema.marks[CLAIM_CHECK_MARK];
@@ -209,6 +213,7 @@ test("the editor's sync formats only the runs whose marks changed", () => {
       op.retain,
       op.attributes !== undefined,
     ]),
+    unpatched,
   ).toEqual([
     [start + 6, false],
     [second.length, true],

@@ -701,6 +701,42 @@ describe("a keep in a paragraph leaves a newer result on another sentence of it 
   );
 });
 
+// Not #2988's fix: a sentence's check travels as one value, so a keep and a result landing on the
+// same sentence at once end as one of them whole, never a mix, and Yjs's order of the two writers
+// decides which.
+test.each([
+  ["before", 1, ["contradicted", "contradicted"]],
+  ["after", 3, ["contradicted", "kept"]],
+])(
+  "a keep and a result on the same sentence at once end as one of them whole, the keep ordered %s",
+  (_, copyId, ends) => {
+    const { doc, blocks, read } = setup();
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    cleanup.push(() => copy.destroy());
+    copy.clientID = copyId;
+    doc.clientID = 2;
+    const schedule = read();
+    const row = schedule.rows[1];
+    if (!row) throw new Error("No figure");
+    const landing = markedSentences(blocks)[0];
+    if (!landing) throw new Error("No check");
+    markSentence(landing.element, landing.from, landing.to, {
+      ...landing.check,
+      state: "contradicted",
+      figures: landing.check.figures?.map((figure) => ({ ...figure, state: "contradicted" })),
+    });
+    editNote("a note behind the schedule", copy, (note) =>
+      keepFigureViews(note, schedule, [row.id]),
+    );
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy));
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    expect(shown(doc)).toEqual(ends);
+    expect(shown(copy)).toEqual(ends);
+  },
+);
+const shown = (doc: Y.Doc) => scheduleOf(doc).rows.map((row) => row.shown.state);
+
 const sourceInput = (chars: string, value: number) => ({
   name: "revenue",
   label: "Revenue",
